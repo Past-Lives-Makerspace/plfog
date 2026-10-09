@@ -115,6 +115,29 @@ def describe_the_equipment_orientation_tab():
         expect(page.get_by_text("Enter a price between $0 and $500.")).to_be_visible()
         expect(page.locator("#id_otypes-0-price")).to_be_visible()
 
+    def it_opens_a_collapsed_row_the_browser_finds_invalid_on_save(live_server, page, login_via_code):
+        page.set_viewport_size({"width": 1280, "height": 900})
+        _sign_in_as_admin(login_via_code)
+        equipment = EquipmentFactory(name="Drill press")
+        drill = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Drill Basics", price_cents=1000)
+        page.goto(f"{live_server.url}{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")
+        page.wait_for_function(ROWS_READY)
+
+        price = page.locator("#id_otypes-0-price")
+        page.get_by_role("button", name="Edit Drill Basics").click()
+        price.fill("15.555")
+        page.get_by_role("button", name="Done editing Drill Basics").click()
+        expect(price).to_be_hidden()
+        page.locator("#equip-otype-rows").locator("..").get_by_role("button", name="Save", exact=True).click()
+
+        # The browser blocks the post on the step; the row opens so its message has somewhere to show.
+        expect(price).to_be_visible()
+        expect(price).to_be_focused()
+        assert price.evaluate("(el) => el.validity.stepMismatch")
+        expect(page.get_by_role("button", name="Done editing Drill Basics")).to_be_visible()
+        drill.refresh_from_db()
+        assert drill.price_cents == 1000
+
 
 def describe_the_guild_orientations_page():
     def it_lists_collapsed_rows_expands_one_and_links_its_add_to_the_add_page(live_server, page, login_via_code):
@@ -163,6 +186,24 @@ def describe_the_guild_orientations_page():
         assert OrientationType.objects.filter(guild=guild, name="Spoon Carving").exists()
         expect(page.get_by_role("button", name="Done editing Spoon Carving")).to_be_visible()
         expect(page.locator("#id_otypes-0-name")).to_be_hidden()
+
+    def it_reopens_a_row_whose_typed_price_has_too_many_decimals(live_server, page, login_via_code):
+        # The autosave posts with fetch, so the browser never blocks it; the server refuses and the row opens.
+        page.set_viewport_size({"width": 1280, "height": 900})
+        _sign_in_as_admin(login_via_code)
+        guild = GuildFactory(name="Glass Guild")
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        OrientationTypeFactory(guild=guild, name="Torch Basics")
+        page.goto(f"{live_server.url}{reverse('hub_guild_orientations', args=[guild.pk])}")
+        page.wait_for_function(AUTOSAVE_READY)
+        page.wait_for_function(ROWS_READY)
+
+        page.get_by_role("button", name="Edit Torch Basics").click()
+        page.locator("#id_otypes-0-price").fill("15.555")
+        page.get_by_role("button", name="Done editing Torch Basics").click()
+        expect(page.locator("#id_otypes-0-price")).to_be_visible()
+        expect(page.locator("#otypes-form [data-otype-row] .pl-field-error").first).to_be_visible()
+        expect(page.get_by_role("button", name="Done editing Torch Basics")).to_be_visible()
 
     def it_reopens_a_row_whose_autosave_was_refused(live_server, page, login_via_code):
         page.set_viewport_size({"width": 1280, "height": 900})

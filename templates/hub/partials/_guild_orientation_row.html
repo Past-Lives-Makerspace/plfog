@@ -5,10 +5,12 @@ autosaving otypes formset (static/js/guild_autosave.js): [data-formset-row], wit
 Remove as [data-formset-remove]. Parameters:
   t    — required, one OrientationTypeForm of OrientationTypeFormSet (or its empty_form)
   open — True starts the row expanded (a new row, or one the server refused)
-The fields stay in the DOM while collapsed (x-show), so every autosave posts every row; an
+A field the browser finds invalid (a price past two decimals) opens its collapsed row and
+reports there, or Save would fail with nothing on screen. The fields stay in the DOM while
+collapsed (x-show), so every autosave posts every row; an
 autosave error placed inside the row opens it (pl-autosave-error).
 {% endcomment %}
-<div class="hub-card pl-otype-row" x-data="plOrientationRow({{ open|yesno:'true,false' }})" @input="refresh()" @change="refresh()" @pl-autosave-error="editing = true" data-formset-row data-otype-row>
+<div class="hub-card pl-otype-row" x-data="plOrientationRow({{ open|yesno:'true,false' }})" @input="refresh()" @change="refresh()" @invalid.capture="editing || (editing = true, $nextTick(() => $event.target.reportValidity()))" @pl-autosave-error="editing = true" data-formset-row data-otype-row>
   {% include "hub/partials/_orientation_row_summary.html" with type_form=t open=open %}
   <div class="pl-otype-row__body" x-show="editing"{% if not open %} x-cloak{% endif %} data-otype-body>
     {% for error in t.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}

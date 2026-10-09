@@ -3,9 +3,11 @@ One orientation on the equipment Orientation tab (#732), collapsed to its summar
 Edit button; the clone source for "Add New Orientation +" renders it too. Parameters:
   row  — required, one OrientationTypeForm of EquipmentOrientationTypeFormSet (or its empty_form)
   open — True starts the row expanded (a new row, or one with errors after a failed save)
-The fields stay in the DOM while collapsed (x-show), so Save posts every row.
+A field the browser finds invalid (a price past two decimals) opens its collapsed row and
+reports there, or Save would fail with nothing on screen. The fields stay in the DOM while
+collapsed (x-show), so Save posts every row.
 {% endcomment %}
-<div class="hub-card pl-otype-row" x-data="plOrientationRow({{ open|yesno:'true,false' }})" @input="refresh()" @change="refresh()" data-otype-row>
+<div class="hub-card pl-otype-row" x-data="plOrientationRow({{ open|yesno:'true,false' }})" @input="refresh()" @change="refresh()" @invalid.capture="editing || (editing = true, $nextTick(() => $event.target.reportValidity()))" data-otype-row>
   {% include "hub/partials/_orientation_row_summary.html" with type_form=row open=open %}
   <div class="pl-otype-row__body" x-show="editing"{% if not open %} x-cloak{% endif %} data-otype-body>
     {{ row.id }}

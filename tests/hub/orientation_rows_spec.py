@@ -105,6 +105,12 @@ def describe_the_summary_line():
         assert form.summary_name == "Welding"
         assert form.summary_meta == "Free · Inactive"
 
+    def it_reads_a_price_that_is_not_a_number_as_free():
+        for typed in ("NaN", "Infinity", "-Infinity", "sNaN"):
+            assert OrientationTypeForm(data={"duration_minutes": "60", "price": typed}).summary_meta == (
+                "60 min · Free · Inactive"
+            ), typed
+
     def it_calls_a_blank_row_a_new_orientation():
         assert OrientationTypeForm(data={"name": ""}).summary_name == "New orientation"
 
@@ -138,12 +144,14 @@ def describe_the_guild_orientations_page():
         head = content.split('class="pl-otype-card__head" data-card-head>', 1)[1].split("</div>", 1)[0]
         assert ">Orientations</h2>" in head
         add_page = reverse("hub_orientation_add")
-        assert f'<a href="{add_page}?guild={guild.pk}"' in head
+        # The same button style as the equipment card's add.
+        assert f'<a href="{add_page}?guild={guild.pk}" class="hub-btn hub-btn--sm" data-add-orientation-type>' in head
         assert ">Add New Orientation +</a>" in head
         assert "No orientations yet." in content
-        # The page body, up to its leave confirm; the changelog drawer's old release notes stay as written.
-        body = content.split("data-guild-orientations", 1)[1].split("leave-while-saving", 1)[0]
-        assert "orientation type" not in body.lower()
+        # The Orientations card and its Booking hint; What's New and old release notes quote the old name.
+        card = content.split('id="otypes-form"', 1)[1].split("</form>", 1)[0]
+        assert "orientation type" not in card.lower()
+        assert "set per orientation in the Orientations card below" in content
 
     def it_adds_a_row_in_place_on_a_hidden_guild(client: Client):
         _admin(client, "orows_hidden")
@@ -178,6 +186,7 @@ def describe_the_equipment_orientation_tab():
         head = content.split('class="pl-otype-card__head" data-card-head>', 1)[1].split("</div>", 1)[0]
         assert ">Orientations</h2>" in head
         assert ">Add New Orientation +</button>" in head
+        assert '<button type="button" class="hub-btn hub-btn--sm" data-otype-add' in head
         template = content.split('<template id="equip-otype-empty-template">', 1)[1].split("</template>", 1)[0]
         assert _expanded(template)
 
@@ -196,3 +205,27 @@ def describe_the_equipment_orientation_tab():
         assert ">Laser Basics Two</span>" in rows[0]
         laser.refresh_from_db()
         assert laser.name == "Laser Basics"
+
+    def it_rerenders_a_row_whose_price_is_not_a_number(client: Client):
+        _admin(client, "orows_nan")
+        equipment = EquipmentFactory()
+        laser = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Laser Basics")
+        url = reverse("hub_equipment_orientation_types_save", args=[equipment.slug])
+        response = client.post(url, _types_post(laser, price="NaN"))
+        assert response.status_code == 200
+        rows = _rows(response.content.decode())
+        assert _expanded(rows[0])
+        assert ">60 min · Free</span>" in rows[0]
+
+
+def describe_the_guild_save_without_autosave():
+    def it_rerenders_a_row_whose_price_is_not_a_number(client: Client):
+        _admin(client, "orows_guild_nan")
+        guild = GuildFactory()
+        lathe = OrientationTypeFactory(guild=guild, name="Lathe")
+        url = reverse("hub_guild_orientation_types_save", args=[guild.pk])
+        response = client.post(url, _types_post(lathe, price="NaN"))
+        assert response.status_code == 200
+        rows = _rows(response.content.decode())
+        assert _expanded(rows[0])
+        assert ">Lathe</span>" in rows[0]

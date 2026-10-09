@@ -2623,9 +2623,11 @@ class OrientationTypeForm(forms.ModelForm):
             parts.append("Donation based")
         else:
             try:
-                cents = int(Decimal(str(self["price"].value() or "0").strip() or "0") * 100)
+                typed = Decimal(str(self["price"].value() or "0").strip() or "0")
             except ArithmeticError:
-                cents = 0
+                typed = Decimal(0)
+            # "NaN" and "Infinity" parse but cannot become cents; a refused row still re-renders.
+            cents = int(typed * 100) if typed.is_finite() else 0
             parts.append(OrientationType.dollars(cents) if cents > 0 else "Free")
         if not self["is_active"].value():
             parts.append("Inactive")

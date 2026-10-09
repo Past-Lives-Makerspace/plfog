@@ -42,9 +42,9 @@
       <h2 class="hub-detail-label pl-otype-card__title">Orientations</h2>
       {# The page's one add (#680, #732): the Add an Orientation page with this guild chosen; a hidden guild that page does not offer adds a row here. #}
       {% if add_page_offers_guild %}
-      <a href="{% url 'hub_orientation_add' %}?guild={{ guild.pk }}" class="hub-btn hub-btn--sm hub-btn--primary" data-add-orientation-type>Add New Orientation +</a>
+      <a href="{% url 'hub_orientation_add' %}?guild={{ guild.pk }}" class="hub-btn hub-btn--sm" data-add-orientation-type>Add New Orientation +</a>
       {% else %}
-      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-formset-add data-add-orientation-type>Add New Orientation +</button>
+      <button type="button" class="hub-btn hub-btn--sm" data-formset-add data-add-orientation-type>Add New Orientation +</button>
       {% endif %}
     </div>
     <p class="hub-text-muted pl-otype-card__intro">The orientations your guild offers, e.g. Shop Basics, Lathe, CNC. Each has its own length, price, seats, and location. Members book each one separately; completing any one counts as oriented for the guild. Set a price and members pay by card when they book, or make it donation based and members choose the amount; declines and cancellations refund automatically.</p>

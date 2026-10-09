@@ -117,7 +117,12 @@ def describe_orientation_tab_rendering():
         assert "Orientation Schedule" in content
         assert "No hours published" in content
         assert ">Add New Orientation +</button>" in content
-        assert "Orientation Type" not in content
+        # The card itself; What's New elsewhere on the page quotes the old name on purpose.
+        card = content.split('class="pl-otype-card__head"', 1)[1].split(
+            '<template id="equip-otype-empty-template">', 1
+        )[0]
+        assert ">Orientations</h2>" in card
+        assert "orientation type" not in card.lower()
         assert "+ Add a Time" in content
         assert "{ showAdd: false }" in content
         # The 1.35.0 window editor and day chips are gone for good (the Hours tab's own
