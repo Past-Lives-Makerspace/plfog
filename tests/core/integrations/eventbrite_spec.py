@@ -756,6 +756,7 @@ def describe_the_address_and_faq_rules():
             ("Learn at pastlives.academy", "Learn at"),
             ("Bring gloves, e.g. leather, i.e. thick ones", "Bring gloves, e.g. leather, i.e. thick ones"),
             ("Doors at 12.30, $5.00 for clay, 2.5 lbs", "Doors at 12.30, $5.00 for clay, 2.5 lbs"),
+            ("Glass by aidu.glass and pastlives.space", "Glass by and"),
         ],
     )
     def it_drops_any_bare_host_and_keeps_abbreviations_times_and_prices(typed: str, sent: str):
@@ -773,3 +774,30 @@ def describe_the_address_and_faq_rules():
         faq = ClassFaqFactory(class_offering=offering, question=question, answer="You lose the seat.")
 
         assert _sendable_faqs([faq]) == []
+
+
+def describe_text_that_is_not_an_address():
+    @pytest.mark.parametrize(
+        "typed",
+        [
+            "glass.Bring",
+            "Fire it.Then glaze.It",
+            "St.Johns",
+            "Mr.Smith",
+            "e.g.leather",
+            "Fri.Sat.Sun",
+            "pattern.pdf",
+            "Node.js",
+            "Oregon.Business",
+            "max.Class",
+            "approx.5",
+            "14+.Participants",
+            "U.S.A.",
+        ],
+    )
+    def it_keeps_text_with_a_missing_space_that_is_not_an_address(typed: str):
+        """#720 review round 2: 84 spots in 31 production descriptions read like this and must survive."""
+        from core.integrations.eventbrite import _listing_html, _listing_text
+
+        assert _listing_text(f"Before {typed} after") == f"Before {typed} after"
+        assert _listing_html(f"<p>Before {typed} after</p>") == f"<p>Before {typed} after</p>"

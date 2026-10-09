@@ -37,7 +37,7 @@ from django.utils.html import escape, strip_tags
 
 from classes.eventbrite_categories import CLASS_FORMAT_ID
 from core.html_sanitize import AllowlistCleaner
-from core.linkify import linkify
+from core.linkify import _TLDS as _LINKIFY_TLDS
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -73,15 +73,19 @@ _LISTING_CLEANER = AllowlistCleaner(
 )
 _TEXT_CLEANER = AllowlistCleaner((), {})
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-# An address with a scheme or ``www.``, or a bare host on any TLD: dotted labels ending in 2 to
-# 24 letters, then an optional path. A one letter ending ("e.g.", "i.e.") or a digit one ("12.30",
-# "$5.00") is not a host. Emails go first, so no host here is an email's tail.
-_ADDRESS_RE = re.compile(
-    r"\b(?:[a-z][a-z0-9+.-]*://|www\.)[^\s<]+"
-    r"|(?<![\w@.-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,24}\b(?:/[^\s<]*)?",
-    re.IGNORECASE,
+# An address with a scheme or ``www.``, any case.
+_SCHEME_ADDRESS_RE = re.compile(r"\b(?:[a-z][a-z0-9+.-]*://|www\.)[^\s<]+", re.IGNORECASE)
+# A bare host: all lowercase dotted labels and a lowercase TLD, then an optional path. It counts
+# only when the TLD is a known one or a "/" path follows, so a missing space ("glass.Bring",
+# "Mr.Smith", "Node.js", "pattern.pdf", "e.g.leather") is text, not an address. Emails go
+# first, so no host here is an email's tail.
+_BARE_HOST_RE = re.compile(r"(?<![\w@.-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+([a-z]{2,24})\b(/[^\s<]*)?")
+# core.linkify's TLDs (bleach's list) plus the newer ones a makerspace or an artist would use.
+_HOST_TLDS = _LINKIFY_TLDS | frozenset(
+    """space events gallery academy art studio studios glass shop store coffee design works xyz app
+    dev io co me info biz us online site website club community center school education guru tools
+    supply market live world life today fun page link blog music photo photography""".split()
 )
-_LINKED_RE = re.compile(r"<a\b[^>]*>.*?</a>", re.DOTALL)
 # A FAQ about cancelling, refunds or no-shows tells buyers how to get money back off Eventbrite.
 _OFF_PLATFORM_FAQ_RE = re.compile(r"\b(?:cancel\w*|refund\w*|no[\s\-\u2013\u2014]?shows?)\b", re.IGNORECASE)
 # Statuses that show the event was published, by plfog or anyone: plfog never publishes it again (#720).
@@ -283,8 +287,13 @@ def _when(moment: datetime) -> dict[str, str]:
 
 def _without_addresses(clean_html: str) -> str:
     """``nh3`` output with every email address and web address dropped, text and all."""
-    text = _ADDRESS_RE.sub("", _EMAIL_RE.sub("", clean_html))
-    return _LINKED_RE.sub("", linkify(text, lambda attrs: attrs))
+    text = _SCHEME_ADDRESS_RE.sub("", _EMAIL_RE.sub("", clean_html))
+    return _BARE_HOST_RE.sub(_drop_host, text)
+
+
+def _drop_host(match: re.Match[str]) -> str:
+    """A bare host goes when its TLD is known or a path follows it; anything else was text."""
+    return "" if match.group(1) in _HOST_TLDS or match.group(2) else match.group(0)
 
 
 def _listing_html(html: str) -> str:
