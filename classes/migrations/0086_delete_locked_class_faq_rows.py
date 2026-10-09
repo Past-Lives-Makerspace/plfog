@@ -87,7 +87,7 @@ def restore_locked_faq_rows(apps: Any, schema_editor: Any) -> None:
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("classes", "0084_classoffering_eventbrite_category"),
+        ("classes", "0085_classoffering_eventbrite_published"),
     ]
 
     operations = [

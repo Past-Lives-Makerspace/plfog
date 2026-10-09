@@ -1444,6 +1444,14 @@ class ClassOffering(HeroCropMixin, models.Model):
     eventbrite_synced_at = models.DateTimeField(
         null=True, blank=True, help_text="When the Eventbrite listing last synced."
     )
+    # plfog publishes an Eventbrite event at most once per listing (#720): a published event that
+    # reads draft again was taken down outside plfog, and a sync never republishes it.
+    eventbrite_published = models.BooleanField(
+        default=False,
+        db_default=False,
+        verbose_name="Published on Eventbrite by plfog",
+        help_text="plfog has published this class's Eventbrite event. A draft after that was taken down outside plfog and is never republished.",
+    )
 
     objects = ClassOfferingQuerySet.as_manager()
 
@@ -2263,6 +2271,7 @@ class ClassOffering(HeroCropMixin, models.Model):
                 "eventbrite_sync_state",
                 "eventbrite_sync_error",
                 "eventbrite_synced_at",
+                "eventbrite_published",
                 "updated_at",
             ]
         )

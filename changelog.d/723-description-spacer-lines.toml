@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-09"
+title = "Class descriptions lose their extra blank lines"
+changes = [
+  "A blank line typed between paragraphs in a class description no longer shows as a big double gap on the class page.",
+  "The same goes for orientation info pages and the emails written in the same editor, like class welcome and reminder emails.",
+]

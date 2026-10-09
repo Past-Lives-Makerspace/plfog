@@ -21,7 +21,7 @@ from django.utils.dateparse import parse_datetime
 from django.utils.html import strip_tags
 from django.utils.text import slugify
 
-from core.html_sanitize import sanitize_rich_html
+from core.html_sanitize import SPACER_PARAGRAPH_RE, sanitize_rich_html
 
 if TYPE_CHECKING:
     from classes.models import Category
@@ -50,8 +50,6 @@ _WITH_NAME_RE = re.compile(r"\bwith\s+(\w+)", re.IGNORECASE)
 # Drupal's editor offers every heading level; ours stops at h3, and a stripped heading would run
 # into the paragraph after it, so the others fold into h3.
 _OTHER_HEADING_RE = re.compile(r"<(/?)h[1456]\b", re.IGNORECASE)
-# The blank spacer paragraphs Drupal's editor leaves between blocks (``<p>&nbsp;</p>``).
-_SPACER_P_RE = re.compile(r"<p(?:\s[^>]*)?>(?:\s|&nbsp;|<br\s*/?>)*</p>", re.IGNORECASE)
 
 
 def _fetch_json(url: str) -> dict[str, Any]:
@@ -89,7 +87,7 @@ def _legacy_body_html(raw: str) -> str:
     Sanitized to the editor's allowlist so the page renders it like a description written here,
     with Drupal's other heading levels folded into ``h3`` and its blank spacer paragraphs dropped.
     """
-    return sanitize_rich_html(_SPACER_P_RE.sub("", _OTHER_HEADING_RE.sub(r"<\1h3", raw)))
+    return sanitize_rich_html(SPACER_PARAGRAPH_RE.sub("", _OTHER_HEADING_RE.sub(r"<\1h3", raw)))
 
 
 def _html_to_text(raw: str) -> str:

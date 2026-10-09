@@ -1,7 +1,7 @@
-"""Data-migration spec for classes 0085: rows asking a locked FAQ question are deleted, and back.
+"""Data-migration spec for classes 0086: rows asking a locked FAQ question are deleted, and back.
 
 Uses Django's ``MigrationExecutor`` (the pattern of remove_member_discount_spec). Rows are built
-with the factories at head; stepping back to 0084 runs the reverse (the locked rows return at
+with the factories at head; stepping back to 0085 runs the reverse (the locked rows return at
 the top of every class with rows) and stepping forward runs the deletion. Each test restores
 the schema to head in a ``finally`` so the rest of the suite sees the current DB.
 """
@@ -19,8 +19,8 @@ from classes.factories import ClassFaqFactory, ClassOfferingFactory
 from classes.models import LOCKED_CLASS_FAQS, ClassFaq, ClassOffering, _faq_key
 
 _APP = "classes"
-_BEFORE = "0084_classoffering_eventbrite_category"
-_AFTER = "0085_delete_locked_class_faq_rows"
+_BEFORE = "0085_classoffering_eventbrite_published"
+_AFTER = "0086_delete_locked_class_faq_rows"
 _HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 _migration = import_module(f"classes.migrations.{_AFTER}")
@@ -68,7 +68,7 @@ def describe_the_frozen_copy():
 
 
 @pytest.mark.django_db(transaction=True)
-def describe_migration_0085_delete_locked_class_faq_rows():
+def describe_migration_0086_delete_locked_class_faq_rows():
     def it_deletes_every_lookalike_of_a_locked_question_and_keeps_the_rest():
         try:
             offering = ClassOfferingFactory()

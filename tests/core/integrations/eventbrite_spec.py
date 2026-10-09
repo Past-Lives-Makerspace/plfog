@@ -15,7 +15,7 @@ import respx
 
 from classes.factories import ClassFaqFactory, ClassOfferingFactory
 from classes.models import LOCKED_CLASS_FAQS, ClassOffering
-from core.integrations.eventbrite import API_BASE, EventbriteClient, EventbriteError, estimate_fee_cents
+from core.integrations.eventbrite import API_BASE, EventbriteClient, EventbriteError, _listing_text, estimate_fee_cents
 from core.models import SiteConfiguration
 
 pytestmark = pytest.mark.django_db
@@ -25,6 +25,7 @@ def _credentials(settings: Any) -> None:
     settings.EVENTBRITE_PRIVATE_TOKEN = "secret"
     settings.EVENTBRITE_ORGANIZATION_ID = "org-1"
     settings.EVENTBRITE_VENUE_ID = "venue-1"
+    settings.EVENTBRITE_ORGANIZER_ID = "organizer-1"
 
 
 def _switch_on() -> None:
@@ -34,7 +35,7 @@ def _switch_on() -> None:
 
 
 def _client() -> EventbriteClient:
-    return EventbriteClient(token="secret", organization_id="org-1", venue_id="venue-1")
+    return EventbriteClient(token="secret", organization_id="org-1", venue_id="venue-1", organizer_id="organizer-1")
 
 
 def describe_from_settings():
@@ -52,7 +53,10 @@ def describe_from_settings():
         assert client.enabled is True
         assert (client.organization_id, client.venue_id) == ("org-1", "venue-1")
 
-    @pytest.mark.parametrize("name", ["EVENTBRITE_PRIVATE_TOKEN", "EVENTBRITE_ORGANIZATION_ID", "EVENTBRITE_VENUE_ID"])
+    @pytest.mark.parametrize(
+        "name",
+        ["EVENTBRITE_PRIVATE_TOKEN", "EVENTBRITE_ORGANIZATION_ID", "EVENTBRITE_VENUE_ID", "EVENTBRITE_ORGANIZER_ID"],
+    )
     def it_is_disabled_when_any_credential_is_blank(settings: Any, name: str):
         _credentials(settings)
         _switch_on()
@@ -271,6 +275,13 @@ def describe_order_and_ticket_reads():
         assert route.called
 
     @respx.mock
+    def it_fetches_an_event():
+        route = respx.get(f"{API_BASE}/events/ev-1/").respond(json={"id": "ev-1", "status": "draft"})
+
+        assert _client().get_event("ev-1")["status"] == "draft"
+        assert route.called
+
+    @respx.mock
     def it_fetches_a_ticket_class():
         route = respx.get(f"{API_BASE}/events/ev-1/ticket_classes/tc-1/").respond(json={"quantity_sold": 3})
 
@@ -308,8 +319,8 @@ def _listing_routes(event_id: str, widgets: list[dict[str, Any]] | None = None) 
     respx.get(f"{API_BASE}/events/{event_id}/structured_content/edit/").respond(json=edit)
     respx.get(f"{API_BASE}/events/{event_id}/ticket_classes/tc-1/").respond(json={"quantity_sold": 0})
     respx.post(f"{API_BASE}/events/{event_id}/ticket_classes/tc-1/").respond(json={})
-    respx.post(f"{API_BASE}/events/{event_id}/publish/").respond(json={})
     return {
+        "publish": respx.post(f"{API_BASE}/events/{event_id}/publish/").respond(json={}),
         "create": respx.post(f"{API_BASE}/organizations/org-1/events/").respond(
             json={"id": event_id, "status": "draft"}
         ),
@@ -403,18 +414,23 @@ def describe_the_listing_eventbrite_receives():
     def _text(route: Any) -> str:
         return _sent(route)["modules"][0]["data"]["body"]["text"]
 
-    # Every class carries the locked questions first (they are plain text, so they go as written).
-    locked = [{"question": faq["question"], "answer": faq["answer"]} for faq in LOCKED_CLASS_FAQS]
+    # Every class carries the locked questions first, minus the cancellation one (#720 keeps
+    # cancelling and refunds off Eventbrite), as listing text: the accessibility answer loses its address.
+    locked = [
+        {"question": faq["question"], "answer": _listing_text(faq["answer"])}
+        for faq in LOCKED_CLASS_FAQS
+        if "cancel" not in faq["question"].lower()
+    ]
 
     @respx.mock
-    def it_writes_the_faq_as_one_faqs_widget_in_order_as_plain_text():
+    def it_writes_the_faq_as_one_faqs_widget_in_order_as_plain_text_without_addresses():
         routes = _listing_routes("ev-1")
 
         _with_faq(_live()).sync_eventbrite_listing()
 
         entries = [
             *locked,
-            {"question": "Gloves and boots?", "answer": "Both & more.\nSee https://pastlives.space\n\nAsk us."},
+            {"question": "Gloves and boots?", "answer": "Both & more.\nSee\n\nAsk us."},
             {"question": "What if I'm late?", "answer": "Text the shop."},
         ]
         assert _sent(routes["description"])["widgets"] == [
@@ -483,8 +499,8 @@ def describe_the_listing_eventbrite_receives():
         retry = _sent(routes["description"])
         assert "widgets" not in retry
         own = (
-            "<p><strong>&lt;b&gt;Gloves&lt;/b&gt; and boots?</strong></p>"
-            '<p>Both &amp; more.<br>See <a href="https://pastlives.space" rel="nofollow">https://pastlives.space</a></p>'
+            "<p><strong>Gloves and boots?</strong></p>"
+            "<p>Both &amp; more.<br>See</p>"
             "\n\n<p>Ask us.</p>"
             "<p><strong>What if I&#x27;m late?</strong></p><p>Text the shop.</p>"
         )
@@ -492,13 +508,13 @@ def describe_the_listing_eventbrite_receives():
         questions = [
             "<p>Sessions:</p>",
             "<p>Questions:</p>",
-            "<p><strong>What&#x27;s your cancellation policy?</strong></p>",
             "<p><strong>Is the space accessible?</strong></p>",
             own,
-            "Full details and booking",
         ]
         positions = [html.index(part) for part in questions]
         assert positions == sorted(positions)
+        assert html.endswith(own)
+        assert "cancellation" not in html
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
         assert offering.eventbrite_sync_error.startswith(
@@ -568,3 +584,261 @@ def describe_the_listing_eventbrite_receives():
         ]
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
+
+
+def describe_eventbrites_selling_rules():
+    """#720: nothing in the listing sends buyers off Eventbrite, and every event names the organizer."""
+
+    @pytest.fixture(autouse=True)
+    def _integration_on(settings: Any) -> None:
+        _credentials(settings)
+        _switch_on()
+
+    def _live(**kwargs: Any) -> ClassOffering:
+        fields = {"ready": True, "status": ClassOffering.Status.PUBLISHED, "image": "", "gallery": 0}
+        return ClassOfferingFactory(**{**fields, "eventbrite_enabled": True, **kwargs})
+
+    def _text(route: Any) -> str:
+        return json.loads(route.calls.last.request.content)["modules"][0]["data"]["body"]["text"]
+
+    def _assert_no_address(text: str) -> None:
+        for found in ("href", "http", "www.", "@", "pastlives.space", "aidu.glass", "example.org", "<img", "booking"):
+            assert found not in text, (found, text)
+
+    @respx.mock
+    def it_sends_a_link_as_its_text_and_drops_every_address_and_the_booking_line():
+        routes = _listing_routes("ev-1")
+        offering = _live()  # the factory's ready trait writes its own description, so set it after
+        offering.description = (
+            '<p>Glass by <a href="https://www.aidu.glass">Aidu</a>. Mail ab@past-lives.org, or see '
+            "https://pastlives.space, www.aidu.glass, classes.pastlives.space/x and example.org/path.</p>"
+            '<p><img src="https://cdn.example.com/a.jpg"><strong>Bring gloves.</strong></p>'
+        )
+
+        offering.sync_eventbrite_listing()
+
+        text = _text(routes["description"])
+        _assert_no_address(text)
+        assert offering.public_url not in text
+        assert text.startswith("<p>Glass by Aidu. Mail , or see")
+        assert "<strong>Bring gloves.</strong>" in text
+
+    @respx.mock
+    def it_drops_addresses_from_the_summary():
+        routes = _listing_routes("ev-1")
+
+        _live(subtitle="Book at classes.pastlives.space/x or mail a@pastlives.org today").sync_eventbrite_listing()
+
+        assert _sent(routes["create"])["event"]["summary"] == "Book at or mail today"
+
+    @respx.mock
+    def it_falls_back_to_the_title_when_the_subtitle_is_only_an_address():
+        routes = _listing_routes("ev-1")
+
+        _live(title="Intro to Glass", subtitle="https://pastlives.space").sync_eventbrite_listing()
+
+        assert _sent(routes["create"])["event"]["summary"] == "Intro to Glass"
+
+    def _faqs(offering: ClassOffering) -> ClassOffering:
+        rows = [
+            ("What's your cancellation policy?", "Email classes@pastlives.space a week ahead."),
+            ("Can I get my money back?", "Refunds go through the front desk."),
+            ("What if I miss it?", "No-shows lose their seat."),
+            ("Is it ever called off?", "We Cancel for snow."),
+            ("Is there parking?", "Street parking; see pastlives.space/parking."),
+        ]
+        for order, (question, answer) in enumerate(rows):
+            ClassFaqFactory(class_offering=offering, sort_order=order, question=question, answer=answer)
+        return offering
+
+    @respx.mock
+    def it_leaves_cancellation_refund_and_no_show_faqs_out_of_the_faq_widget():
+        routes = _listing_routes("ev-1")
+
+        _faqs(_live()).sync_eventbrite_listing()
+
+        widgets = json.loads(routes["description"].calls.last.request.content)["widgets"]
+        accessible = next(faq for faq in LOCKED_CLASS_FAQS if faq["question"] == "Is the space accessible?")
+        assert [w["data"]["faqs"] for w in widgets] == [
+            [
+                {"question": "Is the space accessible?", "answer": _listing_text(accessible["answer"])},
+                {"question": "Is there parking?", "answer": "Street parking; see"},
+            ]
+        ]
+
+    @respx.mock
+    def it_leaves_them_out_of_the_text_fallback_too():
+        routes = _listing_routes("ev-1")
+        routes["description"].side_effect = [
+            httpx.Response(400, json={"error": "BAD_WIDGET"}),
+            httpx.Response(200, json={}),
+        ]
+
+        _faqs(_live()).sync_eventbrite_listing()
+
+        text = _text(routes["description"])
+        _assert_no_address(text)
+        assert "<p><strong>Is the space accessible?</strong></p>" in text
+        assert "<p><strong>Is there parking?</strong></p><p>Street parking; see</p>" in text
+        for left_out in ("cancellation", "money back", "miss it", "called off"):
+            assert left_out not in text
+
+    @respx.mock
+    def it_creates_and_updates_every_event_under_the_organizer():
+        created = _listing_routes("ev-1")
+        _live().sync_eventbrite_listing()
+        updated = _listing_routes("ev-9")
+        _live(eventbrite_event_id="ev-9", eventbrite_ticket_class_id="tc-1").sync_eventbrite_listing()
+
+        assert _sent(created["create"])["event"]["organizer_id"] == "organizer-1"
+        assert _sent(updated["update"])["event"]["organizer_id"] == "organizer-1"
+
+    def it_counts_a_blank_organizer_as_sync_off(settings: Any):
+        settings.EVENTBRITE_ORGANIZER_ID = ""
+        offering = _live()
+
+        with patch("core.integrations.eventbrite.httpx.request") as request:
+            offering.sync_eventbrite_listing()
+
+        request.assert_not_called()
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.PENDING
+
+
+def describe_an_event_taken_down_on_the_http_layer():
+    """#720 on the real client: what plfog sends once Eventbrite has taken an event it published down."""
+
+    @pytest.fixture(autouse=True)
+    def _integration_on(settings: Any) -> None:
+        _credentials(settings)
+        _switch_on()
+
+    def _listed(**kwargs: Any) -> ClassOffering:
+        fields = {"ready": True, "status": ClassOffering.Status.PUBLISHED, "image": "", "gallery": 0}
+        listed = {"eventbrite_event_id": "ev-9", "eventbrite_ticket_class_id": "tc-1"}
+        return ClassOfferingFactory(**{**fields, "eventbrite_enabled": True, **listed, **kwargs})
+
+    def _answer_update(routes: dict[str, Any], status: str) -> None:
+        routes["update"].return_value = httpx.Response(200, json={"id": "ev-9", "status": status})
+
+    @respx.mock
+    def it_sends_no_publish_when_a_published_event_reads_draft():
+        routes = _listing_routes("ev-9")
+        _answer_update(routes, "draft")
+        offering = _listed(eventbrite_published=True)
+
+        offering.sync_eventbrite_listing()
+
+        assert not routes["publish"].called
+        assert routes["description"].called
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.ENDED
+
+    @respx.mock
+    def it_remembers_a_publish_that_timed_out_once_eventbrite_answers_live():
+        routes = _listing_routes("ev-1")
+        routes["publish"].side_effect = httpx.ReadTimeout("timed out")
+        offering = ClassOfferingFactory(
+            ready=True, status=ClassOffering.Status.PUBLISHED, image="", gallery=0, eventbrite_enabled=True
+        )
+
+        offering.sync_eventbrite_listing()  # created as a draft; the publish lands but times out
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.FAILED
+        assert offering.eventbrite_published is False
+
+        respx.post(f"{API_BASE}/events/ev-1/").respond(json={"id": "ev-1", "status": "live"})
+        offering.sync_eventbrite_listing()  # the retry reads it live
+        offering.refresh_from_db()
+        assert offering.eventbrite_published is True
+        assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
+
+        respx.post(f"{API_BASE}/events/ev-1/").respond(json={"id": "ev-1", "status": "draft"})
+        offering.sync_eventbrite_listing()  # Eventbrite takes it down
+
+        assert routes["publish"].call_count == 1  # the one that timed out; never a second
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_error == "Unpublished on Eventbrite outside plfog; not republished."
+
+    @respx.mock
+    def it_reads_the_event_before_ending_and_unpublishes_one_that_is_live():
+        respx.post(f"{API_BASE}/events/ev-9/ticket_classes/tc-1/").respond(json={})
+        read = respx.get(f"{API_BASE}/events/ev-9/").respond(json={"id": "ev-9", "status": "live"})
+        unpublish = respx.post(f"{API_BASE}/events/ev-9/unpublish/").respond(json={"unpublished": True})
+        offering = _listed(eventbrite_enabled=False, eventbrite_published=True)
+
+        offering.sync_eventbrite_listing()
+
+        assert read.called
+        assert unpublish.called
+        offering.refresh_from_db()
+        assert offering.eventbrite_published is False
+
+    @respx.mock
+    def it_reads_the_event_before_ending_and_leaves_a_taken_down_one_alone():
+        respx.post(f"{API_BASE}/events/ev-9/ticket_classes/tc-1/").respond(json={})
+        read = respx.get(f"{API_BASE}/events/ev-9/").respond(json={"id": "ev-9", "status": "draft"})
+        unpublish = respx.post(f"{API_BASE}/events/ev-9/unpublish/").respond(json={"unpublished": True})
+        offering = _listed(eventbrite_enabled=False, eventbrite_published=True)
+
+        offering.sync_eventbrite_listing()
+
+        assert read.called
+        assert not unpublish.called
+        offering.refresh_from_db()
+        assert offering.eventbrite_published is True
+
+
+def describe_the_address_and_faq_rules():
+    """#720 review: any TLD counts as an address, plain numbers and abbreviations do not."""
+
+    @pytest.mark.parametrize(
+        ("typed", "sent"),
+        [
+            ("See pastlives.events now", "See now"),
+            ("Photos at pastlives.gallery/x today", "Photos at today"),
+            ("Learn at pastlives.academy", "Learn at"),
+            ("Bring gloves, e.g. leather, i.e. thick ones", "Bring gloves, e.g. leather, i.e. thick ones"),
+            ("Doors at 12.30, $5.00 for clay, 2.5 lbs", "Doors at 12.30, $5.00 for clay, 2.5 lbs"),
+            ("Glass by aidu.glass and pastlives.space", "Glass by and"),
+        ],
+    )
+    def it_drops_any_bare_host_and_keeps_abbreviations_times_and_prices(typed: str, sent: str):
+        from core.integrations.eventbrite import _listing_text
+
+        assert _listing_text(typed) == sent
+
+    @pytest.mark.parametrize(
+        "question", ["What about a no\u2013show?", "What about a no\u2014show?", "What about no shows?"]
+    )
+    def it_leaves_out_a_no_show_faq_however_the_dash_is_typed(question: str):
+        from core.integrations.eventbrite import _sendable_faqs
+
+        assert _sendable_faqs([{"question": question, "answer": "You lose the seat."}]) == []
+
+
+def describe_text_that_is_not_an_address():
+    @pytest.mark.parametrize(
+        "typed",
+        [
+            "glass.Bring",
+            "Fire it.Then glaze.It",
+            "St.Johns",
+            "Mr.Smith",
+            "e.g.leather",
+            "Fri.Sat.Sun",
+            "pattern.pdf",
+            "Node.js",
+            "Oregon.Business",
+            "max.Class",
+            "approx.5",
+            "14+.Participants",
+            "U.S.A.",
+        ],
+    )
+    def it_keeps_text_with_a_missing_space_that_is_not_an_address(typed: str):
+        """#720 review round 2: 84 spots in 31 production descriptions read like this and must survive."""
+        from core.integrations.eventbrite import _listing_html, _listing_text
+
+        assert _listing_text(f"Before {typed} after") == f"Before {typed} after"
+        assert _listing_html(f"<p>Before {typed} after</p>") == f"<p>Before {typed} after</p>"

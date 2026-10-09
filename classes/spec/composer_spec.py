@@ -84,6 +84,7 @@ def describe_composer_steps():
         settings.EVENTBRITE_PRIVATE_TOKEN = "token"
         settings.EVENTBRITE_ORGANIZATION_ID = "org"
         settings.EVENTBRITE_VENUE_ID = "venue"
+        settings.EVENTBRITE_ORGANIZER_ID = "organizer-1"
         SiteConfiguration.objects.filter(pk=SiteConfiguration.load().pk).update(eventbrite_sync_enabled=True)
         known = set(ClassOfferingForm().fields)
         for step in COMPOSER_STEPS:
