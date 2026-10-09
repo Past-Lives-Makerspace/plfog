@@ -10,6 +10,9 @@ Parameters (pass via {% include ... with %}):
   field_label_x_text — optional, an Alpine expression the label text follows (x-text) once
                 Alpine runs, for a label that changes with another control; the server
                 label stays as the text until then and for anything without Alpine.
+  field_tooltip — optional, plain text for a ? help bubble beside the label (the .pl-help
+                tooltip, FRONTEND rule 19). It sits next to the label, not inside it, so the
+                bubble's text never becomes part of the field's accessible name.
 {% endcomment %}
 {% if field.field.widget.input_type == "checkbox" %}
     {% if field_hint_off %}
@@ -34,9 +37,17 @@ Parameters (pass via {% include ... with %}):
     </div>
 {% else %}
 <div class="pl-form-group">
+    {% if field_tooltip %}<div class="pl-form-label-row">{% endif %}
     <label for="{{ field.id_for_label }}" class="pl-form-label"{% if field_label_x_text %} x-text="{{ field_label_x_text }}"{% endif %}>
         {{ field_label|default:field.label }}
     </label>
+    {% if field_tooltip %}
+        <span class="pl-help" tabindex="0" aria-label="More info">
+            <span class="pl-help__icon" aria-hidden="true">?</span>
+            <span class="pl-help__bubble" role="tooltip">{{ field_tooltip }}</span>
+        </span>
+    </div>
+    {% endif %}
     {{ field }}
     {% if field.errors %}
     <ul class="pl-field-errors">
