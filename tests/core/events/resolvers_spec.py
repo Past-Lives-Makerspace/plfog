@@ -423,7 +423,10 @@ def describe_equipment_managers_personal_slot_narrowing():
         from tests.membership.factories import EquipmentFactory, OrientationSlotFactory, OrientationTypeFactory
 
         lead = _linked("emn_lead")
-        equipment = EquipmentFactory(guild=GuildFactory(guild_lead=lead))
+        guild = GuildFactory(guild_lead=lead)
+        staffer = _linked("emn_staffer")
+        GuildStaffMembershipFactory(guild=guild, member=staffer, role=GuildStaffMembership.Role.TREASURER)
+        equipment = EquipmentFactory(guild=guild)
         dana = _linked("emn_dana")
         EquipmentStaffMembership.objects.create(equipment=equipment, member=dana)
         other = _linked("emn_other")
@@ -435,9 +438,11 @@ def describe_equipment_managers_personal_slot_narrowing():
         shared = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
 
         narrowed = resolvers.equipment_managers({"equipment": equipment, "slot": personal})
+        # The guild lead only, not the guild's whole leadership: the staffer is left out.
         assert _user_pks(narrowed) == {dana.user_id, lead.user_id}
+        assert staffer.user_id not in _user_pks(narrowed)
         everyone = resolvers.equipment_managers({"equipment": equipment, "slot": shared})
-        assert _user_pks(everyone) == {dana.user_id, other.user_id, lead.user_id}
+        assert _user_pks(everyone) == {dana.user_id, other.user_id, lead.user_id, staffer.user_id}
         assert holder.user_id not in _user_pks(narrowed) | _user_pks(everyone)
 
     def it_narrows_to_the_manager_alone_on_a_standalone_tool():
@@ -491,9 +496,15 @@ def describe_equipment_managers_audience():
         equipment = EquipmentFactory(guild=guild)
         manager = _linked("ema_g_mgr")
         EquipmentStaffMembership.objects.create(equipment=equipment, member=manager)
+        # The lead also manages the tool: resolves once, tagged as a manager.
+        EquipmentStaffMembership.objects.create(equipment=equipment, member=lead)
         _holder("ema_g_holder")
         recipients = resolvers.resolve(Recipients.EQUIPMENT_MANAGERS, {"equipment": equipment})
         assert _user_pks(recipients) == {lead.user_id, staffer.user_id, manager.user_id}
+        assert len(recipients) == 3
+        reasons = {user.pk: reason for user, reason in recipients}
+        assert reasons[lead.user_id] == "equipment_staff"
+        assert reasons[staffer.user_id] == "guild_leadership"
 
     def it_falls_back_to_the_equipment_administrators_for_a_tool_nobody_runs():
         from tests.membership.factories import EquipmentFactory

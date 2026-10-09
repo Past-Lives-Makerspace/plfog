@@ -106,7 +106,7 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.SPACE_APPROVERS: "The Space & Cubby Administrators (holders only).",
     Recipients.EQUIPMENT_MANAGERS: (
         "The equipment's own managers and its guild's leadership. "
-        "The Equipment Administrators only for equipment nobody manages."
+        "Equipment Administrators hear only about equipment nobody manages."
     ),
     Recipients.DISCOUNT_APPROVERS: "The Discount Code Administrators (holders only).",
     Recipients.EVENTS_APPROVERS: "The Calendar Administrators (holders only).",

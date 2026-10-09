@@ -15,6 +15,8 @@ email are dropped (they cannot receive a per-recipient channel).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from typing import TYPE_CHECKING, Any, Protocol
 
 from django.conf import settings
@@ -56,7 +58,7 @@ def _member_user(member: Member, reason: str) -> Recipient | None:
     return (user, reason)
 
 
-def _dedupe(recipients: list[Recipient | None]) -> list[Recipient]:
+def _dedupe(recipients: Sequence[Recipient | None]) -> list[Recipient]:
     """Drop ``None`` entries and de-duplicate by user pk, keeping first reason."""
     out: list[Recipient] = []
     seen: set[int] = set()
@@ -202,8 +204,9 @@ def equipment_managers(context: dict[str, Any]) -> list[Recipient]:
     in context narrows that to the orienter the member booked plus the owning guild's
     lead (mirrors :func:`guild_orienters`). Only when that audience is empty (no staff
     rows and no guild leadership) does it fall back to the EQUIPMENT capability holders
-    (``capability:equipment``), so a request never goes to nobody (#746). Holding the
-    capability alone never puts someone on another manager's equipment. A missing
+    (``capability:equipment``), so a request never goes to nobody (#746). The test is
+    "no reachable recipient": a manager with no login account counts as nobody. Holding
+    the capability alone never puts someone on another manager's equipment. A missing
     ``equipment`` key fails loudly.
     """
     from membership.models import AdminCapability
@@ -221,7 +224,7 @@ def equipment_managers(context: dict[str, Any]) -> list[Recipient]:
         if equipment.guild is not None:
             managers += _members_to_recipients(equipment.guild.leadership_members(), "guild_leadership")
     if managers:
-        return _dedupe([*managers])
+        return _dedupe(managers)
     return _capability_recipients(AdminCapability.Capability.EQUIPMENT)
 
 

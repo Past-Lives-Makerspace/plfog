@@ -2,6 +2,6 @@ bump = "patch"
 date = "2026-10-09"
 title = "Equipment notices reach only the people who run that equipment"
 changes = [
-  "When someone asks for an orientation on a piece of equipment, or reserves it, the email and the bell go to that equipment's managers and its guild's lead and staff. Nobody else hears about it.",
-  "Equipment Administrators are told only about equipment that has no managers and no guild, so a request never goes unanswered.",
+  "When someone asks for an orientation on a piece of equipment, or reserves it, the email and the bell go to that equipment's managers and its guild's lead and staff. Nobody else gets the email or the bell.",
+  "Equipment Administrators are told only about equipment with no managers and no guild leaders, so a request never goes unanswered.",
 ]

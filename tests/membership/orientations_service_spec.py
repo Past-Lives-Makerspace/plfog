@@ -612,7 +612,10 @@ def describe_equipment_owned_orientations_service():
         from tests.membership.factories import EquipmentFactory
 
         lead = _member_with_user("eq_p_lead")
-        equipment = EquipmentFactory(name="CNC Router", guild=GuildFactory(guild_lead=lead))
+        guild = GuildFactory(guild_lead=lead)
+        staffer = _member_with_user("eq_p_staffer")
+        GuildStaffMembershipFactory(guild=guild, member=staffer, role=GuildStaffMembership.Role.TREASURER)
+        equipment = EquipmentFactory(name="CNC Router", guild=guild)
         orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
         dana = _member_with_user("eq_p_dana")
         EquipmentStaffMembership.objects.create(equipment=equipment, member=dana)
@@ -627,14 +630,18 @@ def describe_equipment_owned_orientations_service():
             orientations.request_orientation(slot, requester)
         # One message per recipient: union the whole request fan-out.
         addressed = {addr for m in mail.outbox if "New orientation request" in m.subject for addr in m.to}
-        # #746: the item's other managers and the Equipment Administrators hear nothing.
+        # #746: the item's other managers, the guild's other staff and the Equipment
+        # Administrators hear nothing; the guild lead alone rides along.
         assert addressed == {dana.primary_email, lead.primary_email}
+        assert other_manager.primary_email not in addressed
+        assert staffer.primary_email not in addressed
         # The confirm and decline links credit the manager the member booked.
         confirm_call = next(call for call in spy.call_args_list if call.args[1] == "confirm")
         assert confirm_call.kwargs["recipient"] == dana
         assert Notification.objects.filter(user=dana.user, trigger="orientation_requested").exists()
         assert not Notification.objects.filter(user=other_manager.user, trigger="orientation_requested").exists()
         assert not Notification.objects.filter(user=holder.user, trigger="orientation_requested").exists()
+        assert not Notification.objects.filter(user=staffer.user, trigger="orientation_requested").exists()
 
     def it_dedupes_a_manager_who_is_also_a_holder_and_lead_and_copes_with_a_standalone_tool():
         from membership.models import AdminCapability, EquipmentStaffMembership
