@@ -253,7 +253,7 @@ def describe_the_pages():
 
         html = client.get(reverse("classes:teach_class_create")).content.decode()
 
-        block = html[html.index("pl-eventbrite\" data-eventbrite ") :]
+        block = html[html.index('pl-eventbrite" data-eventbrite ') :]
         component = block[block.index("data-eventbrite-category") :]
         assert "x-data=\"{ ebCategory: '' }\"" in component
         assert _select(component, "eventbrite_category").count("<option") == 22
