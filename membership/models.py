@@ -16525,6 +16525,20 @@ class EquipmentReservation(models.Model):
         return int((self.ends_at - self.starts_at).total_seconds() // 60)
 
     @property
+    def share_payee(self) -> Member | None:
+        """Who this paid reservation's manager share belongs to (#749): fixed once a ``Payout`` exists.
+
+        The payee its ``billing.Payout`` row records once the share was recorded, so a later
+        change of the item's pick (or the picked manager's removal) never moves a share already
+        owed or sent; before that, the item's current pick (``Equipment.payee``), or None.
+        Reconciliation, the payouts job and the Payouts tab all read this one rule.
+        """
+        payout = getattr(self, "payout", None)  # the reverse OneToOne raises an AttributeError subclass when absent
+        if payout is not None:
+            return payout.payee
+        return self.equipment.payee
+
+    @property
     def paid_display(self) -> str:
         """What the member paid, "$25.00", or "" when nothing was paid."""
         return money_display(self.amount_paid_cents) if self.amount_paid_cents else ""

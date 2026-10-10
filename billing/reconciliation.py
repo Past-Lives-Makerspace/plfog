@@ -479,7 +479,7 @@ def _reservation_lines(
         EquipmentReservation.objects.filter(amount_paid_cents__gt=0)
         .exclude(status=EquipmentReservation.Status.PENDING_PAYMENT)
         .filter(created_at__gte=window.start_dt, created_at__lt=window.end_dt)
-        .select_related("equipment__payee", "equipment__guild", "member")
+        .select_related("equipment__payee", "equipment__guild", "member", "payout__payee")
         .prefetch_related("refunds")
     )
     return [_reservation_line(reservation, percents, adjustments) for reservation in reservations]
@@ -491,13 +491,14 @@ def _reservation_line(
     adjustments: dict[AdjustmentKey, TransactionAdjustment],
     refunded_cents: int | None = None,
 ) -> TransactionLine:
-    """One paid reservation's line. ``reservation`` needs its equipment (payee, guild), member and refunds loaded.
+    """One paid reservation's line. ``reservation`` needs its equipment (payee, guild), payout, member and refunds loaded.
 
-    The producer is the item's picked manager (``Equipment.payee``) as it stands now; nobody
-    picked rolls the share to Past Lives with the "manager unset" note.
+    The producer is :attr:`EquipmentReservation.share_payee`: the payee its ``Payout`` recorded,
+    else the item's current pick. Nobody picked rolls the share to Past Lives with the
+    "manager unset" note.
     """
     equipment = reservation.equipment
-    payee = equipment.payee
+    payee = reservation.share_payee
     guild = equipment.guild
     return _member_share_line(
         source_kind="reservation",
@@ -550,9 +551,9 @@ class ShareSource:
         return line.shares[("orientator", booking.oriented_by.id)]
 
     def for_reservation(self, reservation: Any, refunded_cents: int | None = None) -> int:
-        """The picked manager's share of ``reservation`` in cents (#749), collected less refunds so far."""
+        """The share of ``reservation`` (#749) for its ``share_payee``, in cents, collected less refunds so far."""
         line = _reservation_line(reservation, self._reservation_percents, self._adjustments, refunded_cents)
-        payee = reservation.equipment.payee
+        payee = reservation.share_payee
         if line.omitted or payee is None:
             return 0
         return line.shares[("manager", payee.id)]

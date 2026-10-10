@@ -61,7 +61,7 @@ def has_earning(member: Member) -> bool:
     return (
         Registration.objects.filter(class_offering__instructor=member, amount_paid_cents__gt=0).exists()
         or OrientationBooking.objects.filter(oriented_by=member, amount_paid_cents__gt=0).exists()
-        or _reservations().filter(equipment__payee=member).exists()
+        or _reservations().filter(_reservation_payee_is(member)).exists()
     )
 
 
@@ -238,23 +238,28 @@ def _bookings() -> QuerySet[Any]:
 
 
 def _reservations() -> QuerySet[Any]:
-    """Paid, confirmed reservations on an item with a picked manager (#749).
+    """Paid reservations (#749): every row reconciliation lists, so the two never disagree.
 
-    Confirmed only: an unpaid hold has no money, a request awaiting approval may still be
-    declined, and a declined or cancelled one is refunded in full, so none of those earns.
-    ``created_at`` stands in for paid at, as in reconciliation.
+    Only an unpaid hold is left out, like ``_bookings()``. A declined or cancelled row is
+    refunded in full, so its share is 0 and it earns nothing; a request awaiting approval keeps
+    its share, so a snapshot classifies it like reconciliation does. Recording and sending wait
+    for CONFIRMED (``run_payouts``, ``_refresh_amount``). ``created_at`` stands in for paid at.
     """
     from membership.models import EquipmentReservation
 
     return (
-        EquipmentReservation.objects.filter(
-            amount_paid_cents__gt=0,
-            status=EquipmentReservation.Status.CONFIRMED,
-            equipment__payee__isnull=False,
-        )
-        .select_related("equipment__payee", "equipment__guild", "member", "payout")
+        EquipmentReservation.objects.filter(amount_paid_cents__gt=0)
+        .exclude(status=EquipmentReservation.Status.PENDING_PAYMENT)
+        .select_related("equipment__payee", "equipment__guild", "member", "payout__payee")
         .prefetch_related("refunds")
     )
+
+
+def _reservation_payee_is(member: Member) -> Any:
+    """``share_payee`` as a query: the payee a ``Payout`` fixed, else the item's current pick."""
+    from django.db.models import Q
+
+    return Q(payout__payee=member) | Q(payout__isnull=True, equipment__payee=member)
 
 
 def length_words(minutes: int) -> str:
@@ -302,11 +307,14 @@ def _earnings(registrations: Iterable[Any], bookings: Iterable[Any], reservation
             )
         )
     for reservation in reservations:
+        payee = reservation.share_payee
+        if payee is None:  # nobody picked and no share recorded: the whole payment stays with Past Lives
+            continue
         earnings.append(
             Earning(
                 kind="reservation",
                 source=reservation,
-                payee=reservation.equipment.payee,
+                payee=payee,
                 item=reservation.equipment.name,
                 payer=reservation.member.display_name,
                 taught_at=reservation.starts_at,
@@ -358,6 +366,8 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
     Even while off, a PENDING share more than ``PAYOUT_SEND_WINDOW`` past due is given up and
     owed by hand, so nothing waits unsent with nobody told.
     """
+    from membership.models import EquipmentReservation
+
     now = now or timezone.now()
     run = PayoutRun()
     for refund_pk in list(_pending_take_backs().values_list("pk", flat=True)):
@@ -378,18 +388,28 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
         .annotate(due_base=Greatest("slot__starts_at", "requested_at"))
         .filter(**window),
         _reservations()
-        .filter(payout__isnull=True)
+        .filter(payout__isnull=True, status=EquipmentReservation.Status.CONFIRMED)
         .annotate(due_base=Greatest("starts_at", "created_at"))
         .filter(**window),
     )
+    snapshots = list(ReconciliationSnapshot.objects.values_list("period_start", "period_end"))
     accounts = _accounts(due)
     for earning in due:
+        if earning.kind == "reservation" and _in_snapshot(earning.paid_at, snapshots):
+            # A month-end snapshot already closed this payment out with no share recorded (nobody
+            # was picked then, so it went to Past Lives); a pick made since must not pay it again.
+            continue
         if _record(earning, accounts.get(earning.payee.pk), since):
             run.created += 1
-    snapshots = list(ReconciliationSnapshot.objects.values_list("period_start", "period_end"))
     for pk in list(Payout.objects.to_send(now).in_current_mode().values_list("pk", flat=True)):
         _send_one(pk, now, snapshots, run)
     return run
+
+
+def _in_snapshot(when: datetime, snapshots: list[tuple[Any, Any]]) -> bool:
+    """True when ``when``'s local date falls in a snapshotted period: the test ``_send_one`` uses too."""
+    day = timezone.localdate(when)
+    return any(start <= day <= end for start, end in snapshots)
 
 
 #: The ``Payout`` field each earning kind's source row goes in.
@@ -452,8 +472,7 @@ def _send_one(pk: int, now: datetime, snapshots: list[tuple[Any, Any]], run: Pay
         if payout is None:
             return
         if payout.status == Payout.Status.FAILED:
-            paid_on = timezone.localtime(payout.paid_on).date()
-            if any(start <= paid_on <= end for start, end in snapshots):
+            if _in_snapshot(payout.paid_on, snapshots):
                 with contextlib.suppress(*_UNANSWERED):  # no answer from Stripe: try again next run
                     if payout.give_up():
                         run.gave_up += 1
@@ -501,7 +520,21 @@ def _refresh_amount(payout: Payout) -> bool:
     A row frozen by a snapshot can wait weeks for its class, and a retry can follow a refund.
     A replay of an unanswered attempt keeps its amount (same key, same request). Returns
     False, after recording NOTHING_DUE, when nothing is left to send.
+
+    A reservation's share (#749) is sent only once it is CONFIRMED: a request still awaiting
+    approval is held (False, nothing recorded, tried again next run), and a declined or
+    cancelled one is NOTHING_DUE, since nobody used the time.
     """
+    from membership.models import EquipmentReservation
+
+    if payout.reservation_id is not None:
+        status = cast("Any", payout.reservation).status
+        if status == EquipmentReservation.Status.PENDING_APPROVAL:
+            return False
+        if status != EquipmentReservation.Status.CONFIRMED:
+            payout.status = Payout.Status.NOTHING_DUE
+            payout.save(update_fields=["status"])
+            return False
     if payout.registration_id is not None:
         earnings = _earnings(_registrations().filter(pk=payout.registration_id), [])
     elif payout.reservation_id is not None:
@@ -641,7 +674,7 @@ def payee_earnings(member: Member, now: datetime | None = None) -> EarningsList:
     earnings = _earnings(
         _registrations().filter(class_offering__instructor=member, first_session_at__gte=floor),
         _bookings().filter(oriented_by=member, slot__starts_at__gte=floor),
-        _reservations().filter(equipment__payee=member, starts_at__gte=floor),
+        _reservations().filter(_reservation_payee_is(member), starts_at__gte=floor),
     )
     account = PayoutAccount.for_member(member)
     since = _payouts_since()

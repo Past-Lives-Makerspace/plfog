@@ -40,7 +40,7 @@ from billing.refunds import issue_refund
 from classes.factories import RegistrationFactory, UserFactory
 from classes.webhook_handlers import _refundable_source_for_payment_intent, handle_charge_refunded
 from core.models import EventDelivery
-from membership.models import AdminCapability, Equipment, EquipmentReservation, Guild, Member
+from membership.models import AdminCapability, Equipment, EquipmentReservation, EquipmentStaffMembership, Guild, Member
 from tests.billing.factories import LateCancellationFeeFactory, PaymentRefundFactory
 from tests.membership.factories import (
     EquipmentFactory,
@@ -628,20 +628,24 @@ def describe_the_reservation_earning():
         [earning] = payouts._earnings([], [], payouts._reservations())
         assert earning.due_at == reservation.created_at + timedelta(hours=48)
 
-    def it_never_earns_without_a_pick_nor_off_a_confirmed_paid_row():
+    def it_never_earns_without_a_pick_an_unpaid_hold_or_a_refunded_decline_or_cancel():
         payee = _manager()
         equipment = _equipment(payee)
         _paid(_equipment(None, name="Unpicked Lathe"))
-        for status in (
-            EquipmentReservation.Status.DECLINED,
-            EquipmentReservation.Status.CANCELLED,
-            EquipmentReservation.Status.PENDING_APPROVAL,
-            EquipmentReservation.Status.PENDING_PAYMENT,
-        ):
-            _paid(equipment, status=status)
+        _paid(equipment, status=EquipmentReservation.Status.PENDING_PAYMENT)
         _paid(equipment, amount=0, pi="")
+        for status in (EquipmentReservation.Status.DECLINED, EquipmentReservation.Status.CANCELLED):
+            refunded = _paid(equipment, status=status)
+            PaymentRefundFactory(
+                registration=None, reservation=refunded, amount_cents=5000, status=PaymentRefund.Status.SUCCEEDED
+            )
         assert payouts._earnings([], [], payouts._reservations()) == []
-        assert not payouts.has_earning(payee)
+
+    def it_keeps_a_request_awaiting_approval_as_an_earning_like_reconciliation_does():
+        payee = _manager()
+        waiting = _paid(_equipment(payee), status=EquipmentReservation.Status.PENDING_APPROVAL)
+        [earning] = payouts._earnings([], [], payouts._reservations())
+        assert (earning.source, earning.share_cents) == (waiting, 3500)
 
     def it_counts_as_an_earning_for_the_payee_only():
         payee = _manager()
@@ -834,3 +838,204 @@ def describe_taking_the_share_back():
         payouts.settle_refund_share(refund)  # no share to settle: nothing raises, nothing changes
         refund.refresh_from_db()
         assert refund.share_decision == PaymentRefund.ShareDecision.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# Review round 1: a share is recorded once, for the payee it was recorded for
+# ---------------------------------------------------------------------------
+
+
+def _take_snapshot() -> ReconciliationSnapshot:
+    today = timezone.localdate()
+    return ReconciliationSnapshot.take(period_start=today - timedelta(days=40), period_end=today, title="Oct")
+
+
+def _manager_row(snapshot: ReconciliationSnapshot) -> dict[str, Any]:
+    [group] = [group for group in snapshot.results["groups"] if group["kind"] == "manager"]
+    [row] = group["rows"]
+    return row
+
+
+def describe_a_request_awaiting_approval_at_month_end():
+    def it_is_counted_once_held_until_approved_and_sent_once():
+        _turn_on(_now() - timedelta(days=60))
+        payee = _manager()
+        starts = _now() + timedelta(days=2)
+        waiting = _paid(
+            _equipment(payee),
+            amount=10000,
+            starts_at=starts,
+            paid_at=_now() - timedelta(days=1),
+            status=EquipmentReservation.Status.PENDING_APPROVAL,
+        )
+        snapshot = _take_snapshot()
+        row = _manager_row(snapshot)
+        assert (row["total_cents"], row["stripe_cents"]) == (7000, 7000)  # Sent through Stripe, not owed by hand
+        payout = Payout.objects.get(reservation=waiting)
+        assert (payout.status, payout.counted_as_stripe_in) == (Payout.Status.PENDING, snapshot)
+
+        due = starts + timedelta(hours=49)
+        with _Stripe() as fake:
+            payouts.run_payouts(due)  # still undecided: held, nothing recorded
+        payout.refresh_from_db()
+        assert (fake.transfers, payout.status) == ([], Payout.Status.PENDING)
+
+        EquipmentReservation.objects.filter(pk=waiting.pk).update(status=EquipmentReservation.Status.CONFIRMED)
+        with _Stripe() as fake:
+            payouts.run_payouts(due)
+            payouts.run_payouts(due + timedelta(hours=1))
+        assert [t["amount_cents"] for t in fake.transfers] == [7000]
+        assert Payout.objects.filter(reservation=waiting).count() == 1
+        assert Payout.objects.get().status == Payout.Status.SENT
+
+    def it_is_nothing_due_once_declined():
+        _turn_on(_now() - timedelta(days=60))
+        starts = _now() + timedelta(days=2)
+        waiting = _paid(
+            _equipment(_manager()),
+            starts_at=starts,
+            paid_at=_now() - timedelta(days=1),
+            status=EquipmentReservation.Status.PENDING_APPROVAL,
+        )
+        _take_snapshot()
+        EquipmentReservation.objects.filter(pk=waiting.pk).update(status=EquipmentReservation.Status.DECLINED)
+        with _Stripe() as fake:
+            payouts.run_payouts(starts + timedelta(hours=49))
+        assert fake.transfers == []
+        assert Payout.objects.get().status == Payout.Status.NOTHING_DUE
+
+
+def describe_removing_the_manager_a_share_was_recorded_for():
+    def _remove(equipment: Equipment, member: Member) -> None:
+        EquipmentStaffMembership.objects.get(equipment=equipment, member=member).delete()
+
+    def it_still_sends_a_pending_share_to_them():
+        _turn_on()
+        payee = _manager()
+        equipment = _equipment(payee)
+        reservation = _paid(
+            equipment, amount=5000, starts_at=_now() + timedelta(days=1), paid_at=_now() - timedelta(days=1)
+        )
+        payout = Payout.objects.create(
+            reservation=reservation,
+            payee=payee,
+            amount_cents=3500,
+            due_at=_now() + timedelta(days=3),
+            status=Payout.Status.PENDING,
+        )
+        _remove(equipment, payee)
+        equipment.refresh_from_db()
+        assert equipment.payee is None
+        with _Stripe() as fake:
+            payouts.run_payouts(_now() + timedelta(days=4))
+        payout.refresh_from_db()
+        assert payout.status == Payout.Status.SENT
+        assert [(t["amount_cents"], t["destination"]) for t in fake.transfers] == [(3500, f"acct_{payee.pk}")]
+
+    def it_takes_back_their_sent_share_on_a_full_refund(django_capture_on_commit_callbacks):
+        payee = _manager()
+        equipment = _equipment(payee)
+        reservation = _paid(equipment, amount=5000)
+        payout = _sent_payout(reservation)
+        _remove(equipment, payee)
+        reservation.refresh_from_db()
+        with _Stripe() as fake, django_capture_on_commit_callbacks(execute=True):
+            issue_refund(reservation, share_decision=TAKE_BACK)
+        payout.refresh_from_db()
+        assert [r["amount_cents"] for r in fake.reversals] == [3500]
+        assert (payout.status, payout.reversed_cents) == (Payout.Status.TAKEN_BACK, 3500)
+
+    def it_reads_the_refunded_portion_from_the_payee_recorded():
+        payee = _manager()
+        equipment = _equipment(payee)
+        reservation = _paid(equipment, amount=5000)
+        payout = _sent_payout(reservation)
+        _remove(equipment, payee)
+        refund = PaymentRefundFactory(
+            registration=None,
+            reservation=reservation,
+            amount_cents=5000,
+            status=PaymentRefund.Status.SUCCEEDED,
+            share_decision=TAKE_BACK,
+        )
+        assert payouts._refunded_portion(refund, payout) == 3500
+
+
+def describe_a_payment_closed_out_before_anyone_was_picked():
+    def it_is_not_sent_once_someone_is_picked_later():
+        _turn_on(_now() - timedelta(days=60))
+        equipment = _equipment(None)
+        _paid(equipment, amount=10000)
+        snapshot = _take_snapshot()
+        assert [g["rows"] for g in snapshot.results["groups"] if g["kind"] == "manager"] == [[]]
+        sami = _manager()
+        EquipmentStaffMembershipFactory(equipment=equipment, member=sami)
+        Equipment.objects.filter(pk=equipment.pk).update(payee=sami)
+        with _Stripe() as fake:
+            run = payouts.run_payouts(_now())
+        assert (run.created, fake.transfers) == (0, [])
+        assert not Payout.objects.exists()
+
+    def it_still_records_a_later_payment_on_the_newly_picked_item():
+        _turn_on(_now() - timedelta(days=60))
+        equipment = _equipment(None)
+        _take_snapshot()  # an empty month closed out earlier
+        sami = _manager()
+        EquipmentStaffMembershipFactory(equipment=equipment, member=sami)
+        Equipment.objects.filter(pk=equipment.pk).update(payee=sami)
+        tomorrow = timezone.localdate() + timedelta(days=1)
+        paid_at = timezone.make_aware(datetime.combine(tomorrow, datetime.min.time())) + timedelta(hours=12)
+        _paid(equipment, amount=10000, starts_at=paid_at, paid_at=paid_at)
+        with _Stripe() as fake:
+            payouts.run_payouts(paid_at + timedelta(hours=49))
+        assert [t["amount_cents"] for t in fake.transfers] == [7000]
+
+
+def describe_the_payee_a_share_was_recorded_for():
+    def it_keeps_the_share_on_their_tab_and_line_after_the_pick_changes():
+        old = _manager()
+        equipment = _equipment(old)
+        reservation = _paid(equipment, amount=5000)
+        _sent_payout(reservation)
+        new = _manager("New Person")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=new)
+        Equipment.objects.filter(pk=equipment.pk).update(payee=new)
+        assert payouts.has_earning(old)
+        assert not payouts.has_earning(new)
+        assert [row.state for row in payouts.payee_earnings(old).rows] == ["sent"]
+        assert payouts.payee_earnings(new).rows == []
+        line = _line(build_reconciliation(window=_window(), include_voting=False), reservation)
+        assert line.shares[("manager", old.pk)] == 3500
+        assert ("manager", new.pk) not in line.shares
+
+    def it_keeps_a_sent_share_on_the_tab_after_the_reservation_is_cancelled():
+        payee = _manager()
+        reservation = _paid(_equipment(payee), amount=5000)
+        _sent_payout(reservation)
+        EquipmentReservation.objects.filter(pk=reservation.pk).update(status=EquipmentReservation.Status.CANCELLED)
+        assert [(row.state, row.amount_cents) for row in payouts.payee_earnings(payee).rows] == [("sent", 3500)]
+        assert payouts.has_earning(payee)
+
+
+def describe_retrying_a_failed_reservation_refund():
+    def it_retries_from_the_panel_and_lands_succeeded(client: Client):
+        _login_admin(client)
+        reservation = _paid(_equipment(), amount=5000)
+        refund = PaymentRefundFactory(
+            registration=None,
+            reservation=reservation,
+            amount_cents=5000,
+            status=PaymentRefund.Status.FAILED,
+            failure_reason="card_declined",
+        )
+        assert reservation.refund_state == "failed"
+        succeeded = {"id": "re_retry_res", "status": "succeeded", "amount": 5000}
+        with patch("billing.stripe_utils.create_refund", return_value=succeeded) as create:
+            response = client.post(reverse("billing_payment_refund_retry", args=[refund.pk]))
+        assert response.status_code == 204
+        assert json.loads(response["HX-Trigger"])["refund-done"] is True
+        assert create.call_args.kwargs["payment_intent_id"] == "pi_res"
+        refund.refresh_from_db()
+        assert (refund.status, refund.attempt) == (PaymentRefund.Status.SUCCEEDED, 2)
+        reservation = EquipmentReservation.objects.get(pk=reservation.pk)
+        assert (reservation.refund_state, reservation.refundable_cents) == ("full", 0)
