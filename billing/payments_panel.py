@@ -1,7 +1,8 @@
 """Read-time aggregation for the Payments tab — no model, no fourth table.
 
 The panel is a merge over the existing money tables (``TabCharge`` rows, paid
-``Registration`` rows, paid orientation bookings and paid late cancellation fees). Each source keeps its own lifecycle; this module
+``Registration`` rows, paid orientation bookings, paid equipment reservations and paid late
+cancellation fees). Each source keeps its own lifecycle; this module
 only derives one row shape (:class:`PaymentRow`) with a source-neutral identity
 and a per-source status badge, then sorts and caps the merged list.
 """
@@ -21,7 +22,13 @@ if TYPE_CHECKING:
 
 MAX_ROWS = 500
 
-SOURCE_LABELS = {"tab": "Tab", "class": "Class", "orientation": "Orientation", "late_fee": "Late fee"}
+SOURCE_LABELS = {
+    "tab": "Tab",
+    "class": "Class",
+    "orientation": "Orientation",
+    "reservation": "Reservation",
+    "late_fee": "Late fee",
+}
 
 STATUS_LABELS = {
     "paid": "Paid",
@@ -59,7 +66,7 @@ CSV_HEADERS = [
 class PaymentRow:
     """One ledger row with a source-neutral identity (per the cross-spec contract)."""
 
-    source_kind: str  # "tab" | "class" | "orientation" | "late_fee"
+    source_kind: str  # "tab" | "class" | "orientation" | "reservation" | "late_fee"
     source_pk: int
     payer_name: str
     payer_url: str | None  # set only for fog-admin viewers (§5.5 linking rule)
@@ -72,7 +79,7 @@ class PaymentRow:
     tab_pk: int | None = None  # tab rows keep the existing tab-detail modal opener
     stripe_url: str = ""  # muted "Stripe" payment link on tab rows
     pending_age: str = ""  # e.g. "2 h" when status == "refund_pending"
-    item_url: str = ""  # orientation and late fee rows: the owner page the item text links to
+    item_url: str = ""  # orientation, reservation and late fee rows: the owner page the item text links to
     booking_url: str = ""  # orientation rows: the linked booking's respond page
 
     @property
@@ -295,6 +302,48 @@ def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
     return rows
 
 
+def _reservation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRow]:
+    """Paid equipment reservation rows (#749), with refund state derived from the ledger.
+
+    ``PENDING_PAYMENT`` holds are excluded: no money has moved yet. A declined or cancelled
+    reservation stays listed, refunded. ``created_at`` stands in for paid at, like an
+    orientation booking's ``requested_at``: the payment lands within the hold's checkout hour.
+    """
+    from django.urls import reverse
+
+    from membership.models import EquipmentReservation
+
+    reservations = (
+        EquipmentReservation.objects.filter(amount_paid_cents__gt=0)
+        .exclude(status=EquipmentReservation.Status.PENDING_PAYMENT)
+        .filter(created_at__gte=window.start_dt, created_at__lt=window.end_dt)
+        .select_related("equipment", "member")
+        .prefetch_related("refunds")
+    )
+    rows: list[PaymentRow] = []
+    for reservation in reservations:
+        refunds = tuple(reservation.refunds.all())
+        status, pending_age = _refund_status(reservation.refund_state, refunds)
+        payer_url = reverse("hub_admin_member_edit", args=[reservation.member_id]) if viewer_is_admin else None
+        rows.append(
+            PaymentRow(
+                source_kind="reservation",
+                source_pk=reservation.pk,
+                payer_name=reservation.member.display_name,
+                payer_url=payer_url,
+                item=f"Reservation, {reservation.equipment.name}",
+                amount_cents=reservation.amount_paid_cents,
+                status=status,
+                date=reservation.created_at,
+                refund_rows=refunds,
+                can_refund=bool(reservation.stripe_payment_id) and reservation.refundable_cents > 0,
+                pending_age=pending_age,
+                item_url=reverse("hub_equipment_detail", args=[reservation.equipment.slug]),
+            )
+        )
+    return rows
+
+
 def _late_fee_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRow]:
     """Paid late cancellation fee rows (#456), with refund state derived from the ledger.
 
@@ -364,6 +413,8 @@ def build_payments_ledger(
         rows.extend(_class_rows(window, viewer_is_admin=viewer_is_admin))
     if source in ("all", "orientation"):
         rows.extend(_orientation_rows(window, viewer_is_admin=viewer_is_admin))
+    if source in ("all", "reservation"):
+        rows.extend(_reservation_rows(window, viewer_is_admin=viewer_is_admin))
     if source in ("all", "late_fee"):
         rows.extend(_late_fee_rows(window, viewer_is_admin=viewer_is_admin))
 

@@ -6462,6 +6462,10 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
     while their option is picked, so a hidden box never blocks a save and a stored rate waits,
     untouched, for its option to come back. The donation rules are the orientation form's.
     A POST from a page drawn before the card existed carries no ``pricing`` and changes nothing.
+
+    Who gets paid (#749, part 2) is ``Equipment.payee``: a select of this item's managers with
+    "No one yet" first. It hides under Free but still posts, so its value is kept; a POST
+    without it (a page drawn before it existed) leaves the stored pick alone.
     """
 
     reservations_open = forms.BooleanField(
@@ -6516,6 +6520,7 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             "max_advance_days",
             "max_active_reservations_per_member",
             "pricing",
+            "payee",
         ]
         widgets = {"pricing": forms.RadioSelect}
         labels = {
@@ -6550,6 +6555,38 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             self.fields["donation_minimum"].initial = _dollars_initial(self.instance.donation_minimum_cents)
         if self.instance.donation_suggested_cents is not None:
             self.fields["donation_suggested"].initial = _dollars_initial(self.instance.donation_suggested_cents)
+        self._setup_payee()
+
+    #: The refusal for a Who gets paid pick that is not one of this item's managers (#749).
+    PAYEE_NOT_A_MANAGER = "Pick one of this equipment's managers."
+
+    def _setup_payee(self) -> None:
+        """Who gets paid (#749): only this item's managers, by name, with "No one yet" first."""
+        field = cast(forms.ModelChoiceField, self.fields["payee"])
+        field.queryset = Member.objects.filter(equipment_staff_memberships__equipment=self.instance).order_by(
+            "full_legal_name", "pk"
+        )
+        field.required = False
+        field.label = "Who gets paid"
+        field.empty_label = "No one yet"
+        field.help_text = ""
+        field.error_messages["invalid_choice"] = self.PAYEE_NOT_A_MANAGER
+        field.widget.attrs["x-model"] = "payee"
+
+    @property
+    def payee_posted(self) -> bool:
+        """Whether this POST carried the Who gets paid select: only a page drawn with it does."""
+        return self.add_prefix("payee") in self.data
+
+    @property
+    def payee_tooltip(self) -> str:
+        """The Who gets paid bubble: the picked manager's percent, then where the rest goes (#749)."""
+        from billing.models import BillingSettings
+
+        percent = BillingSettings.load().reservation_manager_percent.normalize()
+        guild = self.instance.guild
+        rest = f"the {guild.name} and Past Lives" if guild is not None else "Past Lives"
+        return f"The person you pick gets {percent:f}% of each payment. The rest goes to {rest}."
 
     #: What each pricing option's sub line says on the Pricing card (#749).
     PRICING_HINTS: ClassVar[dict[str, str]] = {
@@ -6623,6 +6660,9 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
         if cap is not None and cap < 1:
             self.add_error("max_active_reservations_per_member", "Use at least 1.")
         self._clean_pricing(cleaned)
+        if not self.payee_posted:
+            self.errors.pop("payee", None)
+            cleaned["payee"] = self.instance.payee
         return cleaned
 
     def _clean_pricing(self, cleaned: dict[str, Any]) -> None:

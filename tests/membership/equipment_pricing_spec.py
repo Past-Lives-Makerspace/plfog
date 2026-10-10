@@ -307,7 +307,9 @@ def describe_reservation_money():
             assert PaymentRefund(reservation_id=1).source_kind == "reservation"
             assert PaymentRefund(late_fee_id=1).source_kind == "late_fee"
             refund = PaymentRefund.objects.create(reservation=_paid_row(), amount_cents=100)
-            assert refunds._refund_admin_url(refund).endswith("/billing/admin/dashboard/?tab=payments&status=failed")
+            assert refunds._refund_admin_url(refund).endswith(
+                "/billing/admin/dashboard/?tab=payments&source=reservation&status=failed"
+            )
 
         @patch("billing.stripe_utils.create_refund", return_value=_refund_result())
         def it_issues_a_real_refund_through_the_shared_engine(mock_refund):
@@ -375,6 +377,21 @@ def describe_reserve_on_priced_equipment():
     def it_still_books_a_free_item_with_no_amount():
         booked = equipment_service.reserve(_tool(), _member(), _at(_day(), 14), 60)
         assert booked.status == EquipmentReservation.Status.CONFIRMED
+
+    def it_re_runs_the_price_under_the_lock_so_a_raised_minimum_refuses_a_zero():
+        # The page read a $0 minimum; a manager raised it to $5 before the lock: the stale row would book free.
+        stale = _tool(pricing=Equipment.Pricing.DONATION)
+        Equipment.objects.filter(pk=stale.pk).update(donation_minimum_cents=500)
+        with pytest.raises(EquipmentError, match=r"^The minimum here is \$5\.00\.$"):
+            equipment_service.reserve(stale, _member(), _at(_day(), 14), 60, donation_cents=0)
+        assert not EquipmentReservation.objects.exists()
+
+    def it_refuses_a_free_road_on_an_item_that_turned_hourly_after_the_read():
+        stale = _tool()
+        Equipment.objects.filter(pk=stale.pk).update(pricing=Equipment.Pricing.HOURLY, hourly_rate_cents=2500)
+        with pytest.raises(EquipmentError, match="price for this time just changed"):
+            equipment_service.reserve(stale, _member(), _at(_day(), 14), 60)
+        assert not EquipmentReservation.objects.exists()
 
 
 def describe_start_reservation_checkout():

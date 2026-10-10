@@ -466,6 +466,8 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
     the Bookings pane (#627) the same way, built only then and otherwise fetched from
     :func:`hub_equipment_bookings`.
     """
+    from billing import payouts
+
     member = _get_member(request)
     pane = request.GET.get("view", "")
     if pane not in PANES:
@@ -489,6 +491,8 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
         "hub/equipment_index.html",
         {
             **_get_hub_context(request),
+            # The payouts nudge (#749): the priced items this member is picked to be paid for, while unconnected.
+            "payouts_nudge_items": payouts.reservation_nudge_items(member) if member is not None else [],
             "cards": cards,
             "filter_guilds": Guild.objects.filter(equipment__is_active=True).distinct().order_by("name"),
             "has_standalone": base.standalone().exists(),
@@ -1236,6 +1240,8 @@ def _render_manage(
     (#734); the Details save passes the count it read before its form wrote the posted
     values onto ``equipment``, and every other caller lets it be read here.
     """
+    from billing import payouts
+
     orientation_ctx = _orientation_tab_context(request, equipment)
     if agreement_member_count is None:
         agreement_member_count = equipment.current_agreement_member_count()
@@ -1257,6 +1263,8 @@ def _render_manage(
             if hours_formset is not None
             else EquipmentHoursWindowFormSet(initial=equipment.hours_windows(), prefix="hours"),
             "settings_form": settings_form if settings_form is not None else EquipmentSettingsForm(instance=equipment),
+            # The Pricing card's line under Who gets paid (#749): None while payouts are off or nobody is picked.
+            "payee_status": payouts.payee_status(equipment, _get_member(request)),
             "manager_cancel_form": EquipmentManagerCancelForm(),
             "orientation_types_formset": orientation_types_formset
             if orientation_types_formset is not None

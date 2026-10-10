@@ -339,6 +339,7 @@ class ReconciliationSettingsForm(forms.ModelForm):
 
     _ORIENTATION = ["orientation_orientator_percent", "orientation_guild_percent", "orientation_pl_percent"]
     _CLASS = ["class_instructor_percent", "class_guild_percent", "class_pl_percent"]
+    _RESERVATION = ["reservation_manager_percent", "reservation_guild_percent", "reservation_pl_percent"]
 
     class Meta:
         model = BillingSettings
@@ -349,12 +350,16 @@ class ReconciliationSettingsForm(forms.ModelForm):
             "class_instructor_percent",
             "class_guild_percent",
             "class_pl_percent",
+            "reservation_manager_percent",
+            "reservation_guild_percent",
+            "reservation_pl_percent",
         ]
 
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean() or {}
         self._check_triad(cleaned, self._ORIENTATION, "Orientation")
         self._check_triad(cleaned, self._CLASS, "Class")
+        self._check_triad(cleaned, self._RESERVATION, "Reservation")
         return cleaned
 
     def _check_triad(self, cleaned: dict[str, Any], fields: list[str], label: str) -> None:
@@ -372,13 +377,14 @@ class ReconciliationSettingsForm(forms.ModelForm):
 class TransactionAdjustmentForm(forms.Form):
     """Per-transaction reconciliation override: omit the transaction or re-split it.
 
-    Class / orientation transactions expose one percent field per recipient (the
-    triad must sum to 100 unless omitted). Tab charges are omit-only.
+    Class, orientation and reservation transactions expose one percent field per recipient
+    (the triad must sum to 100 unless omitted). Tab charges are omit-only.
     """
 
     _PERCENT_KEYS: dict[str, list[tuple[str, str]]] = {
         "class": [("instructor", "Instructor"), ("guild", "Guild"), ("pl", "Past Lives")],
         "orientation": [("orientator", "Orientator"), ("guild", "Guild"), ("pl", "Past Lives")],
+        "reservation": [("manager", "Manager"), ("guild", "Guild"), ("pl", "Past Lives")],
         "tab": [],
     }
 
@@ -698,6 +704,18 @@ class OrientationRefundForm(RefundShareDecisionForm):
     def amount_cents(self) -> int:
         """The validated refund amount in cents — what ``issue_refund`` takes."""
         return int(self.cleaned_data["amount"] * 100)
+
+
+class ReservationRefundForm(OrientationRefundForm):
+    """Validates the equipment reservation refund modal (#749): the orientation form against the reservation.
+
+    A paid reservation earns its picked manager a share, so the share choice applies once
+    that share was sent, exactly as for an orientation.
+    """
+
+    def __init__(self, *args: Any, reservation: Any, **kwargs: Any) -> None:
+        super().__init__(*args, booking=reservation, **kwargs)
+        self.reservation = reservation
 
 
 class LateFeeRefundForm(forms.Form):

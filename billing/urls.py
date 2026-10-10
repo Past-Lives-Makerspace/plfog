@@ -35,6 +35,16 @@ urlpatterns = [
         name="billing_orientation_refund",
     ),
     path(
+        "admin/reservations/<int:reservation_pk>/refund/form/",
+        views.payment_reservation_refund_form,
+        name="billing_reservation_refund_form",
+    ),
+    path(
+        "admin/reservations/<int:reservation_pk>/refund/",
+        views.payment_reservation_refund,
+        name="billing_reservation_refund",
+    ),
+    path(
         "admin/late-fees/<int:fee_pk>/refund/form/",
         views.payment_late_fee_refund_form,
         name="billing_late_fee_refund_form",

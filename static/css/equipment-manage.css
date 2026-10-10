@@ -178,6 +178,38 @@
     color: var(--hub-text);
 }
 
+/* Who gets paid (#749): the select, then one line about that person's payouts or a warning. */
+.pl-equip-pricing__payee {
+    margin: 0 0 1rem;
+}
+.pl-equip-pricing__payee .pl-form-group {
+    margin-bottom: 0;
+}
+.pl-equip-pricing__payee-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+    color: var(--hub-text-muted);
+}
+
+/* The warn line when a price is set and nobody is picked: the same tone as .pl-confirm-warn. */
+.pl-equip-pricing__warn {
+    margin: 0.5rem 0 0;
+    padding: 0.6rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    background: rgba(251, 191, 36, 0.12);
+    color: #fbbf24;
+}
+[data-theme="light"] .pl-equip-pricing__warn {
+    background: rgba(180, 120, 10, 0.1);
+    color: #8a5b06;
+}
+
 /* An unpaid hold on Upcoming Reservations (#749): the member, the badge and when it is released. */
 .pl-equip-hold-row__who {
     display: flex;

@@ -133,6 +133,32 @@ class BillingSettings(models.Model):
         validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
         help_text="Percent of each paid class registration that goes to Past Lives (0-100).",
     )
+    # #749: a paid equipment reservation's split; the database defaults too, since the old
+    # release saves BillingSettings without these columns while the migration lands.
+    reservation_manager_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("70.00"),
+        db_default=Decimal("70.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percent of each paid equipment reservation that goes to the item's picked manager (0-100).",
+    )
+    reservation_guild_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("15.00"),
+        db_default=Decimal("15.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percent of each paid equipment reservation that goes to the item's guild (0-100).",
+    )
+    reservation_pl_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("15.00"),
+        db_default=Decimal("15.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percent of each paid equipment reservation that goes to Past Lives (0-100).",
+    )
 
     # ---- Stripe platform configuration ----
     # Credentials for the single Past Lives platform Stripe account. All charges
@@ -1567,7 +1593,7 @@ class TransactionAdjustment(models.Model):
     """An admin correction to a single transaction's reconciliation treatment.
 
     Either omits the transaction from the allocation entirely, or (class /
-    orientation only) overrides its split percentages. Tab charges are omit-only
+    orientation / reservation only) overrides its split percentages. Tab charges are omit-only
     — a tab charge spans many frozen ``TabEntrySplit`` rows, so re-splitting it
     from here is out of scope.
     """
@@ -1576,6 +1602,7 @@ class TransactionAdjustment(models.Model):
         TAB = "tab", "Tab"
         CLASS = "class", "Class"
         ORIENTATION = "orientation", "Orientation"
+        RESERVATION = "reservation", "Reservation"
 
     source_kind = models.CharField(
         max_length=20,
@@ -1583,7 +1610,7 @@ class TransactionAdjustment(models.Model):
         help_text="Which payment stream the target transaction lives in.",
     )
     source_pk = models.PositiveIntegerField(
-        help_text="PK of the TabCharge / Registration / OrientationBooking being adjusted.",
+        help_text="PK of the TabCharge / Registration / OrientationBooking / EquipmentReservation being adjusted.",
     )
     is_omitted = models.BooleanField(
         default=False,
@@ -1701,7 +1728,7 @@ class ReconciliationSnapshot(models.Model):
 
         A create plus one ``SiteActivity`` audit row — no event, no email, no Airtable,
         unlike ``FundingSnapshot.take()``. It also binds the payout split (#662): in the
-        same transaction, every instructor and orientor share in the window gets its
+        same transaction, every instructor, orientor and manager share in the window gets its
         ``Payout`` row (``billing.payouts.freeze_split``), classified by the same rule the
         results just used, so what the snapshot calls "Sent through Stripe" is what gets sent.
         """
@@ -2202,7 +2229,8 @@ class PayoutQuerySet(models.QuerySet["Payout"]):
 
 
 class Payout(models.Model):
-    """One instructor or orientor share of one paid registration or orientation booking (#662).
+    """One instructor, orientor or equipment manager share of one paid registration, orientation booking
+    or equipment reservation (#662, reservations #749).
 
     Made by ``billing.payouts.run_payouts`` when the share falls due (48 hours after the first
     session or slot starts, or after payment if that came later). A share that goes through
@@ -2232,7 +2260,7 @@ class Payout(models.Model):
         blank=True,
         on_delete=models.PROTECT,
         related_name="payout",
-        help_text="The class registration this share comes from (exactly one of this and the booking).",
+        help_text="The class registration this share comes from (exactly one source is set).",
     )
     orientation_booking = models.OneToOneField(
         "membership.OrientationBooking",
@@ -2240,13 +2268,21 @@ class Payout(models.Model):
         blank=True,
         on_delete=models.PROTECT,
         related_name="payout",
-        help_text="The orientation booking this share comes from (exactly one of this and the registration).",
+        help_text="The orientation booking this share comes from (exactly one source is set).",
+    )
+    reservation = models.OneToOneField(
+        "membership.EquipmentReservation",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="payout",
+        help_text="The paid equipment reservation this share comes from (#749; exactly one source is set).",
     )
     payee = models.ForeignKey(
         "membership.Member",
         on_delete=models.PROTECT,
         related_name="payouts",
-        help_text="The instructor or orientor who earned the share.",
+        help_text="The instructor, orientor or equipment manager who earned the share.",
     )
     amount_cents = models.PositiveIntegerField(
         help_text="The share in cents: the reconciliation split when it fell due."
@@ -2308,8 +2344,9 @@ class Payout(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=(
-                    Q(registration__isnull=False, orientation_booking__isnull=True)
-                    | Q(registration__isnull=True, orientation_booking__isnull=False)
+                    Q(registration__isnull=False, orientation_booking__isnull=True, reservation__isnull=True)
+                    | Q(registration__isnull=True, orientation_booking__isnull=False, reservation__isnull=True)
+                    | Q(registration__isnull=True, orientation_booking__isnull=True, reservation__isnull=False)
                 ),
                 name="payout_exactly_one_source",
             ),
@@ -2320,14 +2357,30 @@ class Payout(models.Model):
 
     @property
     def source(self) -> Any:
-        """The registration or orientation booking that paid for this share."""
-        return self.registration if self.registration_id is not None else self.orientation_booking
+        """The registration, orientation booking or equipment reservation that paid for this share."""
+        if self.registration_id is not None:
+            return self.registration
+        if self.reservation_id is not None:
+            return self.reservation
+        return self.orientation_booking
+
+    @property
+    def source_kind(self) -> str:
+        """``"class"``, ``"orientation"`` or ``"reservation"``: the reconciliation source vocabulary."""
+        if self.registration_id is not None:
+            return "class"
+        if self.reservation_id is not None:
+            return "reservation"
+        return "orientation"
 
     @property
     def paid_on(self) -> Any:
         """The date reconciliation files the payment under (its line date)."""
         if self.registration_id is not None:
             return cast("Any", self.registration).confirmed_at
+        if self.reservation_id is not None:
+            # A reservation's hold is made within its one hour checkout, so its creation stands in for paid at.
+            return cast("Any", self.reservation).created_at
         return cast("Any", self.orientation_booking).requested_at
 
     def send(self) -> None:

@@ -105,6 +105,8 @@ Helpers on `Member`: `has_admin_capability(cap)` (the authorization gate) and `s
 
 `Equipment.pricing` is Free, Donation based or Hourly (`hourly_rate_cents`, `donation_minimum_cents`, `donation_suggested_cents`, the orientation donation floor and ceiling). `Equipment.charge_cents_for` is the one price engine (rate times booked minutes over 60, half up to the cent) and `checkout_amount_cents` the one amount check. `membership/equipment.py` copies the paid orientation flow by name: `start_reservation_checkout` holds the time `PENDING_PAYMENT` under the equipment lock and opens Checkout (`kind=equipment_reservation`); `finalize_paid_reservation` is the one money in hand transition (webhook, return page, Pay now, the `release_reservation_payment_holds` sweep); an unpaid hold is deleted, never cancelled. `EquipmentReservation` is a `RefundableSource` (`PaymentRefund.reservation`), and `refund_if_paid` refunds a paid row in full on every decline and cancel, apart from any late fee.
 
+`Equipment.payee` (part 2) is Who gets paid: one of the item's managers, or nobody (the whole payment stays with Past Lives). `EquipmentStaffMembership.delete()` clears the pick when that manager is removed. The books and payouts read it in `billing/` (see `billing/AGENTS.md`). `reserve()` re-runs `checkout_amount_cents` under its lock, so a price or a donation minimum raised after the page read never books free.
+
 ## Vote Calculator
 
 `membership/vote_calculator.py` — `calculate_results(votes, paying_voter_count, pool_override)` returns a dict with per-guild allocations. Called by `FundingSnapshot.take()`.

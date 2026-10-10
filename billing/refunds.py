@@ -392,8 +392,8 @@ def _refund_admin_url(refund: PaymentRefund) -> str:
     if refund.orientation_booking_id is not None:
         return _absolute_url(reverse("hub_orientation_respond", args=[refund.orientation_booking_id]))
     if refund.reservation_id is not None:
-        # A reservation (#749) has no admin page of its own; the Payments panel lists failed refunds.
-        return _absolute_url(f"{reverse('billing_admin_dashboard')}?tab=payments&status=failed")
+        # A reservation (#749) has no admin page of its own; its Retry lives on the Payments ledger.
+        return _absolute_url(f"{reverse('billing_admin_dashboard')}?tab=payments&source=reservation&status=failed")
     return _absolute_url(f"{reverse('billing_admin_dashboard')}?tab=payments&source=late_fee&status=failed")
 
 

@@ -15,6 +15,11 @@
 {% include "components/page_header.html" with title="Reservations" description="Book a room, a space, or a tool you are trained on." %}
 {% endif %}
 
+{% if payouts_nudge_items %}
+{# #749: only to the picked payee of a priced item, while payouts are on and their Stripe signup is unfinished. #}
+{% include "billing/partials/payouts_nudge.html" with kind="reservations" nudge_items=payouts_nudge_items %}
+{% endif %}
+
 {# The List / Calendar / Bookings panes (#502, #627): plListCalendar in static/js/list_calendar.js; each pane past List is built only when it opens. #}
 <div x-data="plListCalendar('{{ pane }}')">
 <nav class="pl-tabs" role="tablist" aria-label="Reservations views">

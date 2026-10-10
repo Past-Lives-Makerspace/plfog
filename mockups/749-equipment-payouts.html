@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Equipment Payouts mockup</title>
+<!--
+  Screen E: payouts for equipment managers. (1) Settings > Payouts earnings with reservation rows;
+  (2) the "Set up payouts" nudge on the Reservations page. Builds on mockups/662-payouts.html; only the deltas are shown.
+  Views: ?view=earnings (default) · nudge    Theme: ?theme=light    Phone: ?phone=1
+  No new product CSS: every class here shipped with #662 (components.css) or already exists.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../static/css/hub.css">
+<link rel="stylesheet" href="../static/css/components.css">
+<style>
+/* ---------- mockup-only ---------- */
+.mock-view { display: contents; }
+html[data-mock-view="earnings"] .mock-view:not([data-mock-view~="earnings"]),
+html[data-mock-view="nudge"] .mock-view:not([data-mock-view~="nudge"]) { display: none; }
+.mock-switcher { position: fixed; right: 1rem; bottom: 1rem; z-index: 900; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; max-width: calc(100vw - 2rem); padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--hub-elevated); border: 1px solid var(--hub-border); font-size: 0.8rem; }
+.mock-switcher__title { font-weight: 700; color: var(--hub-text-muted); }
+.mock-switcher a { color: var(--hub-link); text-decoration: none; }
+html.mock-shot .mock-switcher { display: none; }
+html.mock-phone .hub-sidebar { display: none; }
+html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
+.mock-card { padding: 1.5rem; margin-bottom: 1.5rem; }
+.mock-note { font-size: 0.8rem; color: var(--hub-text-muted); border-left: 3px solid var(--hub-blue); padding: 0.25rem 0.75rem; margin: 0 0 1.5rem; }
+.mock-collapsed { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.5rem; margin-bottom: 1rem; opacity: 0.6; }
+.mock-collapsed span:last-child { font-size: 0.75rem; color: var(--hub-text-muted); }
+</style>
+<script>
+  (function () {
+    var p = new URLSearchParams(location.search);
+    document.documentElement.setAttribute('data-mock-view', p.get('view') || 'earnings');
+    if (p.get('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    if (p.get('shot') === '1') document.documentElement.classList.add('mock-shot');
+    if (p.get('phone') === '1') document.documentElement.classList.add('mock-phone');
+  })();
+  function mockToggleTheme() {
+    var p = new URLSearchParams(location.search);
+    if (p.get('theme') === 'light') p.delete('theme'); else p.set('theme', 'light');
+    location.search = p.toString();
+  }
+</script>
+</head>
+<body>
+  <nav class="mock-switcher" aria-label="Mockup views">
+    <span class="mock-switcher__title">Equipment payouts mockup</span>
+    <a href="?view=earnings">Earnings rows</a>
+    <a href="?view=nudge">Reservations nudge</a>
+    <a href="#" onclick="mockToggleTheme(); return false;">Theme</a>
+  </nav>
+
+  <aside class="hub-sidebar">
+    <nav class="hub-sidebar__nav" aria-label="Hub navigation">
+      <a href="#" class="hub-sidebar__link">Home</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Orientations</a>
+      <a href="#" class="hub-sidebar__link">Reservations</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Settings</a>
+    </nav>
+  </aside>
+
+  <div class="hub-main-wrapper">
+    <header class="pl-topbar">
+      <span class="pl-topbar__divider"></span>
+      <div class="pl-topbar__spacer"></div>
+      <button class="pl-topbar__theme-toggle" aria-label="Toggle theme" onclick="mockToggleTheme()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M1 12h2"/><path d="M21 12h2"/></svg></button>
+      <div class="pl-profile"><button class="pl-profile__avatar" aria-label="User menu">S</button></div>
+    </header>
+
+    <main id="main-content" class="hub-content" tabindex="-1">
+
+      <!-- ===== VIEW: earnings ===== -->
+      <div class="mock-view" data-mock-view="earnings">
+        <h1 class="hub-page-title">Settings</h1>
+        <div class="pl-tabs">
+          <button type="button" class="vote-tab">Guilds</button>
+          <button type="button" class="vote-tab">Notifications</button>
+          <button type="button" class="vote-tab">Profile</button>
+          <button type="button" class="vote-tab">Account</button>
+          <button type="button" class="vote-tab vote-tab--active">Payouts</button>
+        </div>
+        <div class="hub-card mock-card">
+          <div class="pl-payouts__head">
+            <h2 class="hub-detail-label">Get paid automatically</h2>
+            <span class="pl-status-badge pl-status-badge--muted">Not set up</span>
+          </div>
+          <p class="pl-payouts__lead">Connect your bank once and your share of every paid class, orientation or reservation you run lands in your account a few days after it happens. Until then you're paid by hand at the end of the month, as now.</p>
+          <div class="pl-payouts__actions"><a href="#" class="hub-btn hub-btn--primary">Set up payouts</a></div>
+        </div>
+        <div class="hub-card mock-card">
+          <h2 class="hub-detail-label">Your earnings</h2>
+          <div class="pl-payouts-totals"><div><strong>$122.50</strong><span>Owed at month end</span></div></div>
+          <div class="admin-table-wrap">
+            <table>
+              <thead><tr><th>What</th><th>Date</th><th>Status</th><th class="pl-payouts-amt">Your share</th></tr></thead>
+              <tbody>
+                <tr><td>CNC Machine<span class="pl-payouts-sub">2 hours, Jane D.</span></td><td>Tue Oct 20</td><td><span class="pl-status-badge pl-status-badge--muted">Paid at month end</span></td><td class="pl-payouts-amt">$35.00</td></tr>
+                <tr><td>CNC Machine<span class="pl-payouts-sub">1 hour 30 minutes, Lee T.</span></td><td>Thu Oct 15</td><td><span class="pl-status-badge pl-status-badge--muted">Paid at month end</span></td><td class="pl-payouts-amt">$26.25</td></tr>
+                <tr><td>CNC Machine Orientation<span class="pl-payouts-sub">Jordan P.</span></td><td>Sat Oct 10</td><td><span class="pl-status-badge pl-status-badge--muted">Paid at month end</span></td><td class="pl-payouts-amt">$61.25</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <p class="mock-note">Two header renames so one table holds all three kinds: "Class or orientation" becomes "What", "Taught" becomes "Date". A reservation row: the equipment name, then its booked length and the member's first name and last initial. Donation based rows read the same. With payouts on, the status follows #662 unchanged ("Sends Thu Oct 22", "Sent Oct 22", "Taken back Oct 23" after a refund). A declined reservation never earns, so it never shows. Empty state: "No earnings yet. When someone pays for a class, orientation or reservation you run, it shows here with the day it will be sent."</p>
+      </div>
+
+      <!-- ===== VIEW: nudge (Reservations page) ===== -->
+      <div class="mock-view" data-mock-view="nudge">
+        <div class="pl-page-header"><h1 class="hub-page-title" style="margin:0;">Reservations</h1><p class="hub-text-muted" style="margin:0.25rem 0 1rem;">Book a room, a space, or a tool you are trained on.</p></div>
+        <div class="hub-card pl-nudge pl-payouts-nudge" data-payouts-nudge="reservations">
+          <h2 class="hub-detail-label">Get paid a few days after each reservation</h2>
+          <p class="pl-nudge__lead">Connect your bank through Stripe and your share of each paid reservation on the CNC Machine is sent 48 hours after it starts.</p>
+          <div class="pl-nudge__actions"><a href="#" class="hub-btn hub-btn--primary hub-btn--sm">Set up payouts</a></div>
+        </div>
+        <nav class="pl-tabs" role="tablist" aria-label="Reservations views">
+          <button type="button" class="vote-tab vote-tab--active">List</button>
+          <button type="button" class="vote-tab">Calendar</button>
+          <button type="button" class="vote-tab">Bookings</button>
+        </nav>
+        <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">List</span><span>unchanged</span></div>
+        <p class="mock-note">Shown only to a member who is the picked "Who gets paid" person on at least one priced item, while payouts are on and their Stripe signup is unfinished; it names the item ("on the CNC Machine", or "on equipment you manage" for two or more). Same partial as #662 with kind="reservations"; no close button. The second place is in context: the Pricing card's status line links "set up payouts" for the picked person (see equipment-pricing.html). A plain manager who is not the payee sees neither.</p>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,8 +1,12 @@
 {% comment %}The payouts nudge (#662): shown until the payee finishes Stripe signup, while payouts are on.
-Pass kind="classes" (Manage My Classes, Overview) or kind="orientations" (the Orientations page). No close
+Pass kind="classes" (Manage My Classes, Overview), kind="orientations" (the Orientations page) or
+kind="reservations" with nudge_items, the priced items' names (the Reservations page, #749). No close
 button on purpose: the alternative is waiting a month to be paid.{% endcomment %}
 <div class="hub-card pl-nudge pl-payouts-nudge" data-payouts-nudge="{{ kind }}">
-  {% if kind == "orientations" %}
+  {% if kind == "reservations" %}
+  <h2 class="hub-detail-label">Get paid a few days after each reservation</h2>
+  <p class="pl-nudge__lead">Connect your bank through Stripe and your share of each paid reservation {% if nudge_items|length == 1 %}on the {{ nudge_items.0 }}{% else %}on equipment you manage{% endif %} is sent 48 hours after it starts.</p>
+  {% elif kind == "orientations" %}
   <h2 class="hub-detail-label">Get paid a few days after each orientation</h2>
   <p class="pl-nudge__lead">Connect your bank through Stripe and your share of each paid orientation you run is sent 48 hours after it starts.</p>
   {% else %}

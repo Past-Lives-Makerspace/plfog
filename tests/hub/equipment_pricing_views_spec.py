@@ -429,10 +429,17 @@ def describe_reserving_priced_equipment():
 
     @patch("billing.stripe_utils.create_checkout_session")
     def it_refuses_the_free_road_when_the_item_turned_priced_before_the_lock(mock_create, client: Client):
-        # The view read the item as free (the stale read is the patch); the row under reserve()'s lock charges.
+        # The view read the item as free (the first call is the stale read); the row under reserve()'s lock charges.
         member = _login(client, "staleread")
+        real = Equipment.checkout_amount_cents
         for equipment in (_hourly(), _donation(name="Stale Press")):
-            with patch.object(Equipment, "checkout_amount_cents", return_value=0):
+            calls: list[int] = []
+
+            def stale_once(self: Equipment, *args: object, _calls: list[int] = calls) -> int:
+                _calls.append(1)
+                return 0 if len(_calls) == 1 else real(self, *args)  # type: ignore[arg-type]
+
+            with patch.object(Equipment, "checkout_amount_cents", autospec=True, side_effect=stale_once):
                 response = _reserve(client, equipment)
             assert _toast(response) == ("The price for this time just changed. Please pick your time again.", "error")
         mock_create.assert_not_called()
