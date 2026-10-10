@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0218_announcement_draft_discord_post_as_me"),
+        ("membership", "0219_equipment_allow_custom_requests"),
     ]
 
     operations = [
