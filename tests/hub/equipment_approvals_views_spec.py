@@ -189,6 +189,32 @@ def describe_the_member_schedule():
         assert _toast(response) == "Request sent. We'll email you when a manager decides."
         assert EquipmentReservation.objects.get(member=member).status == WAITING
 
+    def it_confirms_a_managers_own_booking_with_the_instant_toast(client: Client):
+        equipment = _tool()
+        manager = _manage_login(client, equipment)
+        response = client.post(
+            reverse("hub_equipment_reserve", args=[equipment.slug]),
+            {"starts_at": _at(_day(), 10).isoformat(), "duration_minutes": "60", "purpose": ""},
+        )
+        assert _toast(response).startswith("Reserved. See you ")
+        assert EquipmentReservation.objects.get(member=manager).status == EquipmentReservation.Status.CONFIRMED
+
+    def it_never_shows_an_undecided_request_as_in_use_on_the_index_card(client: Client):
+        # The card's prefetch reads confirmed rows only, like Equipment.availability_line.
+        _login(client, "card_viewer")
+        now = timezone.now()
+        span = {"starts_at": now - timedelta(minutes=30), "ends_at": now + timedelta(minutes=30)}
+        waiting_tool = _tool(name="Waitwhistle Router")
+        EquipmentReservationFactory(equipment=waiting_tool, status=WAITING, **span)
+        confirmed_tool = _tool(name="Busybrass Press")
+        EquipmentReservationFactory(equipment=confirmed_tool, **span)
+        content = client.get(reverse("hub_equipment_index")).content.decode()
+        assert "Waitwhistle Router" in content
+        assert "Busybrass Press" in content
+        # Only the confirmed tool's card reads in use.
+        assert content.count("pl-equip-avail--busy") == 1
+        assert content.count("Reserved until") == 1
+
     def it_shows_a_held_request_on_the_timeline_dashed_with_the_name(client: Client):
         equipment = _tool()
         _login(client, "sched_view")
@@ -405,6 +431,20 @@ def describe_the_bookings_tab():
         assert chips.index('data-bookings-chip="needs_approval"') < chips.index('data-bookings-chip="past"')
         assert "data-bookings-chip-count>2</span>" in chips
 
+    def it_counts_only_the_waiting_rows_the_filters_and_search_leave(client: Client):
+        lathe = _tool(name="Glimmerforge Lathe")
+        press = _tool(name="Busybrass Press")
+        manager = _manage_login(client, lathe)
+        EquipmentStaffMembershipFactory(equipment=press, member=manager)
+        _request(lathe, hour=10)
+        _request(press, hour=12, member=MemberFactory(full_legal_name="Ottoline Quarrystone"))
+        assert "data-bookings-chip-count>2</span>" in _tab(client)
+        content = _tab(client, equipment=str(lathe.pk))
+        assert "data-bookings-chip-count>1</span>" in content
+        content = _tab(client, show="needs_approval", search="Quarrystone")
+        assert "data-bookings-chip-count>1</span>" in content
+        assert content.count("data-reservation-row=") == 1
+
     def it_hides_the_chip_while_nothing_waits(client: Client):
         equipment = _tool()
         _manage_login(client, equipment)
@@ -452,6 +492,44 @@ def describe_the_bookings_tab():
         assert f"decline-res-{waiting.pk}" in modals
         assert "Decline This Reservation?" in modals
         assert reverse("hub_equipment_reservation_decline", args=[equipment.slug, waiting.pk]) in modals
+
+    def it_shows_a_request_nobody_decided_as_not_decided_once_its_time_passed(client: Client):
+        equipment = _tool()
+        _manage_login(client, equipment)
+        starts = timezone.now() - timedelta(hours=3)
+        undecided = EquipmentReservationFactory(
+            equipment=equipment, starts_at=starts, ends_at=starts + timedelta(hours=1), status=WAITING
+        )
+        for show in ("past", "all"):
+            row = _row(_tab(client, show=show), undecided)
+            assert 'hub-pill--neutral" data-reservation-status="not-decided">Not decided' in row
+            assert "Awaiting approval" not in row
+            assert "data-approve-menu-item" not in row
+        undecided.refresh_from_db()
+        assert undecided.status == WAITING
+
+    def it_never_puts_a_fee_line_on_a_members_own_waiting_cancel(client: Client):
+        config = SiteConfiguration.load()
+        config.late_cancel_fees_enabled = True
+        config.late_cancel_grace_hours = 0
+        config.save()
+        member = _login(client, "feebooker")
+        equipment = _tool(late_cancel_fee_cents=1500)
+        starts = timezone.now() + timedelta(hours=2)
+        span = {"starts_at": starts, "ends_at": starts + timedelta(hours=1)}
+        waiting = EquipmentReservationFactory(equipment=equipment, member=member, status=WAITING, **span)
+        confirmed = EquipmentReservationFactory(
+            equipment=equipment, member=member, **{k: v + timedelta(hours=1) for k, v in span.items()}
+        )
+        content = _tab(client)
+
+        def modal(reservation: EquipmentReservation) -> str:
+            start = content.index(f"reservation-cancel-mine-{reservation.pk}", content.index("</table>"))
+            return content[start : start + 3000]
+
+        assert "late cancellation fee applies" not in modal(waiting)[: modal(waiting).index("Cancel Reservation")]
+        # The control: the confirmed row inside the window does carry it.
+        assert "late cancellation fee applies" in modal(confirmed)
 
     def it_keeps_needs_approval_a_staff_chip(client: Client):
         member = _login(client, "plainbooker")

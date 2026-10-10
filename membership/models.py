@@ -15624,7 +15624,8 @@ class Equipment(HeroCropMixin, models.Model):
         current = getattr(self, "current_reservations", None)
         if current is None:
             current = list(
-                EquipmentReservation.objects.holding().filter(equipment=self, starts_at__lte=now, ends_at__gt=now)
+                # In use now reads confirmed rows only: an undecided request is not the member at the machine (#748).
+                EquipmentReservation.objects.confirmed().filter(equipment=self, starts_at__lte=now, ends_at__gt=now)
             )
         # (ends_at, word) per busy span: a manager's block reads "Held" (#657), everything else "Reserved".
         busy = [(reservation.ends_at, "Held" if reservation.is_block else "Reserved") for reservation in current]
@@ -15699,8 +15700,8 @@ class Equipment(HeroCropMixin, models.Model):
         per member cap, the duration bounds, open hours, the booking horizon and the
         closure. What it keeps is the grid and the overlap checks, run under the same
         ``select_for_update`` lock as :meth:`ensure_reservable`: a block never lands on
-        a confirmed reservation, another block or a booked orientation, and the refusal
-        names what is in the way.
+        a confirmed reservation, a request awaiting approval (#748), another block or a
+        booked orientation, and the refusal names what is in the way.
 
         Raises:
             EquipmentError: With manager-facing copy naming the failed check.
@@ -16290,7 +16291,7 @@ class EquipmentReservation(models.Model):
                 cancelled_at=now,
             )
             if not flipped:
-                raise EquipmentError("This reservation was already cancelled.")
+                raise EquipmentError(self._lost_cancel_race_message())
             self.status = self.Status.CANCELLED
             self.cancelled_by = actor
             self.cancelled_reason = cleaned_reason
@@ -16306,6 +16307,20 @@ class EquipmentReservation(models.Model):
         elif not is_own_row:
             equipment_service.notify_manager_cancelled(self)
         return fee
+
+    def _lost_cancel_race_message(self) -> str:
+        """Why a cancel lost its conditional update, from the row as it stands now (#748).
+
+        A waiting request a manager approved or declined in the same moment is not "already
+        cancelled": the member is told what happened instead, so an approved row they meant
+        to drop is not left standing unnoticed.
+        """
+        current = EquipmentReservation.objects.values_list("status", flat=True).get(pk=self.pk)
+        if current == self.Status.CONFIRMED:
+            return "A manager just approved this. Cancel it again if you still want to."
+        if current == self.Status.DECLINED:
+            return "A manager just declined this request, so there is nothing to cancel."
+        return "This reservation was already cancelled."
 
     def _ensure_cancel_allowed(
         self, actor: Member, *, acting_as_manager: bool, reason: str, now: datetime_type

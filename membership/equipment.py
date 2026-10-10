@@ -114,7 +114,9 @@ def reserve(
     CONFIRMED, the member gets the confirmation (with a calendar invite) and the
     managers get the awareness ping. On equipment that needs approval (#748) the row
     is PENDING_APPROVAL, holding its time; the member gets the "request in" email and
-    the managers the "needs approval" one in place of the ping.
+    the managers the "needs approval" one in place of the ping. A manager of the equipment
+    never waits on their own approval: their booking confirms at once, the same test
+    (:meth:`Member.can_manage_equipment`) that exempts them from the late fee.
 
     Raises:
         EquipmentError: Propagated from :meth:`Equipment.ensure_reservable` with the
@@ -133,7 +135,7 @@ def reserve(
             purpose=purpose.strip(),
             status=(
                 EquipmentReservation.Status.PENDING_APPROVAL
-                if locked.requires_approval
+                if locked.requires_approval and not member.can_manage_equipment(locked)
                 else EquipmentReservation.Status.CONFIRMED
             ),
         )

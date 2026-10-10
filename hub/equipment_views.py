@@ -382,7 +382,8 @@ def reservation_cards(member: Member | None, queryset: EquipmentQuerySet) -> lis
             "hours_rules",
             Prefetch(
                 "reservations",
-                queryset=EquipmentReservation.objects.holding().filter(starts_at__lte=now, ends_at__gt=now),
+                # In use now: confirmed rows only, like Equipment.availability_line (#748).
+                queryset=EquipmentReservation.objects.confirmed().filter(starts_at__lte=now, ends_at__gt=now),
                 to_attr="current_reservations",
             ),
         )

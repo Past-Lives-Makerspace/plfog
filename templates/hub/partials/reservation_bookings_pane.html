@@ -103,6 +103,8 @@ refund-done, which reloads the body below and closes the refund modal.
           <td{% if is_staff_view %} data-label="Status"{% endif %} class="pl-bookings-table__status">
             {% if r.is_cancelled_by_manager %}
             <span class="hub-pill hub-pill--neutral" data-reservation-status="cancelled-by-manager">Cancelled by a manager</span>
+            {% elif row.is_undecided %}
+            <span class="hub-pill hub-pill--neutral" data-reservation-status="not-decided">Not decided</span>
             {% elif r.own_manager_cancel_label %}
             <span class="hub-pill hub-pill--neutral" data-reservation-status="manager-cancelled{% if r.late_fee_waived %}-fee-waived{% endif %}">{{ r.own_manager_cancel_label }}</span>
             {% else %}

@@ -451,6 +451,14 @@ def describe_reservation_entries():
         assert entry.owner_label == "Laser cutter · Fabrication Guild"
         assert (entry.start_dt, entry.end_dt) == (reservation.starts_at, reservation.ends_at)
 
+    def it_leaves_a_request_awaiting_approval_off_the_feed():
+        # The feed shows who has the machine; an undecided request is not that yet (#748).
+        item = _item()
+        reservation = EquipmentReservationFactory(equipment=item)
+        EquipmentReservationFactory(equipment=item, status=EquipmentReservation.Status.PENDING_APPROVAL)
+        [entry] = reservation_entries([item], *_calendar_range())
+        assert entry.pk == RESERVATION_PK_OFFSET + reservation.pk
+
     def it_leaves_a_managers_block_off_the_feed():
         item = _item()
         reservation = EquipmentReservationFactory(equipment=item)

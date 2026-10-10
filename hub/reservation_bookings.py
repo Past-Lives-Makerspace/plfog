@@ -23,7 +23,7 @@ from django.http import HttpRequest
 from django.urls import reverse
 from django.utils import timezone
 
-from classes.table import prepare_table
+from classes.table import prepare_table, table_search
 from hub.bookings_tab import date_param, late_fee_of, pane_query
 from membership.models import Equipment, EquipmentReservation, Member
 from membership.permissions import manageable_reservations, manages_equipment
@@ -73,6 +73,8 @@ class ReservationRow:
     can_cancel_mine: bool = False
     can_pay_fee: bool = False
     late_cancel_warning: str = ""
+    #: A request nobody decided before its time ended (#748): shown as "Not decided", never warn.
+    is_undecided: bool = False
     #: The Waive modal's form, built only for a row that offers Waive Late Fee.
     waive_form: Any = None
 
@@ -185,6 +187,7 @@ def build_row(
     now = timezone.now()
     confirmed = reservation.status == EquipmentReservation.Status.CONFIRMED
     waiting = reservation.is_awaiting_approval and reservation.ends_at > now
+    row.is_undecided = reservation.is_awaiting_approval and not waiting
     if can_manage:
         row.can_email = not is_own and (is_admin or reservation.member.is_public("email"))
         row.can_view_member = actual_admin
@@ -243,10 +246,13 @@ def reservation_bookings_context(request: HttpRequest) -> dict[str, Any]:
         if is_staff_view
         else EquipmentReservation.objects.none()
     )
-    waiting_count = waiting.count()
     rows = _apply_show(_base_rows(request, member, is_staff_view=is_staff_view), show, waiting)
+    waiting_count = 0
     if is_staff_view:
         rows = _apply_filters(request, rows)
+        # Counted through the same filters and search the chip's own list goes through, so they agree.
+        search = request.GET.get(SEARCH_PARAM, "").strip()
+        waiting_count = table_search(_apply_filters(request, waiting), search, SEARCH_FIELDS).count()
     table = prepare_table(
         request,
         _with_related(rows),

@@ -151,19 +151,34 @@ def describe_holding_reads():
         clash = EquipmentReservation.objects.over_orientation(orientation_type, _at(day, 11), _at(day, 13))
         assert clash.exists()
 
-    def it_reads_the_tool_as_busy_while_a_waiting_request_runs():
-        equipment = _approval_tool()
+    def it_never_reads_the_tool_as_in_use_for_an_undecided_request():
+        # In use now is confirmed rows only: a request is not the member at the machine.
         now = timezone.now()
-        EquipmentReservationFactory(
-            equipment=equipment,
-            starts_at=now - timedelta(minutes=30),
-            ends_at=now + timedelta(minutes=30),
-            status=WAITING,
-        )
-        tone, text = equipment.availability_line()
+        span = {"starts_at": now - timedelta(minutes=30), "ends_at": now + timedelta(minutes=30)}
+        waiting_tool = _approval_tool()
+        EquipmentReservationFactory(equipment=waiting_tool, status=WAITING, **span)
+        assert waiting_tool.availability_line()[0] != "busy"
+        # The control: the same span confirmed reads in use.
+        confirmed_tool = _approval_tool()
+        EquipmentReservationFactory(equipment=confirmed_tool, **span)
+        tone, text = confirmed_tool.availability_line()
         assert tone == "busy"
         assert text.startswith("Reserved until")
         assert not OrientationSlot.objects.exists()
+
+    def it_refuses_a_block_over_a_waiting_request():
+        equipment = _approval_tool()
+        manager = _with_manager(equipment, "blk_mgr")
+        day = _day()
+        EquipmentReservationFactory(
+            equipment=equipment,
+            member=MemberFactory(full_legal_name="Juniper Wrenhallow"),
+            starts_at=_at(day, 10),
+            ends_at=_at(day, 11),
+            status=WAITING,
+        )
+        with pytest.raises(EquipmentError, match="Overlaps Juniper W.'s reservation"):
+            equipment.ensure_blockable(manager, _at(day, 10), _at(day, 12))
 
 
 def describe_reserve_on_equipment_that_needs_approval():
@@ -230,6 +245,20 @@ def describe_reserve_on_equipment_that_needs_approval():
         )
         assert asked == {holder.user.pk}
 
+    def it_confirms_a_managers_own_booking_at_once():
+        # A manager of the equipment never waits on their own approval (same test as the late fee exemption).
+        equipment = _approval_tool()
+        manager = _with_manager(equipment, "own_mgr")
+        _with_manager(equipment, "own_other_mgr")
+        mail.outbox.clear()
+        reservation = equipment_service.reserve(equipment, manager, _at(_day(), 10), 60)
+        assert reservation.status == EquipmentReservation.Status.CONFIRMED
+        assert any(m.subject.startswith("Reserved:") for m in mail.outbox)
+        triggers = set(Notification.objects.values_list("trigger", flat=True))
+        assert "equipment.reservation_requested" not in triggers
+        assert "equipment.reservation_needs_approval" not in triggers
+        assert "equipment.reservation_made" in triggers
+
     def it_keeps_an_instant_booking_exactly_as_it_was():
         equipment = EquipmentFactory()
         EquipmentHoursFactory(
@@ -274,6 +303,16 @@ def describe_approve():
             reservation.approve(MemberFactory())
         reservation.refresh_from_db()
         assert reservation.status == WAITING
+
+    def it_still_approves_a_request_after_the_switch_was_turned_off():
+        equipment = EquipmentFactory(requires_approval=True)
+        manager = _with_manager(equipment, "ap_off_mgr")
+        reservation = _waiting(equipment, member=_linked_member("ap_off_member"))
+        equipment.requires_approval = False
+        equipment.save(update_fields=["requires_approval"])
+        reservation.approve(manager)
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.CONFIRMED
 
     def it_refuses_a_row_that_is_not_waiting():
         equipment = EquipmentFactory()
@@ -331,6 +370,16 @@ def describe_decline():
         assert "The spindle is out for repair that week." in row.body
         # The freed time can be booked again.
         assert equipment_service.reserve(equipment, _linked_member("dc_next"), reservation.starts_at, 60)
+
+    def it_still_declines_a_request_after_the_switch_was_turned_off():
+        equipment = EquipmentFactory(requires_approval=True)
+        manager = _with_manager(equipment, "dc_off_mgr")
+        reservation = _waiting(equipment, member=_linked_member("dc_off_member"))
+        equipment.requires_approval = False
+        equipment.save(update_fields=["requires_approval"])
+        reservation.decline(manager, reason="Booked for maintenance.")
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.DECLINED
 
     def it_refuses_a_blank_reason():
         equipment = EquipmentFactory()
@@ -397,6 +446,36 @@ def describe_cancelling_a_waiting_request():
         assert reservation.is_cancelled_by_manager
         assert reservation.late_fee_waived is False
         assert "The shop is closed that day." in mail.outbox[0].body
+
+    def it_tells_the_member_a_manager_just_approved_when_the_cancel_loses_that_race():
+        equipment = EquipmentFactory(requires_approval=True)
+        manager = _with_manager(equipment, "race_ap_mgr")
+        member = _linked_member("race_ap_member")
+        reservation = _waiting(equipment, member=member)
+        stale = EquipmentReservation.objects.get(pk=reservation.pk)
+        reservation.approve(manager)
+        with pytest.raises(EquipmentError, match="A manager just approved this. Cancel it again if you still want to."):
+            stale.cancel(member)
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.CONFIRMED
+
+    def it_tells_the_member_a_manager_just_declined_when_the_cancel_loses_that_race():
+        equipment = EquipmentFactory(requires_approval=True)
+        manager = _with_manager(equipment, "race_dc_mgr")
+        member = _linked_member("race_dc_member")
+        reservation = _waiting(equipment, member=member)
+        stale = EquipmentReservation.objects.get(pk=reservation.pk)
+        reservation.decline(manager, reason="Booked for maintenance.")
+        with pytest.raises(EquipmentError, match="A manager just declined this request"):
+            stale.cancel(member)
+
+    def it_keeps_already_cancelled_when_the_cancel_loses_to_another_cancel():
+        member = _linked_member("race_cx_member")
+        reservation = _waiting(member=member)
+        stale = EquipmentReservation.objects.get(pk=reservation.pk)
+        reservation.cancel(member)
+        with pytest.raises(EquipmentError, match="This reservation was already cancelled."):
+            stale.cancel(member)
 
     def it_refuses_to_cancel_a_declined_request():
         member = MemberFactory()

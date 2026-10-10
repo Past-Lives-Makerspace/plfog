@@ -99,6 +99,7 @@ Helpers on `Member`: `has_admin_capability(cap)` (the authorization gate) and `s
 - `Space.objects.available()` — status=AVAILABLE
 - `Space.objects.with_revenue()` — annotates active_lease_rent_total
 - `Lease.objects.active(as_of=date)` — start_date≤date and (end_date null or ≥date)
+- `EquipmentReservation.objects.holding()` / `confirmed()` (#748) — availability reads (overlap, `ensure_blockable`, free starts, the day timeline, the per member cap, the upcoming lists) use `holding()`, which counts a request awaiting approval because it holds its time; "in use right now" reads (`Equipment.availability_line`, the index card badge, the guild location lights, the Reservations calendar feed) use `confirmed()`, because an undecided request is not the member at the machine.
 
 ## Vote Calculator
 
