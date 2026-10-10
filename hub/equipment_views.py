@@ -1141,7 +1141,12 @@ def hub_equipment_flyer(request: HttpRequest, slug: str) -> HttpResponse:
     return render(
         request,
         "hub/equipment_flyer.html",
-        {"equipment": equipment, "qr_svg": equipment.qr_svg(), "orientations": equipment.qr_sheet_orientations},
+        {
+            "equipment": equipment,
+            "qr_svg": equipment.qr_svg(),
+            "orientations": equipment.qr_sheet_orientations,
+            "requirement": equipment.qr_sheet_requirement,
+        },
     )
 
 

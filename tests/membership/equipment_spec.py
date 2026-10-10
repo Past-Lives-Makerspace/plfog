@@ -796,6 +796,21 @@ def describe_ways_to_qualify():
             assert Equipment.ways_are_grouped([[object()], [object()]]) is False
             assert Equipment.ways_are_grouped([]) is False
 
+        def it_reads_the_ways_once_for_the_blockers():
+            from django.db import connection
+            from django.test.utils import CaptureQueriesContext
+
+            cnc, _full, first, _second = _cnc()
+            member = MemberFactory()
+            _completed_orientation(member, first)
+            fresh = Equipment.objects.get(pk=cnc.pk)
+            with CaptureQueriesContext(connection) as ctx:
+                assert len(fresh.booking_blockers(member)) == 1
+            row_reads = [
+                q for q in ctx.captured_queries if 'FROM "membership_equipmentunlockingorientation"' in q["sql"]
+            ]
+            assert len(row_reads) == 1
+
         def it_blocks_a_half_done_member_with_the_sentence():
             cnc, _full, first, _second = _cnc()
             member = MemberFactory()

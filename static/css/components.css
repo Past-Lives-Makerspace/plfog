@@ -2313,3 +2313,24 @@ select[multiple] option:checked {
     padding-top: 1rem;
     border-top: 1px solid var(--hub-border);
 }
+
+/* The Reservations card's Book links grouped by way (#747), on the Reservations page and the
+   guild page's Reservations tab alike (hub/partials/equipment_cards.html). */
+.pl-equip-card__way {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+}
+.pl-equip-card__way-lead {
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+}
+.pl-equip-card__or {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}

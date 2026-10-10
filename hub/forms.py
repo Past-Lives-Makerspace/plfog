@@ -5896,7 +5896,12 @@ class EquipmentWayForm(forms.Form):
     orientations = forms.MultipleChoiceField(required=False, widget=forms.CheckboxSelectMultiple)
 
     def __init__(
-        self, *args: Any, offered: dict[str, OrientationType], pill_meta: dict[str, str], **kwargs: Any
+        self,
+        *args: Any,
+        offered: dict[str, OrientationType],
+        pill_meta: dict[str, str],
+        shown: set[str] | None = None,
+        **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         # Every way validates in full: an empty way is skipped by the formset on purpose, never
@@ -5905,6 +5910,7 @@ class EquipmentWayForm(forms.Form):
         self.empty_permitted = False
         self.offered = offered
         self.pill_meta = pill_meta
+        self.shown = shown
         cast(forms.MultipleChoiceField, self.fields["orientations"]).choices = [
             (pk, orientation_type.name) for pk, orientation_type in offered.items()
         ]
@@ -5917,7 +5923,11 @@ class EquipmentWayForm(forms.Form):
         return [orientation_type for pk, orientation_type in self.offered.items() if pk in ticked]
 
     def pills(self) -> list[dict[str, Any]]:
-        """Each offered orientation as the template draws its pill: value, id, name, meta line and ticked state."""
+        """Each shown orientation as the template draws its pill: value, id, name, meta line and ticked state.
+
+        ``shown`` (None for all) narrows the pills to the guild's types; a ticked one always
+        shows, so a refused pick stays in view beside its error.
+        """
         bound = self["orientations"]
         ticked = {str(value) for value in (bound.value() or [])}
         return [
@@ -5929,6 +5939,7 @@ class EquipmentWayForm(forms.Form):
                 "checked": pk in ticked,
             }
             for index, (pk, orientation_type) in enumerate(self.offered.items())
+            if self.shown is None or pk in self.shown or pk in ticked
         ]
 
     def summary(self) -> str:
@@ -6127,14 +6138,23 @@ class EquipmentForm(forms.ModelForm):
             )
             .order_by("own_rank", "guild__name", "sort_order", "name")
         )
-        # Narrow the *display* to the owning guild's types plus this equipment's own; a
-        # bound form keeps the full set so changing guild and orientation in one POST
-        # validates against the POSTED guild (clean() enforces the match).
-        if not self.is_bound and self.instance.pk is not None and self.instance.guild_id is not None:
-            types = types.filter(
-                Q(guild_id=self.instance.guild_id) | Q(equipment_id=self.instance.pk) | Q(pk__in=current_ids)
-            )
+        # Every way validates against the full set, so changing guild and orientation in one
+        # POST validates against the POSTED guild (the formset enforces the match). The pills
+        # only *show* the guild's types plus this equipment's own and the saved ones: the
+        # item's guild on a fresh page, the posted guild when a Save comes back with errors.
         offered: dict[str, OrientationType] = {str(orientation_type.pk): orientation_type for orientation_type in types}
+        shown_guild_id = self._shown_guild_id()
+        shown: set[str] | None = (
+            None
+            if shown_guild_id is None
+            else {
+                pk
+                for pk, orientation_type in offered.items()
+                if orientation_type.guild_id == shown_guild_id
+                or (self.instance.pk is not None and orientation_type.equipment_id == self.instance.pk)
+                or orientation_type.pk in current_ids
+            }
+        )
         # A pill names its owner only when it is not this item's own or its guild's, so the
         # usual list reads as the mockup's short names and a standalone item's long list
         # still tells two guilds' "Basics" apart.
@@ -6148,14 +6168,14 @@ class EquipmentForm(forms.ModelForm):
             if not close_to_home:
                 parts.append(orientation_type.owner_name)
             pill_meta[pk] = " · ".join(parts)
-        self.has_orientations_to_pick = bool(offered)
+        self.has_orientations_to_pick = bool(offered if shown is None else shown)
         prefix = BaseEquipmentWayFormSet.prefix_name
         self.edits_ways: bool = not self.is_bound or f"{prefix}-TOTAL_FORMS" in self.data
         self.ways_formset = EquipmentWayFormSet(
             self.data if self.is_bound and self.edits_ways else None,
             prefix=prefix,
             initial=[{"orientations": [str(orientation_type.pk) for orientation_type in way]} for way in current_ways],
-            form_kwargs={"offered": offered, "pill_meta": pill_meta},
+            form_kwargs={"offered": offered, "pill_meta": pill_meta, "shown": shown},
         )
         cast(BaseEquipmentWayFormSet, self.ways_formset).number_ways()
         # The new type's form binds to the same POST only when "+ New Orientation" was used,
@@ -6191,6 +6211,13 @@ class EquipmentForm(forms.ModelForm):
         )
         self.fields["is_active"].help_text = "Members can see and book this equipment. Turn off to retire it."
         self.fields["is_active"].label = "Active"
+
+    def _shown_guild_id(self) -> int | None:
+        """The guild whose types the pills show: the posted one on a bound form, else the item's; None shows all."""
+        if self.is_bound:
+            posted = self.data.get(self.add_prefix("guild")) or ""
+            return int(posted) if posted.isdigit() else None
+        return self.instance.guild_id if self.instance.pk is not None else None
 
     @property
     def ways_count(self) -> int:

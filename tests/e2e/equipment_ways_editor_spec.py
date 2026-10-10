@@ -61,6 +61,14 @@ def describe_the_ways_to_qualify_editor():
         editor.locator("[data-way-delete]").nth(1).wait_for()
         assert cnc.unlocking_ways() == [[first, second], [full]]
 
+        # A Delete the browser blocks (a required field left blank) leaves DELETE unticked and saves nothing.
+        name = page.locator("#id_name")
+        name.fill("")
+        ways.nth(0).get_by_role("button", name="Delete").click()
+        assert page.locator("#id_ways-0-DELETE").is_checked() is False
+        assert cnc.unlocking_ways() == [[first, second], [full]]
+        name.fill("CNC Machine")
+
         ways.nth(0).get_by_role("button", name="Delete").click()
         editor.locator("[data-way-delete]").nth(1).wait_for(state="detached")
         assert cnc.unlocking_ways() == [[full]]

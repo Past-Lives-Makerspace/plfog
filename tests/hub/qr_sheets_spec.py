@@ -262,6 +262,31 @@ def describe_equipment_sheet_content():
         assert "Qrsheet Press Retired" not in body
         assert equipment.qr_sheet_orientations == [beginner, experienced]
 
+    def it_prints_the_grouped_sentence_and_no_single_qr_when_a_way_needs_several(client: Client):
+        # #747, the CNC shape: the 6 hour orientation, or both sessions. With only Session 1
+        # printable, its QR alone would read as if Session 1 unlocks the machine.
+        guild = GuildFactory(name="Qrsheet CNC Guild")
+        GuildOrientationSettingsFactory(guild=guild)
+        full = OrientationTypeFactory(guild=guild, name="CNC Machine Orientation", is_active=False)
+        first = OrientationTypeFactory(guild=guild, name="Session 1 of 2")
+        second = OrientationTypeFactory(guild=guild, name="Session 2 of 2", is_active=False)
+        equipment = EquipmentFactory(name="CNC Machine", guild=guild)
+        equipment.set_unlocking_ways([[full], [first, second]])
+        _equipment_staffer(client, "eq_grouped", equipment)
+        assert equipment.qr_sheet_orientations == [first]
+        body = client.get(_equipment_urls(equipment)[0]).content.decode()
+        assert 'data-qr-target="orientation"' not in body
+        assert qr_svg(f"{BASE}/orientations/types/{first.pk}/") not in body
+        assert "data-qr-orientations" not in body
+        assert (
+            "New here? Complete the CNC Machine Orientation, or both Session 1 of 2 and Session 2 of 2, "
+            "before you reserve the CNC Machine. Scan Reserve It to book."
+        ) in body
+
+    def it_keeps_the_single_orientation_sheet_when_every_way_is_one(client: Client):
+        orientation_type = OrientationTypeFactory(name="Qrsheet Lone Basics")
+        assert _tool(unlocking_orientations=[orientation_type]).qr_sheet_requirement == ""
+
     def it_leaves_the_second_qr_off_while_that_orientation_is_turned_off(client: Client):
         orientation_type = OrientationTypeFactory(guild=GuildFactory(name="Qrsheet Paused"), is_active=False)
         equipment = _tool(unlocking_orientations=[orientation_type])

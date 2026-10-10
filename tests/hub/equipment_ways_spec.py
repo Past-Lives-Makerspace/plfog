@@ -200,6 +200,44 @@ def describe_the_editor():
         form.save()
         assert cnc.unlocking_ways() == [[full], [first, second], [cnc.owned_orientation_types.get()]]
 
+    def it_keeps_a_way_whose_ticks_match_a_saved_way_at_the_same_index(client: Client):
+        # INITIAL_FORMS lower than the saved count: each posted way equals the saved way's initial
+        # at its index, which Django's unchanged extra form shortcut would read as empty.
+        cnc, full, first, second = _cnc()
+        _manager(client, "ways_initial_low", cnc)
+        assert _save(client, cnc, _details(cnc, **ways_data([full], [first, second], saved=0))).status_code == 302
+        assert cnc.unlocking_ways() == [[full], [first, second]]
+
+    def it_shows_only_the_posted_guilds_types_when_a_save_comes_back(client: Client):
+        cnc, full, first, _second = _cnc()
+        elsewhere = OrientationTypeFactory(guild=GuildFactory(name="Ceramics"), name="Wheel")
+        unpicked = OrientationTypeFactory(guild=GuildFactory(name="Metals"), name="Forge")
+        _manager(client, "ways_bound_narrow", cnc)
+        data = _details(cnc, **ways_data([full], [first, elsewhere], saved=2))
+        response = _save(client, cnc, data)
+        assert response.status_code == 200
+        form = response.context["form"]
+        assert form.ways_formset.non_form_errors() == [
+            "Pick orientations offered by the chosen guild, or this equipment's own orientations."
+        ]
+        empty_names = [pill["name"] for pill in form.ways_formset.empty_form.pills()]
+        assert empty_names == ["CNC Machine Orientation", "Session 1 of 2", "Session 2 of 2"]
+        # The refused pick stays in view, ticked, beside its error; an unticked foreign type does not show.
+        second_way = [pill["name"] for pill in form.ways_formset.forms[1].pills()]
+        assert "Wheel" in second_way
+        assert unpicked.name not in second_way
+        assert unpicked.name not in response.content.decode()
+
+    def it_validates_against_every_guilds_types_when_the_guild_changes(client: Client):
+        cnc, *_types = _cnc()
+        ceramics = GuildFactory(name="Ceramics")
+        wheel = OrientationTypeFactory(guild=ceramics, name="Wheel")
+        _manager(client, "ways_bound_rehome", cnc)
+        data = _details(cnc, **ways_data([wheel]))
+        data["guild"] = str(ceramics.pk)
+        assert _save(client, cnc, data).status_code == 302
+        assert cnc.unlocking_ways() == [[wheel]]
+
     def it_leaves_the_ways_alone_when_the_post_carries_none(client: Client):
         cnc, full, first, second = _cnc()
         _manager(client, "ways_absent", cnc)
@@ -369,6 +407,29 @@ def describe_the_cards():
         OrientationRecordFactory(member=user.member, orientation_type=second)
         cards = client.get(reverse("hub_equipment_index")).context["cards"]
         assert [card["access_state"] for card in cards] == [Equipment.AccessState.OK]
+
+    def it_groups_a_locked_cards_book_links_by_way(client: Client):
+        cnc, full, first, second = _cnc()
+        _login(client, "ways_cards_grouped")
+        content = client.get(reverse("hub_equipment_index")).content.decode()
+        assert content.count("data-unlock-way") == 2
+        assert content.count('<span class="pl-equip-card__or" aria-hidden="true">or</span>') == 1
+        assert '<span class="pl-equip-card__way-lead">Both</span>' in content
+        for orientation_type in (full, first, second):
+            assert f'data-unlock-type="{orientation_type.pk}">Book {orientation_type.name}</a>' in content
+        cards = client.get(reverse("hub_equipment_index")).context["cards"]
+        assert [[o for o, _link in way] for way in cards[0]["equipment"].unlocking_way_links] == [
+            [full],
+            [first, second],
+        ]
+
+    def it_keeps_the_flat_links_when_every_way_is_one_orientation(client: Client):
+        cnc, full, first, _second = _cnc(ways=False)
+        cnc.set_unlocking_ways([[full], [first]])
+        _login(client, "ways_cards_flat")
+        content = client.get(reverse("hub_equipment_index")).content.decode()
+        assert "data-unlock-way" not in content
+        assert f'data-unlock-type="{full.pk}">Book CNC Machine Orientation</a>' in content
 
     def it_renders_the_grid_in_a_fixed_number_of_queries_however_many_ways(client: Client):
         from django.db import connection

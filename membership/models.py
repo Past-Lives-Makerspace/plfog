@@ -15059,6 +15059,22 @@ class Equipment(HeroCropMixin, models.Model):
             for orientation_type in listed_types
         ]
 
+    @property
+    def unlocking_way_links(self) -> list[list[tuple[OrientationType, str]]]:
+        """The locked card's Book links grouped by way (#747), or [] when every way is one orientation.
+
+        Reads the two prefetches the card grid already makes (the rows and
+        :attr:`unlocking_orientation_links`), so grouping costs no query; with every way a
+        single orientation the card keeps its flat list.
+        """
+        ways = self.unlocking_ways()
+        if not self.ways_are_grouped(ways):
+            return []
+        links = {
+            orientation_type.pk: (orientation_type, link) for orientation_type, link in self.unlocking_orientation_links
+        }
+        return [[links[orientation_type.pk] for orientation_type in way] for way in ways]
+
     def unlocking_ways(self) -> list[list[OrientationType]]:
         """The ways to qualify, in order, each the orientation types a member must all complete (#747).
 
@@ -15230,6 +15246,16 @@ class Equipment(HeroCropMixin, models.Model):
         """
         return list(OrientationType.objects.printable().filter(gated_equipment=self).order_by("sort_order", "name"))
 
+    @property
+    def qr_sheet_requirement(self) -> str:
+        """The grouped sentence the sheet prints when a way needs several orientations (#747), else "".
+
+        Then no one type's booking QR is printed alone, since no one type unlocks the item
+        on its own; members scan Reserve It, whose page lists each way.
+        """
+        ways = self.unlocking_ways()
+        return self.requirement_sentence(ways) if self.ways_are_grouped(ways) else ""
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.slug:
             self.slug = self._unique_slug()
@@ -15354,7 +15380,13 @@ class Equipment(HeroCropMixin, models.Model):
         omit it and :meth:`Member.completed_orientation_type_ids` answers for every listed
         type in one read, never a query per type.
         """
-        ways = self.unlocking_ways()
+        return self._ways_unlocked_for(self.unlocking_ways(), member, oriented_type_ids)
+
+    @staticmethod
+    def _ways_unlocked_for(
+        ways: Sequence[Sequence[OrientationType]], member: Member, oriented_type_ids: set[int] | None = None
+    ) -> bool:
+        """:meth:`is_unlocked_for` over ways already read, so a caller that needs them too reads them once."""
         if not ways:
             return True
         if oriented_type_ids is None:
@@ -15375,8 +15407,8 @@ class Equipment(HeroCropMixin, models.Model):
         if member is None or member.status != Member.Status.ACTIVE:
             return ["Your membership needs to be active to reserve equipment."]
         blockers: list[str] = []
-        if not self.is_unlocked_for(member):
-            ways = self.unlocking_ways()
+        ways = self.unlocking_ways()
+        if not self._ways_unlocked_for(ways, member):
             names = [orientation_type.name for way in ways for orientation_type in way]
             if self.ways_are_grouped(ways):
                 blockers.append(self.requirement_sentence(ways))
