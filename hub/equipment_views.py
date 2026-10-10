@@ -62,7 +62,7 @@ from membership.models import (
     EquipmentStaffMembership,
     Guild,
     Member,
-    OrientationType,
+    duration_label,
 )
 from membership.permissions import can_create_equipment, can_manage_equipment, creatable_equipment_kinds
 
@@ -76,10 +76,13 @@ CALENDAR_KEY = "reservations"
 
 
 def _equipment_queryset() -> EquipmentQuerySet:
-    """The base queryset every equipment view reads — FKs prefetched, no per-row queries."""
-    unlocking = OrientationType.objects.select_related("guild", "equipment")
+    """The base queryset every equipment view reads — FKs prefetched, no per-row queries.
+
+    The unlocking rows arrive with their types and the types' owners (the rows' manager joins
+    them), so the ways to qualify (#747) cost one prefetch query for any number of cards.
+    """
     return Equipment.objects.select_related("guild", "space").prefetch_related(
-        "owned_orientation_types", Prefetch("unlocking_orientations", queryset=unlocking)
+        "owned_orientation_types", "unlocking_orientation_rows"
     )
 
 
@@ -102,17 +105,6 @@ def _member_oriented_type_ids(member: Member | None) -> set[int]:
     if member is None:
         return set()
     return member.completed_orientation_type_ids()
-
-
-def _duration_label(minutes: int) -> str:
-    """A friendly duration label: 30 -> "30 minutes", 60 -> "1 hour", 90 -> "1.5 hours"."""
-    if minutes < 60:
-        return f"{minutes} minutes"
-    hours = minutes / 60
-    if hours == int(hours):
-        count = int(hours)
-        return f"{count} hour{'' if count == 1 else 's'}"
-    return f"{hours:g} hours"
 
 
 def _orientation_busy_items(equipment: Equipment, day_start: datetime, day_end: datetime) -> list[dict[str, Any]]:
@@ -265,7 +257,7 @@ def _schedule_context(
         starts = equipment.free_starts_for_day(selected_day)
         durations_data = {
             start.isoformat(): [
-                {"v": minutes, "label": _duration_label(minutes)} for minutes in equipment.durations_for(start)
+                {"v": minutes, "label": duration_label(minutes)} for minutes in equipment.durations_for(start)
             ]
             for start in starts
         }
@@ -620,12 +612,13 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
     schedule = _schedule_context(equipment, member, week_offset=_strip_week_of(day), selected_day=day, manages=manages)
     # The schedule builder already looked the fee up once; the banner state reads the same answer.
     access_state = equipment.access_state(member, has_unpaid_fee=schedule["unpaid_late_fee"] is not None)
-    # One row per unlocking orientation (#656): its live booking, Book link or paused note.
-    orientation_unlocks = (
-        equipment.orientation_unlocks(member)
+    # One row per unlocking orientation (#656): its live booking, Book link or paused note, way by way (#747).
+    orientation_unlock_ways = (
+        equipment.orientation_unlock_ways(member)
         if member is not None and access_state == Equipment.AccessState.NEEDS_ORIENTATION
         else []
     )
+    unlock_ways = [[unlock.orientation_type for unlock in way] for way in orientation_unlock_ways]
     return render(
         request,
         "hub/equipment_detail.html",
@@ -634,7 +627,12 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
             **schedule,
             "equipment": equipment,
             "access_state": access_state,
-            "orientation_unlocks": orientation_unlocks,
+            "orientation_unlocks": [unlock for way in orientation_unlock_ways for unlock in way],
+            "orientation_unlock_ways": orientation_unlock_ways,
+            # The grouped sentence (#747) only when a way needs several orientations; otherwise today's copy.
+            "orientation_requirement_sentence": (
+                equipment.requirement_sentence(unlock_ways) if Equipment.ways_are_grouped(unlock_ways) else ""
+            ),
             "orientation_sections": _equipment_orientation_sections(equipment, member),
             "can_manage": manages,
         },
@@ -1143,7 +1141,12 @@ def hub_equipment_flyer(request: HttpRequest, slug: str) -> HttpResponse:
     return render(
         request,
         "hub/equipment_flyer.html",
-        {"equipment": equipment, "qr_svg": equipment.qr_svg(), "orientations": equipment.qr_sheet_orientations},
+        {
+            "equipment": equipment,
+            "qr_svg": equipment.qr_svg(),
+            "orientations": equipment.qr_sheet_orientations,
+            "requirement": equipment.qr_sheet_requirement,
+        },
     )
 
 

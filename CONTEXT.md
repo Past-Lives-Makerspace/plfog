@@ -56,6 +56,10 @@ _Avoid_: using bare "guild" for a class catalog category — that is a **Class T
 A named area of the building (`membership.Location`, e.g. Hot Glass Room), optionally a guild's, that a class, event, orientation type or piece of equipment can be set to; the guild page lights each of its locations free, starting soon or in use, counting locations that share space. In code the field is `area`; not a `Space` (an Airtable rental lease record).
 _Avoid_: area, room or space in member-facing copy for this concept.
 
+**Way to qualify**:
+One set of orientations that, all completed, lets a member reserve a piece of equipment (#747). An item lists zero or more ways and finishing any one is enough: the CNC Machine's are its one 6 hour orientation, or both of its 3 hour sessions. Stored as the `way` number on `EquipmentUnlockingOrientation`; a row with none is a way of its own.
+_Avoid_: path, route, requirement set, option.
+
 **Private guild** (removed concept):
 There is no such thing — every active Guild is visible on every surface (hub, public guilds site, Discord). The `is_public` flag was stripped in v22 as unused (0 of 15 guilds ever set it); "hide a guild" is `is_active` off, which removes it everywhere.
 _Avoid_: private guild, hidden guild, gating anything on guild visibility.

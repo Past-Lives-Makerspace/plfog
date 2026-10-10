@@ -90,6 +90,7 @@ from membership.models import (
     WikiPageFact,
     WikiWantedPage,
     normalize_wiki_ask,
+    orientation_way_phrase,
 )
 
 
@@ -5880,24 +5881,189 @@ class TourSettingsForm(forms.ModelForm):
         fields = ["guided_tours_enabled"]
 
 
+class EquipmentWayForm(forms.Form):
+    """One way to qualify on the Ways to Qualify editor (#747): the orientations a member must all complete.
+
+    The pills list every orientation the item can use (``offered``, built once by
+    :class:`EquipmentForm`), each with its duration. ``way_number`` and ``is_saved`` are set
+    by :meth:`BaseEquipmentWayFormSet.number_ways`: the "Way N" the manager sees, and whether
+    the card shows Delete (a saved way) or Remove (one added since the page loaded).
+    """
+
+    #: The summary line of a way with nothing ticked; Save skips it.
+    NOTHING_TICKED = "Nothing ticked yet"
+
+    orientations = forms.MultipleChoiceField(required=False, widget=forms.CheckboxSelectMultiple)
+
+    def __init__(
+        self,
+        *args: Any,
+        offered: dict[str, OrientationType],
+        pill_meta: dict[str, str],
+        shown: set[str] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        # Every way validates in full: an empty way is skipped by the formset on purpose, never
+        # by Django's unchanged extra form shortcut, which would drop the ticks of a new way
+        # that happens to match a saved way's.
+        self.empty_permitted = False
+        self.offered = offered
+        self.pill_meta = pill_meta
+        self.shown = shown
+        cast(forms.MultipleChoiceField, self.fields["orientations"]).choices = [
+            (pk, orientation_type.name) for pk, orientation_type in offered.items()
+        ]
+        self.way_number = 0
+        self.is_saved = False
+
+    def picked(self) -> list[OrientationType]:
+        """The ticked types in the pills' order, read from ``cleaned_data`` (empty for an untouched new way)."""
+        ticked = set(getattr(self, "cleaned_data", {}).get("orientations", []))
+        return [orientation_type for pk, orientation_type in self.offered.items() if pk in ticked]
+
+    def pills(self) -> list[dict[str, Any]]:
+        """Each shown orientation as the template draws its pill: value, id, name, meta line and ticked state.
+
+        ``shown`` (None for all) narrows the pills to the guild's types; a ticked one always
+        shows, so a refused pick stays in view beside its error.
+        """
+        bound = self["orientations"]
+        ticked = {str(value) for value in (bound.value() or [])}
+        return [
+            {
+                "value": pk,
+                "id": f"{bound.auto_id}_{index}",
+                "name": orientation_type.name,
+                "meta": self.pill_meta[pk],
+                "checked": pk in ticked,
+            }
+            for index, (pk, orientation_type) in enumerate(self.offered.items())
+            if self.shown is None or pk in self.shown or pk in ticked
+        ]
+
+    def summary(self) -> str:
+        """The live line beside "Way N": "CNC Machine Orientation", "Both Session 1 of 2 and Session 2 of 2"."""
+        names = [pill["name"] for pill in self.pills() if pill["checked"]]
+        if not names:
+            return self.NOTHING_TICKED
+        if len(names) == 1:
+            return str(names[0])
+        phrase = orientation_way_phrase(names)
+        return phrase[0].upper() + phrase[1:]
+
+
+class BaseEquipmentWayFormSet(forms.BaseFormSet):
+    """The Ways to Qualify list (#747), validated as a whole.
+
+    An empty way is skipped, never an error, so an abandoned "+ Add Another Way" never
+    blocks the Save. Two ways with the same orientations are refused by number ("Way 3 is
+    the same as Way 2"), and an orientation may sit in one way only, which is also what
+    ``uq_equip_unlock_orient`` holds the rows to. ``guild`` and ``equipment_pk`` are set by
+    :meth:`EquipmentForm.clean` before validation, for the guild rule.
+    """
+
+    #: The posted prefix; the template's cloned way and the management form read it.
+    prefix_name: ClassVar[str] = "ways"
+    FOREIGN_TYPE = "Pick orientations offered by the chosen guild, or this equipment's own orientations."
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.guild: Guild | None = None
+        self.equipment_pk: int | None = None
+
+    def _deleting(self, form: forms.Form) -> bool:
+        """Whether the posted DELETE is ticked, readable before validation (numbering happens first)."""
+        return bool(form["DELETE"].value())
+
+    def number_ways(self) -> None:
+        """Number the ways the manager sees, 1..n, skipping a deleted one; mark which were saved."""
+        number = 0
+        for index, form in enumerate(self.forms):
+            way_form = cast(EquipmentWayForm, form)
+            way_form.is_saved = index < self.initial_form_count()
+            if self._deleting(form):
+                way_form.way_number = 0
+                continue
+            number += 1
+            way_form.way_number = number
+
+    def live_forms(self) -> list[EquipmentWayForm]:
+        """The ways not being deleted, in order."""
+        return [
+            cast(EquipmentWayForm, form)
+            for form in self.forms
+            if not getattr(form, "cleaned_data", {}).get(forms.formsets.DELETION_FIELD_NAME)
+        ]
+
+    def clean(self) -> None:
+        if any(self.errors):
+            return
+        self._refuse_repeats()
+        if self.guild is not None:
+            self._refuse_other_guilds_types(self.guild)
+
+    def _refuse_repeats(self) -> None:
+        """Two ways with the same orientations, or one orientation in two ways, named by their numbers."""
+        same: dict[frozenset[int], int] = {}
+        way_of: dict[int, int] = {}
+        for form in self.live_forms():
+            types = form.picked()
+            if not types:
+                continue
+            key = frozenset(orientation_type.pk for orientation_type in types)
+            if key in same:
+                raise forms.ValidationError(
+                    f"Way {form.way_number} is the same as Way {same[key]}. Delete one of them."
+                )
+            same[key] = form.way_number
+            for orientation_type in types:
+                if orientation_type.pk in way_of:
+                    raise forms.ValidationError(
+                        f"{orientation_type.name} is in Way {way_of[orientation_type.pk]} and Way {form.way_number}. "
+                        "An orientation can be in one way only."
+                    )
+                way_of[orientation_type.pk] = form.way_number
+
+    def _refuse_other_guilds_types(self, guild: Guild) -> None:
+        """Guild run equipment unlocks on its guild's types; its OWN types are always legal, whatever the guild."""
+        for form in self.live_forms():
+            for orientation_type in form.picked():
+                own = self.equipment_pk is not None and orientation_type.equipment_id == self.equipment_pk
+                if orientation_type.guild_id != guild.pk and not own:
+                    raise forms.ValidationError(self.FOREIGN_TYPE)
+
+    def ways(self) -> list[list[OrientationType]]:
+        """The ways to save, in order, without the empty ones."""
+        return [types for types in (form.picked() for form in self.live_forms()) if types]
+
+
+EquipmentWayFormSet = forms.formset_factory(EquipmentWayForm, formset=BaseEquipmentWayFormSet, extra=0, can_delete=True)
+
+
 class EquipmentForm(forms.ModelForm):
     """Create/edit form for a piece of equipment (the Equipment directory, PR 1).
 
-    Used by both the admin-gated add page and the manage panel's Details tab. The
-    ``unlocking_orientations`` multi select (#656: completing any one unlocks the item, none
-    picked means any active member can book) narrows to the owning guild's active types when
-    the equipment already belongs to a guild; otherwise every guild's active types are
-    offered (grouped by guild via the type's ``__str__``) — the house Makerspace guild
-    is an operating convention, not a code concept.
+    Used by both the admin-gated add page and the manage panel's Details tab. Who may
+    reserve it is the Ways to Qualify list (#747), ``ways_formset``: each way is the
+    orientations a member must all complete, and finishing any one way is enough (none
+    means any active member can book). The pills narrow to the owning guild's active types
+    plus this equipment's own when the equipment already belongs to a guild; otherwise
+    every guild's active types are offered, the house Makerspace guild being an operating
+    convention, not a code concept.
 
-    Beside those the picker offers "New orientation for this equipment" (issue #466):
-    ``new_type_form`` (an :class:`OrientationTypeForm`, prefix ``new_type``) rides along,
-    and one Save then creates the equipment, its own type and adds it to the list in one
-    transaction. ``cleaned_data`` holds the picked :class:`OrientationType` rows without
-    the "new" choice, so ``clean()``'s guild rule reads real types only.
+    "+ New Orientation" (issue #466, posted as ``new_orientation=1``) brings
+    ``new_type_form`` (an :class:`OrientationTypeForm`, prefix ``new_type``) along, and one
+    Save then creates the equipment, its own type and a way holding just that type, in one
+    transaction.
+
+    A POST without the ways' management form leaves the ways as they are (and a new item
+    with none): every surface that renders this form renders the list, so only a caller
+    that never showed it omits it, and it must not clear the gate by accident.
     """
 
-    NEW_TYPE_CHOICE = "new"
+    #: The posted flag "+ New Orientation" sets (#466, #747).
+    NEW_TYPE_FIELD = "new_orientation"
     # The nested type form's fields the partial renders; the rest keep their model defaults.
     NEW_TYPE_FIELDS = ("name", "duration_minutes", "default_seats", "price", "default_location")
     #: The refusal when a posted kind falls outside the kinds this form was opened with (#502).
@@ -5914,7 +6080,6 @@ class EquipmentForm(forms.ModelForm):
             "description",
             "area",
             "location_note",
-            "unlocking_orientations",
             "is_active",
         ]
         widgets = {
@@ -5957,15 +6122,12 @@ class EquipmentForm(forms.ModelForm):
         space_field.queryset = Space.objects.order_by("space_id")
         space_field.empty_label = "No linked space"
         space_field.required = False
-        # The saved selection stays choosable even when since deactivated — otherwise
-        # every later Details save fails validation (the inactive-selected bug, both
-        # owner kinds). Inactive alternatives stay hidden. This equipment's own types
-        # sort first, labelled by the owner-aware __str__ ("CNC Router — Operator Basics").
-        current_ids: list[int] = (
-            list(self.instance.unlocking_orientations.values_list("pk", flat=True))
-            if self.instance.pk is not None
-            else []
-        )
+        # The saved ways stay choosable even when a type in them was since deactivated —
+        # otherwise every later Details save fails validation (the inactive-selected bug,
+        # both owner kinds). Inactive alternatives stay hidden. This equipment's own types
+        # sort first.
+        current_ways = self.instance.unlocking_ways() if self.instance.pk is not None else []
+        current_ids = [orientation_type.pk for way in current_ways for orientation_type in way]
         types = (
             OrientationType.objects.filter(Q(is_active=True) | Q(pk__in=current_ids))
             .select_related("guild", "equipment")
@@ -5976,43 +6138,54 @@ class EquipmentForm(forms.ModelForm):
             )
             .order_by("own_rank", "guild__name", "sort_order", "name")
         )
-        # Narrow the *display* to the owning guild's types plus this equipment's own; a
-        # bound form keeps the full set so changing guild and orientation in one POST
-        # validates against the POSTED guild (clean() enforces the match).
-        if not self.is_bound and self.instance.pk is not None and self.instance.guild_id is not None:
-            types = types.filter(
-                Q(guild_id=self.instance.guild_id) | Q(equipment_id=self.instance.pk) | Q(pk__in=current_ids)
-            )
-        # A plain MultipleChoiceField so "new" can sit beside the types;
-        # clean_unlocking_orientations maps the posted pks back to their instances, so the
-        # rest of the form and the many to many save never see the swap.
-        self._offered_types: dict[str, OrientationType] = {
-            str(orientation_type.pk): orientation_type for orientation_type in types
-        }
-        choices = [
-            (self.NEW_TYPE_CHOICE, "New orientation for this equipment"),
-            *((pk, str(orientation_type)) for pk, orientation_type in self._offered_types.items()),
-        ]
-        self.fields["unlocking_orientations"] = forms.MultipleChoiceField(
-            choices=choices,
-            required=False,
-            label="Orientations that unlock it",
-            widget=forms.SelectMultiple(attrs={"size": min(max(len(choices), 3), 8)}),
+        # Every way validates against the full set, so changing guild and orientation in one
+        # POST validates against the POSTED guild (the formset enforces the match). The pills
+        # only *show* the guild's types plus this equipment's own and the saved ones: the
+        # item's guild on a fresh page, the posted guild when a Save comes back with errors.
+        offered: dict[str, OrientationType] = {str(orientation_type.pk): orientation_type for orientation_type in types}
+        shown_guild_id = self._shown_guild_id()
+        shown: set[str] | None = (
+            None
+            if shown_guild_id is None
+            else {
+                pk
+                for pk, orientation_type in offered.items()
+                if orientation_type.guild_id == shown_guild_id
+                or (self.instance.pk is not None and orientation_type.equipment_id == self.instance.pk)
+                or orientation_type.pk in current_ids
+            }
         )
-        self.initial["unlocking_orientations"] = [str(pk) for pk in current_ids]
-        # The new type's form binds to the same POST only when "new" was chosen, so the
-        # other choices ignore its inputs. Its unrendered fields stop being required and
-        # keep their model defaults (construct_instance leaves a defaulted field alone
-        # when the POST omits it); the browser's required attribute is off because the
-        # inputs sit hidden until the choice is made, and the server reports blanks.
-        posted = (
-            self.fields["unlocking_orientations"].widget.value_from_datadict(
-                self.data, self.files, self.add_prefix("unlocking_orientations")
+        # A pill names its owner only when it is not this item's own or its guild's, so the
+        # usual list reads as the mockup's short names and a standalone item's long list
+        # still tells two guilds' "Basics" apart.
+        pill_meta: dict[str, str] = {}
+        for pk, orientation_type in offered.items():
+            close_to_home = self.instance.pk is not None and (
+                orientation_type.equipment_id == self.instance.pk
+                or (self.instance.guild_id is not None and orientation_type.guild_id == self.instance.guild_id)
             )
-            if self.is_bound
-            else None
+            parts = [orientation_type.duration_label]
+            if not close_to_home:
+                parts.append(orientation_type.owner_name)
+            pill_meta[pk] = " · ".join(parts)
+        self.has_orientations_to_pick = bool(offered if shown is None else shown)
+        prefix = BaseEquipmentWayFormSet.prefix_name
+        self.edits_ways: bool = not self.is_bound or f"{prefix}-TOTAL_FORMS" in self.data
+        self.ways_formset = EquipmentWayFormSet(
+            self.data if self.is_bound and self.edits_ways else None,
+            prefix=prefix,
+            initial=[{"orientations": [str(orientation_type.pk) for orientation_type in way]} for way in current_ways],
+            form_kwargs={"offered": offered, "pill_meta": pill_meta, "shown": shown},
         )
-        self.creates_orientation_type: bool = posted is not None and self.NEW_TYPE_CHOICE in posted
+        cast(BaseEquipmentWayFormSet, self.ways_formset).number_ways()
+        # The new type's form binds to the same POST only when "+ New Orientation" was used,
+        # so a Save without it ignores its inputs. Its unrendered fields stop being required and
+        # keep their model defaults (construct_instance leaves a defaulted field alone when the
+        # POST omits it); the browser's required attribute is off because the inputs sit hidden
+        # until the button is pressed, and the server reports blanks.
+        self.creates_orientation_type: bool = (
+            self.is_bound and self.data.get(self.add_prefix(self.NEW_TYPE_FIELD)) == "1"
+        )
         self.new_type_form = OrientationTypeForm(
             self.data if self.creates_orientation_type else None, prefix="new_type", use_required_attribute=False
         )
@@ -6036,42 +6209,41 @@ class EquipmentForm(forms.ModelForm):
         setup_location_field(
             self, hint="The area it sits in. A reservation shows the area in use on its guild page. Optional."
         )
-        self.fields["unlocking_orientations"].help_text = (
-            "Members who completed any one of these can reserve it. Pick none and any active member can. "
-            "Ctrl or Cmd click to pick more than one."
-        )
         self.fields["is_active"].help_text = "Members can see and book this equipment. Turn off to retire it."
         self.fields["is_active"].label = "Active"
 
-    def clean_unlocking_orientations(self) -> list[OrientationType]:
-        """The posted choices as the instances the model expects, without "new" (the save adds that type)."""
-        choices: list[str] = self.cleaned_data["unlocking_orientations"]
-        return [self._offered_types[choice] for choice in choices if choice != self.NEW_TYPE_CHOICE]
+    def _shown_guild_id(self) -> int | None:
+        """The guild whose types the pills show: the posted one on a bound form, else the item's; None shows all."""
+        if self.is_bound:
+            posted = self.data.get(self.add_prefix("guild")) or ""
+            return int(posted) if posted.isdigit() else None
+        return self.instance.guild_id if self.instance.pk is not None else None
+
+    @property
+    def ways_count(self) -> int:
+        """How many ways the editor shows (a deleted one waiting for Save is not counted)."""
+        return sum(1 for form in self.ways_formset if cast(EquipmentWayForm, form).way_number)
+
+    @property
+    def ways_subject(self) -> str:
+        """How the Ways to Qualify copy names the item: "the CNC Machine", or "this equipment" before it has a name."""
+        return f"the {self.instance.name}" if self.instance.pk is not None else "this equipment"
 
     def is_valid(self) -> bool:
-        """Validate the equipment and, when a new type is being made, its form too, so every error shows at once."""
+        """Validate the equipment, its ways and, when a new type is being made, its form too, so every error shows at once."""
         valid = super().is_valid()
+        if self.is_bound and self.edits_ways:
+            valid = self.ways_formset.is_valid() and valid
         if self.creates_orientation_type:
             valid = self.new_type_form.is_valid() and valid
         return valid
 
     def clean(self) -> dict[str, Any]:
         cleaned: dict[str, Any] = super().clean() or {}
-        guild = cleaned.get("guild")
-        orientations: list[OrientationType] = cleaned.get("unlocking_orientations", [])
-        if guild is not None:
-            # An equipment's OWN type is always a legal unlock, whatever the guild.
-            foreign = [
-                orientation
-                for orientation in orientations
-                if orientation.guild_id != guild.pk
-                and not (self.instance.pk is not None and orientation.equipment_id == self.instance.pk)
-            ]
-            if foreign:
-                self.add_error(
-                    "unlocking_orientations",
-                    "Pick orientations offered by the chosen guild, or this equipment's own orientations.",
-                )
+        # The guild rule reads the POSTED guild, so the ways validate after it is known.
+        ways = cast(BaseEquipmentWayFormSet, self.ways_formset)
+        ways.guild = cleaned.get("guild")
+        ways.equipment_pk = self.instance.pk
         if self.creates_orientation_type:
             self._refuse_duplicate_new_type_name()
         return cleaned
@@ -6099,15 +6271,19 @@ class EquipmentForm(forms.ModelForm):
             )
 
     def save(self, commit: bool = True) -> Equipment:
-        """Save the equipment and, for "New orientation for this equipment", its type and the gate, together.
+        """Save the equipment, its ways to qualify and, for "+ New Orientation", its type as a way of its own.
 
         One transaction: the type is created owned by the equipment (``guild`` empty) and
-        active, then added to the unlocking list, so the gate is closed when the redirect lands.
+        active, then the ways are rewritten numbered 1..n with the new type last, so the
+        gate is closed when the redirect lands.
         """
-        if not commit and self.creates_orientation_type:
-            raise ValueError("EquipmentForm.save(commit=False) cannot create the new orientation type; call save().")
+        if not commit:
+            raise ValueError("EquipmentForm.save(commit=False) cannot save the ways to qualify; call save().")
         with transaction.atomic():
-            equipment = cast(Equipment, super().save(commit=commit))
+            equipment = cast(Equipment, super().save())
+            ways: list[list[OrientationType]] | None = (
+                cast(BaseEquipmentWayFormSet, self.ways_formset).ways() if self.is_bound and self.edits_ways else None
+            )
             if self.creates_orientation_type:
                 new_type = self.new_type_form.save(commit=False)
                 new_type.equipment = equipment
@@ -6117,7 +6293,9 @@ class EquipmentForm(forms.ModelForm):
                 # The Active toggle is not rendered here, and an unchecked checkbox posts as False.
                 new_type.is_active = True
                 new_type.save()
-                equipment.unlocking_orientations.add(new_type)
+                ways = [*(ways if ways is not None else equipment.unlocking_ways()), [new_type]]
+            if ways is not None:
+                equipment.set_unlocking_ways(ways)
         return equipment
 
 

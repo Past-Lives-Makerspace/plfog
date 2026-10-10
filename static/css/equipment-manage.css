@@ -39,3 +39,68 @@
     padding-top: 1rem;
     border-top: 1px solid var(--hub-border);
 }
+
+/* The Ways to Qualify section inside the Details form and Add Equipment (#747). */
+.pl-equip-ways {
+    margin: 0.5rem 0 1.25rem;
+}
+.pl-equip-ways__title {
+    margin: 0 0 0.25rem;
+}
+.pl-equip-ways__intro {
+    margin: 0 0 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    max-width: 62ch;
+}
+.pl-equip-ways__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+.pl-equip-ways__rows:empty {
+    display: none;
+}
+.pl-equip-way {
+    position: relative;
+    padding: 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+}
+/* The "or" between two shown ways, in the gap above the second; decorative, so its alt text is empty. */
+.pl-equip-way:not([hidden]) ~ .pl-equip-way:not([hidden])::before {
+    content: "or" / "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -1.5rem;
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+.pl-equip-way__head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.25rem;
+}
+.pl-equip-way__name {
+    font-weight: 700;
+    color: var(--hub-text);
+}
+.pl-equip-way__summary {
+    font-size: 0.85rem;
+    color: var(--hub-text-muted);
+}
+.pl-equip-ways__add {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 0.75rem 0 1rem;
+}

@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-09"
+title = "Equipment can ask for one orientation, or a set of them"
+changes = [
+  "Equipment managers now list ways to qualify on the Details tab. Each way is one or more orientations, and a member can reserve once they finish every orientation in any one way.",
+  "So the CNC Machine can take either its full 6 hour orientation or both of its 3 hour sessions.",
+  "The equipment page and the wiki say which orientations are left, and mark the ones you have done.",
+]

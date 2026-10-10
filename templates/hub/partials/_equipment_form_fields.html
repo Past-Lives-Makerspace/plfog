@@ -4,13 +4,16 @@ The EquipmentForm's fields — shared by the add page and the manage panel's Det
   form      — a bound or unbound EquipmentForm
   equipment — the instance being edited, or absent on the add page (drives the
               photo delete button and the "create a new orientation type" link)
-The new orientation type's fields (form.new_type_form, issue #466) only show while
-"New orientation for this equipment" is among the picked unlocking orientations (#656); the Alpine state lives here so both
-surfaces behave identically. Layout stays in CSS classes — never inline display on an x-show element
-(FRONTEND rule 12).
+Who may reserve it is the Ways to Qualify list (#747, form.ways_formset): a card per way, an
+"or" between them (CSS), Delete on a saved way (flips its hidden DELETE and submits the whole
+form), Remove on one added since load, and "+ Add Another Way" cloning the empty way from the
+<template>; static/js/equipment_ways.js (plEquipWays) numbers the cards and writes each
+summary line. "+ New Orientation" reveals the new type's fields (form.new_type_form, issue
+#466) and posts new_orientation=1, so Save makes that type a way of its own. The Alpine state
+lives here so both surfaces behave identically. Layout stays in CSS classes — never inline
+display on an x-show element (FRONTEND rule 12).
 {% endcomment %}
-<div x-data="{ newOrientation: {% if form.creates_orientation_type %}true{% else %}false{% endif %} }"
-     @change="if ($event.target.name === 'unlocking_orientations') newOrientation = Array.from($event.target.selectedOptions).some(option => option.value === '{{ form.NEW_TYPE_CHOICE }}')">
+<div x-data="{ newOrientation: {% if form.creates_orientation_type %}true{% else %}false{% endif %} }">
   {% if form.non_field_errors %}
   <ul class="pl-field-errors">
     {% for error in form.non_field_errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
@@ -30,25 +33,52 @@ surfaces behave identically. Layout stays in CSS classes — never inline displa
     {% include "components/form_field.html" with field=form.description %}
     {% include "components/form_field.html" with field=form.area %}
     {% include "components/form_field.html" with field=form.location_note %}
-    {% include "components/form_field.html" with field=form.unlocking_orientations %}
+
+    <section class="pl-equip-ways" aria-labelledby="ways-title" data-ways-editor
+             x-data="plEquipWays({{ form.ways_count }})" @click="onClick($event)" @change="onChange($event)">
+      <h3 class="hub-detail-label pl-equip-ways__title" id="ways-title">Ways to Qualify</h3>
+      <p class="pl-equip-ways__intro" x-show="count > 0"{% if not form.ways_count %} x-cloak{% endif %}>A member can reserve {{ form.ways_subject }} once they finish every orientation in any one way. Leave this empty and no orientation is needed.</p>
+      <p class="pl-equip-ways__intro" x-show="count === 0"{% if form.ways_count %} x-cloak{% endif %} data-ways-empty>No orientation is needed. Any active member can reserve {{ form.ways_subject }}. {% if form.has_orientations_to_pick %}Add a way to require one.{% else %}Create its orientation with + New Orientation.{% endif %}</p>
+      {% if form.ways_formset.non_form_errors %}
+      <ul class="pl-field-errors" data-ways-errors>
+        {% for error in form.ways_formset.non_form_errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+      {{ form.ways_formset.management_form }}
+      <div class="pl-equip-ways__rows" x-ref="rows">
+        {% for way in form.ways_formset %}
+        {% include "hub/partials/_equipment_way.html" with way=way index=forloop.counter0 %}
+        {% endfor %}
+      </div>
+      {# The empty way "+ Add Another Way" clones: every pill unticked, Remove instead of Delete. #}
+      <template x-ref="template">{% include "hub/partials/_equipment_way.html" with way=form.ways_formset.empty_form index="__prefix__" %}</template>
+      <div class="pl-equip-ways__add">
+        {% if form.has_orientations_to_pick %}
+        <button type="button" class="hub-btn hub-btn--sm" data-ways-add @click="add()" x-text="count > 0 ? '+ Add Another Way' : '+ Add a Way to Qualify'">{% if form.ways_count %}+ Add Another Way{% else %}+ Add a Way to Qualify{% endif %}</button>
+        {% endif %}
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-new-orientation x-show="!newOrientation"{% if form.creates_orientation_type %} x-cloak{% endif %} @click="newOrientation = true">+ New Orientation</button>
+      </div>
+      <input type="hidden" name="{{ form.NEW_TYPE_FIELD }}" :value="newOrientation ? '1' : ''" value="{% if form.creates_orientation_type %}1{% endif %}">
+      {# The new type's own fields: closed until "+ New Orientation" is pressed, open on a failed Save that used it. #}
+      <div x-show="newOrientation"{% if not form.creates_orientation_type %} x-cloak{% endif %} class="pl-equip-new-type">
+        <p class="pl-equip-new-type__title">New Orientation</p>
+        <p class="pl-equip-new-type__hint">Owned by this equipment. On Save it becomes a way of its own. Members book it on the equipment page; you can edit it later on the Orientation tab.</p>
+        {% for error in form.new_type_form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+        {% include "components/form_field.html" with field=form.new_type_form.name field_label="Orientation name" %}
+        <div class="pl-equip-new-type__fields">
+          <div class="pl-equip-new-type__field">{% include "components/form_field.html" with field=form.new_type_form.duration_minutes %}</div>
+          <div class="pl-equip-new-type__field">{% include "components/form_field.html" with field=form.new_type_form.default_seats %}</div>
+          <div class="pl-equip-new-type__field">{% include "components/form_field.html" with field=form.new_type_form.price %}</div>
+          <div class="pl-equip-new-type__field">{% include "components/form_field.html" with field=form.new_type_form.default_location %}</div>
+        </div>
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" @click="newOrientation = false">Remove</button>
+      </div>
+    </section>
     {% if equipment and equipment.guild %}
     <p class="pl-field-hint pl-equip-guild-type-link">
       <a href="{% url 'hub_guild_orientations' equipment.guild.pk %}">Create a new {{ equipment.guild.name }} orientation</a>
     </p>
     {% endif %}
-    {# The new type's own fields: closed until "New orientation for this equipment" is picked, open on a failed Save that picked it. #}
-    <div x-show="newOrientation"{% if not form.creates_orientation_type %} x-cloak{% endif %} class="pl-equip-new-type">
-      <p class="pl-equip-new-type__title">New orientation</p>
-      <p class="pl-equip-new-type__hint">Owned by this equipment. Members book it on the equipment page; you can edit it later on the Orientation tab.</p>
-      {% for error in form.new_type_form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-      {% include "components/form_field.html" with field=form.new_type_form.name field_label="Orientation name" %}
-      <div class="pl-equip-new-type__fields">
-        <div class="pl-equip-new-type__field">{% include "components/form_field.html" with field=form.new_type_form.duration_minutes %}</div>
-        <div class="pl-equip-new-type__field">{% include "components/form_field.html" with field=form.new_type_form.default_seats %}</div>
-        <div class="pl-equip-new-type__field">{% include "components/form_field.html" with field=form.new_type_form.price %}</div>
-        <div class="pl-equip-new-type__field">{% include "components/form_field.html" with field=form.new_type_form.default_location %}</div>
-      </div>
-    </div>
     {% include "components/form_field.html" with field=form.is_active %}
   </div>
 </div>
