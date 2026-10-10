@@ -8,7 +8,7 @@ import logging
 import re
 import secrets
 import unicodedata
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 from datetime import UTC, date as date_type, datetime, timedelta
@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     from django.forms import ModelForm
 
     from billing.models import PaymentRefund
+    from core.integrations.eventbrite import ListingCheck
     from membership.models import Member
 
 logger = logging.getLogger(__name__)
@@ -1497,6 +1498,28 @@ class ClassOffering(HeroCropMixin, models.Model):
         verbose_name="Published on Eventbrite by plfog",
         help_text="plfog has published this class's Eventbrite event. A draft after that was taken down outside plfog and is never republished.",
     )
+    # Who agreed to Eventbrite's selling rules for this class, and when (#725). Turning the
+    # switch on needs the agreement; a class switched on before it asks on its next save.
+    # ``default=None`` beside ``db_default``: an unsaved class reads None, not a DatabaseDefault.
+    eventbrite_rules_agreed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=None,
+        db_default=None,
+        related_name="+",
+        verbose_name="Agreed to Eventbrite's rules",
+        help_text="Who ticked I agree to Eventbrite's selling rules for this class. Blank until someone does.",
+    )
+    eventbrite_rules_agreed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        default=None,
+        db_default=None,
+        verbose_name="Agreed to Eventbrite's rules on",
+        help_text="When Eventbrite's selling rules were agreed to for this class. Blank until they are.",
+    )
 
     objects = ClassOfferingQuerySet.as_manager()
 
@@ -2295,6 +2318,28 @@ class ClassOffering(HeroCropMixin, models.Model):
             return ""
         return f"https://www.eventbrite.com/e/{self.eventbrite_event_id}"
 
+    def eventbrite_listing_check(self, faqs: "Sequence[Mapping[str, str]] | None" = None) -> "ListingCheck":
+        """This class's text against Eventbrite's selling rules (#725); the form and the sync both ask here.
+
+        Args:
+            faqs: The FAQ rows to check, for a form checking what was posted (an unsaved class
+                must pass them); omitted, the class's saved rows (:meth:`own_faqs`).
+        """
+        from core.integrations.eventbrite import check_listing
+
+        rows = self.own_faqs() if faqs is None else faqs
+        return check_listing(self.title, self.subtitle, self.description, rows)
+
+    @property
+    def needs_eventbrite_agreement(self) -> bool:
+        """Nobody has agreed to Eventbrite's selling rules for this class yet."""
+        return self.eventbrite_rules_agreed_at is None
+
+    def agree_to_eventbrite_rules(self, user: "User") -> None:
+        """Record who agreed to Eventbrite's selling rules and when; the caller's save writes it."""
+        self.eventbrite_rules_agreed_by_id = user.pk
+        self.eventbrite_rules_agreed_at = timezone.now()
+
     def sync_eventbrite_listing(self) -> None:
         """Create, update or end this class's Eventbrite listing, and save the sync fields.
 
@@ -2303,11 +2348,16 @@ class ClassOffering(HeroCropMixin, models.Model):
         and reaches here on the ``retry_eventbrite_pushes`` tick. Best-effort: the service records ``PENDING`` or ``FAILED``
         instead of raising, so Eventbrite never blocks a plfog save. A class never opted in
         and never listed returns without a query.
+
+        A class that fails the listing check here (it was queued, and goes live failing) sends
+        its instructor the problems, once per list: only when the problems differ from the
+        refusal the class already records, so a retry tick or an unrelated save never repeats it (#725).
         """
         if not self.eventbrite_enabled and not self.eventbrite_event_id:
             return
-        from core.integrations.eventbrite import sync_class_listing
+        from core.integrations.eventbrite import EventbriteSync, sync_class_listing
 
+        recorded = self.eventbrite_sync_error
         sync_class_listing(self)
         self.save(
             update_fields=[
@@ -2320,6 +2370,14 @@ class ClassOffering(HeroCropMixin, models.Model):
                 "updated_at",
             ]
         )
+        refusal = self.eventbrite_sync_error
+        refused = self.eventbrite_sync_state == self.EventbriteSyncState.FAILED and refusal.startswith(
+            EventbriteSync.RULES_REFUSAL
+        )
+        if refused and refusal != recorded:
+            from classes.emails import send_eventbrite_rules_failed
+
+            send_eventbrite_rules_failed(self)
 
     def mark_eventbrite_edit_saved(self) -> None:
         """After an edit save, leave the listing for ``retry_eventbrite_pushes`` instead of syncing it now.
@@ -2338,12 +2396,17 @@ class ClassOffering(HeroCropMixin, models.Model):
             if self.eventbrite_event_id and self.eventbrite_sync_state != state.ENDED:
                 self.sync_eventbrite_listing()
             return
+        if self.needs_eventbrite_agreement:
+            return  # nothing goes to Eventbrite until someone agrees, so nothing is queued (#725)
         from core.integrations.eventbrite import EventbriteClient, EventbriteSync
 
         self.eventbrite_sync_state = state.PENDING
-        self.eventbrite_sync_error = (
-            EventbriteSync.EDIT_SAVED if EventbriteClient.from_settings().enabled else EventbriteSync.SYNC_OFF
-        )
+        # A rules refusal stays while the class waits, so the tick that refuses it again knows
+        # the instructor already has this list and sends no second email (#725).
+        if not self.eventbrite_sync_error.startswith(EventbriteSync.RULES_REFUSAL):
+            self.eventbrite_sync_error = (
+                EventbriteSync.EDIT_SAVED if EventbriteClient.from_settings().enabled else EventbriteSync.SYNC_OFF
+            )
         self.save(update_fields=["eventbrite_sync_state", "eventbrite_sync_error", "updated_at"])
 
     @classmethod
@@ -3470,12 +3533,18 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.cancelled_at = None
         self.cancelled_by = None
         self.cancellation_reason = ""
-        # The opt-in carries over; the listing does not, or the clone would edit the source's event.
+        # The listing does not carry over, or the clone would edit the source's event.
         self.eventbrite_event_id = ""
         self.eventbrite_ticket_class_id = ""
         self.eventbrite_sync_state = self.EventbriteSyncState.IDLE
         self.eventbrite_sync_error = ""
         self.eventbrite_synced_at = None
+        # Published belongs to the source's event: kept, the copy's new event reads as taken down.
+        self.eventbrite_published = False
+        # The agreement is per class (#725): a copy starts off Eventbrite and asks for it again.
+        self.eventbrite_enabled = False
+        self.eventbrite_rules_agreed_by = None
+        self.eventbrite_rules_agreed_at = None
 
     def _copy_photos_and_faqs_from(self, source_pk: int) -> None:
         """Re-point the source's gallery and FAQ rows at this freshly saved clone.

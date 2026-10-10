@@ -505,6 +505,17 @@ def registration_resume_link_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def eventbrite_rules_failed_context(data: SampleData) -> dict[str, Any]:
+    """Renders ``classes.emails.eventbrite_rules_failed_email``, the real copy, on a failing sample description."""
+    from classes.emails import eventbrite_rules_failed_email
+    from core.integrations.eventbrite import check_listing
+
+    offering = data.offering
+    check = check_listing(offering.title, "", "<p>Materials are paid at the session (cash/venmo).</p>", [])
+    subject, body = eventbrite_rules_failed_email(offering, check.problems)
+    return {"subject": subject, "text_body": body}
+
+
 def orphaned_class_payment_alert_context(data: SampleData) -> dict[str, Any]:
     """Reproduces ``classes.emails.send_orphaned_payment_alert`` exactly."""
     from classes.emails import _absolute_url

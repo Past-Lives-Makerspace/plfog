@@ -15,6 +15,8 @@ email are dropped (they cannot receive a per-recipient channel).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from typing import TYPE_CHECKING, Any, Protocol
 
 from django.conf import settings
@@ -56,7 +58,7 @@ def _member_user(member: Member, reason: str) -> Recipient | None:
     return (user, reason)
 
 
-def _dedupe(recipients: list[Recipient | None]) -> list[Recipient]:
+def _dedupe(recipients: Sequence[Recipient | None]) -> list[Recipient]:
     """Drop ``None`` entries and de-duplicate by user pk, keeping first reason."""
     out: list[Recipient] = []
     seen: set[int] = set()
@@ -195,33 +197,35 @@ def space_approvers(context: dict[str, Any]) -> list[Recipient]:
 
 
 def equipment_managers(context: dict[str, Any]) -> list[Recipient]:
-    """UNION — everyone who manages the in-context equipment, across all three tiers.
+    """COMPOSITION — the people who run the in-context equipment, else the Equipment Administrators.
 
-    Per-equipment staff rows (tagged ``equipment_staff``) ∪ the owning guild's
-    leadership (``guild_leadership``) ∪ EQUIPMENT capability holders
-    (``capability:equipment``), deduped keeping the first reason. Mirrors
-    ``Equipment.manager_members()`` and ``can_manage_equipment`` so the awareness
-    ping reaches exactly who could act. A missing ``equipment`` key fails loudly.
+    The item's own staff rows (tagged ``equipment_staff``) plus the owning guild's
+    leadership (``guild_leadership``), deduped keeping the first reason. A personal slot
+    in context narrows that to the orienter the member booked plus the owning guild's
+    lead (mirrors :func:`guild_orienters`). Only when that audience is empty (no staff
+    rows and no guild leadership) does it fall back to the EQUIPMENT capability holders
+    (``capability:equipment``), so a request never goes to nobody (#746). The test is
+    "no reachable recipient": a manager with no login account counts as nobody. Holding
+    the capability alone never puts someone on another manager's equipment. A missing
+    ``equipment`` key fails loudly.
     """
     from membership.models import AdminCapability
 
     equipment = _require(context, "equipment")
     slot = context.get("slot")
+    managers: list[Recipient]
     if slot is not None and slot.orienter_id is not None and slot.orienter is not None:
-        # Personal-slot scoping (mirrors guild_orienters): the manager the member booked,
-        # the EQUIPMENT capability holders, and the owning guild's lead, deduped.
-        scoped = _members_to_recipients([slot.orienter], "equipment_staff")
-        lead: list[Recipient] = []
+        managers = _members_to_recipients([slot.orienter], "equipment_staff")
         if equipment.guild is not None and equipment.guild.guild_lead is not None:
-            lead = _members_to_recipients([equipment.guild.guild_lead], "guild_leadership")
-        return _dedupe([*scoped, *lead, *_capability_recipients(AdminCapability.Capability.EQUIPMENT)])  # type: ignore[list-item]
-    staff_members = [staff.member for staff in equipment.staff_memberships.select_related("member__user")]
-    staff = _members_to_recipients(staff_members, "equipment_staff")
-    leadership: list[Recipient] = []
-    if equipment.guild is not None:
-        leadership = _members_to_recipients(equipment.guild.leadership_members(), "guild_leadership")
-    holders = _capability_recipients(AdminCapability.Capability.EQUIPMENT)
-    return _dedupe([*staff, *leadership, *holders])  # type: ignore[list-item]
+            managers += _members_to_recipients([equipment.guild.guild_lead], "guild_leadership")
+    else:
+        staff_members = [staff.member for staff in equipment.staff_memberships.select_related("member__user")]
+        managers = _members_to_recipients(staff_members, "equipment_staff")
+        if equipment.guild is not None:
+            managers += _members_to_recipients(equipment.guild.leadership_members(), "guild_leadership")
+    if managers:
+        return _dedupe(managers)
+    return _capability_recipients(AdminCapability.Capability.EQUIPMENT)
 
 
 def discount_approvers(context: dict[str, Any]) -> list[Recipient]:
@@ -323,8 +327,9 @@ def guild_orienters_or_equipment_managers(context: dict[str, Any]) -> list[Recip
     The one ``orientation_requested`` audience, for the email and the bell alike (the
     ``guild_leadership_or_class_approvers`` precedent — composition, never a union):
 
-    * equipment-owned: :func:`equipment_managers` (the three tiers, with its own
-      personal-slot narrowing);
+    * equipment-owned: :func:`equipment_managers` (the item's managers plus its guild's
+      leadership, with its own personal-slot narrowing and an Equipment Administrator
+      fallback only for equipment nobody runs);
     * a guild's personal slot: :func:`guild_orienters`, which narrows to the orienter
       the member booked plus the guild lead;
     * a guild's shared slot: :func:`guild_leadership`, the whole team (lead, co-leads,

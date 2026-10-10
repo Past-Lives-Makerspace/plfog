@@ -14,11 +14,13 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.urls import reverse
 from django.utils import timezone
 
 from classes.factories import (
+    CategoryFactory,
     ClassFaqFactory,
     ClassImageFactory,
     ClassOfferingFactory,
@@ -27,10 +29,11 @@ from classes.factories import (
     SeriesClassOfferingFactory,
     UserFactory,
 )
-from classes.forms import ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm
+from classes.forms import ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm, build_class_faq_formset
 from classes.models import LOCKED_CLASS_FAQS, ClassImage, ClassOffering
 from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync, _listing_text
 from core.models import SiteConfiguration
+from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
@@ -600,12 +603,13 @@ def describe_when_sync_is_off():
 
 
 def describe_run_it_again():
-    def it_keeps_the_opt_in_but_not_the_listing():
+    def it_starts_the_run_off_eventbrite_with_no_listing():
+        # #725: Submit to Eventbrite is ticked per class, with its own agreement.
         offering = _listed(eventbrite_synced_at=timezone.now())
 
         run = offering.duplicate_as_new_run()
 
-        assert run.eventbrite_enabled is True
+        assert run.eventbrite_enabled is False
         assert (run.eventbrite_event_id, run.eventbrite_ticket_class_id) == ("", "")
         assert run.eventbrite_sync_state == State.IDLE
         assert run.eventbrite_synced_at is None
@@ -1071,3 +1075,835 @@ def describe_a_listing_eventbrite_refuses_with_its_faq_and_its_photos():
             "Eventbrite refused the page, so it went without its widgets (the FAQ went into the description as text) "
             "and its photos: POST structured_content: 400 bad module"
         )
+
+
+# ── #725: Eventbrite's selling rules, checked before a class is sold there ──
+
+_REFUSAL = "Eventbrite would take this listing down. Fix these, then save again."
+_KATE = "Materials are paid at the session (cash/venmo)."  # Kate's #619 to #621
+_LAB_FEES = "Lab fees apply and are not included in the price."  # #605 to #614
+_INCLUDED = "A $10 materials fee is included in the class price."
+
+
+def _faq_post(*rows: tuple[str, str], saved: Sequence[Any] = ()) -> dict[str, str]:
+    """The FAQ formset as the composer posts it: the saved rows first (kept), then new ones."""
+    data = {
+        "faq-TOTAL_FORMS": str(len(saved) + len(rows)),
+        "faq-INITIAL_FORMS": str(len(saved)),
+        "faq-MIN_NUM_FORMS": "0",
+        "faq-MAX_NUM_FORMS": "1000",
+    }
+    for i, faq in enumerate(saved):
+        data |= {f"faq-{i}-id": str(faq.pk), f"faq-{i}-question": faq.question, f"faq-{i}-answer": faq.answer}
+    for i, (question, answer) in enumerate(rows, start=len(saved)):
+        data |= {f"faq-{i}-question": question, f"faq-{i}-answer": answer}
+    return data
+
+
+def _composer_post(offering: ClassOffering | None = None, **overrides: str) -> dict[str, str]:
+    """A fixed class with no dates yet, Eventbrite on and the rules agreed."""
+    category = offering.category if offering is not None else CategoryFactory()
+    data = {
+        "title": offering.title if offering is not None else "Rules Check Class",
+        "category": str(category.pk),
+        "description": "A hands-on class.",
+        "price_cents": "50.00",
+        "capacity": "6",
+        "scheduling_model": ClassOffering.SchedulingModel.FIXED,
+        "scheduling_type": ClassOffering.SchedulingType.SINGLE_SESSION,
+        "eventbrite_enabled": "on",
+        "eventbrite_fee_payer": ClassOffering.EventbriteFeePayer.BUYER,
+        "sessions-TOTAL_FORMS": "0",
+        "sessions-INITIAL_FORMS": "0",
+        "sessions-MIN_NUM_FORMS": "0",
+        "sessions-MAX_NUM_FORMS": "1000",
+        **_faq_post(),
+    }
+    return {**data, **overrides}
+
+
+def _described(offering: ClassOffering, description: str) -> ClassOffering:
+    """Set the description after the factory, whose ``ready`` hook writes its own."""
+    ClassOffering.objects.filter(pk=offering.pk).update(description=description)
+    offering.refresh_from_db()
+    return offering
+
+
+def _rules_admin() -> User:
+    MembershipPlanFactory()
+    user = User.objects.create_user(username="eb-rules-admin", email="eb-rules-admin@example.com")
+    member = user.member
+    member.fog_role = Member.FogRole.ADMIN
+    member.save(update_fields=["fog_role"])
+    member.sync_user_permissions()
+    return user
+
+
+def _rules_instructor() -> Member:
+    MembershipPlanFactory()
+    return InstructorFactory(user=UserFactory(username="eb-rules-teacher@example.com"), instructor_slug="eb-rules-t")
+
+
+def describe_the_rules_check_on_the_class_forms():
+    @pytest.fixture(autouse=True)
+    def _integration_on(eventbrite: FakeEventbrite) -> None:
+        """Every form here offers the Eventbrite fields."""
+
+    def _form(offering: ClassOffering, **overrides: str) -> TeachClassOfferingForm:
+        form = TeachClassOfferingForm(_composer_post(offering, **overrides), instance=offering)
+        assert form.is_valid(), form.errors
+        return form
+
+    def it_refuses_payment_outside_the_ticket_quoting_the_words():
+        offering = ClassOfferingFactory()
+        form = _form(offering, description=_KATE)
+
+        assert form.accepts_eventbrite_listing(UserFactory()) is False
+        assert form.errors["eventbrite_enabled"] == [
+            _REFUSAL,
+            "Description: payment outside the ticket: “paid at the session”, “cash”, “venmo”",
+        ]
+
+    def it_refuses_a_fee_not_included_and_passes_one_stated_as_included():
+        refused = _form(ClassOfferingFactory(), description=_LAB_FEES)
+        passed = _form(ClassOfferingFactory(), description=_INCLUDED)
+
+        assert refused.accepts_eventbrite_listing(UserFactory()) is False
+        assert (
+            refused.errors["eventbrite_enabled"][1] == "Description: a cost not included in the price: “Lab fees apply”"
+        )
+        assert passed.accepts_eventbrite_listing(UserFactory()) is True
+        assert passed.errors == {}
+
+    def it_refuses_a_discount_code_and_an_address_in_the_title():
+        form = _form(ClassOfferingFactory(), title="Rings, text 503-555-0182", description="Use code PLHalfOff.")
+
+        assert form.accepts_eventbrite_listing(UserFactory()) is False
+        assert form.errors["eventbrite_enabled"] == [
+            _REFUSAL,
+            "Title: a link, email, phone number or handle in the title: “503-555-0182”",
+            "Description: a discount code: “Use code PLHalfOff”",
+        ]
+
+    def it_checks_the_faq_rows_as_posted_not_as_saved():
+        offering = ClassOfferingFactory()
+        saved = ClassFaqFactory(class_offering=offering, question="Payment?", answer="Venmo the instructor.")
+        form = _form(offering)
+        deleting = build_class_faq_formset(
+            {**_faq_post(saved=[saved]), "faq-0-DELETE": "on"}
+            | _faq_post(("Deals?", "Use code PLMetal10"), saved=[saved]),
+            offering,
+        )
+        assert deleting.is_valid(), deleting.errors
+
+        assert form.accepts_eventbrite_listing(UserFactory(), deleting) is False
+        assert form.errors["eventbrite_enabled"] == [_REFUSAL, "FAQ “Deals?”: a discount code: “Use code PLMetal10”"]
+
+    def it_passes_once_the_bad_faq_row_is_deleted():
+        offering = ClassOfferingFactory()
+        saved = ClassFaqFactory(class_offering=offering, question="Payment?", answer="Venmo the instructor.")
+        formset = build_class_faq_formset({**_faq_post(saved=[saved]), "faq-0-DELETE": "on"}, offering)
+        assert formset.is_valid(), formset.errors
+
+        assert _form(offering).accepts_eventbrite_listing(UserFactory(), formset) is True
+
+    def it_lists_what_is_left_out_without_blocking():
+        form = _form(ClassOfferingFactory(), description="Follow @covo.studio for photos.")
+        formset = build_class_faq_formset(_faq_post(("Can I cancel?", "Email us.")), ClassOfferingFactory())
+        assert formset.is_valid(), formset.errors
+
+        assert form.accepts_eventbrite_listing(UserFactory(), formset) is True
+        assert form.eventbrite_check is not None
+        assert [str(finding) for finding in form.eventbrite_check.left_out] == [
+            "Description: a link, email, phone number or handle: “@covo.studio”",
+            "FAQ “Can I cancel?”: a cancellation, refund or no-show question",
+        ]
+
+    def it_leaves_a_class_with_eventbrite_off_alone():
+        offering = ClassOfferingFactory()
+        data = _composer_post(offering, description=_KATE)
+        del data["eventbrite_enabled"]
+        form = TeachClassOfferingForm(data, instance=offering)
+        assert form.is_valid(), form.errors
+
+        assert form.accepts_eventbrite_listing(UserFactory()) is True
+        assert form.eventbrite_check is None
+
+    def it_leaves_a_form_without_the_switch_alone():
+        offering = ClassOfferingFactory(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, description=_KATE)
+        form = TeachPublishedClassForm({"description": _KATE, **_faq_post()}, instance=offering)
+        assert form.is_valid(), form.errors
+
+        assert "eventbrite_enabled" not in form.fields
+        assert form.accepts_eventbrite_listing(UserFactory()) is True
+
+    def describe_the_agreement():
+        """AC8: turning the switch on is the agreement; a save with it on records who and when, once."""
+
+        def it_says_so_beside_the_switch():
+            help_text = TeachClassOfferingForm().fields["eventbrite_enabled"].help_text
+
+            assert help_text.startswith(
+                "Ticking this is my agreement to keep the listing within Eventbrite's rules below."
+            )
+
+        def it_records_who_agreed_and_when_on_the_save():
+            offering = ClassOfferingFactory()
+            user = UserFactory()
+            form = _form(offering)
+
+            assert form.accepts_eventbrite_listing(user) is True
+            before = timezone.now()
+            form.save()
+            offering.refresh_from_db()
+
+            assert offering.eventbrite_rules_agreed_by == user
+            assert before - timedelta(seconds=5) <= offering.eventbrite_rules_agreed_at <= timezone.now()
+            assert offering.needs_eventbrite_agreement is False
+
+        def describe_a_class_on_without_an_agreement():
+            """Class 675's case: switched on before the rules; the box shows unticked and the sync waits."""
+
+            def _unagreed(**kwargs: Any) -> ClassOffering:
+                return _listed(eventbrite_rules_agreed_at=None, **kwargs)
+
+            def it_offers_the_box_unticked():
+                offering = _unagreed()
+                form = TeachClassOfferingForm(instance=offering)
+
+                assert form.eventbrite_awaiting_agreement is True
+                assert form["eventbrite_enabled"].value() is False
+                assert form.eventbrite_check is None
+
+            def it_keeps_the_opt_in_on_an_unticked_save_and_checks_and_records_nothing():
+                offering = _described(_unagreed(), _KATE)
+                data = _composer_post(offering, description=_KATE)
+                del data["eventbrite_enabled"]
+                form = TeachClassOfferingForm(data, instance=offering)
+                assert form.is_valid(), form.errors
+
+                assert form.accepts_eventbrite_listing(UserFactory()) is True
+                saved = form.save()
+                assert (saved.eventbrite_enabled, saved.eventbrite_rules_agreed_at) == (True, None)
+
+            def it_checks_and_records_the_agreement_once_ticked():
+                offering = _unagreed()
+                user = UserFactory()
+                form = _form(offering)
+
+                assert form.accepts_eventbrite_listing(user) is True
+                assert form.save().eventbrite_rules_agreed_by == user
+
+            def it_refuses_a_ticked_save_that_fails_the_check():
+                offering = _unagreed()
+
+                assert _form(offering, description=_KATE).accepts_eventbrite_listing(UserFactory()) is False
+
+            def it_does_not_sync_or_end_the_listing_until_someone_agrees(eventbrite: FakeEventbrite):
+                offering = _unagreed()
+
+                offering.sync_eventbrite_listing()
+                offering.refresh_from_db()
+
+                assert eventbrite.calls == []
+                assert (offering.eventbrite_sync_state, offering.eventbrite_enabled) == (State.LISTED, True)
+
+            def it_leaves_a_taken_down_event_alone_on_an_unticked_live_page_save(
+                eventbrite: FakeEventbrite, client: Any
+            ):
+                instructor = _rules_instructor()
+                offering = _unagreed(
+                    instructor=instructor,
+                    eventbrite_published=True,
+                    eventbrite_sync_state=State.ENDED,
+                    eventbrite_sync_error=EventbriteSync.TAKEN_DOWN,
+                )
+                client.force_login(instructor.user)
+
+                response = client.post(
+                    reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+                    {"description": "A hands-on class, edited.", **_faq_post()},
+                )
+
+                assert response.status_code == 302
+                offering.refresh_from_db()
+                assert eventbrite.calls == []
+                assert (offering.eventbrite_enabled, offering.eventbrite_sync_state) == (True, State.ENDED)
+
+        def it_keeps_the_first_agreement():
+            first = UserFactory()
+            offering = ClassOfferingFactory(
+                eventbrite_enabled=True, eventbrite_rules_agreed_by=first, eventbrite_rules_agreed_at=timezone.now()
+            )
+            form = _form(offering)
+
+            assert form.accepts_eventbrite_listing(UserFactory()) is True
+            assert form.save().eventbrite_rules_agreed_by == first
+
+        def it_records_nothing_while_eventbrite_is_off():
+            offering = ClassOfferingFactory()
+            data = _composer_post(offering)
+            del data["eventbrite_enabled"]
+            form = TeachClassOfferingForm(data, instance=offering)
+            assert form.is_valid(), form.errors
+
+            assert form.accepts_eventbrite_listing(UserFactory()) is True
+            assert form.save().eventbrite_rules_agreed_at is None
+
+        def it_records_nothing_for_a_refused_save():
+            offering = ClassOfferingFactory()
+            form = _form(offering, description=_KATE)
+
+            assert form.accepts_eventbrite_listing(UserFactory()) is False
+            assert offering.eventbrite_rules_agreed_at is None
+
+    def describe_the_submit_box():
+        """AC8: the opt in reads Submit to Eventbrite, and ticking it reveals the rest (Alpine ``ebOn``)."""
+
+        @pytest.mark.parametrize("form_class", [TeachClassOfferingForm, ClassOfferingForm, TeachPublishedClassForm])
+        def it_names_the_box_and_binds_it_to_the_reveal(form_class: Any):
+            field = form_class(instance=_listed()).fields["eventbrite_enabled"]
+
+            assert field.label == "Submit to Eventbrite"
+            assert field.widget.attrs == {"x-model": "ebOn"}
+
+    def describe_the_check_on_a_fresh_page():
+        def it_shows_a_saved_class_with_eventbrite_on_what_is_left_out():
+            offering = ClassOfferingFactory(eventbrite_enabled=True, description="Photos at pastlives.space")
+            ClassFaqFactory(class_offering=offering, question="Refunds?", answer="Ask us.")
+
+            form = TeachClassOfferingForm(instance=offering)
+
+            assert form.eventbrite_check is not None
+            assert [finding.where for finding in form.eventbrite_check.left_out] == ["Description", "FAQ “Refunds?”"]
+
+        @pytest.mark.parametrize("enabled", [False, True])
+        def it_checks_nothing_for_a_new_class_or_one_with_eventbrite_off(enabled: bool):
+            off = ClassOfferingFactory(eventbrite_enabled=False)
+            new = ClassOffering(eventbrite_enabled=enabled)
+
+            assert TeachClassOfferingForm(instance=off).eventbrite_check is None
+            assert TeachClassOfferingForm(instance=new).eventbrite_check is None
+
+        def it_checks_nothing_on_a_posted_form_until_asked():
+            offering = ClassOfferingFactory(eventbrite_enabled=True, description=_KATE)
+
+            assert TeachClassOfferingForm(_composer_post(offering), instance=offering).eventbrite_check is None
+
+
+def describe_the_sync_with_the_rules_check():
+    """AC9: a class edited through any other path is refused by the sync, with the same list."""
+
+    def it_marks_a_failing_class_failed_with_the_list_and_sends_nothing(eventbrite: FakeEventbrite):
+        offering = _described(_listed(), f"<p>{_KATE}</p>")
+
+        offering.sync_eventbrite_listing()
+        offering.refresh_from_db()
+
+        assert eventbrite.calls == []
+        assert offering.eventbrite_sync_state == State.FAILED
+        assert offering.eventbrite_sync_error == (
+            f"{_REFUSAL} Description: payment outside the ticket: “paid at the session”, “cash”, “venmo”"
+        )
+
+    def it_reads_the_saved_faq_rows(eventbrite: FakeEventbrite):
+        offering = _opted_in(status=ClassOffering.Status.PUBLISHED)
+        ClassFaqFactory(class_offering=offering, question="Deals?", answer="Use code PLMetal10")
+
+        offering.sync_eventbrite_listing()
+
+        assert eventbrite.calls == []
+        assert offering.eventbrite_sync_error == f"{_REFUSAL} FAQ “Deals?”: a discount code: “Use code PLMetal10”"
+
+    def it_refuses_even_while_sync_is_off():
+        offering = _opted_in(status=ClassOffering.Status.PUBLISHED, title="Rings @covo")
+
+        offering.sync_eventbrite_listing()
+
+        assert offering.eventbrite_sync_state == State.FAILED
+
+    def it_keeps_the_error_to_the_column_length(eventbrite: FakeEventbrite):
+        faqs = [(f"Question {n}?", f"Pay at the door, venmo, Lab fees apply, code PL{n}0OFF") for n in range(12)]
+        offering = _opted_in(status=ClassOffering.Status.PUBLISHED)
+        for question, answer in faqs:
+            ClassFaqFactory(class_offering=offering, question=question, answer=answer)
+
+        offering.sync_eventbrite_listing()
+
+        assert len(offering.eventbrite_sync_error) == 500
+        assert offering.eventbrite_sync_error.startswith(_REFUSAL)
+
+    def it_still_ends_a_listing_whose_class_fails(eventbrite: FakeEventbrite):
+        offering = _described(_listed(), f"<p>{_KATE}</p>")
+
+        assert offering.end_eventbrite_listing() is True
+        assert offering.eventbrite_sync_state == State.ENDED
+
+    def it_lists_a_clean_class_as_before(eventbrite: FakeEventbrite):
+        offering = _described(_opted_in(status=ClassOffering.Status.PUBLISHED), f"<p>{_INCLUDED}</p>")
+
+        offering.sync_eventbrite_listing()
+
+        assert offering.eventbrite_sync_state == State.LISTED
+
+
+def describe_the_rules_on_the_pages():
+    """AC7 and AC8: Submit to Eventbrite on the composer's last page and the live class edit page."""
+
+    @pytest.fixture(autouse=True)
+    def _integration_on(eventbrite: FakeEventbrite) -> None:
+        """The Eventbrite section renders."""
+
+    def _section(html: str) -> str:
+        return html.split("data-eventbrite-submit", 1)[1].split("</div>\n</div>", 1)[0]
+
+    def _step(html: str, number: int) -> str:
+        return html.split(f'data-composer-step="{number}"', 1)[1].split("data-composer-step=", 1)[0]
+
+    def it_puts_the_box_on_the_last_page_of_the_instructor_composer_and_nowhere_else(client: Any):
+        client.force_login(_rules_instructor().user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+
+        last = html.split('data-composer-step="6"', 1)[1]
+        assert 'name="eventbrite_enabled"' in last
+        assert 'name="eventbrite_enabled"' not in _step(html, 3)
+        assert html.count('name="eventbrite_enabled"') == 1
+        assert "Submit to Eventbrite" in last
+
+    def it_shows_the_rules_beside_the_box_and_hides_the_rest_until_ticked(client: Any):
+        client.force_login(_rules_instructor().user)
+
+        section = _section(client.get(reverse("classes:teach_class_create")).content.decode())
+
+        assert section.index('name="eventbrite_enabled"') < section.index("data-eventbrite-rules>")
+        assert "data-eventbrite-rules>Eventbrite takes down listings that send buyers anywhere else." in section
+        assert "ebOn: false" in section
+        details = section.split("data-eventbrite-details", 1)[1]
+        assert details.startswith(' x-show="ebOn" x-cloak>')
+        assert 'name="eventbrite_fee_payer"' in details
+        assert 'name="eventbrite_category"' in details
+        assert section.index("data-eventbrite-rules>") < section.index("data-eventbrite-details")
+
+    def it_checks_the_typed_text_only_while_ticked(client: Any):
+        client.force_login(_rules_instructor().user)
+
+        section = _section(client.get(reverse("classes:teach_class_create")).content.decode())
+
+        assert f'hx-post="{reverse("classes:teach_new_class_eventbrite_check")}"' in section
+        trigger = section.split('hx-trigger="', 1)[1].split('"', 1)[0]
+        ticked = "[this.closest('[data-eventbrite-submit]').querySelector('input[name=eventbrite_enabled]').checked]"
+        assert trigger == f"change{ticked} from:closest form delay:400ms, input{ticked} from:closest form delay:800ms"
+        assert "data-eventbrite-check-result" not in section
+
+    def it_posts_the_admin_composer_check_to_the_admin_route(client: Any):
+        client.force_login(_rules_admin())
+
+        section = _section(client.get(reverse("classes:admin_class_create")).content.decode())
+
+        assert f'hx-post="{reverse("classes:admin_new_class_eventbrite_check")}"' in section
+
+    def it_shows_a_ticked_class_its_result_on_load(client: Any):
+        instructor = _rules_instructor()
+        offering = ClassOfferingFactory(instructor=instructor, eventbrite_enabled=True, description="Text 503-555-0182")
+        client.force_login(instructor.user)
+
+        section = _section(client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode())
+
+        assert f'hx-post="{reverse("classes:teach_class_eventbrite_check", kwargs={"pk": offering.pk})}"' in section
+        assert "data-eventbrite-ready" in section
+        assert (
+            '<li class="pl-compose-section__note">Description: a link, email, phone number or handle: “503-555-0182”</li>'
+            in section
+        )
+        assert "ebOn: true" in section
+
+    def it_shows_a_failing_ticked_class_its_problems_on_load(client: Any):
+        instructor = _rules_instructor()
+        offering = _described(ClassOfferingFactory(instructor=instructor, eventbrite_enabled=True), _KATE)
+        client.force_login(instructor.user)
+
+        section = _section(client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode())
+
+        assert "data-eventbrite-refusal" in section
+        assert f"<p>{_REFUSAL}</p>" in section
+
+    def it_shows_who_agreed_and_when(client: Any):
+        instructor = _rules_instructor()
+        instructor.user.first_name, instructor.user.last_name = "Kate", "Rivers"
+        instructor.user.save(update_fields=["first_name", "last_name"])
+        offering = ClassOfferingFactory(
+            instructor=instructor,
+            eventbrite_enabled=True,
+            eventbrite_rules_agreed_by=instructor.user,
+            eventbrite_rules_agreed_at=timezone.now().replace(year=2026, month=10, day=9),
+        )
+        client.force_login(instructor.user)
+
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+
+        assert "data-eventbrite-agreed>Eventbrite's rules agreed to on Oct 9, 2026 by Kate Rivers." in html
+
+    def it_shows_no_agreement_line_before_anyone_agreed(client: Any):
+        client.force_login(_rules_instructor().user)
+
+        assert "data-eventbrite-agreed" not in client.get(reverse("classes:teach_class_create")).content.decode()
+
+    def it_shows_the_box_once_on_the_live_class_edit_page(client: Any):
+        instructor = _rules_instructor()
+        offering = _listed(instructor=instructor)
+        client.force_login(instructor.user)
+
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+
+        assert "data-eventbrite-rules>Eventbrite takes down listings" in html
+        assert html.count("data-eventbrite-submit x-data") == 1
+        assert html.count('name="eventbrite_category"') == 1
+        assert html.index('name="eventbrite_enabled"') < html.index('name="eventbrite_category"')
+
+
+def describe_the_check_as_typed():
+    """AC8: the Eventbrite section checks the text as typed, unsaved edits included, and saves nothing."""
+
+    @pytest.fixture(autouse=True)
+    def _integration_on(eventbrite: FakeEventbrite) -> None:
+        """The composer forms offer Eventbrite."""
+
+    def it_checks_the_unsaved_text_of_a_saved_class_and_saves_nothing(client: Any):
+        instructor = _rules_instructor()
+        offering = ClassOfferingFactory(instructor=instructor)
+        ClassFaqFactory(class_offering=offering, question="Pay?", answer="Venmo me.")
+        client.force_login(instructor.user)
+        url = reverse("classes:teach_class_eventbrite_check", kwargs={"pk": offering.pk})
+        data = {
+            "title": "Rings @covo",
+            "subtitle": "",
+            "description": _LAB_FEES,
+            **_faq_post(("Deals?", "Use code PLHalfOff")),
+        }
+
+        html = client.post(url, data).content.decode()
+
+        assert "data-eventbrite-refusal" in html
+        assert "<li>Title: a link, email, phone number or handle in the title: “@covo”</li>" in html
+        assert "<li>Description: a cost not included in the price: “Lab fees apply”</li>" in html
+        assert "<li>FAQ “Deals?”: a discount code: “Use code PLHalfOff”</li>" in html
+        assert "Venmo" not in html  # the saved FAQ row was not posted, so it is not read
+        offering.refresh_from_db()
+        assert (offering.title.startswith("Class"), offering.description) == (True, "A hands-on class.")
+
+    def it_passes_clean_text_and_lists_what_is_left_out(client: Any):
+        instructor = _rules_instructor()
+        offering = _described(ClassOfferingFactory(instructor=instructor), _KATE)
+        client.force_login(instructor.user)
+        url = reverse("classes:teach_class_eventbrite_check", kwargs={"pk": offering.pk})
+
+        html = client.post(url, {"title": "Rings", "description": f"{_INCLUDED} See pastlives.space"}).content.decode()
+
+        assert "data-eventbrite-ready" in html
+        assert "Ready for Eventbrite</span>" in html
+        assert ">Description: a link, email, phone number or handle: “pastlives.space”</li>" in html
+
+    def it_reads_a_field_the_page_does_not_post_from_the_saved_class(client: Any):
+        instructor = _rules_instructor()
+        offering = ClassOfferingFactory(instructor=instructor, title="Rings, text 503-555-0182")
+        ClassFaqFactory(class_offering=offering, question="Deals?", answer="Use code PLMetal10")
+        client.force_login(instructor.user)
+        url = reverse("classes:teach_class_eventbrite_check", kwargs={"pk": offering.pk})
+
+        html = client.post(url, {"description": "Clean."}).content.decode()
+
+        assert "Title: a link, email, phone number or handle in the title: “503-555-0182”" in html
+        assert "FAQ “Deals?”: a discount code: “Use code PLMetal10”" in html
+
+    def it_skips_a_deleted_faq_row(client: Any):
+        instructor = _rules_instructor()
+        offering = ClassOfferingFactory(instructor=instructor)
+        saved = ClassFaqFactory(class_offering=offering, question="Pay?", answer="Venmo me.")
+        client.force_login(instructor.user)
+        url = reverse("classes:teach_class_eventbrite_check", kwargs={"pk": offering.pk})
+
+        html = client.post(url, {**_faq_post(saved=[saved]), "faq-0-DELETE": "on"}).content.decode()
+
+        assert "data-eventbrite-ready" in html
+
+    def it_checks_a_new_class_for_an_instructor(client: Any):
+        client.force_login(_rules_instructor().user)
+
+        html = client.post(reverse("classes:teach_new_class_eventbrite_check"), {"description": _KATE}).content.decode()
+
+        assert "Description: payment outside the ticket: “paid at the session”, “cash”, “venmo”" in html
+        assert not ClassOffering.objects.exists()
+
+    def it_checks_a_new_class_for_an_admin(client: Any):
+        client.force_login(_rules_admin())
+
+        html = client.post(reverse("classes:admin_new_class_eventbrite_check"), {"title": "Rings"}).content.decode()
+
+        assert "data-eventbrite-ready" in html
+
+    def describe_who_may_check():
+        def it_hides_a_class_from_a_member_who_cannot_edit_it(client: Any):
+            offering = ClassOfferingFactory(instructor=_rules_instructor())
+            MembershipPlanFactory()
+            client.force_login(UserFactory(username="eb-stranger@example.com"))
+
+            response = client.post(reverse("classes:teach_class_eventbrite_check", kwargs={"pk": offering.pk}), {})
+
+            assert response.status_code == 404
+
+        def it_hides_a_class_from_a_reviewer_who_may_read_it_but_not_edit_it(client: Any):
+            from membership.models import AdminCapability
+
+            offering = ClassOfferingFactory(instructor=_rules_instructor())
+            reviewer = UserFactory(username="eb-reviewer@example.com")
+            AdminCapability.objects.create(member=reviewer.member, capability=AdminCapability.Capability.CLASS_APPROVER)
+            client.force_login(reviewer)
+            url = reverse("classes:teach_class_eventbrite_check", kwargs={"pk": offering.pk})
+
+            assert client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).status_code == 200
+            assert client.post(url, {}).status_code == 404
+
+        def it_sends_a_member_without_teaching_access_away_from_the_new_class_check(client: Any):
+            MembershipPlanFactory()
+            client.force_login(UserFactory(username="eb-not-teaching@example.com"))
+
+            response = client.post(reverse("classes:teach_new_class_eventbrite_check"), {})
+
+            assert response.status_code == 302
+
+        def it_refuses_a_non_admin_on_the_admin_check(client: Any):
+            client.force_login(_rules_instructor().user)
+
+            response = client.post(reverse("classes:admin_new_class_eventbrite_check"), {})
+
+            assert response.status_code in {302, 403, 404}
+            assert b"data-eventbrite-check-result" not in response.content
+
+        def it_takes_posts_only(client: Any):
+            client.force_login(_rules_instructor().user)
+
+            assert client.get(reverse("classes:teach_new_class_eventbrite_check")).status_code == 405
+
+
+def describe_a_refused_save_through_each_page():
+    """AC5 end to end: every save path shows the list and saves nothing."""
+
+    @pytest.fixture(autouse=True)
+    def _integration_on(eventbrite: FakeEventbrite) -> None:
+        """The Eventbrite fields are on every form."""
+
+    def _refused(response: Any) -> str:
+        html = response.content.decode()
+        assert response.status_code == 200
+        assert _REFUSAL in html
+        return html
+
+    def it_refuses_a_new_class_on_the_instructor_composer(client: Any):
+        client.force_login(_rules_instructor().user)
+
+        html = _refused(client.post(reverse("classes:teach_class_create"), _composer_post(description=_KATE)))
+
+        assert "Description: payment outside the ticket: “paid at the session”, “cash”, “venmo”" in html
+        assert not ClassOffering.objects.filter(title="Rules Check Class").exists()
+
+    def it_refuses_a_new_class_on_the_admin_composer(client: Any):
+        client.force_login(_rules_admin())
+        data = _composer_post(description=_LAB_FEES, instructor=str(InstructorFactory().pk))
+
+        _refused(client.post(reverse("classes:admin_class_create"), data))
+
+        assert not ClassOffering.objects.filter(title="Rules Check Class").exists()
+
+    def it_refuses_a_draft_edit_on_the_instructor_composer_by_its_posted_faq(client: Any):
+        instructor = _rules_instructor()
+        offering = ClassOfferingFactory(instructor=instructor)
+        client.force_login(instructor.user)
+        data = _composer_post(offering, description="Edited.") | _faq_post(("Deals?", "Use code PLHalfOff"))
+
+        _refused(client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), data))
+
+        offering.refresh_from_db()
+        assert (offering.description, offering.eventbrite_enabled, offering.faqs.count()) == (
+            "A hands-on class.",
+            False,
+            0,
+        )
+
+    def it_refuses_an_edit_on_the_admin_composer(client: Any):
+        offering = _listed(eventbrite_rules_agreed_at=None)
+        session = offering.sessions.get()
+        client.force_login(_rules_admin())
+        data = _composer_post(offering, title="Welding, call 503-555-0182", instructor=str(offering.instructor_id)) | {
+            "sessions-TOTAL_FORMS": "1",
+            "sessions-INITIAL_FORMS": "1",
+            "sessions-0-id": str(session.pk),
+            "sessions-0-class_offering": str(offering.pk),
+            "sessions-0-starts_at": session.starts_at.astimezone().strftime("%Y-%m-%dT%H:%M"),
+            "sessions-0-ends_at": session.ends_at.astimezone().strftime("%Y-%m-%dT%H:%M"),
+        }
+
+        _refused(client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), data))
+
+        offering.refresh_from_db()
+        assert "503" not in offering.title
+        assert offering.eventbrite_rules_agreed_at is None
+
+    def it_refuses_an_edit_on_the_live_class_page(client: Any):
+        instructor = _rules_instructor()
+        offering = _listed(instructor=instructor)
+        client.force_login(instructor.user)
+        data = {"description": _LAB_FEES, "eventbrite_enabled": "on", **_faq_post()}
+
+        _refused(client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), data))
+
+        offering.refresh_from_db()
+        assert "Lab fees" not in offering.description
+
+    def it_saves_a_clean_live_class_edit_and_records_the_agreement(client: Any):
+        instructor = _rules_instructor()
+        offering = _listed(instructor=instructor, eventbrite_rules_agreed_at=None)
+        client.force_login(instructor.user)
+        data = {"description": _INCLUDED, "eventbrite_enabled": "on", **_faq_post()}
+
+        response = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), data)
+
+        assert response.status_code == 302
+        offering.refresh_from_db()
+        assert offering.eventbrite_rules_agreed_by == instructor.user
+
+
+def describe_a_copied_class():
+    """Second review of #741: the agreement is per class, so a copy asks for it again."""
+
+    @pytest.mark.parametrize("copy", ["duplicate", "duplicate_as_new_run"])
+    def it_clears_the_agreement_on_the_copy_and_keeps_it_on_the_source(copy: str):
+        agreed_by = UserFactory()
+        source = ClassOfferingFactory(
+            eventbrite_enabled=True, eventbrite_rules_agreed_by=agreed_by, eventbrite_rules_agreed_at=timezone.now()
+        )
+        source_pk = source.pk
+
+        clone = getattr(ClassOffering.objects.get(pk=source_pk), copy)()
+        clone.refresh_from_db()
+
+        assert (clone.eventbrite_rules_agreed_by, clone.eventbrite_rules_agreed_at) == (None, None)
+        assert clone.needs_eventbrite_agreement is True
+        assert clone.eventbrite_enabled is False
+        assert ClassOffering.objects.get(pk=source_pk).eventbrite_rules_agreed_by == agreed_by
+
+    def it_lets_a_copy_of_a_listed_class_publish_its_own_event(eventbrite: FakeEventbrite):
+        """Fix round 2 of #741: a kept ``eventbrite_published`` read the copy's new draft event as taken down."""
+        source = _listed(eventbrite_published=True)
+
+        copy = ClassOffering.objects.get(pk=source.pk).duplicate()
+        copy.refresh_from_db()
+        assert (copy.eventbrite_published, copy.eventbrite_event_id) == (False, "")
+
+        start = timezone.now() + timedelta(days=3)
+        ClassSessionFactory(class_offering=copy, starts_at=start, ends_at=start + timedelta(hours=1))
+        ClassOffering.objects.filter(pk=copy.pk).update(  # Submit to Eventbrite ticked and saved on the copy
+            status=ClassOffering.Status.PUBLISHED, eventbrite_enabled=True, eventbrite_rules_agreed_at=timezone.now()
+        )
+        copy.refresh_from_db()
+        copy.sync_eventbrite_listing()
+
+        assert "publish" in eventbrite.names()
+        assert (copy.eventbrite_sync_state, copy.eventbrite_published) == (State.LISTED, True)
+        assert ClassOffering.objects.get(pk=source.pk).eventbrite_published is True
+
+
+def describe_a_queued_class_going_live():
+    """AC8: a class with Submit to Eventbrite ticked is checked again when it goes live."""
+
+    _SUBJECT = "was not listed on Eventbrite"
+
+    def _queued(**kwargs: Any) -> ClassOffering:
+        """A ready draft with Submit to Eventbrite ticked: queued, nothing sent yet."""
+        instructor = _rules_instructor()
+        return _opted_in(instructor=instructor, **kwargs)
+
+    def _rules_emails() -> list[Any]:
+        from django.core import mail
+
+        return [message for message in mail.outbox if _SUBJECT in message.subject]
+
+    def it_lists_a_passing_class_when_it_publishes_and_emails_nobody(eventbrite: FakeEventbrite):
+        offering = _queued()
+
+        offering.publish(UserFactory())
+
+        assert "publish" in eventbrite.names()
+        assert offering.eventbrite_sync_state == State.LISTED
+        assert _rules_emails() == []
+
+    def it_sends_nothing_and_emails_the_instructor_the_problems_with_the_class_link(eventbrite: FakeEventbrite):
+        offering = _described(_queued(), f"<p>{_KATE}</p>")
+
+        offering.publish(UserFactory())
+
+        assert eventbrite.calls == []
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.FAILED
+        assert offering.eventbrite_sync_error.startswith(_REFUSAL)
+        [email] = _rules_emails()
+        assert email.to == [offering.instructor.primary_email]
+        assert email.subject == f'"{offering.title}" {_SUBJECT}'
+        assert "- Description: payment outside the ticket: “paid at the session”, “cash”, “venmo”" in email.body
+        overview = reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        assert "use Request a Change: http" in email.body
+        assert email.body.split("use Request a Change: ", 1)[1].split("\n", 1)[0].endswith(overview)
+        assert "Once the change is saved, the class lists on Eventbrite on its own." in email.body
+
+    def it_does_not_email_again_when_a_retry_finds_the_same_failure(eventbrite: FakeEventbrite):
+        offering = _described(_queued(), f"<p>{_KATE}</p>")
+        offering.publish(UserFactory())
+
+        offering.sync_eventbrite_listing()
+        call_command("retry_eventbrite_pushes")
+
+        assert len(_rules_emails()) == 1
+
+    def it_does_not_email_again_after_a_save_that_changes_nothing_on_the_listing(eventbrite: FakeEventbrite):
+        offering = _described(_queued(), f"<p>{_KATE}</p>")
+        offering.publish(UserFactory())
+
+        offering.mark_eventbrite_edit_saved()  # what a sale modal save does
+        assert offering.eventbrite_sync_state == State.PENDING
+        call_command("retry_eventbrite_pushes")
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.FAILED
+        assert len(_rules_emails()) == 1
+
+    def it_lists_a_failed_class_on_the_next_tick_once_it_is_fixed(eventbrite: FakeEventbrite):
+        offering = _described(_queued(), f"<p>{_KATE}</p>")
+        offering.publish(UserFactory())
+        _described(offering, f"<p>{_INCLUDED}</p>")
+
+        offering.mark_eventbrite_edit_saved()  # the fix saved through the class editor
+        call_command("retry_eventbrite_pushes")
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.LISTED
+        assert "publish" in eventbrite.names()
+        assert len(_rules_emails()) == 1
+
+    def it_emails_again_for_a_different_failure(eventbrite: FakeEventbrite):
+        offering = _described(_queued(), f"<p>{_KATE}</p>")
+        offering.publish(UserFactory())
+        _described(offering, f"<p>{_LAB_FEES}</p>")
+
+        offering.sync_eventbrite_listing()
+
+        assert len(_rules_emails()) == 2
+        assert "Lab fees apply" in _rules_emails()[1].body
+
+    def it_emails_nobody_when_the_instructor_has_no_email(eventbrite: FakeEventbrite):
+        offering = _described(_queued(), f"<p>{_KATE}</p>")
+        ClassOffering.objects.filter(pk=offering.pk).update(instructor=None, status=ClassOffering.Status.PUBLISHED)
+        offering.refresh_from_db()
+
+        offering.sync_eventbrite_listing()
+
+        assert offering.eventbrite_sync_state == State.FAILED
+        assert _rules_emails() == []

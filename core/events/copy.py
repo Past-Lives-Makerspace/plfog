@@ -105,8 +105,8 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     ),
     Recipients.SPACE_APPROVERS: "The Space & Cubby Administrators (holders only).",
     Recipients.EQUIPMENT_MANAGERS: (
-        "Everyone who manages the equipment: its own managers, the owning guild's leadership, "
-        "and the Equipment Administrators."
+        "The equipment's own managers and its guild's leadership. "
+        "Equipment Administrators hear only about equipment nobody manages."
     ),
     Recipients.DISCOUNT_APPROVERS: "The Discount Code Administrators (holders only).",
     Recipients.EVENTS_APPROVERS: "The Calendar Administrators (holders only).",
@@ -121,7 +121,8 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.GUILD_ORIENTERS: "The guild's lead and everyone holding the orienter role.",
     Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: (
         "The guild's lead and staff (for a personal slot, the orienter booked plus the lead); "
-        "for an equipment-owned orientation, everyone who manages the equipment."
+        "for an equipment orientation, the equipment's own managers and its guild's leadership "
+        "(the Equipment Administrators only for equipment nobody manages)."
     ),
     Recipients.ORIENTATION_RUNNER: "The staffer who claimed/ran the orientation.",
     Recipients.REGISTRANT: "The member the event is about (the registrant).",

@@ -1,11 +1,13 @@
 {% comment %}
 Member-facing orientation section on the equipment page — the guild partial's
 slot-list UX adapted to an equipment owner (no orienter column, no availability
-blocks, no custom requests). Context:
+blocks). Context:
   equipment            — the Equipment
   orientation_sections — one dict per RENDERABLE owned type (active, or pinned by
       the member's live booking/hold): type / is_oriented / booking / hold / slots
-      (each slot carries with_display, "with Dana" for a manager's personal slot)
+      (each slot carries with_display, "with Dana" for a manager's personal slot),
+      custom_form / custom_amount_form (the propose a time form, #733, set only for an
+      open type with no open time while the equipment takes custom requests)
   can_manage           — whether the viewer manages this equipment (empty-state link)
 An inactive pinned type renders its state block only — never a slot list. The hold and
 booking blocks and the slot confirm modals are the shared partials
@@ -88,6 +90,26 @@ _orientation_type_state.html and _orientation_slot_confirm.html (#502).
     {% if can_manage %}
     <p style="margin:0.35rem 0 0; font-size:0.9rem;"><a href="{% url 'hub_equipment_manage' equipment.slug %}?tab=orientation">Add times from the manage panel.</a></p>
     {% endif %}
+    {% endif %}
+    {% if sec.custom_form %}
+    {# Propose a time (#733): only with no open time, while the equipment takes custom requests. #}
+    <div x-data="{ showCustom: false }" data-custom-request style="margin-top:0.75rem;">
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" x-show="!showCustom" @click="showCustom = true">Schedule an Orientation</button>
+      <div x-show="showCustom" x-cloak style="max-width:420px;">
+        <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Propose your own time and a manager will confirm it.</p>
+        <form method="post" action="{% url 'hub_equipment_orientation_request_custom' equipment.slug %}" class="hub-form" hx-boost="false">
+          {% csrf_token %}
+          <input type="hidden" name="orientation_type" value="{{ sec.type.pk }}">
+          {% include "components/form_field.html" with field=sec.custom_form.starts_at %}
+          {% include "components/form_field.html" with field=sec.custom_form.note %}
+          {% if sec.custom_amount_form %}{% include "components/form_field.html" with field=sec.custom_amount_form.amount %}{% endif %}
+          <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
+            <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Send request</button>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="showCustom = false">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
     {% endif %}
     {% endif %}
   </div>

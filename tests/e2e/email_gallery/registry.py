@@ -327,6 +327,20 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="registration_resume_link_context",
     ),
     GalleryEmail(
+        key="eventbrite_rules_failed",
+        name="Your class was not listed on Eventbrite",
+        section="Classes",
+        renderer=Renderer.INLINE_STRING,
+        trigger_note=(
+            "Sent when a class with Submit to Eventbrite ticked goes live (or is synced again) and fails "
+            "Eventbrite's selling rules: nothing is sent to Eventbrite and the class's sync state reads "
+            "Failed. Once per failure: a retry that finds the same problems sends nothing (#725)."
+        ),
+        edit_pointer="Text authored in code (classes/emails.py::eventbrite_rules_failed_email)",
+        audience="The class's instructor, at their primary email.",
+        context_builder="eventbrite_rules_failed_context",
+    ),
+    GalleryEmail(
         key="orphaned_class_payment_alert",
         name="Class payment needs a decision (admin)",
         section="Classes",
@@ -1003,6 +1017,7 @@ _REGISTERED_INLINE_KINDS: dict[str, str] = {
     "core.find_account": "the find_account INLINE_STRING card",
     "classes.welcome_email": "the welcome WELCOME card (this is the real send)",
     "classes.registration_resume_link": "the registration_resume_link INLINE_STRING card",
+    "classes.eventbrite_rules_failed": "the eventbrite_rules_failed INLINE_STRING card",
     "wiki.page_archived": "the wiki_page_archived card",
     "wiki.proposal_declined": "the wiki_proposal_declined card",
 }

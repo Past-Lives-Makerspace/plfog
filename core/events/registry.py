@@ -108,8 +108,8 @@ class Recipients(str, Enum):
     EVERYONE_WITH_LOGIN = "everyone_with_login"
     RELEASE_AUDIENCE = "release_audience"
     SINGLE_USER = "single_user"
-    # Equipment managers: per-equipment staff rows ∪ the owning guild's leadership ∪
-    # EQUIPMENT capability holders, deduped (a union of the three manage tiers).
+    # Equipment managers: per-equipment staff rows plus the owning guild's leadership,
+    # deduped; the EQUIPMENT capability holders only when that is empty (#746).
     EQUIPMENT_MANAGERS = "equipment_managers"
     # Member wiki (spec D). Composed, never a union: a reported page routes to its own
     # guild's leadership, and only a space-wide page (or a guild with nobody on it) falls

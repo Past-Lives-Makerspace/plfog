@@ -31,21 +31,26 @@ from hub.forms import (
     EquipmentHoursWindowFormSet,
     EquipmentManagerCancelForm,
     EquipmentOrientationAvailabilityFormSet,
+    EquipmentOrientationRequestsForm,
     EquipmentOrientationSlotForm,
     EquipmentOrientationTypeFormSet,
     EquipmentReservationForm,
     EquipmentSettingsForm,
     EquipmentStaffAddForm,
+    OrientationCustomRequestForm,
 )
 from hub.toast import trigger_toast
 from hub.reservation_bookings import reservation_bookings_context
 from hub.views import (
     _apply_hours_formset,
+    _custom_request_forms,
     _get_hub_context,
     _get_member,
     _hours_save_message,
+    _orientation_return,
     _personal_hours_prefix,
     _safe_next,
+    _send_custom_request,
     attach_blocking_reservations,
 )
 from membership import equipment as equipment_service
@@ -548,7 +553,47 @@ def _equipment_orientation_sections(equipment: Equipment, member: Member | None)
         slot.with_display = slot.with_label
         slots_by_type.setdefault(slot.orientation_type_id, []).append(slot)
     # No cap: the guild list's five per page pager bounds the view.
-    return _orientation_sections(types, member, slots_by_type, slot_cap=None)
+    sections = _orientation_sections(types, member, slots_by_type, slot_cap=None)
+    for section in sections:
+        # Propose a time (#733): an open section whose every posted time is taken, or that has none.
+        open_for_type = not (section["is_oriented"] or section["booking"] or section["hold"])
+        no_open_time = all(slot.is_full for slot in section["slots"])
+        section["custom_form"], section["custom_amount_form"] = (
+            _custom_request_forms(section["type"]) if open_for_type and no_open_time else (None, None)
+        )
+    return sections
+
+
+@login_required
+@require_POST
+def hub_equipment_orientation_request_custom(request: HttpRequest, slug: str) -> HttpResponse:
+    """POST-only — a member proposes their own time for one of the equipment's orientations (#733).
+
+    The guilds' custom request road for an equipment owner: refused unless the equipment
+    takes custom requests (:attr:`Equipment.takes_custom_orientation_requests`), so a
+    crafted post with the switch off books nothing. The one seat request goes to the
+    equipment's managers to confirm, a priced type pays first, and a donation type asks
+    for its amount, all through the shared tail (``hub.views._send_custom_request``).
+    """
+    equipment = get_object_or_404(Equipment.objects.select_related("guild"), slug=slug)
+    member = _get_member(request)
+    if member is None:
+        messages.error(request, "You need a member profile to request an orientation.")
+        return _orientation_return(request, equipment)
+    if not equipment.takes_custom_orientation_requests:
+        messages.error(request, "This equipment isn't taking custom orientation requests right now.")
+        return _orientation_return(request, equipment)
+    form = OrientationCustomRequestForm(request.POST, equipment=equipment)
+    if not form.is_valid():
+        messages.error(request, "Pick one of this equipment's orientations and a valid future time.")
+        return _orientation_return(request, equipment)
+    return _send_custom_request(
+        request,
+        equipment,
+        member,
+        form,
+        sent_message="Your orientation request was sent. A manager will confirm a time.",
+    )
 
 
 @login_required
@@ -950,6 +995,7 @@ def _render_manage(
     hours_formset: Any = None,
     settings_form: EquipmentSettingsForm | None = None,
     orientation_types_formset: Any = None,
+    orientation_requests_form: EquipmentOrientationRequestsForm | None = None,
     slot_add_form: EquipmentOrientationSlotForm | None = None,
     block_form: EquipmentBlockForm | None = None,
     active_tab: str = "details",
@@ -976,6 +1022,9 @@ def _render_manage(
             "orientation_types_formset": orientation_types_formset
             if orientation_types_formset is not None
             else EquipmentOrientationTypeFormSet(instance=equipment, prefix="otypes"),
+            "orientation_requests_form": orientation_requests_form
+            if orientation_requests_form is not None
+            else EquipmentOrientationRequestsForm(instance=equipment, prefix=EquipmentOrientationRequestsForm.PREFIX),
             # The per type photo field (#502) rejects an oversized file before it posts.
             "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
             "slot_add_form": slot_add_form
@@ -1207,11 +1256,27 @@ def hub_equipment_orientation_types_save(request: HttpRequest, slug: str) -> Htt
     if forbidden is not None:
         return forbidden
     formset = EquipmentOrientationTypeFormSet(request.POST, request.FILES, instance=equipment, prefix="otypes")
-    if formset.is_valid():
+    # The custom request switch (#733) saves only when the card that draws it posted.
+    requests_form = (
+        EquipmentOrientationRequestsForm(
+            request.POST, instance=equipment, prefix=EquipmentOrientationRequestsForm.PREFIX
+        )
+        if EquipmentOrientationRequestsForm.SHOWN_FIELD in request.POST
+        else None
+    )
+    if formset.is_valid() and (requests_form is None or requests_form.is_valid()):
         formset.save()
+        if requests_form is not None:
+            requests_form.save()
         messages.success(request, "Saved.")
         return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")
-    return _render_manage(request, equipment, orientation_types_formset=formset, active_tab="orientation")
+    return _render_manage(
+        request,
+        equipment,
+        orientation_types_formset=formset,
+        orientation_requests_form=requests_form,
+        active_tab="orientation",
+    )
 
 
 def _hours_scope_target(request: HttpRequest, raw: str) -> Member | None:
