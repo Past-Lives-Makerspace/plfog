@@ -1,8 +1,2 @@
 bump = "minor"
-date = "2026-10-09"
-title = "Equipment can charge for reservations"
-changes = [
-  "Managers set what a reservation costs on the Hours and Limits tab: free, donation based, or an hourly rate.",
-  "You see the price before you book. A priced reservation is paid by card when you reserve, and the time is held while you pay.",
-  "If a reservation is declined or cancelled, a paid reservation is refunded in full on its own.",
-]
+audience = "internal"
