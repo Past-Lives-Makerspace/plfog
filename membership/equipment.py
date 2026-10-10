@@ -117,6 +117,10 @@ def _placeholder_context(reservation: EquipmentReservation) -> dict[str, str]:
     }
 
 
+#: The refusal when an item started charging between the page's read and the booking lock (#749).
+PRICE_CHANGED_MESSAGE = "The price for this time just changed. Please pick your time again."
+
+
 def reserve(
     equipment: Equipment,
     member: Member,
@@ -124,6 +128,7 @@ def reserve(
     duration_minutes: int,
     *,
     purpose: str = "",
+    donation_cents: int | None = None,
 ) -> EquipmentReservation:
     """Make a reservation, safely under concurrency: instant, or a request when the equipment needs approval.
 
@@ -137,14 +142,21 @@ def reserve(
     never waits on their own approval: their booking confirms at once, the same test
     (:meth:`Member.can_manage_equipment`) that exempts them from the late fee.
 
+    This is the free road only (#749). Priced equipment is re-checked under the lock: an hourly
+    item, or a donation based one without an explicit ``donation_cents=0``, is refused, so a
+    switch from Free to a price between the caller's read and this lock can never book for free.
+
     Raises:
         EquipmentError: Propagated from :meth:`Equipment.ensure_reservable` with the
-            member-facing message when any check fails (including a lost race).
+            member-facing message when any check fails (including a lost race), or
+            :attr:`PRICE_CHANGED_MESSAGE` when the item now charges.
     """
-    from membership.models import Equipment, EquipmentReservation
+    from membership.models import Equipment, EquipmentError, EquipmentReservation
 
     with transaction.atomic():
         locked = Equipment.objects.select_for_update().get(pk=equipment.pk)
+        if locked.is_hourly or (locked.is_donation and donation_cents != 0):
+            raise EquipmentError(PRICE_CHANGED_MESSAGE)
         locked.ensure_reservable(member, starts_at, duration_minutes)
         reservation = EquipmentReservation.objects.create(
             equipment=locked,

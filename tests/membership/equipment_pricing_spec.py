@@ -10,10 +10,13 @@ contain (STANDARDS.md §8).
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, time, timedelta
 from unittest.mock import patch
 
+import httpx
 import pytest
+import respx
 import stripe
 from django.contrib.auth.models import User
 from django.core import mail
@@ -23,7 +26,7 @@ from django.utils import timezone
 
 from billing.models import LateCancellationFee, PaymentRefund
 from billing.refunds import source_field_name
-from core.models import SiteConfiguration
+from core.models import Notification, SiteConfiguration
 from membership import equipment as equipment_service
 from membership import webhook_handlers
 from membership.models import (
@@ -44,6 +47,7 @@ from tests.membership.factories import (
 pytestmark = pytest.mark.django_db
 
 HOLD = EquipmentReservation.Status.PENDING_PAYMENT
+_RESERVATIONS_WEBHOOK = "https://discord.com/api/webhooks/749/reservations"
 _SESSION = {"id": "cs_res_1", "url": "https://checkout.stripe.example/cs_res_1"}
 
 
@@ -336,10 +340,41 @@ def describe_holding():
         )
         assert not EquipmentReservation.objects.confirmed().filter(pk=hold.pk).exists()
 
+    def it_keeps_every_holding_status_in_the_overlap_index():
+        index = next(i for i in EquipmentReservation._meta.indexes if i.name == "idx_equipres_holding")
+        assert index.fields == ["equipment", "starts_at"]
+        assert dict(index.condition.children) == {"status__in": ["confirmed", "pending_approval", "pending_payment"]}
+        assert set(dict(index.condition.children)["status__in"]) == set(EquipmentReservation.HOLDING_STATUSES)
+
     def it_refuses_a_plain_cancel_of_an_unpaid_hold():
         hold = _hold()
         with pytest.raises(EquipmentError, match="held while the member pays"):
             hold.cancel(hold.member)
+
+
+def describe_reserve_on_priced_equipment():
+    def it_never_books_an_hourly_item_for_free():
+        equipment = _hourly()
+        with pytest.raises(
+            EquipmentError, match=r"^The price for this time just changed\. Please pick your time again\.$"
+        ):
+            equipment_service.reserve(equipment, _member(), _at(_day(), 14), 60)
+        with pytest.raises(EquipmentError, match="price for this time just changed"):
+            equipment_service.reserve(equipment, _member("zeroed"), _at(_day(), 14), 60, donation_cents=0)
+        assert not EquipmentReservation.objects.exists()
+
+    def it_books_a_donation_item_free_only_on_an_explicit_zero():
+        equipment = _tool(pricing=Equipment.Pricing.DONATION)
+        with pytest.raises(EquipmentError, match="price for this time just changed"):
+            equipment_service.reserve(equipment, _member(), _at(_day(), 14), 60)
+        with pytest.raises(EquipmentError, match="price for this time just changed"):
+            equipment_service.reserve(equipment, _member("tenner"), _at(_day(), 15), 60, donation_cents=1000)
+        booked = equipment_service.reserve(equipment, _member("zero"), _at(_day(), 16), 60, donation_cents=0)
+        assert booked.status == EquipmentReservation.Status.CONFIRMED
+
+    def it_still_books_a_free_item_with_no_amount():
+        booked = equipment_service.reserve(_tool(), _member(), _at(_day(), 14), 60)
+        assert booked.status == EquipmentReservation.Status.CONFIRMED
 
 
 def describe_start_reservation_checkout():
@@ -415,8 +450,13 @@ def describe_finalize_paid_reservation():
         assert [m.subject for m in mail.outbox if m.subject.startswith("Reserved")] != []
         assert len([m for m in mail.outbox if m.subject.startswith("Reserved")]) == 1
 
-    def it_lands_awaiting_approval_and_sends_the_request_emails_on_equipment_that_needs_it():
-        equipment = _hourly(requires_approval=True)
+    @respx.mock
+    def it_lands_awaiting_approval_with_only_the_request_emails_until_a_manager_approves():
+        config = SiteConfiguration.load()
+        config.discord_reservations_webhook_url = _RESERVATIONS_WEBHOOK
+        config.save()
+        route = respx.post(_RESERVATIONS_WEBHOOK).mock(return_value=httpx.Response(204))
+        equipment = _hourly(requires_approval=True, name="Quillfeather Mill")
         manager = _member("approver")
         EquipmentStaffMembershipFactory(equipment=equipment, member=manager)
         hold = _hold(equipment)
@@ -431,6 +471,18 @@ def describe_finalize_paid_reservation():
         subjects = [m.subject for m in mail.outbox]
         assert any(subject.startswith("Requested:") for subject in subjects)
         assert any(subject.startswith("Needs approval:") for subject in subjects)
+        # A request is not booked yet: no confirmation, no #reservations post, no managers' booking bell.
+        assert not any(subject.startswith("Reserved") for subject in subjects)
+        assert not route.called
+        assert not Notification.objects.filter(trigger="equipment.reservation_made").exists()
+
+        mail.outbox.clear()
+        hold.approve(manager)
+
+        assert [m.subject for m in mail.outbox if m.subject.startswith("Reserved")] != []
+        assert len([m for m in mail.outbox if m.subject.startswith("Reserved")]) == 1
+        assert route.call_count == 1
+        assert "Quillfeather Mill" in json.loads(route.calls[0].request.content)["embeds"][0]["description"]
 
     def it_confirms_a_managers_own_paid_hold_at_once():
         equipment = _hourly(requires_approval=True)

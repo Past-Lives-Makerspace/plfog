@@ -427,6 +427,17 @@ def describe_reserving_priced_equipment():
             assert _toast(response) == ("Enter the amount in dollars, like 10 or 12.50.", "error"), amount
         assert _toast(_reserve(client, equipment))[0] == "Enter what you'd like to pay. $0 is fine."
 
+    @patch("billing.stripe_utils.create_checkout_session")
+    def it_refuses_the_free_road_when_the_item_turned_priced_before_the_lock(mock_create, client: Client):
+        # The view read the item as free (the stale read is the patch); the row under reserve()'s lock charges.
+        member = _login(client, "staleread")
+        for equipment in (_hourly(), _donation(name="Stale Press")):
+            with patch.object(Equipment, "checkout_amount_cents", return_value=0):
+                response = _reserve(client, equipment)
+            assert _toast(response) == ("The price for this time just changed. Please pick your time again.", "error")
+        mock_create.assert_not_called()
+        assert not EquipmentReservation.objects.filter(member=member).exists()
+
     @patch("billing.stripe_utils.create_checkout_session", side_effect=RuntimeError("stripe down"))
     def it_says_so_when_checkout_cannot_start(mock_create, client: Client):
         equipment = _hourly()
@@ -578,11 +589,34 @@ def describe_cancelling_an_unpaid_hold():
     def it_keeps_a_hold_that_turns_out_to_be_paid(mock_retrieve, client: Client):
         member = _login(client, "surprisepaid")
         hold = _hold(_hourly(), member)
-        message, level = _toast(_cancel(client, hold))
-        assert level == "info"
-        assert message.startswith("Your payment already went through")
+        assert _toast(_cancel(client, hold)) == (
+            "Your payment already went through, so your reservation is in. "
+            "Cancel it again for an automatic full refund.",
+            "info",
+        )
         hold.refresh_from_db()
         assert hold.status == EquipmentReservation.Status.CONFIRMED
+
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_paid_session())
+    def it_says_a_paid_hold_on_approval_equipment_is_with_a_manager(mock_retrieve, client: Client):
+        member = _login(client, "surpriserequest")
+        hold = _hold(_hourly(requires_approval=True), member)
+        assert _toast(_cancel(client, hold)) == (
+            "Your payment already went through, so your request is with a manager. We'll email you when they decide.",
+            "info",
+        )
+        hold.refresh_from_db()
+        assert hold.status == WAITING
+
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_paid_session())
+    def it_says_the_same_from_the_stripe_cancel_page(mock_retrieve, client: Client):
+        member = _login(client, "cancelpagerequest")
+        hold = _hold(_hourly(requires_approval=True), member)
+        token = equipment_service.make_checkout_token(hold)
+        response = client.post(reverse("hub_equipment_checkout_cancelled", args=[hold.equipment.slug, token]))
+        assert _messages(response) == [
+            "Your payment already went through, so your request is with a manager. We'll email you when they decide."
+        ]
 
     @patch("billing.stripe_utils.retrieve_checkout_session", side_effect=RuntimeError("down"))
     def it_lands_on_the_bookings_tab_with_a_next(mock_retrieve, client: Client):

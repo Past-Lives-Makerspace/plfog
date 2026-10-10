@@ -779,8 +779,9 @@ def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
                 equipment, member, starts_at, duration, purpose=form.cleaned_data["purpose"], amount_cents=entered
             )
             return _to_checkout(request, equipment, checkout_url, week_offset=week_offset, selected_day=selected_day)
+        # The free road: an explicit $0 donation, or nothing for a free item; reserve() re-checks under its lock.
         reservation = equipment_service.reserve(
-            equipment, member, starts_at, duration, purpose=form.cleaned_data["purpose"]
+            equipment, member, starts_at, duration, purpose=form.cleaned_data["purpose"], donation_cents=entered
         )
     except EquipmentError as exc:
         response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
@@ -826,6 +827,27 @@ _HOLD_RELEASE_MESSAGES = {
     ),
     "unknown": ("error", "We couldn't check your payment just now. Try again in a minute."),
 }
+
+
+#: The "paid" message when the paid hold landed as a request on equipment that needs approval (#748).
+_HOLD_PAID_REQUEST_MESSAGE = (
+    "info",
+    "Your payment already went through, so your request is with a manager. We'll email you when they decide.",
+)
+
+
+def _hold_release_message(reservation: EquipmentReservation) -> tuple[str, str]:
+    """Ask Stripe and release the member's unpaid hold; return the ``(level, text)`` that says what happened.
+
+    A hold that turns out to be paid is finalized, and the words follow where it landed:
+    booked, or waiting for a manager on equipment that needs approval.
+    """
+    outcome = equipment_service.release_hold_if_unpaid(reservation)
+    if outcome == "paid":
+        status = EquipmentReservation.objects.values_list("status", flat=True).get(pk=reservation.pk)
+        if status == EquipmentReservation.Status.PENDING_APPROVAL:
+            return _HOLD_PAID_REQUEST_MESSAGE
+    return _HOLD_RELEASE_MESSAGES[outcome]
 
 
 def _refund_sentence(reservation: EquipmentReservation) -> str:
@@ -947,7 +969,7 @@ def _release_own_hold(request: HttpRequest, equipment: Equipment, reservation: E
     From the schedule it answers with the refreshed partial and a toast; with a posted
     ``next`` (the Bookings tab) with a message and a redirect there.
     """
-    level, text = _HOLD_RELEASE_MESSAGES[equipment_service.release_hold_if_unpaid(reservation)]
+    level, text = _hold_release_message(reservation)
     if "next" in request.POST:
         messages.add_message(request, getattr(messages, level.upper()), text)
         return redirect(_safe_next(request, "") or f"{reverse('hub_equipment_index')}?view=bookings")
@@ -1774,6 +1796,6 @@ def hub_equipment_checkout_cancelled(request: HttpRequest, slug: str, token: str
             "token": token,
         }
         return render(request, "hub/equipment_checkout_return.html", context)
-    level, text = _HOLD_RELEASE_MESSAGES[equipment_service.release_hold_if_unpaid(reservation)]
+    level, text = _hold_release_message(reservation)
     messages.add_message(request, getattr(messages, level.upper()), text)
     return redirect(detail_url)
