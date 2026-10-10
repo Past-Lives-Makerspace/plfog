@@ -7419,9 +7419,11 @@ class CommunityEventQuerySet(models.QuerySet):
         """SYNCED recurring rows that live on Discord as a rule: a Discord id and a NULL
         ``discord_pushed_occurrence``.
 
-        The cron re-checks these against the recurrence map each tick; one whose cadence the
-        map no longer expresses as a rule (a monthly evening series, since #755) is re-pushed,
-        which replaces its Discord series with its next single occurrence.
+        The cron re-checks these each tick: one whose cadence the recurrence map no longer
+        expresses as a rule (a monthly evening series, since #755) is re-pushed, which replaces
+        its Discord series with its next single occurrence; one whose next occurrence no longer
+        sits at the UTC time Discord was last given (the clocks changed) is re-pushed to
+        re-anchor the same Discord series at its local time.
         """
         return (
             self.published()
@@ -7688,6 +7690,15 @@ class CommunityEvent(models.Model):
             "For an unmappable-cadence event pushed to Discord as a single event, the start of the "
             "occurrence currently live there — so the nightly roll-forward knows when it has passed. "
             "Blank for one-off and natively-recurring events."
+        ),
+    )
+    discord_pushed_start = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The scheduled_start_time last sent to Discord: a series' next occurrence at the time of "
+            "the push, or a single event's start. The retry cron compares a series' next occurrence "
+            "against it and re-anchors the Discord series when the clocks have changed."
         ),
     )
     channel_announced_at = models.DateTimeField(
@@ -8346,6 +8357,7 @@ class CommunityEvent(models.Model):
                 "discord_sync_error",
                 "discord_synced_at",
                 "discord_pushed_occurrence",
+                "discord_pushed_start",
                 "updated_at",
             ]
         )

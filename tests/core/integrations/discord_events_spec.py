@@ -238,6 +238,28 @@ def describe_push_community_event():
             assert event.discord_event_id == "single1"
             assert event.discord_sync_state == CommunityEvent.SyncState.SYNCED
 
+        def it_records_the_start_it_sent_discord():
+            _enable_config()
+            event = CommunityEventFactory(recurrence=CommunityEvent.Recurrence.WEEKLY)
+            client = _fake_client()
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)
+            assert event.discord_pushed_start == event.starts_at  # the anchor, still ahead
+
+        def it_creates_a_fresh_event_when_the_remote_one_is_gone():
+            # Cancelled by hand on Discord: the PATCH 404s. Failing every tick against an
+            # event that no longer exists helps nobody; the id is dropped and a new one made.
+            _enable_config()
+            event = CommunityEventFactory(discord_event_id="gone1")
+            update = MagicMock(side_effect=de.DiscordEventsError("Discord API 404: Unknown Guild Scheduled Event"))
+            insert = MagicMock(return_value={"id": "fresh1"})
+            client = _fake_client(insert_event=insert, update_event=update)
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)
+            insert.assert_called_once()
+            assert event.discord_event_id == "fresh1"
+            assert event.discord_sync_state == CommunityEvent.SyncState.SYNCED
+
     def describe_failure():
         def it_marks_failed_with_a_truncated_error_and_never_raises():
             _enable_config()
@@ -345,6 +367,31 @@ def describe__build_scheduled_event_body():
         body = de._build_scheduled_event_body(_event(description="y" * 2000))
         assert len(body["description"]) == 1000
 
+    def it_starts_a_series_at_its_next_occurrence_once_the_anchor_has_passed():
+        # Parallel Play: weekly, anchored Thu 2026-07-23 17:00 PDT. Every edit after that date
+        # re-sent the anchor and Discord answered GUILD_SCHEDULED_EVENT_SCHEDULE_PAST (failing
+        # on every retry tick until 2026-10-10). The start is the next occurrence, in the UTC
+        # offset of its own date, and the rule is anchored there too.
+        anchor = timezone.make_aware(datetime(2026, 7, 23, 17, 0))
+        event = _event(
+            recurrence=CommunityEvent.Recurrence.WEEKLY, starts_at=anchor, ends_at=anchor + timedelta(hours=3)
+        )
+        now = timezone.make_aware(datetime(2026, 11, 3, 12, 0))
+        with patch("django.utils.timezone.now", return_value=now):
+            body = de._build_scheduled_event_body(event)
+        assert body["scheduled_start_time"] == "2026-11-05T17:00:00-08:00"
+        assert body["scheduled_end_time"] == "2026-11-05T20:00:00-08:00"
+        assert body["recurrence_rule"]["start"] == body["scheduled_start_time"]
+        assert body["recurrence_rule"]["by_weekday"] == [4]  # Fri 01:00 UTC
+
+    def it_starts_a_series_at_its_anchor_while_that_is_still_ahead():
+        anchor = timezone.now() + timedelta(days=3)
+        event = _event(
+            recurrence=CommunityEvent.Recurrence.WEEKLY, starts_at=anchor, ends_at=anchor + timedelta(hours=1)
+        )
+        sent = datetime.fromisoformat(de._build_scheduled_event_body(event)["scheduled_start_time"])
+        assert sent == anchor  # the same instant, carried in Portland's offset
+
     def it_omits_recurrence_for_a_one_off_event():
         body = de._build_scheduled_event_body(_event(recurrence=CommunityEvent.Recurrence.NONE))
         assert "recurrence_rule" not in body
@@ -423,12 +470,12 @@ def describe__recurrence_rule_for():
         return _event(recurrence, starts_at=start, ends_at=start + timedelta(hours=1))
 
     def it_returns_none_for_a_one_off() -> None:
-        assert de._recurrence_rule_for(_event(CommunityEvent.Recurrence.NONE)) is None
+        assert de._recurrence_rule_for(_event(CommunityEvent.Recurrence.NONE), timezone.now()) is None
 
     def it_maps_weekly_to_a_single_weekday_rule() -> None:
         # Wed 2026-07-08; Discord's by_weekday uses Python's 0=Monday … 6=Sunday encoding.
         event = _anchored(CommunityEvent.Recurrence.WEEKLY, 2026, 7, 8)
-        assert de._recurrence_rule_for(event) == {"frequency": 2, "interval": 1, "by_weekday": [2]}
+        assert de._recurrence_rule_for(event, event.starts_at) == {"frequency": 2, "interval": 1, "by_weekday": [2]}
 
     def it_uses_the_utc_weekday_for_an_evening_event_that_crosses_the_utc_date_line() -> None:
         # Thu 2026-07-16 17:00 PDT == Fri 2026-07-17 00:00 UTC. Discord evaluates the rule
@@ -438,7 +485,34 @@ def describe__recurrence_rule_for():
         # day early (the live "Parallel Play on Wednesday" bug, 2026-07-28).
         start = timezone.make_aware(datetime(2026, 7, 16, 17, 0))
         event = _event(CommunityEvent.Recurrence.WEEKLY, starts_at=start, ends_at=start + timedelta(hours=3))
-        assert de._recurrence_rule_for(event) == {"frequency": 2, "interval": 1, "by_weekday": [4]}
+        assert de._recurrence_rule_for(event, event.starts_at) == {"frequency": 2, "interval": 1, "by_weekday": [4]}
+
+    def it_takes_the_weekday_from_the_pushed_start_not_the_anchor() -> None:
+        # A 4:30 PM Thursday series is Thursday 23:30 UTC in summer and Friday 00:30 UTC in
+        # winter. The rule follows the instant being pushed, so the winter re-anchor sends
+        # Friday (4) where the July anchor would have said Thursday (3).
+        anchor = timezone.make_aware(datetime(2026, 7, 16, 16, 30))
+        event = _event(CommunityEvent.Recurrence.WEEKLY, starts_at=anchor, ends_at=anchor + timedelta(hours=2))
+        assert de._recurrence_rule_for(event, anchor)["by_weekday"] == [3]
+        winter = timezone.make_aware(datetime(2026, 11, 19, 16, 30))
+        assert de._recurrence_rule_for(event, winter)["by_weekday"] == [4]
+
+    def it_keeps_a_last_weekday_series_at_week_5_whatever_week_the_pushed_start_lands_in() -> None:
+        # Anchored Fri 2026-07-31 noon, the 5th Friday: FOG projects the last Friday of each
+        # month (Aug 28 is the 4th). The rule follows the anchor's calendar position, so a
+        # push from Aug 28 still says week 5, Friday, not week 4.
+        anchor = timezone.make_aware(datetime(2026, 7, 31, 12, 0))
+        event = _event(CommunityEvent.Recurrence.MONTHLY, starts_at=anchor, ends_at=anchor + timedelta(hours=1))
+        pushed = timezone.make_aware(datetime(2026, 8, 28, 12, 0))
+        assert de._recurrence_rule_for(event, pushed)["by_n_weekday"] == [{"n": 5, "day": 4}]
+
+    def it_returns_none_for_a_monthly_event_that_crosses_the_date_line_only_in_winter() -> None:
+        # Fri 2026-07-10 16:30 PDT is 23:30 UTC the same day, but 16:30 PST is 00:30 UTC the
+        # next day, so a rule that held in July would snap to the wrong week in November.
+        start = timezone.make_aware(datetime(2026, 7, 10, 16, 30))
+        event = _event(CommunityEvent.Recurrence.MONTHLY, starts_at=start, ends_at=start + timedelta(hours=1))
+        assert de._recurrence_rule_for(event, start) is None
+        assert not de.pushes_as_native_series(event)
 
     def it_returns_none_for_a_monthly_evening_event_that_crosses_the_utc_date_line() -> None:
         # Fri 2026-07-10 18:00 PDT == Sat 2026-07-11 01:00 UTC. Discord counts the nth weekday
@@ -447,7 +521,8 @@ def describe__recurrence_rule_for():
         # the single-next-occurrence fallback instead of a rule.
         start = timezone.make_aware(datetime(2026, 7, 10, 18, 0))
         event = _event(CommunityEvent.Recurrence.MONTHLY, starts_at=start, ends_at=start + timedelta(hours=1))
-        assert de._recurrence_rule_for(event) is None
+        assert de._recurrence_rule_for(event, event.starts_at) is None
+        assert not de.pushes_as_native_series(event)
 
     @pytest.mark.parametrize(
         ("day", "expected_n", "expected_weekday"),
@@ -462,7 +537,7 @@ def describe__recurrence_rule_for():
     )
     def it_maps_monthly_to_an_nth_weekday_rule(day: int, expected_n: int, expected_weekday: int) -> None:
         event = _anchored(CommunityEvent.Recurrence.MONTHLY, 2026, 7, day)
-        assert de._recurrence_rule_for(event) == {
+        assert de._recurrence_rule_for(event, event.starts_at) == {
             "frequency": 1,
             "interval": 1,
             "by_n_weekday": [{"n": expected_n, "day": expected_weekday}],
@@ -475,7 +550,7 @@ def describe__recurrence_rule_for():
         # (which would be a hard 400).
         event = _anchored(CommunityEvent.Recurrence.MONTHLY, 2026, 7, 29)
         assert event._occurrence_ordinal() == -1
-        assert de._recurrence_rule_for(event)["by_n_weekday"][0]["n"] == 5
+        assert de._recurrence_rule_for(event, event.starts_at)["by_n_weekday"][0]["n"] == 5
 
     def it_maps_a_4th_weekday_that_is_also_the_months_last_to_discord_4() -> None:
         # The other side of "last": Sat 2026-02-28 is both the 4th AND the final Saturday of
@@ -483,12 +558,13 @@ def describe__recurrence_rule_for():
         # keeps landing on the 4th Saturday in months that happen to have five.
         event = _anchored(CommunityEvent.Recurrence.MONTHLY, 2026, 2, 28)
         assert event._occurrence_ordinal() == 4
-        assert de._recurrence_rule_for(event)["by_n_weekday"][0]["n"] == 4
+        assert de._recurrence_rule_for(event, event.starts_at)["by_n_weekday"][0]["n"] == 4
 
     def it_keeps_every_calendar_anchor_inside_discords_1_to_5_range() -> None:
         # Every day of a 31-day month — no calendar position may produce an n Discord rejects.
         for day in range(1, 32):
-            rule = de._recurrence_rule_for(_anchored(CommunityEvent.Recurrence.MONTHLY, 2026, 7, day))
+            event = _anchored(CommunityEvent.Recurrence.MONTHLY, 2026, 7, day)
+            rule = de._recurrence_rule_for(event, event.starts_at)
             assert 1 <= rule["by_n_weekday"][0]["n"] <= 5
 
     @pytest.mark.parametrize(
@@ -502,7 +578,9 @@ def describe__recurrence_rule_for():
         ],
     )
     def it_returns_none_for_the_unmappable_cadences(recurrence: str) -> None:
-        assert de._recurrence_rule_for(_anchored(recurrence, 2026, 7, 29)) is None
+        event = _anchored(recurrence, 2026, 7, 29)
+        assert de._recurrence_rule_for(event, event.starts_at) is None
+        assert not de.pushes_as_native_series(event)
 
 
 def _discord_series(body: dict[str, Any], count: int) -> list[datetime]:
@@ -573,6 +651,70 @@ def describe_what_discord_shows():
         assert _local_dates(shown) == ["Fri 2026-11-06 18:00", "Fri 2026-12-04 18:00", "Fri 2027-01-01 18:00"]
         assert insert.call_count == 3
         client.update_event.assert_not_called()
+
+    @pytest.mark.django_db
+    def it_keeps_a_weekly_evening_series_at_its_local_time_across_the_clock_change() -> None:
+        # Clay Play: weekly, Tuesday 6 PM. Pushed in October (01:00 UTC) Discord's series
+        # reads 5 PM from Nov 1, because the rule sits at a fixed UTC instant. The cron's
+        # re-anchor pass PATCHes the same event with the first November occurrence as its
+        # start (02:00 UTC), and the series reads 6 PM again. Idempotent until March.
+        _enable_config()
+        anchor = timezone.make_aware(datetime(2026, 10, 6, 18, 0))
+        event = CommunityEventFactory(
+            recurrence=CommunityEvent.Recurrence.WEEKLY, starts_at=anchor, ends_at=anchor + timedelta(hours=2)
+        )
+        insert = MagicMock(return_value={"id": "clay"})
+        update = MagicMock(return_value={"id": "clay"})
+        client = _fake_client(insert_event=insert, update_event=update)
+        with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+            with patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 10, 5, 9, 0))):
+                event.push_to_discord()
+                assert not de.series_needs_reanchor(event)
+            october = _discord_series(insert.call_args.args[1], 5)
+            assert _local_dates(october)[-2:] == ["Tue 2026-10-27 18:00", "Tue 2026-11-03 17:00"]  # the drift
+            with patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 11, 2, 9, 0))):
+                assert de.series_needs_reanchor(event)
+                event.push_to_discord()
+                assert not de.series_needs_reanchor(event)
+            update.assert_called_once()
+            assert update.call_args.args[1] == "clay"  # the same Discord event, Interested marks kept
+            november = _discord_series(update.call_args.args[2], 3)
+        assert _local_dates(november) == ["Tue 2026-11-03 18:00", "Tue 2026-11-10 18:00", "Tue 2026-11-17 18:00"]
+        assert event.discord_pushed_start == timezone.make_aware(datetime(2026, 11, 3, 18, 0))
+
+
+@pytest.mark.django_db
+def describe_series_needs_reanchor():
+    def _clay_play(pushed_start: datetime | None) -> CommunityEvent:
+        anchor = timezone.make_aware(datetime(2026, 10, 6, 18, 0))
+        return CommunityEventFactory(
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+            starts_at=anchor,
+            ends_at=anchor + timedelta(hours=2),
+            discord_event_id="clay",
+            discord_sync_state=CommunityEvent.SyncState.SYNCED,
+            discord_pushed_start=pushed_start,
+        )
+
+    def it_waits_for_a_running_occurrence_to_end() -> None:
+        # Tue 2026-10-27 is the last Clay Play before the clocks change. Mid-meeting the next
+        # occurrence is already Nov 3 at 02:00 UTC (a drift), but moving an ACTIVE Discord
+        # event's start a week out is wrong either way; the tick after 8 PM re-anchors.
+        event = _clay_play(timezone.make_aware(datetime(2026, 10, 27, 18, 0)))
+        with patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 10, 27, 18, 30))):
+            assert not de.series_needs_reanchor(event)
+        with patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 10, 27, 20, 30))):
+            assert de.series_needs_reanchor(event)
+
+    def it_is_quiet_between_occurrences_until_the_clocks_change() -> None:
+        event = _clay_play(timezone.make_aware(datetime(2026, 10, 6, 18, 0)))
+        with patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 10, 20, 9, 0))):
+            assert not de.series_needs_reanchor(event)
+
+    def it_reanchors_a_row_from_before_the_column_once() -> None:
+        event = _clay_play(None)
+        with patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 10, 20, 9, 0))):
+            assert de.series_needs_reanchor(event)
 
 
 @pytest.mark.django_db
