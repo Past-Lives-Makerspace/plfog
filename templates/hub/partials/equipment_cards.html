@@ -60,8 +60,19 @@ The Staff line (#615) names the item's staff from equipment.staff_roster, and is
           <span class="pl-help__bubble">Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the {{ equipment.name }}.</span>
         </span>
       </div>
-      {% with links=equipment.unlocking_orientation_links %}
-      {% if links|length == 1 %}
+      {% with links=equipment.unlocking_orientation_links way_links=equipment.unlocking_way_links %}
+      {% if way_links %}
+      {# A way of several orientations (#747): the links grouped by way, "Both" or "All of" over a way of several, an "or" between ways. #}
+      {% for way in way_links %}
+      {% if not forloop.first %}<span class="pl-equip-card__or" aria-hidden="true">or</span>{% endif %}
+      <div class="pl-equip-card__way" data-unlock-way>
+        {% if way|length == 2 %}<span class="pl-equip-card__way-lead">Both</span>{% elif way|length > 2 %}<span class="pl-equip-card__way-lead">All of</span>{% endif %}
+        {% for orientation, link in way %}
+        <a href="{{ link }}" class="pl-equip-card__cta" data-unlock-type="{{ orientation.pk }}">Book {{ orientation.name }}</a>
+        {% endfor %}
+      </div>
+      {% endfor %}
+      {% elif links|length == 1 %}
       <a href="{{ links.0.1 }}" class="pl-equip-card__cta">Book the orientation</a>
       {% else %}
       {% for orientation, link in links %}

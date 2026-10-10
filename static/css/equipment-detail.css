@@ -1,0 +1,53 @@
+/* The equipment page (hub/equipment_detail.html), additions since #747.
+   Its older rules (.pl-equip-hero, .pl-equip-banner and the rest) stay in hub.css. */
+
+/* The requirements banner when a way needs several orientations: the sentence, then each way
+   as a short list with an "or" between them. */
+.pl-equip-unlock-lead {
+    margin: 0;
+}
+.pl-equip-unlock-ways {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0.75rem 0 0;
+}
+.pl-equip-unlock-way {
+    padding: 0.75rem;
+    border-radius: 8px;
+    background: var(--hub-card-bg);
+    border: 1px solid var(--hub-border);
+}
+.pl-equip-unlock-way__item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.25rem 0;
+}
+.pl-equip-unlock-way__item + .pl-equip-unlock-way__item {
+    border-top: 1px solid var(--hub-border);
+    margin-top: 0.25rem;
+    padding-top: 0.5rem;
+}
+.pl-equip-unlock-way__meta {
+    font-size: 0.85rem;
+    color: var(--hub-text-muted);
+}
+.pl-equip-unlock-way__done {
+    font-size: 0.85rem;
+    color: #7bdcb5;
+}
+[data-theme="light"] .pl-equip-unlock-way__done {
+    color: #1e7a4f;
+}
+.pl-equip-unlock-or {
+    margin: 0;
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}

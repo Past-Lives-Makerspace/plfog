@@ -52,7 +52,8 @@
       <p class="pl-flyer__qr-caption">Scan to see open times and book the {{ equipment.get_kind_display|lower }}.</p>
       <p class="pl-flyer__qr-url">{{ equipment.qr_url }}</p>
     </section>
-    {% if orientations|length == 1 %}
+    {# A way of several orientations (#747): no single type QR, since no one type unlocks it alone. #}
+    {% if not requirement and orientations|length == 1 %}
     {% with orientation=orientations.0 %}
     <section class="pl-flyer__qr-panel" data-qr-target="orientation">
       <div class="pl-flyer__qr">{{ orientation.qr_svg|safe }}</div>
@@ -65,7 +66,9 @@
   </div>
 
   {# Several unlock it (#656): a QR each would not fit the Letter row, so the sheet names them and Reserve It lists each with its Book link. #}
-  {% if orientations|length > 1 %}
+  {% if requirement %}
+  <p class="pl-flyer__about" data-qr-requirement>New here? {{ requirement }} Scan Reserve It to book.</p>
+  {% elif orientations|length > 1 %}
   <p class="pl-flyer__about" data-qr-orientations>New here? Any one of these orientations unlocks it: {% for orientation in orientations %}{{ orientation.name }}{% if not forloop.last %}, {% endif %}{% endfor %}. Scan Reserve It to book one.</p>
   {% endif %}
 

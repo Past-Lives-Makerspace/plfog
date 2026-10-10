@@ -134,6 +134,7 @@ def describe_WikiPage_official_block_context():
         page = WikiPageFactory(kind=WikiPage.Kind.MACHINE, equipment=equipment)
         block = page.official_block_context(MemberFactory(status=Member.Status.ACTIVE))
         assert block["unlocking_orientations"] == [beginner, experienced]
+        assert block["orientation_requirement"] == ""
         html = render_to_string("hub/partials/_wiki_official.html", {"official_block": block})
         assert "Any one of: Wiki Press Beginner, Wiki Press Experienced" in html
 
@@ -147,6 +148,65 @@ def describe_WikiPage_official_block_context():
         )
         assert '<dd class="pl-wp-facts__value">Wiki Lone Basics</dd>' in html
         assert "Any one of" not in html
+
+    def describe_when_a_way_needs_several_orientations():
+        """#747: the grouped sentence, and the "You" line reports progress through a started way."""
+
+        def _cnc_page() -> tuple[WikiPage, object, object, object]:
+            guild = GuildFactory(name="Wiki CNC Guild")
+            full = OrientationTypeFactory(guild=guild, name="CNC Machine Orientation")
+            first = OrientationTypeFactory(guild=guild, name="Session 1 of 2")
+            second = OrientationTypeFactory(guild=guild, name="Session 2 of 2")
+            equipment = EquipmentFactory(name="Wiki CNC", guild=guild)
+            equipment.set_unlocking_ways([[full], [first, second]])
+            return WikiPageFactory(kind=WikiPage.Kind.MACHINE, equipment=equipment), full, first, second
+
+        def it_renders_the_grouped_sentence_and_the_progress(db):
+            from django.template.loader import render_to_string
+
+            from tests.membership.factories import OrientationRecordFactory
+
+            page, _full, first, _second = _cnc_page()
+            member = MemberFactory(status=Member.Status.ACTIVE)
+            OrientationRecordFactory(member=member, orientation_type=first)
+            block = page.official_block_context(member)
+            assert block["orientation_requirement"] == (
+                "The CNC Machine Orientation, or both Session 1 of 2 and Session 2 of 2"
+            )
+            assert block["access_line"] == "Session 1 of 2 done. Session 2 of 2 to go."
+            html = render_to_string("hub/partials/_wiki_official.html", {"official_block": block})
+            assert (
+                '<dd class="pl-wp-facts__value" data-orientation-requirement>The CNC Machine Orientation, '
+                "or both Session 1 of 2 and Session 2 of 2</dd>"
+            ) in html
+            assert "Any one of" not in html
+
+        def it_reads_the_bulk_set_when_given_one(db):
+            page, _full, first, _second = _cnc_page()
+            block = page.official_block_context(
+                MemberFactory(status=Member.Status.ACTIVE), oriented_type_ids={first.pk}
+            )
+            assert block["access_line"] == "Session 1 of 2 done. Session 2 of 2 to go."
+
+        def it_keeps_the_usual_line_before_any_way_is_started(db):
+            page, *_types = _cnc_page()
+            block = page.official_block_context(MemberFactory(status=Member.Status.ACTIVE))
+            assert block["access_line"] == "Orientation needed before you use this."
+
+        def it_reads_as_today_once_a_way_is_finished(db):
+            from tests.membership.factories import OrientationRecordFactory
+
+            page, _full, first, second = _cnc_page()
+            member = MemberFactory(status=Member.Status.ACTIVE)
+            OrientationRecordFactory(member=member, orientation_type=first)
+            OrientationRecordFactory(member=member, orientation_type=second)
+            assert page.official_block_context(member)["access_line"] == "You are set up for this tool."
+
+        def it_keeps_the_signed_out_line(db):
+            page, *_types = _cnc_page()
+            block = page.official_block_context(None)
+            assert block["orientation_requirement"].startswith("The CNC Machine Orientation")
+            assert block["access_line"] == "Your membership needs to be active to use this."
 
     def it_answers_for_a_signed_out_reader_without_raising(db):
         page = WikiPageFactory(kind=WikiPage.Kind.MACHINE, equipment=EquipmentFactory())
