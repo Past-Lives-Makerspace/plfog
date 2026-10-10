@@ -27,12 +27,11 @@ from django.views.decorators.http import require_POST
 from hub.calendar_pages import calendar_nav_params, orientations_calendar_context
 from hub.forms import (
     NewOrientationTypeForm,
-    OrientationAmountForm,
-    OrientationCustomRequestForm,
     OrientationRecordForm,
 )
 from hub.orientation_bookings import bookings_pane_context
 from hub.views import (
+    _custom_request_forms,
     _get_hub_context,
     _get_member,
     _guild_orientations_url,
@@ -136,20 +135,10 @@ def _dress_card(
     nothing_to_book = bookable and not type_slots and not type_blocks
     # Posted times exist but every one is taken: the card says so and links the owner page.
     section["all_full"] = nothing_to_book and has_full_slots
-    section["custom_form"] = None
-    section["custom_amount_form"] = None
-    if (
-        nothing_to_book
-        and orientation_type.guild is not None
-        and orientation_type.guild.orientation_settings.allow_custom_requests
-    ):
-        # The type rides a hidden input; the form only renders the time and the note,
-        # with ids of its own so two cards' fields never share one.
-        section["custom_form"] = OrientationCustomRequestForm(auto_id=f"id_custom_{orientation_type.pk}_%s")
-        if orientation_type.is_donation:
-            section["custom_amount_form"] = OrientationAmountForm(
-                orientation_type=orientation_type, auto_id=f"id_custom_{orientation_type.pk}_%s"
-            )
+    # Propose a time (#733): guild and equipment cards alike, by the type's own rule.
+    section["custom_form"], section["custom_amount_form"] = (
+        _custom_request_forms(orientation_type) if nothing_to_book else (None, None)
+    )
     section["image"] = orientation_type.card_image
     owner = orientation_type.card_image_owner
     if owner is None:

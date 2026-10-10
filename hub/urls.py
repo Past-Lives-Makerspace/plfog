@@ -465,6 +465,11 @@ urlpatterns = [
     path("equipment/<slug:slug>/schedule/", equipment_views.hub_equipment_schedule, name="hub_equipment_schedule"),
     path("equipment/<slug:slug>/reserve/", equipment_views.hub_equipment_reserve, name="hub_equipment_reserve"),
     path(
+        "equipment/<slug:slug>/orientation/request-custom/",
+        equipment_views.hub_equipment_orientation_request_custom,
+        name="hub_equipment_orientation_request_custom",
+    ),
+    path(
         "equipment/<slug:slug>/reservations/<int:pk>/cancel/",
         equipment_views.hub_equipment_reservation_cancel,
         name="hub_equipment_reservation_cancel",

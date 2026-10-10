@@ -427,9 +427,19 @@ def describe_schedule_an_orientation():
         assert "pl-orient-card__note" in card
         assert reverse("hub_guild_orientation_request_custom", args=[guild.pk]) not in card
 
-    def it_shows_only_the_sentence_on_an_equipment_card_with_nothing_posted(client: Client):
+    def it_offers_the_equipment_road_on_an_equipment_card_with_nothing_posted(client: Client):
         _login(client, "op_custom_item")
         orientation_type = OrientationTypeFactory(equipment_owned=True, name="Bare Item")
+        card = _card_html(client.get(PAGE).content, orientation_type.pk)
+        equipment = orientation_type.equipment
+        assert reverse("hub_equipment_orientation_request_custom", args=[equipment.slug]) in card
+        assert f'<input type="hidden" name="orientation_type" value="{orientation_type.pk}">' in card
+
+    def it_shows_only_the_sentence_on_an_equipment_card_when_the_switch_is_off(client: Client):
+        _login(client, "op_custom_item_off")
+        orientation_type = OrientationTypeFactory(
+            equipment_owned=True, equipment__allow_custom_requests=False, name="Bare Item Off"
+        )
         card = _card_html(client.get(PAGE).content, orientation_type.pk)
         assert "pl-orient-card__note" in card
         assert "request-custom" not in card

@@ -98,8 +98,13 @@ No stretched name link: the Book buttons are the tap targets.
         <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="showCustom = true">Schedule an Orientation</button>
       </div>
       <div x-show="showCustom" x-cloak>
+        {% if sec.type.is_equipment_owned %}
+        <p class="pl-orient-card__note">Propose your own time and a manager will confirm it.</p>
+        <form method="post" action="{% url 'hub_equipment_orientation_request_custom' sec.type.equipment.slug %}" class="hub-form" hx-boost="false">
+        {% else %}
         <p class="pl-orient-card__note">Propose your own time and the guild lead will confirm it.</p>
         <form method="post" action="{% url 'hub_guild_orientation_request_custom' sec.type.guild.pk %}" class="hub-form" hx-boost="false">
+        {% endif %}
           {% csrf_token %}
           <input type="hidden" name="orientation_type" value="{{ sec.type.pk }}">
           <input type="hidden" name="next" value="{{ next_url }}">

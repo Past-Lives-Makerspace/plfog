@@ -576,8 +576,8 @@ def _orientation_sections(
     member's bookings on exactly these types; the (caller-filtered, ordered) slot
     lists render only when the type is open for the member. ``slot_cap`` can bound
     each type's list; both pages pass ``None`` (the five per page pager bounds the
-    view). Guild-only extras (availability blocks, custom requests) are layered on
-    by the guild view.
+    view). Extras are layered on by each caller: the guild view adds availability blocks
+    and custom requests, the equipment page adds custom requests.
     """
     from core.models import SiteConfiguration
     from membership.late_cancel import booking_cancel_warning, booking_sentence, policy_for_type
@@ -633,6 +633,28 @@ def _orientation_sections(
             }
         )
     return sections
+
+
+def _custom_request_forms(orientation_type: OrientationType) -> tuple[Any, Any]:
+    """The propose a time form for one type's card, and its amount form for a donation type (#733).
+
+    ``(None, None)`` unless the type takes custom requests
+    (:attr:`OrientationType.allows_custom_requests`), so the Orientations page card and the
+    equipment page read one rule. The caller decides the section is open with no open time.
+    The type rides a hidden input; the form renders only the time and the note, with ids
+    of its own so two cards' fields never share one.
+    """
+    from hub.forms import OrientationAmountForm, OrientationCustomRequestForm
+
+    if not orientation_type.allows_custom_requests:
+        return None, None
+    auto_id = f"id_custom_{orientation_type.pk}_%s"
+    amount_form = (
+        OrientationAmountForm(orientation_type=orientation_type, auto_id=auto_id)
+        if orientation_type.is_donation
+        else None
+    )
+    return OrientationCustomRequestForm(auto_id=auto_id), amount_form
 
 
 def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
@@ -911,8 +933,9 @@ def _orientation_return(request: HttpRequest, owner: Any) -> HttpResponse:
     The Orientations page (#502) posts ``next=/orientations/`` so a member who books, picks
     a time, asks for a custom time or cancels from a card comes back to it; the guild and
     equipment pages post nothing and land where they always did. ``owner`` is the
-    :class:`OrientationType` (its owner page and anchor) or, for the guild only roads that
-    may fail before a type is known, the :class:`Guild` (its page). A ``next`` naming
+    :class:`OrientationType` (its owner page and anchor) or, for the roads that may fail
+    before a type is known, the :class:`Guild` (its page) or the :class:`Equipment` (its
+    Orientation section). A ``next`` naming
     another host or a scheme is ignored, so the field can never send anyone off site.
     """
     next_url = _safe_next(request, "")
@@ -920,6 +943,8 @@ def _orientation_return(request: HttpRequest, owner: Any) -> HttpResponse:
         return redirect(next_url)
     if isinstance(owner, Guild):
         return redirect("hub_guild_detail", slug=owner.slug)
+    if isinstance(owner, Equipment):
+        return redirect(f"{reverse('hub_equipment_detail', args=[owner.slug])}#equipment-orientation")
     return _owner_redirect(owner)
 
 
@@ -2144,8 +2169,7 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
     type) and books it, reusing the normal request/confirm/email flow via the
     :mod:`membership.orientations` service helpers."""
     from hub.forms import OrientationCustomRequestForm
-    from membership import orientations
-    from membership.models import GuildOrientationSettings, OrientationError
+    from membership.models import GuildOrientationSettings
 
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
@@ -2153,24 +2177,46 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
         messages.error(request, "You need a member profile to request an orientation.")
         return _orientation_return(request, guild)
     settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
-    if settings_obj is None or not settings_obj.is_accepting or not settings_obj.allow_custom_requests:
+    if settings_obj is None or not settings_obj.takes_custom_requests:
         messages.error(request, "This guild isn't taking custom orientation requests right now.")
         return _orientation_return(request, guild)
     form = OrientationCustomRequestForm(request.POST, guild=guild)
     if not form.is_valid():
         messages.error(request, "Pick one of this guild's orientations and a valid future time.")
         return _orientation_return(request, guild)
+    return _send_custom_request(
+        request,
+        guild,
+        member,
+        form,
+        sent_message="Your orientation request was sent — the guild lead will confirm a time.",
+    )
+
+
+def _send_custom_request(
+    request: HttpRequest, owner: Guild | Equipment, member: Member, form: Any, *, sent_message: str
+) -> HttpResponse:
+    """Book a validated custom time request for either owner and land the member (#733).
+
+    The tail the guild and equipment roads share once their owner gate and
+    ``OrientationCustomRequestForm`` have passed: a priced or donation type opens Stripe
+    Checkout first, a free one becomes a REQUESTED booking at once. The service rechecks
+    the owner's switch, so a request the gate let through a moment too early still fails.
+    """
+    from membership import orientations
+    from membership.models import OrientationError
+
     starts = form.cleaned_data["starts_at"]
     orientation_type = form.cleaned_data["orientation_type"]
     try:
         charge_cents = _booking_charge_cents(request, orientation_type)
     except OrientationError as exc:
         messages.error(request, str(exc))
-        return _orientation_return(request, guild)
+        return _orientation_return(request, owner)
     if charge_cents:
         try:
             checkout_url = orientations.start_custom_orientation_checkout(
-                guild,
+                owner,
                 member,
                 starts,
                 orientation_type=orientation_type,
@@ -2179,21 +2225,21 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
             )
         except OrientationError as exc:
             messages.error(request, str(exc))
-            return _orientation_return(request, guild)
+            return _orientation_return(request, owner)
         except Exception:
-            logger.exception("Custom orientation checkout failed for guild %s.", guild.pk)
+            logger.exception("Custom orientation checkout failed for %s %s.", owner._meta.model_name, owner.pk)
             messages.error(request, "We couldn't start the payment checkout. Please try again in a minute.")
-            return _orientation_return(request, guild)
+            return _orientation_return(request, owner)
         return redirect(checkout_url)
     try:
         orientations.request_custom_orientation(
-            guild, member, starts, orientation_type=orientation_type, note=form.cleaned_data["note"]
+            owner, member, starts, orientation_type=orientation_type, note=form.cleaned_data["note"]
         )
     except OrientationError as exc:
         messages.error(request, str(exc))
-        return _orientation_return(request, guild)
-    messages.success(request, "Your orientation request was sent — the guild lead will confirm a time.")
-    return _orientation_return(request, guild)
+        return _orientation_return(request, owner)
+    messages.success(request, sent_message)
+    return _orientation_return(request, owner)
 
 
 @login_required

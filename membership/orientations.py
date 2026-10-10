@@ -290,27 +290,41 @@ def request_orientation(
     return booking
 
 
-def _ensure_custom_requestable(guild: Guild, orientation_type: OrientationType) -> None:
-    """Raise :class:`OrientationError` unless a custom request may target this guild + type."""
-    from membership.models import GuildOrientationSettings, OrientationError
+def _ensure_custom_requestable(owner: Guild | Equipment, orientation_type: OrientationType) -> None:
+    """Raise :class:`OrientationError` unless a custom request may target this owner + type.
 
-    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
-    if settings_obj is None or not settings_obj.is_accepting or not settings_obj.allow_custom_requests:
-        raise OrientationError("This guild isn't taking custom orientation requests right now.")
-    if orientation_type.guild_id != guild.pk or not orientation_type.is_active:
+    The owner's half of :attr:`OrientationType.allows_custom_requests` first (a guild's
+    settings row, or the equipment's own switch, #733), so a refusal names the owner; then
+    the type must be one of the owner's active types.
+    """
+    from membership.models import Equipment, GuildOrientationSettings, OrientationError
+
+    if isinstance(owner, Equipment):
+        if not owner.takes_custom_orientation_requests:
+            raise OrientationError("This equipment isn't taking custom orientation requests right now.")
+        owned = orientation_type.equipment_id == owner.pk
+    else:
+        settings_obj = GuildOrientationSettings.objects.filter(guild=owner).first()
+        if settings_obj is None or not settings_obj.takes_custom_requests:
+            raise OrientationError("This guild isn't taking custom orientation requests right now.")
+        owned = orientation_type.guild_id == owner.pk
+    if not owned or not orientation_type.is_active:
         raise OrientationError("That orientation isn't offered right now.")
 
 
-def _create_custom_slot(guild: Guild, orientation_type: OrientationType, starts_at: datetime) -> OrientationSlot:
+def _create_custom_slot(orientation_type: OrientationType, starts_at: datetime) -> OrientationSlot:
     """The one-off 1-seat MANUAL slot a custom request books — sized by ITS type.
 
     The slot runs ``orientation_type.duration_minutes`` and sits at the type's
-    ``default_location`` (issue #282: custom requests use the picked type's config).
+    ``default_location`` (issue #282: custom requests use the picked type's config). It
+    carries the type's guild, which is empty for an equipment owned type, like every
+    equipment slot; with no orienter it is a shared slot, so the request reaches the
+    owner's whole team.
     """
     from membership.models import OrientationSlot
 
     return OrientationSlot.objects.create(
-        guild=guild,
+        guild_id=orientation_type.guild_id,
         orientation_type=orientation_type,
         starts_at=starts_at,
         ends_at=starts_at + timedelta(minutes=orientation_type.duration_minutes),
@@ -321,36 +335,42 @@ def _create_custom_slot(guild: Guild, orientation_type: OrientationType, starts_
 
 
 def request_custom_orientation(
-    guild: Guild, member: Member, starts_at: datetime, *, orientation_type: OrientationType, note: str = ""
+    owner: Guild | Equipment,
+    member: Member,
+    starts_at: datetime,
+    *,
+    orientation_type: OrientationType,
+    note: str = "",
 ) -> OrientationBooking:
     """Create a one-off MANUAL slot at ``starts_at`` and request it, reusing :func:`request_orientation`.
 
-    Mirrors the hub custom-request view: the guild must have ``GuildOrientationSettings``
-    that is both accepting bookings *and* allowing custom requests, and the picked
-    ``orientation_type`` must be one of this guild's active types, else an
+    Mirrors the hub custom-request views: a guild must have ``GuildOrientationSettings``
+    that is both accepting bookings *and* allowing custom requests, equipment must take
+    them (:attr:`Equipment.takes_custom_orientation_requests`, #733), and the picked
+    ``orientation_type`` must be one of the owner's active types, else an
     :class:`~membership.models.OrientationError`. The slot ends the type's
     ``duration_minutes`` after the start, holds a single seat, and sits at the type's
     ``default_location``.
 
     Args:
-        guild: The guild to orient for.
+        owner: The guild or equipment to orient for.
         member: The requesting member.
         starts_at: The proposed start (future, validated by :func:`parse_proposed_time`).
-        orientation_type: Which of the guild's orientations the member wants.
+        orientation_type: Which of the owner's orientations the member wants.
         note: Optional free-text note passed to the orienter.
 
     Returns:
         The created (REQUESTED) :class:`~membership.models.OrientationBooking`.
 
     Raises:
-        OrientationError: If the guild isn't taking custom requests, the type isn't
+        OrientationError: If the owner isn't taking custom requests, the type isn't
             offered, or the booking fails. A booking failure deletes the orphan slot
             before re-raising, so a failed custom request never leaves a dangling slot.
     """
     from membership.models import OrientationError
 
-    _ensure_custom_requestable(guild, orientation_type)
-    slot = _create_custom_slot(guild, orientation_type, starts_at)
+    _ensure_custom_requestable(owner, orientation_type)
+    slot = _create_custom_slot(orientation_type, starts_at)
     try:
         return request_orientation(slot, member, note=note)
     except OrientationError:
@@ -568,7 +588,7 @@ def start_orientation_checkout(
 
 
 def start_custom_orientation_checkout(
-    guild: Guild,
+    owner: Guild | Equipment,
     member: Member,
     starts_at: datetime,
     *,
@@ -585,13 +605,13 @@ def start_custom_orientation_checkout(
     the delegate) before re-raising.
 
     Raises:
-        OrientationError: If the guild isn't taking custom requests, the type isn't
+        OrientationError: If the owner isn't taking custom requests, the type isn't
             offered, or booking fails.
     """
     from membership.models import OrientationSlot
 
-    _ensure_custom_requestable(guild, orientation_type)
-    slot = _create_custom_slot(guild, orientation_type, starts_at)
+    _ensure_custom_requestable(owner, orientation_type)
+    slot = _create_custom_slot(orientation_type, starts_at)
     try:
         return start_orientation_checkout(slot, member, note=note, amount_cents=amount_cents)
     except Exception:

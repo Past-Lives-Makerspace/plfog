@@ -2438,6 +2438,10 @@ class LateCancelFeeFormMixin(forms.ModelForm):
         return instance
 
 
+#: The custom request switch's label, the same words on the guild and the equipment editors (#733).
+CUSTOM_REQUESTS_LABEL = "Let members propose their own orientation time"
+
+
 class GuildOrientationSettingsForm(LateCancelFeeFormMixin):
     """Edit a guild's guild-wide orientation switches.
 
@@ -2466,7 +2470,7 @@ class GuildOrientationSettingsForm(LateCancelFeeFormMixin):
         }
         labels = {
             "is_enabled": "Offer orientation booking on this guild's page",
-            "allow_custom_requests": "Let members propose their own orientation time",
+            "allow_custom_requests": CUSTOM_REQUESTS_LABEL,
             "info": "Orientation info",
             "is_closed": "Temporarily closed for orientations",
             "closed_message": "Closed message",
@@ -2832,6 +2836,24 @@ EquipmentOrientationTypeFormSet = forms.inlineformset_factory(
     extra=0,
     can_delete=True,
 )
+
+
+class EquipmentOrientationRequestsForm(forms.ModelForm):
+    """The equipment Orientation tab's custom request switch (#733), the guilds' switch of the same label.
+
+    Saved with the Orientations card's Save, under the ``orientreq`` prefix. The card posts
+    :attr:`SHOWN_FIELD` beside it, and the save binds this form only when that marker
+    arrives, so a post from a page drawn before the switch existed never reads the missing
+    checkbox as off.
+    """
+
+    PREFIX: ClassVar[str] = "orientreq"
+    SHOWN_FIELD: ClassVar[str] = "orientreq-shown"
+
+    class Meta:
+        model = Equipment
+        fields = ["allow_custom_requests"]
+        labels = {"allow_custom_requests": CUSTOM_REQUESTS_LABEL}
 
 
 class GuildThankyouEmailForm(forms.ModelForm):
@@ -3971,8 +3993,17 @@ class OrientationCustomRequestForm(forms.Form):
     #: page can hide the whole block rather than offer a dropdown with nothing in it.
     has_types = False
 
-    def __init__(self, *args: Any, guild: Guild | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, guild: Guild | None = None, equipment: Equipment | None = None, **kwargs: Any
+    ) -> None:
         super().__init__(*args, **kwargs)
+        if equipment is not None:
+            # The equipment road (#733) posts one card's type as a hidden input; no picker renders.
+            type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
+            type_field.queryset = (
+                OrientationType.objects.filter(equipment=equipment).active().select_related("equipment")
+            )
+            type_field.error_messages["invalid_choice"] = "Pick one of this equipment's orientations."
         if guild is not None:
             type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
             type_field.queryset = (

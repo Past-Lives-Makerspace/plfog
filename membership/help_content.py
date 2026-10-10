@@ -360,7 +360,7 @@ Every orientation you can sign up for is on one page. Click **Orientations** in 
 
 1. Click **Book** next to a time, or **Pick a time** on an open window, and confirm.
 2. The card then shows where your booking stands: **Requested** until someone confirms it, then **Confirmed**.
-3. A card with no times yet says so. If the guild takes custom requests, click **Schedule an Orientation** and propose a time.
+3. A card with no open times says so. If the guild or tool takes custom requests, click **Schedule an Orientation** and propose a time.
 
 Orientations you have finished fold away under **Completed**.
 
@@ -387,6 +387,8 @@ Some guilds post open windows of orienter time as well as fixed slots. Under **P
 If none of the posted times work, or the guild hasn't posted any, click **Schedule an Orientation** below the orientations. Propose a date and time, add a note if it helps, and click **Send request**. The same rule applies: a guild lead has to confirm it before it's real.
 
 Not every guild offers this — the button only appears when the guild allows custom requests.
+
+A tool's orientation works the same way. When none of its times are open, its card on the **Orientations** page and its section on the tool's page show **Schedule an Orientation**, as long as its managers allow custom requests. One of the tool's managers confirms your time.
 
 ## Cancel Your Booking {#orientation-cancel-booking}
 
