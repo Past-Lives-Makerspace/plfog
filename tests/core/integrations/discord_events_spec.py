@@ -8,13 +8,15 @@ exercised through ``respx``.
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock, call, patch
 
 import httpx
 import pytest
 import respx
+from dateutil.rrule import MONTHLY, WEEKLY, rrule
+from dateutil.rrule import weekday as rr_weekday
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
@@ -165,6 +167,76 @@ def describe_push_community_event():
             assert event.discord_event_id == "fresh2"
             assert event.discord_pushed_occurrence is not None
             assert event.discord_pushed_occurrence > past
+
+        def it_deletes_the_old_native_series_when_an_event_becomes_a_single_occurrence():
+            # A monthly series pushed as a rule (pushed occurrence None) that is unmappable
+            # now: the wrong series must leave Discord before its replacement lands, or
+            # members see both.
+            _enable_config()
+            start = timezone.make_aware(datetime(2026, 8, 7, 18, 0))
+            event = CommunityEventFactory(
+                recurrence=CommunityEvent.Recurrence.MONTHLY,
+                starts_at=start,
+                ends_at=start + timedelta(hours=4),
+                discord_event_id="series1",
+                discord_sync_state=CommunityEvent.SyncState.SYNCED,
+                discord_pushed_occurrence=None,
+            )
+            delete = MagicMock()
+            insert = MagicMock(return_value={"id": "single1"})
+            client = _fake_client(insert_event=insert, delete_event=delete)
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)
+            delete.assert_called_once_with(SERVER_ID, "series1")
+            insert.assert_called_once()
+            client.update_event.assert_not_called()
+            assert "recurrence_rule" not in insert.call_args.args[1]
+            assert event.discord_event_id == "single1"
+            assert event.discord_pushed_occurrence is not None
+
+        def it_keeps_the_old_series_and_fails_when_its_delete_fails():
+            # The id must survive a failed delete, or the wrong series is orphaned on Discord
+            # with nothing recording which one. FAILED puts the row in the retry cron's set,
+            # which runs the delete and the insert again next tick.
+            _enable_config()
+            start = timezone.make_aware(datetime(2026, 8, 7, 18, 0))
+            event = CommunityEventFactory(
+                recurrence=CommunityEvent.Recurrence.MONTHLY,
+                starts_at=start,
+                ends_at=start + timedelta(hours=4),
+                discord_event_id="series1",
+                discord_sync_state=CommunityEvent.SyncState.SYNCED,
+                discord_pushed_occurrence=None,
+            )
+            delete = MagicMock(side_effect=de.DiscordEventsError("Discord API 429: rate limited"))
+            client = _fake_client(delete_event=delete)
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                event.push_to_discord()  # the model path, which saves what the cron reads
+            client.insert_event.assert_not_called()
+            assert event.discord_event_id == "series1"
+            assert event.discord_sync_state == CommunityEvent.SyncState.FAILED
+            assert "series1" in event.discord_sync_error
+            assert event in CommunityEvent.objects.needs_discord_push()
+
+        def it_treats_an_already_deleted_series_as_gone():
+            _enable_config()
+            start = timezone.make_aware(datetime(2026, 8, 7, 18, 0))
+            event = CommunityEventFactory(
+                recurrence=CommunityEvent.Recurrence.MONTHLY,
+                starts_at=start,
+                ends_at=start + timedelta(hours=4),
+                discord_event_id="series1",
+                discord_sync_state=CommunityEvent.SyncState.SYNCED,
+                discord_pushed_occurrence=None,
+            )
+            delete = MagicMock(side_effect=de.DiscordEventsError("Discord API 404: Unknown Guild Scheduled Event"))
+            insert = MagicMock(return_value={"id": "single1"})
+            client = _fake_client(insert_event=insert, delete_event=delete)
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)
+            insert.assert_called_once()
+            assert event.discord_event_id == "single1"
+            assert event.discord_sync_state == CommunityEvent.SyncState.SYNCED
 
     def describe_failure():
         def it_marks_failed_with_a_truncated_error_and_never_raises():
@@ -368,17 +440,14 @@ def describe__recurrence_rule_for():
         event = _event(CommunityEvent.Recurrence.WEEKLY, starts_at=start, ends_at=start + timedelta(hours=3))
         assert de._recurrence_rule_for(event) == {"frequency": 2, "interval": 1, "by_weekday": [4]}
 
-    def it_uses_the_utc_calendar_day_for_a_monthly_evening_event_that_crosses_the_utc_date_line() -> None:
-        # Fri 2026-07-10 18:00 PDT == Sat 2026-07-11 01:00 UTC — the 2nd Friday locally is
-        # the 2nd Saturday in UTC. Both halves of the rule (n AND day) must come from the
-        # same UTC instant, or Discord anchors the series to the wrong day.
+    def it_returns_none_for_a_monthly_evening_event_that_crosses_the_utc_date_line() -> None:
+        # Fri 2026-07-10 18:00 PDT == Sat 2026-07-11 01:00 UTC. Discord counts the nth weekday
+        # on the UTC calendar, and no "nth Saturday in UTC" lands on the nth Friday in Portland
+        # in every month (describe_what_discord_shows has the live case), so the series takes
+        # the single-next-occurrence fallback instead of a rule.
         start = timezone.make_aware(datetime(2026, 7, 10, 18, 0))
         event = _event(CommunityEvent.Recurrence.MONTHLY, starts_at=start, ends_at=start + timedelta(hours=1))
-        assert de._recurrence_rule_for(event) == {
-            "frequency": 1,
-            "interval": 1,
-            "by_n_weekday": [{"n": 2, "day": 5}],
-        }
+        assert de._recurrence_rule_for(event) is None
 
     @pytest.mark.parametrize(
         ("day", "expected_n", "expected_weekday"),
@@ -434,6 +503,76 @@ def describe__recurrence_rule_for():
     )
     def it_returns_none_for_the_unmappable_cadences(recurrence: str) -> None:
         assert de._recurrence_rule_for(_anchored(recurrence, 2026, 7, 29)) is None
+
+
+def _discord_series(body: dict[str, Any], count: int) -> list[datetime]:
+    """What Discord shows for a pushed body: the single instance, or the rule expanded in UTC.
+
+    Discord expands a ``recurrence_rule`` with dateutil-rrule semantics on the UTC calendar
+    from the rule's own ``start`` (no time zone, no clock change). Calibrated below against the
+    live series Discord computed for the First Friday Art Walk.
+    """
+    rule = body.get("recurrence_rule")
+    if rule is None:
+        return [datetime.fromisoformat(body["scheduled_start_time"]).astimezone(UTC)]
+    freq = {de._FREQUENCY_MONTHLY: MONTHLY, de._FREQUENCY_WEEKLY: WEEKLY}[rule["frequency"]]
+    if rule.get("by_n_weekday"):
+        byweekday = [rr_weekday(d["day"])(d["n"]) for d in rule["by_n_weekday"]]
+    else:
+        byweekday = [rr_weekday(d) for d in rule["by_weekday"]]
+    start = datetime.fromisoformat(rule["start"]).astimezone(UTC)
+    return list(rrule(freq, interval=rule["interval"], byweekday=byweekday, dtstart=start, count=count))
+
+
+def _local_dates(series: list[datetime]) -> list[str]:
+    return [timezone.localtime(occ).strftime("%a %Y-%m-%d %H:%M") for occ in series]
+
+
+def describe_what_discord_shows():
+    def it_reproduces_the_series_discord_computed_for_the_first_friday_art_walk() -> None:
+        # The rule Discord held for prod event 3 on 2026-10-09 (GET scheduled-events/<id>):
+        # start 2026-08-08T01:00Z, monthly, by_n_weekday [{n: 2, day: 5}]. Discord reported
+        # scheduled_start_time 2026-10-10T01:00Z as the live instance, and its client listed
+        # Fri Nov 13, Fri Dec 11 and Fri Jan 8 2027 at 5:00 PM as the rest of the series: the
+        # second Fridays, an hour early once the clocks change. This pins the simulator to it.
+        body = {
+            "scheduled_start_time": "2026-10-10T01:00:00+00:00",
+            "recurrence_rule": {
+                "start": "2026-08-08T01:00:00+00:00",
+                "frequency": 1,
+                "interval": 1,
+                "by_n_weekday": [{"n": 2, "day": 5}],
+            },
+        }
+        series = _discord_series(body, 6)
+        assert series[2] == datetime(2026, 10, 10, 1, 0, tzinfo=UTC)
+        assert _local_dates(series[3:]) == ["Fri 2026-11-13 17:00", "Fri 2026-12-11 17:00", "Fri 2027-01-08 17:00"]
+
+    @pytest.mark.django_db
+    def it_keeps_a_first_friday_evening_series_on_first_fridays() -> None:
+        # Prod event 3 as stored: monthly, anchored Fri 2026-08-07 18:00 PDT (the first Friday
+        # of August), four hours long. Pushed on 2026-10-09 and rolled forward by the cron
+        # after each date passes, Discord must show the first Friday of each month: the single
+        # next instance each time, never a rule that drifts to the second Friday.
+        _enable_config()
+        start = timezone.make_aware(datetime(2026, 8, 7, 18, 0))
+        event = CommunityEventFactory(
+            recurrence=CommunityEvent.Recurrence.MONTHLY, starts_at=start, ends_at=start + timedelta(hours=4)
+        )
+        insert = MagicMock(side_effect=[{"id": f"occ{i}"} for i in range(3)])
+        client = _fake_client(insert_event=insert)
+        now = timezone.make_aware(datetime(2026, 10, 9, 12, 0))
+        shown: list[datetime] = []
+        with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+            for _ in range(3):
+                with patch("django.utils.timezone.now", return_value=now):
+                    event.push_to_discord()
+                shown.extend(_discord_series(insert.call_args.args[1], 6))
+                now = event.discord_pushed_occurrence + timedelta(hours=5)  # the tick after it ends
+                assert event in CommunityEvent.objects.needs_discord_rollforward(now)
+        assert _local_dates(shown) == ["Fri 2026-11-06 18:00", "Fri 2026-12-04 18:00", "Fri 2027-01-01 18:00"]
+        assert insert.call_count == 3
+        client.update_event.assert_not_called()
 
 
 @pytest.mark.django_db
