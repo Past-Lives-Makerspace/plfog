@@ -692,7 +692,7 @@ def hub_equipment_agree(request: HttpRequest, slug: str) -> HttpResponse:
     form = EquipmentAgreementForm(request.POST)
     if not form.is_valid():
         # The first error of any field: a crafted fingerprint can fail where "agree" passed.
-        messages.error(request, next(iter(form.errors.values()))[0])
+        messages.error(request, str(next(iter(form.errors.values()))[0]))
         return redirect(detail_url)
     try:
         equipment.record_agreement(
