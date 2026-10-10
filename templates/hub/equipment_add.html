@@ -1,5 +1,9 @@
 {% extends "hub/base.html" %}
+{% load static %}
 {% block title %}Add Equipment{% endblock %}
+{% block extra_head %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/equipment-manage.css' %}">
+{% endblock %}
 
 {% block content %}
 <div style="margin-bottom:1rem;">

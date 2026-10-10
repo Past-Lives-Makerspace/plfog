@@ -8,6 +8,7 @@ Staff) — including crafted-POST permission probes for every gated endpoint.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from typing import Any
 
 import pytest
 from django.contrib.auth.models import User
@@ -17,6 +18,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from hub.forms import EquipmentForm
+from tests.hub.equipment_ways import ways_data
 from membership.equipment import reserve
 from membership.models import (
     AdminCapability,
@@ -600,7 +602,7 @@ def describe_equipment_add():
                 "name": "Mismatch Saw",
                 "kind": "tool",
                 "guild": woodshop.pk,
-                "unlocking_orientations": foreign_type.pk,
+                **ways_data([foreign_type]),
                 "is_active": "on",
             },
         )
@@ -614,7 +616,7 @@ def describe_equipment_add():
         orientation_type = OrientationTypeFactory(name="Lathe")
         response = client.post(
             reverse("hub_equipment_add"),
-            {"name": "House Lathe", "kind": "tool", "unlocking_orientations": orientation_type.pk, "is_active": "on"},
+            {"name": "House Lathe", "kind": "tool", **ways_data([orientation_type]), "is_active": "on"},
         )
         assert response.status_code == 302
         assert list(Equipment.objects.get(name="House Lathe").unlocking_orientations.all()) == [orientation_type]
@@ -917,8 +919,8 @@ def describe_equipment_manage():
         OrientationTypeFactory(name="Wheel")  # another guild's type
         equipment = EquipmentFactory(guild=guild)
         response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]))
-        choices = response.context["form"].fields["unlocking_orientations"].choices
-        assert [value for value, _label in choices] == ["new", str(own_type.pk)]
+        empty = response.context["form"].ways_formset.empty_form
+        assert [pill["value"] for pill in empty.pills()] == [str(own_type.pk)]
 
 
 def describe_equipment_details_save():
@@ -961,7 +963,7 @@ def describe_equipment_details_save():
                 "name": equipment.name,
                 "kind": "tool",
                 "guild": new_guild.pk,
-                "unlocking_orientations": new_type.pk,
+                **ways_data([new_type], saved=1),
                 "is_active": "on",
             },
         )
@@ -981,7 +983,7 @@ def describe_equipment_details_save():
                 "name": equipment.name,
                 "kind": "tool",
                 "guild": guild.pk,
-                "unlocking_orientations": foreign_type.pk,
+                **ways_data([foreign_type]),
                 "is_active": "on",
             },
         )
@@ -1061,9 +1063,11 @@ def describe_equipment_details_save():
             GuildStaffMembershipFactory(guild=staffed, member=user.member)
             other = GuildFactory(name="Metal")
             content = client.get(reverse("hub_equipment_manage", args=[equipment.slug])).content.decode()
-            assert f'<option value="{current.pk}"' in content
-            assert f'<option value="{staffed.pk}"' in content
-            assert f'<option value="{other.pk}"' not in content
+            # Read the guild select alone: a bare pk can match another select's option value.
+            picker = content[content.index('<select name="guild"') :].split("</select>", 1)[0]
+            assert f'<option value="{current.pk}"' in picker
+            assert f'<option value="{staffed.pk}"' in picker
+            assert f'<option value="{other.pk}"' not in picker
             response = client.post(
                 reverse("hub_equipment_details_save", args=[equipment.slug]),
                 {"name": "Loading Dock", "kind": "space", "guild": other.pk, "is_active": "on"},
@@ -1378,7 +1382,7 @@ def describe_equipment_orientation_surface():
                 {
                     "name": equipment.name,
                     "kind": "tool",
-                    "unlocking_orientations": orientation_type.pk,
+                    **ways_data([orientation_type]),
                     "is_active": "on",
                 },
             )
@@ -1395,7 +1399,7 @@ def describe_equipment_orientation_surface():
                 {
                     "name": equipment.name,
                     "kind": "tool",
-                    "unlocking_orientations": orientation_type.pk,
+                    **ways_data([orientation_type], saved=1),
                     "is_active": "on",
                 },
             )
@@ -1408,8 +1412,8 @@ def describe_equipment_orientation_surface():
             inactive = _owned_type(other, is_active=False)
             fresh = EquipmentFactory()
             response = client.get(reverse("hub_equipment_manage", args=[fresh.slug]))
-            choices = response.context["form"].fields["unlocking_orientations"].choices
-            assert str(inactive.pk) not in [value for value, _label in choices]
+            empty = response.context["form"].ways_formset.empty_form
+            assert str(inactive.pk) not in [pill["value"] for pill in empty.pills()]
 
 
 def describe_equipment_orientation_list():
@@ -1573,21 +1577,25 @@ def describe_equipment_orientation_list():
 
 
 def describe_equipment_own_orientation():
-    """Issue #466: "New orientation for this equipment" on the add page and the Details tab.
+    """Issue #466, "+ New Orientation" since #747, on the add page and the Details tab.
 
-    One Save creates the equipment, a type it owns (guild empty, active) and the
-    requirement, in one transaction; a bad type name saves nothing and lands beside the
-    field; the other two choices behave as before and ignore the nested inputs.
+    One Save creates the equipment, a type it owns (guild empty, active) and a way holding
+    just that type, in one transaction; a bad type name saves nothing and lands beside the
+    field; a Save without it behaves as before and ignores the nested inputs.
     """
 
+    #: A Save that did not use "+ New Orientation".
+    NO_NEW = {EquipmentForm.NEW_TYPE_FIELD: ""}
+
     def _post(
-        equipment_name: str = "CNC Router", type_name: str = "Operator Basics", **overrides: str | list[str]
-    ) -> dict[str, str | list[str]]:
-        data: dict[str, str | list[str]] = {
+        equipment_name: str = "CNC Router", type_name: str = "Operator Basics", **overrides: Any
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = {
             "name": equipment_name,
             "kind": "tool",
             "is_active": "on",
-            "unlocking_orientations": [EquipmentForm.NEW_TYPE_CHOICE],
+            **ways_data(),
+            EquipmentForm.NEW_TYPE_FIELD: "1",
             "new_type-name": type_name,
             "new_type-duration_minutes": "45",
             "new_type-default_seats": "2",
@@ -1604,24 +1612,24 @@ def describe_equipment_own_orientation():
         return message in content[start:end]
 
     def describe_the_picker():
-        def it_offers_new_then_the_types_in_the_old_order_as_a_multi_select(client: Client):
+        def it_offers_the_active_types_in_the_old_order_as_pills_with_their_owner(client: Client):
             _login(client, "eqn_choices", fog_role=Member.FogRole.ADMIN)
-            wheel = OrientationTypeFactory(guild=GuildFactory(name="Ceramics"), name="Wheel")
-            saw = OrientationTypeFactory(guild=GuildFactory(name="Woodshop"), name="Saw Basics")
+            wheel = OrientationTypeFactory(guild=GuildFactory(name="Ceramics"), name="Wheel", duration_minutes=90)
+            saw = OrientationTypeFactory(guild=GuildFactory(name="Woodshop"), name="Saw Basics", duration_minutes=60)
             OrientationTypeFactory(guild=GuildFactory(name="Metals"), name="Retired", is_active=False)
             response = client.get(reverse("hub_equipment_add"))
-            field = response.context["form"].fields["unlocking_orientations"]
-            assert list(field.choices) == [
-                ("new", "New orientation for this equipment"),
-                (str(wheel.pk), str(wheel)),
-                (str(saw.pk), str(saw)),
+            form = response.context["form"]
+            empty = form.ways_formset.empty_form
+            assert [(pill["value"], pill["name"], pill["meta"]) for pill in empty.pills()] == [
+                (str(wheel.pk), "Wheel", "1.5 hours · Ceramics"),
+                (str(saw.pk), "Saw Basics", "1 hour · Woodshop"),
             ]
-            assert field.required is False
-            assert field.label == "Orientations that unlock it"
+            assert empty.fields["orientations"].required is False
+            assert form.ways_formset.total_form_count() == 0
             content = response.content.decode()
-            select = content[content.index('<select name="unlocking_orientations"') :].split(">", 1)[0]
-            assert " multiple" in select
-            assert 'size="3"' in select
+            assert 'name="ways-__prefix__-orientations"' in content
+            assert "+ Add a Way to Qualify" in content
+            assert "+ New Orientation" in content
 
         def it_renders_the_nested_fields_closed_with_the_model_defaults(client: Client):
             _login(client, "eqn_closed", fog_role=Member.FogRole.ADMIN)
@@ -1635,6 +1643,7 @@ def describe_equipment_own_orientation():
             assert form.new_type_form["default_seats"].value() == 4
             assert "newOrientation: false" in content
             assert '<div x-show="newOrientation" x-cloak class="pl-equip-new-type">' in content
+            assert f'name="{EquipmentForm.NEW_TYPE_FIELD}" :value="newOrientation ? \'1\' : \'\'" value=""' in content
             for rendered in EquipmentForm.NEW_TYPE_FIELDS:
                 assert f'name="new_type-{rendered}"' in content
             for unrendered in ("description", "sort_order", "is_active"):
@@ -1711,7 +1720,7 @@ def describe_equipment_own_orientation():
 
         def it_ignores_the_nested_fields_when_no_orientation_is_needed(client: Client):
             _login(client, "eqn_add_none", fog_role=Member.FogRole.ADMIN)
-            response = client.post(reverse("hub_equipment_add"), _post(unlocking_orientations=[]))
+            response = client.post(reverse("hub_equipment_add"), _post(**NO_NEW))
             assert response.status_code == 302
             assert not Equipment.objects.get(name="CNC Router").unlocking_orientations.exists()
             assert not OrientationType.objects.exists()
@@ -1719,7 +1728,7 @@ def describe_equipment_own_orientation():
         def it_ignores_the_nested_fields_when_an_existing_type_is_picked(client: Client):
             _login(client, "eqn_add_existing", fog_role=Member.FogRole.ADMIN)
             existing = OrientationTypeFactory(name="Lathe")
-            response = client.post(reverse("hub_equipment_add"), _post(unlocking_orientations=[str(existing.pk)]))
+            response = client.post(reverse("hub_equipment_add"), _post(**NO_NEW, **ways_data([existing])))
             assert response.status_code == 302
             assert list(Equipment.objects.get(name="CNC Router").unlocking_orientations.all()) == [existing]
             assert OrientationType.objects.count() == 1
@@ -1730,14 +1739,12 @@ def describe_equipment_own_orientation():
             foreign_type = OrientationTypeFactory(guild=GuildFactory(name="Ceramics"), name="Wheel")
             response = client.post(
                 reverse("hub_equipment_add"),
-                _post(guild=str(woodshop.pk), unlocking_orientations=[str(foreign_type.pk)]),
+                _post(guild=str(woodshop.pk), **ways_data([foreign_type])),
             )
             assert response.status_code == 200
-            assert response.context["form"].errors == {
-                "unlocking_orientations": [
-                    "Pick orientations offered by the chosen guild, or this equipment's own orientations."
-                ]
-            }
+            assert response.context["form"].ways_formset.non_form_errors() == [
+                "Pick orientations offered by the chosen guild, or this equipment's own orientations."
+            ]
             assert not Equipment.objects.exists()
 
         def it_lets_guild_run_equipment_take_a_new_type_of_its_own(client: Client):
@@ -1754,10 +1761,11 @@ def describe_equipment_own_orientation():
 
         def it_refuses_a_crafted_choice_and_saves_nothing(client: Client):
             _login(client, "eqn_add_crafted", fog_role=Member.FogRole.ADMIN)
-            response = client.post(reverse("hub_equipment_add"), _post(unlocking_orientations=["424242"]))
+            response = client.post(reverse("hub_equipment_add"), _post(**NO_NEW, **ways_data(["424242"])))
             assert response.status_code == 200
-            assert list(response.context["form"].errors) == ["unlocking_orientations"]
-            assert response.context["form"].creates_orientation_type is False
+            form = response.context["form"]
+            assert list(form.ways_formset.errors[0]) == ["orientations"]
+            assert form.creates_orientation_type is False
             assert not Equipment.objects.exists()
             assert not OrientationType.objects.exists()
 
@@ -1828,12 +1836,12 @@ def describe_equipment_own_orientation():
             equipment = EquipmentFactory(name="Solid Saw", guild=guild)
             response = client.post(
                 _save_url(equipment),
-                _post(equipment_name="Solid Saw", guild=str(guild.pk), unlocking_orientations=[str(guild_type.pk)]),
+                _post(equipment_name="Solid Saw", guild=str(guild.pk), **NO_NEW, **ways_data([guild_type])),
             )
             assert response.status_code == 302
             assert list(equipment.unlocking_orientations.all()) == [guild_type]
             response = client.post(
-                _save_url(equipment), _post(equipment_name="Solid Saw", guild=str(guild.pk), unlocking_orientations=[])
+                _save_url(equipment), _post(equipment_name="Solid Saw", guild=str(guild.pk), **NO_NEW)
             )
             assert response.status_code == 302
             assert not equipment.unlocking_orientations.exists()
@@ -1846,7 +1854,7 @@ def describe_equipment_own_orientation():
             own_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
             response = client.post(
                 _save_url(equipment),
-                _post(equipment_name="Solid Saw", guild=str(guild.pk), unlocking_orientations=[str(own_type.pk)]),
+                _post(equipment_name="Solid Saw", guild=str(guild.pk), **NO_NEW, **ways_data([own_type])),
             )
             assert response.status_code == 302
             assert list(equipment.unlocking_orientations.all()) == [own_type]
@@ -1864,7 +1872,7 @@ def describe_equipment_own_orientation():
             assert not OrientationType.objects.exists()
 
         def it_saves_plainly_when_no_type_is_being_made():
-            form = EquipmentForm(_post(unlocking_orientations=[]))
+            form = EquipmentForm(_post(**NO_NEW))
             assert form.is_valid() is True
             equipment = form.save()
             assert equipment.pk is not None
@@ -1925,36 +1933,39 @@ def describe_any_one_of_several_orientations():
         OrientationBookingFactory(member=member, slot=slot, is_completed=True)
 
     def describe_the_edit_form():
-        def it_saves_several_orientations_and_then_none(client: Client):
+        def it_saves_several_single_ways_and_then_none(client: Client):
             _login(client, "any_form_several", fog_role=Member.FogRole.ADMIN)
             press, beginner, experienced = _press()
             url = reverse("hub_equipment_details_save", args=[press.slug])
             payload = {"name": press.name, "kind": "tool", "is_active": "on"}
-            response = client.post(url, {**payload, "unlocking_orientations": [beginner.pk, experienced.pk]})
+            response = client.post(url, {**payload, **ways_data([beginner], [experienced], saved=2)})
             assert response.status_code == 302
             assert list(press.unlocking_orientations.all()) == [beginner, experienced]
-            assert client.post(url, payload).status_code == 302
+            assert press.unlocking_ways() == [[beginner], [experienced]]
+            assert client.post(url, {**payload, **ways_data()}).status_code == 302
             assert not press.unlocking_orientations.exists()
 
-        def it_shows_every_saved_orientation_selected(client: Client):
+        def it_shows_each_saved_orientation_as_its_own_way(client: Client):
             _login(client, "any_form_selected", fog_role=Member.FogRole.ADMIN)
             press, beginner, experienced = _press()
             form = client.get(reverse("hub_equipment_manage", args=[press.slug])).context["form"]
-            assert form["unlocking_orientations"].value() == [str(beginner.pk), str(experienced.pk)]
-            content = str(form["unlocking_orientations"])
-            assert f'value="{beginner.pk}" selected' in content
-            assert f'value="{experienced.pk}" selected' in content
+            assert [way["orientations"].value() for way in form.ways_formset] == [
+                [str(beginner.pk)],
+                [str(experienced.pk)],
+            ]
+            assert [(way.way_number, way.is_saved) for way in form.ways_formset] == [(1, True), (2, True)]
 
         def it_adds_a_new_own_orientation_beside_a_picked_one(client: Client):
             _login(client, "any_form_new", fog_role=Member.FogRole.ADMIN)
-            press, beginner, _experienced = _press()
+            press, beginner, experienced = _press()
             response = client.post(
                 reverse("hub_equipment_details_save", args=[press.slug]),
                 {
                     "name": press.name,
                     "kind": "tool",
                     "is_active": "on",
-                    "unlocking_orientations": [EquipmentForm.NEW_TYPE_CHOICE, beginner.pk],
+                    **ways_data([beginner], [experienced], saved=2, delete={1}),
+                    EquipmentForm.NEW_TYPE_FIELD: "1",
                     "new_type-name": "Anyone Own Basics",
                     "new_type-duration_minutes": "60",
                     "new_type-default_seats": "2",
@@ -1964,7 +1975,7 @@ def describe_any_one_of_several_orientations():
             )
             assert response.status_code == 302
             own = press.owned_orientation_types.get()
-            assert set(press.unlocking_orientations.all()) == {beginner, own}
+            assert press.unlocking_ways() == [[beginner], [own]]
 
     def describe_a_member_who_completed_one():
         def it_reads_all_set_on_the_page_and_the_card(client: Client):

@@ -572,14 +572,14 @@ def describe_any_one_of_several_unlocking_orientations():
     def it_answers_in_one_read_however_many_orientations_it_lists(django_assert_num_queries):
         equipment, _beginner, _experienced = _press()
         member = MemberFactory()
-        prefetched = Equipment.objects.prefetch_related("unlocking_orientations").get(pk=equipment.pk)
+        prefetched = Equipment.objects.prefetch_related("unlocking_orientation_rows").get(pk=equipment.pk)
         with django_assert_num_queries(2):  # completed bookings, then hand-entered records
             assert prefetched.is_unlocked_for(member) is False
 
     def it_reads_the_bulk_set_without_querying(django_assert_num_queries):
         equipment, beginner, _experienced = _press()
         member = MemberFactory()
-        prefetched = Equipment.objects.prefetch_related("unlocking_orientations").get(pk=equipment.pk)
+        prefetched = Equipment.objects.prefetch_related("unlocking_orientation_rows").get(pk=equipment.pk)
         with django_assert_num_queries(0):
             assert prefetched.is_unlocked_for(member, oriented_type_ids={beginner.pk}) is True
             assert prefetched.is_unlocked_for(member, oriented_type_ids=set()) is False
@@ -630,17 +630,239 @@ def describe_any_one_of_several_unlocking_orientations():
                 slot=OrientationSlotFactory(guild=beginner.guild, orientation_type=beginner),
                 status=OrientationBooking.Status.CANCELLED,
             )
-            from django.db.models import Prefetch
-
-            from membership.models import OrientationType
-
-            # The detail page's shape: each unlocking type arrives with its guild.
-            unlocking = OrientationType.objects.select_related("guild", "equipment")
-            prefetched = Equipment.objects.prefetch_related(Prefetch("unlocking_orientations", queryset=unlocking)).get(
-                pk=equipment.pk
-            )
+            # The detail page's shape: the unlocking rows arrive with each type and its guild (#747).
+            prefetched = Equipment.objects.prefetch_related("unlocking_orientation_rows").get(pk=equipment.pk)
             # One read for the live bookings across both types, then the accepting check's guild settings.
             with django_assert_max_num_queries(3):
                 unlocks = prefetched.orientation_unlocks(member)
             assert [u.booking for u in unlocks] == [booking, None]
             assert unlocks[0].paused is False
+
+
+def describe_ways_to_qualify():
+    """#747: the orientations are grouped into ways; finishing every one in any one way unlocks the item."""
+
+    def _cnc() -> tuple[Equipment, object, object, object]:
+        """The CNC shape: one 6 hour orientation, or both 3 hour sessions."""
+        guild = GuildFactory(name="Ways CNC Guild")
+        full = OrientationTypeFactory(guild=guild, name="CNC Machine Orientation", duration_minutes=360)
+        first = OrientationTypeFactory(guild=guild, name="Session 1 of 2", duration_minutes=180)
+        second = OrientationTypeFactory(guild=guild, name="Session 2 of 2", duration_minutes=180)
+        cnc = EquipmentFactory(name="CNC Machine", guild=guild)
+        cnc.set_unlocking_ways([[full], [first, second]])
+        return cnc, full, first, second
+
+    def describe_the_predicate():
+        def it_unlocks_a_one_way_pair_only_when_both_are_done():
+            guild = GuildFactory()
+            first = OrientationTypeFactory(guild=guild, name="Pair One")
+            second = OrientationTypeFactory(guild=guild, name="Pair Two")
+            equipment = EquipmentFactory()
+            equipment.set_unlocking_ways([[first, second]])
+            partial = MemberFactory()
+            _completed_orientation(partial, first)
+            assert equipment.is_unlocked_for(partial) is False
+            both = MemberFactory()
+            _completed_orientation(both, first)
+            _completed_orientation(both, second)
+            assert equipment.is_unlocked_for(both) is True
+
+        def it_unlocks_the_cnc_by_either_way():
+            cnc, full, first, second = _cnc()
+            by_full = MemberFactory()
+            _completed_orientation(by_full, full)
+            by_sessions = MemberFactory()
+            _completed_orientation(by_sessions, first)
+            _completed_orientation(by_sessions, second)
+            for member in (by_full, by_sessions):
+                assert cnc.access_state(member) == Equipment.AccessState.OK
+                assert cnc.booking_blockers(member) == []
+
+        def it_keeps_a_member_with_half_a_way_locked():
+            cnc, _full, first, _second = _cnc()
+            member = MemberFactory()
+            _completed_orientation(member, first)
+            assert cnc.access_state(member) == Equipment.AccessState.NEEDS_ORIENTATION
+
+        def it_counts_a_hand_entered_record_toward_a_way():
+            from tests.membership.factories import OrientationRecordFactory
+
+            cnc, _full, first, second = _cnc()
+            member = MemberFactory()
+            _completed_orientation(member, first)
+            OrientationRecordFactory(member=member, orientation_type=second)
+            assert cnc.is_unlocked_for(member) is True
+
+        def it_reads_the_bulk_set_without_querying(django_assert_num_queries):
+            cnc, full, first, second = _cnc()
+            member = MemberFactory()
+            prefetched = Equipment.objects.prefetch_related("unlocking_orientation_rows").get(pk=cnc.pk)
+            with django_assert_num_queries(0):
+                assert prefetched.is_unlocked_for(member, oriented_type_ids={first.pk}) is False
+                assert prefetched.is_unlocked_for(member, oriented_type_ids={first.pk, second.pk}) is True
+                assert prefetched.is_unlocked_for(member, oriented_type_ids={full.pk}) is True
+
+        def it_reads_the_ways_in_one_query_bringing_each_type(django_assert_num_queries):
+            cnc, *_types = _cnc()
+            fresh = Equipment.objects.get(pk=cnc.pk)
+            with django_assert_num_queries(1):
+                ways = fresh.unlocking_ways()
+                assert [[t.name for t in way] for way in ways] == [
+                    ["CNC Machine Orientation"],
+                    ["Session 1 of 2", "Session 2 of 2"],
+                ]
+                assert ways[0][0].guild.name == "Ways CNC Guild"
+
+    def describe_the_rows():
+        def it_numbers_every_saved_way_and_replaces_the_old_rows():
+            cnc, full, first, second = _cnc()
+            rows = EquipmentUnlockingOrientation.objects.filter(equipment=cnc)
+            assert sorted((row.orientation_type_id, row.way) for row in rows) == sorted(
+                [(full.pk, 1), (first.pk, 2), (second.pk, 2)]
+            )
+            cnc.set_unlocking_ways([[second]])
+            assert [(row.orientation_type_id, row.way) for row in rows.all()] == [(second.pk, 1)]
+
+        def it_forgets_a_prefetch_of_the_rows_it_replaced():
+            cnc, full, _first, _second = _cnc()
+            prefetched = Equipment.objects.prefetch_related("unlocking_orientation_rows").get(pk=cnc.pk)
+            assert len(prefetched.unlocking_ways()) == 2
+            prefetched.set_unlocking_ways([[full]])
+            assert prefetched.unlocking_ways() == [[full]]
+
+        def it_reads_a_row_with_no_way_as_a_way_of_its_own():
+            guild = GuildFactory()
+            alpha = OrientationTypeFactory(guild=guild, name="Alpha", sort_order=1)
+            beta = OrientationTypeFactory(guild=guild, name="Beta", sort_order=2)
+            equipment = EquipmentFactory(unlocking_orientations=[beta, alpha])
+            assert set(EquipmentUnlockingOrientation.objects.values_list("way", flat=True)) == {None}
+            assert equipment.unlocking_ways() == [[alpha], [beta]]
+
+        def it_orders_numbered_ways_before_unnumbered_rows_and_types_within_a_way():
+            guild = GuildFactory()
+            alpha = OrientationTypeFactory(guild=guild, name="Alpha", sort_order=1)
+            beta = OrientationTypeFactory(guild=guild, name="Beta", sort_order=2)
+            gamma = OrientationTypeFactory(guild=guild, name="Gamma", sort_order=3)
+            equipment = EquipmentFactory()
+            EquipmentUnlockingOrientation.objects.create(equipment=equipment, orientation_type=alpha)
+            EquipmentUnlockingOrientation.objects.create(equipment=equipment, orientation_type=gamma, way=1)
+            EquipmentUnlockingOrientation.objects.create(equipment=equipment, orientation_type=beta, way=1)
+            assert equipment.unlocking_ways() == [[beta, gamma], [alpha]]
+            assert equipment.unlocking_orientation_list() == [beta, gamma, alpha]
+
+        def it_still_holds_one_orientation_to_one_way():
+            cnc, full, _first, _second = _cnc()
+            with pytest.raises(IntegrityError):
+                EquipmentUnlockingOrientation.objects.create(equipment=cnc, orientation_type=full, way=2)
+
+    def describe_the_sentence():
+        def it_names_one_two_and_three_orientations():
+            from membership.models import orientation_way_phrase
+
+            assert orientation_way_phrase(["X"]) == "the X"
+            assert orientation_way_phrase(["X", "Y"]) == "both X and Y"
+            assert orientation_way_phrase(["X", "Y", "Z"]) == "all of X, Y and Z"
+
+        def it_joins_names_as_a_sentence_list():
+            from membership.models import join_names
+
+            assert join_names([]) == ""
+            assert join_names(["A"]) == "A"
+            assert join_names(["A", "B"]) == "A and B"
+            assert join_names(["A", "B", "C"]) == "A, B and C"
+
+        def it_joins_mixed_ways_with_or():
+            cnc, *_types = _cnc()
+            ways = cnc.unlocking_ways()
+            assert Equipment.ways_are_grouped(ways) is True
+            assert (
+                cnc.requirement_phrase(ways) == "the CNC Machine Orientation, or both Session 1 of 2 and Session 2 of 2"
+            )
+            assert cnc.requirement_sentence(ways) == (
+                "Complete the CNC Machine Orientation, or both Session 1 of 2 and Session 2 of 2, "
+                "before you reserve the CNC Machine."
+            )
+
+        def it_closes_one_way_without_the_list_comma():
+            guild = GuildFactory()
+            types = [OrientationTypeFactory(guild=guild, name=name) for name in ("A", "B", "C")]
+            equipment = EquipmentFactory(name="Kiln")
+            equipment.set_unlocking_ways([types])
+            assert equipment.requirement_sentence(equipment.unlocking_ways()) == (
+                "Complete all of A, B and C before you reserve the Kiln."
+            )
+
+        def it_is_not_grouped_when_every_way_is_one_orientation():
+            assert Equipment.ways_are_grouped([[object()], [object()]]) is False
+            assert Equipment.ways_are_grouped([]) is False
+
+        def it_blocks_a_half_done_member_with_the_sentence():
+            cnc, _full, first, _second = _cnc()
+            member = MemberFactory()
+            _completed_orientation(member, first)
+            assert cnc.booking_blockers(member) == [
+                "Complete the CNC Machine Orientation, or both Session 1 of 2 and Session 2 of 2, "
+                "before you reserve the CNC Machine."
+            ]
+
+    def describe_the_progress_line():
+        def _ways(*sizes: int) -> list[list[object]]:
+            guild = GuildFactory()
+            return [
+                [OrientationTypeFactory(guild=guild, name=f"W{way}T{index}") for index in range(size)]
+                for way, size in enumerate(sizes, start=1)
+            ]
+
+        def it_reports_the_started_way():
+            ways = _ways(1, 2)
+            assert Equipment.way_progress_line(ways, {ways[1][0].pk}) == "W2T0 done. W2T1 to go."
+
+        def it_is_empty_with_no_way_started_or_only_single_ways():
+            ways = _ways(1, 2)
+            assert Equipment.way_progress_line(ways, set()) == ""
+            assert Equipment.way_progress_line(ways, {ways[0][0].pk}) == ""
+
+        def it_skips_a_finished_way():
+            ways = _ways(2)
+            assert Equipment.way_progress_line(ways, {ways[0][0].pk, ways[0][1].pk}) == ""
+
+        def it_picks_the_way_with_the_fewest_left_and_the_first_on_a_tie():
+            ways = _ways(3, 2, 2)
+            done = {ways[0][0].pk, ways[1][0].pk, ways[2][0].pk}
+            assert Equipment.way_progress_line(ways, done) == "W2T0 done. W2T1 to go."
+            done.add(ways[0][1].pk)
+            assert Equipment.way_progress_line(ways, done) == "W1T0 and W1T1 done. W1T2 to go."
+
+    def describe_the_banner_rows():
+        def it_marks_each_completed_orientation_done_way_by_way():
+            cnc, full, first, second = _cnc()
+            member = MemberFactory()
+            _completed_orientation(member, first)
+            unlock_ways = cnc.orientation_unlock_ways(member)
+            assert [[(u.orientation_type, u.done) for u in way] for way in unlock_ways] == [
+                [(full, False)],
+                [(first, True), (second, False)],
+            ]
+            assert [u.orientation_type for u in cnc.orientation_unlocks(member)] == [full, first, second]
+
+        def it_reads_completion_only_when_a_way_is_grouped(django_assert_num_queries):
+            guild = GuildFactory()
+            equipment = EquipmentFactory(unlocking_orientations=[OrientationTypeFactory(guild=guild)])
+            member = MemberFactory()
+            prefetched = Equipment.objects.prefetch_related("unlocking_orientation_rows").get(pk=equipment.pk)
+            # The live bookings, then the accepting check's guild settings: no completion read.
+            with django_assert_num_queries(2):
+                assert [u.done for u in prefetched.orientation_unlocks(member)] == [False]
+
+
+def describe_duration_labels():
+    def it_words_minutes_hours_and_half_hours():
+        from membership.models import duration_label
+
+        assert duration_label(45) == "45 minutes"
+        assert duration_label(60) == "1 hour"
+        assert duration_label(90) == "1.5 hours"
+        assert duration_label(360) == "6 hours"
+
+    def it_reads_a_types_length():
+        assert OrientationTypeFactory(duration_minutes=180).duration_label == "3 hours"

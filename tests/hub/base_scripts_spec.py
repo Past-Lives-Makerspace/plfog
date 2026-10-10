@@ -36,6 +36,7 @@ HEAD_ORDER = (
     "js/spotlight.js",
     "js/compose_add_people.js",
     "js/orientation_row.js",
+    "js/equipment_ways.js",
     "js/alpine.min.js",
     "js/biometric-auth.js",
     "js/app-store-badges.js",
