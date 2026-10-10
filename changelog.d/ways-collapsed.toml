@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-10"
+title = "Ways to Qualify take up less room"
+changes = [
+  "On the equipment Details tab, each way now shows only the orientations it needs. Click Edit to change them.",
+]

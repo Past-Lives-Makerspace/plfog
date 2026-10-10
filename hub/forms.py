@@ -5960,9 +5960,13 @@ class EquipmentWayForm(forms.Form):
             if self.shown is None or pk in self.shown or pk in ticked
         ]
 
+    def chosen(self) -> list[dict[str, Any]]:
+        """The ticked pills, which the collapsed card shows read only beside "Way N"."""
+        return [pill for pill in self.pills() if pill["checked"]]
+
     def summary(self) -> str:
-        """The live line beside "Way N": "CNC Machine Orientation", "Both Session 1 of 2 and Session 2 of 2"."""
-        names = [pill["name"] for pill in self.pills() if pill["checked"]]
+        """The line beside "Way N" while it is open: "CNC Machine Orientation", "Both Session 1 of 2 and Session 2 of 2"."""
+        names = [pill["name"] for pill in self.chosen()]
         if not names:
             return self.NOTHING_TICKED
         if len(names) == 1:

@@ -78,6 +78,11 @@ def _save(client: Client, equipment: Equipment, data: dict[str, Any]) -> Any:
     return client.post(reverse("hub_equipment_details_save", args=[equipment.slug]), data)
 
 
+def _rows(content: str) -> str:
+    """The rendered ways of the editor, without the empty way the "+ Add" button clones."""
+    return content[content.index('x-ref="rows"') : content.index('<template x-ref="template">')]
+
+
 def _manage(client: Client, equipment: Equipment) -> Any:
     return client.get(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=details")
 
@@ -97,8 +102,15 @@ def describe_the_editor():
             (2, True, "CNC Machine Orientation"),
         ]
         content = response.content.decode()
-        assert '<span class="pl-equip-way__summary" data-way-summary>Both Session 1 of 2 and Session 2 of 2</span>' in (
-            content
+        assert (
+            '<span class="pl-equip-way__summary" x-show="editing" x-cloak data-way-summary>'
+            "Both Session 1 of 2 and Session 2 of 2</span>"
+        ) in content
+        # Saved ways start collapsed to their chosen orientations, read only, name and duration.
+        assert _rows(content).count('x-data="{ editing: false }"') == 2
+        assert (
+            '<span class="pl-equip-way__chip">Session 1 of 2 <span class="pl-equip-way__chip-meta">3 hours</span></span>'
+            in content
         )
         assert content.count("data-way-delete") == 2
         assert "A member can reserve the CNC Machine once they finish every orientation in any one way." in content
@@ -130,10 +142,26 @@ def describe_the_editor():
         assert response.context["form"].ways_formset.non_form_errors() == [
             "Way 3 is the same as Way 2. Delete one of them."
         ]
-        assert "Way 3 is the same as Way 2. Delete one of them." in response.content.decode()
+        content = response.content.decode()
+        assert "Way 3 is the same as Way 2. Delete one of them." in content
+        # A Save refused on the ways comes back with every way open, so the clash is in view.
+        assert _rows(content).count('x-data="{ editing: true }"') == 3
+        assert 'x-data="{ editing: false }"' not in _rows(content)
         cnc.refresh_from_db()
         assert cnc.name == "CNC Machine"
         assert cnc.unlocking_ways() == [[full], [first, second]]
+
+    def it_keeps_saved_ways_collapsed_and_a_new_one_open_when_another_field_fails(client: Client):
+        cnc, full, first, second = _cnc()
+        _manager(client, "ways_open", cnc)
+        data = _details(cnc, **ways_data([full], [first, second], [], saved=2))
+        data["name"] = ""
+        response = _save(client, cnc, data)
+        assert response.status_code == 200
+        rows = _rows(response.content.decode())
+        assert rows.count('x-data="{ editing: false }"') == 2
+        assert rows.count('x-data="{ editing: true }"') == 1
+        assert '<span class="pl-equip-way__none">Nothing ticked yet</span>' in rows
 
     def it_numbers_the_ways_as_shown_when_one_is_being_deleted(client: Client):
         cnc, full, first, second = _cnc()
@@ -312,6 +340,7 @@ def describe_the_editor():
             assert 'name="ways-__prefix__-orientations"' in template
             assert "data-way-remove" in template
             assert "data-way-delete" not in template
+            assert 'x-data="{ editing: true }"' in template
             assert '<input type="hidden" name="ways-TOTAL_FORMS" value="2" id="id_ways-TOTAL_FORMS">' in content
             assert '<input type="hidden" name="ways-INITIAL_FORMS" value="2" id="id_ways-INITIAL_FORMS">' in content
 

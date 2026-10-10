@@ -7,7 +7,9 @@ The EquipmentForm's fields — shared by the add page and the manage panel's Det
   agreement_member_count — on the manage panel, how many members agreed to the saved usage
               agreement (#734); the note under its fields warns a change asks them again
 Who may reserve it is the Ways to Qualify list (#747, form.ways_formset): a card per way, an
-"or" between them (CSS), Delete on a saved way (flips its hidden DELETE and submits the whole
+"or" between them (CSS), each collapsed to its chosen orientations and an Edit button unless it
+is new or a Save failed on the ways (FRONTEND.md, Inputs That Take Room Start Collapsed), Delete
+on a saved way (flips its hidden DELETE and submits the whole
 form), Remove on one added since load, and "+ Add Another Way" cloning the empty way from the
 <template>; static/js/equipment_ways.js (plEquipWays) numbers the cards and writes each
 summary line. "+ New Orientation" reveals the new type's fields (form.new_type_form, issue
@@ -49,11 +51,15 @@ display on an x-show element (FRONTEND rule 12).
       {{ form.ways_formset.management_form }}
       <div class="pl-equip-ways__rows" x-ref="rows">
         {% for way in form.ways_formset %}
-        {% include "hub/partials/_equipment_way.html" with way=way index=forloop.counter0 %}
+        {% if way.errors or form.ways_formset.non_form_errors or not way.is_saved %}
+        {% include "hub/partials/_equipment_way.html" with way=way index=forloop.counter0 open=True %}
+        {% else %}
+        {% include "hub/partials/_equipment_way.html" with way=way index=forloop.counter0 open=False %}
+        {% endif %}
         {% endfor %}
       </div>
-      {# The empty way "+ Add Another Way" clones: every pill unticked, Remove instead of Delete. #}
-      <template x-ref="template">{% include "hub/partials/_equipment_way.html" with way=form.ways_formset.empty_form index="__prefix__" %}</template>
+      {# The empty way "+ Add Another Way" clones: every pill unticked, open, Remove instead of Delete. #}
+      <template x-ref="template">{% include "hub/partials/_equipment_way.html" with way=form.ways_formset.empty_form index="__prefix__" open=True %}</template>
       <div class="pl-equip-ways__add">
         {% if form.has_orientations_to_pick %}
         <button type="button" class="hub-btn hub-btn--sm" data-ways-add @click="add()" x-text="count > 0 ? '+ Add Another Way' : '+ Add a Way to Qualify'">{% if form.ways_count %}+ Add Another Way{% else %}+ Add a Way to Qualify{% endif %}</button>

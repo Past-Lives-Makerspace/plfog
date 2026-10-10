@@ -1,16 +1,18 @@
 """End-to-end: a manager builds the CNC Machine's ways to qualify on Manage > Details (#747).
 
-The editor's browser half: "+ Add a Way to Qualify" clones an empty way, ticking pills rewrites
-its summary line, Remove on an unsaved way drops only that card and renumbers the rest (and the
-posted forms stay contiguous, so the Save still lands), Delete on a saved way saves the page
-without it, and "+ New Orientation" makes the new type a way of its own in the same Save. Run
-with ``pytest -m e2e`` on PostgreSQL.
+The editor's browser half: "+ Add a Way to Qualify" clones an empty way that starts open,
+ticking pills rewrites its summary line, Done collapses it to its chosen orientations as read
+only pills, Remove on an unsaved way drops only that card and renumbers the rest (and the
+posted forms stay contiguous, so the Save still lands), a saved way comes back collapsed and
+opens on Edit, Delete on a saved way saves the page without it, and "+ New Orientation" makes
+the new type a way of its own in the same Save. Run with ``pytest -m e2e`` on PostgreSQL.
 """
 
 from __future__ import annotations
 
 from django.contrib.auth.models import User
 from django.urls import reverse
+from playwright.sync_api import expect
 
 from membership.models import Member
 from tests.membership.factories import EquipmentFactory, GuildFactory, MembershipPlanFactory, OrientationTypeFactory
@@ -42,9 +44,21 @@ def describe_the_ways_to_qualify_editor():
         editor.get_by_role("button", name="+ Add a Way to Qualify").click()
         ways = editor.locator("[data-way-row]")
         ways.nth(0).get_by_text("Way 1").wait_for()
+        # A new way starts open: its pills in view and its button reading Done.
+        expect(ways.nth(0).locator("[data-way-body]")).to_be_visible()
+        expect(ways.nth(0).locator("[data-way-edit]")).to_have_text("Done")
+        expect(ways.nth(0).locator("[data-way-edit]")).to_have_attribute("aria-expanded", "true")
         ways.nth(0).get_by_label("Session 1 of 2").check()
         ways.nth(0).get_by_label("Session 2 of 2").check()
         ways.nth(0).locator("[data-way-summary]").get_by_text("Both Session 1 of 2 and Session 2 of 2").wait_for()
+
+        # Done collapses it to one line: the ticked orientations as read only pills, no checkboxes.
+        ways.nth(0).get_by_role("button", name="Done").click()
+        expect(ways.nth(0).locator("[data-way-body]")).to_be_hidden()
+        expect(ways.nth(0).locator("[data-way-chosen] .pl-equip-way__chip")).to_have_text(
+            ["Session 1 of 2 3 hours", "Session 2 of 2 3 hours"]
+        )
+        expect(ways.nth(0).locator("[data-way-edit]")).to_have_attribute("aria-expanded", "false")
 
         add_another = editor.get_by_role("button", name="+ Add Another Way")
         add_another.click()
@@ -57,9 +71,27 @@ def describe_the_ways_to_qualify_editor():
         ways.nth(1).locator("[data-way-summary]").get_by_text("CNC Machine Orientation").wait_for()
 
         page.get_by_role("button", name="Save", exact=True).click()
-        # The saved page shows Delete on both ways: the observable that the Save landed.
-        editor.locator("[data-way-delete]").nth(1).wait_for()
+        # Way 2 was still open at Save; the saved page shows it collapsed, the observable that the Save landed.
+        ways.nth(1).locator("[data-way-chosen]").get_by_text("CNC Machine Orientation").wait_for()
         assert cnc.unlocking_ways() == [[first, second], [full]]
+        # Saved ways start collapsed: no checkbox pills, no Delete in view, only what is chosen.
+        for index in range(2):
+            expect(ways.nth(index).locator("[data-way-body]")).to_be_hidden()
+            expect(ways.nth(index).locator("[data-way-edit]")).to_have_text("Edit")
+        expect(editor.locator("[data-way-delete]")).to_have_count(2)
+        expect(ways.nth(0).locator("[data-way-chosen]")).to_contain_text("Session 1 of 2")
+        expect(ways.nth(0).locator("[data-way-chosen]")).not_to_contain_text("CNC Machine Orientation")
+
+        # Edit opens a saved way; an untick while editing redraws the summary and, after Done, the read only pills.
+        ways.nth(0).get_by_role("button", name="Edit").click()
+        expect(ways.nth(0).locator("[data-way-body]")).to_be_visible()
+        ways.nth(0).get_by_label("Session 2 of 2").uncheck()
+        expect(ways.nth(0).locator("[data-way-summary]")).to_have_text("Session 1 of 2")
+        ways.nth(0).get_by_role("button", name="Done").click()
+        expect(ways.nth(0).locator("[data-way-chosen] .pl-equip-way__chip")).to_have_text(["Session 1 of 2 3 hours"])
+        ways.nth(0).get_by_role("button", name="Edit").click()
+        ways.nth(0).get_by_label("Session 2 of 2").check()
+        expect(ways.nth(0).locator("[data-way-summary]")).to_have_text("Both Session 1 of 2 and Session 2 of 2")
 
         # A Delete the browser blocks (a required field left blank) leaves DELETE unticked and saves nothing.
         name = page.locator("#id_name")
@@ -77,7 +109,8 @@ def describe_the_ways_to_qualify_editor():
         editor.get_by_role("button", name="+ New Orientation").click()
         editor.get_by_label("Orientation name").fill("CNC Team Orientation")
         page.get_by_role("button", name="Save", exact=True).click()
-        editor.locator("[data-way-delete]").nth(1).wait_for()
+        editor.locator("[data-way-delete]").nth(1).wait_for(state="attached")
         own = cnc.owned_orientation_types.get()
         assert own.name == "CNC Team Orientation"
         assert cnc.unlocking_ways() == [[full], [own]]
+        expect(ways.nth(1).locator("[data-way-chosen]")).to_contain_text("CNC Team Orientation")

@@ -1,29 +1,40 @@
 {% comment %}
 One way on the Ways to Qualify editor (#747), from _equipment_form_fields.html. Context:
-  way   — an EquipmentWayForm (way_number, is_saved, pills, summary set by the formset)
+  way   — an EquipmentWayForm (way_number, is_saved, pills, chosen, summary set by the formset)
   index — its formset index, or "__prefix__" for the empty way the "+ Add" button clones
+  open  — True starts the way expanded: a new way, or any way after a Save that failed on the ways
+Collapsed, a way is one line: "Way N", its chosen orientations as read only pills, and Edit
+(FRONTEND.md, Inputs That Take Room Start Collapsed). The checkbox pills stay in the DOM
+(x-show), so one Save posts every way; plEquipWays (static/js/equipment_ways.js) keeps the
+read only pills and the summary in step with what is ticked.
 A deleted saved way stays in the form, hidden, so its ticked DELETE posts with the next Save.
 Delete ticks DELETE only once the browser accepts the form, so a blocked submit never leaves it set.
 The "or" before every way but the first is CSS (equipment-manage.css), so it follows Remove.
 {% endcomment %}
-<div class="pl-equip-way" data-way-row data-way-index="{{ index }}"{% if way.is_saved and not way.way_number %} hidden{% endif %}>
+<div class="pl-equip-way" data-way-row data-way-index="{{ index }}"{% if way.is_saved and not way.way_number %} hidden{% endif %} x-data="{ editing: {{ open|yesno:'true,false' }} }">
   <div class="pl-equip-way__head">
     <span class="pl-equip-way__name" id="{{ way.prefix }}-label" data-way-label>Way {% if way.way_number %}{{ way.way_number }}{% endif %}</span>
-    <span class="pl-equip-way__summary" data-way-summary>{{ way.summary }}</span>
+    <span class="pl-equip-way__chosen" x-show="!editing"{% if open %} x-cloak{% endif %} data-way-chosen>
+      {% for pill in way.chosen %}<span class="pl-equip-way__chip">{{ pill.name }} <span class="pl-equip-way__chip-meta">{{ pill.meta }}</span></span>{% empty %}<span class="pl-equip-way__none">{{ way.NOTHING_TICKED }}</span>{% endfor %}
+    </span>
+    <span class="pl-equip-way__summary" x-show="editing"{% if not open %} x-cloak{% endif %} data-way-summary>{{ way.summary }}</span>
+    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-equip-way__edit" @click="editing = !editing" :aria-expanded="editing ? 'true' : 'false'" x-text="editing ? 'Done' : 'Edit'" aria-expanded="{{ open|yesno:'true,false' }}" aria-describedby="{{ way.prefix }}-label" data-way-edit>{% if open %}Done{% else %}Edit{% endif %}</button>
   </div>
-  <div class="pl-equip-days" role="group" aria-labelledby="{{ way.prefix }}-label">
-    <ul>
-      {% for pill in way.pills %}
-      <li><label for="{{ pill.id }}"><input type="checkbox" name="{{ way.orientations.html_name }}" value="{{ pill.value }}" id="{{ pill.id }}" data-way-pill="{{ pill.name }}"{% if pill.checked %} checked{% endif %}> {{ pill.name }} <span class="hub-text-muted">{{ pill.meta }}</span></label></li>
-      {% endfor %}
-    </ul>
+  <div class="pl-equip-way__body" x-show="editing"{% if not open %} x-cloak{% endif %} data-way-body>
+    <div class="pl-equip-days" role="group" aria-labelledby="{{ way.prefix }}-label">
+      <ul>
+        {% for pill in way.pills %}
+        <li><label for="{{ pill.id }}"><input type="checkbox" name="{{ way.orientations.html_name }}" value="{{ pill.value }}" id="{{ pill.id }}" data-way-pill="{{ pill.name }}" data-way-meta="{{ pill.meta }}"{% if pill.checked %} checked{% endif %}> {{ pill.name }} <span class="hub-text-muted">{{ pill.meta }}</span></label></li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% for error in way.orientations.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+    <div hidden>{{ way.DELETE }}</div>
+    {% if way.is_saved %}
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-way-delete
+            onclick="if (!this.form.reportValidity()) return; document.getElementById('{{ way.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">Delete</button>
+    {% else %}
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-way-remove>Remove</button>
+    {% endif %}
   </div>
-  {% for error in way.orientations.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-  <div hidden>{{ way.DELETE }}</div>
-  {% if way.is_saved %}
-  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-way-delete
-          onclick="if (!this.form.reportValidity()) return; document.getElementById('{{ way.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">Delete</button>
-  {% else %}
-  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-way-remove>Remove</button>
-  {% endif %}
 </div>
