@@ -136,13 +136,15 @@ _FEE_RE = re.compile(
 _NEGATED_RE = re.compile(r"\b(?:no|without|zero)\s+$", re.IGNORECASE)
 # A payment mention that says there is nothing more to pay ("pay nothing extra on the day") or
 # that the ticket already covers it ("Your payment to the studio covers firing").
-# The negation counts only where it governs the payment: straight after the pay word ("pay
-# nothing extra"), never anywhere in the span ("Payment, no checks please, at the door" is refused).
-_NOTHING_TO_PAY_RE = re.compile(r"(?:pay(?:s|ing|able)?|paid|payments?)\s+(?:nothing|no)\b", re.IGNORECASE)
-# "Covers" excuses a payment made TO the makerspace ("Your payment to the studio covers firing"),
-# not one made AT the session or door ("Payment at the door covers the clay" is refused).
-_PAID_TO_RE = re.compile(r"\bto\s+(?:the\s+)?(?:studio|class|workshop)$", re.IGNORECASE)
-_COVERED_RE = re.compile(r"\s+(?:covers|includes|is\s+included)\b", re.IGNORECASE)
+# The only payment mentions that pass (#725): whole sentences in these shapes, holding no other
+# payment mention. An allowlist, not negation logic: "Pay no less than $20 at the door" and
+# "Without payment at the door you lose your seat" are refused like any other.
+_EXEMPT_PAYMENT_SENTENCES = (
+    re.compile(r"(?:tickets?\s+includes?\s+[^.;!?]*;\s*)?pay\s+nothing\s+extra(?:\s+on\s+the\s+day)?", re.IGNORECASE),
+    re.compile(r"your\s+payment\s+to\s+the\s+(?:studio|makerspace)\s+covers\s+[\w\s,]+", re.IGNORECASE),
+    re.compile(r"no\s+payment\s+(?:is\s+taken\s+)?at\s+the\s+(?:door|session)", re.IGNORECASE),
+)
+_SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]*")
 # A discount or coupon code, named as one or by the makerspace's own code shapes
 # (PLHalfOff, PLMetal10, PL-10%off). A token after "code" counts only with a digit, a "%" or two
 # capitals, so "dress code Black", "QR code below" and "use the code editor" are text.
@@ -184,6 +186,8 @@ class EventbriteSync:
     EDIT_SAVED = "your changes are saved and go to Eventbrite within 15 minutes"
     TAKEN_DOWN = "Unpublished on Eventbrite outside plfog; not republished."
     RULES_REFUSAL = "Eventbrite would take this listing down. Fix these, then save again."
+    # The Eventbrite tab validates the saved class, so its fix is made in Edit (#725).
+    TAB_REFUSAL = "Eventbrite would take this listing down. Fix these in Edit, then validate again."
 
     @staticmethod
     def photos_not_sent(reasons: list[str]) -> str:
@@ -436,16 +440,15 @@ def _addresses(text: str) -> list[str]:
 
 
 def _payments(text: str) -> list[str]:
-    """Each payment outside the ticket, skipping one the text rules out ("no payment at the door", "pay nothing")."""
-    return [
-        match.group(0)
-        for match in _PAYMENT_RE.finditer(text)
-        if not (
-            _NEGATED_RE.search(text[: match.start()])
-            or _NOTHING_TO_PAY_RE.match(match.group(0))
-            or (_PAID_TO_RE.search(match.group(0)) and _COVERED_RE.match(text, match.end()))
-        )
-    ]
+    """Each payment outside the ticket, sentence by sentence; an exempt sentence with one mention passes."""
+    found: list[str] = []
+    for sentence in _SENTENCE_RE.findall(text):
+        hits = _PAYMENT_RE.findall(sentence)
+        bare = sentence.strip().rstrip(".!?").strip()
+        if len(hits) == 1 and any(shape.fullmatch(bare) for shape in _EXEMPT_PAYMENT_SENTENCES):
+            continue
+        found += hits
+    return found
 
 
 def _fees(text: str) -> list[str]:
@@ -743,14 +746,12 @@ def _end(client: EventbriteClient, offering: ClassOffering) -> str:
 
     plfog's own unpublish clears :attr:`ClassOffering.eventbrite_published`, so switching the
     class back on publishes it again. An event plfog published that already reads ``draft`` was
-    taken down outside plfog: it is left as it is and stays remembered, so no relist undoes it (#720).
+    taken down outside plfog: :func:`sync_class_listing` reads that before calling here (#720, #725).
     """
     event_id = offering.eventbrite_event_id
     if offering.eventbrite_ticket_class_id:
         closed = {"ticket_class": {"sales_end": _utc(timezone.now())}}
         client.update_ticket_class(event_id, offering.eventbrite_ticket_class_id, closed)
-    if offering.eventbrite_published and field(client.get_event(event_id), "status") == _DRAFT:
-        return EventbriteSync.TAKEN_DOWN
     try:
         client.unpublish(event_id)
     except EventbriteError as exc:
@@ -759,6 +760,11 @@ def _end(client: EventbriteClient, offering: ClassOffering) -> str:
         return EventbriteSync.STILL_UP
     offering.eventbrite_published = False
     return ""
+
+
+def _taken_down(client: EventbriteClient, offering: ClassOffering) -> bool:
+    """An event plfog published that reads ``draft`` was taken down outside plfog (#720); one GET."""
+    return field(client.get_event(offering.eventbrite_event_id), "status") == _DRAFT
 
 
 def sync_class_listing(offering: ClassOffering) -> None:
@@ -787,6 +793,12 @@ def sync_class_listing(offering: ClassOffering) -> None:
         offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.PENDING, EventbriteSync.SYNC_OFF
         return
     try:
+        if offering.eventbrite_published and _taken_down(client, offering):
+            # Read before any write (#725): a takedown nobody has seen yet gets no update, no
+            # ticket change and no unpublish; it is recorded and left alone.
+            offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.ENDED, EventbriteSync.TAKEN_DOWN
+            offering.eventbrite_synced_at = timezone.now()
+            return
         if wanted:
             listed_state, note = _list(client, offering)
             offering.eventbrite_sync_state, offering.eventbrite_sync_error = listed_state, note[:_SYNC_ERROR_MAX]

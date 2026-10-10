@@ -282,7 +282,7 @@ def describe_the_sync_to_eventbrite_button():
     def _url(offering: ClassOffering) -> str:
         return reverse("classes:teach_class_eventbrite_sync", kwargs={"pk": offering.pk})
 
-    def it_shows_on_the_eventbrite_tab_for_an_admin_and_not_the_overview(client: Client):
+    def it_shows_on_the_eventbrite_tab_for_an_admin_and_not_the_overview(eventbrite: FakeEventbrite, client: Client):
         offering = _listed(eventbrite_sync_state=State.PENDING)
         client.force_login(_admin())
 

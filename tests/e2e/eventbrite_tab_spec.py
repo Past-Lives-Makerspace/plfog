@@ -3,7 +3,7 @@
 Validate reads the saved class over htmx and Submit appears only after a pass (Alpine); the
 Published switch opens the confirm modal; only a browser runs those. Eventbrite itself is the
 listing specs' :class:`FakeEventbrite`, patched in process, so the live server never reaches it.
-``CAPTURE_725B_SCREENSHOT=1`` saves the PR's six pictures under ``mockups/screenshots/``.
+``CAPTURE_725B_SCREENSHOT=1`` saves the PR's seven pictures under ``mockups/screenshots/``.
 Run with ``pytest -m e2e`` on PostgreSQL.
 """
 
@@ -131,7 +131,7 @@ def describe_the_eventbrite_tab():
         section.locator("[data-eventbrite-validate]").click()
 
         refusal = section.locator("[data-eventbrite-refusal]")
-        expect(refusal).to_contain_text("Fix these, then save again.")
+        expect(refusal).to_contain_text("Fix these in Edit, then validate again.")
         expect(refusal).to_contain_text("Description: payment outside the ticket")
         expect(section.locator("[data-eventbrite-submit]")).to_be_hidden()
         _shot(page, section, "02")
@@ -152,8 +152,29 @@ def describe_the_eventbrite_tab():
         section = _open(page, live_server, offering)
 
         expect(section.locator("[data-eventbrite-stage]")).to_contain_text("Taken down")
-        expect(section.locator("[data-eventbrite-taken-down]")).to_be_visible()
+        expect(section.locator("[data-eventbrite-taken-down]")).to_have_text(
+            "Eventbrite took this listing down. plfog won't submit it again."
+        )
         expect(section.locator("[data-eventbrite-validate]")).to_have_count(0)
         expect(page.locator("input[name='published']")).to_have_count(0)
         _shot(page, section, "06")
         assert eventbrite.calls == []
+
+    def it_is_read_only_while_eventbrite_is_off_site_wide(live_server, page, login_via_code):
+        """No eventbrite fixture: the site-wide switch reads off, as it does in production today."""
+        offering = _seed(
+            eventbrite_enabled=True,
+            eventbrite_event_id="ev-9",
+            eventbrite_ticket_class_id="tc-9",
+            eventbrite_published=True,
+            eventbrite_sync_state=ClassOffering.EventbriteSyncState.LISTED,
+        )
+        login_via_code(EMAIL)
+        section = _open(page, live_server, offering)
+
+        expect(section.locator("[data-eventbrite-stage]")).to_contain_text("Listed on Eventbrite")
+        expect(section.locator("[data-eventbrite-site-off]")).to_have_text("Eventbrite is turned off site-wide.")
+        expect(section.locator("[data-eventbrite-validate]")).to_have_count(0)
+        expect(page.locator("input[name='published']")).to_have_count(0)
+        expect(section.locator("[data-eventbrite-off]")).to_have_count(0)
+        _shot(page, section, "07")

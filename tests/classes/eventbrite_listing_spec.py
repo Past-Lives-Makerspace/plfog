@@ -462,7 +462,7 @@ def describe_an_event_taken_down_outside_plfog():
 
         offering.unpublish()
 
-        assert eventbrite.names() == ["update_ticket_class", "get_event"]
+        assert eventbrite.names() == ["get_event"]  # read first; a takedown gets no write (#725)
         offering.refresh_from_db()
         assert offering.eventbrite_published is True  # so switching it back on never republishes it
         assert offering.eventbrite_sync_state == State.ENDED
@@ -473,7 +473,7 @@ def describe_an_event_taken_down_outside_plfog():
 
         offering.unpublish()
 
-        assert eventbrite.names() == ["update_ticket_class", "get_event", "unpublish"]
+        assert eventbrite.names() == ["get_event", "update_ticket_class", "unpublish"]
         offering.refresh_from_db()
         assert offering.eventbrite_published is False
         assert offering.eventbrite_sync_state == State.ENDED

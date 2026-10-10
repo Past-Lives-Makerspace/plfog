@@ -178,6 +178,10 @@ def describe_who_sees_the_tab():
 
 
 def describe_the_tab_page():
+    @pytest.fixture(autouse=True)
+    def _integration_on(eventbrite: FakeEventbrite) -> None:
+        """The site-wide switch is on, so the tab can act."""
+
     @pytest.fixture
     def admin(client: Client) -> Client:
         client.force_login(_admin())
@@ -252,8 +256,7 @@ def describe_the_tab_page():
         html = _tab(admin, offering)
 
         assert 'data-eventbrite-stage="taken_down"' in html
-        assert "data-eventbrite-taken-down>" in html
-        assert EventbriteSync.TAKEN_DOWN in html
+        assert "data-eventbrite-taken-down>Eventbrite took this listing down. plfog won't submit it again.</p>" in html
         assert "data-eventbrite-published" not in html
         assert "data-eventbrite-validate" not in html
         assert "data-eventbrite-settings" not in html
@@ -419,7 +422,7 @@ def describe_taking_a_class_off_eventbrite():
         response = client.post(_url("_off", offering))
 
         assert response.status_code == 302
-        assert eventbrite.names() == ["update_ticket_class", "get_event", "unpublish"]
+        assert eventbrite.names() == ["get_event", "update_ticket_class", "unpublish"]
         offering.refresh_from_db()
         assert (offering.eventbrite_enabled, offering.eventbrite_published) == (False, False)
         assert offering.eventbrite_sync_state == State.ENDED
@@ -468,3 +471,155 @@ def describe_taking_a_class_off_eventbrite():
         assert client.post(_url("_off", offering)).status_code == 404
         offering.refresh_from_db()
         assert offering.eventbrite_enabled is True
+
+
+def describe_a_listed_class_that_is_waiting_or_failing():
+    """Fix round 1: an event live on Eventbrite reads Listed whatever a pending edit or failed push says."""
+
+    @pytest.fixture(autouse=True)
+    def _integration_on(eventbrite: FakeEventbrite) -> None:
+        """The site-wide switch is on."""
+
+    @pytest.mark.parametrize("state", [State.PENDING, State.FAILED])
+    def it_reads_listed_under_a_pending_edit_or_a_failed_push(state: ClassOffering.EventbriteSyncState):
+        assert _listed(eventbrite_published=True, eventbrite_sync_state=state).eventbrite_stage == Stage.LISTED
+
+    def it_keeps_the_switch_and_the_modal_after_a_description_edit_and_offers_no_unconfirmed_off(client: Client):
+        offering = _listed(eventbrite_published=True)
+        _described(offering, "<p>A hands-on class, edited.</p>").mark_eventbrite_edit_saved()
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.PENDING
+        client.force_login(_admin())
+
+        html = _tab(client, offering)
+
+        assert 'data-eventbrite-stage="listed"' in html
+        assert "data-eventbrite-published" in html
+        assert '<h2 class="pl-modal__title">Unpublish from Eventbrite?</h2>' in html
+        assert "data-eventbrite-sync>Waiting to sync: your changes are saved" in html
+        assert "data-eventbrite-off" not in html
+
+
+def describe_the_tab_while_eventbrite_is_off_site_wide():
+    """Fix round 1: with the site-wide switch off, the tab is read only."""
+
+    def it_shows_the_badge_and_the_note_and_nothing_to_press(client: Client):
+        offering = _listed(eventbrite_published=True)
+        client.force_login(_admin())
+
+        html = _tab(client, offering)
+
+        assert 'data-eventbrite-stage="listed"' in html
+        assert "data-eventbrite-site-off>Eventbrite is turned off site-wide.</p>" in html
+        for marker in (
+            "data-eventbrite-validate",
+            "data-eventbrite-submit",
+            "data-eventbrite-published",
+            "data-eventbrite-off",
+            "data-eventbrite-settings",
+            "data-eventbrite-sync-button",
+        ):
+            assert marker not in html
+
+    def it_refuses_every_action(client: Client):
+        offering = _live(eventbrite_enabled=True)
+        client.force_login(_admin())
+
+        for name in ("_submit", "_settings", "_off"):
+            assert client.post(_url(name, offering)).status_code == 404
+        offering.refresh_from_db()
+        assert offering.eventbrite_enabled is True
+
+
+def describe_a_class_off_the_catalog_that_eventbrite_still_has():
+    """Fix round 1: a cancelled class whose listing could not be ended keeps the tab for admins, with Sync."""
+
+    def _cancelled_still_up() -> ClassOffering:
+        return _listed(
+            instructor=_instructor(),
+            status=ClassOffering.Status.CANCELLED,
+            eventbrite_enabled=False,
+            eventbrite_published=True,
+            eventbrite_sync_state=State.ENDED,
+            eventbrite_sync_error=EventbriteSync.STILL_UP,
+        )
+
+    def it_shows_an_admin_the_state_and_sync_and_nothing_else(eventbrite: FakeEventbrite, client: Client):
+        offering = _cancelled_still_up()
+        client.force_login(_admin())
+
+        html = _tab(client, offering)
+
+        assert f"data-eventbrite-sync>Ended on Eventbrite. {EventbriteSync.STILL_UP}" in html
+        assert "data-eventbrite-sync-button" in html
+        assert "data-eventbrite-validate" not in html
+        assert "data-eventbrite-settings" not in html
+        assert client.post(_url("_off", offering)).status_code == 404
+
+    def it_keeps_the_tab_from_the_instructor(eventbrite: FakeEventbrite, client: Client):
+        offering = _cancelled_still_up()
+        client.force_login(offering.instructor.user)
+
+        assert client.get(_url("", offering)).status_code == 404
+
+    def it_has_no_tab_on_a_cancelled_class_eventbrite_never_had(eventbrite: FakeEventbrite, client: Client):
+        offering = _live(status=ClassOffering.Status.CANCELLED)
+        client.force_login(_admin())
+
+        assert client.get(_url("", offering)).status_code == 404
+
+
+def describe_a_takedown_nobody_has_seen():
+    """Fix round 1: class 675's shape (published, sync pending, Eventbrite reads draft) gets one read and no write."""
+
+    def _unseen(**kwargs: Any) -> ClassOffering:
+        return _listed(eventbrite_published=True, eventbrite_sync_state=State.PENDING, **kwargs)
+
+    def it_records_the_takedown_on_submit_without_a_write(eventbrite: FakeEventbrite):
+        eventbrite.read_status = "draft"
+        offering = _unseen(eventbrite_rules_agreed_at=None)
+
+        offering.submit_to_eventbrite(_admin())
+
+        assert eventbrite.names() == ["get_event"]
+        offering.refresh_from_db()
+        assert (offering.eventbrite_sync_state, offering.eventbrite_sync_error) == (
+            State.ENDED,
+            EventbriteSync.TAKEN_DOWN,
+        )
+        assert offering.eventbrite_stage == Stage.TAKEN_DOWN
+
+    def it_records_the_takedown_on_take_off_without_a_write(eventbrite: FakeEventbrite):
+        eventbrite.read_status = "draft"
+        offering = _unseen()
+
+        offering.take_off_eventbrite()
+
+        assert eventbrite.names() == ["get_event"]
+        offering.refresh_from_db()
+        assert offering.eventbrite_stage == Stage.TAKEN_DOWN
+
+
+def describe_the_tabs_refusal_wording():
+    def it_tells_the_tab_to_fix_in_edit_and_validate_again(eventbrite: FakeEventbrite, client: Client):
+        offering = _described(_live(), f"<p>{_KATE}</p>")
+        client.force_login(_admin())
+        url = reverse("classes:teach_class_eventbrite_check", kwargs={"pk": offering.pk})
+
+        tab = client.post(url, {"from_tab": "1"}).content.decode()
+        composer = client.post(url, {}).content.decode()
+
+        assert f"<p>{EventbriteSync.TAB_REFUSAL}</p>" in tab
+        assert (
+            EventbriteSync.TAB_REFUSAL
+            == "Eventbrite would take this listing down. Fix these in Edit, then validate again."
+        )
+        assert f"<p>{_REFUSAL}</p>" in composer
+
+    def it_uses_it_on_a_refused_submit_too(eventbrite: FakeEventbrite, client: Client):
+        offering = _described(_live(), f"<p>{_KATE}</p>")
+        client.force_login(_admin())
+
+        html = client.post(_url("_submit", offering), {}).content.decode()
+
+        assert f"<p>{EventbriteSync.TAB_REFUSAL}</p>" in html

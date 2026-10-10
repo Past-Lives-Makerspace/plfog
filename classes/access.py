@@ -114,8 +114,8 @@ class ClassAccess:
     can_sale: bool
     can_send_email: bool
     can_delete: bool
-    # The Eventbrite tab (#725): the class's instructor and admins, on a live fixed class only
-    # (class_access clears it otherwise, since only it sees the class).
+    # The Eventbrite tab (#725): the class's instructor and admins on a live fixed class, and admins
+    # on any fixed class Eventbrite still has (class_access decides, since only it sees the class).
     can_manage_eventbrite: bool
 
     @property
@@ -385,8 +385,16 @@ def class_access(request: HttpRequest, offering: ClassOffering) -> ClassAccess |
     access = _role_access(request, offering)
     if access is None or not access.can_manage_eventbrite:
         return access
-    live_and_fixed = offering.status == ClassOffering.Status.PUBLISHED and not offering.is_flexible
-    return access if live_and_fixed else replace(access, can_manage_eventbrite=False)
+    if offering.is_flexible:
+        return replace(access, can_manage_eventbrite=False)
+    if offering.status == ClassOffering.Status.PUBLISHED:
+        return access
+    # A class off the catalog keeps the tab for an admin while Eventbrite still has something of it
+    # (a listing that could not be ended, say), so its state and Sync stay reachable (#725).
+    on_eventbrite = bool(offering.eventbrite_event_id) or (
+        offering.eventbrite_sync_state != ClassOffering.EventbriteSyncState.IDLE
+    )
+    return access if access.can_administer and on_eventbrite else replace(access, can_manage_eventbrite=False)
 
 
 def _role_access(request: HttpRequest, offering: ClassOffering) -> ClassAccess | None:

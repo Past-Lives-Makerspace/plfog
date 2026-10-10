@@ -140,7 +140,7 @@ from classes.models import (
 )
 from core.files import delete_if_unreferenced
 from core.htmx import wants_fragment
-from core.integrations.eventbrite import EVENTBRITE_RULES
+from core.integrations.eventbrite import EVENTBRITE_RULES, EventbriteClient, EventbriteSync
 from core.models import SiteConfiguration
 from core.urls_util import book_absolute_url
 from core.validators import validate_image_content
@@ -2410,6 +2410,19 @@ def _eventbrite_tab_offering(request: HttpRequest) -> ClassOffering:
     return request.class_offering  # type: ignore[attr-defined]
 
 
+def _eventbrite_tab_can_act(offering: ClassOffering) -> bool:
+    """The tab's actions need the site-wide switch on and the class live; otherwise it is read only."""
+    return offering.status == ClassOffering.Status.PUBLISHED and EventbriteClient.from_settings().enabled
+
+
+def _eventbrite_tab_action(request: HttpRequest) -> ClassOffering:
+    """The class behind a tab action (submit, save, off), else a 404 while the tab is read only."""
+    offering = _eventbrite_tab_offering(request)
+    if not _eventbrite_tab_can_act(offering):
+        raise Http404("Eventbrite is read only here: turned off site-wide, or the class is not live.")
+    return offering
+
+
 def _render_eventbrite_tab(
     request: HttpRequest,
     offering: ClassOffering,
@@ -2419,6 +2432,7 @@ def _render_eventbrite_tab(
 ) -> HttpResponse:
     """The Eventbrite tab: badge, Validate, Submit, the Published switch, and the fee and category."""
     stage = offering.eventbrite_stage
+    eventbrite_on = EventbriteClient.from_settings().enabled
     title, message, button = _UNPUBLISH_COPY[
         stage == offering.EventbriteStage.LISTED and offering.holds_eventbrite_orders
     ]
@@ -2435,6 +2449,9 @@ def _render_eventbrite_tab(
             "unpublish_message": message,
             "unpublish_button": button,
             "off_url": reverse("classes:teach_class_eventbrite_off", kwargs={"pk": offering.pk}),
+            "eventbrite_on": eventbrite_on,
+            "can_act": eventbrite_on and offering.status == ClassOffering.Status.PUBLISHED,
+            "refusal_lead": EventbriteSync.TAB_REFUSAL,
             "rules_text": EVENTBRITE_RULES,
         },
     )
@@ -2450,7 +2467,7 @@ def teach_class_eventbrite(request: HttpRequest, pk: int) -> HttpResponse:
 @class_screen_required
 def teach_class_eventbrite_submit(request: HttpRequest, pk: int) -> HttpResponse:
     """Submit Listing to Eventbrite: the fee and category, the agreement, and the push, in one press."""
-    offering = _eventbrite_tab_offering(request)
+    offering = _eventbrite_tab_action(request)
     form = EventbriteSubmitForm(request.POST, instance=offering)
     if not form.is_valid():
         return _render_eventbrite_tab(request, offering, form=form)
@@ -2469,7 +2486,7 @@ def teach_class_eventbrite_submit(request: HttpRequest, pk: int) -> HttpResponse
 @class_screen_required
 def teach_class_eventbrite_settings(request: HttpRequest, pk: int) -> HttpResponse:
     """Save the fee and category on a class already on Eventbrite; the next tick sends them."""
-    offering = _eventbrite_tab_offering(request)
+    offering = _eventbrite_tab_action(request)
     form = EventbriteSubmitForm(request.POST, instance=offering)
     if not form.is_valid():
         return _render_eventbrite_tab(request, offering, form=form)
@@ -2482,7 +2499,7 @@ def teach_class_eventbrite_settings(request: HttpRequest, pk: int) -> HttpRespon
 @class_screen_required
 def teach_class_eventbrite_off(request: HttpRequest, pk: int) -> HttpResponse:
     """Take the class off Eventbrite: unpublish (or close sales) through the usual end path."""
-    offering = _eventbrite_tab_offering(request)
+    offering = _eventbrite_tab_action(request)
     offering.take_off_eventbrite()
     messages.success(request, "Taken off Eventbrite.")
     return redirect("classes:teach_class_eventbrite", pk=offering.pk)
@@ -2491,7 +2508,9 @@ def teach_class_eventbrite_off(request: HttpRequest, pk: int) -> HttpResponse:
 def _eventbrite_check(request: HttpRequest, offering: ClassOffering | None) -> HttpResponse:
     """The Eventbrite check (#725) on the text the page posted, as it is typed; nothing is saved."""
     check = EventbriteListingCheckForm(request.POST, offering=offering).listing_check()
-    return render(request, "classes/_components/eventbrite_check_result.html", {"check": check})
+    # The Eventbrite tab checks the saved class, so its fix is made in Edit (#725).
+    lead = EventbriteSync.TAB_REFUSAL if "from_tab" in request.POST else EventbriteSync.RULES_REFUSAL
+    return render(request, "classes/_components/eventbrite_check_result.html", {"check": check, "refusal_lead": lead})
 
 
 @require_POST

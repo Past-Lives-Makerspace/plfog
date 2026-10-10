@@ -2352,20 +2352,24 @@ class ClassOffering(HeroCropMixin, models.Model):
 
     @property
     def eventbrite_stage(self) -> "ClassOffering.EventbriteStage":
-        """The Eventbrite tab's badge (#725). A takedown outranks everything: it is never relisted."""
+        """The Eventbrite tab's badge (#725). A takedown outranks everything: it is never relisted.
+
+        An event plfog published reads Listed until it is ended, whatever a pending edit or a
+        failed push says, so taking it off always goes through the confirm modal.
+        """
         from core.integrations.eventbrite import EventbriteSync
 
         stage, state = self.EventbriteStage, self.EventbriteSyncState
         if self.eventbrite_sync_state == state.ENDED and EventbriteSync.TAKEN_DOWN in self.eventbrite_sync_error:
             return stage.TAKEN_DOWN
+        if self.eventbrite_published and self.eventbrite_sync_state != state.ENDED:
+            return stage.LISTED
         if not self.eventbrite_enabled:
             return stage.OFF
         if self.needs_eventbrite_agreement:
             return stage.NEEDS_AGREEMENT
         if self.eventbrite_sync_state == state.FAILED:
             return stage.FAILED
-        if self.eventbrite_sync_state == state.LISTED and self.eventbrite_published:
-            return stage.LISTED
         return stage.QUEUED
 
     @property
