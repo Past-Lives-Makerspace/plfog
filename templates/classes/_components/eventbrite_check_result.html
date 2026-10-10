@@ -1,7 +1,7 @@
 {# The Eventbrite check's result (#725), on load for a class already ticked and as the class is typed. #}
 {% if check.problems %}
 <div class="hub-message hub-message--error" data-eventbrite-check-result data-eventbrite-refusal>
-  <p>{{ check.refusal_lines.0 }}</p>
+  <p>{{ refusal_lead|default:check.refusal_lines.0 }}</p>
   <ul class="pl-field-errors">{% for problem in check.problems %}<li>{{ problem }}</li>{% endfor %}</ul>
 </div>
 {% else %}

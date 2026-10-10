@@ -66,6 +66,7 @@ TAB_REGISTRATIONS = "registrations"
 TAB_WAITLIST = "waitlist"
 TAB_DISCOUNT_CODES = "discount_codes"
 TAB_EMAILS = "emails"
+TAB_EVENTBRITE = "eventbrite"
 
 #: The per-class tab strip, in render order, each paired with the capability that
 #: reveals it. A tab a viewer may not use is not rendered at all — never rendered and
@@ -76,6 +77,7 @@ _TAB_STRIP: tuple[tuple[str, str, str], ...] = (
     (TAB_WAITLIST, "Waitlist", "can_view_waitlist"),
     (TAB_DISCOUNT_CODES, "Discount Codes", "can_view_discount_codes"),
     (TAB_EMAILS, "Emails", "can_view_emails"),
+    (TAB_EVENTBRITE, "Eventbrite", "can_manage_eventbrite"),
 )
 
 
@@ -112,6 +114,9 @@ class ClassAccess:
     can_sale: bool
     can_send_email: bool
     can_delete: bool
+    # The Eventbrite tab (#725): the class's instructor and admins on a live fixed class, and admins
+    # on any fixed class Eventbrite still has (class_access decides, since only it sees the class).
+    can_manage_eventbrite: bool
 
     @property
     def tabs(self) -> tuple[ClassTab, ...]:
@@ -139,6 +144,7 @@ def _admin_access() -> ClassAccess:
         can_sale=True,
         can_send_email=True,
         can_delete=True,
+        can_manage_eventbrite=True,
     )
 
 
@@ -168,6 +174,7 @@ def _reviewer_access() -> ClassAccess:
         can_sale=False,
         can_send_email=False,
         can_delete=False,
+        can_manage_eventbrite=False,
     )
 
 
@@ -200,6 +207,7 @@ def _instructor_access() -> ClassAccess:
         can_sale=True,
         can_send_email=True,
         can_delete=True,
+        can_manage_eventbrite=True,
     )
 
 
@@ -249,6 +257,7 @@ def _guild_access() -> ClassAccess:
         can_sale=False,
         can_send_email=True,
         can_delete=False,
+        can_manage_eventbrite=False,  # the Eventbrite tab is the instructor's and the admins' (#725)
     )
 
 
@@ -373,6 +382,23 @@ def class_access(request: HttpRequest, offering: ClassOffering) -> ClassAccess |
     Returns:
         The viewer's capability set, or ``None`` when no leg matches.
     """
+    access = _role_access(request, offering)
+    if access is None or not access.can_manage_eventbrite:
+        return access
+    if offering.is_flexible:
+        return replace(access, can_manage_eventbrite=False)
+    if offering.status == ClassOffering.Status.PUBLISHED:
+        return access
+    # A class off the catalog keeps the tab for an admin while Eventbrite still has something of it
+    # (a listing that could not be ended, say), so its state and Sync stay reachable (#725).
+    on_eventbrite = bool(offering.eventbrite_event_id) or (
+        offering.eventbrite_sync_state != ClassOffering.EventbriteSyncState.IDLE
+    )
+    return access if access.can_administer and on_eventbrite else replace(access, can_manage_eventbrite=False)
+
+
+def _role_access(request: HttpRequest, offering: ClassOffering) -> ClassAccess | None:
+    """The viewer's capability set from their role on this class alone; :func:`class_access` documents the legs."""
     view_as = getattr(request, "view_as", None)
     if view_as is None or view_as.is_guest:
         return None

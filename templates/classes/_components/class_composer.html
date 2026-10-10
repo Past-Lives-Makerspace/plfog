@@ -418,6 +418,9 @@ Do not merge them.
         <h3 class="pl-compose-section__title">Eventbrite</h3>
         {% include "classes/_components/eventbrite_rules.html" %}
       </div>
+      {% elif offering and offering.status == 'published' and not offering.is_flexible %}
+      {# A live class sells on Eventbrite from its own tab (#725). #}
+      <p class="pl-compose-section__note" data-eventbrite-tab-link>Selling this class on Eventbrite has its own tab: <a href="{% url 'classes:teach_class_eventbrite' pk=offering.pk %}">Eventbrite</a>.</p>
       {% endif %}
       {% if readiness and offering.status == 'draft' %}
       {# The five things a class needs before it can be submitted; each hint jumps to its step and field. #}

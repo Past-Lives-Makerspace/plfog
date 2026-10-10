@@ -968,6 +968,16 @@ class ClassOffering(HeroCropMixin, models.Model):
         ENDED = "ended", "Ended"  # sales closed and unpublished (or as far as Eventbrite allows)
         FAILED = "failed", "Failed"  # last push errored (retry_eventbrite_pushes will retry)
 
+    class EventbriteStage(models.TextChoices):
+        """Where a class stands with Eventbrite, as the Eventbrite tab's badge reads it (#725)."""
+
+        OFF = "off", "Not on Eventbrite"
+        NEEDS_AGREEMENT = "needs_agreement", "Needs agreement"
+        QUEUED = "queued", "Queued for Eventbrite"
+        LISTED = "listed", "Listed on Eventbrite"
+        FAILED = "failed", "Failed"
+        TAKEN_DOWN = "taken_down", "Taken down"
+
     title = models.CharField(max_length=255, help_text="Public class title.")
     # db_default as well as default: the migration applies while the previous release still
     # serves, and its INSERTs omit this column (STANDARDS.md section 10).
@@ -2339,6 +2349,75 @@ class ClassOffering(HeroCropMixin, models.Model):
         """Record who agreed to Eventbrite's selling rules and when; the caller's save writes it."""
         self.eventbrite_rules_agreed_by_id = user.pk
         self.eventbrite_rules_agreed_at = timezone.now()
+
+    @property
+    def eventbrite_stage(self) -> "ClassOffering.EventbriteStage":
+        """The Eventbrite tab's badge (#725). A takedown outranks everything: it is never relisted.
+
+        An event plfog published reads Listed until it is ended, whatever a pending edit or a
+        failed push says, so taking it off always goes through the confirm modal.
+        """
+        from core.integrations.eventbrite import EventbriteSync
+
+        stage, state = self.EventbriteStage, self.EventbriteSyncState
+        if self.eventbrite_sync_state == state.ENDED and EventbriteSync.TAKEN_DOWN in self.eventbrite_sync_error:
+            return stage.TAKEN_DOWN
+        if self.eventbrite_published and self.eventbrite_sync_state != state.ENDED:
+            return stage.LISTED
+        if not self.eventbrite_enabled:
+            return stage.OFF
+        if self.needs_eventbrite_agreement:
+            return stage.NEEDS_AGREEMENT
+        if self.eventbrite_sync_state == state.FAILED:
+            return stage.FAILED
+        return stage.QUEUED
+
+    @property
+    def holds_eventbrite_orders(self) -> bool:
+        """Someone bought a ticket on Eventbrite, as plfog recorded it; read locally, never from Eventbrite."""
+        return self.registrations.exclude(eventbrite_order_id="").exists()
+
+    def submit_to_eventbrite(self, user: "User") -> "ListingCheck":
+        """The Eventbrite tab's Submit (#725): check the saved class, then switch it on and list it now.
+
+        A failing class changes nothing and gets its problems back. A passing one records the
+        agreement when nobody has agreed yet, saves the switch with the fee and category the
+        caller set, and syncs in the request, like the admin's Sync to Eventbrite.
+
+        Raises:
+            ValueError: The listing was taken down by Eventbrite; plfog never publishes it again.
+        """
+        if self.eventbrite_stage == self.EventbriteStage.TAKEN_DOWN:
+            raise ValueError("Eventbrite took this listing down, so plfog does not submit it again.")
+        check = self.eventbrite_listing_check()
+        if check.problems:
+            return check
+        self.eventbrite_enabled = True
+        if self.needs_eventbrite_agreement:
+            self.agree_to_eventbrite_rules(user)
+        self.save(
+            update_fields=[
+                "eventbrite_enabled",
+                "eventbrite_rules_agreed_by",
+                "eventbrite_rules_agreed_at",
+                "eventbrite_fee_payer",
+                "eventbrite_category",
+                "eventbrite_subcategory",
+                "updated_at",
+            ]
+        )
+        self.sync_eventbrite_listing()
+        return check
+
+    def take_off_eventbrite(self) -> None:
+        """Switch Eventbrite off for this class, ending a live listing through the usual end path (#725).
+
+        The end path closes sales, then unpublishes; it leaves an event Eventbrite took down as it
+        is, and a class with nothing on Eventbrite makes no call at all.
+        """
+        self.eventbrite_enabled = False
+        self.save(update_fields=["eventbrite_enabled", "updated_at"])
+        self.mark_eventbrite_edit_saved()
 
     def sync_eventbrite_listing(self) -> None:
         """Create, update or end this class's Eventbrite listing, and save the sync fields.

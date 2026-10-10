@@ -175,15 +175,14 @@ def describe_an_edit_save_on_a_listed_class():
         assert "update_event" in eventbrite.names()
         assert "publish" not in eventbrite.names()
 
-    def it_ends_the_listing_in_the_request_when_the_opt_in_is_switched_off(eventbrite: FakeEventbrite, client: Client):
+    def it_ends_the_listing_in_the_request_when_the_class_is_taken_off_eventbrite(
+        eventbrite: FakeEventbrite, client: Client
+    ):
         instructor = _instructor()
         offering = _listed(instructor=instructor)
         client.force_login(instructor.user)
 
-        client.post(
-            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            _published_edit_payload(eventbrite_enabled=""),
-        )
+        client.post(reverse("classes:teach_class_eventbrite_off", kwargs={"pk": offering.pk}))
 
         offering.refresh_from_db()
         assert eventbrite.names() == ["update_ticket_class", "unpublish"]
@@ -283,11 +282,14 @@ def describe_the_sync_to_eventbrite_button():
     def _url(offering: ClassOffering) -> str:
         return reverse("classes:teach_class_eventbrite_sync", kwargs={"pk": offering.pk})
 
-    def it_shows_on_the_overview_for_an_admin(client: Client):
+    def it_shows_on_the_eventbrite_tab_for_an_admin_and_not_the_overview(eventbrite: FakeEventbrite, client: Client):
         offering = _listed(eventbrite_sync_state=State.PENDING)
         client.force_login(_admin())
 
-        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        overview = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_eventbrite", kwargs={"pk": offering.pk})).content.decode()
+
+        assert "data-eventbrite-sync-button" not in overview
 
         assert f'action="{_url(offering)}"' in html
         assert "data-eventbrite-sync-button" in html
@@ -297,7 +299,7 @@ def describe_the_sync_to_eventbrite_button():
         offering = _listed(instructor=instructor, eventbrite_sync_state=State.PENDING)
         client.force_login(instructor.user)
 
-        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_eventbrite", kwargs={"pk": offering.pk})).content.decode()
 
         assert "data-eventbrite-sync-button" not in html
 
@@ -308,11 +310,14 @@ def describe_the_sync_to_eventbrite_button():
         response = client.post(_url(offering), follow=True)
 
         offering.refresh_from_db()
-        assert response.redirect_chain[0] == (reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}), 302)
+        assert response.redirect_chain[0] == (
+            reverse("classes:teach_class_eventbrite", kwargs={"pk": offering.pk}),
+            302,
+        )
         assert offering.eventbrite_sync_state == State.LISTED
         assert "update_event" in eventbrite.names()
         html = response.content.decode()
-        assert '<span class="pl-eventbrite-sync__ok" aria-hidden="true">&#10003;</span> Listed on Eventbrite' in html
+        assert '<span aria-hidden="true">&#10003;</span> Listed on Eventbrite</span>' in html
 
     def it_shows_the_failure_reason_when_eventbrite_refuses(eventbrite: FakeEventbrite, client: Client):
         eventbrite.fail["update_event"] = EventbriteError("Qzx refused", 500)

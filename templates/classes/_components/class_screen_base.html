@@ -57,6 +57,7 @@ count get it here, off `tab.key`.{% endcomment %}
         {% if tab.key == 'waitlist' %}{% url 'classes:teach_class_waitlist' pk=offering.pk as tab_url %}{% endif %}
         {% if tab.key == 'discount_codes' %}{% url 'classes:teach_class_discount_codes' pk=offering.pk as tab_url %}{% endif %}
         {% if tab.key == 'emails' %}{% url 'classes:teach_class_emails' pk=offering.pk as tab_url %}{% endif %}
+        {% if tab.key == 'eventbrite' %}{% url 'classes:teach_class_eventbrite' pk=offering.pk as tab_url %}{% endif %}
         <a href="{{ tab_url }}" class="vote-tab{% if active_subtab == tab.key %} vote-tab--active{% endif %}"{% if active_subtab == tab.key %} aria-current="page"{% endif %}>{{ tab.label }}{% if tab.key == 'registrations' %} ({{ seat_taken_count }}){% endif %}{% if tab.key == 'waitlist' %} ({{ waitlist_count }}){% endif %}</a>
     {% endfor %}
 </nav>

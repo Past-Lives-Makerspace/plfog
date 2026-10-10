@@ -722,15 +722,15 @@ def describe_an_event_taken_down_on_the_http_layer():
         routes["update"].return_value = httpx.Response(200, json={"id": "ev-9", "status": status})
 
     @respx.mock
-    def it_sends_no_publish_when_a_published_event_reads_draft():
+    def it_sends_nothing_when_a_published_event_reads_draft():
         routes = _listing_routes("ev-9")
-        _answer_update(routes, "draft")
+        read = respx.get(f"{API_BASE}/events/ev-9/").respond(json={"id": "ev-9", "status": "draft"})
         offering = _listed(eventbrite_published=True)
 
         offering.sync_eventbrite_listing()
 
-        assert not routes["publish"].called
-        assert routes["description"].called
+        assert read.called  # read before any write (#725)
+        assert not any(routes[name].called for name in ("publish", "update", "ticket", "description"))
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.ENDED
 
@@ -748,13 +748,14 @@ def describe_an_event_taken_down_on_the_http_layer():
         assert offering.eventbrite_published is False
 
         respx.post(f"{API_BASE}/events/ev-1/").respond(json={"id": "ev-1", "status": "live"})
+        read = respx.get(f"{API_BASE}/events/ev-1/").respond(json={"id": "ev-1", "status": "live"})
         offering.sync_eventbrite_listing()  # the retry reads it live
         offering.refresh_from_db()
         assert offering.eventbrite_published is True
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
 
-        respx.post(f"{API_BASE}/events/ev-1/").respond(json={"id": "ev-1", "status": "draft"})
-        offering.sync_eventbrite_listing()  # Eventbrite takes it down
+        read.respond(json={"id": "ev-1", "status": "draft"})
+        offering.sync_eventbrite_listing()  # Eventbrite takes it down; the read before any write sees it
 
         assert routes["publish"].call_count == 1  # the one that timed out; never a second
         offering.refresh_from_db()
@@ -880,6 +881,25 @@ def describe_the_listing_check():
                 ("Pay $10 in cash.", "“Pay $10 in cash”"),
                 ("Cash or Venmo accepted.", "“Cash”, “Venmo”"),
                 ("Clay is $5, payment by cash.", "“by cash”"),
+                # #725 part 2: a negation inside the span does not govern the payment.
+                ("Payment, no checks please, at the door.", "“Payment, no checks please, at the door”"),
+                (
+                    "Payment for clay (no card) is due at the session.",
+                    "“Payment for clay (no card) is due at the session”",
+                ),
+                (
+                    "Pay the instructor, no receipts, at the session.",
+                    "“Pay the instructor, no receipts, at the session”",
+                ),
+                ("Payment at the door covers the clay.", "“Payment at the door”"),
+                # #725 part 2, fix round 1: an allowlist of whole exempt sentences, nothing else.
+                ("Pay no less than $20 at the door.", "“Pay no less than $20 at the door”"),
+                ("Pay no more than $20 to the instructor.", "“Pay no more than $20 to the instructor”"),
+                ("Pay nothing now, pay at the session.", "“Pay nothing now, pay at the session”"),
+                ("Paying no deposit, pay at the door.", "“Paying no deposit, pay at the door”"),
+                ("Without payment at the door you lose your seat.", "“payment at the door”"),
+                ("Pay $20 to the studio covers your clay.", "“Pay $20 to the studio”"),
+                ("No payment at the door. Pay the instructor at the session.", "“Pay the instructor at the session”"),
             ],
         )
         def it_refuses_a_pay_app_cash_or_paying_at_the_session(typed: str, quoted: str):
