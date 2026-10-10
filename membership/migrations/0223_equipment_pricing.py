@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0221_equipment_requires_approval"),
+        ("membership", "0222_equipment_usage_agreement"),
     ]
 
     operations = [

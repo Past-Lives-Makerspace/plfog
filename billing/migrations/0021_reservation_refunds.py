@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("billing", "0020_stripe_previous_account"),
         ("classes", "0088_classoffering_eventbrite_rules_agreed"),
-        ("membership", "0222_equipment_pricing"),
+        ("membership", "0223_equipment_pricing"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
