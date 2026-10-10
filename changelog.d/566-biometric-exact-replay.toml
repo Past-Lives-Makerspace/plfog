@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-01"
+title = "App fingerprint and Face ID sign in is harder to copy"
+changes = [
+  "If someone copies your saved app sign in and uses it, your phone now notices the next time you open the app and shuts that copy out.",
+  "If you use fingerprint or Face ID in the app, it asks for an emailed code once after this update. Sign in that way and turn it back on when the app offers.",
+]
