@@ -2379,7 +2379,8 @@ _CURATED: dict[str, EventCopy] = {
         },
     ),
     # equipment.reservation_declined — a manager declined the member's request (#748), with the
-    # required reason; the one CTA sends them back to pick another time.
+    # required reason; the one CTA sends them back to pick another time. refund_line (#749) is the
+    # refund sentence, ending in a space, when the request was paid; "" otherwise.
     "equipment.reservation_declined": EventCopy(
         placeholders=(
             "member_name",
@@ -2388,6 +2389,7 @@ _CURATED: dict[str, EventCopy] = {
             "equipment_url",
             "manager_name",
             "decline_reason",
+            "refund_line",
         ),
         sample_context={
             "member_name": "Robin Vale",
@@ -2396,6 +2398,7 @@ _CURATED: dict[str, EventCopy] = {
             "equipment_url": "https://pastlives.example/equipment/cnc-router/",
             "manager_name": "Sami Lee",
             "decline_reason": "The spindle is out for repair that week.",
+            "refund_line": "Your $50.00 has been refunded to your card. It can take 5 to 10 days to show. ",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -2406,14 +2409,15 @@ _CURATED: dict[str, EventCopy] = {
                 subject="Your {{ equipment_name }} reservation was declined",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
-                    "{{ manager_name }} declined your request for {{ equipment_name }}, {{ reservation_when }}.\n\n"
+                    "{{ manager_name }} declined your request for {{ equipment_name }}, {{ reservation_when }}. "
+                    "{{ refund_line }}\n\n"
                     "Their reason: {{ decline_reason }}\n\n"
                     "Pick another time: {{ equipment_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
                     '<p>{{ manager_name }} declined your request for <strong><a href="{{ equipment_url }}">'
-                    "{{ equipment_name }}</a></strong>, {{ reservation_when }}.</p>"
+                    "{{ equipment_name }}</a></strong>, {{ reservation_when }}. {{ refund_line }}</p>"
                     "<p>Their reason: {{ decline_reason }}</p>"
                     '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ equipment_url }}" '
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
@@ -2427,13 +2431,22 @@ _CURATED: dict[str, EventCopy] = {
     # equipment.reservation_cancelled_by_manager — carries the manager's required reason and
     # sends the member straight back to pick a new time.
     "equipment.reservation_cancelled_by_manager": EventCopy(
-        placeholders=("member_name", "equipment_name", "reservation_when", "cancel_reason", "equipment_url"),
+        # refund_line (#749) is the refund sentence, ending in a space, when the row was paid; "" otherwise.
+        placeholders=(
+            "member_name",
+            "equipment_name",
+            "reservation_when",
+            "cancel_reason",
+            "equipment_url",
+            "refund_line",
+        ),
         sample_context={
             "member_name": "Robin Vale",
             "equipment_name": "CNC Router",
             "reservation_when": "Saturday, September 12, 2:00 PM to 4:00 PM",
             "cancel_reason": "The router is down for repair. Back Tuesday.",
             "equipment_url": "https://pastlives.example/equipment/cnc-router/",
+            "refund_line": "Your $50.00 has been refunded to your card. It can take 5 to 10 days to show. ",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -2445,14 +2458,14 @@ _CURATED: dict[str, EventCopy] = {
                 body_text=(
                     "Hi {{ member_name }},\n\n"
                     "A manager cancelled your {{ equipment_name }} reservation for "
-                    "{{ reservation_when }}.\n\n"
+                    "{{ reservation_when }}. {{ refund_line }}\n\n"
                     "Their note: {{ cancel_reason }}\n\n"
                     "Pick a new time: {{ equipment_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
                     '<p>A manager cancelled your <strong><a href="{{ equipment_url }}">{{ equipment_name }}'
-                    "</a></strong> reservation for {{ reservation_when }}.</p>"
+                    "</a></strong> reservation for {{ reservation_when }}. {{ refund_line }}</p>"
                     "<p>Their note: {{ cancel_reason }}</p>"
                     '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ equipment_url }}" '
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
@@ -2505,6 +2518,7 @@ _CURATED: dict[str, EventCopy] = {
     # is the whole fee sentence with the Pay link when the cancel was late (the text body and the
     # bell row) and late_fee_html the same sentence with a real link (the HTML body); both are ""
     # otherwise, so the copy needs no conditional and a free cancel says nothing about fees.
+    # refund_line (#749) is the refund sentence, ending in a space, when the row was paid; "" otherwise.
     "equipment.reservation_cancelled": EventCopy(
         placeholders=(
             "member_name",
@@ -2513,6 +2527,7 @@ _CURATED: dict[str, EventCopy] = {
             "equipment_url",
             "late_fee_line",
             "late_fee_html",
+            "refund_line",
         ),
         sample_context={
             "member_name": "Robin Vale",
@@ -2529,6 +2544,7 @@ _CURATED: dict[str, EventCopy] = {
                 '<a href="https://pastlives.example/late-fees/12/">Pay the late fee</a> '
                 "and you'll get a receipt once it's paid."
             ),
+            "refund_line": "Your $50.00 has been refunded to your card. It can take 5 to 10 days to show. ",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -2540,13 +2556,14 @@ _CURATED: dict[str, EventCopy] = {
                 body_text=(
                     "Hi {{ member_name }},\n\n"
                     "You cancelled your {{ equipment_name }} reservation for {{ reservation_when }}. "
-                    "The time is open for someone else. {{ late_fee_line }}\n\n"
+                    "The time is open for someone else. {{ refund_line }}{{ late_fee_line }}\n\n"
                     "Book again any time: {{ equipment_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
                     '<p>You cancelled your <strong><a href="{{ equipment_url }}">{{ equipment_name }}</a></strong> '
-                    "reservation for {{ reservation_when }}. The time is open for someone else. {{ late_fee_html }}</p>"
+                    "reservation for {{ reservation_when }}. The time is open for someone else. "
+                    "{{ refund_line }}{{ late_fee_html }}</p>"
                     '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ equipment_url }}" '
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'

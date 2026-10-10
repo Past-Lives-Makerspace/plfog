@@ -1,0 +1,20 @@
+{% comment %}
+The Book a Time confirm's body for priced equipment and for a request (#748, #749): the summary line
+("Fri, Oct 16 · 2:00 PM to 3:30 PM · $37.50") and what happens next. The modal is teleported out of
+the form, so the Reserve button sends the summary and total in an equip-book-picked window event just
+before it opens the modal. Context: equipment, needs_approval, late_cancel_sentence.
+{% endcomment %}
+<div x-data="{ summary: '', total: '' }" @equip-book-picked.window="summary = $event.detail.summary; total = $event.detail.total">
+  <p class="pl-equip-confirm-summary" x-text="summary" data-confirm-summary></p>
+  {% if equipment.is_hourly and needs_approval %}
+  <p class="pl-equip-confirm-copy">You'll pay <span x-text="total"></span> now through our secure checkout. Then a manager approves your reservation; until they do, the time is held for you but not booked. If they decline, or you cancel, you get an automatic full refund.</p>
+  {% elif equipment.is_hourly %}
+  <p class="pl-equip-confirm-copy">You'll pay <span x-text="total"></span> now through our secure checkout, and your reservation confirms when the payment goes through. If you cancel, you get an automatic full refund.{% if late_cancel_sentence %} {{ late_cancel_sentence }}{% endif %}</p>
+  {% elif equipment.is_donation and needs_approval %}
+  <p class="pl-equip-confirm-copy">You choose what you pay. Any amount above $0 goes through our secure checkout. Then a manager approves your reservation; until they do, the time is held for you but not booked. If they decline, or you cancel, you get an automatic full refund.</p>
+  {% elif equipment.is_donation %}
+  <p class="pl-equip-confirm-copy">You choose what you pay. Any amount above $0 goes through our secure checkout, and your reservation confirms when it is paid. If you cancel, you get an automatic full refund.{% if late_cancel_sentence %} {{ late_cancel_sentence }}{% endif %}</p>
+  {% else %}
+  <p class="pl-equip-confirm-copy">A manager approves each reservation on the {{ equipment.name }}. We hold the time for you and email you when they decide. You can cancel any time.</p>
+  {% endif %}
+</div>

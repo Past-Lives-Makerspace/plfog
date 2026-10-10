@@ -153,8 +153,9 @@ def _with_related(rows: QuerySet[EquipmentReservation]) -> QuerySet[EquipmentRes
     """Everything a row and its menu read, so the pane costs the same with 1 row or 25."""
     from hub.views import _primary_email_prefetch
 
+    # The reservation's own refunds feed its Paid and Refunded pills (#749).
     return rows.select_related("equipment__guild", "member__user", "late_fee__member").prefetch_related(
-        "late_fee__refunds", _primary_email_prefetch("member__user__emailaddress_set")
+        "late_fee__refunds", "refunds", _primary_email_prefetch("member__user__emailaddress_set")
     )
 
 

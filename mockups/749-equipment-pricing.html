@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Equipment Pricing mockup · Hours &amp; Limits</title>
+<!--
+  Equipment pricing + "Needs approval" mockup (static; not served by Django).
+  Screen A: equipment Manage page, Hours & Limits tab. Real stylesheets, real class names.
+  Views: ?view=hourly (default) · donation · free · unset · error    Theme: ?theme=light    Phone: ?phone=1
+  CSS: the first <style> block is NEW product CSS for static/css/equipment-manage.css; the second is mockup-only.
+  Card order: Opening Hours, Availability, Limits, Pricing. The one Save moves from Limits to the bottom of Pricing.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../static/css/hub.css">
+<link rel="stylesheet" href="../static/css/components.css">
+<link rel="stylesheet" href="../static/css/equipment-manage.css">
+<style>
+/* ==========================================================================
+   NEW PRODUCT CSS for static/css/equipment-manage.css (Pricing card). Tokens only.
+   ========================================================================== */
+
+/* The three pricing choices: one row on desktop, stacked on a phone. */
+.pl-equip-pricing__choices { flex-direction: row; flex-wrap: wrap; margin: 0.25rem 0 1rem; }
+.pl-equip-pricing__choices .pl-radio-option { flex: 1 1 12rem; }
+.pl-equip-pricing__sub { display: block; margin-top: 0.15rem; font-size: 0.8rem; color: var(--hub-text-muted); }
+@media (max-width: 640px) { .pl-equip-pricing__choices { flex-direction: column; } }
+
+/* The fields under the chosen option, set in from the card edge so they read as belonging to it. */
+.pl-equip-pricing__fields { padding: 1rem; margin: 0 0 1rem; border: 1px solid var(--hub-border); border-radius: 8px; background: var(--hub-surface); }
+.pl-equip-pricing__fields .pl-form-group:last-child { margin-bottom: 0; }
+.pl-equip-pricing__example { margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--hub-text-muted); }
+.pl-equip-pricing__example strong { color: var(--hub-text); }
+
+/* Who gets paid: the select, then one status line about that person's payouts. */
+.pl-equip-pricing__payee-status { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--hub-text-muted); }
+
+/* The warn line when a price is set and nobody is chosen (the same tone as .pl-confirm-warn). */
+.pl-equip-pricing__warn { margin: 0.5rem 0 0; padding: 0.6rem 0.75rem; border-radius: 6px; font-size: 0.85rem; line-height: 1.45; background: rgba(251, 191, 36, 0.12); color: #fbbf24; }
+[data-theme="light"] .pl-equip-pricing__warn { background: rgba(180, 120, 10, 0.1); color: #8a5b06; }
+
+/* The approval switch sits under the Active switch with a rule between them. */
+.pl-equip-approval { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--hub-border); }
+</style>
+<style>
+/* ---------- mockup-only ---------- */
+.mock-view { display: contents; }
+html[data-mock-view="hourly"] .mock-view:not([data-mock-view~="hourly"]),
+html[data-mock-view="donation"] .mock-view:not([data-mock-view~="donation"]),
+html[data-mock-view="free"] .mock-view:not([data-mock-view~="free"]),
+html[data-mock-view="unset"] .mock-view:not([data-mock-view~="unset"]),
+html[data-mock-view="error"] .mock-view:not([data-mock-view~="error"]) { display: none; }
+.mock-switcher { position: fixed; right: 1rem; bottom: 1rem; z-index: 900; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; max-width: calc(100vw - 2rem); padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--hub-elevated); border: 1px solid var(--hub-border); font-size: 0.8rem; }
+.mock-switcher__title { font-weight: 700; color: var(--hub-text-muted); }
+.mock-switcher a { color: var(--hub-link); text-decoration: none; }
+html.mock-shot .mock-switcher { display: none; }
+html.mock-phone .hub-sidebar { display: none; }
+html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
+.mock-collapsed { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.5rem; margin-bottom: 1.5rem; opacity: 0.6; }
+.mock-collapsed span:last-child { font-size: 0.75rem; color: var(--hub-text-muted); }
+.mock-note { font-size: 0.8rem; color: var(--hub-text-muted); border-left: 3px solid var(--hub-blue); padding: 0.25rem 0.75rem; margin: 0 0 1.5rem; }
+</style>
+<script>
+  (function () {
+    var p = new URLSearchParams(location.search);
+    document.documentElement.setAttribute('data-mock-view', p.get('view') || 'hourly');
+    if (p.get('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    if (p.get('shot') === '1') document.documentElement.classList.add('mock-shot');
+    if (p.get('phone') === '1') document.documentElement.classList.add('mock-phone');
+  })();
+  function mockToggleTheme() {
+    var p = new URLSearchParams(location.search);
+    if (p.get('theme') === 'light') p.delete('theme'); else p.set('theme', 'light');
+    location.search = p.toString();
+  }
+</script>
+</head>
+<body>
+  <nav class="mock-switcher" aria-label="Mockup views">
+    <span class="mock-switcher__title">Pricing mockup</span>
+    <a href="?view=hourly">Hourly</a>
+    <a href="?view=donation">Donation based</a>
+    <a href="?view=free">Free</a>
+    <a href="?view=unset">Nobody chosen</a>
+    <a href="?view=error">Errors</a>
+    <a href="#" onclick="mockToggleTheme(); return false;">Theme</a>
+  </nav>
+
+  <aside class="hub-sidebar">
+    <nav class="hub-sidebar__nav" aria-label="Hub navigation">
+      <a href="#" class="hub-sidebar__link">Home</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Orientations</a>
+      <a href="#" class="hub-sidebar__link hub-sidebar__link--active">Reservations</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Settings</a>
+    </nav>
+  </aside>
+
+  <div class="hub-main-wrapper">
+    <header class="pl-topbar">
+      <span class="pl-topbar__divider"></span>
+      <div class="pl-topbar__spacer"></div>
+      <button class="pl-topbar__theme-toggle" aria-label="Toggle theme" onclick="mockToggleTheme()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M1 12h2"/><path d="M21 12h2"/></svg></button>
+      <div class="pl-profile"><button class="pl-profile__avatar" aria-label="User menu">S</button></div>
+    </header>
+
+    <main id="main-content" class="hub-content" tabindex="-1">
+      <div class="pl-btn-row" style="margin-bottom:1rem;">
+        <a href="#" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to the CNC Machine</a>
+        <a href="#" class="pl-btn pl-btn--secondary pl-btn--sm">Print QR Sheet</a>
+      </div>
+      <h1 class="hub-page-title">Manage CNC Machine</h1>
+      <nav role="tablist" class="pl-tabs">
+        <button type="button" class="vote-tab">Details</button>
+        <button type="button" class="vote-tab">Staff</button>
+        <button type="button" class="vote-tab vote-tab--active">Hours &amp; Limits</button>
+        <button type="button" class="vote-tab">Reservations</button>
+        <button type="button" class="vote-tab">Orientation</button>
+      </nav>
+
+      <form class="hub-form" onsubmit="return false;">
+        <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">Opening Hours</span><span>unchanged</span></div>
+
+        <!-- ===== Availability: Active stays the FIRST toggle; Needs approval follows the closed message. ===== -->
+        <div class="hub-card pl-equip-panel" data-availability-card>
+          <h2 class="hub-detail-label pl-equip-panel__title">Availability</h2>
+          <div data-reservations-open>
+            <div class="pl-toggle-row">
+              <div class="pl-toggle-info">
+                <div class="pl-toggle-label">Active</div>
+                <div class="pl-toggle-desc">When on, members can reserve this equipment. Turn off to stop new reservations; existing reservations stay until you cancel them.</div>
+              </div>
+              <label class="pl-toggle"><input type="checkbox" checked><span class="pl-toggle__slider"></span><span class="sr-only">Active</span></label>
+            </div>
+          </div>
+          <div class="pl-equip-approval" data-needs-approval>
+            <div class="pl-toggle-row">
+              <div class="pl-toggle-info">
+                <div class="pl-toggle-label">Needs approval</div>
+                <div class="pl-toggle-desc">Every reservation waits for a manager to approve it before it is booked. A paid reservation is charged first and refunded in full if it is declined.</div>
+              </div>
+              <label class="pl-toggle"><input type="checkbox" checked><span class="pl-toggle__slider"></span><span class="sr-only">Needs approval</span></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">Limits</span><span>unchanged fields; its Save moves to the bottom of Pricing</span></div>
+
+        <!-- ===== VIEW: hourly (the CNC at $25 an hour, Sami chosen, Sami viewing, payouts on but Sami not set up) ===== -->
+        <div class="mock-view" data-mock-view="hourly">
+          <div class="hub-card pl-equip-panel" data-pricing-card>
+            <h2 class="hub-detail-label pl-equip-panel__title">Pricing</h2>
+            <p class="hub-text-muted pl-equip-panel__intro">What members pay to reserve the CNC Machine. They see it before they book.</p>
+            <div class="pl-radio-group pl-equip-pricing__choices" role="radiogroup" aria-label="Pricing">
+              <label class="pl-radio-option"><input type="radio" name="pricing-h"><span class="pl-radio-option__label">Free<span class="pl-equip-pricing__sub">Members reserve at no cost.</span></span></label>
+              <label class="pl-radio-option"><input type="radio" name="pricing-h"><span class="pl-radio-option__label">Donation based<span class="pl-equip-pricing__sub">Members choose what they pay for each reservation.</span></span></label>
+              <label class="pl-radio-option"><input type="radio" name="pricing-h" checked><span class="pl-radio-option__label">Hourly<span class="pl-equip-pricing__sub">A rate per hour, charged for the time booked.</span></span></label>
+            </div>
+            <div class="pl-equip-pricing__fields hub-form-group">
+              <div class="pl-form-group">
+                <label class="pl-form-label" for="rate-h">Hourly rate</label>
+                <input type="text" id="rate-h" inputmode="decimal" value="25.00">
+                <p class="pl-field-hint">In dollars, from $1 to $500.</p>
+                <p class="pl-equip-pricing__example">A 1 hour 30 minute reservation costs <strong>$37.50</strong>.</p>
+              </div>
+            </div>
+            <div class="hub-form-group">
+              <div class="pl-form-group">
+                <div class="pl-form-label-row">
+                  <label class="pl-form-label" for="payee-h">Who gets paid</label>
+                  <span class="pl-help" tabindex="0" aria-label="More info"><span class="pl-help__icon" aria-hidden="true">?</span><span class="pl-help__bubble" role="tooltip">The person you pick gets 70% of each payment. The rest goes to Past Lives. Only this equipment's managers can be picked.</span></span>
+                </div>
+                <select id="payee-h">
+                  <option>No one yet</option>
+                  <option selected>Sami Okafor</option>
+                </select>
+                <p class="pl-equip-pricing__payee-status"><span class="pl-status-badge pl-status-badge--muted">Payouts not set up</span> Your share is paid by hand at month end until you <a href="#">set up payouts</a>.</p>
+              </div>
+            </div>
+            <div class="pl-equip-save-row">
+              <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+            </div>
+          </div>
+          <p class="mock-note">Status line, per viewer and state. Viewer is the chosen person and not connected: as shown. Another manager viewing: "Sami hasn't set up payouts yet, so their share is paid by hand at month end." Connected: <span class="pl-status-badge pl-status-badge--ok">Payouts on</span> with no sentence. While payouts are off site wide (production today), no status line at all.</p>
+        </div>
+
+        <!-- ===== VIEW: donation ===== -->
+        <div class="mock-view" data-mock-view="donation">
+          <div class="hub-card pl-equip-panel" data-pricing-card>
+            <h2 class="hub-detail-label pl-equip-panel__title">Pricing</h2>
+            <p class="hub-text-muted pl-equip-panel__intro">What members pay to reserve the Etching Press. They see it before they book.</p>
+            <div class="pl-radio-group pl-equip-pricing__choices" role="radiogroup" aria-label="Pricing">
+              <label class="pl-radio-option"><input type="radio" name="pricing-d"><span class="pl-radio-option__label">Free<span class="pl-equip-pricing__sub">Members reserve at no cost.</span></span></label>
+              <label class="pl-radio-option"><input type="radio" name="pricing-d" checked><span class="pl-radio-option__label">Donation based<span class="pl-equip-pricing__sub">Members choose what they pay for each reservation.</span></span></label>
+              <label class="pl-radio-option"><input type="radio" name="pricing-d"><span class="pl-radio-option__label">Hourly<span class="pl-equip-pricing__sub">A rate per hour, charged for the time booked.</span></span></label>
+            </div>
+            <div class="pl-equip-pricing__fields hub-form-group">
+              <div class="pl-otype-pricing__row">
+                <div class="pl-otype-pricing__field pl-form-group">
+                  <label class="pl-form-label" for="min-d">Minimum</label>
+                  <input type="text" id="min-d" inputmode="decimal" value="">
+                  <p class="pl-field-hint">In dollars. Blank or 0 means members may pay nothing; otherwise at least $1.</p>
+                </div>
+                <div class="pl-otype-pricing__field pl-form-group">
+                  <label class="pl-form-label" for="sug-d">Suggested donation</label>
+                  <input type="text" id="sug-d" inputmode="decimal" value="10.00">
+                  <p class="pl-field-hint">Optional. In dollars, at least the minimum and at least $1. The booking form starts with it.</p>
+                </div>
+              </div>
+            </div>
+            <div class="hub-form-group">
+              <div class="pl-form-group">
+                <div class="pl-form-label-row">
+                  <label class="pl-form-label" for="payee-d">Who gets paid</label>
+                  <span class="pl-help" tabindex="0" aria-label="More info"><span class="pl-help__icon" aria-hidden="true">?</span><span class="pl-help__bubble" role="tooltip">The person you pick gets 70% of each payment. The rest goes to the Printmaking Guild and Past Lives. Only this equipment's managers can be picked.</span></span>
+                </div>
+                <select id="payee-d">
+                  <option>No one yet</option>
+                  <option selected>Amber Lee</option>
+                </select>
+                <p class="pl-equip-pricing__payee-status"><span class="pl-status-badge pl-status-badge--ok">Payouts on</span></p>
+              </div>
+            </div>
+            <div class="pl-equip-save-row">
+              <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== VIEW: free (no fields, no payee) ===== -->
+        <div class="mock-view" data-mock-view="free">
+          <div class="hub-card pl-equip-panel" data-pricing-card>
+            <h2 class="hub-detail-label pl-equip-panel__title">Pricing</h2>
+            <p class="hub-text-muted pl-equip-panel__intro">What members pay to reserve the Laser Engraver. They see it before they book.</p>
+            <div class="pl-radio-group pl-equip-pricing__choices" role="radiogroup" aria-label="Pricing">
+              <label class="pl-radio-option"><input type="radio" name="pricing-f" checked><span class="pl-radio-option__label">Free<span class="pl-equip-pricing__sub">Members reserve at no cost.</span></span></label>
+              <label class="pl-radio-option"><input type="radio" name="pricing-f"><span class="pl-radio-option__label">Donation based<span class="pl-equip-pricing__sub">Members choose what they pay for each reservation.</span></span></label>
+              <label class="pl-radio-option"><input type="radio" name="pricing-f"><span class="pl-radio-option__label">Hourly<span class="pl-equip-pricing__sub">A rate per hour, charged for the time booked.</span></span></label>
+            </div>
+            <div class="pl-equip-save-row">
+              <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+            </div>
+          </div>
+          <p class="mock-note">Free is the default for every existing item, so nothing changes until a manager picks a price. Who gets paid hides while Free is picked and keeps its value if they switch back.</p>
+        </div>
+
+        <!-- ===== VIEW: unset (a price, nobody chosen) ===== -->
+        <div class="mock-view" data-mock-view="unset">
+          <div class="hub-card pl-equip-panel" data-pricing-card>
+            <h2 class="hub-detail-label pl-equip-panel__title">Pricing</h2>
+            <p class="hub-text-muted pl-equip-panel__intro">What members pay to reserve the CNC Machine. They see it before they book.</p>
+            <div class="pl-radio-group pl-equip-pricing__choices" role="radiogroup" aria-label="Pricing">
+              <label class="pl-radio-option"><input type="radio" name="pricing-u"><span class="pl-radio-option__label">Free<span class="pl-equip-pricing__sub">Members reserve at no cost.</span></span></label>
+              <label class="pl-radio-option"><input type="radio" name="pricing-u"><span class="pl-radio-option__label">Donation based<span class="pl-equip-pricing__sub">Members choose what they pay for each reservation.</span></span></label>
+              <label class="pl-radio-option"><input type="radio" name="pricing-u" checked><span class="pl-radio-option__label">Hourly<span class="pl-equip-pricing__sub">A rate per hour, charged for the time booked.</span></span></label>
+            </div>
+            <div class="pl-equip-pricing__fields hub-form-group">
+              <div class="pl-form-group">
+                <label class="pl-form-label" for="rate-u">Hourly rate</label>
+                <input type="text" id="rate-u" inputmode="decimal" value="25.00">
+                <p class="pl-field-hint">In dollars, from $1 to $500.</p>
+                <p class="pl-equip-pricing__example">A 1 hour 30 minute reservation costs <strong>$37.50</strong>.</p>
+              </div>
+            </div>
+            <div class="hub-form-group">
+              <div class="pl-form-group">
+                <div class="pl-form-label-row">
+                  <label class="pl-form-label" for="payee-u">Who gets paid</label>
+                  <span class="pl-help" tabindex="0" aria-label="More info"><span class="pl-help__icon" aria-hidden="true">?</span><span class="pl-help__bubble" role="tooltip">The person you pick gets 70% of each payment. The rest goes to Past Lives. Only this equipment's managers can be picked.</span></span>
+                </div>
+                <select id="payee-u">
+                  <option selected>No one yet</option>
+                  <option>Sami Okafor</option>
+                </select>
+                <p class="pl-equip-pricing__warn">No one is picked, so the whole payment stays with Past Lives. Pick a manager to pay them their share.</p>
+              </div>
+            </div>
+            <div class="pl-equip-save-row">
+              <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+            </div>
+          </div>
+          <p class="mock-note">A warning, not an error: Save works. The line also shows after the picked manager is removed on the Staff tab, which clears the pick.</p>
+        </div>
+
+        <!-- ===== VIEW: error (failed Save, hourly with no rate) ===== -->
+        <div class="mock-view" data-mock-view="error">
+          <div class="hub-card pl-equip-panel" data-pricing-card>
+            <h2 class="hub-detail-label pl-equip-panel__title">Pricing</h2>
+            <p class="hub-text-muted pl-equip-panel__intro">What members pay to reserve the CNC Machine. They see it before they book.</p>
+            <div class="pl-radio-group pl-equip-pricing__choices" role="radiogroup" aria-label="Pricing">
+              <label class="pl-radio-option"><input type="radio" name="pricing-e"><span class="pl-radio-option__label">Free<span class="pl-equip-pricing__sub">Members reserve at no cost.</span></span></label>
+              <label class="pl-radio-option"><input type="radio" name="pricing-e"><span class="pl-radio-option__label">Donation based<span class="pl-equip-pricing__sub">Members choose what they pay for each reservation.</span></span></label>
+              <label class="pl-radio-option"><input type="radio" name="pricing-e" checked><span class="pl-radio-option__label">Hourly<span class="pl-equip-pricing__sub">A rate per hour, charged for the time booked.</span></span></label>
+            </div>
+            <div class="pl-equip-pricing__fields hub-form-group">
+              <div class="pl-form-group">
+                <label class="pl-form-label" for="rate-e">Hourly rate</label>
+                <input type="text" id="rate-e" inputmode="decimal" value="">
+                <ul class="pl-field-errors"><li class="pl-field-error">Enter an hourly rate, or pick Free.</li></ul>
+                <p class="pl-field-hint">In dollars, from $1 to $500.</p>
+              </div>
+            </div>
+            <div class="hub-form-group">
+              <div class="pl-form-group">
+                <div class="pl-form-label-row">
+                  <label class="pl-form-label" for="payee-e">Who gets paid</label>
+                  <span class="pl-help" tabindex="0" aria-label="More info"><span class="pl-help__icon" aria-hidden="true">?</span><span class="pl-help__bubble" role="tooltip">The person you pick gets 70% of each payment. The rest goes to Past Lives.</span></span>
+                </div>
+                <select id="payee-e"><option>No one yet</option><option selected>Sami Okafor</option></select>
+              </div>
+            </div>
+            <div class="pl-equip-save-row">
+              <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+            </div>
+          </div>
+          <p class="mock-note">Other errors, same place: "The hourly rate must be between $1 and $500." · "The hourly rate must be in whole cents." · "Pick one of this equipment's managers." (a stale pick) · donation errors are the orientation form's own. A failed Save re-renders the tab with every other card's edits kept; success redirects to ?tab=hours with the existing "Saved." message.</p>
+        </div>
+      </form>
+    </main>
+  </div>
+</body>
+</html>

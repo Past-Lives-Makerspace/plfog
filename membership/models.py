@@ -15068,6 +15068,40 @@ class Equipment(HeroCropMixin, models.Model):
         help_text="The usage agreement's text, shown to members before reserving. Optional.",
     )
 
+    class Pricing(models.TextChoices):
+        """What members pay to reserve this equipment (#749)."""
+
+        FREE = "free", "Free"
+        DONATION = "donation", "Donation based"
+        HOURLY = "hourly", "Hourly"
+
+    # --- Pricing (#749): the database defaults too, since the old release inserts without them.
+    pricing = models.CharField(
+        max_length=10,
+        choices=Pricing.choices,
+        default=Pricing.FREE,
+        db_default=Pricing.FREE,
+        help_text="Free, donation based (members choose what they pay) or hourly (a rate times the time booked).",
+    )
+    hourly_rate_cents = models.PositiveIntegerField(
+        default=0,
+        db_default=0,
+        help_text="The rate per hour, in cents, while pricing is hourly. Kept when pricing changes.",
+    )
+    donation_minimum_cents = models.PositiveIntegerField(
+        default=0,
+        db_default=0,
+        help_text="The least a member may pay on donation based pricing, in cents. 0 (the default) or at least 100.",
+    )
+    donation_suggested_cents = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The donation the reserve form starts with, in cents. Empty for none; "
+            "when set, at least the minimum and at least 100."
+        ),
+    )
+
     objects = EquipmentQuerySet.as_manager()
 
     RESERVATION_SNAP_MINUTES = 30
@@ -15866,6 +15900,113 @@ class Equipment(HeroCropMixin, models.Model):
         if duration_minutes > self.max_duration_minutes:
             raise EquipmentError(f"Reservations here are at most {self.max_duration_minutes} minutes.")
 
+    # --- Pricing (#749): the rules reuse the orientation donation floor, ceiling and wording.
+
+    #: The refusal for a donation amount outside $1 to $500 that is not $0.
+    DONATION_RANGE_MESSAGE: ClassVar[str] = "Enter an amount from $1 to $500, or $0 to reserve for free."
+
+    @property
+    def is_hourly(self) -> bool:
+        """True when this item charges a rate per hour above zero."""
+        return self.pricing == self.Pricing.HOURLY and self.hourly_rate_cents > 0
+
+    @property
+    def is_donation(self) -> bool:
+        """True when members choose what they pay to reserve this item."""
+        return self.pricing == self.Pricing.DONATION
+
+    @property
+    def is_priced(self) -> bool:
+        """True when reserving this item can cost money: hourly, or donation based."""
+        return self.is_hourly or self.is_donation
+
+    @property
+    def price_chip(self) -> str:
+        """The chip beside Book a Time and on the card: "$25 per hour", the donation wording, or "" when free."""
+        if self.is_hourly:
+            return f"{OrientationType.dollars(self.hourly_rate_cents)} per hour"
+        if self.is_donation:
+            if self.donation_suggested_cents is None:
+                return "Pay what you can"
+            return f"Donation, {OrientationType.dollars(self.donation_suggested_cents)} suggested"
+        return ""
+
+    def charge_cents_for(self, duration_minutes: int) -> int:
+        """What an hourly reservation of ``duration_minutes`` costs, in cents: rate times minutes over 60.
+
+        Rounded half up to the cent. The one price engine: the Book a Time total, the confirm
+        summary and the Stripe Checkout all read it. 0 for anything not hourly.
+        """
+        if not self.is_hourly:
+            return 0
+        return (self.hourly_rate_cents * duration_minutes + 30) // 60
+
+    @property
+    def donation_suggested_dollars(self) -> str:
+        """The suggestion as a plain number for the amount input ("10", "12.50"), or "" for none."""
+        if self.donation_suggested_cents is None:
+            return ""
+        return OrientationType.dollars(self.donation_suggested_cents).removeprefix("$")
+
+    @property
+    def donation_amount_hint(self) -> str:
+        """The line under the member's amount input: the floor this item takes, and what $0 does."""
+        if self.donation_minimum_cents:
+            return f"At least {money_display(self.donation_minimum_cents)}, paid by card when you reserve."
+        return (
+            f"$0 reserves for free. Any other amount is at least "
+            f"{OrientationType.dollars(OrientationType.DONATION_FLOOR_CENTS)}, paid by card when you reserve."
+        )
+
+    def checkout_amount_cents(self, duration_minutes: int, entered_cents: int | None) -> int:
+        """What reserving ``duration_minutes`` charges, in cents: 0 reserves free, anything above goes to checkout.
+
+        Free charges nothing. Hourly charges :meth:`charge_cents_for`, whatever the member sent.
+        Donation based charges what the member entered once it clears the orientation floors
+        (#636): given, at least this item's minimum, $0 or at least $1, and no more than $500.
+
+        Raises:
+            EquipmentError: With member copy, when a donation amount is missing, too low or too high.
+        """
+        if self.is_hourly:
+            return self.charge_cents_for(duration_minutes)
+        if not self.is_donation:
+            return 0
+        minimum = self.donation_minimum_cents
+        if entered_cents is None:
+            if minimum:
+                raise EquipmentError(f"Enter what you'd like to pay, {money_display(minimum)} or more.")
+            raise EquipmentError("Enter what you'd like to pay. $0 is fine.")
+        if entered_cents < 0 or entered_cents > OrientationType.DONATION_CEILING_CENTS:
+            raise EquipmentError(self.DONATION_RANGE_MESSAGE)
+        if entered_cents < minimum:
+            raise EquipmentError(f"The minimum here is {money_display(minimum)}.")
+        if 0 < entered_cents < OrientationType.DONATION_FLOOR_CENTS:
+            raise EquipmentError(self.DONATION_RANGE_MESSAGE)
+        return entered_cents
+
+    def booking_terms(self, *, needs_approval: bool) -> str:
+        """The line under Book a Time (#749): what paying and approval mean here, or "" when neither applies.
+
+        ``needs_approval`` is whether this viewer's reservation would wait for a manager; a
+        manager of the item books at once, so the schedule builder passes False for them.
+        """
+        if self.is_priced:
+            return self.PAY_TERMS_APPROVAL if needs_approval else self.PAY_TERMS_INSTANT
+        return self.FREE_TERMS_APPROVAL if needs_approval else ""
+
+    PAY_TERMS_INSTANT: ClassVar[str] = "You pay when you reserve. Cancel and you get an automatic full refund."
+    PAY_TERMS_APPROVAL: ClassVar[str] = (
+        "You pay when you reserve. A manager approves each reservation; if they decline, "
+        "you get an automatic full refund."
+    )
+    FREE_TERMS_APPROVAL: ClassVar[str] = "A manager approves each reservation before it is booked."
+
+
+def money_display(cents: int) -> str:
+    """Cents as dollars with cents, the way a payment reads: "$37.50", "$1,200.00"."""
+    return f"${Decimal(cents) / 100:,.2f}"
+
 
 def _clock(value: datetime_type) -> str:
     """A local wall-clock time like "2:00 PM", the form every equipment refusal names a span in."""
@@ -16189,15 +16330,24 @@ class EquipmentReservation(models.Model):
     # member's own rows only while a cancel right now would be late. Defaults to "" so a
     # renderer that never set it cannot raise in the template.
     late_cancel_warning: str = ""
+    # Set by decline() and cancel() (#749): what the automatic refund of a paid row did, "refunded",
+    # "failed" or "" when there was nothing to refund, so the view's message can say so.
+    refund_outcome: str = ""
 
     class Status(models.TextChoices):
         CONFIRMED = "confirmed", "Confirmed"
         CANCELLED = "cancelled", "Cancelled"
         PENDING_APPROVAL = "pending_approval", "Awaiting approval"
         DECLINED = "declined", "Declined"
+        PENDING_PAYMENT = "pending_payment", "Awaiting payment"
 
     #: The statuses that hold time: overlaps, busy spans, the per member cap and the upcoming lists read these.
-    HOLDING_STATUSES = (Status.CONFIRMED, Status.PENDING_APPROVAL)
+    #: A priced reservation awaiting payment (#749) holds its time while the member is at Stripe Checkout.
+    HOLDING_STATUSES = (Status.CONFIRMED, Status.PENDING_APPROVAL, Status.PENDING_PAYMENT)
+
+    #: How long an unpaid hold keeps its time before the sweep asks Stripe and releases it (#749):
+    #: strictly after the one hour Checkout session, so a live checkout is never raced.
+    HOLD_SWEEP_AGE = timedelta(hours=2)
 
     class Kind(models.TextChoices):
         RESERVATION = "reservation", "Reservation"
@@ -16255,6 +16405,22 @@ class EquipmentReservation(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the reservation was made.")
     cancelled_at = models.DateTimeField(null=True, blank=True, help_text="When it was cancelled, if it was.")
+    # --- Paying (#749): the database defaults too, since the old release inserts without them.
+    amount_paid_cents = models.PositiveIntegerField(
+        default=0,
+        db_default=0,
+        help_text="What the member paid to reserve, in cents. 0 when free or not paid yet; Stripe's amount_total is canonical.",
+    )
+    stripe_session_id = models.CharField(
+        max_length=255, blank=True, default="", db_default="", help_text="Stripe Checkout Session ID."
+    )
+    stripe_payment_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Stripe PaymentIntent ID, stamped when the payment lands.",
+    )
 
     objects = EquipmentReservationQuerySet.as_manager()
 
@@ -16267,11 +16433,11 @@ class EquipmentReservation(models.Model):
             ),
         ]
         indexes = [
-            # Every overlap read is held rows (confirmed or awaiting approval, #748).
+            # Every overlap read is held rows (confirmed, awaiting approval #748, or awaiting payment #749).
             models.Index(
                 fields=["equipment", "starts_at"],
                 name="idx_equipres_holding",
-                condition=Q(status__in=["confirmed", "pending_approval"]),
+                condition=Q(status__in=["confirmed", "pending_approval", "pending_payment"]),
             ),
         ]
 
@@ -16312,6 +16478,106 @@ class EquipmentReservation(models.Model):
     def is_awaiting_approval(self) -> bool:
         """True while a manager has not decided this request yet (#748)."""
         return self.status == self.Status.PENDING_APPROVAL
+
+    @property
+    def is_awaiting_payment(self) -> bool:
+        """True while this priced reservation holds its time waiting for the member's payment (#749)."""
+        return self.status == self.Status.PENDING_PAYMENT
+
+    @property
+    def hold_released_by(self) -> datetime_type:
+        """When an unpaid hold is released if still unpaid (#749): two hours after it was made."""
+        return self.created_at + self.HOLD_SWEEP_AGE
+
+    @property
+    def duration_minutes(self) -> int:
+        """The booked length in minutes."""
+        return int((self.ends_at - self.starts_at).total_seconds() // 60)
+
+    @property
+    def paid_display(self) -> str:
+        """What the member paid, "$25.00", or "" when nothing was paid."""
+        return money_display(self.amount_paid_cents) if self.amount_paid_cents else ""
+
+    # --- RefundableSource (#749): the protocol billing.refunds reads, mirroring OrientationBooking.
+
+    @property
+    def amount_refunded_cents(self) -> int:
+        """Sum of succeeded refunds against this reservation's payment (prefetch friendly)."""
+        from billing.models import PaymentRefund as PaymentRefundModel
+
+        return sum(r.amount_cents for r in self.refunds.all() if r.status == PaymentRefundModel.Status.SUCCEEDED)
+
+    @property
+    def refundable_cents(self) -> int:
+        """Cents still available to refund: the paid amount minus succeeded refunds."""
+        return self.amount_paid_cents - self.amount_refunded_cents
+
+    @property
+    def refund_state(self) -> str:
+        """``"none" | "partial" | "full" | "failed"``, the same vocabulary as an orientation booking's."""
+        from billing.models import PaymentRefund as PaymentRefundModel
+
+        refunds = list(self.refunds.all())  # newest first per PaymentRefund.Meta.ordering
+        latest = refunds[0] if refunds else None
+        if latest is not None and latest.status == PaymentRefundModel.Status.FAILED and self.refundable_cents > 0:
+            return "failed"
+        if self.amount_refunded_cents == 0:
+            return "none"
+        if self.refundable_cents == 0:
+            return "full"
+        return "partial"
+
+    @property
+    def refund_note(self) -> str:
+        """The member's row line about a refund (#749): "Your $50.00 was refunded.", or "" when none applies."""
+        if not self.amount_paid_cents:
+            return ""
+        state = self.refund_state
+        if state == "failed":
+            return f"Your {self.paid_display} refund is being processed."
+        if state in ("full", "partial"):
+            return f"Your {self.paid_display} was refunded."
+        return ""
+
+    @property
+    def refund_payment_intent_id(self) -> str:
+        """The Stripe PaymentIntent refunds are issued against (blank when unpaid)."""
+        return self.stripe_payment_id
+
+    def refund_receipt_context(self) -> dict[str, Any]:
+        """The documented context keys the shared refund service reads (see the protocol)."""
+        from membership.equipment import _absolute_url
+
+        path = reverse("hub_equipment_detail", args=[self.equipment.slug])
+        return {
+            "item_title": f"{self.equipment.name} reservation",
+            "recipient_email": self.member.primary_email,
+            "recipient_name": self.member.display_name,
+            "payer_name": self.member.display_name,
+            "member": self.member,
+            "manage_url": _absolute_url(path),
+            "in_app_url": path,
+        }
+
+    def on_fully_refunded(self, reason: str, actor: User | None) -> None:
+        """Full refund bookkeeping: deliberately nothing, like an orientation booking.
+
+        Money and scheduling stay independent. Decline and cancel change the row before their
+        automatic refund fires, and a manual refund never cancels a live reservation.
+        """
+
+    def issue_refund(
+        self, *, amount_cents: int | None = None, reason: str = "", actor: User | None = None
+    ) -> PaymentRefund:
+        """Send a real Stripe refund for this reservation, full when ``amount_cents`` is ``None``.
+
+        Thin delegate to :func:`billing.refunds.issue_refund`, which owns the lock, the Stripe
+        call, the ledger row and the receipt.
+        """
+        from billing.refunds import issue_refund
+
+        return issue_refund(self, amount_cents=amount_cents, reason=reason, actor=actor)
 
     @property
     def is_declined(self) -> bool:
@@ -16368,10 +16634,14 @@ class EquipmentReservation(models.Model):
         self.cancelled_at = now
         from membership import equipment as equipment_service
 
+        # A paid request is refunded in full (#749); a refund Stripe refuses never undoes the decline.
+        self.refund_outcome = equipment_service.refund_if_paid(self, actor=actor.user)
         equipment_service.notify_declined(self, actor)
 
     #: The friendly refusal for deciding a row that is no longer a waiting request.
     NOT_WAITING_MESSAGE = "This reservation isn't waiting for approval any more."
+    #: The refusal for cancelling an unpaid hold as a booking (#749): it is released, never cancelled.
+    HOLD_NOT_CANCELLABLE_MESSAGE = "This time is held while the member pays. It's released on its own if they don't."
 
     def _ensure_decidable(self, actor: Member) -> None:
         """The :meth:`approve` and :meth:`decline` guards: a manager, a waiting row, a time not yet over."""
@@ -16438,6 +16708,9 @@ class EquipmentReservation(models.Model):
         if self.is_block:
             # A block is removed from the manage tab, never cancelled: no reason, no email, no fee (#657).
             raise EquipmentError("This is a block. Remove it from the manage tab.")
+        if self.is_awaiting_payment:
+            # An unpaid hold is released after Stripe confirms it was not paid (#749), never cancelled.
+            raise EquipmentError(self.HOLD_NOT_CANCELLABLE_MESSAGE)
         if self.status == self.Status.DECLINED:
             raise EquipmentError("This request was already declined.")
         if self.status not in self.HOLDING_STATUSES:
@@ -16484,6 +16757,9 @@ class EquipmentReservation(models.Model):
                 fee = charge_if_late(self, now=now)
         from membership import equipment as equipment_service
 
+        # Every cancel of a paid row refunds it in full (#749); the late fee above stays separate,
+        # never netted, and a refund Stripe refuses never undoes the cancel.
+        self.refund_outcome = equipment_service.refund_if_paid(self, actor=actor.user)
         if not acting_as_manager:
             equipment_service.notify_self_cancelled(self, fee)
         elif not is_own_row:

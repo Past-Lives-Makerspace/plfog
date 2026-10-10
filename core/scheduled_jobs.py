@@ -275,6 +275,14 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="release_reservation_payment_holds",
+        name="Release abandoned reservation checkouts",
+        description="Releases equipment time held by paid reservations whose checkout was never completed.",
+        command="release_reservation_payment_holds",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="release_abandoned_class_holds",
         name="Release abandoned class checkouts",
         description="Releases class seats held by signups whose Stripe checkout was never completed.",

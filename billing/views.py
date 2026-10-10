@@ -39,11 +39,13 @@ logger = logging.getLogger(__name__)
 _CHECKOUT_COMPLETED_HANDLERS = [
     classes_webhook_handlers.handle_checkout_session_completed,
     membership_webhook_handlers.handle_checkout_session_completed,
+    membership_webhook_handlers.handle_reservation_checkout_completed,
     webhook_handlers.handle_late_fee_checkout_completed,
 ]
 _CHECKOUT_EXPIRED_HANDLERS = [
     classes_webhook_handlers.handle_checkout_session_expired,
     membership_webhook_handlers.handle_checkout_session_expired,
+    membership_webhook_handlers.handle_reservation_checkout_expired,
     webhook_handlers.handle_late_fee_checkout_expired,
 ]
 # ``checkout.session.async_payment_failed`` fires for delayed-notification methods (bank

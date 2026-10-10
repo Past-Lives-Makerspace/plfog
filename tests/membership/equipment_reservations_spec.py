@@ -952,8 +952,19 @@ def describe_equipment_events():
         contexts = {
             "equipment.reservation_confirmed": {"user": member.user, "approval_line": "", **base},
             "equipment.reservation_made": {"equipment": equipment, **base},
-            "equipment.reservation_cancelled_by_manager": {"user": member.user, "cancel_reason": "x", **base},
-            "equipment.reservation_cancelled": {"user": member.user, "late_fee_line": "", "late_fee_html": "", **base},
+            "equipment.reservation_cancelled_by_manager": {
+                "user": member.user,
+                "cancel_reason": "x",
+                "refund_line": "",
+                **base,
+            },
+            "equipment.reservation_cancelled": {
+                "user": member.user,
+                "late_fee_line": "",
+                "late_fee_html": "",
+                "refund_line": "",
+                **base,
+            },
         }
         for event_key, context in contexts.items():
             for name in placeholders_for(event_key):

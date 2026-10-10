@@ -1,10 +1,18 @@
 {% comment %}
-The member's own Cancel confirm on the schedule's Your Reservations Here, for a confirmed row or a
-request awaiting approval (#748). hx-vals keeps the re-rendered strip on the week and day the member
-was viewing. A late cancel (#456) appends the fee line, which is "" on a request (never a fee); the
-view then sends the member to Stripe. Context: reservation, equipment, week_offset_str, selected_day_str.
+The member's own Cancel confirm on the schedule's Your Reservations Here, for a confirmed row, a
+request awaiting approval (#748) or an unpaid hold (#749). hx-vals keeps the re-rendered strip on the
+week and day the member was viewing. A late cancel (#456) appends the fee line, which is "" on a
+request (never a fee); the view then sends the member to Stripe. A paid row says it is refunded in
+full; an unpaid hold says nothing is charged. Context: reservation, equipment, week_offset_str,
+selected_day_str.
 {% endcomment %}
 {% url 'hub_equipment_reservation_cancel' equipment.slug reservation.pk as cancel_url %}
 {% with rpks=reservation.pk|stringformat:"s" cancel_vals='{"week": "'|add:week_offset_str|add:'", "day": "'|add:selected_day_str|add:'"}' %}
+{% if reservation.is_awaiting_payment %}
+{% include "components/confirm_modal.html" with confirm_id="cancel-my-res-"|add:rpks confirm_title="Cancel your reservation?" confirm_message="If you haven't paid, nothing is charged." confirm_button_text="Cancel reservation" confirm_hx_post=cancel_url confirm_hx_target="#equipment-schedule" confirm_hx_vals=cancel_vals %}
+{% elif reservation.amount_paid_cents %}
+{% include "components/confirm_modal.html" with confirm_id="cancel-my-res-"|add:rpks confirm_title="Cancel your reservation?" confirm_message="The time opens up for someone else. You can book again any time. You'll get an automatic full refund. "|add:reservation.late_cancel_warning confirm_button_text="Cancel reservation" confirm_hx_post=cancel_url confirm_hx_target="#equipment-schedule" confirm_hx_vals=cancel_vals %}
+{% else %}
 {% include "components/confirm_modal.html" with confirm_id="cancel-my-res-"|add:rpks confirm_title="Cancel your reservation?" confirm_message="The time opens up for someone else. You can book again any time. "|add:reservation.late_cancel_warning confirm_button_text="Cancel reservation" confirm_hx_post=cancel_url confirm_hx_target="#equipment-schedule" confirm_hx_vals=cancel_vals %}
+{% endif %}
 {% endwith %}

@@ -518,6 +518,7 @@ def describe_approval_events():
                 "user": member.user,
                 "manager_name": manager.display_name,
                 "decline_reason": "x",
+                "refund_line": "",
                 **base,
             },
             "equipment.reservation_confirmed": {"user": member.user, "approval_line": "Sami approved. ", **base},

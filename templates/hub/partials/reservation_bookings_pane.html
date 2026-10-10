@@ -108,8 +108,10 @@ refund-done, which reloads the body below and closes the refund modal.
             {% elif r.own_manager_cancel_label %}
             <span class="hub-pill hub-pill--neutral" data-reservation-status="manager-cancelled{% if r.late_fee_waived %}-fee-waived{% endif %}">{{ r.own_manager_cancel_label }}</span>
             {% else %}
-            <span class="hub-pill {% if r.status == 'confirmed' %}hub-pill--ok{% elif r.status == 'pending_approval' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-reservation-status="{{ r.status }}">{{ r.get_status_display }}</span>
+            <span class="hub-pill {% if r.status == 'confirmed' %}hub-pill--ok{% elif r.status == 'pending_approval' or r.status == 'pending_payment' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-reservation-status="{{ r.status }}">{{ r.get_status_display }}</span>
             {% endif %}
+            {% if r.amount_paid_cents %}<span class="hub-pill hub-pill--neutral" data-booking-paid>Paid {{ r.paid_display }}</span>{% endif %}
+            {% if r.refund_state == "full" %}<span class="hub-pill hub-pill--neutral" data-booking-refunded>Refunded</span>{% endif %}
             {% if row.fee_unpaid %}<span class="hub-pill hub-pill--danger" data-booking-fee>Fee unpaid</span>{% elif row.late_fee %}<span class="hub-pill hub-pill--neutral" data-booking-fee>Fee {{ row.late_fee.get_status_display|lower }}</span>{% endif %}
           </td>
           <td class="pl-bookings-table__actions">

@@ -7,15 +7,23 @@ Every event goes through the spine (``emit()`` + seeded copy); the emit context
 supplies every placeholder the copy uses. Equipment that needs approval (#748) makes
 a request instead: the member hears it is in, the managers hear it needs them, and
 the decision sends the confirmation or the decline.
+
+Priced equipment (#749) copies the paid orientation flow by name: the reservation is held
+``PENDING_PAYMENT`` under the equipment lock, Stripe Checkout opens, and money in hand
+(the webhook, the return page, Pay now or the sweep) finalizes it exactly once into the
+confirmed or awaiting approval row an unpriced booking would have been. Every decline and
+cancel of a paid row refunds it in full (:func:`refund_if_paid`).
 """
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import icalendar
 from django.conf import settings
+from django.core import signing
 from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
@@ -23,8 +31,19 @@ from django.utils import timezone
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from django.contrib.auth.models import User
+    from django.db.models import QuerySet
+
     from billing.models import LateCancellationFee
     from membership.models import Equipment, EquipmentReservation, Member
+
+logger = logging.getLogger(__name__)
+
+#: The Checkout ``metadata.kind`` the webhook handlers filter on (#749).
+CHECKOUT_KIND = "equipment_reservation"
+_CHECKOUT_SALT = "equipment-reservation-checkout"
+_CHECKOUT_MAX_AGE = 30 * 24 * 3600  # 30 days, like the orientation token: outlives any session by a wide margin
+_CHECKOUT_SESSION_LIFETIME = timedelta(hours=1)  # Stripe expires_at; abandoned checkouts die server side
 
 
 def _absolute_url(path: str) -> str:
@@ -98,6 +117,10 @@ def _placeholder_context(reservation: EquipmentReservation) -> dict[str, str]:
     }
 
 
+#: The refusal when an item started charging between the page's read and the booking lock (#749).
+PRICE_CHANGED_MESSAGE = "The price for this time just changed. Please pick your time again."
+
+
 def reserve(
     equipment: Equipment,
     member: Member,
@@ -105,6 +128,7 @@ def reserve(
     duration_minutes: int,
     *,
     purpose: str = "",
+    donation_cents: int | None = None,
 ) -> EquipmentReservation:
     """Make a reservation, safely under concurrency: instant, or a request when the equipment needs approval.
 
@@ -118,14 +142,21 @@ def reserve(
     never waits on their own approval: their booking confirms at once, the same test
     (:meth:`Member.can_manage_equipment`) that exempts them from the late fee.
 
+    This is the free road only (#749). Priced equipment is re-checked under the lock: an hourly
+    item, or a donation based one without an explicit ``donation_cents=0``, is refused, so a
+    switch from Free to a price between the caller's read and this lock can never book for free.
+
     Raises:
         EquipmentError: Propagated from :meth:`Equipment.ensure_reservable` with the
-            member-facing message when any check fails (including a lost race).
+            member-facing message when any check fails (including a lost race), or
+            :attr:`PRICE_CHANGED_MESSAGE` when the item now charges.
     """
-    from membership.models import Equipment, EquipmentReservation
+    from membership.models import Equipment, EquipmentError, EquipmentReservation
 
     with transaction.atomic():
         locked = Equipment.objects.select_for_update().get(pk=equipment.pk)
+        if locked.is_hourly or (locked.is_donation and donation_cents != 0):
+            raise EquipmentError(PRICE_CHANGED_MESSAGE)
         locked.ensure_reservable(member, starts_at, duration_minutes)
         reservation = EquipmentReservation.objects.create(
             equipment=locked,
@@ -315,7 +346,10 @@ def notify_approved(reservation: EquipmentReservation, manager: Member) -> None:
 
 
 def notify_declined(reservation: EquipmentReservation, manager: Member) -> None:
-    """Tell the member ``manager`` declined their request, with the reason and a way back to pick another time."""
+    """Tell the member ``manager`` declined their request, with the reason and a way back to pick another time.
+
+    A paid request's refund sentence (#749) rides ``refund_line``; "" for a free one.
+    """
     from core.events.emit import emit
 
     member = reservation.member
@@ -327,6 +361,7 @@ def notify_declined(reservation: EquipmentReservation, manager: Member) -> None:
             "user": member.user,
             "manager_name": manager.display_name,
             "decline_reason": reservation.cancelled_reason,
+            "refund_line": refund_line(reservation),
             **_placeholder_context(reservation),
         },
         url=reverse("hub_equipment_detail", args=[reservation.equipment.slug]),
@@ -335,7 +370,7 @@ def notify_declined(reservation: EquipmentReservation, manager: Member) -> None:
 
 
 def notify_manager_cancelled(reservation: EquipmentReservation) -> None:
-    """Tell the member a manager cancelled their reservation, carrying the required reason."""
+    """Tell the member a manager cancelled their reservation, carrying the required reason and any refund (#749)."""
     from core.events.emit import emit
 
     member = reservation.member
@@ -347,6 +382,7 @@ def notify_manager_cancelled(reservation: EquipmentReservation) -> None:
         context={
             "user": member.user,
             "cancel_reason": reservation.cancelled_reason,
+            "refund_line": refund_line(reservation),
             **_placeholder_context(reservation),
         },
         url=reverse("hub_equipment_detail", args=[reservation.equipment.slug]),
@@ -374,8 +410,343 @@ def notify_self_cancelled(reservation: EquipmentReservation, fee: LateCancellati
             "user": member.user,
             "late_fee_line": pay_line(fee) if fee is not None else "",
             "late_fee_html": pay_html(fee) if fee is not None else "",
+            "refund_line": refund_line(reservation),
             **_placeholder_context(reservation),
         },
         url=reverse("hub_equipment_detail", args=[reservation.equipment.slug]),
         period=f"reservation:{reservation.pk}:self_cancelled",
     )
+
+
+# ── Priced reservations (#749): Stripe Checkout orchestration, copied from the orientation flow ──
+
+
+def make_checkout_token(reservation: EquipmentReservation) -> str:
+    """Sign a token authorizing the Checkout return and cancelled pages for one reservation."""
+    return signing.dumps({"reservation": reservation.pk}, salt=_CHECKOUT_SALT)
+
+
+def read_checkout_token(token: str) -> EquipmentReservation:
+    """Decode a checkout token to its reservation.
+
+    Raises:
+        signing.BadSignature: If the token is invalid or expired.
+        EquipmentReservation.DoesNotExist: If the reservation no longer exists (a released hold).
+    """
+    from membership.models import EquipmentReservation
+
+    data = signing.loads(token, salt=_CHECKOUT_SALT, max_age=_CHECKOUT_MAX_AGE)
+    return EquipmentReservation.objects.select_related("equipment", "member").get(pk=data["reservation"])
+
+
+def _checkout_urls(reservation: EquipmentReservation) -> tuple[str, str]:
+    """The Checkout ``success_url`` and ``cancel_url`` for one hold."""
+    token = make_checkout_token(reservation)
+    slug = reservation.equipment.slug
+    return (
+        _absolute_url(reverse("hub_equipment_checkout_return", args=[slug, token])),
+        _absolute_url(reverse("hub_equipment_checkout_cancelled", args=[slug, token])),
+    )
+
+
+def start_reservation_checkout(
+    equipment: Equipment,
+    member: Member,
+    starts_at: datetime,
+    duration_minutes: int,
+    *,
+    purpose: str = "",
+    amount_cents: int | None = None,
+) -> str:
+    """Hold the time ``PENDING_PAYMENT`` and open a Stripe Checkout for it; return the hosted Checkout URL.
+
+    The charge is :meth:`Equipment.checkout_amount_cents`, read under the same
+    ``select_for_update`` lock :func:`reserve` takes, after :meth:`Equipment.ensure_reservable`
+    passes, so a lost race or a bad donation never reaches Stripe. The hold sends nothing:
+    nothing has happened until the money lands (:func:`finalize_paid_reservation`). The lock
+    covers only the guard and the hold, never the Stripe round trip. A Stripe failure deletes
+    the hold and re-raises.
+
+    Raises:
+        EquipmentError: From the guards, the amount check, or when the amount comes to $0.
+    """
+    from billing import stripe_utils
+    from membership.models import Equipment, EquipmentError, EquipmentReservation
+
+    with transaction.atomic():
+        locked = Equipment.objects.select_for_update().get(pk=equipment.pk)
+        locked.ensure_reservable(member, starts_at, duration_minutes)
+        charge_cents = locked.checkout_amount_cents(duration_minutes, amount_cents)
+        if charge_cents <= 0:
+            raise EquipmentError("Reserving this time doesn't charge anything.")
+        # amount_paid_cents stays 0 until money is in hand; finalize stamps Stripe's amount_total.
+        reservation = EquipmentReservation.objects.create(
+            equipment=locked,
+            member=member,
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(minutes=duration_minutes),
+            purpose=purpose.strip(),
+            status=EquipmentReservation.Status.PENDING_PAYMENT,
+        )
+    success_url, cancel_url = _checkout_urls(reservation)
+    try:
+        session = stripe_utils.create_checkout_session(
+            amount_cents=charge_cents,
+            product_name=f"{locked.name} reservation, {when_display(reservation)}",
+            customer_email=member.primary_email,
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={"kind": CHECKOUT_KIND, "reservation_id": str(reservation.pk)},
+            # Stripe replays the first answer for a key, so a retried start never mints a second session.
+            idempotency_key=f"reservation-checkout-{reservation.pk}",
+            expires_at=int((timezone.now() + _CHECKOUT_SESSION_LIFETIME).timestamp()),
+        )
+    except Exception:
+        _delete_hold(reservation, expire_session=False)
+        raise
+    reservation.stripe_session_id = session["id"]
+    reservation.save(update_fields=["stripe_session_id"])
+    return session["url"]
+
+
+def locked_reservation_queryset() -> QuerySet[EquipmentReservation]:
+    """The row locked reservation queryset every finalize path reads through.
+
+    ``of=("self",)`` locks only the reservation row: the atomic block writes its columns and
+    nothing else, and it keeps the clause valid should a joined relation ever become nullable
+    (Postgres refuses FOR UPDATE on the nullable side of an outer join).
+    """
+    from membership.models import EquipmentReservation
+
+    return EquipmentReservation.objects.select_for_update(of=("self",)).select_related("equipment", "member").all()
+
+
+def finalize_paid_reservation(
+    reservation: EquipmentReservation, *, payment_intent: str, amount_total: int | None, session_id: str = ""
+) -> str:
+    """Flip a ``PENDING_PAYMENT`` hold to the row an unpriced booking would be, with its emails.
+
+    THE single "money is in hand" transition: the webhook, the return page, Pay now and the
+    sweep all funnel through here, and it is safe to race. The row is re-fetched under
+    ``select_for_update`` and only a still unpaid hold flips, so it finalizes exactly once and
+    can never revive a released hold. It lands CONFIRMED (the confirmation and the managers'
+    ping with the #reservations post), or PENDING_APPROVAL when the equipment needs approval
+    and the member does not manage it (the request emails, #748). ``amount_total`` is
+    canonical; ``session_id`` backfills a hold whose session id never got saved.
+
+    Returns:
+        ``"finalized"`` when this call flipped the hold; ``"already"`` when the row is no longer
+        awaiting payment; ``"gone"`` when the row no longer exists.
+    """
+    from membership.models import EquipmentReservation
+
+    with transaction.atomic():
+        locked = locked_reservation_queryset().filter(pk=reservation.pk).first()
+        if locked is None:
+            return "gone"
+        if locked.status != EquipmentReservation.Status.PENDING_PAYMENT:
+            return "already"
+        needs_approval = locked.equipment.requires_approval and not locked.member.can_manage_equipment(locked.equipment)
+        locked.status = (
+            EquipmentReservation.Status.PENDING_APPROVAL if needs_approval else EquipmentReservation.Status.CONFIRMED
+        )
+        locked.stripe_payment_id = payment_intent
+        if session_id and not locked.stripe_session_id:
+            locked.stripe_session_id = session_id
+        if amount_total is not None:
+            locked.amount_paid_cents = amount_total
+        locked.save(update_fields=["status", "stripe_payment_id", "stripe_session_id", "amount_paid_cents"])
+    if needs_approval:
+        _notify_requested(locked)
+        _notify_needs_approval(locked)
+    else:
+        _notify_confirmed(locked)
+        _notify_managers(locked)
+    return "finalized"
+
+
+def _expire_session_best_effort(reservation: EquipmentReservation) -> None:
+    """Expire the hold's Checkout Session so an open Stripe tab can't pay a released hold. Best effort."""
+    from billing import stripe_utils
+
+    if not reservation.stripe_session_id:
+        return
+    try:
+        stripe_utils.expire_checkout_session(session_id=reservation.stripe_session_id)
+    except Exception:
+        logger.info("Could not expire Checkout session for reservation hold %s (best effort).", reservation.pk)
+
+
+def _delete_hold(reservation: EquipmentReservation, *, expire_session: bool = True) -> None:
+    """Delete an unpaid hold, never CANCELLED: nothing was sent about it, so nothing should remember it.
+
+    The delete is status guarded, so a row a concurrent webhook just finalized is never
+    destroyed, and a row already gone is a quiet no-op. Deleting frees the time.
+    """
+    from membership.models import EquipmentReservation
+
+    if expire_session:
+        _expire_session_best_effort(reservation)
+    EquipmentReservation.objects.filter(pk=reservation.pk, status=EquipmentReservation.Status.PENDING_PAYMENT).delete()
+
+
+def release_hold_if_unpaid(reservation: EquipmentReservation) -> str:
+    """Release an unpaid hold, but only after asking Stripe, since a paid one's webhook may lag.
+
+    Returns ``"released"`` (unpaid: deleted, its session expired best effort), ``"paid"`` (kept
+    and finalized, the sweep's recovery) or ``"unknown"`` (Stripe unreachable: kept). A hold
+    with no session id (a crash between create and save) is released outright.
+    """
+    from billing import stripe_utils
+
+    if not reservation.stripe_session_id:
+        _delete_hold(reservation, expire_session=False)
+        return "released"
+    try:
+        session = stripe_utils.retrieve_checkout_session(session_id=reservation.stripe_session_id)
+    except Exception:
+        logger.exception("Could not verify Checkout session for reservation hold %s; keeping it.", reservation.pk)
+        return "unknown"
+    if session["payment_status"] == "paid":
+        finalize_paid_reservation(
+            reservation, payment_intent=session["payment_intent"], amount_total=session["amount_total"]
+        )
+        return "paid"
+    _delete_hold(reservation)
+    return "released"
+
+
+def reconcile_landed_checkout(reservation: EquipmentReservation) -> str:
+    """Ask Stripe and finalize a paid hold when the member lands on the return page.
+
+    The webhook can lag, or never come where no endpoint is set up; this makes the return
+    page show the confirmation on its first render.
+
+    Returns:
+        :func:`finalize_paid_reservation`'s outcome when Stripe says paid; ``"pending"`` when it
+        is not paid yet (or there is no session to ask about); ``"unknown"`` when Stripe is
+        unreachable.
+    """
+    from billing import stripe_utils
+
+    if not reservation.stripe_session_id:
+        return "pending"
+    try:
+        session = stripe_utils.retrieve_checkout_session(session_id=reservation.stripe_session_id)
+    except Exception:
+        logger.exception("Landing reconcile: could not verify session for reservation hold %s.", reservation.pk)
+        return "unknown"
+    if session["payment_status"] != "paid":
+        return "pending"
+    return finalize_paid_reservation(
+        reservation, payment_intent=session["payment_intent"], amount_total=session["amount_total"]
+    )
+
+
+def resume_checkout(reservation: EquipmentReservation) -> tuple[str, str]:
+    """Pay now on an unpaid hold: the same live Checkout, never a dead one.
+
+    Returns:
+        ``("open", url)`` while the session is open; ``("paid", "")`` when it was already paid
+        (finalized here); ``("released", "")`` when it expired (the hold is released and the
+        member picks a time again); ``("unknown", "")`` when Stripe is unreachable.
+    """
+    from billing import stripe_utils
+
+    if not reservation.stripe_session_id:
+        _delete_hold(reservation, expire_session=False)
+        return ("released", "")
+    try:
+        session = stripe_utils.retrieve_checkout_session(session_id=reservation.stripe_session_id)
+    except Exception:
+        logger.exception("Pay now: could not retrieve Checkout session for reservation %s.", reservation.pk)
+        return ("unknown", "")
+    if session["payment_status"] == "paid":
+        finalize_paid_reservation(
+            reservation, payment_intent=session["payment_intent"], amount_total=session["amount_total"]
+        )
+        return ("paid", "")
+    if session["status"] == "open" and session["url"]:
+        return ("open", session["url"])
+    _delete_hold(reservation, expire_session=False)
+    return ("released", "")
+
+
+def expire_payment_holds(*, now: datetime | None = None) -> tuple[int, int]:
+    """Sweep unpaid holds older than two hours, asking Stripe first, never on age alone.
+
+    For each: paid means finalize (the sweep IS the lost webhook recovery); unpaid or expired
+    means release the hold and free its time; Stripe unreachable means skip and retry next
+    tick. Idempotent.
+
+    Returns:
+        ``(released, recovered)`` counts.
+    """
+    from billing import stripe_utils
+    from membership.models import EquipmentReservation
+
+    cutoff = (now or timezone.now()) - EquipmentReservation.HOLD_SWEEP_AGE
+    stale = EquipmentReservation.objects.filter(
+        status=EquipmentReservation.Status.PENDING_PAYMENT, created_at__lt=cutoff
+    ).select_related("equipment", "member")
+    released = 0
+    recovered = 0
+    for reservation in stale:
+        if not reservation.stripe_session_id:
+            _delete_hold(reservation, expire_session=False)
+            released += 1
+            continue
+        try:
+            session = stripe_utils.retrieve_checkout_session(session_id=reservation.stripe_session_id)
+        except Exception:
+            logger.exception(
+                "Hold sweep: could not verify session for reservation %s; retrying next tick.", reservation.pk
+            )
+            continue
+        if session["payment_status"] == "paid":
+            outcome = finalize_paid_reservation(
+                reservation, payment_intent=session["payment_intent"], amount_total=session["amount_total"]
+            )
+            if outcome == "finalized":
+                recovered += 1
+        else:
+            _delete_hold(reservation)
+            released += 1
+    return released, recovered
+
+
+def refund_if_paid(reservation: EquipmentReservation, *, actor: User | None) -> str:
+    """Refund a paid reservation in full on decline or cancel; flag, never block, on failure (#749).
+
+    The state change is already saved when this runs. A refund Stripe refuses is logged and
+    leaves the reservation at ``refund_state == "failed"`` for the Payments panel's Retry; the
+    member's email still goes out. A free or already refunded row never touches the engine.
+
+    Returns:
+        ``"refunded"``, ``"failed"``, or ``""`` when there was nothing to refund.
+    """
+    from billing.exceptions import RefundError
+
+    if reservation.amount_paid_cents <= 0 or reservation.refund_state != "none":
+        return ""
+    try:
+        reservation.issue_refund(actor=actor)
+    except RefundError:
+        logger.exception(
+            "Automatic refund failed for equipment reservation %s; flagged for retry in the Payments panel.",
+            reservation.pk,
+        )
+        return "failed"
+    return "refunded"
+
+
+def refund_line(reservation: EquipmentReservation) -> str:
+    """The emails' refund sentence for what :func:`refund_if_paid` just did, or "" when it did nothing.
+
+    Ends in a space, like ``approval_line``, so it runs into whatever follows it in the copy.
+    """
+    if reservation.refund_outcome == "refunded":
+        return f"Your {reservation.paid_display} has been refunded to your card. It can take 5 to 10 days to show. "
+    if reservation.refund_outcome == "failed":
+        return f"Your {reservation.paid_display} refund is being processed. "
+    return ""

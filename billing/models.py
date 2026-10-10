@@ -1335,7 +1335,8 @@ class PaymentRefundQuerySet(models.QuerySet["PaymentRefund"]):
         return self.filter(status=PaymentRefund.Status.SUCCEEDED)
 
     def for_source(self, source: Any) -> PaymentRefundQuerySet:
-        """Refunds belonging to one refundable source row (a Registration, an OrientationBooking or a LateCancellationFee)."""
+        """Refunds belonging to one refundable source row (a Registration, an OrientationBooking, a LateCancellationFee
+        or an EquipmentReservation)."""
         from billing.refunds import source_field_name
 
         return self.filter(**{source_field_name(source): source})
@@ -1351,8 +1352,8 @@ class PaymentRefund(models.Model):
     its own actor, reason, attempt count, and failure state; (d) two source
     apps must share one ledger without either owning the other.
 
-    Exactly one of ``registration`` / ``orientation_booking`` / ``late_fee`` is set
-    (DB-enforced).
+    Exactly one of ``registration`` / ``orientation_booking`` / ``late_fee`` / ``reservation``
+    is set (DB-enforced).
     """
 
     class Status(models.TextChoices):
@@ -1395,6 +1396,14 @@ class PaymentRefund(models.Model):
         on_delete=models.PROTECT,
         related_name="refunds",
         help_text="Set for late cancellation fee refunds (#456). Exactly one source FK is set per row.",
+    )
+    reservation = models.ForeignKey(
+        "membership.EquipmentReservation",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="refunds",
+        help_text="Set for equipment reservation payment refunds (#749). Exactly one source FK is set per row.",
     )
     stripe_refund_id = models.CharField(
         max_length=255,
@@ -1475,13 +1484,35 @@ class PaymentRefund(models.Model):
             models.Index(fields=["registration", "status"], name="idx_refund_reg_status"),
             models.Index(fields=["orientation_booking", "status"], name="idx_refund_booking_status"),
             models.Index(fields=["late_fee", "status"], name="idx_refund_late_fee_status"),
+            models.Index(fields=["reservation", "status"], name="idx_refund_reservation_status"),
         ]
         constraints = [
             models.CheckConstraint(
                 condition=(
-                    Q(registration__isnull=False, orientation_booking__isnull=True, late_fee__isnull=True)
-                    | Q(registration__isnull=True, orientation_booking__isnull=False, late_fee__isnull=True)
-                    | Q(registration__isnull=True, orientation_booking__isnull=True, late_fee__isnull=False)
+                    Q(
+                        registration__isnull=False,
+                        orientation_booking__isnull=True,
+                        late_fee__isnull=True,
+                        reservation__isnull=True,
+                    )
+                    | Q(
+                        registration__isnull=True,
+                        orientation_booking__isnull=False,
+                        late_fee__isnull=True,
+                        reservation__isnull=True,
+                    )
+                    | Q(
+                        registration__isnull=True,
+                        orientation_booking__isnull=True,
+                        late_fee__isnull=False,
+                        reservation__isnull=True,
+                    )
+                    | Q(
+                        registration__isnull=True,
+                        orientation_booking__isnull=True,
+                        late_fee__isnull=True,
+                        reservation__isnull=False,
+                    )
                 ),
                 name="ck_refund_one_source",
             ),
@@ -1497,20 +1528,25 @@ class PaymentRefund(models.Model):
 
     @property
     def source_object(self) -> Any:
-        """Whichever source row this refund belongs to (Registration, OrientationBooking or LateCancellationFee)."""
+        """Whichever source row this refund belongs to (Registration, OrientationBooking, LateCancellationFee
+        or EquipmentReservation)."""
         if self.registration_id is not None:
             return self.registration
         if self.orientation_booking_id is not None:
             return self.orientation_booking
+        if self.reservation_id is not None:
+            return self.reservation
         return self.late_fee
 
     @property
     def source_kind(self) -> str:
-        """``"class"``, ``"orientation"`` or ``"late_fee"``: the ledger's source vocabulary."""
+        """``"class"``, ``"orientation"``, ``"reservation"`` or ``"late_fee"``: the ledger's source vocabulary."""
         if self.registration_id is not None:
             return "class"
         if self.orientation_booking_id is not None:
             return "orientation"
+        if self.reservation_id is not None:
+            return "reservation"
         return "late_fee"
 
 
