@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 import secrets
@@ -14887,6 +14889,7 @@ class Equipment(HeroCropMixin, models.Model):
         OK = "ok", "You're all set"
         NEEDS_FEE = "needs_fee", "Pay your late cancellation fee to book again"
         NEEDS_ORIENTATION = "needs_orientation", "Orientation needed"
+        NEEDS_AGREEMENT = "needs_agreement", "Usage agreement needed"
         INACTIVE_MEMBER = "inactive_member", "Membership inactive"
 
     name = models.CharField(max_length=120, help_text="Display name members see, e.g. CNC Router.")
@@ -14989,6 +14992,19 @@ class Equipment(HeroCropMixin, models.Model):
         default=True,
         db_default=True,
         help_text="Let members propose their own orientation time instead of only picking a posted slot.",
+    )
+    # --- Usage agreement (#734): members agree once before reserving, again after any change.
+    usage_agreement_url = models.URLField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Link to the usage agreement document members read before reserving. Optional.",
+    )
+    usage_agreement_text = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text="The usage agreement's text, shown to members before reserving. Optional.",
     )
 
     objects = EquipmentQuerySet.as_manager()
@@ -15099,6 +15115,93 @@ class Equipment(HeroCropMixin, models.Model):
         """
         return self.is_active and not self.is_closed and self.allow_custom_requests
 
+    # --- Usage agreement (#734): agreed once per version, after the orientation, before reserving.
+
+    @property
+    def has_usage_agreement(self) -> bool:
+        """True when a link or text is set. With neither, reserving works exactly as it did before #734."""
+        return bool(self.usage_agreement_url.strip() or self.usage_agreement_text.strip())
+
+    @property
+    def usage_agreement_text_normalised(self) -> str:
+        """The text as fingerprinted: Windows and old Mac line endings made plain, outer whitespace trimmed."""
+        return self.usage_agreement_text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    @property
+    def usage_agreement_fingerprint(self) -> str:
+        """SHA-256 of the normalised link and text: the agreement's version, or "" with no agreement.
+
+        Any change to either is a new version that asks everyone again (Felix, #734), so both
+        are hashed as written; only what a browser adds on its own (outer whitespace, line
+        ending style) is normalised away, so re-saving the form unchanged keeps the version.
+        Hashed locally, never fetched: the member agrees to what this page showed them.
+        """
+        if not self.has_usage_agreement:
+            return ""
+        payload = json.dumps([self.usage_agreement_url.strip(), self.usage_agreement_text_normalised])
+        return hashlib.sha256(payload.encode()).hexdigest()
+
+    def has_current_agreement_from(self, member: Member, *, accepted: set[tuple[int, str]] | None = None) -> bool:
+        """True when there is no agreement, or ``member`` accepted its current version.
+
+        ``accepted`` is the bulk caller's set of the member's ``(equipment pk, fingerprint)``
+        pairs (:meth:`EquipmentAgreementAcceptanceQuerySet.pairs_for`), so a page of cards
+        costs one read. Omit it and this reads one row, and only when an agreement is set.
+        """
+        fingerprint = self.usage_agreement_fingerprint
+        if not fingerprint:
+            return True
+        if accepted is not None:
+            return (self.pk, fingerprint) in accepted
+        return self.agreement_acceptances.filter(member=member, fingerprint=fingerprint).exists()
+
+    def awaits_agreement_from(self, member: Member | None) -> bool:
+        """True when the equipment page offers the agree prompt: an active member past the orientation gate
+        who has not accepted the current version. Free when no agreement is set."""
+        if not self.has_usage_agreement or member is None or member.status != Member.Status.ACTIVE:
+            return False
+        return self.is_unlocked_for(member) and not self.has_current_agreement_from(member)
+
+    def record_agreement(
+        self, member: Member, *, fingerprint: str, ip_address: str | None, user_agent: str
+    ) -> tuple[EquipmentAgreementAcceptance, bool]:
+        """Record that ``member`` accepted the version their page showed; a repeat returns the first row.
+
+        ``fingerprint`` is the version the member read. When it no longer matches, the
+        agreement changed while they were reading, and nothing is recorded: accepting text
+        the member never saw is not consent.
+
+        Returns:
+            The acceptance and whether it was new (False on a double submit).
+
+        Raises:
+            EquipmentError: When no agreement is set, or the posted version is stale.
+        """
+        current = self.usage_agreement_fingerprint
+        if not current:
+            raise EquipmentError("This equipment has no usage agreement to agree to.")
+        if fingerprint != current:
+            raise EquipmentError("The usage agreement changed while you were reading it. Please read it again.")
+        return EquipmentAgreementAcceptance.objects.get_or_create(
+            member=member,
+            equipment=self,
+            fingerprint=current,
+            defaults={
+                "agreement_url": self.usage_agreement_url.strip(),
+                "agreement_text": self.usage_agreement_text_normalised,
+                "ip_address": ip_address or None,
+                # Truncated rather than rejected, as for the Member Agreement.
+                "user_agent": user_agent[:1000],
+            },
+        )
+
+    def current_agreement_member_count(self) -> int:
+        """How many members accepted the current version: the people a change to it asks again."""
+        fingerprint = self.usage_agreement_fingerprint
+        if not fingerprint:
+            return 0
+        return self.agreement_acceptances.filter(fingerprint=fingerprint).count()
+
     @property
     def qr_sheet_orientations(self) -> list[OrientationType]:
         """The unlocking orientations the sheet names, those that can print, in display order (#631, #656).
@@ -15205,15 +15308,17 @@ class Equipment(HeroCropMixin, models.Model):
         *,
         oriented_type_ids: set[int] | None = None,
         has_unpaid_fee: bool | None = None,
+        accepted_agreements: set[tuple[int, str]] | None = None,
     ) -> str:
         """The one :class:`AccessState` between ``member`` and this equipment.
 
         Drives both the index card badge and the detail-page requirements banner.
         The optional arguments are the bulk-caller optimization for the index page —
-        pass the member's completed orientation-type pks and whether they owe a late
-        cancellation fee (#456) so a page of cards costs a fixed number of queries, not
-        a few per card. Omit them and the checks query per call. An unpaid fee wins
-        over every other gap: it blocks booking whatever else is met.
+        pass the member's completed orientation-type pks, whether they owe a late
+        cancellation fee (#456) and their accepted usage agreement versions (#734) so a
+        page of cards costs a fixed number of queries, not a few per card. Omit them and
+        the checks query per call. An unpaid fee wins over every other gap: it blocks
+        booking whatever else is met. The usage agreement comes after the orientation.
         """
         if member is None or member.status != Member.Status.ACTIVE:
             return self.AccessState.INACTIVE_MEMBER
@@ -15225,6 +15330,8 @@ class Equipment(HeroCropMixin, models.Model):
             return self.AccessState.NEEDS_FEE
         if not self.is_unlocked_for(member, oriented_type_ids=oriented_type_ids):
             return self.AccessState.NEEDS_ORIENTATION
+        if not self.has_current_agreement_from(member, accepted=accepted_agreements):
+            return self.AccessState.NEEDS_AGREEMENT
         return self.AccessState.OK
 
     def is_unlocked_for(self, member: Member, *, oriented_type_ids: set[int] | None = None) -> bool:
@@ -15263,6 +15370,9 @@ class Equipment(HeroCropMixin, models.Model):
                 blockers.append(
                     f"You need one of these orientations before you can reserve this equipment: {' or '.join(names)}."
                 )
+        elif not self.has_current_agreement_from(member):
+            # After the orientation (#734): agreeing comes once the member may use the equipment at all.
+            blockers.append("Agree to the usage agreement before you reserve this equipment.")
         # The block until paid (#456): the same sentence ensure_bookable_for raises, with the amount.
         from billing.late_fees import unpaid_fee_for
 
@@ -15784,6 +15894,62 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
             .filter(member=member, equipment=equipment, ends_at__gt=timezone.now())
             .count()
         )
+
+
+class EquipmentAgreementAcceptanceQuerySet(models.QuerySet["EquipmentAgreementAcceptance"]):
+    def pairs_for(self, member: Member) -> set[tuple[int, str]]:
+        """The member's ``(equipment pk, fingerprint)`` pairs: the bulk input to the agreement checks."""
+        return set(self.filter(member=member).values_list("equipment_id", "fingerprint"))
+
+
+class EquipmentAgreementAcceptance(models.Model):
+    """A member's acceptance of one version of an equipment's usage agreement (#734).
+
+    The equipment twin of :class:`MemberAgreementAcceptance`: evidence of consent, not a
+    signature. ``fingerprint`` is :attr:`Equipment.usage_agreement_fingerprint` at the
+    moment they agreed, and the link and text are kept as they read them, so the row says
+    what they agreed to even after the agreement changes. A member's acceptance is current
+    while its fingerprint matches the equipment's; any change asks them again. Rows are
+    never deleted, one per member, equipment and version.
+    """
+
+    member = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.CASCADE,
+        related_name="equipment_agreement_acceptances",
+        help_text="The member who agreed.",
+    )
+    equipment = models.ForeignKey(
+        Equipment,
+        on_delete=models.CASCADE,
+        related_name="agreement_acceptances",
+        help_text="The equipment whose usage agreement they agreed to.",
+    )
+    fingerprint = models.CharField(
+        max_length=64,
+        help_text="SHA-256 of the agreement's link and text as they read it: the version agreed to.",
+    )
+    agreement_url = models.URLField(
+        blank=True, default="", help_text="The agreement link as it stood when they agreed."
+    )
+    agreement_text = models.TextField(
+        blank=True, default="", help_text="The agreement text as it stood when they agreed."
+    )
+    accepted_at = models.DateTimeField(auto_now_add=True, help_text="When they agreed.")
+    ip_address = models.GenericIPAddressField(null=True, blank=True, help_text="The IP they agreed from.")
+    user_agent = models.TextField(
+        blank=True, default="", help_text="The browser and device they agreed from, as reported."
+    )
+
+    objects = EquipmentAgreementAcceptanceQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["member", "equipment", "fingerprint"], name="uniq_equip_agreement_accept"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.display_name} agreed to the {self.equipment.name} usage agreement on {self.accepted_at.date()}"
 
 
 class EquipmentReservation(models.Model):
@@ -17717,6 +17883,7 @@ _WIKI_ACCESS_LINES: dict[str, str] = {
     "ok": "You are set up for this tool.",
     "needs_fee": "Pay your late cancellation fee to book again.",
     "needs_orientation": "Orientation needed before you use this.",
+    "needs_agreement": "Agree to the usage agreement on its equipment page before you reserve it.",
     "inactive_member": "Your membership needs to be active to use this.",
 }
 

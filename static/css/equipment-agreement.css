@@ -1,0 +1,60 @@
+/* Equipment usage agreement (#734): the agree prompt on the equipment page, its modal,
+   and the agreement fields' note on the Manage page's Details tab. */
+
+.pl-equip-agree {
+    padding: 1.25rem 1.5rem;
+}
+.pl-equip-agree__title {
+    margin: 0 0 0.5rem;
+}
+.pl-equip-agree__lead {
+    margin: 0 0 1rem;
+}
+.pl-equip-banner__text {
+    margin: 0;
+}
+
+/* The agreement text: escaped, line breaks kept, scrolled inside the modal so the checkbox stays near. */
+.pl-equip-agreement__text {
+    max-height: min(50vh, 22rem);
+    overflow-y: auto;
+    margin: 0 0 1rem;
+    padding: 1rem 1.25rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    color: var(--hub-text);
+    line-height: 1.55;
+}
+.pl-equip-agreement__text:focus-visible {
+    outline: 2px solid var(--hub-blue);
+    outline-offset: 2px;
+}
+.pl-equip-agreement__text p {
+    margin: 0 0 0.75rem;
+}
+.pl-equip-agreement__text p:last-child {
+    margin-bottom: 0;
+}
+.pl-equip-agreement__link {
+    margin: 0 0 1rem;
+}
+.pl-equip-agreement__check {
+    margin-bottom: 1rem;
+}
+.pl-equip-agreement__actions {
+    justify-content: flex-end;
+}
+
+/* Details tab: who a change to the agreement asks again. */
+.pl-equip-agreement-note {
+    margin: -0.25rem 0 1rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+.pl-equip-agreement-note--warn {
+    color: var(--color-tuscan-yellow);
+}
+[data-theme="light"] .pl-equip-agreement-note--warn {
+    color: #8a5a00;
+}

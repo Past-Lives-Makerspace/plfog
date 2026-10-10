@@ -1,5 +1,9 @@
 {% extends "hub/base.html" %}
+{% load static %}
 {% block title %}{{ equipment.name }}{% endblock %}
+{% block extra_head %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/equipment-agreement.css' %}">
+{% endblock %}
 
 {% block content %}
 <div style="margin-bottom:1rem;">
@@ -93,6 +97,10 @@
   </div>
   {% endif %}
 </div>
+{% elif access_state == "needs_agreement" %}
+<div class="hub-card pl-equip-banner pl-equip-banner--warn" data-equip-agree-banner>
+  <p class="pl-equip-banner__text">One more step: agree to the usage agreement under Book a Time, then pick a time.</p>
+</div>
 {% else %}
 <div class="hub-card pl-equip-banner pl-equip-banner--muted">
   <p class="hub-text-muted" style="margin:0;">Your membership needs to be active to reserve equipment.</p>
@@ -106,6 +114,11 @@
 
 {# ── Schedule + Book a Time + reservation lists — one HTMX-swapped unit (spec §7.3 items 3 to 6). ── #}
 {% include "hub/partials/equipment_schedule.html" %}
+
+{# The usage agreement modal (#734), outside the HTMX-swapped schedule so a swap never closes it. #}
+{% if agreement_form %}
+{% include "components/modal.html" with modal_id="equip-agreement" modal_title="Usage Agreement" modal_size="lg" modal_body_include="hub/partials/_equipment_agreement.html" %}
+{% endif %}
 
 {# ── Staff — who looks after this equipment, the guild page's Guild Staff markup (#615). ── #}
 {% if equipment.staff_roster %}

@@ -464,6 +464,7 @@ urlpatterns = [
     # Reservations (PR 2): the HTMX schedule partial, instant booking, cancels, hours.
     path("equipment/<slug:slug>/schedule/", equipment_views.hub_equipment_schedule, name="hub_equipment_schedule"),
     path("equipment/<slug:slug>/reserve/", equipment_views.hub_equipment_reserve, name="hub_equipment_reserve"),
+    path("equipment/<slug:slug>/agree/", equipment_views.hub_equipment_agree, name="hub_equipment_agree"),
     path(
         "equipment/<slug:slug>/orientation/request-custom/",
         equipment_views.hub_equipment_orientation_request_custom,

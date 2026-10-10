@@ -124,6 +124,15 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
   </div>
   {% endif %}
 
+  {# ── The usage agreement (#734): where Book a Time would be, until the member agrees to this version. ── #}
+  {% if awaits_agreement %}
+  <div class="hub-card pl-equip-agree" data-equip-agree-prompt>
+    <h2 class="hub-detail-label pl-equip-agree__title">Book a Time</h2>
+    <p class="pl-equip-agree__lead">Before your first reservation, read and agree to the {{ equipment.name }} usage agreement. You agree once. If it changes, we ask again.</p>
+    <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-modal', 'equip-agreement')" data-equip-agree-open>Agree to the usage agreement</button>
+  </div>
+  {% endif %}
+
   {# ── Your reservations here — upcoming rows + manager-cancelled notices until they age out. ── #}
   {% if my_reservations %}
   <div class="hub-card" style="padding:1.25rem 1.5rem;">
