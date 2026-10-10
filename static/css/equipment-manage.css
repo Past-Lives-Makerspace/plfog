@@ -95,7 +95,7 @@
 }
 .pl-equip-way {
     position: relative;
-    padding: 1rem;
+    padding: 0.5rem 0.75rem;
     border: 1px solid var(--hub-border);
     border-radius: 8px;
     background: var(--hub-surface);
@@ -114,20 +114,53 @@
     text-transform: uppercase;
     color: var(--hub-text-muted);
 }
+/* Collapsed, a way is this one line: "Way N", its chosen orientations as read only pills, and Edit. */
 .pl-equip-way__head {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
-    margin: 0 0 0.25rem;
 }
 .pl-equip-way__name {
     font-weight: 700;
     color: var(--hub-text);
+    white-space: nowrap;
 }
 .pl-equip-way__summary {
+    flex: 1 1 auto;
+    min-width: 0;
     font-size: 0.85rem;
     color: var(--hub-text-muted);
+}
+.pl-equip-way__chosen {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    min-width: 0;
+}
+/* A chosen orientation, read only: the editor's pill without its checkbox, at a summary's size. */
+.pl-equip-way__chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.3rem;
+    padding: 0.15rem 0.6rem;
+    border: 1px solid var(--color-tuscan-yellow);
+    border-radius: 999px;
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+    font-size: 0.8rem;
+}
+.pl-equip-way__chip-meta,
+.pl-equip-way__none {
+    color: var(--hub-text-muted);
+    font-size: 0.8rem;
+}
+.pl-equip-way__edit {
+    margin-left: auto;
+}
+.pl-equip-way__body {
+    margin-top: 0.5rem;
 }
 .pl-equip-ways__add {
     display: flex;
