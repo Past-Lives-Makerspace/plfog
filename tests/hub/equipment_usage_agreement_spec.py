@@ -215,6 +215,17 @@ def describe_agree_endpoint():
         assert _messages(response) == ["Check the box to agree to the usage agreement."]
         assert not EquipmentAgreementAcceptance.objects.filter(member=user.member).exists()
 
+    def it_answers_a_crafted_fingerprint_with_a_message_not_a_500(client: Client):
+        # The checkbox passes and only the fingerprint fails: the message comes from that field.
+        user = _login(client, "ua_crafted")
+        equipment = _open_tool(usage_agreement_text=TEXT)
+        response = client.post(
+            reverse("hub_equipment_agree", args=[equipment.slug]), {"agree": "on", "fingerprint": "a\x00b"}
+        )
+        assert response.status_code == 302
+        assert _messages(response) == ["Null characters are not allowed."]
+        assert not EquipmentAgreementAcceptance.objects.filter(member=user.member).exists()
+
     def it_refuses_a_viewer_with_no_member_profile(client: Client):
         user = _login(client, "ua_no_member")
         user.member.delete()

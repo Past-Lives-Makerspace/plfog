@@ -6443,6 +6443,7 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
     The Availability card's "Active" switch is ``reservations_open``, the inverse of
     ``Equipment.is_closed`` (#731): on means members can reserve. The column keeps its
     name, so the form flips it on the way in and on the way out rather than migrating.
+    The second switch, "Needs approval", is ``Equipment.requires_approval`` itself (#748).
     """
 
     reservations_open = forms.BooleanField(
@@ -6458,6 +6459,7 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
         model = Equipment
         fields = [
             "closed_message",
+            "requires_approval",
             "min_duration_minutes",
             "max_duration_minutes",
             "max_advance_days",
@@ -6465,6 +6467,7 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
         ]
         labels = {
             "closed_message": "Closed message",
+            "requires_approval": "Needs approval",
             "min_duration_minutes": "Shortest reservation (minutes)",
             "max_duration_minutes": "Longest reservation (minutes)",
             "max_advance_days": "Booking horizon (days)",
@@ -6475,6 +6478,9 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
         super().__init__(*args, **kwargs)
         self.fields["reservations_open"].initial = not self.instance.is_closed
         self.fields["closed_message"].help_text = "Members see this while the equipment is not active."
+        self.fields[
+            "requires_approval"
+        ].help_text = "Every reservation waits for a manager to approve it before it is booked."
         self.fields["min_duration_minutes"].help_text = "Half hour steps."
         self.fields["max_duration_minutes"].help_text = "Half hour steps."
         self.fields["max_advance_days"].help_text = ""
@@ -6532,7 +6538,7 @@ class EquipmentReservationForm(forms.Form):
 
 
 class EquipmentManagerCancelForm(forms.Form):
-    """The manage panel's reason-required cancel (spec §7.4)."""
+    """The manage panel's reason-required cancel (spec §7.4), and the reason a decline needs (#748)."""
 
     # CharField strips by default, so a whitespace-only reason already fails required —
     # no extra clean needed; the model's ValueError guard stays the loud backstop.

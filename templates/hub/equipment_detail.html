@@ -2,6 +2,7 @@
 {% load static %}
 {% block title %}{{ equipment.name }}{% endblock %}
 {% block extra_head %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/equipment-schedule.css' %}">
 <link rel="stylesheet" href="{% static 'css/equipment-detail.css' %}">
 <link rel="stylesheet" href="{% static 'css/equipment-agreement.css' %}">
 {% endblock %}

@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0220_equipment_unlocking_way"),
+        ("membership", "0221_equipment_requires_approval"),
     ]
 
     operations = [

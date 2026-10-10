@@ -4,7 +4,8 @@ so it reads row (a hub.reservation_bookings.ReservationRow) from the table loop.
 only when the row's flag says its endpoint would take it. Staff rows (row.can_manage) get the staff
 menu in groups (Look, Money, Stop) with a divider only between non empty groups; the viewer's own
 row elsewhere gets the member menu. Confirms open the row's modal in reservation_booking_modals.html;
-Refund Late Fee loads its form into the shared refund modal.
+Refund Late Fee loads its form into the shared refund modal. A request awaiting approval (#748) shows
+Approve (posts at once, no confirm) and Decline Reservation in place of Cancel Reservation.
 {% endcomment %}
 {% with r=row.reservation pk=row.reservation.pk|stringformat:"s" %}
 <a href="{% url 'hub_equipment_detail' r.equipment.slug %}" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">View Equipment</a>
@@ -26,6 +27,18 @@ Refund Late Fee loads its form into the shared refund modal.
         hx-get="{% url 'billing_late_fee_refund_form' row.late_fee.pk %}" hx-target="#refund-modal-body" hx-swap="innerHTML"
         @click="closeAndRefocus(); document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">Refund Late Fee</button>
 {% endif %}
+{% endif %}
+{% if row.can_approve %}
+<div class="pl-row-menu__divider" role="separator"></div>
+<form method="post" action="{% url 'hub_equipment_reservation_approve' r.equipment.slug r.pk %}">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ bookings_next }}">
+  <button type="submit" class="pl-row-menu__item" role="menuitem" data-approve-menu-item>Approve</button>
+</form>
+{% endif %}
+{% if row.can_decline %}
+<div class="pl-row-menu__divider" role="separator"></div>
+<button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'decline-res-{{ pk }}')">Decline Reservation</button>
 {% endif %}
 {% if row.can_cancel %}
 <div class="pl-row-menu__divider" role="separator"></div>

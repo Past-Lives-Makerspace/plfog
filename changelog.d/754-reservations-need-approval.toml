@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-09"
+title = "Equipment can require a manager's approval for reservations"
+changes = [
+  "Managers turn on Needs approval on the Hours and Limits tab. From then on each reservation waits for a manager to approve or decline it, and the time is held while they decide.",
+  "You get an email when you send a request, when it is approved (with the calendar invite) and when it is declined (with the reason).",
+  "Managers see what is waiting at the top of the Reservations tab and in the Bookings tab, with Approve and Decline right there.",
+]

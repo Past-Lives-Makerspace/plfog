@@ -476,6 +476,16 @@ urlpatterns = [
         name="hub_equipment_reservation_cancel",
     ),
     path(
+        "equipment/<slug:slug>/reservations/<int:pk>/approve/",
+        equipment_views.hub_equipment_reservation_approve,
+        name="hub_equipment_reservation_approve",
+    ),
+    path(
+        "equipment/<slug:slug>/reservations/<int:pk>/decline/",
+        equipment_views.hub_equipment_reservation_decline,
+        name="hub_equipment_reservation_decline",
+    ),
+    path(
         "equipment/<slug:slug>/manage/hours/",
         equipment_views.hub_equipment_hours_save,
         name="hub_equipment_hours_save",

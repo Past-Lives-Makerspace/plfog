@@ -13,7 +13,7 @@ refund-done, which reloads the body below and closes the refund modal.
   <div data-bookings-body hx-get="{{ bookings_refresh_url }}" hx-trigger="refund-done from:body" hx-select="[data-bookings-body]" hx-swap="outerHTML">
     <div class="pl-equip-chips pl-bookings__chips" role="group" aria-label="Which reservations">
       {% for chip in chips %}
-      <a href="{{ chip.url }}" class="pl-equip-chip{% if chip.key == show %} pl-equip-chip--active{% endif %}" data-bookings-chip="{{ chip.key }}"{% if chip.key == show %} aria-current="true"{% endif %}>{{ chip.label }}</a>
+      <a href="{{ chip.url }}" class="pl-equip-chip{% if chip.key == show %} pl-equip-chip--active{% endif %}" data-bookings-chip="{{ chip.key }}"{% if chip.key == show %} aria-current="true"{% endif %}>{{ chip.label }}{% if chip.count %}<span class="pl-equip-chip__count" data-bookings-chip-count>{{ chip.count }}</span>{% endif %}</a>
       {% endfor %}
     </div>
 
@@ -103,10 +103,12 @@ refund-done, which reloads the body below and closes the refund modal.
           <td{% if is_staff_view %} data-label="Status"{% endif %} class="pl-bookings-table__status">
             {% if r.is_cancelled_by_manager %}
             <span class="hub-pill hub-pill--neutral" data-reservation-status="cancelled-by-manager">Cancelled by a manager</span>
+            {% elif row.is_undecided %}
+            <span class="hub-pill hub-pill--neutral" data-reservation-status="not-decided">Not decided</span>
             {% elif r.own_manager_cancel_label %}
             <span class="hub-pill hub-pill--neutral" data-reservation-status="manager-cancelled{% if r.late_fee_waived %}-fee-waived{% endif %}">{{ r.own_manager_cancel_label }}</span>
             {% else %}
-            <span class="hub-pill {% if r.status == 'confirmed' %}hub-pill--ok{% else %}hub-pill--neutral{% endif %}" data-reservation-status="{{ r.status }}">{{ r.get_status_display }}</span>
+            <span class="hub-pill {% if r.status == 'confirmed' %}hub-pill--ok{% elif r.status == 'pending_approval' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-reservation-status="{{ r.status }}">{{ r.get_status_display }}</span>
             {% endif %}
             {% if row.fee_unpaid %}<span class="hub-pill hub-pill--danger" data-booking-fee>Fee unpaid</span>{% elif row.late_fee %}<span class="hub-pill hub-pill--neutral" data-booking-fee>Fee {{ row.late_fee.get_status_display|lower }}</span>{% endif %}
           </td>
@@ -133,7 +135,9 @@ refund-done, which reloads the body below and closes the refund modal.
     {% include "components/table_pagination.html" with page=page base_params=base_params %}
     {% else %}
     <div class="hub-card pl-bookings__empty" data-bookings-empty>
-      {% if is_staff_view %}
+      {% if show == "needs_approval" %}
+      <p class="hub-text-muted">Nothing is waiting for approval.</p>
+      {% elif is_staff_view %}
       {% if bookings_is_filtered %}
       <p class="hub-text-muted">Nothing matches those filters. <a href="{{ clear_filters_url }}">Clear filters</a></p>
       {% else %}

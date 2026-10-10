@@ -139,6 +139,7 @@ def _orientation_busy_items(equipment: Equipment, day_start: datetime, day_end: 
                 "ends_at": slot.ends_at,
                 "label": f"Orientation · {names}",
                 "reservation": None,
+                "pending": False,
             }
         )
     return items
@@ -151,7 +152,8 @@ def _day_timeline(equipment: Equipment, selected_day: date) -> list[dict[str, An
     (reserver name + purpose are shown to every logged-in member, the locked
     privacy decision), managers' blocks ("Held · reason", #657) and booked
     orientation slots ("Orientation · Sam R.", the same visibility norm). Busy
-    segments carry ``kind`` so the template can tell them apart.
+    segments carry ``kind`` so the template can tell them apart; a request awaiting
+    approval (#748) is a reservation that also carries ``pending``.
     """
     day_start = timezone.make_aware(datetime.combine(selected_day, time.min))
     day_end = day_start + timedelta(days=1)
@@ -162,6 +164,7 @@ def _day_timeline(equipment: Equipment, selected_day: date) -> list[dict[str, An
             "ends_at": reservation.ends_at,
             "label": f"Held · {reservation.purpose}" if reservation.is_block else "",
             "reservation": None if reservation.is_block else reservation,
+            "pending": reservation.is_awaiting_approval,
         }
         for reservation in EquipmentReservation.objects.overlapping(equipment, day_start, day_end).select_related(
             "member"
@@ -193,6 +196,7 @@ def _day_timeline(equipment: Equipment, selected_day: date) -> list[dict[str, An
                     "ends_at": segment_end,
                     "reservation": item["reservation"],
                     "label": item["label"],
+                    "pending": item["pending"],
                 }
             )
         if cursor < window_end:
@@ -280,12 +284,15 @@ def _schedule_context(
             equipment.reservations.reservations()
             .filter(member=member, ends_at__gt=now)
             .exclude(status=EquipmentReservation.Status.CANCELLED, cancelled_by=member)
+            .select_related("cancelled_by")  # a declined row names the manager (#748)
             .order_by("starts_at")
         )
         for reservation in my_reservations:
-            # The cancel modal's fee line, only while a cancel right now would be late (#456).
+            # The cancel modal's fee line, only while a cancel right now would be late (#456). A request
+            # awaiting approval was never booked, so cancelling it never costs anything (#748).
+            charges = not fee_exempt and not reservation.is_awaiting_approval
             reservation.late_cancel_warning = (
-                cancel_sentence(policy) if not fee_exempt and policy.is_late(reservation.starts_at, now=now) else ""
+                cancel_sentence(policy) if charges and policy.is_late(reservation.starts_at, now=now) else ""
             )
         unpaid_late_fee = unpaid_fee_for(member)
     return {
@@ -312,6 +319,9 @@ def _schedule_context(
         # Members' bookings only; a manager's block shows on the timeline as held time instead (#657).
         "upcoming_reservations": list(equipment.reservations.upcoming().reservations().select_related("member")[:20]),
         "manages": manages,
+        # Book a Time asks for a request rather than a booking while the equipment needs approval (#748).
+        # A manager of this equipment books instantly (reserve() skips the wait for them), so their copy says so.
+        "needs_approval": equipment.requires_approval and not fee_exempt,
         # Under the Book a Time form and appended to its Reserve prompt; "" when no fee applies.
         "late_cancel_sentence": "" if fee_exempt else booking_sentence(policy),
         # The block until paid (#456): the requirements banner shows it with a Pay button.
@@ -377,6 +387,7 @@ def reservation_cards(member: Member | None, queryset: EquipmentQuerySet) -> lis
             "hours_rules",
             Prefetch(
                 "reservations",
+                # In use now: confirmed rows only, like Equipment.availability_line (#748).
                 queryset=EquipmentReservation.objects.confirmed().filter(starts_at__lte=now, ends_at__gt=now),
                 to_attr="current_reservations",
             ),
@@ -680,7 +691,8 @@ def hub_equipment_agree(request: HttpRequest, slug: str) -> HttpResponse:
         return redirect(detail_url)
     form = EquipmentAgreementForm(request.POST)
     if not form.is_valid():
-        messages.error(request, str(form.errors["agree"][0]))
+        # The first error of any field: a crafted fingerprint can fail where "agree" passed.
+        messages.error(request, next(iter(form.errors.values()))[0])
         return redirect(detail_url)
     try:
         equipment.record_agreement(
@@ -793,6 +805,9 @@ def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
         return response
     local_start = timezone.localtime(reservation.starts_at)
     response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=local_start.date())
+    if reservation.is_awaiting_approval:
+        trigger_toast(response, "Request sent. We'll email you when a manager decides.", "success")
+        return response
     trigger_toast(response, f"Reserved. See you {local_start:%A}.", "success")
     return response
 
@@ -1067,6 +1082,7 @@ def _render_manage(
     orientation_ctx = _orientation_tab_context(request, equipment)
     if agreement_member_count is None:
         agreement_member_count = equipment.current_agreement_member_count()
+    approvals = list(equipment.reservations.reservations().awaiting_approval().select_related("member"))
     return render(
         request,
         "hub/equipment_manage.html",
@@ -1100,10 +1116,14 @@ def _render_manage(
                 acting_member=_get_member(request),
                 lock_to_acting=orientation_ctx["slot_form_locked"],
             ),
-            # The hub's standard Paginator + table_pagination partial, capped at 25 rows.
+            # The hub's standard Paginator + table_pagination partial, capped at 25 rows. Confirmed rows only:
+            # a request awaiting approval lists in Needs Approval until it is decided (#748).
             "manage_reservations": Paginator(
-                equipment.reservations.upcoming().reservations().select_related("member"), 25
+                equipment.reservations.upcoming().confirmed().reservations().select_related("member"), 25
             ).get_page(request.GET.get("page", 1)),
+            # The Needs Approval card (#748), shown while the switch is on or anything still waits.
+            "manage_approvals": approvals,
+            "show_approvals_card": equipment.requires_approval or bool(approvals),
             # The Block Time card and its Upcoming Blocks list (#657).
             "block_form": block_form if block_form is not None else EquipmentBlockForm(),
             "manage_blocks": list(equipment.reservations.upcoming().blocks().select_related("member")),
@@ -1163,6 +1183,73 @@ def hub_equipment_block_remove(request: HttpRequest, slug: str, pk: int) -> Http
     else:
         messages.success(request, "Block removed. The time is open again.")
     return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations")
+
+
+def _first_name(member: Member) -> str:
+    """The first word of a member's name, the way a toast names them ("Approved. Jane has been emailed.")."""
+    return member.display_name.split(" ", 1)[0]
+
+
+def _decide_target(request: HttpRequest, slug: str, pk: int) -> tuple[EquipmentReservation, Member, str] | HttpResponse:
+    """The shared front half of approve and decline (#748): the row, the acting manager and where to land.
+
+    Refuses anyone who cannot manage the equipment with a 403, before anything is read
+    about the row, through ``can_manage_equipment`` like every manage action. Lands on a
+    safe posted ``next`` (the Bookings tab) or the manage page's Reservations tab.
+    """
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    member = _get_member(request)
+    if member is None:
+        return HttpResponse("Forbidden", status=403)
+    forbidden = _require_can_manage(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    reservation = get_object_or_404(
+        EquipmentReservation.objects.select_related("member", "equipment"),
+        pk=pk,
+        equipment=equipment,
+        kind=EquipmentReservation.Kind.RESERVATION,
+    )
+    back = _safe_next(request, f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations")
+    return reservation, member, back
+
+
+@login_required
+@require_POST
+def hub_equipment_reservation_approve(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
+    """POST — approve a request awaiting approval (#748); no confirm, a toast names who was emailed."""
+    target = _decide_target(request, slug, pk)
+    if isinstance(target, HttpResponse):
+        return target
+    reservation, member, back = target
+    try:
+        reservation.approve(member)
+    except EquipmentError as exc:
+        messages.error(request, str(exc))
+        return redirect(back)
+    messages.success(request, f"Approved. {_first_name(reservation.member)} has been emailed.")
+    return redirect(back)
+
+
+@login_required
+@require_POST
+def hub_equipment_reservation_decline(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
+    """POST — decline a request awaiting approval (#748) with the reason the member will see; frees the time."""
+    target = _decide_target(request, slug, pk)
+    if isinstance(target, HttpResponse):
+        return target
+    reservation, member, back = target
+    form = EquipmentManagerCancelForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Please tell the member why.")
+        return redirect(back)
+    try:
+        reservation.decline(member, reason=form.cleaned_data["reason"])
+    except EquipmentError as exc:
+        messages.error(request, str(exc))
+        return redirect(back)
+    messages.success(request, f"Declined. {_first_name(reservation.member)} has been emailed.")
+    return redirect(back)
 
 
 @login_required

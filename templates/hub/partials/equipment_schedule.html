@@ -55,12 +55,15 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
     <h3 class="hub-detail-label" style="margin:1rem 0 0.5rem;">{{ selected_day|date:"l, F j" }}</h3>
     <ul class="pl-equip-timeline">
       {% for segment in timeline %}
-      <li class="pl-equip-slot {% if segment.is_free %}pl-equip-slot--free{% elif segment.kind == "orientation" %}pl-equip-slot--orientation{% else %}pl-equip-slot--busy{% endif %}"{% if segment.kind == "block" %} data-held-slot{% endif %}>
+      <li class="pl-equip-slot {% if segment.is_free %}pl-equip-slot--free{% elif segment.kind == "orientation" %}pl-equip-slot--orientation{% else %}pl-equip-slot--busy{% endif %}{% if segment.pending %} pl-equip-slot--pending{% endif %}"{% if segment.kind == "block" %} data-held-slot{% endif %}{% if segment.pending %} data-pending-slot{% endif %}>
         <span class="pl-equip-slot__when">{{ segment.starts_at|time:"g:i A" }} to {{ segment.ends_at|time:"g:i A" }}</span>
         {% if segment.is_free %}
         <span class="pl-equip-slot__label">Open</span>
         {% elif segment.kind == "orientation" or segment.kind == "block" %}
         <span class="pl-equip-slot__label">{{ segment.label }}</span>
+        {% elif segment.pending %}
+        {# A request awaiting approval (#748) holds the time: the member's name and where it stands. #}
+        <span class="pl-equip-slot__label">{{ segment.reservation.member.display_name }} · Awaiting approval</span>
         {% else %}
         <span class="pl-equip-slot__label">{{ segment.reservation.member.display_name }}{% if segment.reservation.purpose %} · {{ segment.reservation.purpose }}{% endif %}</span>
         {% endif %}
@@ -79,6 +82,9 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
   {% if has_hours and not blockers %}
   <div class="hub-card" style="padding:1.25rem 1.5rem;">
     <h2 class="hub-detail-label" style="margin:0 0 0.75rem;">Book a Time</h2>
+    {% if needs_approval %}
+    <p class="pl-equip-book__terms" data-approval-terms>A manager approves each reservation before it is booked.</p>
+    {% endif %}
     {% if starts %}
     {{ durations_data|json_script:"equip-durations-data" }}
     <form id="equip-reserve-form" method="post" action="{% url 'hub_equipment_reserve' equipment.slug %}"
@@ -117,7 +123,14 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
     {% if late_cancel_sentence %}
     <p class="hub-text-muted pl-equip-book-note">{{ late_cancel_sentence }}</p>
     {% endif %}
+    {% if needs_approval %}
+    {# A request (#748): the time is held, not booked, until a manager decides. #}
+    {% with request_message="A manager approves each reservation on the "|add:equipment.name|add:". We hold the time for you and email you when they decide. You can cancel any time." %}
+    {% include "components/confirm_modal.html" with confirm_id="equip-reserve-confirm" confirm_title="Request this time?" confirm_message=request_message confirm_button_text="Send request" confirm_button_style="primary" confirm_js="document.getElementById('equip-reserve-form').requestSubmit();" %}
+    {% endwith %}
+    {% else %}
     {% include "components/confirm_modal.html" with confirm_id="equip-reserve-confirm" confirm_title="Reserve this time?" confirm_message="Your reservation confirms right away. If plans change, you can cancel and the time opens up for someone else. "|add:late_cancel_sentence confirm_button_text="Reserve" confirm_button_style="primary" confirm_js="document.getElementById('equip-reserve-form').requestSubmit();" %}
+    {% endif %}
     {% else %}
     <p class="hub-text-muted" style="margin:0;">No open times this day. Try another day.</p>
     {% endif %}
@@ -139,6 +152,29 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
     <h2 class="hub-detail-label" style="margin:0 0 0.75rem;">Your Reservations Here</h2>
     <ul class="pl-equip-res-list">
       {% for reservation in my_reservations %}
+      {% if reservation.is_awaiting_approval or reservation.is_declined %}
+      {# A request awaiting approval or declined (#748): the when line with a state line under it. #}
+      <li class="pl-equip-res-row" data-my-reservation-state="{{ reservation.status }}">
+        <span class="pl-equip-res-row__main">
+          <span>
+            {{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}
+            {% if reservation.purpose %}<span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}
+          </span>
+          {% if reservation.is_declined %}
+          <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--declined">Declined</span> {{ reservation.cancelled_by.display_name }}: {{ reservation.cancelled_reason }}</span>
+          {% else %}
+          <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--warn">Awaiting approval</span> A manager will approve or decline it.</span>
+          {% endif %}
+        </span>
+        {% if reservation.is_awaiting_approval %}
+        <span class="pl-equip-res-row__actions">
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                  @click="$dispatch('open-confirm', 'cancel-my-res-{{ reservation.pk }}')">Cancel</button>
+        </span>
+        {% include "hub/partials/_equipment_my_cancel_modal.html" %}
+        {% endif %}
+      </li>
+      {% else %}
       <li class="pl-equip-res-row">
         <span>
           {{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}
@@ -149,14 +185,10 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
         {% elif reservation.status == "confirmed" %}
         <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                 @click="$dispatch('open-confirm', 'cancel-my-res-{{ reservation.pk }}')">Cancel</button>
-        {% url 'hub_equipment_reservation_cancel' equipment.slug reservation.pk as cancel_url %}
-        {# hx-vals keeps the re-rendered strip on the week and day the member was viewing. #}
-        {# A late cancel (#456) appends the fee line; the view then sends the member to Stripe. #}
-        {% with rpks=reservation.pk|stringformat:"s" cancel_vals='{"week": "'|add:week_offset_str|add:'", "day": "'|add:selected_day_str|add:'"}' %}
-        {% include "components/confirm_modal.html" with confirm_id="cancel-my-res-"|add:rpks confirm_title="Cancel your reservation?" confirm_message="The time opens up for someone else. You can book again any time. "|add:reservation.late_cancel_warning confirm_button_text="Cancel reservation" confirm_hx_post=cancel_url confirm_hx_target="#equipment-schedule" confirm_hx_vals=cancel_vals %}
-        {% endwith %}
+        {% include "hub/partials/_equipment_my_cancel_modal.html" %}
         {% endif %}
       </li>
+      {% endif %}
       {% endfor %}
     </ul>
   </div>
@@ -170,7 +202,7 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
       {% for reservation in upcoming_reservations %}
       <li class="pl-equip-res-row">
         <span>{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</span>
-        <span>{{ reservation.member.display_name }}{% if reservation.purpose %} <span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}</span>
+        <span>{{ reservation.member.display_name }}{% if reservation.purpose %} <span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}{% if reservation.is_awaiting_approval %} <span class="hub-text-muted">· Awaiting approval</span>{% endif %}</span>
       </li>
       {% endfor %}
     </ul>
