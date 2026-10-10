@@ -77,7 +77,9 @@ def describe_retry_discord_event_pushes():
         # A monthly evening series pushed as a rule before #755 (a Discord id, no pushed
         # occurrence): its cadence has no rule now, so the tick re-pushes it and the push
         # replaces the Discord series with its next single occurrence. A noon monthly series
-        # and a weekly evening series still map to a rule and are left alone.
+        # and a weekly evening series still map to a rule and are left alone, and so is a
+        # synced one-off with a Discord id: it has no rule because it is not a series, and
+        # re-PATCHing every one-off each tick would be most of the table.
         _turn_sync_on()
         evening = timezone.make_aware(datetime(2026, 8, 7, 18, 0))
         noon = timezone.make_aware(datetime(2026, 8, 7, 12, 0))
@@ -91,6 +93,7 @@ def describe_retry_discord_event_pushes():
         for recurrence, start, discord_id in [
             (CommunityEvent.Recurrence.MONTHLY, noon, "series2"),
             (CommunityEvent.Recurrence.WEEKLY, evening, "series3"),
+            (CommunityEvent.Recurrence.NONE, evening, "one1"),
         ]:
             CommunityEventFactory(
                 recurrence=recurrence,

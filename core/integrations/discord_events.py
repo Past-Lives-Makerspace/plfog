@@ -392,6 +392,27 @@ def _mark(event: CommunityEvent, state: str, error: str) -> None:
         event.discord_synced_at = timezone.now()
 
 
+def _retire_native_series(client: DiscordScheduledEventsClient, event: CommunityEvent) -> bool:
+    """Delete the Discord series an event holds under a native rule, ahead of its re-push as a
+    single occurrence. True once the series is gone (deleted, or already a 404).
+
+    On any other failure the row is marked FAILED with the series id **kept**, so the retry
+    cron runs the whole push again next tick, rather than a wrong series orphaned on Discord
+    with no trace of which one it was; returns False so the caller stops.
+    """
+    from membership.models import CommunityEvent as CE
+
+    try:
+        client.delete_event(client.server_id, event.discord_event_id)
+    except DiscordEventsError as exc:
+        if "404" not in str(exc):
+            logger.warning("Discord series %s delete failed for event %s: %s", event.discord_event_id, event.pk, exc)
+            _mark(event, CE.SyncState.FAILED, f"Old series {event.discord_event_id}: {exc}"[:_SYNC_ERROR_MAX])
+            return False
+    event.discord_event_id = ""
+    return True
+
+
 def push_community_event(event: CommunityEvent, *, actor: User | None = None) -> None:
     """Create or update the event as a Discord Guild Scheduled Event; set the sync fields.
 
@@ -420,6 +441,12 @@ def push_community_event(event: CommunityEvent, *, actor: User | None = None) ->
 
     occurrence: datetime | None = None
     if event.recurrence != CE.Recurrence.NONE and _recurrence_rule_for(event) is None:
+        if event.discord_event_id and event.discord_pushed_occurrence is None:
+            # A native series became unmappable (an edit moved a monthly event past 5 PM, or
+            # the map tightened). Left alone, the old series keeps showing its wrong dates
+            # beside the new single instance, so it goes first.
+            if not _retire_native_series(client, event):
+                return
         occurrence = _next_occurrence(event)
         if occurrence is None:
             # Nothing in the horizon yet — record SYNCED with no remote event; the nightly
@@ -428,17 +455,6 @@ def push_community_event(event: CommunityEvent, *, actor: User | None = None) ->
             _mark(event, CE.SyncState.SYNCED, "")
             return
         if event.discord_event_id and occurrence != event.discord_pushed_occurrence:
-            if event.discord_pushed_occurrence is None:
-                # A native series became unmappable (an edit moved a monthly event past
-                # 5 PM, or the mapping tightened). Left alone, the old series keeps showing
-                # its wrong dates beside the new single instance, so it goes first. Best
-                # effort: a failed delete is a stale remote series, not a failed push.
-                try:
-                    client.delete_event(client.server_id, event.discord_event_id)
-                except DiscordEventsError:
-                    logger.warning(
-                        "Discord series delete failed for event %s; leaving a stale remote series.", event.pk
-                    )
             # The previously-pushed single occurrence has rolled forward: the old Discord
             # event auto-completed and cannot be PATCHed into the future — create a fresh one.
             event.discord_event_id = ""

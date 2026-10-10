@@ -194,7 +194,10 @@ def describe_push_community_event():
             assert event.discord_event_id == "single1"
             assert event.discord_pushed_occurrence is not None
 
-        def it_still_pushes_the_single_occurrence_when_the_old_series_delete_fails():
+        def it_keeps_the_old_series_and_fails_when_its_delete_fails():
+            # The id must survive a failed delete, or the wrong series is orphaned on Discord
+            # with nothing recording which one. FAILED puts the row in the retry cron's set,
+            # which runs the delete and the insert again next tick.
             _enable_config()
             start = timezone.make_aware(datetime(2026, 8, 7, 18, 0))
             event = CommunityEventFactory(
@@ -205,7 +208,28 @@ def describe_push_community_event():
                 discord_sync_state=CommunityEvent.SyncState.SYNCED,
                 discord_pushed_occurrence=None,
             )
-            delete = MagicMock(side_effect=de.DiscordEventsError("gone"))
+            delete = MagicMock(side_effect=de.DiscordEventsError("Discord API 429: rate limited"))
+            client = _fake_client(delete_event=delete)
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                event.push_to_discord()  # the model path, which saves what the cron reads
+            client.insert_event.assert_not_called()
+            assert event.discord_event_id == "series1"
+            assert event.discord_sync_state == CommunityEvent.SyncState.FAILED
+            assert "series1" in event.discord_sync_error
+            assert event in CommunityEvent.objects.needs_discord_push()
+
+        def it_treats_an_already_deleted_series_as_gone():
+            _enable_config()
+            start = timezone.make_aware(datetime(2026, 8, 7, 18, 0))
+            event = CommunityEventFactory(
+                recurrence=CommunityEvent.Recurrence.MONTHLY,
+                starts_at=start,
+                ends_at=start + timedelta(hours=4),
+                discord_event_id="series1",
+                discord_sync_state=CommunityEvent.SyncState.SYNCED,
+                discord_pushed_occurrence=None,
+            )
+            delete = MagicMock(side_effect=de.DiscordEventsError("Discord API 404: Unknown Guild Scheduled Event"))
             insert = MagicMock(return_value={"id": "single1"})
             client = _fake_client(insert_event=insert, delete_event=delete)
             with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
