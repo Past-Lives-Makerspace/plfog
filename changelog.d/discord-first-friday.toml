@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-09"
+title = "Monthly evening events keep their day in Discord"
+changes = [
+  "A monthly event that meets in the evening, like the First Friday Art Walk, showed up in Discord's event list on the wrong week from its second month on. Discord now shows its next date, and the portal posts the following one after each passes.",
+]

@@ -237,22 +237,35 @@ def _build_description(event: CommunityEvent) -> str:
 def _recurrence_rule_for(event: CommunityEvent) -> dict[str, Any] | None:
     """Map a :class:`CommunityEvent` recurrence to a Discord ``recurrence_rule`` dict.
 
-    Returns a dict for the cadences Discord natively expresses (weekly, monthly-by-weekday)
-    and ``None`` for a one-off event and for the cadences it cannot express
-    (every-2/3/6-months, twice-a-month, yearly-by-weekday) — a ``None`` routes the caller
-    to the single-next-occurrence fallback (§5.3). Weekday encoding is ``0=Monday … 6=Sunday``
-    (Python ``weekday()`` == Discord's convention). See the module docstring: these limits
-    are build-time-verify.
+    Returns a dict for the cadences Discord natively expresses (weekly, and monthly-by-weekday
+    when the start sits on the same calendar day in UTC as in Portland) and ``None`` for a
+    one-off event and for the cadences it cannot express (every-2/3/6-months, twice-a-month,
+    yearly-by-weekday, and a monthly evening series that crosses the UTC date line) — a
+    ``None`` routes the caller to the single-next-occurrence fallback (§5.3). Weekday encoding
+    is ``0=Monday … 6=Sunday`` (Python ``weekday()`` == Discord's convention). See the module
+    docstring: these limits are build-time-verify.
 
     Both halves of the rule are computed from the **UTC** start, never local time: Discord
-    evaluates ``by_weekday``/``by_n_weekday`` against the UTC ``scheduled_start_time`` it is
-    sent, and a Portland evening event from 5 PM PDT onward crosses the UTC date line, so
-    its UTC weekday is one day later than its local weekday. Sending the local weekday made
-    Discord snap the whole series a day early (a Thursday 5–8 PM meeting displayed as
-    Wednesday 5–8 PM). The monthly ordinal has the same failure mode (a 2nd-Friday evening
-    is a 2nd-Saturday in UTC), so it comes from the UTC calendar day too.
+    expands the rule on the UTC calendar from the ``scheduled_start_time`` it is sent (dateutil
+    rrule semantics, reproduced in the spec's ``_discord_series`` and checked against a live
+    series 2026-10-09), and a Portland evening event from 5 PM PDT (4 PM PST) onward crosses
+    the UTC date line, so its UTC weekday is one day later than its local weekday. Sending the
+    local weekday made Discord snap the whole series a day early (a Thursday 5–8 PM meeting
+    displayed as Wednesday 5–8 PM, 2026-07-28).
+
+    A **monthly** series that crosses the date line has no rule at all. Discord counts the nth
+    weekday on the UTC calendar, and "the nth Saturday in UTC" is not "the nth Friday in
+    Portland": the first Friday of August 2026 was the 7th, so its UTC instant was the *second*
+    Saturday, and the rule ``{"n": 2, "day": 5}`` put the First Friday Art Walk on the second
+    Friday of every later month (the live bug, 2026-10-09). Keeping the local ordinal with the
+    UTC weekday fails the other way, in every month that starts on a Saturday (July 31 for
+    August 2026, April 30 for May 2027). So such a series is unmappable and takes the fallback,
+    whose dates come from FOG's own local-calendar
+    :meth:`~membership.models.CommunityEvent.occurrences_in`.
     """
     from datetime import UTC
+
+    from django.utils import timezone
 
     from membership.models import CommunityEvent as CE
 
@@ -263,6 +276,8 @@ def _recurrence_rule_for(event: CommunityEvent) -> dict[str, Any] | None:
     if event.recurrence == CE.Recurrence.WEEKLY:
         return {"frequency": _FREQUENCY_WEEKLY, "interval": 1, "by_weekday": [weekday]}
     if event.recurrence == CE.Recurrence.MONTHLY:
+        if utc_start.date() != timezone.localdate(event.starts_at):
+            return None
         return {
             "frequency": _FREQUENCY_MONTHLY,
             "interval": 1,
@@ -406,6 +421,17 @@ def push_community_event(event: CommunityEvent, *, actor: User | None = None) ->
             _mark(event, CE.SyncState.SYNCED, "")
             return
         if event.discord_event_id and occurrence != event.discord_pushed_occurrence:
+            if event.discord_pushed_occurrence is None:
+                # A native series became unmappable (an edit moved a monthly event past
+                # 5 PM, or the mapping tightened). Left alone, the old series keeps showing
+                # its wrong dates beside the new single instance, so it goes first. Best
+                # effort: a failed delete is a stale remote series, not a failed push.
+                try:
+                    client.delete_event(client.server_id, event.discord_event_id)
+                except DiscordEventsError:
+                    logger.warning(
+                        "Discord series delete failed for event %s; leaving a stale remote series.", event.pk
+                    )
             # The previously-pushed single occurrence has rolled forward: the old Discord
             # event auto-completed and cannot be PATCHed into the future — create a fresh one.
             event.discord_event_id = ""
