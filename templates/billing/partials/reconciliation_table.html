@@ -26,8 +26,8 @@
 
 {% if reconciliation.unassigned_note_count %}
 <div class="pl-badge pl-badge--warn" style="display:block;padding:0.75rem 1rem;margin-bottom:1rem;border-radius:6px">
-  {{ reconciliation.unassigned_note_count }} payment(s) had no instructor or guild set, so that share went to Past Lives.
-  Set them on the class or booking to reattribute.
+  {{ reconciliation.unassigned_note_count }} payment(s) had no instructor, manager or guild set, so that share went to Past Lives.
+  Set them on the class, booking or equipment to reattribute.
 </div>
 {% endif %}
 {% if reconciliation.kept_share_count %}
@@ -50,7 +50,7 @@
         {% for payout in payouts_needing_attention %}
         <tr class="pl-recon-attn">
           <td>{{ payout.payee.display_name }}</td>
-          <td>{% if payout.registration %}{{ payout.registration.class_offering.title }}{% else %}{{ payout.orientation_booking.orientation_type.owner_name }} orientation{% endif %}</td>
+          <td>{% if payout.registration %}{{ payout.registration.class_offering.title }}{% elif payout.reservation %}{{ payout.reservation.equipment.name }} reservation{% else %}{{ payout.orientation_booking.orientation_type.owner_name }} orientation{% endif %}</td>
           <td>{% if payout.status == "failed" %}<span class="pl-status-badge pl-status-badge--fail">Transfer failed, retrying daily</span>{% elif payout.status == "pending" %}<span class="pl-status-badge pl-status-badge--fail" data-payout-unconfirmed>Not sent, Stripe unreachable</span>{% else %}<span class="pl-status-badge pl-status-badge--warn">Owed manually</span>{% if payout.counted_as_stripe_in %}<span class="pl-payouts-sub" data-counted-as-stripe>Counted as Sent through Stripe in the {{ payout.counted_as_stripe_in.period_start|date:"F Y" }} snapshot, so it was not paid. Pay it by hand.</span>{% endif %}{% endif %}</td>
           <td>{{ payout.failure_reason }}</td>
           <td class="text-right">{{ payout.amount_cents|cents_as_dollars }}</td>
@@ -83,7 +83,7 @@
           <th class="text-right">Voting</th>
           <th class="text-right">Total</th>
           {% endif %}
-          {% if kind.value == "instructor" or kind.value == "orientator" %}
+          {% if kind.is_producer %}
           <th class="text-right">Sent through Stripe</th>
           <th class="text-right">Owed manually</th>
           {% endif %}
@@ -106,7 +106,7 @@
           </td>
           <td class="text-right">{{ alloc.combined_cents|cents_as_dollars }}</td>
           {% endif %}
-          {% if kind.value == "instructor" or kind.value == "orientator" %}
+          {% if kind.is_producer %}
           <td class="text-right">{{ alloc.stripe_cents|cents_as_dollars }}</td>
           <td class="text-right">{{ alloc.manual_cents|cents_as_dollars }}</td>
           {% endif %}

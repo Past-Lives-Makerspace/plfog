@@ -187,7 +187,7 @@
 
     {# Pricing (#749): Free, Donation based or Hourly; only the picked option's boxes show, and the form saves only those. The tab's one Save sits at its bottom. #}
     <div class="hub-card pl-equip-panel" data-pricing-card
-         x-data="{ pricing: '{{ settings_form.pricing_value }}', rate: '{{ settings_form.hourly_rate.value|default_if_none:''|escapejs }}', exampleTotal() { const cents = Math.round(parseFloat(this.rate) * 100); return cents > 0 ? '$' + (Math.floor((cents * 90 + 30) / 60) / 100).toFixed(2) : ''; } }">
+         x-data="{ pricing: '{{ settings_form.pricing_value }}', payee: '{{ settings_form.payee.value|default_if_none:''|escapejs }}', rate: '{{ settings_form.hourly_rate.value|default_if_none:''|escapejs }}', exampleTotal() { const cents = Math.round(parseFloat(this.rate) * 100); return cents > 0 ? '$' + (Math.floor((cents * 90 + 30) / 60) / 100).toFixed(2) : ''; } }">
       <h2 class="hub-detail-label pl-equip-panel__title">Pricing</h2>
       <p class="hub-text-muted pl-equip-panel__intro">What members pay to reserve the {{ equipment.name }}. They see it before they book.</p>
       {% for error in settings_form.pricing.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
@@ -205,6 +205,22 @@
           <div class="pl-otype-pricing__field">{% include "components/form_field.html" with field=settings_form.donation_minimum %}</div>
           <div class="pl-otype-pricing__field">{% include "components/form_field.html" with field=settings_form.donation_suggested %}</div>
         </div>
+      </div>
+      {# Who gets paid (#749): one of this item's managers. Hidden under Free, but it still posts, so the pick is kept. #}
+      <div class="hub-form-group pl-equip-pricing__payee" x-show="pricing !== 'free'"{% if settings_form.pricing_value == "free" %} x-cloak{% endif %} data-pricing-payee>
+        {% include "components/form_field.html" with field=settings_form.payee field_tooltip=settings_form.payee_tooltip field_hint_off=True %}
+        <p class="pl-equip-pricing__warn" x-show="payee === ''"{% if settings_form.payee.value %} x-cloak{% endif %} data-payee-warn>No one is picked, so the whole payment stays with Past Lives. Pick a manager to pay them their share.</p>
+        {% if payee_status %}
+        <p class="pl-equip-pricing__payee-status" x-show="payee === '{{ payee_status.payee_pk }}'" data-payee-status="{{ payee_status.state }}">
+          {% if payee_status.state == "on" %}
+          <span class="pl-status-badge pl-status-badge--ok">Payouts on</span>
+          {% elif payee_status.state == "self_not_set_up" %}
+          <span class="pl-status-badge pl-status-badge--muted">Payouts not set up</span> <span>Your share is paid by hand at month end until you <a href="{% url 'hub_user_settings' %}?tab=payouts">set up payouts</a>.</span>
+          {% else %}
+          <span class="pl-status-badge pl-status-badge--muted">Payouts not set up</span> <span>{{ payee_status.first_name }} hasn't set up payouts yet, so their share is paid by hand at month end.</span>
+          {% endif %}
+        </p>
+        {% endif %}
       </div>
       <div class="pl-equip-save-row">
         <button type="submit" class="pl-btn pl-btn--primary">Save</button>

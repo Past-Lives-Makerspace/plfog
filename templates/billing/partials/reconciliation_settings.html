@@ -2,7 +2,7 @@
 <div class="pl-card">
   <div class="pl-section-label">Reconciliation Splits</div>
   <p class="pl-text-muted" style="margin:0 0 1.25rem">
-    How each paid orientation and class payment is divided among its recipients. These percentages also show,
+    How each paid orientation, class and equipment reservation payment is divided among its recipients. These percentages also show,
     read-only, on each guild's Orientation settings. Each set must add up to 100%. A change affects future
     reconciliation reads only; already-taken snapshots keep their frozen percentages.
   </p>
@@ -42,6 +42,23 @@
       <label for="{{ reconciliation_settings_form.class_pl_percent.id_for_label }}">Past Lives %</label>
       {{ reconciliation_settings_form.class_pl_percent }}
       {% if reconciliation_settings_form.class_pl_percent.errors %}<div class="pl-form-errors">{{ reconciliation_settings_form.class_pl_percent.errors }}</div>{% endif %}
+    </div>
+
+    <div class="pl-section-label pl-section-label--spaced">Reservation Splits (= 100%)</div>
+    <div class="pl-form-row">
+      <label for="{{ reconciliation_settings_form.reservation_manager_percent.id_for_label }}">Manager %</label>
+      {{ reconciliation_settings_form.reservation_manager_percent }}
+      {% if reconciliation_settings_form.reservation_manager_percent.errors %}<div class="pl-form-errors">{{ reconciliation_settings_form.reservation_manager_percent.errors }}</div>{% endif %}
+    </div>
+    <div class="pl-form-row">
+      <label for="{{ reconciliation_settings_form.reservation_guild_percent.id_for_label }}">Guild %</label>
+      {{ reconciliation_settings_form.reservation_guild_percent }}
+      {% if reconciliation_settings_form.reservation_guild_percent.errors %}<div class="pl-form-errors">{{ reconciliation_settings_form.reservation_guild_percent.errors }}</div>{% endif %}
+    </div>
+    <div class="pl-form-row">
+      <label for="{{ reconciliation_settings_form.reservation_pl_percent.id_for_label }}">Past Lives %</label>
+      {{ reconciliation_settings_form.reservation_pl_percent }}
+      {% if reconciliation_settings_form.reservation_pl_percent.errors %}<div class="pl-form-errors">{{ reconciliation_settings_form.reservation_pl_percent.errors }}</div>{% endif %}
     </div>
 
     <div class="pl-form-actions">

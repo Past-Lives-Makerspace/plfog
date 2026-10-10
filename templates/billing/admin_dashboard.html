@@ -15,6 +15,7 @@
   .pl-stat__value { font-family: 'Lato', system-ui, sans-serif; font-size: 2rem; font-weight: 900; color: #EEB44B; line-height: 1.2; }
   .pl-stat__label { font-size: 0.8125rem; color: #96ACBB; margin-top: 0.25rem; }
   .pl-section-label { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #96ACBB; margin-bottom: 0.75rem; }
+  .pl-section-label--spaced { margin-top: 1.25rem; }
   .pl-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
   .pl-table thead th { text-align: left; padding: 0.5rem 0.75rem; font-weight: 500; color: #96ACBB; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 0.875rem; }
   .pl-table thead th.text-right { text-align: right; }
@@ -298,6 +299,7 @@
       <a href="?tab=payments&source=tab&status={{ payments_status }}&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_source == 'tab' %}active{% endif %}">Tabs</a>
       <a href="?tab=payments&source=class&status={{ payments_status }}&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_source == 'class' %}active{% endif %}">Classes</a>
       {# The Orientation chip ships hidden until that payment source exists (companion spec). #}
+      <a href="?tab=payments&source=reservation&status={{ payments_status }}&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_source == 'reservation' %}active{% endif %}">Reservations</a>
       <a href="?tab=payments&source=late_fee&status={{ payments_status }}&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_source == 'late_fee' %}active{% endif %}">Late fees</a>
     </div>
     <div class="pl-filters">
@@ -344,7 +346,7 @@
 
   <div data-help-key="admin.reconciliation">
     <h2 class="pl-card__title" style="font-size:1.35rem">Reconciliation</h2>
-    <p class="pl-text-muted">How much to disburse to each guild, instructor, orientator, and Past Lives for the selected month.</p>
+    <p class="pl-text-muted">How much to disburse to each guild, instructor, orientator, equipment manager and Past Lives for the selected month.</p>
   </div>
 
   <div class="pl-toolbar">

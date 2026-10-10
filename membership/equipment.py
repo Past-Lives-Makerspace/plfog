@@ -142,20 +142,26 @@ def reserve(
     never waits on their own approval: their booking confirms at once, the same test
     (:meth:`Member.can_manage_equipment`) that exempts them from the late fee.
 
-    This is the free road only (#749). Priced equipment is re-checked under the lock: an hourly
-    item, or a donation based one without an explicit ``donation_cents=0``, is refused, so a
-    switch from Free to a price between the caller's read and this lock can never book for free.
+    This is the free road only (#749). The price is re-run under the lock on the locked row:
+    anything that would now charge (an hourly item, or a donation above $0) is refused, and a
+    donation based item re-checks the member's ``donation_cents`` against its current rules, so
+    a switch to a price or a minimum raised between the caller's read and this lock can never
+    book for free.
 
     Raises:
         EquipmentError: Propagated from :meth:`Equipment.ensure_reservable` with the
-            member-facing message when any check fails (including a lost race), or
-            :attr:`PRICE_CHANGED_MESSAGE` when the item now charges.
+            member-facing message when any check fails (including a lost race), the donation
+            rule's own message (a minimum raised meanwhile), or :attr:`PRICE_CHANGED_MESSAGE`
+            when the item now charges.
     """
     from membership.models import Equipment, EquipmentError, EquipmentReservation
 
     with transaction.atomic():
         locked = Equipment.objects.select_for_update().get(pk=equipment.pk)
-        if locked.is_hourly or (locked.is_donation and donation_cents != 0):
+        # A donation item read as free sent no amount: the member never saw the amount box.
+        if locked.is_donation and donation_cents is None:
+            raise EquipmentError(PRICE_CHANGED_MESSAGE)
+        if locked.checkout_amount_cents(duration_minutes, donation_cents if locked.is_donation else None) != 0:
             raise EquipmentError(PRICE_CHANGED_MESSAGE)
         locked.ensure_reservable(member, starts_at, duration_minutes)
         reservation = EquipmentReservation.objects.create(

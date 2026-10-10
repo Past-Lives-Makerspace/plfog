@@ -517,7 +517,11 @@ def _reconciliation_context(request: HttpRequest) -> dict[str, object]:
         "reconciliation_admin_total": admin_total,
         "reconciliation_snapshots": ReconciliationSnapshot.objects.all(),
         "payouts_needing_attention": Payout.objects.needs_attention().select_related(
-            "payee", "registration__class_offering", "orientation_booking__orientation_type", "counted_as_stripe_in"
+            "payee",
+            "registration__class_offering",
+            "orientation_booking__orientation_type",
+            "reservation__equipment",
+            "counted_as_stripe_in",
         ),
         "viewer_is_fog_admin": viewer_is_fog_admin,
     }
@@ -641,6 +645,85 @@ def payment_orientation_refund(request: HttpRequest, booking_pk: int) -> HttpRes
     except RefundError as exc:
         booking.refresh_from_db()
         response = _render_orientation_refund_form(request, booking, OrientationRefundForm(booking=booking))
+        trigger_toast(response, f"Refund failed: {exc}", "error")
+        return response
+    response = HttpResponse(status=204)
+    if refund.status == PaymentRefund.Status.SUCCEEDED:
+        trigger_toast(response, f"Refunded ${form.cleaned_data['amount']:.2f}.", "success")
+    else:
+        # Stripe accepted the refund but hasn't settled it; refund.updated will.
+        trigger_toast(response, "Refund sent. Stripe is processing it.", "success")
+    trigger_client_event(response, "refund-done")
+    return response
+
+
+def _reservation_for_refund(reservation_pk: int) -> Any:
+    """The paid equipment reservation behind a refund modal (#749), with its equipment and member, else 404."""
+    from django.shortcuts import get_object_or_404
+
+    from membership.models import EquipmentReservation
+
+    return get_object_or_404(EquipmentReservation.objects.select_related("equipment", "member"), pk=reservation_pk)
+
+
+def _render_reservation_refund_form(request: HttpRequest, reservation: Any, form: Any) -> HttpResponse:
+    """Render the reservation refund modal body (#749): the retry confirm when the latest attempt failed.
+
+    Mirrors the orientation refund partial: the FAILED state's only action is Retry (the
+    failed row is the anchor); otherwise the editable amount, reason and share choice.
+    """
+    from billing.models import PaymentRefund
+
+    failed_refund = None
+    if reservation.refund_state == "failed":
+        failed_refund = reservation.refunds.filter(status=PaymentRefund.Status.FAILED).first()
+    return render(
+        request,
+        "billing/partials/reservation_refund_form.html",
+        {"reservation": reservation, "form": form, "failed_refund": failed_refund},
+    )
+
+
+@refund_authority_required
+def payment_reservation_refund_form(request: HttpRequest, reservation_pk: int) -> HttpResponse:
+    """GET partial: the reservation refund modal body, loaded via HTMX by the Payments panel."""
+    from billing.forms import ReservationRefundForm
+
+    reservation = _reservation_for_refund(reservation_pk)
+    return _render_reservation_refund_form(request, reservation, ReservationRefundForm(reservation=reservation))
+
+
+@refund_authority_required
+@require_POST
+def payment_reservation_refund(request: HttpRequest, reservation_pk: int) -> HttpResponse:
+    """Issue a real Stripe refund for a paid equipment reservation (#749): 204 + toast + ``refund-done``.
+
+    Validation errors re-render the form partial in place. A Stripe rejection is loud: an
+    error toast carries Stripe's message and the modal stays open, re-rendered in the failed
+    state whose action is Retry. The reservation itself is unchanged.
+    """
+    from billing.exceptions import RefundError
+    from billing.forms import ReservationRefundForm
+    from billing.models import PaymentRefund
+    from billing.refunds import issue_refund
+    from hub.toast import trigger_client_event, trigger_toast
+
+    reservation = _reservation_for_refund(reservation_pk)
+    form = ReservationRefundForm(request.POST, reservation=reservation)
+    if not form.is_valid():
+        return _render_reservation_refund_form(request, reservation, form)
+    try:
+        # The service directly, to carry the required share choice (#662) the delegate does not take.
+        refund = issue_refund(
+            reservation,
+            amount_cents=form.amount_cents,
+            reason=form.cleaned_data["reason"],
+            actor=request.user,  # type: ignore[arg-type]
+            share_decision=form.chosen_share_decision,
+        )
+    except RefundError as exc:
+        reservation.refresh_from_db()
+        response = _render_reservation_refund_form(request, reservation, ReservationRefundForm(reservation=reservation))
         trigger_toast(response, f"Refund failed: {exc}", "error")
         return response
     response = HttpResponse(status=204)
@@ -972,14 +1055,14 @@ def billing_admin_save_reconciliation_settings(request: HttpRequest) -> HttpResp
     return redirect("/billing/admin/dashboard/?tab=settings")
 
 
-_ADJUSTMENT_KINDS = {"tab", "class", "orientation"}
+_ADJUSTMENT_KINDS = {"tab", "class", "orientation", "reservation"}
 
 
 def _reconciliation_adjustment_context(source_kind: str, source_pk: int) -> dict[str, object]:
     """Build the adjust-modal form (existing adjustment prefilled, else the configured split)."""
     from billing.forms import TransactionAdjustmentForm
     from billing.models import BillingSettings, TransactionAdjustment
-    from billing.reconciliation import _class_percents, _orientation_percents
+    from billing.reconciliation import _class_percents, _orientation_percents, _reservation_percents
 
     existing = TransactionAdjustment.objects.filter(source_kind=source_kind, source_pk=source_pk).first()
     initial: dict[str, object] = {}
@@ -988,7 +1071,11 @@ def _reconciliation_adjustment_context(source_kind: str, source_pk: int) -> dict
         initial["reason"] = existing.reason
     if source_kind != "tab":
         settings_obj = BillingSettings.load()
-        percents = _class_percents(settings_obj) if source_kind == "class" else _orientation_percents(settings_obj)
+        percents = {
+            "class": _class_percents,
+            "orientation": _orientation_percents,
+            "reservation": _reservation_percents,
+        }[source_kind](settings_obj)
         if existing is not None and existing.override_percents is not None:
             percents = {k: existing.override_percents.get(k, v) for k, v in percents.items()}
         for key, value in percents.items():

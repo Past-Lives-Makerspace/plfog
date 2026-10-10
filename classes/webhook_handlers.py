@@ -30,6 +30,7 @@ from classes.models import (
 
 if TYPE_CHECKING:
     from billing.models import LateCancellationFee
+    from membership.models import EquipmentReservation
 
 logger = logging.getLogger(__name__)
 
@@ -491,29 +492,40 @@ def _handle_class_payment_link(session: dict[str, Any]) -> None:
         send_registration_confirmation(registration)
 
 
-def _refundable_source_for_payment_intent(payment_intent_id: str) -> Registration | LateCancellationFee | None:
+def _refundable_source_for_payment_intent(
+    payment_intent_id: str,
+) -> Registration | LateCancellationFee | EquipmentReservation | None:
     """Resolve a Stripe PaymentIntent id to a refundable source row.
 
-    Registrations and late cancellation fees (#456) are matched on their
-    ``stripe_payment_id``, so a refund issued in the Stripe dashboard for either
-    reconciles into the ledger. Orientation bookings are still absent from this
-    lookup (a separate gap). ``None`` means the payment is not a refundable source
-    we know — e.g. a Tab charge (reconciliation deferred) or an unknown payment.
+    Registrations, late cancellation fees (#456) and paid equipment reservations (#749)
+    are matched on their ``stripe_payment_id``, so a refund issued in the Stripe dashboard
+    for any of them reconciles into the ledger. Orientation bookings are still absent from
+    this lookup (a separate gap). ``None`` means the payment is not a refundable source we
+    know — e.g. a Tab charge (reconciliation deferred) or an unknown payment.
     """
     from billing.models import LateCancellationFee
+    from membership.models import EquipmentReservation
 
     registration = Registration.objects.filter(stripe_payment_id=payment_intent_id).first()
     if registration is not None:
         return registration
-    return LateCancellationFee.objects.filter(stripe_payment_id=payment_intent_id).first()
+    fee = LateCancellationFee.objects.filter(stripe_payment_id=payment_intent_id).first()
+    if fee is not None:
+        return fee
+    return EquipmentReservation.objects.filter(stripe_payment_id=payment_intent_id).first()
 
 
-def _lock_source(source: Registration | LateCancellationFee) -> Registration | LateCancellationFee:
+def _lock_source(
+    source: Registration | LateCancellationFee | EquipmentReservation,
+) -> Registration | LateCancellationFee | EquipmentReservation:
     """Re-fetch ``source`` under ``select_for_update``; call inside the handler's transaction."""
     from billing.models import LateCancellationFee
+    from membership.models import EquipmentReservation
 
     if isinstance(source, Registration):
         return Registration.objects.select_for_update().get(pk=source.pk)
+    if isinstance(source, EquipmentReservation):
+        return EquipmentReservation.objects.select_for_update().get(pk=source.pk)
     return LateCancellationFee.objects.select_for_update().get(pk=source.pk)
 
 

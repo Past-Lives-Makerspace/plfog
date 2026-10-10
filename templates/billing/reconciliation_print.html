@@ -40,7 +40,7 @@
   <p class="meta">{{ reconciliation.window.start|date:"F j" }} – {{ reconciliation.window.end|date:"F j, Y" }} · Generated {{ generated_at|date:"M j, Y g:i A" }}</p>
 
   {% if reconciliation.unassigned_note_count %}
-  <div class="banner">{{ reconciliation.unassigned_note_count }} payment(s) had no instructor or guild set, so that share went to Past Lives.</div>
+  <div class="banner">{{ reconciliation.unassigned_note_count }} payment(s) had no instructor, manager or guild set, so that share went to Past Lives.</div>
   {% endif %}
 
   {% for kind, heading, rows in reconciliation.ordered_groups %}
@@ -52,7 +52,7 @@
         <tr>
           <th>Recipient</th><th class="r">Transactions</th><th class="r">Amount</th>
           {% if kind.value == "guild" %}<th class="r">Voting</th><th class="r">Total</th>{% endif %}
-          {% if kind.value == "instructor" or kind.value == "orientator" %}<th class="r">Sent through Stripe</th><th class="r">Owed manually</th>{% endif %}
+          {% if kind.is_producer %}<th class="r">Sent through Stripe</th><th class="r">Owed manually</th>{% endif %}
         </tr>
       </thead>
       <tbody>
@@ -65,7 +65,7 @@
           <td class="r">{{ alloc.voting_cents|cents_as_dollars }}</td>
           <td class="r">{{ alloc.combined_cents|cents_as_dollars }}</td>
           {% endif %}
-          {% if kind.value == "instructor" or kind.value == "orientator" %}<td class="r">{{ alloc.stripe_cents|cents_as_dollars }}</td><td class="r">{{ alloc.manual_cents|cents_as_dollars }}</td>{% endif %}
+          {% if kind.is_producer %}<td class="r">{{ alloc.stripe_cents|cents_as_dollars }}</td><td class="r">{{ alloc.manual_cents|cents_as_dollars }}</td>{% endif %}
         </tr>
         {% endfor %}
       </tbody>

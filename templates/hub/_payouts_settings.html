@@ -10,10 +10,10 @@ request would follow the redirect over XHR and fail on Stripe's origin.{% endcom
       <h2 class="hub-detail-label">Get paid automatically</h2>
       <span class="pl-status-badge pl-status-badge--muted">Not set up</span>
     </div>
-    <p class="pl-payouts__lead">Connect your bank once and your share of every paid class or orientation you teach lands in your account a few days after you teach it. Until then you're paid by hand at the end of the month, as now.</p>
+    <p class="pl-payouts__lead">Connect your bank once and your share of every paid class, orientation or reservation you run lands in your account a few days after it happens. Until then you're paid by hand at the end of the month, as now.</p>
     <ol class="pl-payouts-steps">
       <li><strong>Connect with Stripe</strong><span>About five minutes: your name, bank account and the last 4 of your SSN.</span></li>
-      <li><strong>Teach</strong><span>48 hours after your class or orientation starts, we send your share.</span></li>
+      <li><strong>Teach</strong><span>48 hours after your class, orientation or reservation starts, we send your share.</span></li>
       <li><strong>Get paid</strong><span>Stripe deposits it in your bank, usually within 2 business days.</span></li>
     </ol>
     <p class="pl-payouts__privacy">
@@ -41,7 +41,7 @@ request would follow the redirect over XHR and fail on Stripe's origin.{% endcom
       <h2 class="hub-detail-label">Payouts</h2>
       <span class="pl-status-badge pl-status-badge--ok">Payouts on</span>
     </div>
-    <p class="pl-payouts__lead">Your share is sent 48 hours after each class or orientation starts, and Stripe deposits it in your bank daily.</p>
+    <p class="pl-payouts__lead">Your share is sent 48 hours after each class, orientation or reservation starts, and Stripe deposits it in your bank daily.</p>
     <div class="pl-payouts__actions">
       <a href="{% url 'billing_payouts_dashboard' %}" hx-boost="false" target="_blank" rel="noopener" class="hub-btn hub-btn--ghost hub-btn--sm">Open Stripe ↗</a>
       <span class="pl-payouts__aside">Change your bank, see deposits or download tax forms.</span>
@@ -73,7 +73,7 @@ request would follow the redirect over XHR and fail on Stripe's origin.{% endcom
   </div>
   <div class="admin-table-wrap">
     <table>
-      <thead><tr><th>Class or orientation</th><th>Taught</th><th>Status</th><th class="pl-payouts-amt">Your share</th></tr></thead>
+      <thead><tr><th>What</th><th>Date</th><th>Status</th><th class="pl-payouts-amt">Your share</th></tr></thead>
       <tbody>
         {% for row in earnings.rows %}
         <tr data-earning-state="{{ row.state }}">
@@ -87,7 +87,7 @@ request would follow the redirect over XHR and fail on Stripe's origin.{% endcom
     </table>
   </div>
   {% else %}
-  <p class="pl-table-empty">No earnings yet. When someone pays for a class or orientation you teach, it shows here with the day it will be sent.</p>
+  <p class="pl-table-empty">No earnings yet. When someone pays for a class, orientation or reservation you run, it shows here with the day it will be sent.</p>
   {% endif %}
 </div>
 {% endwith %}

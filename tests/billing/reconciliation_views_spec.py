@@ -177,12 +177,74 @@ def describe_reconciliation_settings_form():
                 "class_instructor_percent": "50",
                 "class_guild_percent": "30",
                 "class_pl_percent": "20",
+                "reservation_manager_percent": "80",
+                "reservation_guild_percent": "5",
+                "reservation_pl_percent": "15",
             },
         )
         assert response.status_code == 302
         settings_obj = BillingSettings.load()
         assert settings_obj.class_instructor_percent == _D("50.00")
         assert settings_obj.orientation_orientator_percent == _D("60.00")
+        assert settings_obj.reservation_manager_percent == _D("80.00")
+        assert settings_obj.reservation_guild_percent == _D("5.00")
+        assert settings_obj.reservation_pl_percent == _D("15.00")
+
+    def describe_the_reservation_triad():
+        """#749: the third triad, validated and saved exactly like the other two."""
+
+        def _data(**reservation: str) -> dict[str, str]:
+            return {
+                "orientation_orientator_percent": "70",
+                "orientation_guild_percent": "15",
+                "orientation_pl_percent": "15",
+                "class_instructor_percent": "70",
+                "class_guild_percent": "10",
+                "class_pl_percent": "20",
+                "reservation_manager_percent": "70",
+                "reservation_guild_percent": "15",
+                "reservation_pl_percent": "15",
+                **reservation,
+            }
+
+        def it_defaults_to_70_15_15():
+            settings_obj = BillingSettings.load()
+            assert (
+                settings_obj.reservation_manager_percent,
+                settings_obj.reservation_guild_percent,
+                settings_obj.reservation_pl_percent,
+            ) == (_D("70.00"), _D("15.00"), _D("15.00"))
+
+        def it_accepts_a_set_that_adds_up_to_100():
+            assert ReconciliationSettingsForm(data=_data()).is_valid()
+
+        def it_rejects_a_set_over_100_on_all_three_with_the_exact_message():
+            form = ReconciliationSettingsForm(data=_data(reservation_pl_percent="20"))
+            assert not form.is_valid()
+            message = "Reservation percentages must add up to 100 (currently 105)."
+            for name in ("reservation_manager_percent", "reservation_guild_percent", "reservation_pl_percent"):
+                assert form.errors[name] == [message]
+
+        def it_rejects_a_set_under_100():
+            form = ReconciliationSettingsForm(data=_data(reservation_manager_percent="60.5"))
+            assert not form.is_valid()
+            assert "Reservation percentages must add up to 100 (currently 90.5)." in str(form.errors)
+
+        def it_rejects_a_blank_or_out_of_range_percent_on_its_own_field():
+            blank = ReconciliationSettingsForm(data=_data(reservation_guild_percent=""))
+            assert not blank.is_valid()
+            assert "reservation_guild_percent" in blank.errors
+            assert "Reservation percentages" not in str(blank.errors)
+            over = ReconciliationSettingsForm(data=_data(reservation_manager_percent="150", reservation_pl_percent="0"))
+            assert not over.is_valid()
+            assert "reservation_manager_percent" in over.errors
+
+        def it_draws_the_reservation_fields_on_the_settings_tab(client: Client):
+            _login_admin(client, "resvsplits")
+            html = client.get("/billing/admin/dashboard/?tab=settings").content.decode()
+            assert "Reservation Splits (= 100%)" in html
+            for name in ("reservation_manager_percent", "reservation_guild_percent", "reservation_pl_percent"):
+                assert f'name="{name}"' in html
 
 
 def describe_transaction_adjustment_form():

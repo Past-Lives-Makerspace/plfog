@@ -1,8 +1,8 @@
 """Read-time reconciliation engine — who gets paid, and how much, for a window.
 
-No fourth money table. This module walks the same three streams as
-``payments_panel`` (paid registrations, paid orientation bookings, succeeded tab
-charges), attributes each payment to its recipients under the makerspace's split
+No fourth money table. This module walks the same streams as
+``payments_panel`` (paid registrations, paid orientation bookings, paid equipment
+reservations, succeeded tab charges), attributes each payment to its recipients under the makerspace's split
 rules, and aggregates per recipient. All money is integer cents; the penny
 rounding mirrors ``TabEntry.snapshot_splits`` (largest-percent recipient absorbs
 the +/-1c drift so every allocation sums exactly to what was collected).
@@ -44,17 +44,28 @@ ORIENTATION_SPLIT: dict[str, Decimal] = {
     "guild": Decimal("15"),
     "pl": Decimal("15"),
 }
+RESERVATION_SPLIT: dict[str, Decimal] = {
+    "manager": Decimal("70"),
+    "guild": Decimal("15"),
+    "pl": Decimal("15"),
+}
 
 PL_LABEL = "Past Lives"
 
 
 class RecipientKind(str, Enum):
-    """The four kinds of reconciliation recipient. Values double as the JSON vocabulary."""
+    """The kinds of reconciliation recipient. Values double as the JSON vocabulary."""
 
     GUILD = "guild"
     INSTRUCTOR = "instructor"
     ORIENTATOR = "orientator"
+    MANAGER = "manager"  # an equipment item's picked manager, paid from its reservations (#749)
     PL = "pl"
+
+    @property
+    def is_producer(self) -> bool:
+        """True for the people paid a producer share, whose rows split Sent through Stripe / Owed manually."""
+        return self.value in _PRODUCER_KINDS
 
 
 # Display / iteration order for the grouped table and CSV.
@@ -62,6 +73,7 @@ GROUP_ORDER: tuple[RecipientKind, ...] = (
     RecipientKind.GUILD,
     RecipientKind.INSTRUCTOR,
     RecipientKind.ORIENTATOR,
+    RecipientKind.MANAGER,
     RecipientKind.PL,
 )
 
@@ -69,8 +81,12 @@ GROUP_LABELS: dict[RecipientKind, str] = {
     RecipientKind.GUILD: "Guilds",
     RecipientKind.INSTRUCTOR: "Instructors",
     RecipientKind.ORIENTATOR: "Orientators",
+    RecipientKind.MANAGER: "Equipment Managers",
     RecipientKind.PL: "Past Lives",
 }
+
+# The producer recipient kinds' values: each has a percent key of the same name in its triad.
+_PRODUCER_KINDS = frozenset({"instructor", "orientator", "manager"})
 
 # A recipient key: (kind_value, recipient_id) — recipient_id is None only for PL.
 RecipientKey = tuple[str, "int | None"]
@@ -109,7 +125,7 @@ def split_cents(amount_cents: int, percents: dict[str, Decimal]) -> dict[str, in
 class TransactionLine:
     """One contributing payment, with its per-recipient split resolved."""
 
-    source_kind: str  # "tab" | "class" | "orientation"
+    source_kind: str  # "tab" | "class" | "orientation" | "reservation"
     source_pk: int
     date: Any  # datetime
     payer_name: str
@@ -137,11 +153,11 @@ class RecipientAllocation:
     transaction_count: int
     voting_cents: int = 0
     voting_projected: bool = False
-    stripe_cents: int = 0  # instructor and orientor rows: the part sent (or scheduled) through Stripe (#662)
+    stripe_cents: int = 0  # producer rows: the part sent (or scheduled) through Stripe (#662)
 
     @property
     def manual_cents(self) -> int:
-        """Instructor and orientor rows: what the finance lead still pays by hand at month end."""
+        """Producer rows (instructor, orientor, manager): what the finance lead still pays by hand at month end."""
         return self.total_cents - self.stripe_cents
 
     @property
@@ -162,17 +178,16 @@ class ReconciliationResult:
     omitted_count: int
     class_percents: dict[str, Decimal]
     orientation_percents: dict[str, Decimal]
+    reservation_percents: dict[str, Decimal]
     voting_projected: bool = True
     voting_snapshotted_on: date | None = None
     is_snapshot: bool = False
 
     @property
     def producers_total_cents(self) -> int:
-        """Everything disbursed to guilds, instructors, and orientators (not Past Lives)."""
+        """Everything disbursed to guilds and producers (instructors, orientators, managers), not Past Lives."""
         return sum(
-            alloc.total_cents
-            for kind in (RecipientKind.GUILD, RecipientKind.INSTRUCTOR, RecipientKind.ORIENTATOR)
-            for alloc in self.groups[kind]
+            alloc.total_cents for kind in GROUP_ORDER if kind is not RecipientKind.PL for alloc in self.groups[kind]
         )
 
     @property
@@ -207,6 +222,7 @@ class ReconciliationResult:
             "voting_total_cents": self.voting_total_cents,
             "class_percents": {k: str(v) for k, v in self.class_percents.items()},
             "orientation_percents": {k: str(v) for k, v in self.orientation_percents.items()},
+            "reservation_percents": {k: str(v) for k, v in self.reservation_percents.items()},
             "groups": [
                 {
                     "kind": kind.value,
@@ -250,6 +266,15 @@ def _orientation_percents(settings_obj: BillingSettings) -> dict[str, Decimal]:
     }
 
 
+def _reservation_percents(settings_obj: BillingSettings) -> dict[str, Decimal]:
+    """Equipment reservation split (#749) from BillingSettings, ordered producer-first, constant fallback if unset."""
+    return {
+        "manager": _percent_or(settings_obj, "reservation_manager_percent", RESERVATION_SPLIT["manager"]),
+        "guild": _percent_or(settings_obj, "reservation_guild_percent", RESERVATION_SPLIT["guild"]),
+        "pl": _percent_or(settings_obj, "reservation_pl_percent", RESERVATION_SPLIT["pl"]),
+    }
+
+
 def _percent_or(settings_obj: BillingSettings, attr: str, fallback: Decimal) -> Decimal:
     value = getattr(settings_obj, attr, None)
     return value if value is not None else fallback
@@ -282,9 +307,9 @@ def _member_share_line(
     percents: dict[str, Decimal],
     adjustment: TransactionAdjustment | None,
 ) -> TransactionLine:
-    """Build one class/orientation line, rolling any unset recipient's share to Past Lives.
+    """Build one class, orientation or reservation line, rolling any unset recipient's share to Past Lives.
 
-    ``producer_role`` is "instructor" or "orientator" (its percent key); ``guild_key``
+    ``producer_role`` is "instructor", "orientator" or "manager" (its percent key); ``guild_key``
     is the guild recipient or None. Unset producer/guild shares roll to PL with a note.
     """
     net_cents = gross_cents - refunded_cents
@@ -438,12 +463,66 @@ def _orientation_line(
     )
 
 
+def _reservation_lines(
+    window: PanelWindow,
+    percents: dict[str, Decimal],
+    adjustments: dict[AdjustmentKey, TransactionAdjustment],
+) -> list[TransactionLine]:
+    """Paid equipment reservations (#749) made in the window; the hold's creation stands in for paid at.
+
+    An unpaid hold (``PENDING_PAYMENT``) has moved no money. A declined or cancelled one did,
+    and shows with its refund netted, like a cancelled orientation booking.
+    """
+    from membership.models import EquipmentReservation
+
+    reservations = (
+        EquipmentReservation.objects.filter(amount_paid_cents__gt=0)
+        .exclude(status=EquipmentReservation.Status.PENDING_PAYMENT)
+        .filter(created_at__gte=window.start_dt, created_at__lt=window.end_dt)
+        .select_related("equipment__payee", "equipment__guild", "member")
+        .prefetch_related("refunds")
+    )
+    return [_reservation_line(reservation, percents, adjustments) for reservation in reservations]
+
+
+def _reservation_line(
+    reservation: Any,
+    percents: dict[str, Decimal],
+    adjustments: dict[AdjustmentKey, TransactionAdjustment],
+    refunded_cents: int | None = None,
+) -> TransactionLine:
+    """One paid reservation's line. ``reservation`` needs its equipment (payee, guild), member and refunds loaded.
+
+    The producer is the item's picked manager (``Equipment.payee``) as it stands now; nobody
+    picked rolls the share to Past Lives with the "manager unset" note.
+    """
+    equipment = reservation.equipment
+    payee = equipment.payee
+    guild = equipment.guild
+    return _member_share_line(
+        source_kind="reservation",
+        source_pk=reservation.pk,
+        when=reservation.created_at,
+        payer_name=reservation.member.display_name,
+        item=f"Reservation, {equipment.name}",
+        gross_cents=reservation.amount_paid_cents,
+        refunded_cents=reservation.amount_refunded_cents if refunded_cents is None else refunded_cents,
+        producer_key=("manager", payee.id) if payee is not None else None,
+        producer_label=payee.display_name if payee is not None else None,
+        producer_role="manager",
+        guild_key=("guild", guild.id) if guild is not None else None,
+        guild_label=guild.name if guild is not None else None,
+        percents=percents,
+        adjustment=adjustments.get(("reservation", reservation.pk)),
+    )
+
+
 class ShareSource:
     """Producer shares for single payments: the one share calculation the payouts code uses (#662).
 
-    Loads the split percents and the adjustments once, then answers per registration or
-    booking with the same ``_member_share_line`` the Reconciliation tab sums. An omitted
-    payment, or one whose producer is unset, earns its producer nothing.
+    Loads the split percents and the adjustments once, then answers per registration,
+    booking or reservation with the same ``_member_share_line`` the Reconciliation tab sums.
+    An omitted payment, or one whose producer is unset, earns its producer nothing.
     """
 
     def __init__(self) -> None:
@@ -452,6 +531,7 @@ class ShareSource:
         settings_obj = BillingSettings.load()
         self._class_percents = _class_percents(settings_obj)
         self._orientation_percents = _orientation_percents(settings_obj)
+        self._reservation_percents = _reservation_percents(settings_obj)
         self._adjustments = TransactionAdjustment.objects.as_map()
 
     def for_registration(self, reg: Any, refunded_cents: int | None = None) -> int:
@@ -468,6 +548,23 @@ class ShareSource:
         if line.omitted or booking.oriented_by is None:
             return 0
         return line.shares[("orientator", booking.oriented_by.id)]
+
+    def for_reservation(self, reservation: Any, refunded_cents: int | None = None) -> int:
+        """The picked manager's share of ``reservation`` in cents (#749), collected less refunds so far."""
+        line = _reservation_line(reservation, self._reservation_percents, self._adjustments, refunded_cents)
+        payee = reservation.equipment.payee
+        if line.omitted or payee is None:
+            return 0
+        return line.shares[("manager", payee.id)]
+
+    def for_source(self, kind: str, source: Any, refunded_cents: int | None = None) -> int:
+        """The producer's share of one payment by its source kind: ``"class"``, ``"orientation"`` or ``"reservation"``."""
+        share = {
+            "class": self.for_registration,
+            "orientation": self.for_booking,
+            "reservation": self.for_reservation,
+        }[kind]
+        return share(source, refunded_cents)
 
 
 def _tab_lines(
@@ -621,11 +718,13 @@ def build_reconciliation(
     settings_obj = BillingSettings.load()
     class_percents = _class_percents(settings_obj)
     orientation_percents = _orientation_percents(settings_obj)
+    reservation_percents = _reservation_percents(settings_obj)
 
     lines: list[TransactionLine] = []
     lines.extend(_tab_lines(window, adjustments))
     lines.extend(_class_lines(window, class_percents, adjustments))
     lines.extend(_orientation_lines(window, orientation_percents, adjustments))
+    lines.extend(_reservation_lines(window, reservation_percents, adjustments))
     lines.sort(key=lambda line: line.date, reverse=True)
 
     from billing.payouts import kept_share_notes, through_stripe_keys
@@ -661,6 +760,7 @@ def build_reconciliation(
         omitted_count=aggregate.omitted_count,
         class_percents=class_percents,
         orientation_percents=orientation_percents,
+        reservation_percents=reservation_percents,
         voting_projected=voting_projected,
         voting_snapshotted_on=voting_on,
     )
@@ -675,9 +775,6 @@ class _Aggregate:
     unassigned_note_count: int
     omitted_count: int
     stripe_totals: dict[RecipientKey, int]
-
-
-_PRODUCER_KINDS = frozenset({"instructor", "orientator"})
 
 
 def _aggregate_lines(lines: list[TransactionLine], stripe_keys: set[tuple[str, int]]) -> _Aggregate:
@@ -800,6 +897,8 @@ def result_from_snapshot(snapshot: ReconciliationSnapshot) -> ReconciliationResu
             )
     class_percents = {k: Decimal(v) for k, v in data.get("class_percents", {}).items()}
     orientation_percents = {k: Decimal(v) for k, v in data.get("orientation_percents", {}).items()}
+    # Snapshots taken before #749 carry no reservation split: there were no paid reservations.
+    reservation_percents = {k: Decimal(v) for k, v in data.get("reservation_percents", {}).items()}
     return ReconciliationResult(
         window=window,
         groups=groups,
@@ -809,6 +908,7 @@ def result_from_snapshot(snapshot: ReconciliationSnapshot) -> ReconciliationResu
         omitted_count=int(data.get("omitted_count", 0)),
         class_percents=class_percents,
         orientation_percents=orientation_percents,
+        reservation_percents=reservation_percents,
         voting_projected=False,
         voting_snapshotted_on=timezone.localtime(snapshot.taken_at).date(),
         is_snapshot=True,
@@ -844,7 +944,7 @@ def _csv_lines(result: ReconciliationResult, writer: Any) -> Iterator[str]:
     for kind, heading, rows in result.ordered_groups():
         for alloc in rows:
             voting = f"{alloc.voting_cents / 100:.2f}" if kind is RecipientKind.GUILD else ""
-            producer = kind in (RecipientKind.INSTRUCTOR, RecipientKind.ORIENTATOR)
+            producer = kind.is_producer
             yield writer.writerow(
                 [
                     heading,

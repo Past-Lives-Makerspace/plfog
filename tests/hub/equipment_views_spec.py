@@ -434,8 +434,8 @@ def describe_equipment_index():
             # Measured on this grid before the extraction (36), plus the one staff prefetch (#615),
             # less the joined guild lookup the equipment guild gate needed, plus the two fixed
             # unlocking orientation prefetches (#656): the gate's list and the Book links' list,
-            # plus the Spotlight's one query (#709).
-            with django_assert_num_queries(39):
+            # plus the Spotlight's one query (#709), plus the payouts switch the nudge reads (#749).
+            with django_assert_num_queries(40):
                 assert client.get(url).status_code == 200
 
         def it_answers_an_empty_grid_without_the_member_lookups(django_assert_num_queries):

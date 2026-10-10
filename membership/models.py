@@ -14828,6 +14828,15 @@ class EquipmentQuerySet(models.QuerySet["Equipment"]):
         """Equipment with no owning guild."""
         return self.filter(guild__isnull=True)
 
+    def priced(self) -> EquipmentQuerySet:
+        """Items whose reservations can cost money (#749): hourly at a rate above zero, or donation based.
+
+        The query twin of :attr:`Equipment.is_priced`.
+        """
+        return self.filter(
+            Q(pricing=Equipment.Pricing.HOURLY, hourly_rate_cents__gt=0) | Q(pricing=Equipment.Pricing.DONATION)
+        )
+
     def on_guild_page(self, guild: Guild) -> EquipmentQuerySet:
         """The items the guild page's Reservations tab lists (#502): none until the guild turns the tab on.
 
@@ -15099,6 +15108,18 @@ class Equipment(HeroCropMixin, models.Model):
         help_text=(
             "The donation the reserve form starts with, in cents. Empty for none; "
             "when set, at least the minimum and at least 100."
+        ),
+    )
+    payee = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="paid_equipment",
+        help_text=(
+            "Who gets paid (#749): the manager whose share of each paid reservation is paid out. "
+            "Empty means the whole payment stays with Past Lives. Only one of this item's managers; "
+            "removing them as a manager clears it."
         ),
     )
 
@@ -16062,6 +16083,15 @@ class EquipmentStaffMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member.display_name}: {self.equipment.name} manager"
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        """Remove the role, and the item's Who gets paid pick when it was this manager (#749).
+
+        Only a manager can be picked, so a removed one stops being paid from here on: their
+        share of later payments rolls to Past Lives until someone else is picked.
+        """
+        Equipment.objects.filter(pk=self.equipment_id, payee_id=self.member_id).update(payee=None)
+        return super().delete(*args, **kwargs)
 
 
 class EquipmentUnlockingOrientationManager(models.Manager["EquipmentUnlockingOrientation"]):

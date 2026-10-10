@@ -1,8 +1,9 @@
-"""Instructor and orientor payouts through Stripe Connect Express (#662).
+"""Instructor, orientor and equipment manager payouts through Stripe Connect Express (#662, #749).
 
 Setup (part 1): who is a payee, which state their Payouts tab shows, and whether a nudge
-points them at it. Sending (part 2): every paid registration or orientation booking is an
-``Earning`` for its producer; ``run_payouts`` turns each one into a ``Payout`` row when it falls
+points them at it. Sending (part 2): every paid registration, orientation booking or
+confirmed equipment reservation is an ``Earning`` for its producer (the instructor, the
+orientor, or the item's picked manager, ``Equipment.payee``); ``run_payouts`` turns each one into a ``Payout`` row when it falls
 due and sends it through Stripe or records it as owed at month end.
 
 ``BillingSettings.connect_enabled`` is the one switch; while it is off nothing here shows and
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
 _UNANSWERED = (stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError)
 
 PAYOUT_DELAY = timedelta(hours=48)
-"""A share falls due this long after its class's first session or slot starts, or after payment if later."""
+"""A share falls due this long after its class's first session, slot or reservation starts, or after payment if later."""
 
 EARNINGS_LOOKBACK = timedelta(days=60)
 """How far back the Payouts tab lists earnings, by when they were taught."""
@@ -53,18 +54,23 @@ def payouts_on() -> bool:
 
 
 def has_earning(member: Member) -> bool:
-    """True when anyone has paid for a class ``member`` teaches or an orientation they ran."""
+    """True when anyone has paid for a class ``member`` teaches, an orientation they ran, or a reservation they're paid for."""
     from classes.models import Registration
     from membership.models import OrientationBooking
 
     return (
         Registration.objects.filter(class_offering__instructor=member, amount_paid_cents__gt=0).exists()
         or OrientationBooking.objects.filter(oriented_by=member, amount_paid_cents__gt=0).exists()
+        or _reservations().filter(equipment__payee=member).exists()
     )
 
 
 def is_payee(request: HttpRequest, member: Member) -> bool:
-    """Whether ``member`` gets a Payouts tab: they can teach classes, can run orientations, or have an earning."""
+    """Whether ``member`` gets a Payouts tab: they can teach classes, can run orientations, or have an earning.
+
+    An equipment manager counts as running orientations (``manages_orientations``), so the picked
+    manager of a priced item (#749) always has the tab its nudge and status line point to.
+    """
     from membership.permissions import manages_orientations
 
     return member.can_create_classes or manages_orientations(request) or has_earning(member)
@@ -102,8 +108,49 @@ def needs_nudge(member: Member) -> bool:
     return account is None or not account.is_connected
 
 
+@dataclass(frozen=True)
+class PayeeStatus:
+    """The Pricing card's line under Who gets paid (#749): the picked manager's payouts, as this viewer reads it."""
+
+    payee_pk: int
+    state: str  # "on" | "self_not_set_up" | "not_set_up"
+    first_name: str
+
+
+def payee_status(equipment: Any, viewer: Member | None) -> PayeeStatus | None:
+    """The status line for ``equipment``'s picked manager, or None while payouts are off or nobody is picked.
+
+    "on" once their Stripe signup is done (connected); otherwise "self_not_set_up" when the
+    viewer is that person, else "not_set_up".
+    """
+    payee = equipment.payee
+    if payee is None or not payouts_on():
+        return None
+    account = PayoutAccount.for_member(payee)
+    if account is not None and account.is_connected:
+        state = "on"
+    elif viewer is not None and viewer.pk == payee.pk:
+        state = "self_not_set_up"
+    else:
+        state = "not_set_up"
+    return PayeeStatus(payee_pk=payee.pk, state=state, first_name=payee.display_name.split()[0])
+
+
+def reservation_nudge_items(member: Member) -> list[str]:
+    """The priced items ``member`` is the picked payee of, by name, while they still need the nudge (#749).
+
+    Empty unless payouts are on and their Stripe signup is unfinished: the Reservations page
+    shows the nudge only to this audience, naming the item when there is one.
+    """
+    from membership.models import Equipment
+
+    if not needs_nudge(member):
+        return []
+    return list(Equipment.objects.priced().filter(payee=member).order_by("name").values_list("name", flat=True))
+
+
 # ---------------------------------------------------------------------------
-# Earnings: one producer share of one paid registration or orientation booking
+# Earnings: one producer share of one paid registration, orientation booking or reservation
 # ---------------------------------------------------------------------------
 
 
@@ -111,18 +158,19 @@ def needs_nudge(member: Member) -> bool:
 class Earning:
     """One producer's share of one payment, with the facts that decide when and how it is paid."""
 
-    kind: str  # "class" | "orientation", the reconciliation source_kind
-    source: Any  # the Registration or OrientationBooking
+    kind: str  # "class" | "orientation" | "reservation", the reconciliation source_kind
+    source: Any  # the Registration, OrientationBooking or EquipmentReservation
     payee: Member
     item: str
     payer: str
     taught_at: datetime
     paid_at: datetime
     share_cents: int
+    detail: str = ""  # a reservation's sub line on the Payouts tab: "2 hours, Jane D."
 
     @property
     def due_at(self) -> datetime:
-        """48 hours after the class or slot starts, or after payment if that came later."""
+        """48 hours after the class, slot or reservation starts, or after payment if that came later."""
         return max(self.taught_at, self.paid_at) + PAYOUT_DELAY
 
     @property
@@ -189,7 +237,38 @@ def _bookings() -> QuerySet[Any]:
     )
 
 
-def _earnings(registrations: Iterable[Any], bookings: Iterable[Any]) -> list[Earning]:
+def _reservations() -> QuerySet[Any]:
+    """Paid, confirmed reservations on an item with a picked manager (#749).
+
+    Confirmed only: an unpaid hold has no money, a request awaiting approval may still be
+    declined, and a declined or cancelled one is refunded in full, so none of those earns.
+    ``created_at`` stands in for paid at, as in reconciliation.
+    """
+    from membership.models import EquipmentReservation
+
+    return (
+        EquipmentReservation.objects.filter(
+            amount_paid_cents__gt=0,
+            status=EquipmentReservation.Status.CONFIRMED,
+            equipment__payee__isnull=False,
+        )
+        .select_related("equipment__payee", "equipment__guild", "member", "payout")
+        .prefetch_related("refunds")
+    )
+
+
+def length_words(minutes: int) -> str:
+    """A reservation's length in words for the Payouts tab: "2 hours", "1 hour 30 minutes", "30 minutes"."""
+    hours, rest = divmod(minutes, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours} hour{'' if hours == 1 else 's'}")
+    if rest or not hours:
+        parts.append(f"{rest} minute{'' if rest == 1 else 's'}")
+    return " ".join(parts)
+
+
+def _earnings(registrations: Iterable[Any], bookings: Iterable[Any], reservations: Iterable[Any] = ()) -> list[Earning]:
     """Earnings with a positive share, built in a fixed number of queries."""
     from billing.reconciliation import ShareSource
 
@@ -220,6 +299,20 @@ def _earnings(registrations: Iterable[Any], bookings: Iterable[Any]) -> list[Ear
                 taught_at=booking.slot.starts_at,
                 paid_at=booking.requested_at,
                 share_cents=shares.for_booking(booking),
+            )
+        )
+    for reservation in reservations:
+        earnings.append(
+            Earning(
+                kind="reservation",
+                source=reservation,
+                payee=reservation.equipment.payee,
+                item=reservation.equipment.name,
+                payer=reservation.member.display_name,
+                taught_at=reservation.starts_at,
+                paid_at=reservation.created_at,
+                share_cents=shares.for_reservation(reservation),
+                detail=f"{length_words(reservation.duration_minutes)}, {reservation.member.short_name}",
             )
         )
     # A share already sent stays listed by what was sent, even once a refund (taken back or
@@ -284,6 +377,10 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
         .filter(payout__isnull=True)
         .annotate(due_base=Greatest("slot__starts_at", "requested_at"))
         .filter(**window),
+        _reservations()
+        .filter(payout__isnull=True)
+        .annotate(due_base=Greatest("starts_at", "created_at"))
+        .filter(**window),
     )
     accounts = _accounts(due)
     for earning in due:
@@ -293,6 +390,10 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
     for pk in list(Payout.objects.to_send(now).in_current_mode().values_list("pk", flat=True)):
         _send_one(pk, now, snapshots, run)
     return run
+
+
+#: The ``Payout`` field each earning kind's source row goes in.
+_SOURCE_FIELDS = {"class": "registration", "orientation": "orientation_booking", "reservation": "reservation"}
 
 
 def _record(
@@ -315,7 +416,7 @@ def _record(
         reason = Payout.OwedReason.NOT_THROUGH_STRIPE
     else:
         reason = Payout.OwedReason.NOT_CONNECTED
-    source_field = "registration" if earning.kind == "class" else "orientation_booking"
+    source_field = _SOURCE_FIELDS[earning.kind]
     payout, created = Payout.objects.get_or_create(
         **{source_field: earning.source},
         defaults={
@@ -339,7 +440,12 @@ def _send_one(pk: int, now: datetime, snapshots: list[tuple[Any, Any]], run: Pay
             Payout.objects.to_send(now)
             .in_current_mode()
             .select_for_update(skip_locked=True, of=("self",))
-            .select_related("registration__class_offering", "orientation_booking__orientation_type", "payee")
+            .select_related(
+                "registration__class_offering",
+                "orientation_booking__orientation_type",
+                "reservation__equipment",
+                "payee",
+            )
             .filter(pk=pk)
             .first()
         )
@@ -398,6 +504,8 @@ def _refresh_amount(payout: Payout) -> bool:
     """
     if payout.registration_id is not None:
         earnings = _earnings(_registrations().filter(pk=payout.registration_id), [])
+    elif payout.reservation_id is not None:
+        earnings = _earnings([], [], _reservations().filter(pk=payout.reservation_id))
     else:
         earnings = _earnings([], _bookings().filter(pk=payout.orientation_booking_id))
     share = earnings[0].share_cents if earnings else 0
@@ -414,8 +522,8 @@ def _refresh_amount(payout: Payout) -> bool:
 def freeze_split(snapshot: ReconciliationSnapshot, window: Any) -> None:
     """Bind a month-end snapshot's Sent through Stripe / Owed manually split into the ledger (#662).
 
-    Every instructor and orientor share paid in ``window`` gets its ``Payout`` row now, even
-    if its class is weeks away: on the Stripe side a PENDING row tied to ``snapshot`` (sent
+    Every instructor, orientor and manager share paid in ``window`` gets its ``Payout`` row now,
+    even if its class or reservation is weeks away: on the Stripe side a PENDING row tied to ``snapshot`` (sent
     once due, whenever payouts are on), otherwise an OWED_MANUALLY row (never sent). A
     transfer still FAILED at this moment was counted as owed, so it stops retrying. The
     snapshot's results are then built from these rows, so nothing can contradict them later.
@@ -423,6 +531,7 @@ def freeze_split(snapshot: ReconciliationSnapshot, window: Any) -> None:
     earnings = _earnings(
         _registrations().filter(confirmed_at__gte=window.start_dt, confirmed_at__lt=window.end_dt),
         _bookings().filter(requested_at__gte=window.start_dt, requested_at__lt=window.end_dt),
+        _reservations().filter(created_at__gte=window.start_dt, created_at__lt=window.end_dt),
     )
     accounts = _accounts(earnings)
     since = _payouts_since()
@@ -457,10 +566,13 @@ class EarningRow:
     count: int = 0
     payers: list[str] = field(default_factory=list)
     kind: str = "class"
+    note: str = ""  # a reservation's own sub line (#749)
 
     @property
     def detail(self) -> str:
-        """ "3 students" for a class; the member's name for a single orientation."""
+        """ "3 students" for a class; the member's name for a single orientation; "2 hours, Jane D." for a reservation."""
+        if self.kind == "reservation":
+            return self.note
         if self.kind == "orientation" and self.count == 1:
             return self.payers[0]
         noun = "student" if self.kind == "class" else "person"
@@ -520,12 +632,16 @@ def _earning_lines(
 
 
 def payee_earnings(member: Member, now: datetime | None = None) -> EarningsList:
-    """What ``member`` earned: taught in the last 60 days or still to come, each earning in one row."""
+    """What ``member`` earned: taught in the last 60 days or still to come, each earning in one row.
+
+    A class's registrations taught the same day share a row; each reservation is its own row.
+    """
     now = now or timezone.now()
     floor = now - EARNINGS_LOOKBACK
     earnings = _earnings(
         _registrations().filter(class_offering__instructor=member, first_session_at__gte=floor),
         _bookings().filter(oriented_by=member, slot__starts_at__gte=floor),
+        _reservations().filter(equipment__payee=member, starts_at__gte=floor),
     )
     account = PayoutAccount.for_member(member)
     since = _payouts_since()
@@ -536,8 +652,12 @@ def payee_earnings(member: Member, now: datetime | None = None) -> EarningsList:
         payout = earning.payout
         taught_on = timezone.localtime(earning.taught_at).date()
         for state, label, badge, amount in _earning_lines(earning, payout, account, since):
-            key = (earning.kind, earning.item, taught_on, state, label)
-            row = rows.setdefault(key, EarningRow(earning.item, taught_on, state, label, badge, kind=earning.kind))
+            own = earning.source.pk if earning.kind == "reservation" else None
+            key = (earning.kind, earning.item, taught_on, state, label, own)
+            row = rows.setdefault(
+                key,
+                EarningRow(earning.item, taught_on, state, label, badge, kind=earning.kind, note=earning.detail),
+            )
             row.amount_cents += amount
             row.count += 1
             row.payers.append(earning.payer)
@@ -553,7 +673,7 @@ def payee_earnings(member: Member, now: datetime | None = None) -> EarningsList:
 
 
 def through_stripe_keys(lines: Iterable[TransactionLine]) -> set[tuple[str, int]]:
-    """The class and orientation lines whose producer share goes through Stripe, for the Reconciliation split.
+    """The class, orientation and reservation lines whose producer share goes through Stripe, for the Reconciliation split.
 
     A recorded share counts as Stripe while pending, sent or taken back (a failed one is owed
     by hand until it succeeds); one not yet due follows ``goes_through_stripe``.
@@ -561,9 +681,14 @@ def through_stripe_keys(lines: Iterable[TransactionLine]) -> set[tuple[str, int]
     lines = [line for line in lines if not line.omitted]
     class_pks = [line.source_pk for line in lines if line.source_kind == "class"]
     booking_pks = [line.source_pk for line in lines if line.source_kind == "orientation"]
-    if not class_pks and not booking_pks:
+    reservation_pks = [line.source_pk for line in lines if line.source_kind == "reservation"]
+    if not class_pks and not booking_pks and not reservation_pks:
         return set()
-    earnings = _earnings(_registrations().filter(pk__in=class_pks), _bookings().filter(pk__in=booking_pks))
+    earnings = _earnings(
+        _registrations().filter(pk__in=class_pks),
+        _bookings().filter(pk__in=booking_pks),
+        _reservations().filter(pk__in=reservation_pks),
+    )
     accounts = _accounts(earnings)
     since = _payouts_since()
     keys: set[tuple[str, int]] = set()
@@ -589,7 +714,7 @@ NOTHING_TO_REVERSE = "none"
 def sent_payout_for(source: Any) -> Payout | None:
     """The share of ``source`` already sent through Stripe and not all taken back yet, if any.
 
-    ``source`` is a registration or an orientation booking; a late fee earns no share.
+    ``source`` is a registration, an orientation booking or a reservation; a late fee earns no share.
     """
     try:
         payout = source.payout
@@ -603,8 +728,8 @@ def sent_payout_for(source: Any) -> Payout | None:
 def settle_refund_share(refund: Any) -> None:
     """On a refund's success: take the sent share back if the admin chose to, else record Past Lives covering it.
 
-    A refund nobody was asked about (a Stripe dashboard refund, the automatic orientation
-    refund) records Not asked: Past Lives covers it and Reconciliation flags the line. The
+    A refund nobody was asked about (a Stripe dashboard refund, the automatic orientation or
+    reservation refund) records Not asked: Past Lives covers it and Reconciliation flags the line. The
     reversal runs after the refund's transaction commits, outside its row lock.
     """
     from billing.models import PaymentRefund
@@ -613,8 +738,10 @@ def settle_refund_share(refund: Any) -> None:
         rows = Payout.objects.filter(registration_id=refund.registration_id)
     elif refund.orientation_booking_id is not None:
         rows = Payout.objects.filter(orientation_booking_id=refund.orientation_booking_id)
+    elif refund.reservation_id is not None:
+        rows = Payout.objects.filter(reservation_id=refund.reservation_id)
     else:
-        return  # a late fee earns no share, nor (until #749's part 2) a reservation
+        return  # a late fee earns no share
     with transaction.atomic():
         # Blocks on the share's row while a send holds it through ``mark_sent``, so a refund
         # and a send never both miss each other: whichever runs second sees the other's write.
@@ -654,8 +781,10 @@ def _refunded_portion(refund: Any, payout: Payout) -> int:
         r.amount_cents for r in source.refunds.all() if r.status == PaymentRefund.Status.SUCCEEDED and r.pk < refund.pk
     )
     shares = ShareSource()
-    share = shares.for_registration if refund.registration_id is not None else shares.for_booking
-    portion = share(source, refunded_cents=before) - share(source, refunded_cents=before + refund.amount_cents)
+    kind = refund.source_kind
+    portion = shares.for_source(kind, source, refunded_cents=before) - shares.for_source(
+        kind, source, refunded_cents=before + refund.amount_cents
+    )
     return max(0, min(portion, payout.amount_cents - payout.reversed_cents))
 
 
@@ -717,14 +846,19 @@ def kept_share_notes(lines: Iterable[TransactionLine]) -> dict[tuple[str, int], 
 
     from billing.models import PaymentRefund
 
-    lines = [line for line in lines if line.source_kind in ("class", "orientation")]
+    lines = [line for line in lines if line.source_kind in ("class", "orientation", "reservation")]
     class_pks = [line.source_pk for line in lines if line.source_kind == "class"]
     booking_pks = [line.source_pk for line in lines if line.source_kind == "orientation"]
+    reservation_pks = [line.source_pk for line in lines if line.source_kind == "reservation"]
     if not lines:
         return {}
     kept = (
         PaymentRefund.objects.filter(status=PaymentRefund.Status.SUCCEEDED)
-        .filter(Q(registration_id__in=class_pks) | Q(orientation_booking_id__in=booking_pks))
+        .filter(
+            Q(registration_id__in=class_pks)
+            | Q(orientation_booking_id__in=booking_pks)
+            | Q(reservation_id__in=reservation_pks)
+        )
         .filter(
             Q(share_decision__in=[PaymentRefund.ShareDecision.PL_COVERS, PaymentRefund.ShareDecision.NOT_ASKED])
             | ~Q(share_reversal_error="")
@@ -732,11 +866,13 @@ def kept_share_notes(lines: Iterable[TransactionLine]) -> dict[tuple[str, int], 
     )
     notes: dict[tuple[str, int], str] = {}
     for refund in kept:
-        key: tuple[str, int] = (
-            ("class", refund.registration_id)
-            if refund.registration_id is not None
-            else ("orientation", cast(int, refund.orientation_booking_id))  # one of the two, by the query
-        )
+        # One of the three sources, by the query: the kind names which id column holds it.
+        source_pk = {
+            "class": refund.registration_id,
+            "orientation": refund.orientation_booking_id,
+            "reservation": refund.reservation_id,
+        }[refund.source_kind]
+        key: tuple[str, int] = (refund.source_kind, cast(int, source_pk))
         if refund.share_reversal_error:
             why = f"Stripe refused to take the share back ({refund.share_reversal_error})"
         elif refund.share_decision == PaymentRefund.ShareDecision.NOT_ASKED:
@@ -759,8 +895,7 @@ def flag_refunds_past_a_send(payout: Payout) -> None:
     from billing.reconciliation import ShareSource
 
     source = payout.source
-    shares = ShareSource()
-    due = shares.for_registration(source) if payout.registration_id is not None else shares.for_booking(source)
+    due = ShareSource().for_source(payout.source_kind, source)
     if due >= payout.amount_cents - payout.reversed_cents:
         return
     source.refunds.filter(
