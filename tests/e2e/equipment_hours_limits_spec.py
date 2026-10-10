@@ -81,7 +81,7 @@ def describe_equipment_hours_and_limits_tab():
         assert not closed_message.is_visible()
         _capture(page, "hours-limits", hover=page.locator(".pl-form-label-row .pl-help").nth(2))
 
-        page.locator("[data-availability-card] .pl-toggle").click()
+        page.locator("[data-reservations-open] .pl-toggle").click()
         closed_message.wait_for(state="visible")
         closed_message.locator("input").fill("Down for a new spindle.")
         # The save redirects back to this same ?tab=hours URL, so wait on the navigation itself.

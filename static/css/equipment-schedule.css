@@ -1,0 +1,40 @@
+/* The equipment page's schedule (hub/partials/equipment_schedule.html), additions since #748.
+   Its older rules (.pl-equip-slot, .pl-equip-res-row, .pl-equip-badge) stay in hub.css. */
+
+/* A request awaiting approval on the day timeline: held time, drawn dashed. */
+.pl-equip-slot--pending {
+    border-left-style: dashed;
+}
+
+/* The line under Book a Time that says a manager approves each reservation. */
+.pl-equip-book__terms {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+    color: var(--hub-text-muted);
+}
+
+/* A request's row on Your Reservations Here: the when line and a state line under it, actions on the right. */
+.pl-equip-res-row__main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+}
+.pl-equip-res-row__state {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+    color: var(--hub-text-muted);
+}
+.pl-equip-res-row__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.pl-equip-badge--declined {
+    color: var(--hub-text-muted);
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+}

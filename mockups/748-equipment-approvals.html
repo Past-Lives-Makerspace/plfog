@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Equipment Approvals mockup</title>
+<!--
+  Screen C: approving reservations. (1) equipment Manage page, Reservations tab; (2) the Reservations page Bookings tab, staff view.
+  Views: ?view=manage (default) · empty · decline · bookings    Theme: ?theme=light    Phone: ?phone=1
+  CSS: the first <style> block is NEW product CSS (equipment-manage.css for the card, bookings-tab.css for the chip count); the second is mockup-only.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../static/css/hub.css">
+<link rel="stylesheet" href="../static/css/components.css">
+<link rel="stylesheet" href="../static/css/equipment-manage.css">
+<link rel="stylesheet" href="../static/css/bookings-tab.css">
+<style>
+/* ==========================================================================
+   NEW PRODUCT CSS. Tokens only.
+   ========================================================================== */
+
+/* equipment-manage.css: a Needs Approval row, member and purpose under the when line, the two buttons right. */
+.pl-equip-approve-row__main { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.pl-equip-approve-row__who { font-size: 0.875rem; color: var(--hub-text-muted); }
+.pl-equip-approve-row__actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+/* bookings-tab.css: the count on the staff Needs Approval chip. */
+.pl-equip-chip__count { display: inline-flex; align-items: center; justify-content: center; min-width: 1.25rem; height: 1.25rem; margin-left: 0.35rem; padding: 0 0.35rem; border-radius: 999px; background: var(--color-tuscan-yellow); color: #1a1a1a; font-size: 0.7rem; font-weight: 700; }
+</style>
+<style>
+/* ---------- mockup-only ---------- */
+.mock-view { display: contents; }
+html[data-mock-view="manage"] .mock-view:not([data-mock-view~="manage"]),
+html[data-mock-view="empty"] .mock-view:not([data-mock-view~="empty"]),
+html[data-mock-view="decline"] .mock-view:not([data-mock-view~="decline"]),
+html[data-mock-view="bookings"] .mock-view:not([data-mock-view~="bookings"]) { display: none; }
+.mock-switcher { position: fixed; right: 1rem; bottom: 1rem; z-index: 900; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; max-width: calc(100vw - 2rem); padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--hub-elevated); border: 1px solid var(--hub-border); font-size: 0.8rem; }
+.mock-switcher__title { font-weight: 700; color: var(--hub-text-muted); }
+.mock-switcher a { color: var(--hub-link); text-decoration: none; }
+html.mock-shot .mock-switcher { display: none; }
+html.mock-phone .hub-sidebar { display: none; }
+html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
+.mock-modal-static { position: static; inset: auto; padding: 1rem 0; background: none; }
+.mock-modal-static .pl-modal { max-height: none; margin: 0 auto; }
+.mock-note { font-size: 0.8rem; color: var(--hub-text-muted); border-left: 3px solid var(--hub-blue); padding: 0.25rem 0.75rem; margin: 0 0 1.5rem; }
+.mock-collapsed { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.5rem; margin-bottom: 1.5rem; opacity: 0.6; }
+.mock-collapsed span:last-child { font-size: 0.75rem; color: var(--hub-text-muted); }
+.mock-menu-open { position: static; display: block; margin-top: 0.25rem; }
+</style>
+<script>
+  (function () {
+    var p = new URLSearchParams(location.search);
+    document.documentElement.setAttribute('data-mock-view', p.get('view') || 'manage');
+    if (p.get('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    if (p.get('shot') === '1') document.documentElement.classList.add('mock-shot');
+    if (p.get('phone') === '1') document.documentElement.classList.add('mock-phone');
+  })();
+  function mockToggleTheme() {
+    var p = new URLSearchParams(location.search);
+    if (p.get('theme') === 'light') p.delete('theme'); else p.set('theme', 'light');
+    location.search = p.toString();
+  }
+</script>
+</head>
+<body>
+  <nav class="mock-switcher" aria-label="Mockup views">
+    <span class="mock-switcher__title">Approvals mockup</span>
+    <a href="?view=manage">Manage tab</a>
+    <a href="?view=empty">Manage, empty</a>
+    <a href="?view=decline">Decline modal</a>
+    <a href="?view=bookings">Bookings tab</a>
+    <a href="#" onclick="mockToggleTheme(); return false;">Theme</a>
+  </nav>
+
+  <aside class="hub-sidebar">
+    <nav class="hub-sidebar__nav" aria-label="Hub navigation">
+      <a href="#" class="hub-sidebar__link">Home</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Orientations</a>
+      <a href="#" class="hub-sidebar__link hub-sidebar__link--active">Reservations</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Settings</a>
+    </nav>
+  </aside>
+
+  <div class="hub-main-wrapper">
+    <header class="pl-topbar">
+      <span class="pl-topbar__divider"></span>
+      <div class="pl-topbar__spacer"></div>
+      <button class="pl-topbar__theme-toggle" aria-label="Toggle theme" onclick="mockToggleTheme()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M1 12h2"/><path d="M21 12h2"/></svg></button>
+      <div class="pl-profile"><button class="pl-profile__avatar" aria-label="User menu">S</button></div>
+    </header>
+
+    <main id="main-content" class="hub-content" tabindex="-1">
+
+      <!-- ===== Manage page shell for manage / empty / decline ===== -->
+      <div class="mock-view" data-mock-view="manage empty decline">
+        <h1 class="hub-page-title">Manage CNC Machine</h1>
+        <nav role="tablist" class="pl-tabs">
+          <button type="button" class="vote-tab">Details</button>
+          <button type="button" class="vote-tab">Staff</button>
+          <button type="button" class="vote-tab">Hours &amp; Limits</button>
+          <button type="button" class="vote-tab vote-tab--active">Reservations</button>
+          <button type="button" class="vote-tab">Orientation</button>
+        </nav>
+      </div>
+
+      <!-- ===== VIEW: manage ===== -->
+      <div class="mock-view" data-mock-view="manage decline">
+        <div class="hub-card pl-equip-panel" data-needs-approval-card>
+          <h2 class="hub-detail-label pl-equip-panel__title">Needs Approval</h2>
+          <p class="hub-text-muted pl-equip-panel__intro">These members are waiting on you. The time is held for them until you decide.</p>
+          <div class="pl-equip-res-list">
+            <div class="pl-equip-res-row" data-approval-row="41">
+              <span class="pl-equip-approve-row__main">
+                <span>Tue, Oct 20 · 10:00 AM to 12:00 PM</span>
+                <span class="pl-equip-approve-row__who">Jane Doe · Sign blanks · <span class="pl-price-chip">Paid $50.00</span></span>
+              </span>
+              <span class="pl-equip-approve-row__actions">
+                <button type="button" class="pl-btn pl-btn--primary pl-btn--sm">Approve</button>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm">Decline</button>
+              </span>
+            </div>
+            <div class="pl-equip-res-row" data-approval-row="44">
+              <span class="pl-equip-approve-row__main">
+                <span>Thu, Oct 22 · 1:00 PM to 2:00 PM</span>
+                <span class="pl-equip-approve-row__who">Lee Tran · <span class="pl-price-chip">Paid $25.00</span></span>
+              </span>
+              <span class="pl-equip-approve-row__actions">
+                <button type="button" class="pl-btn pl-btn--primary pl-btn--sm">Approve</button>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm">Decline</button>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mock-view" data-mock-view="manage">
+        <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">Block Time</span><span>unchanged</span></div>
+        <div class="hub-card pl-equip-panel" data-upcoming-reservations-card>
+          <h2 class="hub-detail-label pl-equip-panel__title">Upcoming Reservations</h2>
+          <div class="pl-equip-res-list">
+            <div class="pl-equip-res-row">
+              <span>Fri, Oct 16 · 2:00 PM to 3:30 PM</span>
+              <span>Sam Rivera <span class="pl-equip-badge pl-equip-badge--muted">Awaiting payment</span></span>
+              <span class="hub-text-muted" style="font-size:0.8125rem;">Released if unpaid by 4:12 PM</span>
+            </div>
+            <div class="pl-equip-res-row">
+              <span>Mon, Oct 19 · 9:00 AM to 11:00 AM</span>
+              <span>Dana Reyes <span class="hub-text-muted">· Sign blanks</span> <span class="pl-price-chip">Paid $50.00</span></span>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <p class="mock-note">Needs Approval is the first card on the tab (the Orientation tab puts Pending Requests first for the same reason). It renders while Needs approval is on, or while any row still waits after the switch is turned off; it is gone otherwise, so a free instant item's tab is unchanged. Approve posts with no confirm and answers a toast, "Approved. Jane has been emailed."; the row moves to Upcoming. Rows sort soonest first, unpaginated (they are few by nature). A held-for-payment row shows in Upcoming with its release time and no Cancel. A manager cancel of a paid confirmed row now also says "Their $50.00 is refunded in full."</p>
+      </div>
+
+      <!-- ===== VIEW: empty ===== -->
+      <div class="mock-view" data-mock-view="empty">
+        <div class="hub-card pl-equip-panel" data-needs-approval-card>
+          <h2 class="hub-detail-label pl-equip-panel__title">Needs Approval</h2>
+          <p class="hub-text-muted" style="margin:0;">Nothing is waiting for approval. New requests show here, and every manager gets an email.</p>
+        </div>
+        <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">Block Time, Upcoming Reservations</span><span>unchanged</span></div>
+      </div>
+
+      <!-- ===== VIEW: decline (confirm_modal with a required note) ===== -->
+      <div class="mock-view" data-mock-view="decline">
+        <div class="pl-modal-backdrop mock-modal-static" role="dialog" aria-modal="true" aria-labelledby="decline-title">
+          <div class="pl-modal pl-modal--sm">
+            <div class="pl-modal__header"><h2 class="pl-modal__title" id="decline-title">Decline This Reservation?</h2><button type="button" class="pl-modal__close" aria-label="Close">&times;</button></div>
+            <div class="pl-modal__body">
+              <p>Jane Doe asked for Tue, Oct 20, 10:00 AM to 12:00 PM. Declining frees the time and tells her why. Her $50.00 is refunded in full.</p>
+              <div class="hub-form-group">
+                <label class="pl-form-label" for="decline-reason">Reason</label>
+                <input id="decline-reason" type="text" class="pl-input" style="width:100%; margin:0 0 1rem;" placeholder="Why is this being declined?">
+                <p class="pl-field-hint" style="margin:-0.5rem 0 1rem;">The member will see this. Please tell the member why.</p>
+              </div>
+              <div class="pl-modal__actions">
+                <button class="pl-btn pl-btn--danger" style="flex:1;">Decline Reservation</button>
+                <button class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="mock-note">Free rows drop the refund sentence. The reason is required on the server, like the manager cancel. Success: toast "Declined. Jane has been emailed and refunded." If Stripe refuses the refund the decline still lands and the toast reads "Declined. The refund didn't go through; it is flagged for the Billing Administrators." The same modal opens from the Bookings tab menu.</p>
+      </div>
+
+      <!-- ===== VIEW: bookings (Reservations page, staff view) ===== -->
+      <div class="mock-view" data-mock-view="bookings">
+        <h1 class="hub-page-title">Reservations</h1>
+        <nav class="pl-tabs" role="tablist" aria-label="Reservations views">
+          <button type="button" class="vote-tab">List</button>
+          <button type="button" class="vote-tab">Calendar</button>
+          <button type="button" class="vote-tab vote-tab--active">Bookings</button>
+        </nav>
+        <div class="pl-bookings" data-bookings-pane="staff">
+          <div class="pl-equip-chips pl-bookings__chips" role="group" aria-label="Which reservations">
+            <a href="#" class="pl-equip-chip">Upcoming</a>
+            <a href="#" class="pl-equip-chip pl-equip-chip--active" aria-current="true">Needs Approval<span class="pl-equip-chip__count">2</span></a>
+            <a href="#" class="pl-equip-chip">Past</a>
+            <a href="#" class="pl-equip-chip">All</a>
+          </div>
+          <div class="pl-bookings__table-wrap">
+            <table class="pl-members-table pl-bookings-table">
+              <thead><tr><th>When</th><th>Member</th><th>Equipment</th><th>Purpose</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td class="pl-bookings-table__when">Tue Oct 20, 10:00 AM to 12:00 PM</td>
+                  <td data-label="Member">Jane Doe</td>
+                  <td data-label="Equipment" class="pl-bookings-table__orientation"><span class="pl-bookings-table__name">CNC Machine</span><span class="pl-bookings-table__owner">Standalone</span></td>
+                  <td data-label="Purpose" class="pl-bookings-table__purpose">Sign blanks</td>
+                  <td data-label="Status" class="pl-bookings-table__status"><span class="hub-pill hub-pill--warn">Awaiting approval</span> <span class="hub-pill hub-pill--neutral">Paid $50.00</span></td>
+                  <td class="pl-bookings-table__actions">
+                    <div class="pl-row-menu">
+                      <button type="button" class="pl-row-menu__trigger" aria-label="Actions for Jane Doe" aria-expanded="true">⋯</button>
+                      <div class="pl-row-menu__menu mock-menu-open" role="menu">
+                        <a href="#" class="pl-row-menu__item" role="menuitem">View Equipment</a>
+                        <a href="#" class="pl-row-menu__item" role="menuitem">Manage Equipment</a>
+                        <a href="#" class="pl-row-menu__item" role="menuitem">Email Member</a>
+                        <div class="pl-row-menu__divider" role="separator"></div>
+                        <button type="button" class="pl-row-menu__item" role="menuitem">Approve</button>
+                        <div class="pl-row-menu__divider" role="separator"></div>
+                        <button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem">Decline Reservation</button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="pl-bookings-table__when">Thu Oct 22, 1:00 PM to 2:00 PM</td>
+                  <td data-label="Member">Lee Tran</td>
+                  <td data-label="Equipment" class="pl-bookings-table__orientation"><span class="pl-bookings-table__name">CNC Machine</span><span class="pl-bookings-table__owner">Standalone</span></td>
+                  <td data-label="Purpose" class="pl-bookings-table__purpose"><span class="hub-text-muted">None</span></td>
+                  <td data-label="Status" class="pl-bookings-table__status"><span class="hub-pill hub-pill--warn">Awaiting approval</span> <span class="hub-pill hub-pill--neutral">Paid $25.00</span></td>
+                  <td class="pl-bookings-table__actions"><button type="button" class="pl-row-menu__trigger" aria-label="Actions for Lee Tran">⋯</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <p class="mock-note">Status pills: Awaiting payment (neutral), Awaiting approval (warn: someone has to act), Confirmed (ok), Declined (neutral), Cancelled (neutral); a "Paid $X" neutral pill beside any paid row, "Refunded" after a decline or cancel. The Needs Approval chip shows for staff only and only while the count is above 0; its empty state, reached by a stale link, is "Nothing is waiting for approval." Member view: own awaiting payment rows get "Pay Now" in the menu; own awaiting approval rows keep "Cancel Reservation". The Status filter gains the new statuses on its own.</p>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

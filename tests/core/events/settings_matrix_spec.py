@@ -663,6 +663,11 @@ def describe_padlocked_rows():
         "member.login_invite": "Membership",
         "discord_guilds_imported": "Guilds",
     }
+    # Forced member emails added since (#748): a request's receipt and its decline.
+    FORCED_SINCE = {
+        "equipment.reservation_requested": "Spaces & Equipment",
+        "equipment.reservation_declined": "Spaces & Equipment",
+    }
     # Forced emails routed to staff: padlocked too, but in Admin / Permissions.
     STAFF_FORCED = {
         "refund_failed",
@@ -681,11 +686,11 @@ def describe_padlocked_rows():
     def it_holds_exactly_todays_forced_email_events(db):
         # Adding or removing a forced email is a deliberate edit to this list.
         forced = {event.key for event in all_events() if (spec := event.channel(Channel.EMAIL)) and spec.is_forced}
-        assert forced == set(FORMER_ALWAYS_EMAILED) | STAFF_FORCED
+        assert forced == set(FORMER_ALWAYS_EMAILED) | set(FORCED_SINCE) | STAFF_FORCED
 
     def it_returns_each_former_always_emailed_row_to_its_topic(db):
         user = _member_user("pad1")
-        for key, section in FORMER_ALWAYS_EMAILED.items():
+        for key, section in {**FORMER_ALWAYS_EMAILED, **FORCED_SINCE}.items():
             assert _section_of(user, key) == section, key
 
     def it_locks_their_email_cell_on_with_the_padlock(db):

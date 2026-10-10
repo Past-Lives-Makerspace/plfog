@@ -14990,6 +14990,15 @@ class Equipment(HeroCropMixin, models.Model):
         db_default=True,
         help_text="Let members propose their own orientation time instead of only picking a posted slot.",
     )
+    requires_approval = models.BooleanField(
+        default=False,
+        # The DB default too: the old release's Equipment inserts omit this column while it migrates.
+        db_default=False,
+        help_text=(
+            "Every reservation waits for a manager to approve it before it is booked (#748). "
+            "Turning it off leaves requests already waiting still waiting."
+        ),
+    )
 
     objects = EquipmentQuerySet.as_manager()
 
@@ -15460,7 +15469,7 @@ class Equipment(HeroCropMixin, models.Model):
         current = getattr(self, "current_reservations", None)
         if current is None:
             current = list(
-                EquipmentReservation.objects.confirmed().filter(equipment=self, starts_at__lte=now, ends_at__gt=now)
+                EquipmentReservation.objects.holding().filter(equipment=self, starts_at__lte=now, ends_at__gt=now)
             )
         # (ends_at, word) per busy span: a manager's block reads "Held" (#657), everything else "Reserved".
         busy = [(reservation.ends_at, "Held" if reservation.is_block else "Reserved") for reservation in current]
@@ -15741,6 +15750,20 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
     def confirmed(self) -> EquipmentReservationQuerySet:
         return self.filter(status=EquipmentReservation.Status.CONFIRMED)
 
+    def holding(self) -> EquipmentReservationQuerySet:
+        """Rows that hold their time: confirmed ones and requests awaiting approval (#748).
+
+        A waiting request is not booked yet, but nobody else can take its time and it counts
+        toward the member's cap, so every busy and overlap read goes through this.
+        """
+        return self.filter(status__in=EquipmentReservation.HOLDING_STATUSES)
+
+    def awaiting_approval(self) -> EquipmentReservationQuerySet:
+        """Requests a manager has not decided yet that haven't ended, soonest first (#748)."""
+        return self.filter(status=EquipmentReservation.Status.PENDING_APPROVAL, ends_at__gt=timezone.now()).order_by(
+            "starts_at"
+        )
+
     def reservations(self) -> EquipmentReservationQuerySet:
         """Members' bookings only: the rows a booking list shows, without managers' blocks (#657)."""
         return self.filter(kind=EquipmentReservation.Kind.RESERVATION)
@@ -15752,46 +15775,48 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
     def overlapping(
         self, equipment: Equipment, starts_at: datetime_type, ends_at: datetime_type
     ) -> EquipmentReservationQuerySet:
-        """Confirmed reservations and blocks overlapping [starts_at, ends_at) on ``equipment``.
+        """Held reservations and blocks overlapping [starts_at, ends_at) on ``equipment``.
 
         Strict inequalities: adjacent bookings (a 4:00 end against a 4:00 start) do
-        NOT conflict. Cancelled rows never conflict. Both kinds are busy time, so a
+        NOT conflict. Cancelled and declined rows never conflict; a request awaiting
+        approval does, since it holds its time (#748). Both kinds are busy time, so a
         member can never book over a manager's block (#657).
         """
-        return self.confirmed().filter(equipment=equipment, starts_at__lt=ends_at, ends_at__gt=starts_at)
+        return self.holding().filter(equipment=equipment, starts_at__lt=ends_at, ends_at__gt=starts_at)
 
     def over_orientation(self, orientation_type: Any, starts_at: Any, ends_at: Any) -> EquipmentReservationQuerySet:
-        """Confirmed reservations and blocks overlapping [starts_at, ends_at) on any item the type uses (#665).
+        """Held reservations and blocks overlapping [starts_at, ends_at) on any item the type uses (#665).
 
         Reads :attr:`OrientationType.uses_equipment`, which always lists an equipment owned
         type's owner, so one path covers both owners. Takes a type or pk with datetimes for
         one slot, or ``OuterRef`` expressions for ``OrientationSlotQuerySet.bookable()``:
         both paths call this, so the list and the slot cannot disagree.
         """
-        return self.confirmed().filter(
+        return self.holding().filter(
             equipment__orientation_types_using=orientation_type, starts_at__lt=ends_at, ends_at__gt=starts_at
         )
 
     def upcoming(self) -> EquipmentReservationQuerySet:
-        """Confirmed reservations that haven't ended yet, soonest first."""
-        return self.confirmed().filter(ends_at__gt=timezone.now()).order_by("starts_at")
+        """Held reservations (confirmed or awaiting approval, #748) that haven't ended yet, soonest first."""
+        return self.holding().filter(ends_at__gt=timezone.now()).order_by("starts_at")
 
     def active_count_for(self, member: Member, equipment: Equipment) -> int:
-        """The per-member anti-hog input: this member's upcoming confirmed count here, blocks excluded."""
+        """The per-member anti-hog input: this member's upcoming held count here (#748), blocks excluded."""
         return (
-            self.confirmed()
-            .reservations()
-            .filter(member=member, equipment=equipment, ends_at__gt=timezone.now())
-            .count()
+            self.holding().reservations().filter(member=member, equipment=equipment, ends_at__gt=timezone.now()).count()
         )
 
 
 class EquipmentReservation(models.Model):
-    """A member's instant, self-confirmed hold on a piece of equipment.
+    """A member's hold on a piece of equipment: instant and self confirmed, or a request (#748).
 
-    No PENDING state — instant booking is the locked decision. Conflicts are made
-    unrepresentable in the UI by the computed option lists and impossible in the DB
-    by ``reserve()`` re-validating under ``select_for_update`` on the Equipment row.
+    On equipment whose managers turned on ``Equipment.requires_approval`` a reservation is
+    made PENDING_APPROVAL: it holds its time like a confirmed one (:attr:`HOLDING_STATUSES`)
+    until a manager :meth:`approve` s it (CONFIRMED) or :meth:`decline` s it (DECLINED, the
+    time freed; ``cancelled_by``, ``cancelled_reason`` and ``cancelled_at`` record who, why
+    and when). Conflicts are made unrepresentable in the UI by the computed option lists and
+    impossible in the DB by ``reserve()`` re-validating under ``select_for_update`` on the
+    Equipment row.
     """
 
     # View-attached (#456): the cancel modal's fee line, set by the schedule builder on the
@@ -15802,6 +15827,11 @@ class EquipmentReservation(models.Model):
     class Status(models.TextChoices):
         CONFIRMED = "confirmed", "Confirmed"
         CANCELLED = "cancelled", "Cancelled"
+        PENDING_APPROVAL = "pending_approval", "Awaiting approval"
+        DECLINED = "declined", "Declined"
+
+    #: The statuses that hold time: overlaps, busy spans, the per member cap and the upcoming lists read these.
+    HOLDING_STATUSES = (Status.CONFIRMED, Status.PENDING_APPROVAL)
 
     class Kind(models.TextChoices):
         RESERVATION = "reservation", "Reservation"
@@ -15830,7 +15860,10 @@ class EquipmentReservation(models.Model):
         help_text="Optional one liner shown on the schedule; on a block, its reason (up to 80 characters).",
     )
     status = models.CharField(
-        max_length=20, choices=Status.choices, default=Status.CONFIRMED, help_text="Confirmed or cancelled."
+        max_length=20,
+        choices=Status.choices,
+        default=Status.CONFIRMED,
+        help_text="Confirmed, cancelled, awaiting a manager's approval, or declined by one (#748).",
     )
     cancelled_by = models.ForeignKey(
         Member,
@@ -15868,10 +15901,11 @@ class EquipmentReservation(models.Model):
             ),
         ]
         indexes = [
+            # Every overlap read is held rows (confirmed or awaiting approval, #748).
             models.Index(
                 fields=["equipment", "starts_at"],
-                name="idx_equipres_confirmed",
-                condition=Q(status="confirmed"),
+                name="idx_equipres_holding",
+                condition=Q(status__in=["confirmed", "pending_approval"]),
             ),
         ]
 
@@ -15907,6 +15941,80 @@ class EquipmentReservation(models.Model):
         self.cancelled_by = actor
         self.cancelled_as_manager = True
         self.cancelled_at = now
+
+    @property
+    def is_awaiting_approval(self) -> bool:
+        """True while a manager has not decided this request yet (#748)."""
+        return self.status == self.Status.PENDING_APPROVAL
+
+    @property
+    def is_declined(self) -> bool:
+        """True once a manager declined this request (#748): the time is free, the reason kept."""
+        return self.status == self.Status.DECLINED
+
+    def approve(self, actor: Member) -> None:
+        """Approve a waiting request (#748): it becomes CONFIRMED and the member gets the confirmation.
+
+        A conditional update keyed on status, like :meth:`cancel`, so two managers deciding the
+        same row at once decide it once; the second hears it was already decided. The time
+        was held all along, so approving frees nothing and re-checks nothing.
+
+        Raises:
+            EquipmentError: When ``actor`` cannot manage the equipment, the row is not
+                waiting for approval, or its time already ended.
+        """
+        self._ensure_decidable(actor)
+        flipped = EquipmentReservation.objects.filter(pk=self.pk, status=self.Status.PENDING_APPROVAL).update(
+            status=self.Status.CONFIRMED
+        )
+        if not flipped:
+            raise EquipmentError(self.NOT_WAITING_MESSAGE)
+        self.status = self.Status.CONFIRMED
+        from membership import equipment as equipment_service
+
+        equipment_service.notify_approved(self, actor)
+
+    def decline(self, actor: Member, *, reason: str) -> None:
+        """Decline a waiting request (#748): it becomes DECLINED, its time frees and the member hears why.
+
+        The row stays, carrying the manager and the reason in ``cancelled_by`` and
+        ``cancelled_reason``, so the member's list shows it until its date passes. A
+        conditional update keyed on status, like :meth:`approve`.
+
+        Raises:
+            EquipmentError: When ``actor`` cannot manage the equipment, the row is not
+                waiting for approval, or its time already ended.
+            ValueError: When the reason is blank (form enforced upstream; the loud backstop).
+        """
+        cleaned_reason = reason.strip()
+        self._ensure_decidable(actor)
+        if not cleaned_reason:
+            raise ValueError("A decline needs a reason the member will see.")
+        now = timezone.now()
+        flipped = EquipmentReservation.objects.filter(pk=self.pk, status=self.Status.PENDING_APPROVAL).update(
+            status=self.Status.DECLINED, cancelled_by=actor, cancelled_reason=cleaned_reason, cancelled_at=now
+        )
+        if not flipped:
+            raise EquipmentError(self.NOT_WAITING_MESSAGE)
+        self.status = self.Status.DECLINED
+        self.cancelled_by = actor
+        self.cancelled_reason = cleaned_reason
+        self.cancelled_at = now
+        from membership import equipment as equipment_service
+
+        equipment_service.notify_declined(self, actor)
+
+    #: The friendly refusal for deciding a row that is no longer a waiting request.
+    NOT_WAITING_MESSAGE = "This reservation isn't waiting for approval any more."
+
+    def _ensure_decidable(self, actor: Member) -> None:
+        """The :meth:`approve` and :meth:`decline` guards: a manager, a waiting row, a time not yet over."""
+        if not actor.can_manage_equipment(self.equipment):
+            raise EquipmentError("Only a manager of this equipment can approve or decline a reservation.")
+        if self.status != self.Status.PENDING_APPROVAL:
+            raise EquipmentError(self.NOT_WAITING_MESSAGE)
+        if self.ends_at <= timezone.now():
+            raise EquipmentError("This request's time already passed.")
 
     @property
     def is_cancelled_by_manager(self) -> bool:
@@ -15948,6 +16056,8 @@ class EquipmentReservation(models.Model):
         is not charged either: managers never pay a late fee on equipment they manage (Felix,
         2026-10-05). Every such cancel records ``cancelled_as_manager``, and ``late_fee_waived``
         when it fell inside the notice window, in the same conditional update as the flip (#633).
+        A request still awaiting approval (#748) cancels the same way and never carries a fee:
+        it was never booked.
 
         Returns:
             The :class:`~billing.models.LateCancellationFee` a late self cancel created (or
@@ -15962,8 +16072,11 @@ class EquipmentReservation(models.Model):
         if self.is_block:
             # A block is removed from the manage tab, never cancelled: no reason, no email, no fee (#657).
             raise EquipmentError("This is a block. Remove it from the manage tab.")
-        if self.status != self.Status.CONFIRMED:
+        if self.status == self.Status.DECLINED:
+            raise EquipmentError("This request was already declined.")
+        if self.status not in self.HOLDING_STATUSES:
             raise EquipmentError("This reservation was already cancelled.")
+        was_waiting = self.status == self.Status.PENDING_APPROVAL
         now = timezone.now()
         is_own_row = actor.pk == self.member_id
         acting_as_manager = as_manager or not is_own_row
@@ -15975,7 +16088,8 @@ class EquipmentReservation(models.Model):
         # their own row from. Whether it was inside the window is stored now, since the window
         # and the fee can change later and the record should not (#633).
         fee_exempt = acting_as_manager or actor.can_manage_equipment(self.equipment)
-        fee_waived = fee_exempt and would_charge(self, now=now)
+        # A waiting request was never booked, so it has no fee to charge or to waive (#748).
+        fee_waived = fee_exempt and not was_waiting and would_charge(self, now=now)
         fee: LateCancellationFee | None = None
         with transaction.atomic():
             # A conditional update keyed on status, not a save: two requests that both loaded
@@ -15984,7 +16098,7 @@ class EquipmentReservation(models.Model):
             # request that flips the row owns the cancel; the other is told it was already
             # done. The fee lands in the same transaction, so a cancel that does not commit
             # charges nothing.
-            flipped = EquipmentReservation.objects.filter(pk=self.pk, status=self.Status.CONFIRMED).update(
+            flipped = EquipmentReservation.objects.filter(pk=self.pk, status=self.status).update(
                 status=self.Status.CANCELLED,
                 cancelled_by=actor,
                 cancelled_reason=cleaned_reason,
@@ -16000,7 +16114,7 @@ class EquipmentReservation(models.Model):
             self.cancelled_as_manager = fee_exempt
             self.late_fee_waived = fee_waived
             self.cancelled_at = now
-            if not fee_exempt:
+            if not fee_exempt and not was_waiting:
                 fee = charge_if_late(self, now=now)
         from membership import equipment as equipment_service
 

@@ -17,6 +17,9 @@ cancel answers with a redirect to Stripe. Context: reservation_rows, bookings_ne
 {% endwith %}
 {% endif %}
 {% endif %}
+{% if row.can_decline %}
+{% include "hub/partials/reservation_decline_modal.html" with r=r decline_next=bookings_next %}
+{% endif %}
 {% if row.can_waive_fee %}
 {% with fee=row.late_fee waive_form=row.waive_form waive_next=bookings_next fee_pk=row.late_fee.pk|stringformat:"s" %}
 {% include "components/modal.html" with modal_id="waive-fee-"|add:fee_pk modal_title="Waive This Fee?" modal_size="sm" modal_body_include="hub/partials/_late_fee_waive_form.html" %}

@@ -39,3 +39,35 @@
     padding-top: 1rem;
     border-top: 1px solid var(--hub-border);
 }
+
+/* Needs approval (#748): the Availability card's second switch, set off from Active and the closed message. */
+.pl-equip-approval {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--hub-border);
+}
+
+/* A Needs Approval row (#748): member and purpose under the when line, Approve and Decline on the right. */
+.pl-equip-approve-row__main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+}
+.pl-equip-approve-row__who {
+    font-size: 0.875rem;
+    color: var(--hub-text-muted);
+}
+.pl-equip-approve-row__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.pl-equip-approve-row__actions form {
+    margin: 0;
+}
+
+/* A card's one line empty state, flush with the card's padding. */
+.pl-equip-panel__empty {
+    margin: 0;
+}

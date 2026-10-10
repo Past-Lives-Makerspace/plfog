@@ -188,3 +188,19 @@
 .pl-qr-sheet-menu__item .hub-text-muted {
     font-size: 0.8125rem;
 }
+
+/* The count on the staff Needs Approval chip (#748), shown only while something waits. */
+.pl-equip-chip__count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    margin-left: 0.35rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: var(--color-tuscan-yellow);
+    color: #1a1a1a;
+    font-size: 0.7rem;
+    font-weight: 700;
+}

@@ -3,8 +3,10 @@
 Mirrors :mod:`membership.orientations`: fat-model guards live on the models
 (:meth:`Equipment.ensure_reservable`, :meth:`EquipmentReservation.cancel`); this
 module owns the transaction + lock choreography and the notification fan-out.
-All three PR 2 events go through the spine (``emit()`` + seeded copy); the emit
-context supplies every placeholder the copy uses.
+Every event goes through the spine (``emit()`` + seeded copy); the emit context
+supplies every placeholder the copy uses. Equipment that needs approval (#748) makes
+a request instead: the member hears it is in, the managers hear it needs them, and
+the decision sends the confirmation or the decline.
 """
 
 from __future__ import annotations
@@ -104,13 +106,15 @@ def reserve(
     *,
     purpose: str = "",
 ) -> EquipmentReservation:
-    """Make an instant, self-confirmed reservation, safely under concurrency.
+    """Make a reservation, safely under concurrency: instant, or a request when the equipment needs approval.
 
     Everything re-validates INSIDE ``transaction.atomic()`` with ``select_for_update``
     on the Equipment row — the same lock object every competing booking takes — so
-    two members can never hold overlapping confirmed reservations. On success the
-    member gets the confirmation (with a calendar invite) and the equipment's
-    managers get the awareness ping.
+    two members can never hold overlapping time. On instant equipment the row is
+    CONFIRMED, the member gets the confirmation (with a calendar invite) and the
+    managers get the awareness ping. On equipment that needs approval (#748) the row
+    is PENDING_APPROVAL, holding its time; the member gets the "request in" email and
+    the managers the "needs approval" one in place of the ping.
 
     Raises:
         EquipmentError: Propagated from :meth:`Equipment.ensure_reservable` with the
@@ -127,8 +131,16 @@ def reserve(
             starts_at=starts_at,
             ends_at=starts_at + timedelta(minutes=duration_minutes),
             purpose=purpose.strip(),
-            status=EquipmentReservation.Status.CONFIRMED,
+            status=(
+                EquipmentReservation.Status.PENDING_APPROVAL
+                if locked.requires_approval
+                else EquipmentReservation.Status.CONFIRMED
+            ),
         )
+    if reservation.is_awaiting_approval:
+        _notify_requested(reservation)
+        _notify_needs_approval(reservation)
+        return reservation
     _notify_confirmed(reservation)
     _notify_managers(reservation)
     return reservation
@@ -173,25 +185,32 @@ def block_time(
         )
 
 
-def _notify_confirmed(reservation: EquipmentReservation) -> None:
-    """Tell the member their reservation is set — forced email with the ``.ics`` attached."""
+def _notify_confirmed(reservation: EquipmentReservation, *, approved_by: Member | None = None) -> None:
+    """Tell the member their reservation is set — forced email with the ``.ics`` attached.
+
+    ``approved_by`` is the manager who approved a request (#748): the email then opens with
+    "{manager} approved your reservation." An instant booking passes none, and its
+    ``approval_line`` is "", so its email is word for word what it always was.
+    """
     from core.events.emit import emit
     from core.events.registry import Channel
 
     member = reservation.member
     ics = ("reservation.ics", build_ics(reservation, method="REQUEST", status="CONFIRMED"), "text/calendar")
+    # The trailing space joins the sentence to "Your reservation is set." in the copy.
+    approval_line = f"{approved_by.display_name} approved your reservation. " if approved_by is not None else ""
     emit(
         "equipment.reservation_confirmed",
-        actor=member.user,
+        actor=approved_by.user if approved_by is not None else member.user,
         target=reservation,
-        context={"user": member.user, **_placeholder_context(reservation)},
+        context={"user": member.user, "approval_line": approval_line, **_placeholder_context(reservation)},
         url=reverse("hub_equipment_detail", args=[reservation.equipment.slug]),
         attachments={Channel.EMAIL: [ics]},
         period=f"reservation:{reservation.pk}:confirmed",
     )
 
 
-def _notify_managers(reservation: EquipmentReservation) -> None:
+def _notify_managers(reservation: EquipmentReservation, *, broadcast_only: bool = False) -> None:
     """Awareness ping to the equipment's managers — no approval exists, so email defaults off.
 
     Also the #reservations Discord broadcast: the event is pinned to the Site
@@ -199,6 +218,11 @@ def _notify_managers(reservation: EquipmentReservation) -> None:
     central notify webhook). The context deliberately carries NO ``guild`` key —
     that is what keeps ``emit``'s guild dual-route dark, so a guild-owned tool's
     booking still posts to #reservations only, never the guild's own channel.
+
+    ``broadcast_only`` is the approval of a request (#748): the booking feed hears it once the
+    row is confirmed, but the managers are not pinged, since one of them just approved it.
+    An empty ``recipient_user_ids`` empties the bell, push and email fan-out and leaves the
+    Discord broadcast alone.
     """
     from core.events.emit import emit
 
@@ -213,6 +237,98 @@ def _notify_managers(reservation: EquipmentReservation) -> None:
         # (post_embed logs and returns False) — the channel would never hear a thing.
         url=placeholders["equipment_url"],
         period=f"reservation:{reservation.pk}:made",
+        recipient_user_ids=set() if broadcast_only else None,
+    )
+
+
+def _manage_reservations_url(reservation: EquipmentReservation) -> str:
+    """The absolute link to the equipment's Manage > Reservations tab, where a request is decided."""
+    path = reverse("hub_equipment_manage", args=[reservation.equipment.slug])
+    return _absolute_url(f"{path}?tab=reservations")
+
+
+def _purpose_line(purpose: str) -> str:
+    """The managers' email sentence naming the purpose, "" when none was given.
+
+    Ends in a space so it runs into the next sentence, and never doubles a full stop the
+    member already typed.
+    """
+    cleaned = purpose.strip()
+    if not cleaned:
+        return ""
+    return f"Purpose: {cleaned.rstrip('.!?')}. "
+
+
+def _notify_requested(reservation: EquipmentReservation) -> None:
+    """Tell the member their request is in and the time is held (#748). Forced email, no invite yet."""
+    from core.events.emit import emit
+
+    member = reservation.member
+    emit(
+        "equipment.reservation_requested",
+        actor=member.user,
+        target=reservation,
+        context={"user": member.user, **_placeholder_context(reservation)},
+        url=reverse("hub_equipment_detail", args=[reservation.equipment.slug]),
+        period=f"reservation:{reservation.pk}:requested",
+    )
+
+
+def _notify_needs_approval(reservation: EquipmentReservation) -> None:
+    """Ask the equipment's managers to approve or decline a request (#748).
+
+    The same audience as the awareness ping (``EQUIPMENT_MANAGERS``, as narrowed by #746),
+    which it replaces for a request. No Discord: a request is not booked yet, so it is not
+    news for the #reservations channel until it is approved (:func:`notify_approved`). The
+    button opens Manage > Reservations.
+    """
+    from core.events.emit import emit
+
+    placeholders = _placeholder_context(reservation)
+    manage_url = _manage_reservations_url(reservation)
+    emit(
+        "equipment.reservation_needs_approval",
+        actor=reservation.member.user,
+        target=reservation,
+        context={
+            "equipment": reservation.equipment,
+            "purpose_line": _purpose_line(reservation.purpose),
+            "manage_url": manage_url,
+            **placeholders,
+        },
+        url=manage_url,
+        period=f"reservation:{reservation.pk}:needs_approval",
+    )
+
+
+def notify_approved(reservation: EquipmentReservation, manager: Member) -> None:
+    """A manager approved a request (#748): the member gets the confirmation, opening with who approved it.
+
+    The #reservations booking feed hears it now, as it hears an instant booking, through the
+    same ``equipment.reservation_made`` post; the managers get no ping. A request itself
+    posts nothing there.
+    """
+    _notify_confirmed(reservation, approved_by=manager)
+    _notify_managers(reservation, broadcast_only=True)
+
+
+def notify_declined(reservation: EquipmentReservation, manager: Member) -> None:
+    """Tell the member ``manager`` declined their request, with the reason and a way back to pick another time."""
+    from core.events.emit import emit
+
+    member = reservation.member
+    emit(
+        "equipment.reservation_declined",
+        actor=manager.user,
+        target=reservation,
+        context={
+            "user": member.user,
+            "manager_name": manager.display_name,
+            "decline_reason": reservation.cancelled_reason,
+            **_placeholder_context(reservation),
+        },
+        url=reverse("hub_equipment_detail", args=[reservation.equipment.slug]),
+        period=f"reservation:{reservation.pk}:declined",
     )
 
 

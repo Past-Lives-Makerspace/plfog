@@ -950,7 +950,7 @@ def describe_equipment_events():
         reservation = equipment_service.reserve(equipment, member, _at(_day(), 10), 60)
         base = equipment_service._placeholder_context(reservation)
         contexts = {
-            "equipment.reservation_confirmed": {"user": member.user, **base},
+            "equipment.reservation_confirmed": {"user": member.user, "approval_line": "", **base},
             "equipment.reservation_made": {"equipment": equipment, **base},
             "equipment.reservation_cancelled_by_manager": {"user": member.user, "cancel_reason": "x", **base},
             "equipment.reservation_cancelled": {"user": member.user, "late_fee_line": "", "late_fee_html": "", **base},
