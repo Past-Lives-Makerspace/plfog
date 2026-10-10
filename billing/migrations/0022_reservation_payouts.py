@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("billing", "0021_reservation_refunds"),
         ("classes", "0088_classoffering_eventbrite_rules_agreed"),
-        ("membership", "0223_equipment_payee"),
+        ("membership", "0224_equipment_payee"),
     ]
 
     operations = [
