@@ -23,7 +23,7 @@ from django.http import HttpRequest
 from django.urls import reverse
 from django.utils import timezone
 
-from classes.table import prepare_table
+from classes.table import prepare_table, table_search
 from hub.bookings_tab import date_param, late_fee_of, pane_query
 from membership.models import Equipment, EquipmentReservation, Member
 from membership.permissions import manageable_reservations, manages_equipment
@@ -35,7 +35,8 @@ if TYPE_CHECKING:
     from core.models import SiteConfiguration
 
 #: The chips above the table (``?show=``). Upcoming is the default and never written to the URL.
-SHOW_CHOICES = ("upcoming", "past", "all")
+#: Needs Approval (#748) is the staff view's alone: the requests on equipment they manage.
+SHOW_CHOICES = ("upcoming", "needs_approval", "past", "all")
 
 #: Every query parameter the pane owns. The List pane's own ``guild``, ``kind`` and ``q`` stay out.
 PANE_KEYS = ("show", "search", "equipment", "status", "fee", "start", "end", "sort", "dir")
@@ -67,9 +68,13 @@ class ReservationRow:
     can_waive_fee: bool = False
     can_refund_fee: bool = False
     can_cancel: bool = False
+    can_approve: bool = False
+    can_decline: bool = False
     can_cancel_mine: bool = False
     can_pay_fee: bool = False
     late_cancel_warning: str = ""
+    #: A request nobody decided before its time ended (#748): shown as "Not decided", never warn.
+    is_undecided: bool = False
     #: The Waive modal's form, built only for a row that offers Waive Late Fee.
     waive_form: Any = None
 
@@ -84,9 +89,11 @@ class ReservationRow:
         return self.late_fee is not None and self.late_fee.is_unpaid
 
 
-def _show(request: HttpRequest) -> str:
-    """The chip the request names, else Upcoming."""
+def _show(request: HttpRequest, *, is_staff_view: bool) -> str:
+    """The chip the request names, else Upcoming. Needs Approval is a staff chip; a member gets Upcoming."""
     show = request.GET.get("show", "")
+    if show == "needs_approval" and not is_staff_view:
+        return "upcoming"
     return show if show in SHOW_CHOICES else "upcoming"
 
 
@@ -103,12 +110,20 @@ def _base_rows(request: HttpRequest, member: Member | None, *, is_staff_view: bo
     return bookings.filter(Q(pk__in=managed.values("pk")) | own)
 
 
-def _apply_show(rows: QuerySet[EquipmentReservation], show: str) -> QuerySet[EquipmentReservation]:
-    """Narrow ``rows`` to the chip: Upcoming is the confirmed ones not yet ended, Past the rest."""
+def _apply_show(
+    rows: QuerySet[EquipmentReservation], show: str, waiting: QuerySet[EquipmentReservation]
+) -> QuerySet[EquipmentReservation]:
+    """Narrow ``rows`` to the chip: Upcoming is the held ones not yet ended, Past the rest.
+
+    Held means confirmed or awaiting approval (#748); Needs Approval is ``waiting``, the
+    requests on equipment the viewer manages.
+    """
     now = timezone.now()
-    upcoming = Q(status=EquipmentReservation.Status.CONFIRMED, ends_at__gt=now)
+    upcoming = Q(status__in=EquipmentReservation.HOLDING_STATUSES, ends_at__gt=now)
     if show == "upcoming":
         return rows.filter(upcoming)
+    if show == "needs_approval":
+        return rows.filter(pk__in=waiting.values("pk"))
     if show == "past":
         return rows.exclude(upcoming)
     return rows
@@ -171,6 +186,8 @@ def build_row(
     row = ReservationRow(reservation=reservation, is_own=is_own, can_manage=can_manage, late_fee=fee)
     now = timezone.now()
     confirmed = reservation.status == EquipmentReservation.Status.CONFIRMED
+    waiting = reservation.is_awaiting_approval and reservation.ends_at > now
+    row.is_undecided = reservation.is_awaiting_approval and not waiting
     if can_manage:
         row.can_email = not is_own and (is_admin or reservation.member.is_public("email"))
         row.can_view_member = actual_admin
@@ -184,11 +201,14 @@ def build_row(
             and fee.refundable_cents > 0
         )
         row.can_cancel = confirmed and reservation.ends_at > now
+        # A request awaiting approval offers Approve and Decline in place of Cancel (#748).
+        row.can_approve = row.can_decline = waiting
         return row
     # The member menu: only ever on the viewer's own row (the staff rows are managed or own).
-    row.can_cancel_mine = is_own and confirmed and reservation.starts_at > now
+    row.can_cancel_mine = is_own and (confirmed or waiting) and reservation.starts_at > now
     row.can_pay_fee = is_own and fee is not None and fee.is_unpaid
-    if row.can_cancel_mine:
+    # A request was never booked, so cancelling it never carries a fee line (#748).
+    if row.can_cancel_mine and confirmed:
         policy = policy_for_equipment(reservation.equipment, site=site)
         row.late_cancel_warning = cancel_sentence(policy) if policy.is_late(reservation.starts_at, now=now) else ""
     return row
@@ -200,6 +220,14 @@ def _scope_equipment(request: HttpRequest) -> list[Equipment]:
     return list(Equipment.objects.filter(pk__in=managed.values("equipment_id")).order_by("name"))
 
 
+def _chip_labels(waiting_count: int) -> list[tuple[str, str]]:
+    """The chips in order: Needs Approval follows Upcoming only while something waits (#748)."""
+    chips = [("upcoming", "Upcoming")]
+    if waiting_count:
+        chips.append(("needs_approval", "Needs Approval"))
+    return [*chips, ("past", "Past"), ("all", "All")]
+
+
 def reservation_bookings_context(request: HttpRequest) -> dict[str, Any]:
     """Everything ``hub/partials/reservation_bookings_pane.html`` renders, for the page or the partial."""
     from core.models import SiteConfiguration
@@ -209,17 +237,29 @@ def reservation_bookings_context(request: HttpRequest) -> dict[str, Any]:
     member = _get_member(request)
     # The staff view follows the effective role: an admin previewing as a member sees their own rows.
     is_staff_view = manages_equipment(request, honour_preview=True)
-    show = _show(request)
-    rows = _apply_show(_base_rows(request, member, is_staff_view=is_staff_view), show)
+    show = _show(request, is_staff_view=is_staff_view)
+    # The requests on equipment the viewer manages (#748): the Needs Approval chip's rows and its count.
+    waiting = (
+        manageable_reservations(
+            request, EquipmentReservation.objects.reservations().awaiting_approval(), honour_preview=True
+        )
+        if is_staff_view
+        else EquipmentReservation.objects.none()
+    )
+    rows = _apply_show(_base_rows(request, member, is_staff_view=is_staff_view), show, waiting)
+    waiting_count = 0
     if is_staff_view:
         rows = _apply_filters(request, rows)
+        # Counted through the same filters and search the chip's own list goes through, so they agree.
+        search = request.GET.get(SEARCH_PARAM, "").strip()
+        waiting_count = table_search(_apply_filters(request, waiting), search, SEARCH_FIELDS).count()
     table = prepare_table(
         request,
         _with_related(rows),
         search_fields=SEARCH_FIELDS if is_staff_view else [],
         search_param=SEARCH_PARAM,
         default_sort="starts_at",
-        default_dir="asc" if show == "upcoming" else "desc",
+        default_dir="asc" if show in ("upcoming", "needs_approval") else "desc",
         sortable=STAFF_SORTABLE if is_staff_view else MEMBER_SORTABLE,
     )
     page = table["page"]
@@ -272,8 +312,13 @@ def reservation_bookings_context(request: HttpRequest) -> dict[str, Any]:
         "base_params": pane_query(params),
         "show": show,
         "chips": [
-            {"key": key, "label": label, "url": "?" + pane_query({**filters, "show": "" if key == "upcoming" else key})}
-            for key, label in (("upcoming", "Upcoming"), ("past", "Past"), ("all", "All"))
+            {
+                "key": key,
+                "label": label,
+                "url": "?" + pane_query({**filters, "show": "" if key == "upcoming" else key}),
+                "count": waiting_count if key == "needs_approval" else 0,
+            }
+            for key, label in _chip_labels(waiting_count)
         ],
         "filters": filters,
         "bookings_is_filtered": any(filters.values()),

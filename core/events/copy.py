@@ -2237,14 +2237,24 @@ _CURATED: dict[str, EventCopy] = {
         # otherwise (#456). Copy lives in a DB row on production: the deploy's
         # seed_notification_templates refreshes a row nobody has edited, so this default lands
         # there on its own; a row an admin edited (is_overridden) keeps its text, and the admin
-        # adds the merge field from the editor.
-        placeholders=("member_name", "equipment_name", "reservation_when", "equipment_url", "cancellation_policy"),
+        # adds the merge field from the editor. approval_line (#748) is "{manager} approved your
+        # reservation. " when a manager approved a request and "" for an instant booking, so an
+        # instant booking's email is unchanged.
+        placeholders=(
+            "member_name",
+            "equipment_name",
+            "reservation_when",
+            "equipment_url",
+            "cancellation_policy",
+            "approval_line",
+        ),
         sample_context={
             "member_name": "Robin Vale",
             "equipment_name": "CNC Router",
             "reservation_when": "Saturday, September 12, 2:00 PM to 4:00 PM",
             "equipment_url": "https://pastlives.example/equipment/cnc-router/",
             "cancellation_policy": "Cancel at least 24 hours ahead. Cancelling later costs a $15.00 late fee.",
+            "approval_line": "Sami Lee approved your reservation. ",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -2255,7 +2265,7 @@ _CURATED: dict[str, EventCopy] = {
                 subject="Reserved: {{ equipment_name }}, {{ reservation_when }}",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
-                    "Your reservation is set.\n\n"
+                    "{{ approval_line }}Your reservation is set.\n\n"
                     "{{ equipment_name }}\n{{ reservation_when }}\n\n"
                     "A calendar invite is attached. If your plans change, you can cancel "
                     "from the equipment page and the time opens up for someone else. "
@@ -2264,7 +2274,7 @@ _CURATED: dict[str, EventCopy] = {
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
-                    "<p>Your reservation is set.</p>"
+                    "<p>{{ approval_line }}Your reservation is set.</p>"
                     '<p><strong><a href="{{ equipment_url }}">{{ equipment_name }}</a></strong><br>'
                     "{{ reservation_when }}</p>"
                     "<p>A calendar invite is attached. If your plans change, you can cancel from the "
@@ -2273,6 +2283,142 @@ _CURATED: dict[str, EventCopy] = {
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
                     "See Your Reservation</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # equipment.reservation_requested — the member's receipt for a request on equipment that needs
+    # approval (#748). One primary CTA to the equipment page, where the waiting row shows.
+    "equipment.reservation_requested": EventCopy(
+        placeholders=("member_name", "equipment_name", "reservation_when", "equipment_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "equipment_name": "CNC Router",
+            "reservation_when": "Tuesday, October 20, 10:00 AM to 12:00 PM",
+            "equipment_url": "https://pastlives.example/equipment/cnc-router/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Reservation requested",
+                body_text="{{ equipment_name }}: {{ reservation_when }}. A manager will approve or decline it.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Requested: {{ equipment_name }}, {{ reservation_when }}",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "Your request is in. A manager approves each reservation on the {{ equipment_name }}.\n\n"
+                    "{{ equipment_name }}\n{{ reservation_when }}\n\n"
+                    "We hold the time for you and email you when they decide. "
+                    "You can cancel any time from the equipment page.\n\n"
+                    "See your reservation: {{ equipment_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>Your request is in. A manager approves each reservation on the {{ equipment_name }}.</p>"
+                    '<p><strong><a href="{{ equipment_url }}">{{ equipment_name }}</a></strong><br>'
+                    "{{ reservation_when }}</p>"
+                    "<p>We hold the time for you and email you when they decide. "
+                    "You can cancel any time from the equipment page.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ equipment_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "See Your Reservation</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # equipment.reservation_needs_approval — the managers' ask (#748). member_name is the
+    # REQUESTER, not the recipient, so no channel greets with it. purpose_line is
+    # "Purpose: Sign blanks. " when the member gave one and "" otherwise. The one CTA opens
+    # Manage > Reservations, where Approve and Decline are.
+    "equipment.reservation_needs_approval": EventCopy(
+        placeholders=(
+            "member_name",
+            "equipment_name",
+            "reservation_when",
+            "equipment_url",
+            "purpose_line",
+            "manage_url",
+        ),
+        sample_context={
+            "member_name": "Robin Vale",
+            "equipment_name": "CNC Router",
+            "reservation_when": "Tuesday, October 20, 10:00 AM to 12:00 PM",
+            "equipment_url": "https://pastlives.example/equipment/cnc-router/",
+            "purpose_line": "Purpose: Sign blanks. ",
+            "manage_url": "https://pastlives.example/equipment/cnc-router/manage/?tab=reservations",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Needs approval: {{ equipment_name }}",
+                body_text=(
+                    "{{ member_name }} asked for {{ equipment_name }}, {{ reservation_when }}. "
+                    "The time is held until a manager decides."
+                ),
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Needs approval: {{ equipment_name }}, {{ reservation_when }} ({{ member_name }})",
+                body_text=(
+                    "{{ member_name }} asked to reserve {{ equipment_name }} for {{ reservation_when }}.\n\n"
+                    "{{ purpose_line }}The time is held until a manager decides.\n\n"
+                    "Approve or decline: {{ manage_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    '<p>{{ member_name }} asked to reserve <strong><a href="{{ equipment_url }}">{{ equipment_name }}'
+                    "</a></strong> for {{ reservation_when }}.</p>"
+                    "<p>{{ purpose_line }}The time is held until a manager decides.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ manage_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Approve or Decline</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # equipment.reservation_declined — a manager declined the member's request (#748), with the
+    # required reason; the one CTA sends them back to pick another time.
+    "equipment.reservation_declined": EventCopy(
+        placeholders=(
+            "member_name",
+            "equipment_name",
+            "reservation_when",
+            "equipment_url",
+            "manager_name",
+            "decline_reason",
+        ),
+        sample_context={
+            "member_name": "Robin Vale",
+            "equipment_name": "CNC Router",
+            "reservation_when": "Tuesday, October 20, 10:00 AM to 12:00 PM",
+            "equipment_url": "https://pastlives.example/equipment/cnc-router/",
+            "manager_name": "Sami Lee",
+            "decline_reason": "The spindle is out for repair that week.",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Your {{ equipment_name }} reservation was declined",
+                body_text="{{ manager_name }} declined your {{ reservation_when }} request: {{ decline_reason }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your {{ equipment_name }} reservation was declined",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "{{ manager_name }} declined your request for {{ equipment_name }}, {{ reservation_when }}.\n\n"
+                    "Their reason: {{ decline_reason }}\n\n"
+                    "Pick another time: {{ equipment_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    '<p>{{ manager_name }} declined your request for <strong><a href="{{ equipment_url }}">'
+                    "{{ equipment_name }}</a></strong>, {{ reservation_when }}.</p>"
+                    "<p>Their reason: {{ decline_reason }}</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ equipment_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Pick Another Time</a></p>"
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

@@ -351,6 +351,14 @@ def describe_guild_location_statuses():
             _reservation(location, start=NOW + timedelta(minutes=10))
             assert _only(location.guild).message == "Starting soon: Reserved: Kiln at 2:10 PM"
 
+        def it_ignores_a_request_awaiting_approval():
+            # In use now reads confirmed rows only: an undecided request is not the member at the machine (#748).
+            location = LocationFactory(guild=GuildFactory())
+            _reservation(
+                location, start=NOW - timedelta(minutes=5), status=EquipmentReservation.Status.PENDING_APPROVAL
+            )
+            assert _only(location.guild).light == Light.FREE
+
         def it_ignores_a_cancelled_reservation():
             location = LocationFactory(guild=GuildFactory())
             _reservation(location, start=NOW - timedelta(minutes=5), status=EquipmentReservation.Status.CANCELLED)

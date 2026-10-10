@@ -235,6 +235,8 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "discount_code.request_declined",
         # Equipment — your reservation is set (time-sensitive, carries the invite)
         "equipment.reservation_confirmed",
+        # ...or a manager declined your request, so you need another time (#748)
+        "equipment.reservation_declined",
         # Webmaster — an automation broke; at most one a day per automation
         "automation.failed",
         # Kiln tickets — the crew asked about your piece, usually before it goes in (#691)
@@ -502,6 +504,9 @@ EQUIPMENT_RESERVATION_CONFIRMED = "equipment.reservation_confirmed"  # your rese
 EQUIPMENT_RESERVATION_CANCELLED_BY_MANAGER = "equipment.reservation_cancelled_by_manager"  # with the reason
 EQUIPMENT_RESERVATION_MADE = "equipment.reservation_made"  # awareness ping to the equipment's managers
 EQUIPMENT_RESERVATION_CANCELLED = "equipment.reservation_cancelled"  # the member's own cancel, with any late fee
+EQUIPMENT_RESERVATION_REQUESTED = "equipment.reservation_requested"  # your request is in, the time held (#748)
+EQUIPMENT_RESERVATION_NEEDS_APPROVAL = "equipment.reservation_needs_approval"  # managers: approve or decline (#748)
+EQUIPMENT_RESERVATION_DECLINED = "equipment.reservation_declined"  # a manager declined your request, with why (#748)
 BILLING_LATE_FEE_PAID = "billing.late_fee_paid"  # the receipt for a paid late cancellation fee
 BILLING_LATE_FEE_WAIVED = "billing.late_fee_waived"  # an unpaid late cancellation fee was forgiven
 BILLING_PAYOUT_FAILED_ADMIN = "billing.payout_failed_admin"  # Stripe rejected a payout transfer (#662)
@@ -1168,6 +1173,41 @@ _NEW_EVENTS: list[EventType] = [
         key=EQUIPMENT_RESERVATION_CANCELLED,
         label="Reservation cancelled",
         description="You cancelled an equipment reservation. Names the late fee when one applies.",
+        category="Spaces & Equipment",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # equipment.reservation_requested — the member's receipt for a request on equipment that
+    # needs approval (#748): the time is held and a manager will decide. Forced operational
+    # mail like the confirmation, without the invite (nothing is booked yet).
+    EventType(
+        key=EQUIPMENT_RESERVATION_REQUESTED,
+        label="Reservation requested",
+        description="Your request for equipment that needs a manager's approval is in. The time is held for you.",
+        category="Spaces & Equipment",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # equipment.reservation_needs_approval — the managers' ask to decide a request (#748), in
+    # place of the awareness ping. Action, not awareness, so email defaults on. Same
+    # EQUIPMENT_MANAGERS audience as reservation_made (#746); no Discord, a request is not news.
+    EventType(
+        key=EQUIPMENT_RESERVATION_NEEDS_APPROVAL,
+        label="Reservation needs approval",
+        description="A member asked for time on equipment you manage that needs approval. Approve or decline it.",
+        category="Spaces & Equipment",
+        recipient=Recipients.EQUIPMENT_MANAGERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # equipment.reservation_declined — the member hears a manager declined their request, with
+    # the required reason (#748). Forced operational mail like the manager cancel.
+    EventType(
+        key=EQUIPMENT_RESERVATION_DECLINED,
+        label="Reservation declined",
+        description="A manager declined your equipment reservation request and told you why.",
         category="Spaces & Equipment",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_FORCED),

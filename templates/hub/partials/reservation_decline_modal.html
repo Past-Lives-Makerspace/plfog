@@ -1,0 +1,13 @@
+{% comment %}
+The Decline This Reservation? confirm (#748) for one request awaiting approval, shared by the
+manage page's Needs Approval card and the Reservations page's Bookings tab menu. The reason is
+required (Confirm stays disabled until one is typed; the view is still the gate) and the member
+sees it. Context: r (the EquipmentReservation) and decline_next (where to land, "" for the
+manage page's Reservations tab).
+{% endcomment %}
+{% url 'hub_equipment_reservation_decline' r.equipment.slug r.pk as decline_url %}
+{% with pk=r.pk|stringformat:"s" when=r.starts_at|date:"D, M j, g:i A" until=r.ends_at|time:"g:i A" %}
+{% with decline_message=r.member.display_name|add:" asked for "|add:when|add:" to "|add:until|add:". Declining frees the time and tells them why." %}
+{% include "components/confirm_modal.html" with confirm_id="decline-res-"|add:pk confirm_title="Decline This Reservation?" confirm_message=decline_message confirm_action_url=decline_url confirm_next=decline_next confirm_note_name="reason" confirm_note_label="Reason" confirm_note_placeholder="Why is this being declined?" confirm_note_hint="The member will see this. Please tell the member why." confirm_note_required=True confirm_button_text="Decline Reservation" %}
+{% endwith %}
+{% endwith %}

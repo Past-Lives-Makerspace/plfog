@@ -79,7 +79,7 @@ Beyond the single `guild_lead` FK, a guild has `GuildStaffMembership` rows (`rol
 | `EVENTS_APPROVER` (Calendar Administrator) | `event.submitted`, `meeting.item_proposed` (site-wide/council) | review calendar proposals (`hub._reviewer_guild_scope` grants admin-level review) |
 | `BILLING_APPROVER` (Billing Administrator) | `billing.charge_failed_admin`, `refund_failed`, `billing.late_fee_orphan_payment`, `membership.orientation_orphan_payment` | sees the admin Payments dashboard (`billing_admin_access_required`) |
 | `REFUNDS` (Refunds) | (action-only — routes nothing) | issue/retry Stripe refunds (`refund_authority_required`); opens no new pages on its own |
-| `EQUIPMENT` (Equipment Administrator) | only the fallback of `orientation_requested` and `equipment.reservation_made` for equipment with no managers and no guild leadership (#746); a holder hears nothing about equipment someone else runs | create equipment of every kind and manage all of it site-wide (`can_create_equipment` / `can_manage_equipment` site tier) |
+| `EQUIPMENT` (Equipment Administrator) | only the fallback of `orientation_requested`, `equipment.reservation_made` and `equipment.reservation_needs_approval` (#748) for equipment with no managers and no guild leadership (#746); a holder hears nothing about equipment someone else runs | create equipment of every kind and manage all of it site-wide (`can_create_equipment` / `can_manage_equipment` site tier) |
 | `SPACE_MANAGER` (Space Manager) | (action-only — routes nothing) | create rooms and spaces only (`creatable_equipment_kinds`, #502); manages only what they add, through an `EquipmentStaffMembership` row the add view writes |
 | `WEBMASTER` (Webmaster) | `automation.failed` (a scheduled job raised; sent from `core.scheduled_jobs.record_run`, at most once per job per Pacific day) | (alert-only — grants nothing; the alert links to the Automations tab, which stays `fog_admin_required`) |
 
@@ -99,6 +99,7 @@ Helpers on `Member`: `has_admin_capability(cap)` (the authorization gate) and `s
 - `Space.objects.available()` — status=AVAILABLE
 - `Space.objects.with_revenue()` — annotates active_lease_rent_total
 - `Lease.objects.active(as_of=date)` — start_date≤date and (end_date null or ≥date)
+- `EquipmentReservation.objects.holding()` / `confirmed()` (#748) — availability reads (overlap, `ensure_blockable`, free starts, the day timeline, the per member cap, the upcoming lists) use `holding()`, which counts a request awaiting approval because it holds its time; "in use right now" reads (`Equipment.availability_line`, the index card badge, the guild location lights, the Reservations calendar feed) use `confirmed()`, because an undecided request is not the member at the machine.
 
 ## Vote Calculator
 

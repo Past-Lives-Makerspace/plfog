@@ -160,12 +160,16 @@
     {# Availability (#731): Active is the inverse of Equipment.is_closed; the closed message matters only while it is off. #}
     <div class="hub-card pl-equip-panel" x-data="{ reservationsOpen: {{ settings_form.reservations_open.value|yesno:'true,false' }} }" data-availability-card>
       <h2 class="hub-detail-label pl-equip-panel__title">Availability</h2>
-      <div @change="reservationsOpen = $event.target.checked">
+      <div @change="reservationsOpen = $event.target.checked" data-reservations-open>
         <input type="hidden" name="reservations_open_shown" value="1">
         {% include "components/form_field.html" with field=settings_form.reservations_open %}
       </div>
       <div x-show="!reservationsOpen"{% if settings_form.reservations_open.value %} x-cloak{% endif %} data-closed-message>
         {% include "components/form_field.html" with field=settings_form.closed_message %}
+      </div>
+      {# Needs approval (#748): every reservation waits for a manager to approve it. #}
+      <div class="pl-equip-approval" data-needs-approval>
+        {% include "components/form_field.html" with field=settings_form.requires_approval %}
       </div>
     </div>
 
@@ -444,6 +448,36 @@
 
 {# ── Reservations tab — upcoming rows with the reason-required manager cancel (spec §7.4). ── #}
 <div x-show="section === 'reservations'" {% if active_tab != "reservations" %}x-cloak{% endif %}>
+  {% if show_approvals_card %}
+  {# Needs Approval (#748): first on the tab, while the switch is on or anything still waits; Approve asks nothing, Decline needs a reason. #}
+  <div class="hub-card pl-equip-panel" data-needs-approval-card>
+    <h2 class="hub-detail-label pl-equip-panel__title">Needs Approval</h2>
+    {% if manage_approvals %}
+    <p class="hub-text-muted pl-equip-panel__intro">These members are waiting on you. The time is held for them until you decide.</p>
+    <div class="pl-equip-res-list">
+      {% for reservation in manage_approvals %}
+      <div class="pl-equip-res-row" data-approval-row="{{ reservation.pk }}">
+        <span class="pl-equip-approve-row__main">
+          <span>{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</span>
+          <span class="pl-equip-approve-row__who">{{ reservation.member.display_name }}{% if reservation.purpose %} · {{ reservation.purpose }}{% endif %}</span>
+        </span>
+        <span class="pl-equip-approve-row__actions">
+          <form method="post" action="{% url 'hub_equipment_reservation_approve' equipment.slug reservation.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm" data-approve-button>Approve</button>
+          </form>
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" data-decline-button
+                  @click="$dispatch('open-confirm', 'decline-res-{{ reservation.pk }}')">Decline</button>
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="hub-text-muted pl-equip-panel__empty">Nothing is waiting for approval. New requests show here, and every manager gets an email.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
   {# Block Time (#657): held spans first, each with a Remove that asks nothing and emails nobody, then the form. #}
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-block-time-card>
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Block Time</h2>
@@ -532,6 +566,11 @@
 {% with rpks=reservation.pk|stringformat:"s" who=reservation.member.display_name %}
 {% include "components/confirm_modal.html" with confirm_id="mgr-cancel-"|add:rpks confirm_title="Cancel This Reservation?" confirm_message="The member has this time booked. Cancelling frees it and tells them why." confirm_action_url=mgr_cancel_url confirm_button_text="Cancel Reservation" confirm_note_name="reason" confirm_note_label="Reason" confirm_note_placeholder="Why is this being cancelled?" confirm_note_hint="The member will see this. Please tell the member why." %}
 {% endwith %}
+{% endfor %}
+
+{# Decline confirms (#748), one per waiting request, outside the panes; the reason is required and the member sees it. #}
+{% for reservation in manage_approvals %}
+{% include "hub/partials/reservation_decline_modal.html" with r=reservation decline_next="" %}
 {% endfor %}
 
 {# Remove block confirms (#657), one per block, outside the panes; no reason field, nobody is told. #}
