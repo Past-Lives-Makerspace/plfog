@@ -73,6 +73,18 @@ urlpatterns = [
     path("teach/classes/", views.teach_dashboard, name="teach_dashboard"),
     path("teach/classes/new/", views.teach_class_create, name="teach_class_create"),
     path("teach/classes/<int:pk>/edit/", views.teach_class_edit, name="teach_class_edit"),
+    path("teach/classes/<int:pk>/eventbrite/", views.teach_class_eventbrite, name="teach_class_eventbrite"),
+    path(
+        "teach/classes/<int:pk>/eventbrite/submit/",
+        views.teach_class_eventbrite_submit,
+        name="teach_class_eventbrite_submit",
+    ),
+    path(
+        "teach/classes/<int:pk>/eventbrite/settings/",
+        views.teach_class_eventbrite_settings,
+        name="teach_class_eventbrite_settings",
+    ),
+    path("teach/classes/<int:pk>/eventbrite/off/", views.teach_class_eventbrite_off, name="teach_class_eventbrite_off"),
     path(
         "teach/classes/<int:pk>/eventbrite-check/",
         views.teach_class_eventbrite_check,

@@ -880,6 +880,17 @@ def describe_the_listing_check():
                 ("Pay $10 in cash.", "“Pay $10 in cash”"),
                 ("Cash or Venmo accepted.", "“Cash”, “Venmo”"),
                 ("Clay is $5, payment by cash.", "“by cash”"),
+                # #725 part 2: a negation inside the span does not govern the payment.
+                ("Payment, no checks please, at the door.", "“Payment, no checks please, at the door”"),
+                (
+                    "Payment for clay (no card) is due at the session.",
+                    "“Payment for clay (no card) is due at the session”",
+                ),
+                (
+                    "Pay the instructor, no receipts, at the session.",
+                    "“Pay the instructor, no receipts, at the session”",
+                ),
+                ("Payment at the door covers the clay.", "“Payment at the door”"),
             ],
         )
         def it_refuses_a_pay_app_cash_or_paying_at_the_session(typed: str, quoted: str):

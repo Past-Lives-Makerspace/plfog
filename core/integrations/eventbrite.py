@@ -136,7 +136,12 @@ _FEE_RE = re.compile(
 _NEGATED_RE = re.compile(r"\b(?:no|without|zero)\s+$", re.IGNORECASE)
 # A payment mention that says there is nothing more to pay ("pay nothing extra on the day") or
 # that the ticket already covers it ("Your payment to the studio covers firing").
-_NOTHING_TO_PAY_RE = re.compile(r"\b(?:nothing|no)\b", re.IGNORECASE)
+# The negation counts only where it governs the payment: straight after the pay word ("pay
+# nothing extra"), never anywhere in the span ("Payment, no checks please, at the door" is refused).
+_NOTHING_TO_PAY_RE = re.compile(r"(?:pay(?:s|ing|able)?|paid|payments?)\s+(?:nothing|no)\b", re.IGNORECASE)
+# "Covers" excuses a payment made TO the makerspace ("Your payment to the studio covers firing"),
+# not one made AT the session or door ("Payment at the door covers the clay" is refused).
+_PAID_TO_RE = re.compile(r"\bto\s+(?:the\s+)?(?:studio|class|workshop)$", re.IGNORECASE)
 _COVERED_RE = re.compile(r"\s+(?:covers|includes|is\s+included)\b", re.IGNORECASE)
 # A discount or coupon code, named as one or by the makerspace's own code shapes
 # (PLHalfOff, PLMetal10, PL-10%off). A token after "code" counts only with a digit, a "%" or two
@@ -437,8 +442,8 @@ def _payments(text: str) -> list[str]:
         for match in _PAYMENT_RE.finditer(text)
         if not (
             _NEGATED_RE.search(text[: match.start()])
-            or _NOTHING_TO_PAY_RE.search(match.group(0))
-            or _COVERED_RE.match(text, match.end())
+            or _NOTHING_TO_PAY_RE.match(match.group(0))
+            or (_PAID_TO_RE.search(match.group(0)) and _COVERED_RE.match(text, match.end()))
         )
     ]
 

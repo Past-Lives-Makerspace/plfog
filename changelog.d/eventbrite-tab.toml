@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-10-09"
+title = "Each live class has an Eventbrite tab"
+changes = [
+  "Manage This Class has a new Eventbrite tab on live classes, for the instructor and admins. It shows where the class stands: not on Eventbrite, queued, listed, failed or taken down.",
+  "Validate Listing for Eventbrite checks the class against Eventbrite's rules. Once it passes, Submit Listing to Eventbrite lists it straight away and records that you agree to the rules.",
+  "A listed class has a Published on Eventbrite switch. Turning it off asks first, then unpublishes the event, or closes sales when tickets were already sold there.",
+  "Who pays Eventbrite's fee and the Eventbrite category moved to this tab. The live class edit page links to it.",
+  "Lines like \"Payment, no checks please, at the door\" are now caught as payment outside the ticket.",
+]

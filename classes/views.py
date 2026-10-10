@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser, User
 
     from classes.forms import PaymentRefundForm, RegistrationMoveForm
+    from core.integrations.eventbrite import ListingCheck
     from membership.models import Member
 
 from hub.toast import trigger_toast
@@ -103,6 +104,8 @@ from classes.forms import (
     DiscountCodeRequestForm,
     TeachClassOfferingForm,
     EventbriteListingCheckForm,
+    EventbritePublishedSwitchForm,
+    EventbriteSubmitForm,
     TeachPublishedClassForm,
     TeachWelcomeEmailForm,
     TeachingPageSettingsForm,
@@ -137,6 +140,7 @@ from classes.models import (
 )
 from core.files import delete_if_unreferenced
 from core.htmx import wants_fragment
+from core.integrations.eventbrite import EVENTBRITE_RULES
 from core.models import SiteConfiguration
 from core.urls_util import book_absolute_url
 from core.validators import validate_image_content
@@ -2383,6 +2387,107 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
     return _instructor_composer(request, pk)
 
 
+_UNPUBLISH_COPY = {
+    False: (
+        "Unpublish from Eventbrite?",
+        "The event goes back to a draft on Eventbrite and nobody can buy a ticket there. You can submit it again later.",
+        "Unpublish",
+    ),
+    True: (
+        "Close sales on Eventbrite?",
+        "Eventbrite keeps the page up while it holds orders, but nobody can buy a ticket there. "
+        "Tickets already sold stay sold.",
+        "Close sales",
+    ),
+}
+
+
+def _eventbrite_tab_offering(request: HttpRequest) -> ClassOffering:
+    """The class behind an Eventbrite tab request, for whoever may manage its Eventbrite (#725), else a 404."""
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_manage_eventbrite:
+        raise Http404("This class's Eventbrite is not this viewer's to manage.")
+    return request.class_offering  # type: ignore[attr-defined]
+
+
+def _render_eventbrite_tab(
+    request: HttpRequest,
+    offering: ClassOffering,
+    *,
+    form: EventbriteSubmitForm | None = None,
+    check: ListingCheck | None = None,
+) -> HttpResponse:
+    """The Eventbrite tab: badge, Validate, Submit, the Published switch, and the fee and category."""
+    stage = offering.eventbrite_stage
+    title, message, button = _UNPUBLISH_COPY[
+        stage == offering.EventbriteStage.LISTED and offering.holds_eventbrite_orders
+    ]
+    return render(
+        request,
+        "classes/teach/class_eventbrite.html",
+        {
+            **_class_screen_context(request, offering, "eventbrite"),
+            "stage": stage,
+            "form": form or EventbriteSubmitForm(instance=offering),
+            "check": check,
+            "published_switch": EventbritePublishedSwitchForm()["published"],
+            "unpublish_title": title,
+            "unpublish_message": message,
+            "unpublish_button": button,
+            "off_url": reverse("classes:teach_class_eventbrite_off", kwargs={"pk": offering.pk}),
+            "rules_text": EVENTBRITE_RULES,
+        },
+    )
+
+
+@class_screen_required
+def teach_class_eventbrite(request: HttpRequest, pk: int) -> HttpResponse:
+    """The Eventbrite tab on a live class (#725)."""
+    return _render_eventbrite_tab(request, _eventbrite_tab_offering(request))
+
+
+@require_POST
+@class_screen_required
+def teach_class_eventbrite_submit(request: HttpRequest, pk: int) -> HttpResponse:
+    """Submit Listing to Eventbrite: the fee and category, the agreement, and the push, in one press."""
+    offering = _eventbrite_tab_offering(request)
+    form = EventbriteSubmitForm(request.POST, instance=offering)
+    if not form.is_valid():
+        return _render_eventbrite_tab(request, offering, form=form)
+    try:
+        check = offering.submit_to_eventbrite(cast("User", request.user))
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("classes:teach_class_eventbrite", pk=offering.pk)
+    if check.problems:
+        return _render_eventbrite_tab(request, offering, form=form, check=check)
+    messages.success(request, f"Submitted to Eventbrite: {offering.eventbrite_sync_label}.")
+    return redirect("classes:teach_class_eventbrite", pk=offering.pk)
+
+
+@require_POST
+@class_screen_required
+def teach_class_eventbrite_settings(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the fee and category on a class already on Eventbrite; the next tick sends them."""
+    offering = _eventbrite_tab_offering(request)
+    form = EventbriteSubmitForm(request.POST, instance=offering)
+    if not form.is_valid():
+        return _render_eventbrite_tab(request, offering, form=form)
+    form.save().mark_eventbrite_edit_saved()
+    messages.success(request, "Eventbrite settings saved.")
+    return redirect("classes:teach_class_eventbrite", pk=offering.pk)
+
+
+@require_POST
+@class_screen_required
+def teach_class_eventbrite_off(request: HttpRequest, pk: int) -> HttpResponse:
+    """Take the class off Eventbrite: unpublish (or close sales) through the usual end path."""
+    offering = _eventbrite_tab_offering(request)
+    offering.take_off_eventbrite()
+    messages.success(request, "Taken off Eventbrite.")
+    return redirect("classes:teach_class_eventbrite", pk=offering.pk)
+
+
 def _eventbrite_check(request: HttpRequest, offering: ClassOffering | None) -> HttpResponse:
     """The Eventbrite check (#725) on the text the page posted, as it is typed; nothing is saved."""
     check = EventbriteListingCheckForm(request.POST, offering=offering).listing_check()
@@ -3063,9 +3168,6 @@ def _render_class_overview(
             "paid_registration_count": offering.paid_registration_count,
             "can_duplicate_run": _may_run_again(access),
             "can_delete_now": _may_delete(access, offering),
-            # The listing's sync state is an admin's to act on (#652); instructors see none of it.
-            "show_eventbrite_sync": access.can_administer
-            and offering.eventbrite_sync_state != ClassOffering.EventbriteSyncState.IDLE,
         },
     )
 
@@ -3121,17 +3223,17 @@ def teach_class_sale(request: HttpRequest, pk: int) -> HttpResponse:
 @class_screen_required
 @require_POST
 def teach_class_eventbrite_sync(request: HttpRequest, pk: int) -> HttpResponse:
-    """The admin's Sync to Eventbrite button on the Overview: push the listing now, back to the Overview.
+    """The admin's Sync to Eventbrite button on the Eventbrite tab (#713, moved there by #725): push the listing now.
 
-    Behind the same check that draws the Eventbrite row (``show_eventbrite_sync``). The row then
-    reads the outcome: Listed on Eventbrite with a check, or the failure reason.
+    Only an admin, and only once the class has a listing to sync; back on the tab, the badge
+    reads the outcome.
     """
     access: ClassAccess = request.class_access  # type: ignore[attr-defined]
     offering = get_object_or_404(ClassOffering, pk=pk)
     if not access.can_administer or offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.IDLE:
         raise Http404("This class has no Eventbrite listing for this viewer to sync.")
     offering.sync_eventbrite_listing()
-    return redirect("classes:teach_class_detail", pk=offering.pk)
+    return redirect("classes:teach_class_eventbrite", pk=offering.pk)
 
 
 @class_screen_required

@@ -668,6 +668,21 @@ _AGREEMENT_HELP = (
 _SUBMIT_ALPINE = {"x-model": "ebOn"}
 
 
+def eventbrite_fee_help(price: int) -> str:
+    """The fee choice's hint, worked at the class's own price (a new class shows $50)."""
+    from classes.templatetags.classes_tags import cents_as_price
+    from core.integrations.eventbrite import estimate_fee_cents
+
+    fee = estimate_fee_cents(price)
+    return (
+        "Eventbrite charges 3.7% + $1.79 per ticket, plus 2.9% payment processing. "
+        f"On a {cents_as_price(price)} ticket that is about {cents_as_price(fee)}. "
+        f"Buyer pays it on top: the buyer pays about {cents_as_price(price + fee)} and the class gets "
+        f"{cents_as_price(price)}. Included in my price: the buyer pays {cents_as_price(price)} and the "
+        f"class gets about {cents_as_price(price - fee)}."
+    )
+
+
 class _EventbriteRulesMixin:
     """Eventbrite's selling rules (#725): Submit to Eventbrite, the agreement it records, and the check.
 
@@ -726,16 +741,56 @@ class _EventbriteRulesMixin:
         Returns:
             True when the save may go ahead.
         """
-        if "eventbrite_enabled" not in self.fields or not self.eventbrite_ticked:
+        has_box = "eventbrite_enabled" in self.fields
+        if has_box and not self.eventbrite_ticked:
+            return True
+        # A live class edits without the box (its Eventbrite lives on the class's own tab), but a
+        # class that is on Eventbrite still may not save text that would get it taken down.
+        if not has_box and not (self.instance.eventbrite_enabled and not self.instance.needs_eventbrite_agreement):
             return True
         faqs = faq_formset.posted_faqs() if faq_formset is not None else []
         self.eventbrite_check = check = self.instance.eventbrite_listing_check(faqs)
         if check.problems:
-            self.add_error("eventbrite_enabled", ValidationError(check.refusal_lines))  # type: ignore[attr-defined]
+            where = "eventbrite_enabled" if has_box else None
+            self.add_error(where, ValidationError(check.refusal_lines))  # type: ignore[attr-defined]
             return False
         if self.instance.needs_eventbrite_agreement:
             self.instance.agree_to_eventbrite_rules(agreed_by)
         return True
+
+
+class EventbritePublishedSwitchForm(forms.Form):
+    """The Eventbrite tab's Published on Eventbrite switch (#725): never posted; turning it off opens the confirm modal."""
+
+    published = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Published on Eventbrite",
+        help_text="Buyers can find and book this class on Eventbrite.",
+        widget=forms.CheckboxInput(attrs={"@click.prevent": "$dispatch('open-confirm', 'eventbrite-unpublish')"}),
+    )
+
+
+class EventbriteSubmitForm(_EventbriteCategoryMixin, forms.ModelForm):
+    """The Eventbrite tab's settings (#725): who pays the fee and the category, posted with Submit or Save."""
+
+    class Meta:
+        model = ClassOffering
+        fields = ["eventbrite_fee_payer", "eventbrite_category", "eventbrite_subcategory"]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.setup_eventbrite_category_fields()
+        # Optional so a post without it keeps the class's choice.
+        self.fields["eventbrite_fee_payer"].required = False
+        self.fields["eventbrite_fee_payer"].help_text = eventbrite_fee_help(self.instance.price_cents)
+
+    def clean(self) -> dict:
+        data = super().clean() or {}
+        self.check_eventbrite_category_pair()
+        if not self.cleaned_data.get("eventbrite_fee_payer"):
+            self.cleaned_data["eventbrite_fee_payer"] = self.instance.eventbrite_fee_payer
+        return data
 
 
 class EventbriteListingCheckForm(forms.Form):
@@ -787,26 +842,18 @@ class _EventbriteMixin(_EventbriteRulesMixin, _EventbriteCategoryMixin):
     cleaned_data: dict[str, Any]
 
     def setup_eventbrite_fields(self) -> None:
-        from classes.templatetags.classes_tags import cents_as_price
-        from core.integrations.eventbrite import EventbriteClient, estimate_fee_cents
+        from core.integrations.eventbrite import EventbriteClient
 
-        if not EventbriteClient.from_settings().enabled:
+        # Off while the integration is off, and on a live class, whose Eventbrite is its own tab (#725).
+        if self.instance.status == ClassOffering.Status.PUBLISHED or not EventbriteClient.from_settings().enabled:
             del self.fields["eventbrite_enabled"], self.fields["eventbrite_fee_payer"]
             self.drop_eventbrite_category_fields()
             return
         self.setup_eventbrite_category_fields()
         self.setup_eventbrite_rules()
-        price = self.instance.price_cents or 5000
-        fee = estimate_fee_cents(price)
         # Optional so a post without it (an older client, the opt-in left off) keeps the default.
         self.fields["eventbrite_fee_payer"].required = False
-        self.fields["eventbrite_fee_payer"].help_text = (
-            "Eventbrite charges 3.7% + $1.79 per ticket, plus 2.9% payment processing. "
-            f"On a {cents_as_price(price)} ticket that is about {cents_as_price(fee)}. "
-            f"Buyer pays it on top: the buyer pays about {cents_as_price(price + fee)} and the class gets "
-            f"{cents_as_price(price)}. Included in my price: the buyer pays {cents_as_price(price)} and the "
-            f"class gets about {cents_as_price(price - fee)}."
-        )
+        self.fields["eventbrite_fee_payer"].help_text = eventbrite_fee_help(self.instance.price_cents or 5000)
 
     def clean_eventbrite(self) -> None:
         if "eventbrite_enabled" not in self.fields:
@@ -1414,9 +1461,7 @@ class CategoryForm(forms.ModelForm):
         fields = ["name", "slug", "sort_order", "hero_image"]
 
 
-class TeachPublishedClassForm(
-    _EventbriteRulesMixin, _EventbriteCategoryMixin, _RichDescriptionMixin, _HeroCropMixin, forms.ModelForm
-):
+class TeachPublishedClassForm(_EventbriteRulesMixin, _RichDescriptionMixin, _HeroCropMixin, forms.ModelForm):
     """Light edits an instructor may make to a LIVE class without re-review.
 
     Only fields that do not change what registrants booked on: the subtitle (#563), description,
@@ -1428,7 +1473,8 @@ class TeachPublishedClassForm(
     :class:`ClassChangeRequestForm`). A sale is not one of
     those: the instructor sets, changes, or ends one on a live class from the manage page's
     sale modal (:class:`ClassSaleForm`). A crafted POST carrying locked fields is simply
-    ignored: a ModelForm saves only its declared fields.
+    ignored: a ModelForm saves only its declared fields. Eventbrite is the class's own tab
+    (#725); a save of a class on Eventbrite still runs the listing check.
     """
 
     class Meta:
@@ -1444,9 +1490,6 @@ class TeachPublishedClassForm(
             "flexible_booking_text",
             "flexible_note",
             "video_url",
-            "eventbrite_enabled",
-            "eventbrite_category",
-            "eventbrite_subcategory",
         ]
         widgets = {
             "video_url": _video_url_widget(),
@@ -1459,26 +1502,11 @@ class TeachPublishedClassForm(
         super().__init__(*args, **kwargs)
         # The booking line exists only on a flexible class's page, so a fixed class does not
         # get the box (the page renders every field of this form).
-        # Eventbrite is the reverse: a flexible class has no dates to list, so it gets no switch.
         if self.instance.is_flexible:
             setup_flexible_booking_text(self)
         else:
             del self.fields["flexible_booking_text"]
-        from core.integrations.eventbrite import EventbriteClient
-
-        if self.instance.is_flexible or not EventbriteClient.from_settings().enabled:
-            del self.fields["eventbrite_enabled"]
-            self.drop_eventbrite_category_fields()
-        else:
-            self.setup_eventbrite_category_fields()
-            self.setup_eventbrite_rules()
         self.add_hero_crop_field()
-
-    def clean(self) -> dict:
-        data = super().clean() or {}
-        self.check_eventbrite_category_pair()
-        self.keep_unagreed_opt_in()
-        return data
 
     def clean_flexible_booking_text(self) -> str:
         return clean_flexible_booking_text(self)

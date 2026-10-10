@@ -61,10 +61,6 @@
             {# Rendered by the banner photo field below, beside the cropper that writes it. #}
         {% elif field.is_hidden %}
             {{ field }}
-        {% elif field.name == 'eventbrite_enabled' %}
-            {% include "classes/_components/eventbrite_rules.html" %}
-        {% elif field.name == 'eventbrite_category' or field.name == 'eventbrite_subcategory' %}
-            {# Rendered under Submit to Eventbrite by the partial above, shown once it is ticked (#725). #}
         {% elif field.name == 'video_url' or field.name == 'subtitle' %}
             {% include "components/form_field.html" with field=field %}
         {% else %}
@@ -72,6 +68,10 @@
         {% endif %}
     {% endfor %}
 
+    {% if not offering.is_flexible %}
+    {# A live class sells on Eventbrite from its own tab (#725), not from this form. #}
+    <p class="pl-compose-section__note" data-eventbrite-tab-link>Selling this class on Eventbrite has its own tab: <a href="{% url 'classes:teach_class_eventbrite' pk=offering.pk %}">Eventbrite</a>.</p>
+    {% endif %}
     <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Banner Photo</h3>
     <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">The photo at the top of the public class page. A new photo saves instantly; the crop box saves with the form.</p>
     {# hero_source_url, not hero_image_url: the box is drawn on the original, never on the cropped copy. #}

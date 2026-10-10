@@ -1,0 +1,69 @@
+{% extends "classes/_components/class_screen_base.html" %}
+
+{% block detail_content %}
+{# The Eventbrite tab (#725): where a live class stands with Eventbrite, Validate, Submit, the Published switch, then the fee and category. #}
+<section class="hub-card pl-composer__card" data-eventbrite-tab
+         x-data="{ ebPassed: {% if check and not check.problems %}true{% else %}false{% endif %} }"
+         @htmx:after-swap="ebPassed = !!$event.target.querySelector('[data-eventbrite-ready]')">
+  <h3 class="pl-composer__card-title">Eventbrite</h3>
+
+  <p data-eventbrite-stage="{{ stage }}">
+    <span class="pl-lifecycle-badge {% if stage == 'listed' %}pl-lifecycle-badge--upcoming{% elif stage == 'queued' or stage == 'needs_agreement' %}pl-lifecycle-badge--awaiting_admin{% elif stage == 'failed' or stage == 'taken_down' %}pl-lifecycle-badge--cancelled{% else %}pl-lifecycle-badge--completed{% endif %}">{% if stage == 'listed' %}<span aria-hidden="true">&#10003;</span> {% endif %}{{ stage.label }}</span>
+    {% if offering.eventbrite_event_url %}<a href="{{ offering.eventbrite_event_url }}" target="_blank" rel="noopener">View on Eventbrite</a>{% endif %}
+  </p>
+  {% if stage == 'taken_down' %}
+  <p class="pl-compose-section__note" data-eventbrite-taken-down>{{ offering.eventbrite_sync_error }} Eventbrite took this listing down, so plfog never submits it again.</p>
+  {% elif stage == 'needs_agreement' %}
+  <p class="pl-compose-section__note" data-eventbrite-awaiting>This class was put on Eventbrite before the rules below. Validate it and submit it to agree, or turn Eventbrite off.</p>
+  {% elif stage == 'failed' or stage == 'queued' %}
+  <p class="pl-compose-section__note" data-eventbrite-sync>{{ offering.eventbrite_sync_label }}</p>
+  {% endif %}
+  {% if access.can_administer and offering.eventbrite_sync_state != 'idle' and stage != 'taken_down' %}
+  {# #713's Sync to Eventbrite, moved here from the Overview: the admin pushes the listing now. #}
+  <form method="post" action="{% url 'classes:teach_class_eventbrite_sync' pk=offering.pk %}" data-pl-busy-submit data-pl-busy-label="Syncing...">
+    {% csrf_token %}
+    <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost" data-pl-busy data-eventbrite-sync-button>Sync to Eventbrite</button>
+  </form>
+  {% endif %}
+
+  {% if stage == 'listed' %}
+  <div class="pl-reveal" data-eventbrite-published>
+    {% include "components/form_field.html" with field=published_switch %}
+  </div>
+  {% include "components/confirm_modal.html" with confirm_id="eventbrite-unpublish" confirm_title=unpublish_title confirm_message=unpublish_message confirm_action_url=off_url confirm_button_text=unpublish_button %}
+  {% elif stage != 'taken_down' %}
+  <div class="pl-reveal">
+    <p class="pl-compose-section__note" data-eventbrite-rules>{{ rules_text }}</p>
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost pl-btn--spaced" data-eventbrite-validate
+            hx-post="{% url 'classes:teach_class_eventbrite_check' pk=offering.pk %}" hx-target="next [data-eventbrite-check-slot]" hx-swap="innerHTML">Validate Listing for Eventbrite</button>
+    <div class="pl-reveal" data-eventbrite-check-slot aria-live="polite">
+      {% if check %}{% include "classes/_components/eventbrite_check_result.html" with check=check %}{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if stage != 'taken_down' %}
+  <form method="post" action="{% url 'classes:teach_class_eventbrite_submit' pk=offering.pk %}" class="pl-reveal" data-eventbrite-settings data-pl-busy-submit data-pl-busy-label="Submitting...">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<ul class="pl-field-errors">{% for error in form.non_field_errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>{% endif %}
+    {% include "components/form_field.html" with field=form.eventbrite_fee_payer %}
+    {% include "classes/_components/eventbrite_category_fields.html" %}
+    {% if stage != 'listed' %}
+    <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary pl-btn--spaced" data-pl-busy data-eventbrite-submit x-show="ebPassed" x-cloak>Submit Listing to Eventbrite</button>
+    <p class="pl-compose-section__note pl-reveal" x-show="!ebPassed">Validate the listing first; Submit appears once it passes.</p>
+    {% endif %}
+    {% if offering.eventbrite_enabled %}
+    <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost pl-btn--spaced" formaction="{% url 'classes:teach_class_eventbrite_settings' pk=offering.pk %}" data-eventbrite-save>Save</button>
+    {% endif %}
+  </form>
+  {% endif %}
+
+  {% if offering.eventbrite_enabled and stage != 'listed' %}
+  {# Off without a modal: nothing is selling here. A taken-down event is left as it is (#725). #}
+  <form method="post" action="{{ off_url }}" class="pl-reveal" data-eventbrite-off>
+    {% csrf_token %}
+    <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Turn off Eventbrite</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

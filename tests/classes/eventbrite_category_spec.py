@@ -22,7 +22,7 @@ from classes.eventbrite_categories import (
     subcategory_fits,
 )
 from classes.factories import ClassOfferingFactory, InstructorFactory, UserFactory
-from classes.forms import ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm
+from classes.forms import EventbriteSubmitForm, ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm
 from classes.models import ClassOffering
 from core.models import SiteConfiguration
 from tests.membership.factories import MembershipPlanFactory
@@ -207,16 +207,12 @@ def describe_while_the_integration_is_off():
         assert form.save().eventbrite_category == ""
 
 
-def describe_the_live_class_edit_form():
-    @pytest.fixture(autouse=True)
-    def _integration_on(settings: Any) -> None:
-        _switch_integration_on(settings)
+def describe_the_eventbrite_tab_form():
+    """A live class's category lives on its Eventbrite tab (#725 part 2), not its edit form."""
 
     def it_saves_a_category_and_its_subcategory_on_a_live_class():
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
-        form = TeachPublishedClassForm(
-            _published_data(eventbrite_category=HOBBIES, eventbrite_subcategory=DIY), instance=offering
-        )
+        form = EventbriteSubmitForm({"eventbrite_category": HOBBIES, "eventbrite_subcategory": DIY}, instance=offering)
         assert form.is_valid(), form.errors
 
         saved = form.save()
@@ -225,22 +221,23 @@ def describe_the_live_class_edit_form():
 
     def it_refuses_a_mismatched_pair():
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
-        form = TeachPublishedClassForm(
-            _published_data(eventbrite_category=ARTS, eventbrite_subcategory=DIY), instance=offering
-        )
+        form = EventbriteSubmitForm({"eventbrite_category": ARTS, "eventbrite_subcategory": DIY}, instance=offering)
 
         assert form.errors["eventbrite_subcategory"] == [MISMATCH]
 
-    def it_offers_neither_on_a_flexible_class():
+    def it_keeps_the_fee_choice_when_none_is_posted():
         offering = ClassOfferingFactory(
-            status=ClassOffering.Status.PUBLISHED, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE
+            status=ClassOffering.Status.PUBLISHED, eventbrite_fee_payer=ClassOffering.EventbriteFeePayer.INCLUDED
         )
-        form = TeachPublishedClassForm(
-            _published_data(eventbrite_category=ARTS, eventbrite_subcategory=DIY), instance=offering
-        )
-
-        assert "eventbrite_category" not in form.fields
+        form = EventbriteSubmitForm({"eventbrite_category": ARTS}, instance=offering)
         assert form.is_valid(), form.errors
+
+        assert form.save().eventbrite_fee_payer == ClassOffering.EventbriteFeePayer.INCLUDED
+
+    def it_leaves_the_live_class_edit_form_without_either():
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+
+        assert "eventbrite_category" not in TeachPublishedClassForm(instance=offering).fields
 
 
 def describe_the_pages():
@@ -259,7 +256,7 @@ def describe_the_pages():
         assert _select(component, "eventbrite_category").count("<option") == 22
         assert _select(component, "eventbrite_subcategory").count("<option") == 217
 
-    def it_puts_both_dropdowns_on_the_live_class_edit_page_with_the_saved_choice(client: Client):
+    def it_puts_both_dropdowns_on_the_eventbrite_tab_with_the_saved_choice(client: Client):
         instructor = _instructor_client(client)
         offering = ClassOfferingFactory(
             instructor=instructor,
@@ -268,25 +265,23 @@ def describe_the_pages():
             eventbrite_subcategory=JEWELRY,
         )
 
-        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_eventbrite", kwargs={"pk": offering.pk})).content.decode()
 
         component = html[html.index("data-eventbrite-category") :]
         assert '<option value="105" selected>' in _select(component, "eventbrite_category")
         assert re.search(r'<option value="5014" selected[ >]', _select(component, "eventbrite_subcategory"))
         assert html.count('name="eventbrite_subcategory"') == 1
 
-    def it_saves_the_pair_from_the_live_class_edit_page(client: Client):
+    def it_saves_the_pair_from_the_eventbrite_tab(client: Client):
         instructor = _instructor_client(client)
-        offering = ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.PUBLISHED)
-        payload = {
-            **_published_data(eventbrite_category=HOBBIES, eventbrite_subcategory=DIY),
-            "faq-TOTAL_FORMS": "0",
-            "faq-INITIAL_FORMS": "0",
-            "faq-MIN_NUM_FORMS": "0",
-            "faq-MAX_NUM_FORMS": "1000",
-        }
+        offering = ClassOfferingFactory(
+            instructor=instructor, status=ClassOffering.Status.PUBLISHED, eventbrite_enabled=True
+        )
 
-        response = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), payload)
+        response = client.post(
+            reverse("classes:teach_class_eventbrite_settings", kwargs={"pk": offering.pk}),
+            {"eventbrite_category": HOBBIES, "eventbrite_subcategory": DIY},
+        )
 
         assert response.status_code == 302
         offering.refresh_from_db()

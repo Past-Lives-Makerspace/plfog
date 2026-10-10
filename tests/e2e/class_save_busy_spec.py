@@ -154,13 +154,14 @@ def describe_the_sync_to_eventbrite_button():
             eventbrite_sync_error=EventbriteSync.EDIT_SAVED,
         )
         login_via_code(ADMIN)
-        page.goto(f"{live_server.url}{reverse('classes:teach_class_detail', kwargs={'pk': offering.pk})}")
-        row = page.locator("[data-overview-eventbrite]")
-        expect(row).to_contain_text("Waiting to sync: your changes are saved")
+        # #725 part 2 moved the button from the Overview to the class's Eventbrite tab.
+        page.goto(f"{live_server.url}{reverse('classes:teach_class_eventbrite', kwargs={'pk': offering.pk})}")
+        row = page.locator("[data-eventbrite-tab]")
+        expect(row.locator("[data-eventbrite-sync]")).to_contain_text("Waiting to sync: your changes are saved")
 
         row.locator("[data-eventbrite-sync-button]").click()
 
-        expect(row.locator("[data-eventbrite-sync]")).to_have_text("✓ Listed on Eventbrite")
+        expect(row.locator("[data-eventbrite-stage]")).to_contain_text("Listed on Eventbrite")
         expect(row.locator("[data-eventbrite-sync-button]")).to_have_text("Sync to Eventbrite")
         assert "update_event" in eventbrite.names()
         if CAPTURE:
