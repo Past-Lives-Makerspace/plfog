@@ -286,6 +286,13 @@ def _recurrence_rule_for(event: CommunityEvent) -> dict[str, Any] | None:
     return None
 
 
+def pushes_as_native_series(event: CommunityEvent) -> bool:
+    """Whether Discord can hold this event as one recurring Scheduled Event (a rule), as
+    opposed to the single-next-occurrence fallback. The cron uses it to catch a series that
+    was pushed as a rule before the map tightened."""
+    return _recurrence_rule_for(event) is not None
+
+
 def _next_occurrence(event: CommunityEvent) -> datetime | None:
     """The next concrete start datetime (>= now) of an unmappable-cadence event, within the
     fallback horizon, or ``None`` when the series has no occurrence in that window yet."""

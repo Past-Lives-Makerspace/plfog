@@ -1,13 +1,17 @@
-"""Re-push community events whose Discord Scheduled Events sync is pending or failed, and
-roll unmappable-cadence single events forward to their next occurrence.
+"""Re-push community events whose Discord Scheduled Events sync is pending or failed, roll
+unmappable-cadence single events forward to their next occurrence, and re-push a series
+the recurrence map no longer expresses as a rule.
 
 Wired into ``run_scheduled_tasks``' always-run set (every ~15 minutes). Self-gating: a
 no-op when Discord Events sync is off, so it is safe to run on every tick. Only touches
-PUBLISHED non-studio-hours rows in ``PENDING``/``FAILED`` (``needs_discord_push()``) plus
-SYNCED single-occurrence rows whose pushed occurrence has passed
-(``needs_discord_rollforward()``) — a passed one re-creates a fresh event for its next
-occurrence (a completed Discord event can't be PATCHed forward). Bounded per run so a
-single tick stays cheap.
+PUBLISHED non-studio-hours rows in ``PENDING``/``FAILED`` (``needs_discord_push()``), SYNCED
+single-occurrence rows whose pushed occurrence has passed (``needs_discord_rollforward()``;
+a passed one re-creates a fresh event for its next occurrence, since a completed Discord
+event can't be PATCHed forward), and SYNCED native series (``discord_native_series()``)
+whose cadence :func:`~core.integrations.discord_events.pushes_as_native_series` now
+rejects: the push replaces the series on Discord with its next single occurrence. That
+last pass is what heals a series pushed under an older map (the First Friday Art Walk,
+#755) without a hand-run step after deploy. Bounded per run so a single tick stays cheap.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         from django.utils import timezone
 
-        from core.integrations.discord_events import DiscordScheduledEventsClient
+        from core.integrations.discord_events import DiscordScheduledEventsClient, pushes_as_native_series
         from core.models import SiteConfiguration
         from membership.models import CommunityEvent
 
@@ -47,6 +51,15 @@ class Command(BaseCommand):
             event.push_to_discord()  # recomputes the next occurrence + creates a fresh event
             rolled += 1
 
+        remapped = 0
+        for event in CommunityEvent.objects.discord_native_series().select_related("guild")[:_MAX_PER_RUN]:
+            if not pushes_as_native_series(event):
+                event.push_to_discord()  # replaces the Discord series with its next single occurrence
+                remapped += 1
+
         self.stdout.write(
-            self.style.SUCCESS(f"Retried Discord push for {pushed} event(s); rolled {rolled} event(s) forward.")
+            self.style.SUCCESS(
+                f"Retried Discord push for {pushed} event(s); rolled {rolled} event(s) forward; "
+                f"remapped {remapped} series."
+            )
         )

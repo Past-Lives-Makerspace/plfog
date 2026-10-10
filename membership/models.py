@@ -7413,6 +7413,22 @@ class CommunityEventQuerySet(models.QuerySet):
             discord_pushed_occurrence__lt=now,
         )
 
+    def discord_native_series(self) -> CommunityEventQuerySet:
+        """SYNCED recurring rows that live on Discord as a rule: a Discord id and a NULL
+        ``discord_pushed_occurrence``.
+
+        The cron re-checks these against the recurrence map each tick; one whose cadence the
+        map no longer expresses as a rule (a monthly evening series, since #755) is re-pushed,
+        which replaces its Discord series with its next single occurrence.
+        """
+        return (
+            self.published()
+            .exclude(event_type=CommunityEvent.EventType.STUDIO_HOURS)
+            .exclude(recurrence=CommunityEvent.Recurrence.NONE)
+            .exclude(discord_event_id="")
+            .filter(discord_sync_state=CommunityEvent.SyncState.SYNCED, discord_pushed_occurrence__isnull=True)
+        )
+
 
 class InvalidEventTransition(ValueError):
     """Raised when a :class:`CommunityEvent` lifecycle method is called from a state
