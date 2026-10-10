@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-09"
+title = "Usage agreements for equipment"
+changes = [
+  "Some equipment now asks you to agree to its usage agreement once, after your orientation and before your first reservation. Read it in the pop up, turn on I agree, and you can book right away.",
+  "You are only asked again if the agreement changes.",
+  "For equipment managers: add a link to the agreement, its text, or both on the Details tab of the Manage page. Any change asks everyone to agree again, and the page tells you how many members that is.",
+]
