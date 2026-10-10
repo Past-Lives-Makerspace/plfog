@@ -10,9 +10,9 @@ a passed one re-creates a fresh event for its next occurrence, since a completed
 event can't be PATCHed forward), and SYNCED native series (``discord_native_series()``)
 whose cadence :func:`~core.integrations.discord_events.pushes_as_native_series` now
 rejects (the push replaces the series on Discord with its next single occurrence) or whose
-series :func:`~core.integrations.discord_events.series_needs_reanchor` (the clocks changed,
-so Discord's fixed UTC time reads an hour off; the push re-anchors the same series at the
-next occurrence). Those passes heal a series pushed under an older map (the First Friday Art
+series needs re-anchoring per :func:`~core.integrations.discord_events.series_needs_reanchor`
+(the clocks changed, so Discord's fixed UTC time reads an hour off; the push re-anchors the
+same series at the next occurrence). Those passes heal a series pushed under an older map (the First Friday Art
 Walk, #755) or before a clock change without a hand-run step. Bounded per run so a single
 tick stays cheap.
 """

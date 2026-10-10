@@ -32,13 +32,12 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
 from core.events.discord_dm import API_BASE, _auth_headers, bot_disabled, bot_token
-
-from datetime import datetime
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -242,8 +241,6 @@ def _crosses_utc_date_line(event: CommunityEvent) -> bool:
     UTC the same day in summer and 00:30 UTC the next day in winter, and a monthly rule that
     held in July would snap to the wrong week in November.
     """
-    from datetime import datetime
-
     from django.utils import timezone
 
     local = timezone.localtime(event.starts_at)
@@ -297,7 +294,13 @@ def _recurrence_rule_for(event: CommunityEvent, start: datetime) -> dict[str, An
     Friday 00:30 UTC in winter, and the series is re-anchored at each change (see
     :func:`series_needs_reanchor`).
 
-    A **monthly** series that crosses the date line has no rule at all. Discord counts the nth
+    The **monthly** rule is the one exception to "from the pushed start": its week and weekday
+    come from the anchor's local calendar position, which under the gate below is its UTC
+    position in every month, so a 5th-week anchor (FOG's "last Friday") stays ``n=5`` rather
+    than following whichever week the pushed occurrence happens to land in (a last-Friday
+    series pushed from Aug 28, the 4th Friday, would otherwise tell Discord "4th Friday").
+
+    A monthly series that crosses the date line has no rule at all. Discord counts the nth
     weekday on the UTC calendar, and "the nth Saturday in UTC" is not "the nth Friday in
     Portland": the first Friday of August 2026 was the 7th, so its UTC instant was the *second*
     Saturday, and the rule ``{"n": 2, "day": 5}`` put the First Friday Art Walk on the second
@@ -309,18 +312,19 @@ def _recurrence_rule_for(event: CommunityEvent, start: datetime) -> dict[str, An
     """
     from datetime import UTC
 
+    from django.utils import timezone
+
     from membership.models import CommunityEvent as CE
 
     if not pushes_as_native_series(event):
         return None
-    utc_start = start.astimezone(UTC)
-    weekday = utc_start.weekday()
     if event.recurrence == CE.Recurrence.WEEKLY:
-        return {"frequency": _FREQUENCY_WEEKLY, "interval": 1, "by_weekday": [weekday]}
+        return {"frequency": _FREQUENCY_WEEKLY, "interval": 1, "by_weekday": [start.astimezone(UTC).weekday()]}
+    anchor = timezone.localtime(event.starts_at)
     return {
         "frequency": _FREQUENCY_MONTHLY,
         "interval": 1,
-        "by_n_weekday": [{"n": (utc_start.day - 1) // 7 + 1, "day": weekday}],
+        "by_n_weekday": [{"n": (anchor.day - 1) // 7 + 1, "day": anchor.weekday()}],
     }
 
 
@@ -357,6 +361,21 @@ def _series_start(event: CommunityEvent) -> datetime:
     return _next_occurrence(event) or event.starts_at
 
 
+def _occurrence_in_progress(event: CommunityEvent) -> bool:
+    """Whether one of the event's occurrences is running right now."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    now = timezone.now()
+    duration = event.ends_at - event.starts_at
+    today = timezone.localdate(now)
+    for occ in event.occurrences_in(today - timedelta(days=duration.days + 1), today):
+        if occ <= now < occ + duration:
+            return True
+    return False
+
+
 def series_needs_reanchor(event: CommunityEvent) -> bool:
     """Whether the series Discord holds for a synced native event drifted from its local time.
 
@@ -366,9 +385,17 @@ def series_needs_reanchor(event: CommunityEvent) -> bool:
     pushed (``discord_pushed_start``), a re-push PATCHes the same Discord event with the next
     occurrence as its start, and the series reads at its local time again until the next
     change. A row pushed before ``discord_pushed_start`` existed is re-anchored once.
+
+    Never while an occurrence is running: :func:`_series_start` would skip the running one,
+    and a PATCH that moves an ACTIVE Discord event's start a week out either fails until it
+    ends or moves it out from under the people at it. The last occurrence before a clock
+    change is exactly when the drift first shows, so the first tick after it ends re-anchors,
+    still days before the change.
     """
     from datetime import UTC
 
+    if _occurrence_in_progress(event):
+        return False
     if event.discord_pushed_start is None:
         return True
     pushed = event.discord_pushed_start.astimezone(UTC)

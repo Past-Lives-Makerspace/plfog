@@ -497,6 +497,15 @@ def describe__recurrence_rule_for():
         winter = timezone.make_aware(datetime(2026, 11, 19, 16, 30))
         assert de._recurrence_rule_for(event, winter)["by_weekday"] == [4]
 
+    def it_keeps_a_last_weekday_series_at_week_5_whatever_week_the_pushed_start_lands_in() -> None:
+        # Anchored Fri 2026-07-31 noon, the 5th Friday: FOG projects the last Friday of each
+        # month (Aug 28 is the 4th). The rule follows the anchor's calendar position, so a
+        # push from Aug 28 still says week 5, Friday, not week 4.
+        anchor = timezone.make_aware(datetime(2026, 7, 31, 12, 0))
+        event = _event(CommunityEvent.Recurrence.MONTHLY, starts_at=anchor, ends_at=anchor + timedelta(hours=1))
+        pushed = timezone.make_aware(datetime(2026, 8, 28, 12, 0))
+        assert de._recurrence_rule_for(event, pushed)["by_n_weekday"] == [{"n": 5, "day": 4}]
+
     def it_returns_none_for_a_monthly_event_that_crosses_the_date_line_only_in_winter() -> None:
         # Fri 2026-07-10 16:30 PDT is 23:30 UTC the same day, but 16:30 PST is 00:30 UTC the
         # next day, so a rule that held in July would snap to the wrong week in November.
@@ -672,6 +681,40 @@ def describe_what_discord_shows():
             november = _discord_series(update.call_args.args[2], 3)
         assert _local_dates(november) == ["Tue 2026-11-03 18:00", "Tue 2026-11-10 18:00", "Tue 2026-11-17 18:00"]
         assert event.discord_pushed_start == timezone.make_aware(datetime(2026, 11, 3, 18, 0))
+
+
+@pytest.mark.django_db
+def describe_series_needs_reanchor():
+    def _clay_play(pushed_start: datetime | None) -> CommunityEvent:
+        anchor = timezone.make_aware(datetime(2026, 10, 6, 18, 0))
+        return CommunityEventFactory(
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+            starts_at=anchor,
+            ends_at=anchor + timedelta(hours=2),
+            discord_event_id="clay",
+            discord_sync_state=CommunityEvent.SyncState.SYNCED,
+            discord_pushed_start=pushed_start,
+        )
+
+    def it_waits_for_a_running_occurrence_to_end() -> None:
+        # Tue 2026-10-27 is the last Clay Play before the clocks change. Mid-meeting the next
+        # occurrence is already Nov 3 at 02:00 UTC (a drift), but moving an ACTIVE Discord
+        # event's start a week out is wrong either way; the tick after 8 PM re-anchors.
+        event = _clay_play(timezone.make_aware(datetime(2026, 10, 27, 18, 0)))
+        with patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 10, 27, 18, 30))):
+            assert not de.series_needs_reanchor(event)
+        with patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 10, 27, 20, 30))):
+            assert de.series_needs_reanchor(event)
+
+    def it_is_quiet_between_occurrences_until_the_clocks_change() -> None:
+        event = _clay_play(timezone.make_aware(datetime(2026, 10, 6, 18, 0)))
+        with patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 10, 20, 9, 0))):
+            assert not de.series_needs_reanchor(event)
+
+    def it_reanchors_a_row_from_before_the_column_once() -> None:
+        event = _clay_play(None)
+        with patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 10, 20, 9, 0))):
+            assert de.series_needs_reanchor(event)
 
 
 @pytest.mark.django_db
