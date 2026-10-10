@@ -153,8 +153,8 @@ def describe_the_three_existing_callers():
     def it_keeps_the_required_note_to_the_flows_that_need_a_reason():
         # Sorted, because rglob order is filesystem order and an unsorted list made this
         # assertion fragile. Every caller collects a reason a person will read later: why a
-        # wiki page was removed, why a discount request was turned down, and why a
-        # reservation was cancelled. A new name here wants that same justification, which is
+        # wiki page was removed, why a discount request was turned down, why a
+        # reservation was cancelled, and why a reservation request was declined (#754). A new name here wants that same justification, which is
         # why the list stays explicit.
         root = Path(settings.BASE_DIR) / "templates"
         callers = sorted(
@@ -166,4 +166,5 @@ def describe_the_three_existing_callers():
             "_wiki_moderation_actions.html",
             "discount_code_request_review.html",
             "reservation_booking_modals.html",
+            "reservation_decline_modal.html",
         ]

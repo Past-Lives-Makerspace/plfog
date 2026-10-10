@@ -1331,6 +1331,7 @@ class ClassOffering(HeroCropMixin, models.Model):
     video_thumbnail_source_url = models.URLField(
         max_length=500,
         blank=True,
+        default="",
         db_default="",
         help_text=(
             "The video link the picture was taken from, or last tried. When it no longer matches the "
