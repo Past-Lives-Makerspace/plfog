@@ -38,3 +38,66 @@
     background: var(--hub-surface);
     border: 1px solid var(--hub-border);
 }
+
+/* Book a Time with the price chip beside the heading (#749). */
+.pl-equip-book__head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.75rem;
+}
+.pl-equip-book__head h2 {
+    margin: 0;
+}
+
+/* The live total under the selects, and the summary line at the top of the confirm (#749). */
+.pl-equip-book__total {
+    margin: 0.25rem 0 0;
+    font-size: 0.9rem;
+    color: var(--hub-text);
+}
+.pl-equip-book__total strong {
+    color: var(--color-tuscan-yellow);
+}
+[data-theme="light"] .pl-equip-book__total strong {
+    color: #8a5a00;
+}
+.pl-equip-confirm-summary {
+    margin: 0 0 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 6px;
+    background: var(--hub-surface);
+    font-size: 0.9rem;
+    color: var(--hub-text);
+}
+.pl-equip-confirm-copy {
+    margin: 0 0 1.5rem;
+}
+
+/* Pay now sits in its own small form beside Cancel (#749). */
+.pl-equip-res-row__pay {
+    margin: 0;
+}
+
+/* The reservation checkout landing card (#749), equipment_checkout_return.html. */
+.pl-checkout-card__title {
+    margin: 0 0 0.75rem;
+}
+.pl-checkout-card__when {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+}
+.pl-checkout-card__text {
+    margin: 0 0 1.5rem;
+    font-size: 0.95rem;
+}
+.pl-checkout-card__actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.pl-checkout-card__form {
+    margin: 0;
+}

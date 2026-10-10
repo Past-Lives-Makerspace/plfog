@@ -99,7 +99,11 @@ Helpers on `Member`: `has_admin_capability(cap)` (the authorization gate) and `s
 - `Space.objects.available()` — status=AVAILABLE
 - `Space.objects.with_revenue()` — annotates active_lease_rent_total
 - `Lease.objects.active(as_of=date)` — start_date≤date and (end_date null or ≥date)
-- `EquipmentReservation.objects.holding()` / `confirmed()` (#748) — availability reads (overlap, `ensure_blockable`, free starts, the day timeline, the per member cap, the upcoming lists) use `holding()`, which counts a request awaiting approval because it holds its time; "in use right now" reads (`Equipment.availability_line`, the index card badge, the guild location lights, the Reservations calendar feed) use `confirmed()`, because an undecided request is not the member at the machine.
+- `EquipmentReservation.objects.holding()` / `confirmed()` (#748) — availability reads (overlap, `ensure_blockable`, free starts, the day timeline, the per member cap, the upcoming lists) use `holding()`, which counts a request awaiting approval, and a priced reservation awaiting payment (#749), because each holds its time; "in use right now" reads (`Equipment.availability_line`, the index card badge, the guild location lights, the Reservations calendar feed) use `confirmed()`, because an undecided request is not the member at the machine.
+
+## Priced equipment (#749)
+
+`Equipment.pricing` is Free, Donation based or Hourly (`hourly_rate_cents`, `donation_minimum_cents`, `donation_suggested_cents`, the orientation donation floor and ceiling). `Equipment.charge_cents_for` is the one price engine (rate times booked minutes over 60, half up to the cent) and `checkout_amount_cents` the one amount check. `membership/equipment.py` copies the paid orientation flow by name: `start_reservation_checkout` holds the time `PENDING_PAYMENT` under the equipment lock and opens Checkout (`kind=equipment_reservation`); `finalize_paid_reservation` is the one money in hand transition (webhook, return page, Pay now, the `release_reservation_payment_holds` sweep); an unpaid hold is deleted, never cancelled. `EquipmentReservation` is a `RefundableSource` (`PaymentRefund.reservation`), and `refund_if_paid` refunds a paid row in full on every decline and cancel, apart from any late fee.
 
 ## Vote Calculator
 

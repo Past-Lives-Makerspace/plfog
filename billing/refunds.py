@@ -6,7 +6,7 @@ emission, failure alerts, and retry — for class registrations now and
 orientation bookings when the paid-orientations spec lands. Source models stay
 thin: each implements the small :class:`RefundableSource` protocol and a
 one-line ``issue_refund`` delegate. Late cancellation fees (#456) are the
-third source.
+third source and equipment reservations (#749) the fourth.
 
 Race guard (deliberate, documented tradeoff): ``issue_refund`` holds a
 ``select_for_update`` lock on the SOURCE row across one short Stripe call, and
@@ -67,7 +67,7 @@ def source_field_name(source: Any) -> str:
         TypeError: If ``source`` is not a refundable source model instance.
     """
     from classes.models import Registration
-    from membership.models import OrientationBooking
+    from membership.models import EquipmentReservation, OrientationBooking
 
     if isinstance(source, Registration):
         return "registration"
@@ -75,6 +75,8 @@ def source_field_name(source: Any) -> str:
         return "orientation_booking"
     if isinstance(source, LateCancellationFee):
         return "late_fee"
+    if isinstance(source, EquipmentReservation):
+        return "reservation"
     raise TypeError(f"Not a refundable source: {type(source).__name__}")
 
 
@@ -389,6 +391,9 @@ def _refund_admin_url(refund: PaymentRefund) -> str:
 
     if refund.orientation_booking_id is not None:
         return _absolute_url(reverse("hub_orientation_respond", args=[refund.orientation_booking_id]))
+    if refund.reservation_id is not None:
+        # A reservation (#749) has no admin page of its own; the Payments panel lists failed refunds.
+        return _absolute_url(f"{reverse('billing_admin_dashboard')}?tab=payments&status=failed")
     return _absolute_url(f"{reverse('billing_admin_dashboard')}?tab=payments&source=late_fee&status=failed")
 
 

@@ -1,8 +1,8 @@
-"""Stripe webhook handlers for orientation-booking Checkouts.
+"""Stripe webhook handlers for orientation-booking and equipment reservation Checkouts.
 
 Registered into the billing app's webhook dispatcher fan-in. All handlers must
 be idempotent — Stripe retries failed deliveries and may also fire the same
-event more than once. Both handlers self-filter on ``metadata.kind`` so they
+event more than once. Every handler self-filters on ``metadata.kind`` so they
 coexist with the classes handlers on the same events.
 """
 
@@ -13,7 +13,7 @@ from typing import Any
 
 from django.db import transaction
 
-from membership.models import OrientationBooking
+from membership.models import EquipmentReservation, OrientationBooking
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ def _flat_html(text: str) -> str:
     return wrap_email_html(fragment)
 
 
-def _send_orphan_payment_alert(session: dict[str, Any], *, reason: str) -> None:
+def _send_orphan_payment_alert(session: dict[str, Any], *, reason: str, item: str = "orientation") -> None:
     """Email the Billing Administrators about a paid session with no live booking to credit.
 
     Mirrors the classes duplicate-payment alert: money moved with no in-app home
@@ -38,7 +38,8 @@ def _send_orphan_payment_alert(session: dict[str, Any], *, reason: str) -> None:
     whatever their switches say. The refund has to happen from the Stripe dashboard,
     so the alert links the payment directly. The period is the Checkout session, so an
     alert for a second session is its own slot and a Stripe re-delivery of the same
-    one is not re-sent.
+    one is not re-sent. ``item`` names what was paid for ("orientation", or "reservation" for
+    an equipment reservation, #749) in the subject and the first line.
     """
     from core.events.senders import emit_flat_email
 
@@ -51,7 +52,7 @@ def _send_orphan_payment_alert(session: dict[str, Any], *, reason: str) -> None:
         else "https://dashboard.stripe.com/payments"
     )
     body = (
-        f"A paid orientation Checkout landed with no booking to credit.\n\n"
+        f"A paid {item} Checkout landed with no {'reservation' if item == 'reservation' else 'booking'} to credit.\n\n"
         f"{reason}\n\n"
         f"The member paid {amount} and has nothing in the app to show for it. "
         f"Refund the payment from the Stripe dashboard.\n\n"
@@ -61,7 +62,7 @@ def _send_orphan_payment_alert(session: dict[str, Any], *, reason: str) -> None:
     )
     emit_flat_email(
         "membership.orientation_orphan_payment",
-        subject="Orphaned orientation payment needs a manual refund",
+        subject=f"Orphaned {item} payment needs a manual refund",
         text_body=body,
         html_body=_flat_html(body),
         period=f"checkout:{session['id']}",
@@ -183,3 +184,103 @@ def handle_checkout_session_expired(event: dict[str, Any]) -> None:
             return  # already released, recovered, or never existed — idempotent no-op
         # The session just expired on Stripe's side — no point asking Stripe to expire it again.
         orientations._delete_hold(booking, expire_session=False)
+
+
+def handle_reservation_checkout_completed(event: dict[str, Any]) -> None:
+    """Finalize a paid equipment reservation hold through the one finalize path (#749).
+
+    Only acts on sessions tagged ``kind=equipment_reservation``. Idempotent and race safe:
+    :func:`membership.equipment.finalize_paid_reservation` re-checks the row under
+    ``select_for_update``, so a re-delivery, the return page, Pay now and the sweep finalize it
+    once between them. A paid session whose reservation is gone, or whose reservation moved on
+    without ever recording a payment, is money with no in-app home: logged at ERROR and
+    alerted to the Billing Administrators for a Stripe dashboard refund.
+    """
+    from membership import equipment as equipment_service
+
+    session = event["data"]["object"]
+    metadata = session.get("metadata") or {}
+    if metadata.get("kind") != equipment_service.CHECKOUT_KIND:
+        return
+    reservation_id = metadata.get("reservation_id")
+    if not reservation_id:
+        logger.warning("checkout.session.completed: missing reservation_id in equipment reservation metadata")
+        return
+    if session.get("payment_status") != "paid":
+        logger.info(
+            "checkout.session.completed: ignoring reservation session %s with payment_status=%s",
+            session.get("id"),
+            session.get("payment_status"),
+        )
+        return
+    reservation = EquipmentReservation.objects.filter(pk=reservation_id).first()
+    if reservation is None:
+        logger.error(
+            "checkout.session.completed: PAID reservation session %s (payment intent %s) has no reservation %s. "
+            "Refund from the Stripe dashboard.",
+            session.get("id"),
+            session.get("payment_intent"),
+            reservation_id,
+        )
+        _send_orphan_payment_alert(
+            session, reason=f"Reservation {reservation_id} no longer exists.", item="reservation"
+        )
+        return
+    amount_total = session.get("amount_total")
+    outcome = equipment_service.finalize_paid_reservation(
+        reservation,
+        payment_intent=session.get("payment_intent", "") or "",
+        amount_total=amount_total if isinstance(amount_total, int) else None,
+        session_id=session.get("id", "") or "",
+    )
+    if outcome == "gone":
+        logger.error(
+            "checkout.session.completed: PAID reservation session %s: reservation %s vanished mid-finalize.",
+            session.get("id"),
+            reservation_id,
+        )
+        _send_orphan_payment_alert(
+            session,
+            reason=f"Reservation {reservation_id} was released while the payment landed.",
+            item="reservation",
+        )
+        return
+    if outcome == "already":
+        fresh = EquipmentReservation.objects.filter(pk=reservation.pk).first()
+        if fresh is None or not fresh.stripe_payment_id:
+            logger.error(
+                "checkout.session.completed: PAID reservation session %s landed on reservation %s, which moved on "
+                "without a recorded payment. Refund from the Stripe dashboard.",
+                session.get("id"),
+                reservation_id,
+            )
+            _send_orphan_payment_alert(
+                session,
+                reason=f"Reservation {reservation_id} moved on without ever recording a payment.",
+                item="reservation",
+            )
+
+
+def handle_reservation_checkout_expired(event: dict[str, Any]) -> None:
+    """Release the hold of an expired equipment reservation Checkout (#749).
+
+    Stripe fires ``checkout.session.expired`` only for sessions never completed, so the
+    release is safe by definition. The primary release path; the sweep is the backstop.
+    """
+    from membership import equipment as equipment_service
+
+    session = event["data"]["object"]
+    metadata = session.get("metadata") or {}
+    if metadata.get("kind") != equipment_service.CHECKOUT_KIND:
+        return
+    reservation_id = metadata.get("reservation_id")
+    if not reservation_id:
+        logger.warning("checkout.session.expired: missing reservation_id in equipment reservation metadata")
+        return
+    reservation = EquipmentReservation.objects.filter(
+        pk=reservation_id, status=EquipmentReservation.Status.PENDING_PAYMENT
+    ).first()
+    if reservation is None:
+        return  # already released, finalized, or never existed: an idempotent no-op
+    # The session just expired on Stripe's side, so there is nothing to expire again.
+    equipment_service._delete_hold(reservation, expire_session=False)

@@ -51,6 +51,7 @@ The Staff line (#615) names the item's staff from equipment.staff_roster, and is
         <span class="hub-badge pl-equip-badge--muted">Makerspace</span>
         {% endif %}
         <span class="hub-badge">{{ equipment.get_kind_display }}</span>
+        {% if equipment.price_chip %}<span class="pl-price-chip" data-price-chip>{{ equipment.price_chip }}</span>{% endif %}
       </div>
       {% if card.access_state == "needs_orientation" and equipment.unlocking_orientation_links %}
       <div class="pl-equip-card__state">

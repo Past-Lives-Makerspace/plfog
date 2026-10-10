@@ -54,6 +54,7 @@ from hub.views import (
     attach_blocking_reservations,
 )
 from membership import equipment as equipment_service
+from core.htmx import wants_fragment
 from membership.models import (
     Equipment,
     EquipmentError,
@@ -63,6 +64,7 @@ from membership.models import (
     Guild,
     Member,
     duration_label,
+    money_display,
 )
 from membership.permissions import can_create_equipment, can_manage_equipment, creatable_equipment_kinds
 
@@ -151,7 +153,8 @@ def _day_timeline(equipment: Equipment, selected_day: date) -> list[dict[str, An
     privacy decision), managers' blocks ("Held · reason", #657) and booked
     orientation slots ("Orientation · Sam R.", the same visibility norm). Busy
     segments carry ``kind`` so the template can tell them apart; a request awaiting
-    approval (#748) is a reservation that also carries ``pending``.
+    approval (#748) is a reservation that also carries ``pending``; one awaiting payment (#749)
+    carries ``pending`` and ``held`` too, and reads only "Held".
     """
     day_start = timezone.make_aware(datetime.combine(selected_day, time.min))
     day_end = day_start + timedelta(days=1)
@@ -162,7 +165,8 @@ def _day_timeline(equipment: Equipment, selected_day: date) -> list[dict[str, An
             "ends_at": reservation.ends_at,
             "label": f"Held · {reservation.purpose}" if reservation.is_block else "",
             "reservation": None if reservation.is_block else reservation,
-            "pending": reservation.is_awaiting_approval,
+            "pending": reservation.is_awaiting_approval or reservation.is_awaiting_payment,
+            "held": reservation.is_awaiting_payment,
         }
         for reservation in EquipmentReservation.objects.overlapping(equipment, day_start, day_end).select_related(
             "member"
@@ -195,6 +199,7 @@ def _day_timeline(equipment: Equipment, selected_day: date) -> list[dict[str, An
                     "reservation": item["reservation"],
                     "label": item["label"],
                     "pending": item["pending"],
+                    "held": item.get("held", False),
                 }
             )
         if cursor < window_end:
@@ -220,6 +225,28 @@ def _clip_free_segments_to_now(timeline: list[dict[str, Any]]) -> list[dict[str,
                 segment = {**segment, "starts_at": now}
         clipped.append(segment)
     return clipped
+
+
+def _clock_label(value: datetime) -> str:
+    """A local wall clock time like "2:00 PM", the way the schedule's selects read."""
+    local = timezone.localtime(value)
+    return f"{local.hour % 12 or 12}:{local.minute:02d} {'AM' if local.hour < 12 else 'PM'}"
+
+
+def _duration_option(equipment: Equipment, start: datetime, minutes: int) -> dict[str, Any]:
+    """One Duration option for the Book a Time form: minutes, label, the span it books and its total (#749).
+
+    ``total`` is "" unless the equipment charges by the hour; it comes from
+    :meth:`Equipment.charge_cents_for`, the same method the checkout charges with.
+    """
+    end = start + timedelta(minutes=minutes)
+    cents = equipment.charge_cents_for(minutes)
+    return {
+        "v": minutes,
+        "label": duration_label(minutes),
+        "span": f"{_clock_label(start)} to {_clock_label(end)}",
+        "total": money_display(cents) if cents else "",
+    }
 
 
 def _schedule_context(
@@ -259,9 +286,11 @@ def _schedule_context(
     if selected_day is not None:
         timeline = _day_timeline(equipment, selected_day)
         starts = equipment.free_starts_for_day(selected_day)
+        # Each option carries its span and, on hourly equipment, its total (#749), both worked out here
+        # by the model, so the live Total line and the confirm summary never do arithmetic in the browser.
         durations_data = {
             start.isoformat(): [
-                {"v": minutes, "label": duration_label(minutes)} for minutes in equipment.durations_for(start)
+                _duration_option(equipment, start, minutes) for minutes in equipment.durations_for(start)
             ]
             for start in starts
         }
@@ -276,6 +305,7 @@ def _schedule_context(
     # A manager of this equipment never pays a late fee on it (#633), so no fee copy shows them. Role based,
     # like the exemption in EquipmentReservation.cancel(), not the preview aware ``manages``.
     fee_exempt = member is not None and member.can_manage_equipment(equipment)
+    needs_approval = equipment.requires_approval and not fee_exempt
     if member is not None:
         now = timezone.now()
         my_reservations = list(
@@ -283,12 +313,14 @@ def _schedule_context(
             .filter(member=member, ends_at__gt=now)
             .exclude(status=EquipmentReservation.Status.CANCELLED, cancelled_by=member)
             .select_related("cancelled_by")  # a declined row names the manager (#748)
+            .prefetch_related("refunds")  # a paid row's refund line (#749)
             .order_by("starts_at")
         )
         for reservation in my_reservations:
             # The cancel modal's fee line, only while a cancel right now would be late (#456). A request
-            # awaiting approval was never booked, so cancelling it never costs anything (#748).
-            charges = not fee_exempt and not reservation.is_awaiting_approval
+            # awaiting approval was never booked, so cancelling it never costs anything (#748), and an
+            # unpaid hold (#749) is released, not cancelled.
+            charges = not fee_exempt and reservation.status == EquipmentReservation.Status.CONFIRMED
             reservation.late_cancel_warning = (
                 cancel_sentence(policy) if charges and policy.is_late(reservation.starts_at, now=now) else ""
             )
@@ -317,7 +349,11 @@ def _schedule_context(
         "manages": manages,
         # Book a Time asks for a request rather than a booking while the equipment needs approval (#748).
         # A manager of this equipment books instantly (reserve() skips the wait for them), so their copy says so.
-        "needs_approval": equipment.requires_approval and not fee_exempt,
+        "needs_approval": needs_approval,
+        # Pricing (#749): the chip beside Book a Time, the terms line under it, and the button's words.
+        "price_chip": equipment.price_chip,
+        "booking_terms": equipment.booking_terms(needs_approval=needs_approval),
+        "reserve_label": "Reserve and Pay" if equipment.is_hourly else "Reserve",
         # Under the Book a Time form and appended to its Reserve prompt; "" when no fee applies.
         "late_cancel_sentence": "" if fee_exempt else booking_sentence(policy),
         # The block until paid (#456): the requirements banner shows it with a Pay button.
@@ -733,17 +769,27 @@ def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
         response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
         trigger_toast(response, "Please pick one of the listed times.", "error")
         return response
+    starts_at = form.cleaned_data["starts_at"]
+    duration = form.cleaned_data["duration_minutes"]
     try:
+        # Priced equipment (#749): anything above $0 holds the time and goes to Stripe Checkout.
+        entered = form.amount_cents() if equipment.is_donation else None
+        if equipment.checkout_amount_cents(duration, entered):
+            checkout_url = equipment_service.start_reservation_checkout(
+                equipment, member, starts_at, duration, purpose=form.cleaned_data["purpose"], amount_cents=entered
+            )
+            return _to_checkout(request, equipment, checkout_url, week_offset=week_offset, selected_day=selected_day)
         reservation = equipment_service.reserve(
-            equipment,
-            member,
-            form.cleaned_data["starts_at"],
-            form.cleaned_data["duration_minutes"],
-            purpose=form.cleaned_data["purpose"],
+            equipment, member, starts_at, duration, purpose=form.cleaned_data["purpose"]
         )
     except EquipmentError as exc:
         response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
         trigger_toast(response, str(exc), "error")
+        return response
+    except Exception:
+        logger.exception("Reservation checkout failed for equipment %s.", equipment.pk)
+        response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
+        trigger_toast(response, "We couldn't start the payment checkout. Please try again in a minute.", "error")
         return response
     local_start = timezone.localtime(reservation.starts_at)
     response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=local_start.date())
@@ -752,6 +798,47 @@ def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
         return response
     trigger_toast(response, f"Reserved. See you {local_start:%A}.", "success")
     return response
+
+
+def _to_checkout(
+    request: HttpRequest, equipment: Equipment, checkout_url: str, *, week_offset: int, selected_day: date | None
+) -> HttpResponse:
+    """Send the member to Stripe Checkout (#749), like the late fee pay path.
+
+    The Book a Time form posts through htmx, and an XHR cannot follow a cross origin 302, so an
+    htmx caller gets the refreshed schedule (showing the hold) with the redirect in
+    ``HX-Redirect``; a plain POST gets the 302. This view is POST only, so the header alone
+    decides it (a history restore is a GET).
+    """
+    if request.headers.get("HX-Request") != "true":
+        return redirect(checkout_url)
+    response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
+    response["HX-Redirect"] = checkout_url
+    return response
+
+
+#: What the member hears when their Cancel on an unpaid hold asked Stripe first (#749).
+_HOLD_RELEASE_MESSAGES = {
+    "released": ("success", "Cancelled. You were not charged."),
+    "paid": (
+        "info",
+        "Your payment already went through, so your reservation is in. Cancel it again for an automatic full refund.",
+    ),
+    "unknown": ("error", "We couldn't check your payment just now. Try again in a minute."),
+}
+
+
+def _refund_sentence(reservation: EquipmentReservation) -> str:
+    """What a cancel's message adds about the automatic refund (#749), with a leading space, or ""."""
+    if reservation.refund_outcome == "refunded":
+        return f" Your {reservation.paid_display} is being refunded to your card."
+    if reservation.refund_outcome == "failed":
+        return f" Your {reservation.paid_display} refund is being processed."
+    return ""
+
+
+#: The decline and manager cancel messages' tail when a paid row's refund failed (#749).
+_REFUND_FAILED_TAIL = " The refund didn't go through; it is flagged for the Billing Administrators."
 
 
 @login_required
@@ -775,39 +862,14 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
     if member is None:
         return HttpResponse("Forbidden", status=403)
     manager_route = "reason" in request.POST and can_manage_equipment(request, equipment)
+    if reservation.member_id == member.pk and reservation.is_awaiting_payment:
+        return _release_own_hold(request, equipment, reservation)
     if reservation.member_id == member.pk and not manager_route:
         if "next" in request.POST:
             # A posted next that is not safe still gets a page back, the Bookings tab, never the schedule fragment.
             next_url = _safe_next(request, "") or f"{reverse('hub_equipment_index')}?view=bookings"
             return _self_cancel_to_page(request, reservation, member, next_url)
-        week_offset = _parse_week_value(request.POST.get("week", "0"))
-        selected_day = _parse_day(request.POST.get("day", ""))
-        try:
-            fee = reservation.cancel(member)
-        except EquipmentError as exc:
-            response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
-            trigger_toast(response, str(exc), "error")
-            return response
-        response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
-        if fee is None:
-            trigger_toast(response, "Reservation cancelled.", "success")
-            return response
-        # A late cancel (#456): straight to Stripe Checkout. The modal posts through htmx, and
-        # an XHR cannot follow a cross-origin 302, so the redirect rides the HX-Redirect header.
-        from billing import late_fees
-
-        try:
-            checkout_url = late_fees.start_fee_checkout(fee)
-        except Exception:
-            logger.exception("Late fee checkout failed for reservation %s.", reservation.pk)
-            trigger_toast(
-                response,
-                "Reservation cancelled. A late cancellation fee applies; use the Pay button to pay it.",
-                "info",
-            )
-            return response
-        response["HX-Redirect"] = checkout_url
-        return response
+        return _self_cancel_on_schedule(request, equipment, reservation, member)
     if not can_manage_equipment(request, equipment):
         return HttpResponse("Forbidden", status=403)
     form = EquipmentManagerCancelForm(request.POST)
@@ -820,10 +882,83 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
     except EquipmentError as exc:
         messages.error(request, str(exc))
         return redirect(back)
-    # A manager cancelling their own row emails nobody, so there is nobody to have told.
-    told = "" if reservation.member_id == member.pk else " The member has been told."
-    messages.success(request, f"Reservation cancelled.{told}")
+    messages.success(request, _manager_cancel_message(reservation, member))
     return redirect(back)
+
+
+def _self_cancel_on_schedule(
+    request: HttpRequest, equipment: Equipment, reservation: EquipmentReservation, member: Member
+) -> HttpResponse:
+    """A member's own cancel from the schedule: the refreshed partial and a toast, or Stripe for a late fee (#456).
+
+    A paid row's toast names its automatic refund (#749).
+    """
+    week_offset = _parse_week_value(request.POST.get("week", "0"))
+    selected_day = _parse_day(request.POST.get("day", ""))
+    try:
+        fee = reservation.cancel(member)
+    except EquipmentError as exc:
+        response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
+        trigger_toast(response, str(exc), "error")
+        return response
+    response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
+    if fee is None:
+        trigger_toast(response, f"Reservation cancelled.{_refund_sentence(reservation)}", "success")
+        return response
+    # A late cancel (#456): straight to Stripe Checkout. The modal posts through htmx, and
+    # an XHR cannot follow a cross-origin 302, so the redirect rides the HX-Redirect header.
+    from billing import late_fees
+
+    try:
+        checkout_url = late_fees.start_fee_checkout(fee)
+    except Exception:
+        logger.exception("Late fee checkout failed for reservation %s.", reservation.pk)
+        trigger_toast(
+            response,
+            "Reservation cancelled. A late cancellation fee applies; use the Pay button to pay it.",
+            "info",
+        )
+        return response
+    response["HX-Redirect"] = checkout_url
+    return response
+
+
+def _manager_cancel_message(reservation: EquipmentReservation, manager: Member) -> str:
+    """The manager cancel's message: who was told, and what happened to a paid row's refund (#749).
+
+    A manager cancelling their own row emails nobody, so there is nobody to have told.
+    """
+    own_row = reservation.member_id == manager.pk
+    if reservation.refund_outcome == "refunded":
+        return (
+            "Reservation cancelled. Your payment is being refunded."
+            if own_row
+            else ("Reservation cancelled. The member has been told and refunded.")
+        )
+    told = "" if own_row else " The member has been told."
+    if reservation.refund_outcome == "failed":
+        told += _REFUND_FAILED_TAIL
+    return f"Reservation cancelled.{told}"
+
+
+def _release_own_hold(request: HttpRequest, equipment: Equipment, reservation: EquipmentReservation) -> HttpResponse:
+    """The member's Cancel on their own unpaid hold (#749): ask Stripe, then release it or keep a paid one.
+
+    From the schedule it answers with the refreshed partial and a toast; with a posted
+    ``next`` (the Bookings tab) with a message and a redirect there.
+    """
+    level, text = _HOLD_RELEASE_MESSAGES[equipment_service.release_hold_if_unpaid(reservation)]
+    if "next" in request.POST:
+        messages.add_message(request, getattr(messages, level.upper()), text)
+        return redirect(_safe_next(request, "") or f"{reverse('hub_equipment_index')}?view=bookings")
+    response = _render_schedule(
+        request,
+        equipment,
+        week_offset=_parse_week_value(request.POST.get("week", "0")),
+        selected_day=_parse_day(request.POST.get("day", "")),
+    )
+    trigger_toast(response, text, level)
+    return response
 
 
 def _self_cancel_to_page(
@@ -842,7 +977,7 @@ def _self_cancel_to_page(
         messages.error(request, str(exc))
         return redirect(next_url)
     if fee is None:
-        messages.success(request, "Reservation cancelled.")
+        messages.success(request, f"Reservation cancelled.{_refund_sentence(reservation)}")
         return redirect(next_url)
     try:
         checkout_url = late_fees.start_fee_checkout(fee)
@@ -1049,10 +1184,15 @@ def _render_manage(
                 acting_member=_get_member(request),
                 lock_to_acting=orientation_ctx["slot_form_locked"],
             ),
-            # The hub's standard Paginator + table_pagination partial, capped at 25 rows. Confirmed rows only:
-            # a request awaiting approval lists in Needs Approval until it is decided (#748).
+            # The hub's standard Paginator + table_pagination partial, capped at 25 rows. A request awaiting
+            # approval lists in Needs Approval until it is decided (#748); an unpaid hold lists here as
+            # Awaiting payment, with no Cancel (#749).
             "manage_reservations": Paginator(
-                equipment.reservations.upcoming().confirmed().reservations().select_related("member"), 25
+                equipment.reservations.upcoming()
+                .reservations()
+                .exclude(status=EquipmentReservation.Status.PENDING_APPROVAL)
+                .select_related("member"),
+                25,
             ).get_page(request.GET.get("page", 1)),
             # The Needs Approval card (#748), shown while the switch is on or anything still waits.
             "manage_approvals": approvals,
@@ -1181,7 +1321,13 @@ def hub_equipment_reservation_decline(request: HttpRequest, slug: str, pk: int) 
     except EquipmentError as exc:
         messages.error(request, str(exc))
         return redirect(back)
-    messages.success(request, f"Declined. {_first_name(reservation.member)} has been emailed.")
+    first_name = _first_name(reservation.member)
+    if reservation.refund_outcome == "refunded":
+        messages.success(request, f"Declined. {first_name} has been emailed and refunded.")
+    elif reservation.refund_outcome == "failed":
+        messages.success(request, f"Declined. {first_name} has been emailed.{_REFUND_FAILED_TAIL}")
+    else:
+        messages.success(request, f"Declined. {first_name} has been emailed.")
     return redirect(back)
 
 
@@ -1521,3 +1667,113 @@ def hub_equipment_orientation_slot_cancel(request: HttpRequest, slug: str, pk: i
     orientations.cancel_slot(slot, reason=request.POST.get("reason", ""))
     messages.success(request, "Orientation time cancelled. Everyone booked on it has been notified.")
     return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")
+
+
+# ── Priced reservations (#749): Pay now and the Stripe Checkout landings, the orientation pages' twins ──
+
+
+@login_required
+@require_POST
+def hub_equipment_reservation_pay(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
+    """POST — Pay now on the member's own unpaid hold: the same live Checkout, never a dead one.
+
+    The button's form is unboosted, so the browser follows the redirect to Stripe. Already
+    paid lands on the return page; an expired checkout releases the hold and says so.
+    """
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    reservation = get_object_or_404(
+        EquipmentReservation.objects.select_related("equipment", "member"), pk=pk, equipment=equipment
+    )
+    member = _get_member(request)
+    if member is None or reservation.member_id != member.pk:
+        return HttpResponse("Forbidden", status=403)
+    detail_url = reverse("hub_equipment_detail", args=[equipment.slug])
+    if not reservation.is_awaiting_payment:
+        return redirect(detail_url)
+    outcome, url = equipment_service.resume_checkout(reservation)
+    if outcome == "open":
+        return redirect(url)
+    if outcome == "paid":
+        return redirect(
+            "hub_equipment_checkout_return",
+            slug=equipment.slug,
+            token=equipment_service.make_checkout_token(reservation),
+        )
+    if outcome == "released":
+        messages.info(request, "That checkout expired, so the time was released. Pick a time to start again.")
+    else:
+        messages.error(request, "We couldn't check your payment just now. Try again in a minute.")
+    return redirect(detail_url)
+
+
+def _checkout_reservation(slug: str, token: str) -> EquipmentReservation | None:
+    """The reservation a Checkout token names, or ``None`` for a bad token, a released hold or another item's row."""
+    from django.core.signing import BadSignature
+
+    try:
+        reservation = equipment_service.read_checkout_token(token)
+    except (BadSignature, EquipmentReservation.DoesNotExist):
+        return None
+    return reservation if reservation.equipment.slug == slug else None
+
+
+@login_required
+def hub_equipment_checkout_return(request: HttpRequest, slug: str, token: str) -> HttpResponse:
+    """The Stripe ``success_url`` landing (#749): paid, still finalizing (polls), or a bad token.
+
+    A hold still awaiting payment is checked with Stripe right here and finalized when paid,
+    race safe against the webhook, so the member normally sees the result on the first render.
+    The htmx poll asks the same URL with ``?n=<count>`` and gets only the card; after about a
+    minute it settles on a calm "still processing" card.
+    """
+    is_fragment = wants_fragment(request)
+    template = (
+        "hub/partials/equipment_checkout_return_card.html" if is_fragment else "hub/equipment_checkout_return.html"
+    )
+    poll_count = _parse_week_value(request.GET.get("n", "0"))
+    reservation = _checkout_reservation(slug, token)
+    if reservation is None:
+        return render(request, template, {**_get_hub_context(request), "state": "invalid"}, status=400)
+    if reservation.is_awaiting_payment:
+        if equipment_service.reconcile_landed_checkout(reservation) in ("finalized", "already"):
+            reservation.refresh_from_db()
+    if reservation.is_awaiting_payment:
+        state = "pending" if poll_count < 20 else "still_processing"
+    else:
+        state = "booked"
+    context = {
+        **_get_hub_context(request),
+        "state": state,
+        "reservation": reservation,
+        "equipment": reservation.equipment,
+        "token": token,
+        "next_poll": poll_count + 1,
+    }
+    return render(request, template, context)
+
+
+@login_required
+def hub_equipment_checkout_cancelled(request: HttpRequest, slug: str, token: str) -> HttpResponse:
+    """The Stripe ``cancel_url`` landing (#749): GET asks, POST releases the hold after asking Stripe.
+
+    The split keeps a browser or mail client prefetch from ever releasing a hold, and the
+    POST keeps a paid one whose webhook lags.
+    """
+    reservation = _checkout_reservation(slug, token)
+    if reservation is None:
+        return redirect("hub_equipment_index")
+    detail_url = reverse("hub_equipment_detail", args=[reservation.equipment.slug])
+    if not reservation.is_awaiting_payment:
+        return redirect(detail_url)
+    if request.method != "POST":
+        context = {
+            **_get_hub_context(request),
+            "state": "cancel_confirm",
+            "reservation": reservation,
+            "equipment": reservation.equipment,
+            "token": token,
+        }
+        return render(request, "hub/equipment_checkout_return.html", context)
+    level, text = _HOLD_RELEASE_MESSAGES[equipment_service.release_hold_if_unpaid(reservation)]
+    messages.add_message(request, getattr(messages, level.upper()), text)
+    return redirect(detail_url)

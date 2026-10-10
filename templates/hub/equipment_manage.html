@@ -182,6 +182,29 @@
       {% if late_cancel_fees_enabled %}
       {% include "components/form_field.html" with field=settings_form.late_cancel_fee field_tooltip="Charged when a member cancels inside the notice window set in Site Settings. Leave blank for no fee." %}
       {% endif %}
+    </div>
+
+    {# Pricing (#749): Free, Donation based or Hourly; only the picked option's boxes show, and the form saves only those. The tab's one Save sits at its bottom. #}
+    <div class="hub-card pl-equip-panel" data-pricing-card
+         x-data="{ pricing: '{{ settings_form.pricing_value }}', rate: '{{ settings_form.hourly_rate.value|default_if_none:''|escapejs }}', exampleTotal() { const cents = Math.round(parseFloat(this.rate) * 100); return cents > 0 ? '$' + (Math.floor((cents * 90 + 30) / 60) / 100).toFixed(2) : ''; } }">
+      <h2 class="hub-detail-label pl-equip-panel__title">Pricing</h2>
+      <p class="hub-text-muted pl-equip-panel__intro">What members pay to reserve the {{ equipment.name }}. They see it before they book.</p>
+      {% for error in settings_form.pricing.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+      <div class="pl-radio-group pl-equip-pricing__choices" role="radiogroup" aria-label="Pricing">
+        {% for value, label, hint in settings_form.pricing_options %}
+        <label class="pl-radio-option"><input type="radio" name="{{ settings_form.pricing.html_name }}" value="{{ value }}" data-pricing-option="{{ value }}"{% if value == settings_form.pricing_value %} checked{% endif %} x-model="pricing"><span class="pl-radio-option__label">{{ label }}<span class="pl-equip-pricing__sub">{{ hint }}</span></span></label>
+        {% endfor %}
+      </div>
+      <div class="pl-equip-pricing__fields hub-form-group" x-show="pricing === 'hourly'"{% if settings_form.pricing_value != "hourly" %} x-cloak{% endif %} data-pricing-hourly>
+        {% include "components/form_field.html" with field=settings_form.hourly_rate %}
+        <p class="pl-equip-pricing__example" x-show="exampleTotal()"{% if not settings_form.hourly_example_total %} x-cloak{% endif %} data-hourly-example>A 1 hour 30 minute reservation costs <strong x-text="exampleTotal()">{{ settings_form.hourly_example_total }}</strong>.</p>
+      </div>
+      <div class="pl-equip-pricing__fields hub-form-group" x-show="pricing === 'donation'"{% if settings_form.pricing_value != "donation" %} x-cloak{% endif %} data-pricing-donation>
+        <div class="pl-otype-pricing__row">
+          <div class="pl-otype-pricing__field">{% include "components/form_field.html" with field=settings_form.donation_minimum %}</div>
+          <div class="pl-otype-pricing__field">{% include "components/form_field.html" with field=settings_form.donation_suggested %}</div>
+        </div>
+      </div>
       <div class="pl-equip-save-row">
         <button type="submit" class="pl-btn pl-btn--primary">Save</button>
       </div>
@@ -518,12 +541,20 @@
     {% if manage_reservations %}
     <div class="pl-equip-res-list">
       {% for reservation in manage_reservations %}
+      {% if reservation.is_awaiting_payment %}
+      {# An unpaid hold (#749): it holds the time and is released on its own, so it has no Cancel. #}
+      <div class="pl-equip-res-row" data-awaiting-payment-row="{{ reservation.pk }}">
+        <span>{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</span>
+        <span class="pl-equip-hold-row__who">{{ reservation.member.display_name }} <span class="pl-equip-badge pl-equip-badge--warn">Awaiting payment</span> <span class="hub-text-muted">Released if unpaid by {{ reservation.hold_released_by|time:"g:i A" }}</span></span>
+      </div>
+      {% else %}
       <div class="pl-equip-res-row">
         <span>{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</span>
-        <span>{{ reservation.member.display_name }}{% if reservation.purpose %} <span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}</span>
+        <span>{{ reservation.member.display_name }}{% if reservation.purpose %} <span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}{% if reservation.amount_paid_cents %} <span class="pl-price-chip" data-paid-chip>Paid {{ reservation.paid_display }}</span>{% endif %}</span>
         <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                 @click="$dispatch('open-confirm', 'mgr-cancel-{{ reservation.pk }}')">Cancel</button>
       </div>
+      {% endif %}
       {% endfor %}
     </div>
     {% include "components/table_pagination.html" with page=manage_reservations base_params="tab=reservations" %}
@@ -562,10 +593,17 @@
 
 {# Manager-cancel modals — one per row, reason required (server-enforced), outside the panes. #}
 {% for reservation in manage_reservations %}
+{% if not reservation.is_awaiting_payment %}
 {% url 'hub_equipment_reservation_cancel' equipment.slug reservation.pk as mgr_cancel_url %}
 {% with rpks=reservation.pk|stringformat:"s" who=reservation.member.display_name %}
+{# A paid row (#749) adds "Their $50.00 is refunded in full." #}
+{% if reservation.amount_paid_cents %}
+{% include "components/confirm_modal.html" with confirm_id="mgr-cancel-"|add:rpks confirm_title="Cancel This Reservation?" confirm_message="The member has this time booked. Cancelling frees it and tells them why. Their "|add:reservation.paid_display|add:" is refunded in full." confirm_action_url=mgr_cancel_url confirm_button_text="Cancel Reservation" confirm_note_name="reason" confirm_note_label="Reason" confirm_note_placeholder="Why is this being cancelled?" confirm_note_hint="The member will see this. Please tell the member why." %}
+{% else %}
 {% include "components/confirm_modal.html" with confirm_id="mgr-cancel-"|add:rpks confirm_title="Cancel This Reservation?" confirm_message="The member has this time booked. Cancelling frees it and tells them why." confirm_action_url=mgr_cancel_url confirm_button_text="Cancel Reservation" confirm_note_name="reason" confirm_note_label="Reason" confirm_note_placeholder="Why is this being cancelled?" confirm_note_hint="The member will see this. Please tell the member why." %}
+{% endif %}
 {% endwith %}
+{% endif %}
 {% endfor %}
 
 {# Decline confirms (#748), one per waiting request, outside the panes; the reason is required and the member sees it. #}

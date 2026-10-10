@@ -136,3 +136,52 @@
     align-items: center;
     margin: 0.75rem 0 1rem;
 }
+
+/* The Pricing card (#749): three choices in one row on desktop, stacked on a phone. */
+.pl-equip-pricing__choices {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin: 0.25rem 0 1rem;
+}
+.pl-equip-pricing__choices .pl-radio-option {
+    flex: 1 1 12rem;
+}
+.pl-equip-pricing__sub {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.8rem;
+    color: var(--hub-text-muted);
+}
+@media (max-width: 640px) {
+    .pl-equip-pricing__choices {
+        flex-direction: column;
+    }
+}
+
+/* The picked option's boxes, set in from the card edge so they read as belonging to it. */
+.pl-equip-pricing__fields {
+    padding: 1rem;
+    margin: 0 0 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+}
+.pl-equip-pricing__fields .pl-form-group:last-child {
+    margin-bottom: 0;
+}
+.pl-equip-pricing__example {
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+    color: var(--hub-text-muted);
+}
+.pl-equip-pricing__example strong {
+    color: var(--hub-text);
+}
+
+/* An unpaid hold on Upcoming Reservations (#749): the member, the badge and when it is released. */
+.pl-equip-hold-row__who {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}

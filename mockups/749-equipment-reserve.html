@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Equipment Reserve mockup · member schedule</title>
+<!--
+  Screen B: the equipment page's schedule for a member (templates/hub/partials/equipment_schedule.html).
+  Views: ?view=book (default) · modals · rows    Theme: ?theme=light    Phone: ?phone=1
+  CSS: the first <style> block is NEW product CSS for static/css/hub.css's equipment section
+  (or a new equipment-detail.css if the page gains its own file); the second is mockup-only.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../static/css/hub.css">
+<link rel="stylesheet" href="../static/css/components.css">
+<style>
+/* ==========================================================================
+   NEW PRODUCT CSS (equipment schedule). Tokens only.
+   ========================================================================== */
+
+/* Book a Time heading with the price chip beside it. */
+.pl-equip-book__head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 0 0 0.75rem; }
+.pl-equip-book__head h2 { margin: 0; }
+.pl-equip-book__terms { margin: 0 0 0.75rem; font-size: 0.85rem; color: var(--hub-text-muted); }
+
+/* The live total under the selects, and the summary line at the top of the confirm. */
+.pl-equip-book__total { margin: 0.25rem 0 0; font-size: 0.9rem; color: var(--hub-text); }
+.pl-equip-book__total strong { color: var(--color-tuscan-yellow); }
+[data-theme="light"] .pl-equip-book__total strong { color: #8a5a00; }
+.pl-equip-confirm-summary { margin: 0 0 0.75rem; padding: 0.6rem 0.75rem; border-radius: 6px; background: var(--hub-surface); font-size: 0.9rem; color: var(--hub-text); }
+
+/* A member's own reservation row: the when line and a status line under it, actions on the right. */
+.pl-equip-res-row__main { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.pl-equip-res-row__state { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.85rem; color: var(--hub-text-muted); }
+.pl-equip-res-row__actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.pl-equip-badge--declined { color: var(--hub-text-muted); background: var(--hub-surface); border: 1px solid var(--hub-border); }
+
+/* A held or awaiting time on the day timeline. */
+.pl-equip-slot--pending { border-style: dashed; }
+</style>
+<style>
+/* ---------- mockup-only ---------- */
+.mock-view { display: contents; }
+html[data-mock-view="book"] .mock-view:not([data-mock-view~="book"]),
+html[data-mock-view="modals"] .mock-view:not([data-mock-view~="modals"]),
+html[data-mock-view="rows"] .mock-view:not([data-mock-view~="rows"]) { display: none; }
+.mock-switcher { position: fixed; right: 1rem; bottom: 1rem; z-index: 900; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; max-width: calc(100vw - 2rem); padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--hub-elevated); border: 1px solid var(--hub-border); font-size: 0.8rem; }
+.mock-switcher__title { font-weight: 700; color: var(--hub-text-muted); }
+.mock-switcher a { color: var(--hub-link); text-decoration: none; }
+html.mock-shot .mock-switcher { display: none; }
+html.mock-phone .hub-sidebar { display: none; }
+html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
+.mock-modal-static { position: static; inset: auto; padding: 1rem 0; background: none; }
+.mock-modal-static .pl-modal { max-height: none; margin: 0 auto; }
+.mock-modal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1rem; }
+.mock-cap { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--hub-text-muted); margin: 0 0 0.25rem; text-align: center; }
+.mock-note { font-size: 0.8rem; color: var(--hub-text-muted); border-left: 3px solid var(--hub-blue); padding: 0.25rem 0.75rem; margin: 0 0 1.5rem; }
+.mock-collapsed { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.5rem; margin-bottom: 1rem; opacity: 0.6; }
+.mock-collapsed span:last-child { font-size: 0.75rem; color: var(--hub-text-muted); }
+</style>
+<script>
+  (function () {
+    var p = new URLSearchParams(location.search);
+    document.documentElement.setAttribute('data-mock-view', p.get('view') || 'book');
+    if (p.get('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    if (p.get('shot') === '1') document.documentElement.classList.add('mock-shot');
+    if (p.get('phone') === '1') document.documentElement.classList.add('mock-phone');
+  })();
+  function mockToggleTheme() {
+    var p = new URLSearchParams(location.search);
+    if (p.get('theme') === 'light') p.delete('theme'); else p.set('theme', 'light');
+    location.search = p.toString();
+  }
+</script>
+</head>
+<body>
+  <nav class="mock-switcher" aria-label="Mockup views">
+    <span class="mock-switcher__title">Reserve mockup</span>
+    <a href="?view=book">Book a Time</a>
+    <a href="?view=modals">Confirm modals</a>
+    <a href="?view=rows">Your reservations</a>
+    <a href="#" onclick="mockToggleTheme(); return false;">Theme</a>
+  </nav>
+
+  <aside class="hub-sidebar">
+    <nav class="hub-sidebar__nav" aria-label="Hub navigation">
+      <a href="#" class="hub-sidebar__link">Home</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Orientations</a>
+      <a href="#" class="hub-sidebar__link hub-sidebar__link--active">Reservations</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Settings</a>
+    </nav>
+  </aside>
+
+  <div class="hub-main-wrapper">
+    <header class="pl-topbar">
+      <span class="pl-topbar__divider"></span>
+      <div class="pl-topbar__spacer"></div>
+      <button class="pl-topbar__theme-toggle" aria-label="Toggle theme" onclick="mockToggleTheme()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M1 12h2"/><path d="M21 12h2"/></svg></button>
+      <div class="pl-profile"><button class="pl-profile__avatar" aria-label="User menu">J</button></div>
+    </header>
+
+    <main id="main-content" class="hub-content" tabindex="-1">
+      <div style="margin-bottom:1rem;"><a href="#" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Equipment</a></div>
+      <div class="hub-card pl-equip-hero">
+        <div class="pl-equip-hero__body">
+          <div class="pl-equip-hero__titles">
+            <h1 class="hub-page-title" style="margin:0;">CNC Machine</h1>
+            <div class="pl-equip-card__meta"><span class="hub-badge pl-equip-badge--muted">Makerspace</span><span class="hub-badge">Tool</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="hub-card pl-equip-banner pl-equip-banner--ok"><p class="pl-equip-banner__ok-text" style="margin:0;">You're all set. Pick a time below.</p></div>
+
+      <!-- ===== VIEW: book ===== -->
+      <div class="mock-view" data-mock-view="book">
+        <div class="hub-card" style="padding:1.25rem 1.5rem;">
+          <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Schedule</h2>
+          <h3 class="hub-detail-label" style="margin:0.5rem 0;">Friday, October 16</h3>
+          <ul class="pl-equip-timeline">
+            <li class="pl-equip-slot pl-equip-slot--busy"><span class="pl-equip-slot__when">10:00 AM to 12:00 PM</span><span class="pl-equip-slot__label">Dana R. · Sign blanks</span></li>
+            <li class="pl-equip-slot pl-equip-slot--busy pl-equip-slot--pending"><span class="pl-equip-slot__when">12:00 PM to 1:00 PM</span><span class="pl-equip-slot__label">Lee T. · Awaiting approval</span></li>
+            <li class="pl-equip-slot pl-equip-slot--free"><span class="pl-equip-slot__when">1:00 PM to 6:00 PM</span><span class="pl-equip-slot__label">Open</span></li>
+          </ul>
+          <p class="hub-text-muted pl-equip-timeline__note">A time awaiting payment shows as "Held". A time awaiting approval shows the member's name and "Awaiting approval". Both block the slot.</p>
+        </div>
+
+        <div class="hub-card" style="padding:1.25rem 1.5rem;">
+          <div class="pl-equip-book__head">
+            <h2 class="hub-detail-label">Book a Time</h2>
+            <span class="pl-price-chip">$25 per hour</span>
+          </div>
+          <p class="pl-equip-book__terms">You pay when you reserve. A manager approves each reservation; if they decline, you get an automatic full refund.</p>
+          <form onsubmit="return false;">
+            <div class="pl-equip-book-row hub-form-group">
+              <label class="pl-form-group pl-equip-book-field"><span class="pl-form-label">Start</span><select><option>2:00 PM</option></select></label>
+              <label class="pl-form-group pl-equip-book-field"><span class="pl-form-label">Duration</span><select><option>1 hour 30 minutes</option></select></label>
+              <label class="pl-form-group pl-equip-book-field pl-equip-book-field--wide"><span class="pl-form-label">Purpose (optional)</span><input type="text" placeholder="e.g. Longarm quilting"></label>
+            </div>
+            <p class="pl-equip-book__total">Total: <strong>$37.50</strong></p>
+            <div class="pl-equip-save-row"><button type="button" class="pl-btn pl-btn--primary">Reserve and Pay</button></div>
+          </form>
+          <p class="hub-text-muted pl-equip-book-note">Cancel less than 24 hours before and a $10.00 late fee applies.</p>
+        </div>
+
+        <p class="mock-note">Chip and terms line by pricing. Hourly: "$25 per hour". Donation based: the orientation wording, "Donation, $10 suggested" or "Pay what you can"; no Total line. Free: no chip, no Total line. Terms line, one of: priced instant "You pay when you reserve. Cancel and you get an automatic full refund." · priced with approval (shown) · free with approval "A manager approves each reservation before it is booked." · free instant: no line. Button: "Reserve" when free, "Reserve and Pay" when hourly, "Reserve" when donation based (they may pick $0). The List card on the Reservations page carries the same chip.</p>
+      </div>
+
+      <!-- ===== VIEW: modals ===== -->
+      <div class="mock-view" data-mock-view="modals">
+        <div class="mock-modal-grid">
+          <div>
+            <p class="mock-cap">Free, instant (unchanged)</p>
+            <div class="pl-modal-backdrop mock-modal-static"><div class="pl-modal pl-modal--sm">
+              <div class="pl-modal__header"><h2 class="pl-modal__title">Reserve this time?</h2><button type="button" class="pl-modal__close" aria-label="Close">&times;</button></div>
+              <div class="pl-modal__body">
+                <p>Your reservation confirms right away. If plans change, you can cancel and the time opens up for someone else.</p>
+                <div class="pl-modal__actions"><button class="pl-btn pl-btn--primary" style="flex:1;">Reserve</button><button class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button></div>
+              </div>
+            </div></div>
+          </div>
+          <div>
+            <p class="mock-cap">Free, needs approval</p>
+            <div class="pl-modal-backdrop mock-modal-static"><div class="pl-modal pl-modal--sm">
+              <div class="pl-modal__header"><h2 class="pl-modal__title">Request this time?</h2><button type="button" class="pl-modal__close" aria-label="Close">&times;</button></div>
+              <div class="pl-modal__body">
+                <p class="pl-equip-confirm-summary">Fri, Oct 16 · 2:00 PM to 3:30 PM</p>
+                <p>A manager approves each reservation on the Laser Engraver. We hold the time for you and email you when they decide. You can cancel any time.</p>
+                <div class="pl-modal__actions"><button class="pl-btn pl-btn--primary" style="flex:1;">Send request</button><button class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button></div>
+              </div>
+            </div></div>
+          </div>
+          <div>
+            <p class="mock-cap">Hourly, instant</p>
+            <div class="pl-modal-backdrop mock-modal-static"><div class="pl-modal pl-modal--sm">
+              <div class="pl-modal__header"><h2 class="pl-modal__title">Reserve and pay?</h2><button type="button" class="pl-modal__close" aria-label="Close">&times;</button></div>
+              <div class="pl-modal__body">
+                <p class="pl-equip-confirm-summary">Fri, Oct 16 · 2:00 PM to 3:30 PM · $37.50</p>
+                <p>You'll pay $37.50 now through our secure checkout, and your reservation confirms when the payment goes through. If you cancel, you get an automatic full refund. Cancel less than 24 hours before and a $10.00 late fee applies.</p>
+                <div class="pl-modal__actions"><button class="pl-btn pl-btn--primary" style="flex:1;">Continue to Payment</button><button class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button></div>
+              </div>
+            </div></div>
+          </div>
+          <div>
+            <p class="mock-cap">Hourly, needs approval</p>
+            <div class="pl-modal-backdrop mock-modal-static"><div class="pl-modal pl-modal--sm">
+              <div class="pl-modal__header"><h2 class="pl-modal__title">Request this time?</h2><button type="button" class="pl-modal__close" aria-label="Close">&times;</button></div>
+              <div class="pl-modal__body">
+                <p class="pl-equip-confirm-summary">Fri, Oct 16 · 2:00 PM to 3:30 PM · $37.50</p>
+                <p>You'll pay $37.50 now through our secure checkout. Then a manager approves your reservation; until they do, the time is held for you but not booked. If they decline, or you cancel, you get an automatic full refund.</p>
+                <div class="pl-modal__actions"><button class="pl-btn pl-btn--primary" style="flex:1;">Continue to Payment</button><button class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button></div>
+              </div>
+            </div></div>
+          </div>
+          <div>
+            <p class="mock-cap">Donation based (either approval setting)</p>
+            <div class="pl-modal-backdrop mock-modal-static"><div class="pl-modal pl-modal--sm">
+              <div class="pl-modal__header"><h2 class="pl-modal__title">Reserve this time?</h2><button type="button" class="pl-modal__close" aria-label="Close">&times;</button></div>
+              <div class="pl-modal__body">
+                <p class="pl-equip-confirm-summary">Fri, Oct 16 · 2:00 PM to 4:00 PM</p>
+                <p>You choose what you pay. Any amount above $0 goes through our secure checkout, and your reservation confirms when it is paid. If you cancel, you get an automatic full refund.</p>
+                <div class="hub-form-group">
+                  <label class="pl-form-label" for="amt">Your amount ($)</label>
+                  <input id="amt" type="text" inputmode="decimal" class="pl-input pl-confirm-amount" value="10.00">
+                  <p class="pl-field-hint pl-confirm-amount__hint">$0 reserves for free. Any other amount is at least $1, paid by card when you reserve.</p>
+                </div>
+                <div class="pl-modal__actions"><button class="pl-btn pl-btn--primary" style="flex:1;">Reserve</button><button class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button></div>
+              </div>
+            </div></div>
+          </div>
+        </div>
+        <p class="mock-note" style="margin-top:1rem;">Donation with approval swaps the middle sentence for "Then a manager approves your reservation; until they do, the time is held for you but not booked." With a minimum set, the hint reads "At least $5.00, paid by card when you reserve." Errors land on the page as a toast: "That time was just taken. Pick another." · "Enter an amount from $1 to $500, or $0 to reserve for free." Paid modals post unboosted, like paid orientations, because the answer is a redirect to Stripe.</p>
+      </div>
+
+      <!-- ===== VIEW: rows ===== -->
+      <div class="mock-view" data-mock-view="rows">
+        <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">Schedule and Book a Time</span><span>as above</span></div>
+        <div class="hub-card" style="padding:1.25rem 1.5rem;">
+          <h2 class="hub-detail-label" style="margin:0 0 0.75rem;">Your Reservations Here</h2>
+          <ul class="pl-equip-res-list">
+            <li class="pl-equip-res-row">
+              <span class="pl-equip-res-row__main">
+                <span>Fri, Oct 16 · 2:00 PM to 3:30 PM</span>
+                <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--warn">Awaiting payment</span> Your payment hasn't come through. We hold the time for 2 hours.</span>
+              </span>
+              <span class="pl-equip-res-row__actions">
+                <button type="button" class="pl-btn pl-btn--primary pl-btn--sm">Pay now</button>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm">Cancel</button>
+              </span>
+            </li>
+            <li class="pl-equip-res-row">
+              <span class="pl-equip-res-row__main">
+                <span>Tue, Oct 20 · 10:00 AM to 12:00 PM <span class="hub-text-muted">· Sign blanks</span></span>
+                <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--warn">Awaiting approval</span> Paid $50.00. A manager will approve or decline it. Automatic full refund if it's declined.</span>
+              </span>
+              <span class="pl-equip-res-row__actions"><button type="button" class="pl-btn pl-btn--danger pl-btn--sm">Cancel</button></span>
+            </li>
+            <li class="pl-equip-res-row">
+              <span class="pl-equip-res-row__main">
+                <span>Thu, Oct 22 · 1:00 PM to 2:00 PM</span>
+                <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--ok">Confirmed</span> Paid $25.00</span>
+              </span>
+              <span class="pl-equip-res-row__actions"><button type="button" class="pl-btn pl-btn--danger pl-btn--sm">Cancel</button></span>
+            </li>
+            <li class="pl-equip-res-row">
+              <span class="pl-equip-res-row__main">
+                <span>Sat, Oct 24 · 9:00 AM to 11:00 AM</span>
+                <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--declined">Declined</span> Sami: The spindle is out for repair that week. Your $50.00 was refunded.</span>
+              </span>
+            </li>
+          </ul>
+        </div>
+        <p class="mock-note">Free rows drop the money sentence ("A manager will approve or decline it."). A declined row stays until its date passes, like "Cancelled by the manager" today, and has no actions. Pay now resumes the same Checkout; Cancel on an unpaid hold says "If you haven't paid, nothing is charged." Cancel on a paid row adds "You'll get an automatic full refund." plus the late fee sentence when it applies. Empty state is unchanged: the card does not render.</p>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

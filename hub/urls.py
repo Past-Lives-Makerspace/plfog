@@ -474,6 +474,22 @@ urlpatterns = [
         equipment_views.hub_equipment_reservation_cancel,
         name="hub_equipment_reservation_cancel",
     ),
+    # Priced reservations (#749): Pay now and the Stripe Checkout landings, under the slug like the rest.
+    path(
+        "equipment/<slug:slug>/reservations/<int:pk>/pay/",
+        equipment_views.hub_equipment_reservation_pay,
+        name="hub_equipment_reservation_pay",
+    ),
+    path(
+        "equipment/<slug:slug>/checkout/<str:token>/",
+        equipment_views.hub_equipment_checkout_return,
+        name="hub_equipment_checkout_return",
+    ),
+    path(
+        "equipment/<slug:slug>/checkout/<str:token>/cancelled/",
+        equipment_views.hub_equipment_checkout_cancelled,
+        name="hub_equipment_checkout_cancelled",
+    ),
     path(
         "equipment/<slug:slug>/reservations/<int:pk>/approve/",
         equipment_views.hub_equipment_reservation_approve,

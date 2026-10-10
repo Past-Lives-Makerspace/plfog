@@ -1,0 +1,53 @@
+{% comment %}
+The reservation checkout landing card (#749). States:
+  booked           the payment landed; the reservation is confirmed, awaiting approval, or later resolved
+  pending          the payment has not been confirmed yet; polls this same URL every 3 s
+  still_processing about a minute of pending; a calm fallback, polling stops
+  cancel_confirm   the Stripe cancel_url GET step (the POST releases the hold)
+  invalid          a bad or expired link, or a released hold (HTTP 400)
+{% endcomment %}
+{% if state == "invalid" %}
+  <h1 class="hub-detail-label pl-checkout-card__title">We Couldn't Find That Reservation</h1>
+  <p class="hub-text-muted pl-checkout-card__text">If you were charged, the payment will appear in your email receipt and we'll sort it out.</p>
+  <a href="{% url 'hub_equipment_index' %}" class="pl-btn pl-btn--primary">Browse Reservations</a>
+
+{% elif state == "booked" %}
+  {% if reservation.status == "confirmed" %}
+  <h1 class="hub-detail-label pl-checkout-card__title" data-checkout-state="confirmed">You're Booked</h1>
+  {% elif reservation.status == "pending_approval" %}
+  <h1 class="hub-detail-label pl-checkout-card__title" data-checkout-state="pending_approval">Request Sent</h1>
+  {% else %}
+  <h1 class="hub-detail-label pl-checkout-card__title" data-checkout-state="{{ reservation.status }}">About This Reservation</h1>
+  {% endif %}
+  <p class="pl-checkout-card__when">{{ equipment.name }} · {{ reservation.starts_at|date:"l, F j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</p>
+  {% if reservation.status == "confirmed" %}
+  <p class="hub-text-muted pl-checkout-card__text">You paid {{ reservation.paid_display }}. Your reservation is confirmed. We've emailed you the details and a calendar invite.</p>
+  {% elif reservation.status == "pending_approval" %}
+  <p class="hub-text-muted pl-checkout-card__text">You paid {{ reservation.paid_display }}. A manager approves each reservation on the {{ equipment.name }}. We hold the time for you and email you when they decide. <strong>If they decline, your {{ reservation.paid_display }} comes back automatically.</strong></p>
+  {% else %}
+  <p class="hub-text-muted pl-checkout-card__text">This reservation was {{ reservation.get_status_display|lower }}. Your {{ reservation.paid_display }} comes back automatically as a full refund.</p>
+  {% endif %}
+  <a href="{% url 'hub_equipment_detail' equipment.slug %}" class="pl-btn pl-btn--primary">Back to the {{ equipment.name }}</a>
+
+{% elif state == "pending" %}
+  <div hx-get="{% url 'hub_equipment_checkout_return' equipment.slug token %}?n={{ next_poll }}" hx-trigger="every 3s" hx-target="#equipment-checkout-card" hx-swap="innerHTML" data-checkout-state="pending">
+    <h1 class="hub-detail-label pl-checkout-card__title">Finalizing Your Payment</h1>
+    <p class="hub-text-muted pl-checkout-card__text">This usually takes a few seconds.</p>
+  </div>
+
+{% elif state == "still_processing" %}
+  <h1 class="hub-detail-label pl-checkout-card__title" data-checkout-state="still_processing">Still Processing</h1>
+  <p class="hub-text-muted pl-checkout-card__text">You'll get a confirmation email the moment it clears. Safe to close this page.</p>
+  <a href="{% url 'hub_equipment_detail' equipment.slug %}" class="pl-btn pl-btn--primary">Back to the {{ equipment.name }}</a>
+
+{% elif state == "cancel_confirm" %}
+  <h1 class="hub-detail-label pl-checkout-card__title" data-checkout-state="cancel_confirm">Cancel This Reservation?</h1>
+  <p class="hub-text-muted pl-checkout-card__text">If you haven't paid, nothing is charged. If your payment already went through, your reservation stays in.</p>
+  <div class="pl-checkout-card__actions">
+    <form method="post" class="pl-checkout-card__form">
+      {% csrf_token %}
+      <button type="submit" class="pl-btn pl-btn--danger">Cancel Reservation</button>
+    </form>
+    <a href="{% url 'hub_equipment_detail' equipment.slug %}" class="pl-btn pl-btn--secondary">Keep It</a>
+  </div>
+{% endif %}

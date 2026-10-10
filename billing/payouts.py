@@ -614,7 +614,7 @@ def settle_refund_share(refund: Any) -> None:
     elif refund.orientation_booking_id is not None:
         rows = Payout.objects.filter(orientation_booking_id=refund.orientation_booking_id)
     else:
-        return  # a late fee earns no share
+        return  # a late fee earns no share, nor (until #749's part 2) a reservation
     with transaction.atomic():
         # Blocks on the share's row while a send holds it through ``mark_sent``, so a refund
         # and a send never both miss each other: whichever runs second sees the other's write.

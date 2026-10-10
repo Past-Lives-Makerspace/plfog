@@ -1,0 +1,17 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Reservation Checkout · Past Lives{% endblock %}
+{% block extra_head %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/equipment-schedule.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+The Stripe Checkout landing for a priced equipment reservation (#749): the success_url and the
+cancel_url's confirm step. The card lives in a partial so the finalizing poll can swap only it.
+{% endcomment %}
+<div class="pl-checkout-return">
+  <div id="equipment-checkout-card" class="hub-card pl-checkout-return__card">
+    {% include "hub/partials/equipment_checkout_return_card.html" %}
+  </div>
+</div>
+{% endblock %}

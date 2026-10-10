@@ -44,6 +44,7 @@ from membership.models import (
     CommunityEvent,
     DiscordGuildEmoji,
     Equipment,
+    EquipmentError,
     EquipmentHours,
     Floorplan,
     Guild,
@@ -88,6 +89,7 @@ from membership.models import (
     WikiAttachment,
     WikiPage,
     WikiPageFact,
+    money_display,
     WikiWantedPage,
     normalize_wiki_ask,
     orientation_way_phrase,
@@ -6405,6 +6407,16 @@ EquipmentHoursWindowFormSet = forms.formset_factory(
 )
 
 
+def _dollar_input(placeholder: str = "") -> forms.TextInput:
+    """A dollar amount box: text with a decimal keypad, so the server, not the browser, words the refusal."""
+    return forms.TextInput(attrs={"inputmode": "decimal", "autocomplete": "off", "placeholder": placeholder})
+
+
+def _dollars_initial(cents: int) -> Decimal:
+    """Stored cents as the dollar figure a box shows, always with cents: 2500 is 25.00."""
+    return (Decimal(cents) / 100).quantize(Decimal("0.01"))
+
+
 class EquipmentSettingsForm(LateCancelFeeFormMixin):
     """The Hours & Limits tab's availability + booking-limit fields (spec §7.4) and the late cancellation fee.
 
@@ -6412,6 +6424,12 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
     ``Equipment.is_closed`` (#731): on means members can reserve. The column keeps its
     name, so the form flips it on the way in and on the way out rather than migrating.
     The second switch, "Needs approval", is ``Equipment.requires_approval`` itself (#748).
+
+    The Pricing card (#749): ``pricing`` picks Free, Donation based or Hourly. The hourly rate
+    and the donation minimum and suggestion are entered in dollars and checked and saved only
+    while their option is picked, so a hidden box never blocks a save and a stored rate waits,
+    untouched, for its option to come back. The donation rules are the orientation form's.
+    A POST from a page drawn before the card existed carries no ``pricing`` and changes nothing.
     """
 
     reservations_open = forms.BooleanField(
@@ -6422,6 +6440,39 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             "existing reservations stay until you cancel them."
         ),
     )
+    hourly_rate = forms.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        required=False,
+        label="Hourly rate",
+        help_text="In dollars, from $1 to $500.",
+        widget=_dollar_input(),
+        error_messages={
+            "invalid": "Enter the hourly rate in dollars, like 25 or 25.50.",
+            "max_decimal_places": "The hourly rate must be in whole cents.",
+            "max_digits": "The hourly rate must be between $1 and $500.",
+            "max_whole_digits": "The hourly rate must be between $1 and $500.",
+        },
+    )
+    donation_minimum = forms.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        required=False,
+        label="Minimum",
+        help_text="In dollars. Blank or 0 means members may pay nothing; otherwise at least $1.",
+        widget=_dollar_input(),
+    )
+    donation_suggested = forms.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        required=False,
+        label="Suggested donation",
+        help_text="Optional. In dollars, at least the minimum and at least $1. The reserve form starts with it.",
+        widget=_dollar_input(),
+    )
+
+    HOURLY_RATE_MISSING = "Enter an hourly rate, or pick Free."
+    HOURLY_RATE_RANGE = "The hourly rate must be between $1 and $500."
 
     class Meta:
         model = Equipment
@@ -6432,7 +6483,9 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             "max_duration_minutes",
             "max_advance_days",
             "max_active_reservations_per_member",
+            "pricing",
         ]
+        widgets = {"pricing": forms.RadioSelect}
         labels = {
             "closed_message": "Closed message",
             "requires_approval": "Needs approval",
@@ -6446,23 +6499,79 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
         super().__init__(*args, **kwargs)
         self.fields["reservations_open"].initial = not self.instance.is_closed
         self.fields["closed_message"].help_text = "Members see this while the equipment is not active."
-        self.fields[
-            "requires_approval"
-        ].help_text = "Every reservation waits for a manager to approve it before it is booked."
+        self.fields["requires_approval"].help_text = (
+            "Every reservation waits for a manager to approve it before it is booked. "
+            "A paid reservation is charged first and refunded in full if it is declined."
+        )
         self.fields["min_duration_minutes"].help_text = "Half hour steps."
         self.fields["max_duration_minutes"].help_text = "Half hour steps."
         self.fields["max_advance_days"].help_text = ""
         self.fields["max_active_reservations_per_member"].help_text = ""
         self.fields["late_cancel_fee"].help_text = "In dollars."
+        # Absent from a page drawn before the Pricing card (#749): the stored pricing stands.
+        self.fields["pricing"].required = False
+        # The card's example line follows the rate as it is typed (#749).
+        self.fields["hourly_rate"].widget.attrs["x-model"] = "rate"
+        if self.instance.hourly_rate_cents:
+            self.fields["hourly_rate"].initial = _dollars_initial(self.instance.hourly_rate_cents)
+        if self.instance.donation_minimum_cents:
+            self.fields["donation_minimum"].initial = _dollars_initial(self.instance.donation_minimum_cents)
+        if self.instance.donation_suggested_cents is not None:
+            self.fields["donation_suggested"].initial = _dollars_initial(self.instance.donation_suggested_cents)
+
+    #: What each pricing option's sub line says on the Pricing card (#749).
+    PRICING_HINTS: ClassVar[dict[str, str]] = {
+        Equipment.Pricing.FREE: "Members reserve at no cost.",
+        Equipment.Pricing.DONATION: "Members choose what they pay for each reservation.",
+        Equipment.Pricing.HOURLY: "A rate per hour, charged for the time booked.",
+    }
+
+    @property
+    def pricing_options(self) -> list[tuple[str, str, str]]:
+        """``(value, label, hint)`` per pricing option, in order, for the card's radio row."""
+        return [(value, str(label), self.PRICING_HINTS[value]) for value, label in Equipment.Pricing.choices]
+
+    @property
+    def pricing_posted(self) -> bool:
+        """Whether this POST carried a pricing option: only a page drawn with the Pricing card does."""
+        return self.data.get(self.add_prefix("pricing")) in Equipment.Pricing.values
+
+    @property
+    def pricing_value(self) -> str:
+        """The picked option as the card draws it: the posted one on a failed save, else the stored one."""
+        if self.pricing_posted:
+            return str(self.data[self.add_prefix("pricing")])
+        return str(self.instance.pricing)
+
+    @property
+    def hourly_example_total(self) -> str:
+        """What the card's example, a 1 hour 30 minute reservation, costs at the shown rate: "$37.50", or ""."""
+        rate = self["hourly_rate"].value()
+        try:
+            cents = int(Decimal(str(rate)) * 100) if rate not in (None, "") else 0
+        except (ArithmeticError, ValueError):  # "abc" is an ArithmeticError, "NaN" a ValueError at int()
+            cents = 0
+        if cents <= 0:
+            return ""
+        example = Equipment(pricing=Equipment.Pricing.HOURLY, hourly_rate_cents=cents)
+        return money_display(example.charge_cents_for(90))
 
     #: Posted beside the switch, so an unchecked box means "closed" only when the switch was on the page.
     #: A Manage page loaded before #731 posts no switch, and must not close the equipment on Save.
     SWITCH_MARKER = "reservations_open_shown"
 
     def save(self, commit: bool = True) -> Any:
-        """Write the Active switch back as its inverse, ``is_closed``, when the switch was posted."""
+        """Write the Active switch back as its inverse, ``is_closed``, when the switch was posted,
+        and the picked pricing option's amounts in cents (#749)."""
         if self.SWITCH_MARKER in self.data:
             self.instance.is_closed = not self.cleaned_data["reservations_open"]
+        pricing = self.cleaned_data["pricing"]
+        self.instance.pricing = pricing
+        if self.pricing_posted and pricing == Equipment.Pricing.HOURLY:
+            self.instance.hourly_rate_cents = self.cleaned_data["hourly_rate_cents"]
+        if self.pricing_posted and pricing == Equipment.Pricing.DONATION:
+            self.instance.donation_minimum_cents = self.cleaned_data["donation_minimum_cents"]
+            self.instance.donation_suggested_cents = self.cleaned_data["donation_suggested_cents"]
         return super().save(commit=commit)
 
     def clean(self) -> dict[str, Any]:
@@ -6481,7 +6590,61 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
         cap = cleaned.get("max_active_reservations_per_member")
         if cap is not None and cap < 1:
             self.add_error("max_active_reservations_per_member", "Use at least 1.")
+        self._clean_pricing(cleaned)
         return cleaned
+
+    def _clean_pricing(self, cleaned: dict[str, Any]) -> None:
+        """Check the picked option's own boxes (#749) and drop any refusal on a hidden one."""
+        if not self.pricing_posted:
+            cleaned["pricing"] = self.instance.pricing
+            for name in ("hourly_rate", "donation_minimum", "donation_suggested"):
+                self.errors.pop(name, None)
+            return
+        pricing = cleaned["pricing"]
+        if pricing != Equipment.Pricing.HOURLY:
+            self.errors.pop("hourly_rate", None)
+        if pricing != Equipment.Pricing.DONATION:
+            self.errors.pop("donation_minimum", None)
+            self.errors.pop("donation_suggested", None)
+        if pricing == Equipment.Pricing.HOURLY and "hourly_rate" in cleaned:
+            rate = cleaned["hourly_rate"]
+            if rate is None:
+                self.add_error("hourly_rate", self.HOURLY_RATE_MISSING)
+            elif not Decimal("1") <= rate <= Decimal("500"):
+                self.add_error("hourly_rate", self.HOURLY_RATE_RANGE)
+            else:
+                cleaned["hourly_rate_cents"] = int(rate * 100)
+        if pricing == Equipment.Pricing.DONATION:
+            self._clean_donation(cleaned)
+
+    def _clean_donation(self, cleaned: dict[str, Any]) -> None:
+        """The orientation form's donation rules (#636): a minimum of $0 or at least $1, a suggestion above both."""
+        floor = OrientationType.DONATION_FLOOR_CENTS
+        ceiling = OrientationType.DONATION_CEILING_CENTS
+        if "donation_minimum" in cleaned:
+            minimum = cleaned["donation_minimum"]
+            minimum_cents = 0 if minimum is None else int(minimum * 100)
+            if minimum_cents < 0 or 0 < minimum_cents < floor:
+                self.add_error(
+                    "donation_minimum", f"Set the minimum to $0 or at least {OrientationType.dollars(floor)}."
+                )
+            elif minimum_cents > ceiling:
+                self.add_error("donation_minimum", OrientationType.DONATION_CEILING_MESSAGE)
+            else:
+                cleaned["donation_minimum_cents"] = minimum_cents
+        if "donation_suggested" in cleaned and "donation_minimum_cents" in cleaned:
+            suggested = cleaned["donation_suggested"]
+            suggested_cents = None if suggested is None else int(suggested * 100)
+            lowest = max(cleaned["donation_minimum_cents"], floor)
+            if suggested_cents is not None and suggested_cents < lowest:
+                self.add_error(
+                    "donation_suggested",
+                    f"Set the suggestion to at least {OrientationType.dollars(lowest)}, or leave it blank.",
+                )
+            elif suggested_cents is not None and suggested_cents > ceiling:
+                self.add_error("donation_suggested", OrientationType.DONATION_CEILING_MESSAGE)
+            else:
+                cleaned["donation_suggested_cents"] = suggested_cents
 
 
 class EquipmentReservationForm(forms.Form):
@@ -6495,6 +6658,26 @@ class EquipmentReservationForm(forms.Form):
     starts_at = forms.CharField()
     duration_minutes = forms.IntegerField(min_value=1)
     purpose = forms.CharField(max_length=140, required=False)
+    # Donation based equipment (#749): the member's amount in dollars, read by amount_cents().
+    amount = forms.CharField(max_length=12, required=False)
+
+    def amount_cents(self) -> int | None:
+        """The entered donation in cents, or ``None`` when none was sent; whether it is allowed is the equipment's call.
+
+        Raises:
+            EquipmentError: When the amount is not a dollar figure in whole cents.
+        """
+        raw = self.cleaned_data["amount"].strip().removeprefix("$")
+        if not raw:
+            return None
+        try:
+            dollars = Decimal(raw)
+            exact = dollars.is_finite() and dollars == dollars.quantize(Decimal("0.01"))
+        except ArithmeticError:
+            exact = False
+        if not exact:
+            raise EquipmentError("Enter the amount in dollars, like 10 or 12.50.")
+        return int(dollars * 100)
 
     def clean_starts_at(self) -> Any:
         from django.utils.dateparse import parse_datetime
