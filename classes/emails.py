@@ -11,6 +11,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from django.contrib.auth.models import User
 
     from classes.models import ClassApproval, ClassOffering, ClassSession, Registration
@@ -973,6 +975,48 @@ def send_eventbrite_shared_email_alert(registration: "Registration", email: str)
         text_body=body,
         html_body=_flat_text_email_html(body),
         period=f"reg:{registration.pk}:eventbrite-shared:{registration.eventbrite_attendee_id}",
+    )
+
+
+def eventbrite_rules_failed_email(offering: "ClassOffering", problems: "Sequence[object]") -> tuple[str, str]:
+    """The subject and body of :func:`send_eventbrite_rules_failed`; the email gallery renders it too.
+
+    Args:
+        offering: The live class that was not listed.
+        problems: The listing check's problems, each read as its line (``ListingFinding``).
+    """
+    overview_url = _absolute_url(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}))
+    lines = "\n".join(f"- {problem}" for problem in problems)
+    body = (
+        f'"{offering.title}" is live on Past Lives, but it was not listed on Eventbrite. Eventbrite '
+        f"takes down listings that break its selling rules, so nothing was sent.\n\n"
+        f"Fix these:\n{lines}\n\n"
+        f"To change a live class, open it and use Request a Change: {overview_url}\n\n"
+        f"Once the change is saved, the class lists on Eventbrite on its own."
+    )
+    return f'"{offering.title}" was not listed on Eventbrite', body
+
+
+def send_eventbrite_rules_failed(offering: "ClassOffering") -> None:
+    """Tell the instructor their live class was not listed on Eventbrite, and what to fix (#725).
+
+    Sent by :meth:`ClassOffering.sync_eventbrite_listing` when a class with Submit to Eventbrite
+    ticked fails the listing check as it goes out, so nothing reached Eventbrite. A live class is
+    changed through Request a Change on its Overview; once the change is saved, the class lists on
+    its own. Flat text, like the other operational class notices; a class with no instructor
+    email sends nothing.
+    """
+    instructor = offering.instructor
+    if not (instructor and instructor.primary_email):
+        return
+    subject, body = eventbrite_rules_failed_email(offering, offering.eventbrite_listing_check().problems)
+    core_email.send(
+        to=instructor.primary_email,
+        subject=subject,
+        trigger_kind="classes.eventbrite_rules_failed",
+        text_body=body,
+        html_body=_flat_text_email_html(body),
+        best_effort=True,
     )
 
 

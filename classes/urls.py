@@ -73,6 +73,16 @@ urlpatterns = [
     path("teach/classes/", views.teach_dashboard, name="teach_dashboard"),
     path("teach/classes/new/", views.teach_class_create, name="teach_class_create"),
     path("teach/classes/<int:pk>/edit/", views.teach_class_edit, name="teach_class_edit"),
+    path(
+        "teach/classes/<int:pk>/eventbrite-check/",
+        views.teach_class_eventbrite_check,
+        name="teach_class_eventbrite_check",
+    ),
+    path(
+        "teach/classes/new/eventbrite-check/",
+        views.teach_new_class_eventbrite_check,
+        name="teach_new_class_eventbrite_check",
+    ),
     path("teach/classes/<int:pk>/submit/", views.teach_class_submit, name="teach_class_submit"),
     path(
         "teach/classes/<int:pk>/another-date-set/",
@@ -171,6 +181,11 @@ urlpatterns = [
         name="admin_teaching_decline",
     ),
     path("admin/new/", views.admin_class_create, name="admin_class_create"),
+    path(
+        "admin/new/eventbrite-check/",
+        views.admin_new_class_eventbrite_check,
+        name="admin_new_class_eventbrite_check",
+    ),
     path("admin/<int:pk>/preview/", views.class_preview, name="class_preview"),
     path("admin/<int:pk>/approve/", views.admin_class_approve, name="admin_class_approve"),
     path("admin/<int:pk>/review/", views.admin_class_review, name="admin_class_review"),

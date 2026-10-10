@@ -25,12 +25,14 @@ from __future__ import annotations
 import html as html_module
 import logging
 import re
+from dataclasses import dataclass
 from datetime import UTC
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 import httpx
 from django.conf import settings
+from django.db.models import TextChoices
 from django.template.defaultfilters import linebreaks_filter
 from django.utils import timezone
 from django.utils.html import escape, strip_tags
@@ -40,7 +42,7 @@ from core.html_sanitize import AllowlistCleaner
 from core.linkify import _TLDS as _LINKIFY_TLDS
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from datetime import datetime
 
     from classes.models import ClassOffering
@@ -92,6 +94,65 @@ _HOST_TLDS = _LINKIFY_TLDS | frozenset(
 _OFF_PLATFORM_FAQ_RE = re.compile(r"\b(?:cancel\w*|refund\w*|no[\s\-\u2013\u2014]?shows?)\b", re.IGNORECASE)
 # Statuses that show the event was published, by plfog or anyone: plfog never publishes it again (#720).
 _PUBLISHED = frozenset({"live", "started"})
+# A US phone number, with or without separators and a leading 1 (#725). Prices, times and
+# dates have the wrong grouping; a digit, word, "$" or "." on either side rules a match out.
+_PHONE_RE = re.compile(
+    r"(?<![\w$.,/])(?:\+1[\s.-]?|1[\s.-])?(?:\(\d{3}\)\s?|\d{3}[\s.-]?)\d{3}[\s.-]?\d{4}(?!\w|[.,]\d)"
+)
+# A social handle (#725): "@" and a name of two or more, ending on a letter, digit or "_" so a
+# full stop after it stays. Emails are matched first, so this never sees an address's tail.
+_HANDLE_RE = re.compile(r"(?<![\w@.&/-])@[A-Za-z0-9_][A-Za-z0-9_.]*[A-Za-z0-9_]")
+
+# Eventbrite's selling rules (#725, eventbrite.com/l/contentstandards and the Merchant Agreement).
+# Payment asked for outside the ticket: a pay app; cash in a paying sense ("cash only", "in cash",
+# "cash/venmo", "bring cash", never "no cash value" or "cash in on"); paying at the session, door,
+# instructor or on the day; a fee due or collected there; or money brought along ("Bring $20").
+_PAYMENT_RE = re.compile(
+    r"\b(?:venmo|paypal|zelle|cash\s?app)\b"
+    r"|\bcash\b(?=\s*(?:/|only\b|payments?\b|(?:is\s+)?due\b|at\s+the\b|to\s+the\b|,?\s*(?:or|and)\s+(?:venmo|paypal|zelle|check|card)\b))"
+    r"|(?<=/)cash\b"
+    r"|\b(?:in|with|by)\s+cash\b"
+    r"|\b(?:pay|paid|paying|bring|bringing)\s+(?:\$?\d+(?:\.\d\d)?\s+)?(?:in\s+)?cash\b"
+    r"|\b(?:pay(?:s|ing|able)?|paid|payments?)\b(?!\s+attention)[^.\n!?]{0,40}?\b(?:at|to|in|on)\s+(?:the\s+)?"
+    r"(?:session|door|class|instructor|teacher|studio|workshop|day)\b"
+    r"|\bpay(?:s|ing)?\s+(?:the\s+|your\s+)?(?:instructor|teacher)\b"
+    r"|(?:\$\d|\bfees?\b|\bcosts?\b|\bpayments?\b)[^.\n!?]{0,40}?\b(?:due|collected)\s+(?:at|on|in)\s+(?:the\s+)?"
+    r"(?:start\s+of\s+(?:the\s+)?)?(?:session|door|class|day|workshop)\b"
+    r"|\bbring(?:ing)?\s+\$\d[\d.,]*",
+    re.IGNORECASE,
+)
+# A cost on top of the ticket. A fee stated as included ("$10 materials fee is included in the
+# class price") matches none of these; "no extra fee" is let through by _NEGATED_RE.
+_FEE_RE = re.compile(
+    r"\b(?:(?:lab|materials?|supply|supplies|studio|kiln|firing|kit)\s+)?(?:fees?|costs?|charges?)\s+"
+    r"(?:apply|applies|(?:is\s+|are\s+)?extra|(?:is\s+|are\s+)?separate)\b"
+    r"|\b(?:materials?|supplies|kits?)\s+(?:is\s+|are\s+)?(?:an?\s+)?(?:extra|additional|separate)\b"
+    r"|\b(?:fees?|costs?|charges?|materials?|supplies|price)\b[^.\n!?;]{0,40}?\bnot\s+included\b"
+    r"|\b(?:price|ticket|cost|fee)\s+(?:does\s+not|doesn[’']t)\s+include\b"
+    r"|\b(?:additional|extra)\s+(?:costs?|fees?|charges?)\b"
+    r"|\bplus\s+(?:an?\s+)?\$\d[\d.,]*\s+(?:[a-z]+\s+)?(?:fees?|charges?|costs?)\b",
+    re.IGNORECASE,
+)
+_NEGATED_RE = re.compile(r"\b(?:no|without|zero)\s+$", re.IGNORECASE)
+# A payment mention that says there is nothing more to pay ("pay nothing extra on the day") or
+# that the ticket already covers it ("Your payment to the studio covers firing").
+_NOTHING_TO_PAY_RE = re.compile(r"\b(?:nothing|no)\b", re.IGNORECASE)
+_COVERED_RE = re.compile(r"\s+(?:covers|includes|is\s+included)\b", re.IGNORECASE)
+# A discount or coupon code, named as one or by the makerspace's own code shapes
+# (PLHalfOff, PLMetal10, PL-10%off). A token after "code" counts only with a digit, a "%" or two
+# capitals, so "dress code Black", "QR code below" and "use the code editor" are text.
+_CODE_RE = re.compile(
+    r"\b(?:discount|coupon|promo|promotional|promotion)\s+codes?\b"
+    r"|\b(?:use|enter|apply)\s+(?:the\s+)?coupon(?:\s+codes?)?\b"
+    r"|\bPL-?\d+\s?%\s?off\b",
+    re.IGNORECASE,
+)
+_CODE_TOKEN_RE = re.compile(
+    r"\b(?:(?:[Uu]se|[Ee]nter|[Aa]pply)\s+(?:the\s+)?)?[Cc]ode\s*[:=]?\s*[\"“'‘]?"
+    r"(?=[\w%-]*(?:\d|%|[A-Z][\w-]*[A-Z]))[A-Za-z0-9][\w%-]{2,}"
+    r"|\bPL(?:[A-Z][a-z]+)+\d*\b"
+)
+_TAG_RE = re.compile(r"<[^>]*>")
 
 
 class EventbriteError(Exception):
@@ -117,6 +178,7 @@ class EventbriteSync:
     GALLERY_CHANGED = "The gallery changed."
     EDIT_SAVED = "your changes are saved and go to Eventbrite within 15 minutes"
     TAKEN_DOWN = "Unpublished on Eventbrite outside plfog; not republished."
+    RULES_REFUSAL = "Eventbrite would take this listing down. Fix these, then save again."
 
     @staticmethod
     def photos_not_sent(reasons: list[str]) -> str:
@@ -288,14 +350,164 @@ def _when(moment: datetime) -> dict[str, str]:
 
 
 def _without_addresses(clean_html: str) -> str:
-    """``nh3`` output with every email address and web address dropped, text and all."""
+    """``nh3`` output with every email, web address, phone number and handle dropped, text and all."""
     text = _SCHEME_ADDRESS_RE.sub("", _EMAIL_RE.sub("", clean_html))
-    return _BARE_HOST_RE.sub(_drop_host, text)
+    text = _BARE_HOST_RE.sub(_drop_host, text)
+    return _HANDLE_RE.sub("", _PHONE_RE.sub("", text))
 
 
 def _drop_host(match: re.Match[str]) -> str:
     """A bare host goes when its TLD is known or a path follows it; anything else was text."""
     return "" if match.group(1) in _HOST_TLDS or match.group(2) else match.group(0)
+
+
+# The rules as instructors and admins read them beside the Eventbrite switch (#725).
+EVENTBRITE_RULES = (
+    "Eventbrite takes down listings that send buyers anywhere else. To sell this class on Eventbrite, "
+    "keep the title, description, FAQ and photos free of: payment outside the ticket (cash, Venmo, pay at "
+    "the session); fees not included in the price; discount codes; links, web addresses, QR codes, emails, "
+    "phone numbers or social handles; and booking, refund or cancellation instructions. Eventbrite shows "
+    "its own refund policy. A takedown can suspend the makerspace's whole Eventbrite account."
+)
+
+
+class ListingRule(TextChoices):
+    """What the listing check found (#725): the first four block the listing, the last two are dropped."""
+
+    OFF_TICKET_PAYMENT = "payment", "payment outside the ticket"
+    FEE_NOT_INCLUDED = "fee", "a cost not included in the price"
+    DISCOUNT_CODE = "code", "a discount code"
+    ADDRESS_IN_TITLE = "title_address", "a link, email, phone number or handle in the title"
+    ADDRESS = "address", "a link, email, phone number or handle"
+    REFUND_FAQ = "refund_faq", "a cancellation, refund or no-show question"
+
+
+@dataclass(frozen=True)
+class ListingFinding:
+    """One rule found in one place, with every distinct piece of text that tripped it, in order."""
+
+    where: str
+    rule: ListingRule
+    words: tuple[str, ...]
+
+    def __str__(self) -> str:
+        quoted = ", ".join(f"“{word}”" for word in self.words)
+        return f"{self.where}: {self.rule.label}: {quoted}" if quoted else f"{self.where}: {self.rule.label}"
+
+
+@dataclass(frozen=True)
+class ListingCheck:
+    """The listing check's answer: ``problems`` block the listing, ``left_out`` go quietly on the way out."""
+
+    problems: tuple[ListingFinding, ...]
+    left_out: tuple[ListingFinding, ...]
+
+    @property
+    def refusal_lines(self) -> list[str]:
+        """The refusal as the form shows it: what to do, then one line per problem."""
+        return [EventbriteSync.RULES_REFUSAL, *(str(problem) for problem in self.problems)]
+
+    @property
+    def refusal(self) -> str:
+        """The refusal on one line, as a class's sync error records it."""
+        return " ".join([EventbriteSync.RULES_REFUSAL, "; ".join(str(problem) for problem in self.problems)])
+
+
+def _plain(text: str) -> str:
+    """Author HTML or text as words: every tag a space, entities read back."""
+    return html_module.unescape(_TAG_RE.sub(" ", text))
+
+
+def _addresses(text: str) -> list[str]:
+    """Every address the listing drops from ``text``, in the order :func:`_without_addresses` drops them."""
+    found: list[str] = _EMAIL_RE.findall(text)
+    text = _EMAIL_RE.sub(" ", text)
+    found += _SCHEME_ADDRESS_RE.findall(text)
+    text = _SCHEME_ADDRESS_RE.sub(" ", text)
+    found += [match.group(0) for match in _BARE_HOST_RE.finditer(text) if not _drop_host(match)]
+    text = _BARE_HOST_RE.sub(_drop_host, text)
+    found += _PHONE_RE.findall(text)
+    return found + _HANDLE_RE.findall(_PHONE_RE.sub(" ", text))
+
+
+def _payments(text: str) -> list[str]:
+    """Each payment outside the ticket, skipping one the text rules out ("no payment at the door", "pay nothing")."""
+    return [
+        match.group(0)
+        for match in _PAYMENT_RE.finditer(text)
+        if not (
+            _NEGATED_RE.search(text[: match.start()])
+            or _NOTHING_TO_PAY_RE.search(match.group(0))
+            or _COVERED_RE.match(text, match.end())
+        )
+    ]
+
+
+def _fees(text: str) -> list[str]:
+    """Each cost on top of the ticket, skipping one the text says there is none of ("no extra fee")."""
+    return [match.group(0) for match in _FEE_RE.finditer(text) if not _NEGATED_RE.search(text[: match.start()])]
+
+
+def _codes(text: str) -> list[str]:
+    """Each code mention in order; mentions that overlap are quoted as one ("Use code PLHalfOff")."""
+    merged: list[list[int]] = []
+    for start, end in sorted(match.span() for regex in (_CODE_RE, _CODE_TOKEN_RE) for match in regex.finditer(text)):
+        if merged and start < merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [text[start:end] for start, end in merged]
+
+
+def _finding(where: str, rule: ListingRule, words: list[str]) -> list[ListingFinding]:
+    """One finding carrying each distinct word once, or none when nothing matched."""
+    distinct = tuple(dict.fromkeys(" ".join(word.split()) for word in words))
+    return [ListingFinding(where, rule, distinct)] if distinct else []
+
+
+def _selling_problems(where: str, text: str) -> list[ListingFinding]:
+    return [
+        *_finding(where, ListingRule.OFF_TICKET_PAYMENT, _payments(text)),
+        *_finding(where, ListingRule.FEE_NOT_INCLUDED, _fees(text)),
+        *_finding(where, ListingRule.DISCOUNT_CODE, _codes(text)),
+    ]
+
+
+def check_listing(title: str, subtitle: str, description: str, faqs: Sequence[Mapping[str, str]]) -> ListingCheck:
+    """Check a class's text against Eventbrite's selling rules before it is listed (#725).
+
+    Blocks payment outside the ticket, a cost not included in the price, a discount code, and
+    any address in the title (the title goes out as written). Addresses anywhere else, and a
+    FAQ about cancelling, refunds or no-shows, are reported as left out: the push drops them.
+    A dropped FAQ is never read for anything else, since none of it reaches Eventbrite.
+
+    Args:
+        title: The class title, sent as written.
+        subtitle: The subtitle, plain text.
+        description: The description, author HTML.
+        faqs: The class's own FAQ rows, each with ``question`` and ``answer``.
+
+    Returns:
+        The problems that block the listing and the parts the push leaves out.
+    """
+    plain_title = _plain(title)
+    problems = [
+        *_selling_problems("Title", plain_title),
+        *_finding("Title", ListingRule.ADDRESS_IN_TITLE, _addresses(plain_title)),
+    ]
+    left_out: list[ListingFinding] = []
+    for where, text in (("Subtitle", _plain(subtitle)), ("Description", _plain(description))):
+        problems += _selling_problems(where, text)
+        left_out += _finding(where, ListingRule.ADDRESS, _addresses(text))
+    for faq in faqs:
+        question = " ".join(_plain(faq["question"]).split())
+        where, text = f"FAQ “{question}”", f"{question}\n{_plain(faq['answer'])}"
+        if _OFF_PLATFORM_FAQ_RE.search(text):
+            left_out.append(ListingFinding(where, ListingRule.REFUND_FAQ, ()))
+            continue
+        problems += _selling_problems(where, text)
+        left_out += _finding(where, ListingRule.ADDRESS, _addresses(text))
+    return ListingCheck(tuple(problems), tuple(left_out))
 
 
 def _listing_html(html: str) -> str:
@@ -556,6 +768,14 @@ def sync_class_listing(offering: ClassOffering) -> None:
         offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.IDLE, ""
         return
     if not wanted and offering.eventbrite_sync_state == state.ENDED:
+        return
+    if wanted and offering.needs_eventbrite_agreement:
+        # On without anyone's agreement (switched on before #725): it waits, unchanged and unsent,
+        # until someone ticks Submit to Eventbrite and saves. Never the end path: that is no decision.
+        return
+    if wanted and (check := offering.eventbrite_listing_check()).problems:
+        # Edited through a path the form check does not guard (#725): nothing is sent.
+        offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.FAILED, check.refusal[:_SYNC_ERROR_MAX]
         return
     client = EventbriteClient.from_settings()
     if not client.enabled:

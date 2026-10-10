@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-10-09"
+title = "Classes are checked against Eventbrite's rules before they sell there"
+changes = [
+  "The last page of the class editor has a Submit to Eventbrite box, with Eventbrite's rules beside it. Ticking it is your agreement to those rules, and the class lists on Eventbrite when it goes live.",
+  "Once ticked, the class is checked as you type: a green Ready for Eventbrite badge, or a list of what to fix, quoting the words. Who pays Eventbrite's fee and the category show there too.",
+  "Saving is stopped while the class asks for payment outside the ticket, lists a fee not included in the price, names a discount code, or has a link, email, phone number or handle in the title.",
+  "Links, emails, phone numbers, social handles and cancellation or refund questions are listed as left out of Eventbrite, and are removed from the listing on the way out.",
+  "If a class fails the check when it goes live, nothing is sent to Eventbrite and the instructor gets an email listing what to fix, with a link to Request a Change.",
+]

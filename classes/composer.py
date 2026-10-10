@@ -67,10 +67,6 @@ COMPOSER_STEPS: tuple[ComposerStep, ...] = (
             "flexible_ends_on",
             "registration_cutoff_enabled",
             "registration_cutoff_hours",
-            "eventbrite_enabled",
-            "eventbrite_fee_payer",
-            "eventbrite_category",
-            "eventbrite_subcategory",
             "area",
             "capacity",
             "is_private",
@@ -96,7 +92,14 @@ COMPOSER_STEPS: tuple[ComposerStep, ...] = (
     # Links and read only tables (#428): no field, no anchor, no readiness item, so Next never
     # refuses it and the tab never earns a mark.
     ComposerStep(number=5, key="discounts", tab_label="5. Discounts", heading="Discounts", fields=()),
-    ComposerStep(number=6, key="review", tab_label="6. Review", heading="Review And Submit", fields=()),
+    ComposerStep(
+        number=6,
+        key="review",
+        tab_label="6. Review",
+        heading="Review And Submit",
+        # Submit to Eventbrite and its fee and category sit on the last page (#725).
+        fields=("eventbrite_enabled", "eventbrite_fee_payer", "eventbrite_category", "eventbrite_subcategory"),
+    ),
 )
 
 STEP_COUNT = len(COMPOSER_STEPS)
