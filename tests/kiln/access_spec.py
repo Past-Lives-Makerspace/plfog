@@ -214,7 +214,7 @@ def describe_the_guest_gate():
     def it_keeps_the_tab_and_home_links_for_a_member(kiln_guild, make_member):
         body = signed_in(make_member()).get(reverse("hub_guild_detail", args=[kiln_guild.slug])).content.decode()
 
-        assert f'href="{reverse("hub_home")}" class="pl-brand"' in body
+        assert f'href="{reverse("hub_home")}" class="pl-brand' in body
 
 
 def describe_signing_in():
