@@ -41,7 +41,11 @@ jobs:
       - name: The description follows CONTRIBUTING.md
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.sha }}
+          # The branch head, never github.sha: on a pull_request event that is the merge
+          # commit, and once main has moved past the PR's recorded base the three-dot diff
+          # from base.sha to the merge commit counts every later merge on main as this PR's
+          # (#755 was failed for a screenshot #754 added).
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: python .github/scripts/check_pr_description.py
