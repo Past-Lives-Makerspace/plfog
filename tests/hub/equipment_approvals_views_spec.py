@@ -199,6 +199,15 @@ def describe_the_member_schedule():
         assert _toast(response).startswith("Reserved. See you ")
         assert EquipmentReservation.objects.get(member=manager).status == EquipmentReservation.Status.CONFIRMED
 
+    def it_shows_a_manager_the_instant_copy_on_their_own_approval_equipment(client: Client):
+        # reserve() books a manager instantly, so the page must not promise a wait (#748 review).
+        equipment = _tool()
+        _manage_login(client, equipment)
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        assert "data-approval-terms" not in content
+        assert "Reserve this time?" in content
+        assert "Request this time?" not in content
+
     def it_never_shows_an_undecided_request_as_in_use_on_the_index_card(client: Client):
         # The card's prefetch reads confirmed rows only, like Equipment.availability_line.
         _login(client, "card_viewer")

@@ -316,7 +316,8 @@ def _schedule_context(
         "upcoming_reservations": list(equipment.reservations.upcoming().reservations().select_related("member")[:20]),
         "manages": manages,
         # Book a Time asks for a request rather than a booking while the equipment needs approval (#748).
-        "needs_approval": equipment.requires_approval,
+        # A manager of this equipment books instantly (reserve() skips the wait for them), so their copy says so.
+        "needs_approval": equipment.requires_approval and not fee_exempt,
         # Under the Book a Time form and appended to its Reserve prompt; "" when no fee applies.
         "late_cancel_sentence": "" if fee_exempt else booking_sentence(policy),
         # The block until paid (#456): the requirements banner shows it with a Pay button.
