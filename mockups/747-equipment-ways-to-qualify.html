@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Ways to Qualify mockup</title>
+<!--
+  Screen D: "Ways to Qualify". (1) the editor on the equipment Manage page, Details tab, replacing the
+  unlocking_orientations multi select; (2) the member's requirements banner on the equipment page; (3) the wiki Official block.
+  Views: ?view=editor (default) · none · error · member · wiki    Theme: ?theme=light    Phone: ?phone=1
+  CSS: the first <style> block is NEW product CSS for static/css/equipment-manage.css (editor) and hub.css (banner); the second is mockup-only.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../static/css/hub.css">
+<link rel="stylesheet" href="../static/css/components.css">
+<link rel="stylesheet" href="../static/css/equipment-manage.css">
+<style>
+/* ==========================================================================
+   NEW PRODUCT CSS. Tokens only.
+   ========================================================================== */
+
+/* equipment-manage.css: the Ways to Qualify section inside the Details form. */
+.pl-equip-ways { margin: 0.5rem 0 1.25rem; }
+.pl-equip-ways__title { margin: 0 0 0.25rem; }
+.pl-equip-ways__intro { margin: 0 0 0.75rem; font-size: 0.8125rem; color: var(--hub-text-muted); max-width: 62ch; }
+.pl-equip-ways__rows { display: flex; flex-direction: column; gap: 0.75rem; }
+.pl-equip-way { padding: 1rem; border: 1px solid var(--hub-border); border-radius: 8px; background: var(--hub-surface); }
+.pl-equip-way__head { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; margin: 0 0 0.25rem; }
+.pl-equip-way__name { font-weight: 700; color: var(--hub-text); }
+.pl-equip-way__summary { font-size: 0.85rem; color: var(--hub-text-muted); }
+.pl-equip-way__or { margin: 0; text-align: center; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--hub-text-muted); }
+.pl-equip-ways__add { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; margin-top: 0.75rem; }
+
+/* hub.css: the member banner's ways, each a short list, an "or" between them. */
+.pl-equip-unlock-ways { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.75rem 0 0; }
+.pl-equip-unlock-way { padding: 0.75rem; border-radius: 8px; background: var(--hub-card-bg); border: 1px solid var(--hub-border); }
+.pl-equip-unlock-way__item { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; padding: 0.25rem 0; }
+.pl-equip-unlock-way__item + .pl-equip-unlock-way__item { border-top: 1px solid var(--hub-border); margin-top: 0.25rem; padding-top: 0.5rem; }
+.pl-equip-unlock-way__meta { font-size: 0.85rem; color: var(--hub-text-muted); }
+.pl-equip-unlock-way__done { font-size: 0.85rem; color: #7bdcb5; }
+[data-theme="light"] .pl-equip-unlock-way__done { color: #1e7a4f; }
+.pl-equip-unlock-or { margin: 0; text-align: center; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--hub-text-muted); }
+</style>
+<style>
+/* ---------- mockup-only ---------- */
+.mock-view { display: contents; }
+html[data-mock-view="editor"] .mock-view:not([data-mock-view~="editor"]),
+html[data-mock-view="none"] .mock-view:not([data-mock-view~="none"]),
+html[data-mock-view="error"] .mock-view:not([data-mock-view~="error"]),
+html[data-mock-view="member"] .mock-view:not([data-mock-view~="member"]),
+html[data-mock-view="wiki"] .mock-view:not([data-mock-view~="wiki"]) { display: none; }
+.mock-switcher { position: fixed; right: 1rem; bottom: 1rem; z-index: 900; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; max-width: calc(100vw - 2rem); padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--hub-elevated); border: 1px solid var(--hub-border); font-size: 0.8rem; }
+.mock-switcher__title { font-weight: 700; color: var(--hub-text-muted); }
+.mock-switcher a { color: var(--hub-link); text-decoration: none; }
+html.mock-shot .mock-switcher { display: none; }
+html.mock-phone .hub-sidebar { display: none; }
+html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
+.mock-note { font-size: 0.8rem; color: var(--hub-text-muted); border-left: 3px solid var(--hub-blue); padding: 0.25rem 0.75rem; margin: 0 0 1.5rem; }
+.mock-collapsed { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 1rem; margin-bottom: 1rem; opacity: 0.6; border: 1px dashed var(--hub-border); border-radius: 8px; }
+.mock-collapsed span:last-child { font-size: 0.75rem; color: var(--hub-text-muted); }
+</style>
+<script>
+  (function () {
+    var p = new URLSearchParams(location.search);
+    document.documentElement.setAttribute('data-mock-view', p.get('view') || 'editor');
+    if (p.get('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    if (p.get('shot') === '1') document.documentElement.classList.add('mock-shot');
+    if (p.get('phone') === '1') document.documentElement.classList.add('mock-phone');
+  })();
+  function mockToggleTheme() {
+    var p = new URLSearchParams(location.search);
+    if (p.get('theme') === 'light') p.delete('theme'); else p.set('theme', 'light');
+    location.search = p.toString();
+  }
+</script>
+</head>
+<body>
+  <nav class="mock-switcher" aria-label="Mockup views">
+    <span class="mock-switcher__title">Ways to Qualify mockup</span>
+    <a href="?view=editor">Editor</a>
+    <a href="?view=none">No ways</a>
+    <a href="?view=error">Error</a>
+    <a href="?view=member">Member banner</a>
+    <a href="?view=wiki">Wiki block</a>
+    <a href="#" onclick="mockToggleTheme(); return false;">Theme</a>
+  </nav>
+
+  <aside class="hub-sidebar">
+    <nav class="hub-sidebar__nav" aria-label="Hub navigation">
+      <a href="#" class="hub-sidebar__link">Home</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Orientations</a>
+      <a href="#" class="hub-sidebar__link hub-sidebar__link--active">Reservations</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Settings</a>
+    </nav>
+  </aside>
+
+  <div class="hub-main-wrapper">
+    <header class="pl-topbar">
+      <span class="pl-topbar__divider"></span>
+      <div class="pl-topbar__spacer"></div>
+      <button class="pl-topbar__theme-toggle" aria-label="Toggle theme" onclick="mockToggleTheme()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M1 12h2"/><path d="M21 12h2"/></svg></button>
+      <div class="pl-profile"><button class="pl-profile__avatar" aria-label="User menu">S</button></div>
+    </header>
+
+    <main id="main-content" class="hub-content" tabindex="-1">
+
+      <!-- ===== Details tab shell ===== -->
+      <div class="mock-view" data-mock-view="editor none error">
+        <h1 class="hub-page-title">Manage CNC Machine</h1>
+        <nav role="tablist" class="pl-tabs">
+          <button type="button" class="vote-tab vote-tab--active">Details</button>
+          <button type="button" class="vote-tab">Staff</button>
+          <button type="button" class="vote-tab">Hours &amp; Limits</button>
+          <button type="button" class="vote-tab">Reservations</button>
+          <button type="button" class="vote-tab">Orientation</button>
+        </nav>
+      </div>
+
+      <!-- ===== VIEW: editor (the CNC, two ways) ===== -->
+      <div class="mock-view" data-mock-view="editor">
+        <div class="hub-card pl-equip-form-card">
+          <form class="hub-form" onsubmit="return false;">
+            <div class="hub-form-group">
+              <div class="mock-collapsed"><span>Name, Kind, Guild, Space, Photo, Description, Location, Where to find it</span><span>unchanged</span></div>
+
+              <section class="pl-equip-ways" aria-labelledby="ways-title" data-ways-editor>
+                <h3 class="hub-detail-label pl-equip-ways__title" id="ways-title">Ways to Qualify</h3>
+                <p class="pl-equip-ways__intro">A member can reserve the CNC Machine once they finish every orientation in any one way. Leave this empty and no orientation is needed.</p>
+                <input type="hidden" name="ways-TOTAL_FORMS" value="2">
+                <div class="pl-equip-ways__rows" data-ways-rows>
+                  <div class="pl-equip-way" data-way-row>
+                    <div class="pl-equip-way__head"><span class="pl-equip-way__name">Way 1</span><span class="pl-equip-way__summary">CNC Machine Orientation</span></div>
+                    <div class="pl-equip-days" role="group" aria-label="Orientations in way 1">
+                      <ul>
+                        <li><label><input type="checkbox" checked> CNC Machine Orientation <span class="hub-text-muted">6 hours</span></label></li>
+                        <li><label><input type="checkbox"> Session 1 of 2 <span class="hub-text-muted">3 hours</span></label></li>
+                        <li><label><input type="checkbox"> Session 2 of 2 <span class="hub-text-muted">3 hours</span></label></li>
+                        <li><label><input type="checkbox"> CNC Team Orientation <span class="hub-text-muted">2 hours</span></label></li>
+                      </ul>
+                    </div>
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced">Delete</button>
+                  </div>
+                  <p class="pl-equip-way__or" aria-hidden="true">or</p>
+                  <div class="pl-equip-way" data-way-row>
+                    <div class="pl-equip-way__head"><span class="pl-equip-way__name">Way 2</span><span class="pl-equip-way__summary">Both Session 1 of 2 and Session 2 of 2</span></div>
+                    <div class="pl-equip-days" role="group" aria-label="Orientations in way 2">
+                      <ul>
+                        <li><label><input type="checkbox"> CNC Machine Orientation <span class="hub-text-muted">6 hours</span></label></li>
+                        <li><label><input type="checkbox" checked> Session 1 of 2 <span class="hub-text-muted">3 hours</span></label></li>
+                        <li><label><input type="checkbox" checked> Session 2 of 2 <span class="hub-text-muted">3 hours</span></label></li>
+                        <li><label><input type="checkbox"> CNC Team Orientation <span class="hub-text-muted">2 hours</span></label></li>
+                      </ul>
+                    </div>
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced">Delete</button>
+                  </div>
+                </div>
+                <template data-ways-template><!-- the empty way: every pill unticked, a Remove button that drops the node --></template>
+                <div class="pl-equip-ways__add">
+                  <button type="button" class="hub-btn hub-btn--sm" data-ways-add>+ Add Another Way</button>
+                  <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost">+ New Orientation</button>
+                </div>
+              </section>
+
+              <div class="pl-toggle-row">
+                <div class="pl-toggle-info"><div class="pl-toggle-label">Active</div><div class="pl-toggle-desc">Show this equipment to members.</div></div>
+                <label class="pl-toggle"><input type="checkbox" checked><span class="pl-toggle__slider"></span><span class="sr-only">Active</span></label>
+              </div>
+            </div>
+            <div class="pl-equip-save-row"><button type="submit" class="pl-btn pl-btn--primary">Save</button></div>
+          </form>
+        </div>
+        <p class="mock-note">The pills list every orientation this item can use: its own types plus its guild's, as the multi select does today. Ticking a pill updates the way's summary line at once. A saved way's Delete flips its hidden DELETE and submits the whole form; a way added since load says Remove and just leaves the page. "+ New Orientation" replaces the "New orientation for this equipment" option: it reveals the existing new type fields below the ways, and on Save that orientation becomes a way of its own. Save redirects to ?tab=details with "Saved."</p>
+      </div>
+
+      <!-- ===== VIEW: none (no ways yet) ===== -->
+      <div class="mock-view" data-mock-view="none">
+        <div class="hub-card pl-equip-form-card">
+          <form class="hub-form" onsubmit="return false;">
+            <div class="hub-form-group">
+              <div class="mock-collapsed"><span>Name, Kind, Guild, Space, Photo, Description, Location, Where to find it</span><span>unchanged</span></div>
+              <section class="pl-equip-ways" aria-labelledby="ways-title-n">
+                <h3 class="hub-detail-label pl-equip-ways__title" id="ways-title-n">Ways to Qualify</h3>
+                <p class="pl-equip-ways__intro">No orientation is needed. Any active member can reserve the Laser Engraver. Add a way to require one.</p>
+                <div class="pl-equip-ways__add">
+                  <button type="button" class="hub-btn hub-btn--sm">+ Add a Way to Qualify</button>
+                  <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost">+ New Orientation</button>
+                </div>
+              </section>
+            </div>
+            <div class="pl-equip-save-row"><button type="submit" class="pl-btn pl-btn--primary">Save</button></div>
+          </form>
+        </div>
+        <p class="mock-note">The add page shows this state. If the item has no orientations to pick yet, the first button is hidden and the line ends "Create its orientation with + New Orientation."</p>
+      </div>
+
+      <!-- ===== VIEW: error ===== -->
+      <div class="mock-view" data-mock-view="error">
+        <div class="hub-card pl-equip-form-card">
+          <form class="hub-form" onsubmit="return false;">
+            <section class="pl-equip-ways">
+              <h3 class="hub-detail-label pl-equip-ways__title">Ways to Qualify</h3>
+              <p class="pl-equip-ways__intro">A member can reserve the CNC Machine once they finish every orientation in any one way. Leave this empty and no orientation is needed.</p>
+              <ul class="pl-field-errors"><li class="pl-field-error">Way 3 is the same as Way 2. Delete one of them.</li></ul>
+              <div class="pl-equip-ways__rows">
+                <div class="mock-collapsed"><span>Way 1, Way 2</span><span>as in Editor</span></div>
+                <div class="pl-equip-way">
+                  <div class="pl-equip-way__head"><span class="pl-equip-way__name">Way 3</span><span class="pl-equip-way__summary">Both Session 1 of 2 and Session 2 of 2</span></div>
+                  <div class="pl-equip-days"><ul>
+                    <li><label><input type="checkbox"> CNC Machine Orientation</label></li>
+                    <li><label><input type="checkbox" checked> Session 1 of 2</label></li>
+                    <li><label><input type="checkbox" checked> Session 2 of 2</label></li>
+                    <li><label><input type="checkbox"> CNC Team Orientation</label></li>
+                  </ul></div>
+                  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced">Remove</button>
+                </div>
+              </div>
+            </section>
+            <div class="pl-equip-save-row"><button type="submit" class="pl-btn pl-btn--primary">Save</button></div>
+          </form>
+        </div>
+        <p class="mock-note">The only error. A way with nothing ticked is skipped on Save, never an error, so an abandoned "+ Add Another Way" never blocks the page. Ways stay numbered by position, so the error names the one the manager sees.</p>
+      </div>
+
+      <!-- ===== VIEW: member (the requirements banner on the equipment page) ===== -->
+      <div class="mock-view" data-mock-view="member">
+        <div class="hub-card pl-equip-hero"><div class="pl-equip-hero__body"><div class="pl-equip-hero__titles"><h1 class="hub-page-title" style="margin:0;">CNC Machine</h1></div></div></div>
+        <div class="hub-card pl-equip-banner pl-equip-banner--warn">
+          <p style="margin:0;">Complete the CNC Machine Orientation, or both Session 1 of 2 and Session 2 of 2, before you reserve the CNC Machine. Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the CNC Machine.</p>
+          <div class="pl-equip-unlock-ways" data-equip-unlocks>
+            <div class="pl-equip-unlock-way">
+              <div class="pl-equip-unlock-way__item">
+                <span><strong>CNC Machine Orientation</strong> <span class="pl-equip-unlock-way__meta">· 6 hours</span></span>
+                <a href="#" class="pl-btn pl-btn--primary pl-btn--sm">Book</a>
+              </div>
+            </div>
+            <p class="pl-equip-unlock-or" aria-hidden="true">or</p>
+            <div class="pl-equip-unlock-way">
+              <div class="pl-equip-unlock-way__item">
+                <span><strong>Session 1 of 2</strong> <span class="pl-equip-unlock-way__meta">· 3 hours</span></span>
+                <span class="pl-equip-unlock-way__done">✓ Done</span>
+              </div>
+              <div class="pl-equip-unlock-way__item">
+                <span><strong>Session 2 of 2</strong> <span class="pl-equip-unlock-way__meta">· 3 hours</span></span>
+                <a href="#">Booked for Sat, Oct 24 at 10:00 AM.</a>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="mock-note">Sentence rules: a one orientation way is "the X"; two is "both X and Y"; three or more is "all of X, Y and Z"; ways join with ", or ". One way with one orientation keeps today's banner word for word. When every way is a single orientation, today's "Any one of these orientations unlocks this." list stays. Each orientation keeps today's per type states (Book, Booked for, Your request is in, Bookings are paused), plus "✓ Done" for one already completed. A screen reader hears "or" from the sentence; the divider is decorative.</p>
+      </div>
+
+      <!-- ===== VIEW: wiki ===== -->
+      <div class="mock-view" data-mock-view="wiki">
+        <section class="pl-wp-official" aria-label="Official equipment information">
+          <div class="pl-wp-official__head"><h2 class="hub-detail-label pl-wp-section__title">CNC Machine</h2><span class="hub-pill hub-pill--primary">Official</span></div>
+          <dl class="pl-wp-facts">
+            <dt class="pl-wp-facts__label">Orientation</dt>
+            <dd class="pl-wp-facts__value">The CNC Machine Orientation, or both Session 1 of 2 and Session 2 of 2</dd>
+            <dt class="pl-wp-facts__label">Where it is</dt>
+            <dd class="pl-wp-facts__value">Back wall of the wood shop</dd>
+            <dt class="pl-wp-facts__label">You</dt>
+            <dd class="pl-wp-facts__value">Session 1 of 2 done. Session 2 of 2 to go.</dd>
+          </dl>
+          <p class="hub-text-muted pl-wp-official__source">From the equipment register. Members cannot edit this.</p>
+        </section>
+        <p class="mock-note" style="margin-top:1rem;">Same sentence builder as the banner, so the two never drift. All single orientation ways keep "Any one of: A, B". The "You" line reports progress on the way the member is closest to finishing; once cleared it reads as today.</p>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

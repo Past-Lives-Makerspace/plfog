@@ -99,6 +99,10 @@ class ClassOfferingFactory(DjangoModelFactory):
     description = "A hands-on class."
     price_cents = 5000
     capacity = 6
+    # A class built with Eventbrite on has been agreed to (#725), as ticking Submit to Eventbrite
+    # leaves it; pass eventbrite_rules_agreed_at=None for one switched on before the rules existed.
+    eventbrite_enabled = False
+    eventbrite_rules_agreed_at = factory.LazyAttribute(lambda o: timezone.now() if o.eventbrite_enabled else None)
     status = models.ClassOffering.Status.DRAFT
     scheduling_type = models.ClassOffering.SchedulingType.SINGLE_SESSION
     # Submitting a class for review requires its own hero photo AND one gallery

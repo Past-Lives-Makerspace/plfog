@@ -99,8 +99,14 @@ def describe_composer_steps():
         on_steps = {name for step in COMPOSER_STEPS for name in step.fields}
         assert not {name for name in on_steps if name.startswith("sale_")}
 
-    def it_has_no_fields_on_the_review_step():
-        assert COMPOSER_STEPS[-1].fields == ()
+    def it_has_only_submit_to_eventbrite_on_the_review_step():
+        # #725 put Submit to Eventbrite and its fee and category on the last page.
+        assert COMPOSER_STEPS[-1].fields == (
+            "eventbrite_enabled",
+            "eventbrite_fee_payer",
+            "eventbrite_category",
+            "eventbrite_subcategory",
+        )
 
     def it_has_no_fields_and_no_readiness_on_the_discounts_step():
         # Links and read only tables (#428): nothing for Next to gate, nothing for a tab mark to count.

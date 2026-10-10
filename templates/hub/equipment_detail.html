@@ -2,6 +2,7 @@
 {% load static %}
 {% block title %}{{ equipment.name }}{% endblock %}
 {% block extra_head %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/equipment-detail.css' %}">
 <link rel="stylesheet" href="{% static 'css/equipment-agreement.css' %}">
 {% endblock %}
 
@@ -60,7 +61,33 @@
 </div>
 {% elif access_state == "needs_orientation" %}
 <div class="hub-card pl-equip-banner pl-equip-banner--warn">
-  {% if orientation_unlocks|length == 1 %}
+  {% if orientation_requirement_sentence %}
+  {# A way needs several orientations (#747): the shared sentence, then each way with an "or" between; the sentence already says "or" to a screen reader. #}
+  <p class="pl-equip-unlock-lead">{{ orientation_requirement_sentence }} Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the {{ equipment.name }}.</p>
+  <div class="pl-equip-unlock-ways" data-equip-unlocks>
+    {% for way in orientation_unlock_ways %}
+    {% if not forloop.first %}<p class="pl-equip-unlock-or" aria-hidden="true">or</p>{% endif %}
+    <div class="pl-equip-unlock-way" data-unlock-way>
+      {% for unlock in way %}
+      <div class="pl-equip-unlock-way__item" data-unlock-type="{{ unlock.orientation_type.pk }}">
+        <span><strong>{{ unlock.orientation_type.name }}</strong> <span class="pl-equip-unlock-way__meta">· {{ unlock.orientation_type.duration_label }}</span></span>
+        {% if unlock.done %}
+        <span class="pl-equip-unlock-way__done" data-unlock-done>✓ Done</span>
+        {% elif unlock.booking and unlock.booking.status == "confirmed" %}
+        <a href="{{ unlock.url }}">Booked for {{ unlock.booking.slot.starts_at|date:"D, M j" }} at {{ unlock.booking.slot.starts_at|time:"g:i A" }}.</a>
+        {% elif unlock.booking %}
+        <a href="{{ unlock.url }}">Your request is in. {% if unlock.orientation_type.is_equipment_owned %}A manager will confirm a time.{% else %}The guild will confirm a time.{% endif %}</a>
+        {% elif unlock.paused %}
+        <span class="hub-text-muted">Bookings are paused. Check back soon.</span>
+        {% else %}
+        <a href="{{ unlock.url }}" class="pl-btn pl-btn--primary pl-btn--sm">Book</a>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  {% elif orientation_unlocks|length == 1 %}
   {% with unlock=orientation_unlocks.0 %}
   {% if unlock.booking and unlock.booking.status == "confirmed" %}
   <p style="margin:0;">

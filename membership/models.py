@@ -6,7 +6,7 @@ import logging
 import re
 import secrets
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
@@ -12031,6 +12031,11 @@ class OrientationType(models.Model):
     def __str__(self) -> str:
         return f"{self.owner_name} — {self.name}"
 
+    @property
+    def duration_label(self) -> str:
+        """The length in words, "3 hours", as the equipment page's ways and the Ways to Qualify pills show it (#747)."""
+        return duration_label(self.duration_minutes)
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         delete_orphan_on_replace(self, "photo")
         super().save(*args, **kwargs)
@@ -14854,13 +14859,43 @@ class OrientationUnlock:
     Built by :meth:`Equipment.orientation_unlocks`. ``booking`` is the member's live
     (requested or confirmed) booking for the type, ``url`` its owner aware Book link, and
     ``paused`` is true when the type takes no bookings and the member holds none, so the
-    banner never renders a dead Book link.
+    banner never renders a dead Book link. ``done`` is true when the member already completed
+    the type; only a way of several orientations shows it (#747), since completing a way of one
+    unlocks the item and the banner is gone.
     """
 
     orientation_type: OrientationType
     booking: OrientationBooking | None
     url: str
     paused: bool
+    done: bool = False
+
+
+def duration_label(minutes: int) -> str:
+    """A friendly duration label: 30 -> "30 minutes", 60 -> "1 hour", 90 -> "1.5 hours"."""
+    if minutes < 60:
+        return f"{minutes} minutes"
+    hours = minutes / 60
+    if hours == int(hours):
+        count = int(hours)
+        return f"{count} hour{'' if count == 1 else 's'}"
+    return f"{hours:g} hours"
+
+
+def join_names(names: Sequence[str]) -> str:
+    """Names as a sentence list: "A", "A and B", "A, B and C"."""
+    if len(names) < 2:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def orientation_way_phrase(names: Sequence[str]) -> str:
+    """One way to qualify in member copy (#747): "the X", "both X and Y", "all of X, Y and Z"."""
+    if len(names) == 1:
+        return f"the {names[0]}"
+    if len(names) == 2:
+        return f"both {names[0]} and {names[1]}"
+    return f"all of {join_names(names)}"
 
 
 class Equipment(HeroCropMixin, models.Model):
@@ -14870,8 +14905,9 @@ class Equipment(HeroCropMixin, models.Model):
     ``space`` FK is a **read-only** relationship into the Airtable-synced :class:`Space` —
     Django never writes through it and ``airtable_pull`` never sees this model. Access is
     gated by the existing orientation stack: ``unlocking_orientations`` lists zero or more
-    :class:`OrientationType` rows, completing any one of them unlocks the item, and the
-    gate is :meth:`is_unlocked_for` (#656).
+    :class:`OrientationType` rows grouped into ways to qualify (#747; each row's ``way``),
+    completing every orientation in any one way unlocks the item, and the gate is
+    :meth:`is_unlocked_for` (#656).
     """
 
     class Kind(models.TextChoices):
@@ -14954,8 +14990,8 @@ class Equipment(HeroCropMixin, models.Model):
         blank=True,
         related_name="gated_equipment",
         help_text=(
-            "Completing any one of these orientations lets a member reserve this equipment. "
-            "Empty means any active member can book it."
+            "The orientations that let a member reserve this equipment, grouped into ways by each row's way "
+            "number: completing every orientation in any one way is enough. Empty means any active member can book it."
         ),
     )
     is_active = models.BooleanField(
@@ -15039,19 +15075,110 @@ class Equipment(HeroCropMixin, models.Model):
             for orientation_type in listed_types
         ]
 
-    def unlocking_orientation_list(self) -> list[OrientationType]:
-        """The unlocking types in display order, read through any prefetch of ``unlocking_orientations``."""
-        return list(self.unlocking_orientations.all())
+    @property
+    def unlocking_way_links(self) -> list[list[tuple[OrientationType, str]]]:
+        """The locked card's Book links grouped by way (#747), or [] when every way is one orientation.
 
-    def orientation_unlocks(self, member: Member) -> list[OrientationUnlock]:
-        """What the detail page's banner shows for each unlocking type, for a member who holds none (#656).
+        Reads the two prefetches the card grid already makes (the rows and
+        :attr:`unlocking_orientation_links`), so grouping costs no query; with every way a
+        single orientation the card keeps its flat list.
+        """
+        ways = self.unlocking_ways()
+        if not self.ways_are_grouped(ways):
+            return []
+        links = {
+            orientation_type.pk: (orientation_type, link) for orientation_type, link in self.unlocking_orientation_links
+        }
+        return [[links[orientation_type.pk] for orientation_type in way] for way in ways]
+
+    def unlocking_ways(self) -> list[list[OrientationType]]:
+        """The ways to qualify, in order, each the orientation types a member must all complete (#747).
+
+        Read from ``unlocking_orientation_rows`` (any prefetch of it answers, else one query
+        that brings each type along). Rows sharing a ``way`` number form one way; a row with no
+        number is a way of its own, which is every row saved before the editor numbered them,
+        so equipment nobody has touched keeps its any one of rule.
+        """
+        ways: dict[tuple[str, int], list[OrientationType]] = {}
+        for row in self.unlocking_orientation_rows.all():
+            key = ("way", row.way) if row.way is not None else ("row", row.pk)
+            ways.setdefault(key, []).append(row.orientation_type)
+        return list(ways.values())
+
+    def unlocking_orientation_list(self) -> list[OrientationType]:
+        """Every unlocking type in display order, way by way."""
+        return [orientation_type for way in self.unlocking_ways() for orientation_type in way]
+
+    def set_unlocking_ways(self, ways: Sequence[Sequence[OrientationType]]) -> None:
+        """Replace the ways to qualify with ``ways``, numbering them 1..n in order (#747).
+
+        One transaction, so a reader never sees the item half gated. Each type may sit in one
+        way only (``uq_equip_unlock_orient``); the editor refuses a second placement first.
+        """
+        with transaction.atomic():
+            EquipmentUnlockingOrientation.objects.filter(equipment=self).delete()
+            # A prefetch of the old rows would answer unlocking_ways() with what was just replaced.
+            getattr(self, "_prefetched_objects_cache", {}).pop("unlocking_orientation_rows", None)
+            EquipmentUnlockingOrientation.objects.bulk_create(
+                EquipmentUnlockingOrientation(equipment=self, orientation_type=orientation_type, way=number)
+                for number, way in enumerate(ways, start=1)
+                for orientation_type in way
+            )
+
+    @staticmethod
+    def ways_are_grouped(ways: Sequence[Sequence[OrientationType]]) -> bool:
+        """True when some way needs more than one orientation, the only case the grouped copy is for."""
+        return any(len(way) > 1 for way in ways)
+
+    @staticmethod
+    def requirement_phrase(ways: Sequence[Sequence[OrientationType]]) -> str:
+        """The ways in member copy (#747): "the X, or both Y and Z". One builder for every surface."""
+        return ", or ".join(orientation_way_phrase([t.name for t in way]) for way in ways)
+
+    def requirement_sentence(self, ways: Sequence[Sequence[OrientationType]]) -> str:
+        """The grouped banner and booking blocker sentence (#747).
+
+        "Complete the CNC Machine Orientation, or both Session 1 of 2 and Session 2 of 2,
+        before you reserve the CNC Machine." The comma that closes the list is there only
+        when there are several ways, where it pairs with the ", or".
+        """
+        close = "," if len(ways) > 1 else ""
+        return f"Complete {self.requirement_phrase(ways)}{close} before you reserve the {self.name}."
+
+    @staticmethod
+    def way_progress_line(ways: Sequence[Sequence[OrientationType]], completed_ids: set[int]) -> str:
+        """The wiki's progress line, e.g. "Session 1 of 2 done. Session 2 of 2 to go." (#747).
+
+        It reports the way the member is closest to finishing. Only a way of several
+        orientations that the member has started and not finished counts; the fewest left
+        wins, and the first such way breaks a tie. Empty when there is no such way, so the
+        caller keeps its usual line.
+        """
+        best: tuple[list[str], list[str]] | None = None
+        for way in ways:
+            done = [t.name for t in way if t.pk in completed_ids]
+            to_go = [t.name for t in way if t.pk not in completed_ids]
+            if len(way) < 2 or not done or not to_go:
+                continue
+            if best is None or len(to_go) < len(best[1]):
+                best = (done, to_go)
+        if best is None:
+            return ""
+        return f"{join_names(best[0])} done. {join_names(best[1])} to go."
+
+    def orientation_unlock_ways(self, member: Member) -> list[list[OrientationUnlock]]:
+        """What the detail page's banner shows for each unlocking type, way by way (#656, #747).
 
         One read for the member's live bookings across every unlocking type, never one per
         type. Each row keeps today's single orientation rules: a live booking links to it, a
         paused type (inactive, retired owner or closed guild settings) with no live booking
-        offers no Book link, and otherwise the Book link is the owner aware anchor.
+        offers no Book link, and otherwise the Book link is the owner aware anchor. When a
+        way needs several orientations, each row also says whether the member completed it
+        (one more read of two queries); otherwise completing any listed type would have
+        unlocked the item, so none is done.
         """
-        types = self.unlocking_orientation_list()
+        ways = self.unlocking_ways()
+        types = [orientation_type for way in ways for orientation_type in way]
         live = member.orientation_bookings.filter(
             orientation_type__in=types,
             status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED],
@@ -15059,18 +15186,27 @@ class Equipment(HeroCropMixin, models.Model):
         booking_by_type: dict[int, OrientationBooking] = {}
         for live_booking in live.order_by("pk"):
             booking_by_type.setdefault(live_booking.orientation_type_id, live_booking)
-        unlocks: list[OrientationUnlock] = []
-        for orientation_type in types:
-            booking = booking_by_type.get(orientation_type.pk)
-            unlocks.append(
-                OrientationUnlock(
-                    orientation_type=orientation_type,
-                    booking=booking,
-                    url=orientation_type.orientation_anchor_path(),
-                    paused=booking is None and not orientation_type.is_accepting,
+        completed = member.completed_orientation_type_ids(types) if self.ways_are_grouped(ways) else set()
+        unlock_ways: list[list[OrientationUnlock]] = []
+        for way in ways:
+            unlocks: list[OrientationUnlock] = []
+            for orientation_type in way:
+                booking = booking_by_type.get(orientation_type.pk)
+                unlocks.append(
+                    OrientationUnlock(
+                        orientation_type=orientation_type,
+                        booking=booking,
+                        url=orientation_type.orientation_anchor_path(),
+                        paused=booking is None and not orientation_type.is_accepting,
+                        done=orientation_type.pk in completed,
+                    )
                 )
-            )
-        return unlocks
+            unlock_ways.append(unlocks)
+        return unlock_ways
+
+    def orientation_unlocks(self, member: Member) -> list[OrientationUnlock]:
+        """:meth:`orientation_unlock_ways` as one flat list, in display order."""
+        return [unlock for way in self.orientation_unlock_ways(member) for unlock in way]
 
     # --- QR sheet (#631): the printable page managers post at the machine.
 
@@ -15213,6 +15349,16 @@ class Equipment(HeroCropMixin, models.Model):
         """
         return list(OrientationType.objects.printable().filter(gated_equipment=self).order_by("sort_order", "name"))
 
+    @property
+    def qr_sheet_requirement(self) -> str:
+        """The grouped sentence the sheet prints when a way needs several orientations (#747), else "".
+
+        Then no one type's booking QR is printed alone, since no one type unlocks the item
+        on its own; members scan Reserve It, whose page lists each way.
+        """
+        ways = self.unlocking_ways()
+        return self.requirement_sentence(ways) if self.ways_are_grouped(ways) else ""
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.slug:
             self.slug = self._unique_slug()
@@ -15335,18 +15481,24 @@ class Equipment(HeroCropMixin, models.Model):
         return self.AccessState.OK
 
     def is_unlocked_for(self, member: Member, *, oriented_type_ids: set[int] | None = None) -> bool:
-        """True when the item lists no orientation, or ``member`` completed any one it lists (#656).
+        """True when the item lists no orientation, or ``member`` completed every one in any one way (#656, #747).
 
         ``oriented_type_ids`` is the bulk caller's set of the member's completed type pks;
         omit it and :meth:`Member.completed_orientation_type_ids` answers for every listed
         type in one read, never a query per type.
         """
-        types = self.unlocking_orientation_list()
-        if not types:
+        return self._ways_unlocked_for(self.unlocking_ways(), member, oriented_type_ids)
+
+    @staticmethod
+    def _ways_unlocked_for(
+        ways: Sequence[Sequence[OrientationType]], member: Member, oriented_type_ids: set[int] | None = None
+    ) -> bool:
+        """:meth:`is_unlocked_for` over ways already read, so a caller that needs them too reads them once."""
+        if not ways:
             return True
         if oriented_type_ids is None:
-            oriented_type_ids = member.completed_orientation_type_ids(types)
-        return any(orientation_type.pk in oriented_type_ids for orientation_type in types)
+            oriented_type_ids = member.completed_orientation_type_ids([t for way in ways for t in way])
+        return any(all(orientation_type.pk in oriented_type_ids for orientation_type in way) for way in ways)
 
     def booking_blockers(self, member: Member | None) -> list[str]:
         """Ordered, member-readable reasons this member cannot book yet; empty = bookable.
@@ -15362,9 +15514,12 @@ class Equipment(HeroCropMixin, models.Model):
         if member is None or member.status != Member.Status.ACTIVE:
             return ["Your membership needs to be active to reserve equipment."]
         blockers: list[str] = []
-        if not self.is_unlocked_for(member):
-            names = [orientation_type.name for orientation_type in self.unlocking_orientation_list()]
-            if len(names) == 1:
+        ways = self.unlocking_ways()
+        if not self._ways_unlocked_for(ways, member):
+            names = [orientation_type.name for way in ways for orientation_type in way]
+            if self.ways_are_grouped(ways):
+                blockers.append(self.requirement_sentence(ways))
+            elif len(names) == 1:
                 blockers.append(f"You need the {names[0]} orientation before you can reserve this equipment.")
             else:
                 blockers.append(
@@ -15742,12 +15897,24 @@ class EquipmentStaffMembership(models.Model):
         return f"{self.member.display_name}: {self.equipment.name} manager"
 
 
+class EquipmentUnlockingOrientationManager(models.Manager["EquipmentUnlockingOrientation"]):
+    """Every read of an unlocking row brings its type (with the type's owner) in the same query.
+
+    The equipment's reverse manager (``unlocking_orientation_rows``) and its prefetch are
+    built from this class, so :meth:`Equipment.unlocking_ways` never runs a query per row.
+    """
+
+    def get_queryset(self) -> models.QuerySet[EquipmentUnlockingOrientation]:
+        return super().get_queryset().select_related("orientation_type__guild", "orientation_type__equipment")
+
+
 class EquipmentUnlockingOrientation(models.Model):
     """One orientation that unlocks one piece of equipment: a row of :attr:`Equipment.unlocking_orientations` (#656).
 
     Its own row so the orientation side can PROTECT: deleting a type that unlocks live gear
     fails loudly instead of silently dropping it from the list, where an empty list would
-    open a dangerous tool to every active member.
+    open a dangerous tool to every active member. Rows sharing a ``way`` number are one way
+    to qualify (#747); a row with none is a way of its own.
     """
 
     equipment = models.ForeignKey(
@@ -15765,8 +15932,24 @@ class EquipmentUnlockingOrientation(models.Model):
             "live equipment fails loudly rather than silently changing who can book it."
         ),
     )
+    way = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The way to qualify this row belongs to (#747): a member who completes every orientation in one way "
+            "can reserve the equipment. Blank = a way of its own, as every row saved before ways existed."
+        ),
+    )
+
+    objects = EquipmentUnlockingOrientationManager()
 
     class Meta:
+        ordering = [
+            models.F("way").asc(nulls_last=True),
+            "orientation_type__sort_order",
+            "orientation_type__name",
+            "pk",
+        ]
         constraints = [
             models.UniqueConstraint(fields=["equipment", "orientation_type"], name="uq_equip_unlock_orient"),
         ]
@@ -17288,13 +17471,29 @@ class WikiPage(models.Model):
         if equipment is None:
             return None
         state = equipment.access_state(member, oriented_type_ids=oriented_type_ids)
+        ways = equipment.unlocking_ways()
+        access_line = _WIKI_ACCESS_LINES[state]
+        # A way of several orientations reads as the shared sentence and the "You" line shows
+        # progress through it (#747); all single orientation ways keep "Any one of:".
+        requirement = ""
+        if equipment.ways_are_grouped(ways):
+            phrase = equipment.requirement_phrase(ways)
+            requirement = phrase[0].upper() + phrase[1:]
+            if state == Equipment.AccessState.NEEDS_ORIENTATION and member is not None:
+                completed = (
+                    oriented_type_ids
+                    if oriented_type_ids is not None
+                    else member.completed_orientation_type_ids([t for way in ways for t in way])
+                )
+                access_line = equipment.way_progress_line(ways, completed) or access_line
         return {
             "equipment": equipment,
             "guild": equipment.guild,
-            "unlocking_orientations": equipment.unlocking_orientation_list(),
+            "unlocking_orientations": [orientation_type for way in ways for orientation_type in way],
+            "orientation_requirement": requirement,
             "location_note": equipment.location_note,
             "access_state": state,
-            "access_line": _WIKI_ACCESS_LINES[state],
+            "access_line": access_line,
         }
 
     # --- Micro contributions --------------------------------------------------------

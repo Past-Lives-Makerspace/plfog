@@ -1,0 +1,21 @@
+{# Submit to Eventbrite (#725), shared by the composer's last page and the live class edit page: the box is the agreement; ticked, it checks the text as typed (a save aborts a check in flight, hx-sync) and shows the fee and category. #}
+{% if form.instance.pk %}{% url 'classes:teach_class_eventbrite_check' pk=form.instance.pk as check_url %}{% elif is_admin %}{% url 'classes:admin_new_class_eventbrite_check' as check_url %}{% else %}{% url 'classes:teach_new_class_eventbrite_check' as check_url %}{% endif %}
+<div data-eventbrite-submit x-data="{ ebOn: {{ form.eventbrite_enabled.value|yesno:'true,false' }} }">
+  {% include "components/form_field.html" with field=form.eventbrite_enabled %}
+  {% if form.eventbrite_awaiting_agreement %}<p class="pl-compose-section__note" data-eventbrite-awaiting>Tick to agree to Eventbrite's rules before this class lists again.</p>{% endif %}
+  <p class="pl-compose-section__note" data-eventbrite-rules>{{ form.eventbrite_rules_text }}</p>
+  <div class="pl-reveal" data-eventbrite-details x-show="ebOn" x-cloak>
+    <div data-eventbrite-check-slot aria-live="polite"
+         hx-post="{{ check_url }}" hx-swap="innerHTML" hx-params="not image,gallery_images,hero_image" hx-sync="closest form:abort"
+         hx-trigger="change[this.closest('[data-eventbrite-submit]').querySelector('input[name=eventbrite_enabled]').checked] from:closest form delay:400ms, input[this.closest('[data-eventbrite-submit]').querySelector('input[name=eventbrite_enabled]').checked] from:closest form delay:800ms">
+      {% if form.eventbrite_check %}{% include "classes/_components/eventbrite_check_result.html" with check=form.eventbrite_check %}{% endif %}
+    </div>
+    {% if not form.instance.needs_eventbrite_agreement %}
+    <p class="pl-compose-section__note" data-eventbrite-agreed>Eventbrite's rules agreed to on {{ form.instance.eventbrite_rules_agreed_at|date:"M j, Y" }}{% if form.instance.eventbrite_rules_agreed_by %} by {{ form.instance.eventbrite_rules_agreed_by.get_full_name|default:form.instance.eventbrite_rules_agreed_by.username }}{% endif %}.</p>
+    {% endif %}
+    <div class="pl-reveal">
+      {% if "eventbrite_fee_payer" in form.fields %}{% include "components/form_field.html" with field=form.eventbrite_fee_payer %}{% endif %}
+      {% include "classes/_components/eventbrite_category_fields.html" %}
+    </div>
+  </div>
+</div>
