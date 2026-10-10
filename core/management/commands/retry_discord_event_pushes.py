@@ -9,9 +9,12 @@ single-occurrence rows whose pushed occurrence has passed (``needs_discord_rollf
 a passed one re-creates a fresh event for its next occurrence, since a completed Discord
 event can't be PATCHed forward), and SYNCED native series (``discord_native_series()``)
 whose cadence :func:`~core.integrations.discord_events.pushes_as_native_series` now
-rejects: the push replaces the series on Discord with its next single occurrence. That
-last pass is what heals a series pushed under an older map (the First Friday Art Walk,
-#755) without a hand-run step after deploy. Bounded per run so a single tick stays cheap.
+rejects (the push replaces the series on Discord with its next single occurrence) or whose
+series :func:`~core.integrations.discord_events.series_needs_reanchor` (the clocks changed,
+so Discord's fixed UTC time reads an hour off; the push re-anchors the same series at the
+next occurrence). Those passes heal a series pushed under an older map (the First Friday Art
+Walk, #755) or before a clock change without a hand-run step. Bounded per run so a single
+tick stays cheap.
 """
 
 from __future__ import annotations
@@ -29,7 +32,11 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         from django.utils import timezone
 
-        from core.integrations.discord_events import DiscordScheduledEventsClient, pushes_as_native_series
+        from core.integrations.discord_events import (
+            DiscordScheduledEventsClient,
+            pushes_as_native_series,
+            series_needs_reanchor,
+        )
         from core.models import SiteConfiguration
         from membership.models import CommunityEvent
 
@@ -52,14 +59,18 @@ class Command(BaseCommand):
             rolled += 1
 
         remapped = 0
+        reanchored = 0
         for event in CommunityEvent.objects.discord_native_series().select_related("guild")[:_MAX_PER_RUN]:
             if not pushes_as_native_series(event):
                 event.push_to_discord()  # replaces the Discord series with its next single occurrence
                 remapped += 1
+            elif series_needs_reanchor(event):
+                event.push_to_discord()  # PATCHes the same series to start at the next occurrence
+                reanchored += 1
 
         self.stdout.write(
             self.style.SUCCESS(
                 f"Retried Discord push for {pushed} event(s); rolled {rolled} event(s) forward; "
-                f"remapped {remapped} series."
+                f"remapped {remapped} series; re-anchored {reanchored} series."
             )
         )
