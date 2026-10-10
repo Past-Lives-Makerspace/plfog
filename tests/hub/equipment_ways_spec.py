@@ -108,6 +108,7 @@ def describe_the_editor():
         ) in content
         # Saved ways start collapsed to their chosen orientations, read only, name and duration.
         assert _rows(content).count('x-data="{ editing: false }"') == 2
+        assert _rows(content).count('<div class="pl-equip-way__body" x-show="editing" x-cloak data-way-body>') == 2
         assert (
             '<span class="pl-equip-way__chip">Session 1 of 2 <span class="pl-equip-way__chip-meta">3 hours</span></span>'
             in content
@@ -162,6 +163,24 @@ def describe_the_editor():
         assert rows.count('x-data="{ editing: false }"') == 2
         assert rows.count('x-data="{ editing: true }"') == 1
         assert '<span class="pl-equip-way__none">Nothing ticked yet</span>' in rows
+
+    def it_reopens_only_the_saved_way_whose_own_field_failed(client: Client):
+        cnc, full, first, second = _cnc()
+        _manager(client, "ways_bad_pk", cnc)
+        data = _details(cnc, **ways_data([full], [first, second], saved=2))
+        data["ways-1-orientations"] = [str(first.pk), "999999"]
+        response = _save(client, cnc, data)
+        assert response.status_code == 200
+        form = response.context["form"]
+        assert not form.ways_formset.forms[0].errors
+        assert form.ways_formset.forms[1].errors
+        assert not form.ways_formset.non_form_errors()
+        rows = _rows(response.content.decode())
+        first_row = rows[rows.index('data-way-index="0"') : rows.index('data-way-index="1"')]
+        second_row = rows[rows.index('data-way-index="1"') :]
+        assert 'x-data="{ editing: false }"' in first_row
+        assert 'x-data="{ editing: true }"' in second_row
+        assert cnc.unlocking_ways() == [[full], [first, second]]
 
     def it_numbers_the_ways_as_shown_when_one_is_being_deleted(client: Client):
         cnc, full, first, second = _cnc()
