@@ -398,6 +398,7 @@ On the guild page, your booking shows under **Your orientation** with a **Cancel
 
 - Once you've done it, the guild page simply shows **You're oriented** — the booking section goes away.
 - If a guild pauses bookings, the section says **Orientations paused**. Check back later.
+- Some equipment also has a usage agreement. After your orientation, its page shows **Agree to the usage agreement** where you would book a time. Read it, check the box and click **I agree**. You agree once. If the agreement changes, you agree again before your next reservation.
 """,
         "screenshots": [
             {

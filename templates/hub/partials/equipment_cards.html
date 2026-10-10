@@ -89,6 +89,8 @@ The Staff line (#615) names the item's staff from equipment.staff_roster, and is
         <span class="pl-equip-badge pl-equip-badge--warn">Pay your late cancellation fee to book again</span>
         {% elif card.access_state == "needs_orientation" %}
         <span class="pl-equip-badge pl-equip-badge--warn">Orientation needed</span>
+        {% elif card.access_state == "needs_agreement" %}
+        <span class="pl-equip-badge pl-equip-badge--warn" data-equip-card-agreement>Usage agreement needed</span>
         {% else %}
         <span class="pl-equip-badge pl-equip-badge--muted">Membership inactive</span>
         {% endif %}

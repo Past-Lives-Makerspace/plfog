@@ -26,6 +26,7 @@ from django.views.decorators.http import require_POST
 
 from hub.calendar_pages import calendar_nav_params, reservations_calendar_context
 from hub.forms import (
+    EquipmentAgreementForm,
     EquipmentBlockForm,
     EquipmentForm,
     EquipmentHoursWindowFormSet,
@@ -57,6 +58,7 @@ from membership import equipment as equipment_service
 from core.htmx import wants_fragment
 from membership.models import (
     Equipment,
+    EquipmentAgreementAcceptance,
     EquipmentError,
     EquipmentQuerySet,
     EquipmentReservation,
@@ -340,6 +342,8 @@ def _schedule_context(
         "durations_data": durations_data,
         "can_book": not blockers and bool(starts),
         "blockers": blockers,
+        # The agree prompt sits where Book a Time would (#734); free when no agreement is set.
+        "awaits_agreement": equipment.awaits_agreement_from(member),
         "has_hours": bool(active_weekdays),
         # The timeline's legend line renders only where an orientation could ever show.
         "has_orientations": equipment.owned_orientation_types.active().exists(),
@@ -431,11 +435,20 @@ def reservation_cards(member: Member | None, queryset: EquipmentQuerySet) -> lis
     oriented_ids = _member_oriented_type_ids(member)
     # The block until paid (#456) is a per-member state: one lookup for the whole grid.
     has_unpaid_fee = member is not None and unpaid_fee_for(member) is not None
+    # The member's usage agreement versions (#734): one read, and none when no card carries an agreement.
+    accepted_agreements = (
+        EquipmentAgreementAcceptance.objects.pairs_for(member)
+        if member is not None and any(equipment.has_usage_agreement for equipment in equipment_list)
+        else set()
+    )
     return [
         {
             "equipment": equipment,
             "access_state": equipment.access_state(
-                member, oriented_type_ids=oriented_ids, has_unpaid_fee=has_unpaid_fee
+                member,
+                oriented_type_ids=oriented_ids,
+                has_unpaid_fee=has_unpaid_fee,
+                accepted_agreements=accepted_agreements,
             ),
             "availability": equipment.availability_line(),
         }
@@ -682,8 +695,53 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
             ),
             "orientation_sections": _equipment_orientation_sections(equipment, member),
             "can_manage": manages,
+            # The agree modal's form (#734), carrying the version this page shows.
+            "agreement_form": EquipmentAgreementForm(initial={"fingerprint": equipment.usage_agreement_fingerprint})
+            if schedule["awaits_agreement"]
+            else None,
         },
     )
+
+
+def _client_ip(request: HttpRequest) -> str:
+    """The IP an agreement is recorded from, read the way :meth:`Member.accept_member_agreement` reads it."""
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    return forwarded.split(",")[0].strip() if forwarded else request.META.get("REMOTE_ADDR", "")
+
+
+@login_required
+@require_POST
+def hub_equipment_agree(request: HttpRequest, slug: str) -> HttpResponse:
+    """POST-only: the member agrees to the equipment's usage agreement (#734), then lands back on its page.
+
+    The posted ``fingerprint`` is the version the member's modal showed; a stale one
+    (the agreement changed while they read it) records nothing and says so. A double
+    submit records once. Retired equipment 404s for non-managers, like reserving.
+    """
+    equipment = get_object_or_404(Equipment, slug=slug)
+    _require_visible(request, equipment)
+    detail_url = reverse("hub_equipment_detail", args=[equipment.slug])
+    member = _get_member(request)
+    if member is None:
+        messages.error(request, "You need a member profile to agree to the usage agreement.")
+        return redirect(detail_url)
+    form = EquipmentAgreementForm(request.POST)
+    if not form.is_valid():
+        # The first error of any field: a crafted fingerprint can fail where "agree" passed.
+        messages.error(request, str(next(iter(form.errors.values()))[0]))
+        return redirect(detail_url)
+    try:
+        equipment.record_agreement(
+            member,
+            fingerprint=form.cleaned_data["fingerprint"],
+            ip_address=_client_ip(request),
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+        )
+    except EquipmentError as exc:
+        messages.error(request, str(exc))
+        return redirect(detail_url)
+    messages.success(request, "Thanks for agreeing. You can reserve a time now.")
+    return redirect(f"{detail_url}#equipment-schedule")
 
 
 def _parse_week_value(raw: str) -> int:
@@ -1170,9 +1228,17 @@ def _render_manage(
     slot_add_form: EquipmentOrientationSlotForm | None = None,
     block_form: EquipmentBlockForm | None = None,
     active_tab: str = "details",
+    agreement_member_count: int | None = None,
 ) -> HttpResponse:
-    """Render the manage panel with the given (possibly error-bearing) forms."""
+    """Render the manage panel with the given (possibly error-bearing) forms.
+
+    ``agreement_member_count`` is how many members accepted the saved usage agreement
+    (#734); the Details save passes the count it read before its form wrote the posted
+    values onto ``equipment``, and every other caller lets it be read here.
+    """
     orientation_ctx = _orientation_tab_context(request, equipment)
+    if agreement_member_count is None:
+        agreement_member_count = equipment.current_agreement_member_count()
     approvals = list(equipment.reservations.reservations().awaiting_approval().select_related("member"))
     return render(
         request,
@@ -1181,6 +1247,7 @@ def _render_manage(
             **_get_hub_context(request),
             **orientation_ctx,
             "equipment": equipment,
+            "agreement_member_count": agreement_member_count,
             "form": form if form is not None else EquipmentForm(instance=equipment, **_form_scope(request, equipment)),
             "staff_memberships": list(equipment.staff_memberships.select_related("member", "granted_by")),
             "staff_add_form": staff_add_form
@@ -1421,6 +1488,16 @@ def hub_equipment_qr(request: HttpRequest, slug: str, fmt: str) -> HttpResponse:
     return response
 
 
+def _details_saved_message(equipment: Equipment, agreement_before: str, agreed_before: int) -> str:
+    """The Details save's message: plain "Saved.", or how many members a changed usage agreement asks again (#734)."""
+    if not equipment.has_usage_agreement or equipment.usage_agreement_fingerprint == agreement_before:
+        return "Saved."
+    if not agreed_before:
+        return "Saved. Members will agree to the usage agreement before their next reservation."
+    people = "1 member" if agreed_before == 1 else f"{agreed_before} members"
+    return f"Saved. The usage agreement changed, so {people} who agreed will be asked to agree again."
+
+
 @login_required
 @require_POST
 def hub_equipment_details_save(request: HttpRequest, slug: str) -> HttpResponse:
@@ -1429,12 +1506,15 @@ def hub_equipment_details_save(request: HttpRequest, slug: str) -> HttpResponse:
     forbidden = _require_can_manage(request, equipment)
     if forbidden is not None:
         return forbidden
+    # Read before the form binds: validating writes the posted values onto the instance.
+    agreement_before = equipment.usage_agreement_fingerprint
+    asked_again = equipment.current_agreement_member_count()
     form = EquipmentForm(request.POST, request.FILES, instance=equipment, **_form_scope(request, equipment))
     if form.is_valid():
         form.save()
-        messages.success(request, "Saved.")
+        messages.success(request, _details_saved_message(equipment, agreement_before, asked_again))
         return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=details")
-    return _render_manage(request, equipment, form=form, active_tab="details")
+    return _render_manage(request, equipment, form=form, active_tab="details", agreement_member_count=asked_again)
 
 
 @login_required

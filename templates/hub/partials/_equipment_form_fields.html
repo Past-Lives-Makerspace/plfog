@@ -4,6 +4,8 @@ The EquipmentForm's fields — shared by the add page and the manage panel's Det
   form      — a bound or unbound EquipmentForm
   equipment — the instance being edited, or absent on the add page (drives the
               photo delete button and the "create a new orientation type" link)
+  agreement_member_count — on the manage panel, how many members agreed to the saved usage
+              agreement (#734); the note under its fields warns a change asks them again
 Who may reserve it is the Ways to Qualify list (#747, form.ways_formset): a card per way, an
 "or" between them (CSS), Delete on a saved way (flips its hidden DELETE and submits the whole
 form), Remove on one added since load, and "+ Add Another Way" cloning the empty way from the
@@ -79,6 +81,14 @@ display on an x-show element (FRONTEND rule 12).
       <a href="{% url 'hub_guild_orientations' equipment.guild.pk %}">Create a new {{ equipment.guild.name }} orientation</a>
     </p>
     {% endif %}
+    {# The usage agreement (#734): members agree once, after the orientation; any change asks them again. #}
+    <div data-equip-agreement-fields>
+      {% include "components/form_field.html" with field=form.usage_agreement_url %}
+      {% include "components/form_field.html" with field=form.usage_agreement_text %}
+      {% if agreement_member_count %}
+      <p class="pl-equip-agreement-note pl-equip-agreement-note--warn" data-agreement-member-count>{{ agreement_member_count }} member{{ agreement_member_count|pluralize }} agreed to the current version. Changing the link or text asks {% if agreement_member_count == 1 %}them{% else %}all of them{% endif %} to agree again before their next reservation.</p>
+      {% endif %}
+    </div>
     {% include "components/form_field.html" with field=form.is_active %}
   </div>
 </div>
