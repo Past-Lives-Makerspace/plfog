@@ -1,0 +1,27 @@
+{% comment %}
+The equipment usage agreement modal's body (#734), included by components/modal.html on the equipment page.
+The text in a scrolling box (escaped, line breaks kept) and/or the link to open in a new tab, then the
+Member Agreement's own consent checkbox and an I agree button. The hidden fingerprint is the version
+this page showed, so a version that changed while the member read it is refused, never silently accepted.
+Context: equipment, agreement_form (hub.forms.EquipmentAgreementForm).
+{% endcomment %}
+<form method="post" action="{% url 'hub_equipment_agree' equipment.slug %}" class="pl-equip-agreement" x-data="{ agreed: false }" data-equip-agreement-form>
+  {% csrf_token %}
+  {{ agreement_form.fingerprint }}
+  {% if equipment.usage_agreement_text_normalised %}
+  <div class="pl-equip-agreement__text" tabindex="0" data-equip-agreement-text>{{ equipment.usage_agreement_text_normalised|linebreaks }}</div>
+  {% endif %}
+  {% if equipment.usage_agreement_url %}
+  <p class="pl-equip-agreement__link">
+    <a href="{{ equipment.usage_agreement_url }}" target="_blank" rel="noopener noreferrer" hx-boost="false" data-equip-agreement-link>Read the {{ equipment.name }} usage agreement (opens in a new tab)</a>.
+    {% if not equipment.usage_agreement_text_normalised %}Return to this tab to agree.{% endif %}
+  </p>
+  {% endif %}
+  <div class="pl-equip-agreement__check">
+    {% include "components/form_field.html" with field=agreement_form.agree %}
+  </div>
+  <div class="pl-btn-row pl-equip-agreement__actions">
+    <button type="button" class="pl-btn pl-btn--ghost" @click="$dispatch('close-modal', 'equip-agreement')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary" x-bind:disabled="!agreed" data-equip-agree-submit>I agree</button>
+  </div>
+</form>

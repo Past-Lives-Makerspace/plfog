@@ -731,6 +731,22 @@ class MemberAgreementForm(forms.Form):
     )
 
 
+class EquipmentAgreementForm(forms.Form):
+    """An equipment's usage agreement consent (#734): the Member Agreement's checkbox beside the version read.
+
+    ``fingerprint`` is the :attr:`Equipment.usage_agreement_fingerprint` the modal showed, so
+    :meth:`Equipment.record_agreement` can refuse a version that changed while the member read it.
+    """
+
+    agree = forms.BooleanField(
+        required=True,
+        label="I have read and agree to the usage agreement.",
+        widget=forms.CheckboxInput(attrs={"x-model": "agreed"}),
+        error_messages={"required": "Check the box to agree to the usage agreement."},
+    )
+    fingerprint = forms.CharField(required=False, widget=forms.HiddenInput)
+
+
 class GuildUpdatesPromptForm(forms.Form):
     """Validates the first-login guild updates picks (active guild pks only).
 
@@ -6080,10 +6096,14 @@ class EquipmentForm(forms.ModelForm):
             "description",
             "area",
             "location_note",
+            "usage_agreement_url",
+            "usage_agreement_text",
             "is_active",
         ]
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "e.g. CNC Router"}),
+            "usage_agreement_url": forms.URLInput(attrs={"placeholder": "https://docs.google.com/document/..."}),
+            "usage_agreement_text": forms.Textarea(attrs={"rows": 6}),
             "description": forms.Textarea(
                 attrs={"rows": 5, "placeholder": "What is it, what can members make with it, any house rules."}
             ),
@@ -6208,6 +6228,18 @@ class EquipmentForm(forms.ModelForm):
         self.fields["location_note"].label = "Where to find it"
         setup_location_field(
             self, hint="The area it sits in. A reservation shows the area in use on its guild page. Optional."
+        )
+        # The usage agreement (#734): either, both or neither; any change asks every member again.
+        agreement_link = self.fields["usage_agreement_url"]
+        agreement_link.label = "Usage agreement link"
+        agreement_link.help_text = (
+            "Optional. A link to the agreement, such as a Google Doc. Members open it before they agree."
+        )
+        agreement_text = self.fields["usage_agreement_text"]
+        agreement_text.label = "Usage agreement text"
+        agreement_text.help_text = (
+            "Optional. Shown in a scrolling box. Members agree once, after their orientation and before their "
+            "first reservation. Any change to the link or text asks everyone to agree again."
         )
         self.fields["is_active"].help_text = "Members can see and book this equipment. Turn off to retire it."
         self.fields["is_active"].label = "Active"
