@@ -301,6 +301,35 @@ def describe_cancel_day_off():
         assert booking.slot.is_cancelled is True
         assert any("cancelled" in message.subject.lower() for message in mail.outbox)
 
+    def it_retires_a_generated_window_whose_only_segment_is_a_checkout_hold_like_a_hold_only_slot():
+        guild, (bob,) = _staffed_guild("Bob Placeholder")
+        day = _day(3)
+        rule = _open_rule(guild, bob, day)
+        orientations.generate_slots(guild=guild)
+        window = rule.windows.get(starts_at=_at(day, 11))
+        # A member mid checkout on a segment of the window: a seat holding hold, nobody emailed.
+        segment = _slot(
+            guild, bob, day, 11, block=window, source=OrientationSlot.Source.FROM_BLOCK, seats=1, enabled_settings=False
+        )
+        hold = OrientationBookingFactory(
+            slot=segment, status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id=""
+        )
+        mail.outbox.clear()
+        day_off = _day_off(bob, day)
+
+        assert orientations.cancel_day_off(bob, day) == (1, 0)
+
+        window.refresh_from_db()
+        assert (window.is_cancelled, window.availability_id) == (True, None)
+        # The unpaid hold is released, and its orphan carved segment goes with it (``_delete_hold``).
+        assert not OrientationBooking.objects.filter(pk=hold.pk).exists()
+        assert not OrientationSlot.objects.filter(pk=segment.pk).exists()
+        assert mail.outbox == []
+
+        day_off.delete()
+        orientations.generate_slots(guild=guild)
+        assert rule.windows.filter(is_cancelled=False, starts_at=_at(day, 11)).exists()
+
     def it_touches_nothing_when_they_have_no_times_that_day():
         guild, (bob,) = _staffed_guild("Bob Placeholder")
         assert orientations.cancel_day_off(bob, _day(3)) == (0, 0)

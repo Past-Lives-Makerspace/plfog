@@ -1231,7 +1231,10 @@ def cancel_day_off(member: Member, day: date) -> tuple[int, int]:
         cancel_slot(slot, reason=_DAY_OFF_REASON)
         if slot.source == OrientationSlot.Source.GENERATED and not slot.active_booking_count:
             slot.mark_retired(reason=_DAY_OFF_REASON)
-    booked_window_ids = {segment.block_id for segment in times.segments}
+    # A window whose only segment is an unpaid checkout hold emailed nobody, so it is retired
+    # like a hold only slot above: the hold is released below and the window regenerates once
+    # the day off is deleted.
+    booked_window_ids = {segment.block_id for segment in times.segments if segment.active_booking_count}
     for window in times.windows:
         if window.pk in booked_window_ids:
             window.cancel()
