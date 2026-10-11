@@ -353,10 +353,12 @@ def describe_the_billing_fan_in():
 
         # Hand-kept list, so it goes stale every round that registers a handler. The
         # dispatcher iterates _CHECKOUT_EXPIRED_HANDLERS, so a missing entry here never
-        # meant the handler was not dispatched. Late fees joined in #456.
+        # meant the handler was not dispatched. Late fees joined in #456, equipment
+        # reservations in #758.
         assert billing_views._CHECKOUT_EXPIRED_HANDLERS == [
             classes_handlers.handle_checkout_session_expired,
             membership_handlers.handle_checkout_session_expired,
+            membership_handlers.handle_reservation_checkout_expired,
             billing_handlers.handle_late_fee_checkout_expired,
         ]
 
