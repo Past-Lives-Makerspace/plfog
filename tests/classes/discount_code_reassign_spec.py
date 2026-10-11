@@ -13,7 +13,7 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from classes.factories import ClassOfferingFactory, ClassSessionFactory, DiscountCodeFactory
+from classes.factories import ClassOfferingFactory, ClassSessionFactory, DiscountCodeFactory, InstructorFactory
 from classes.forms import DiscountCodeReassignForm
 from classes.models import ClassOffering, DiscountCode
 from membership.models import Member
@@ -69,9 +69,17 @@ def describe_DiscountCodeReassignForm():
     def it_starts_on_the_codes_current_scope():
         offering = ClassOfferingFactory()
         scoped = DiscountCodeReassignForm(code=DiscountCodeFactory(class_offering=offering))
-        assert scoped.initial == {"scope": DiscountCode.Scope.ONE_CLASS, "class_offering": offering.pk}
+        assert scoped.initial == {
+            "scope": DiscountCode.Scope.ONE_CLASS,
+            "class_offering": offering.pk,
+            "instructor": None,
+        }
         everywhere = DiscountCodeReassignForm(code=DiscountCodeFactory(class_offering=None))
-        assert everywhere.initial == {"scope": DiscountCode.Scope.EVERYWHERE, "class_offering": None}
+        assert everywhere.initial == {
+            "scope": DiscountCode.Scope.EVERYWHERE,
+            "class_offering": None,
+            "instructor": None,
+        }
 
     def it_offers_the_picker_classes_and_keeps_the_current_one():
         started = ClassOfferingFactory(title="Started")
@@ -206,3 +214,89 @@ def describe_admin_discount_code_reassign():
             response = Client().get(_url(DiscountCodeFactory()), **HX)
             assert response.status_code == 302
             assert "next=" in response.url
+
+
+def describe_DiscountCodeReassignForm_for_an_instructor():
+    """Part 2 of #764: the third answer, every class one member teaches."""
+
+    def it_starts_on_the_instructor_scope_with_the_instructor_picked():
+        teacher = InstructorFactory()
+        form = DiscountCodeReassignForm(code=DiscountCodeFactory(class_offering=None, instructor=teacher))
+        assert form.initial == {
+            "scope": DiscountCode.Scope.INSTRUCTOR,
+            "class_offering": None,
+            "instructor": teacher.pk,
+        }
+
+    def it_offers_the_members_who_teach_and_keeps_the_current_one():
+        idle = InstructorFactory(full_legal_name="Idle Teacher")
+        busy = InstructorFactory(full_legal_name="Busy Teacher")
+        ClassOfferingFactory(instructor=busy)
+        form = DiscountCodeReassignForm(code=DiscountCodeFactory(class_offering=None, instructor=idle))
+        assert list(form.fields["instructor"].queryset) == [busy, idle]
+
+    def it_requires_an_instructor_for_an_instructors_classes():
+        form = DiscountCodeReassignForm({"scope": "instructor"}, code=DiscountCodeFactory())
+        assert not form.is_valid()
+        assert form.errors["instructor"] == ["Pick the instructor whose classes this code should work on."]
+
+    def it_keeps_only_the_target_the_scope_names():
+        teacher = InstructorFactory()
+        offering = ClassOfferingFactory(instructor=teacher)
+        code = DiscountCodeFactory(class_offering=offering)
+        form = DiscountCodeReassignForm(
+            {"scope": "instructor", "class_offering": str(offering.pk), "instructor": str(teacher.pk)}, code=code
+        )
+        assert form.is_valid(), form.errors
+        form.save()
+        code.refresh_from_db()
+        assert (code.class_offering, code.instructor) == (None, teacher)
+
+
+def describe_admin_discount_code_reassign_to_an_instructor():
+    def it_moves_the_code_and_says_whose_classes_it_covers():
+        client = Client()
+        client.force_login(_user("reassign-admin-2", fog_role=Member.FogRole.ADMIN))
+        teacher = InstructorFactory(full_legal_name="Jacqueline Sowell")
+        ClassOfferingFactory(instructor=teacher)
+        code = DiscountCodeFactory(code="JACQUELINE30", class_offering=None, is_approved=True)
+        response = client.post(_url(code), {"scope": "instructor", "instructor": teacher.pk}, **HX)
+        assert response.status_code == 204
+        code.refresh_from_db()
+        assert (code.instructor, code.class_offering, code.is_approved) == (teacher, None, True)
+        assert [str(m) for m in get_messages(response.wsgi_request)] == [
+            "JACQUELINE30 now works on every class Jacqueline Sowell teaches, now and later."
+        ]
+
+    def it_opens_an_instructor_code_on_its_instructor():
+        client = Client()
+        client.force_login(_user("reassign-admin-3", fog_role=Member.FogRole.ADMIN))
+        teacher = InstructorFactory(full_legal_name="Jacqueline Sowell")
+        code = DiscountCodeFactory(code="JACQUELINE30", class_offering=None, instructor=teacher)
+        html = client.get(_url(code), **HX).content.decode()
+        assert re.search(r'<input[^>]*value="instructor"[^>]*checked', html)
+        assert f'<option value="{teacher.pk}" selected>Jacqueline Sowell</option>' in html
+        assert "JACQUELINE30 will work on every class Jacqueline Sowell teaches, now and later." in html
+
+
+def describe_the_class_discount_codes_tab():
+    """AC6: a class's Discount Codes tab lists its instructor's code with its scope."""
+
+    def _tab(client: Client, offering: ClassOffering) -> str:
+        return client.get(reverse("classes:teach_class_discount_codes", kwargs={"pk": offering.pk})).content.decode()
+
+    def it_lists_the_instructors_code_labelled_with_their_name_on_their_classes_only():
+        client = Client()
+        client.force_login(_user("tab-admin", fog_role=Member.FogRole.ADMIN))
+        teacher = InstructorFactory(full_legal_name="Jacqueline Sowell")
+        theirs = ClassOfferingFactory(instructor=teacher)
+        later = ClassOfferingFactory(instructor=teacher)  # made after the code was assigned
+        someone_elses = ClassOfferingFactory()
+        legacy = ClassOfferingFactory(instructor=None)
+        DiscountCodeFactory(code="JACQUELINE30", class_offering=None, instructor=teacher)
+        for offering in (theirs, later):
+            html = _tab(client, offering)
+            assert "JACQUELINE30" in html
+            assert '<span class="hub-pill hub-pill--neutral" data-scope-instructor>Jacqueline Sowell</span>' in html
+        for offering in (someone_elses, legacy):
+            assert "JACQUELINE30" not in _tab(client, offering)

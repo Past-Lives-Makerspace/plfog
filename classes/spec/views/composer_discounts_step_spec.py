@@ -319,3 +319,27 @@ def describe_composer_discounts_context():
         assert list(context["composer_discount_requests"]) == []
         assert context["composer_discount_requests"].model is DiscountCodeRequest
         assert list(context["composer_global_codes"]) == []
+
+
+def describe_an_instructors_code_on_the_discounts_step():
+    """AC6 of #764: the per class section lists the instructor's code with their name; the every class table never does."""
+
+    def it_shows_in_the_admin_section_with_its_scope(client, admin_user, instructor):
+        mine = _draft(instructor)
+        DiscountCodeFactory(class_offering=None, instructor=instructor, code="TEACHERD30")
+        client.force_login(admin_user)
+        pane = _pane(_edit_page(client, mine), DISCOUNTS)
+        assert "TEACHERD30" in pane
+        assert '<span class="hub-pill hub-pill--neutral" data-scope-instructor>Teacher D</span>' in pane
+
+    def it_lists_in_the_class_section_and_never_in_the_every_class_table_for_the_instructor(client, instructor):
+        _flags(master=True, approval=True)
+        mine = _draft(instructor)
+        DiscountCodeFactory(class_offering=None, instructor=instructor, code="TEACHERD30")
+        DiscountCodeFactory(class_offering=None, instructor=InstructorFactory(), code="OTHERS30")
+        client.force_login(instructor.user)
+        pane = _pane(_edit_page(client, mine), DISCOUNTS)
+        assert "TEACHERD30" in pane
+        assert '<span class="hub-pill hub-pill--neutral" data-scope-instructor>Teacher D</span>' in pane
+        assert "OTHERS30" not in pane
+        assert list(_composer_discounts_context(mine, False, True)["composer_global_codes"]) == []
