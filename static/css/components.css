@@ -1017,6 +1017,11 @@ select[multiple] option:checked {
     margin: 0;
 }
 
+/* A free standing line in a form or modal (a live summary sentence, a note under a picker); it carries its own gap because :last-child rules strip the one above. */
+.pl-form-note {
+    margin: 1rem 0 1.5rem;
+}
+
 /* The class composer's Required marker (issue #424): a small text badge after the hero
    photo label and the Gallery section title on the Photos step. No other composer field
    carries one (form_field.html renders no marker), so these two are the marker.

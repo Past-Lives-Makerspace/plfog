@@ -41,7 +41,7 @@ as DiscountCode.scope_sentence, and Re-assign stays disabled until the chosen sc
     <div x-show="scope === 'instructor'" x-cloak>
         {% include "components/form_field.html" with field=form.instructor %}
     </div>
-    <p data-reassign-sentence x-text="sentence()">{{ sentence }}</p>
+    <p class="pl-form-note" data-reassign-sentence x-text="sentence()">{{ sentence }}</p>
     <div class="pl-modal__actions">
         <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'reassign-code')">Cancel</button>
         <button type="submit" class="pl-btn pl-btn--primary" :disabled="(scope === 'class' && !classPk) || (scope === 'instructor' && !instructorPk)">Re-assign</button>
