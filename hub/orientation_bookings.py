@@ -488,3 +488,35 @@ def bookings_pane_context(request: HttpRequest, *, body_only: bool = False) -> d
         "bookings_refresh_url": f"{reverse('hub_orientations_bookings')}?{page_query}&part=body",
         **(_staff_extras(request, member) if is_staff_view and not body_only else {}),
     }
+
+
+def needs_reply_rows(request: HttpRequest, *, limit: int) -> tuple[list[BookingRow], int]:
+    """The oldest ``limit`` requests waiting on the viewer, as rows with the tab's staff menu, and how many wait in all.
+
+    The Manage Bookings home's Needs Attention group (#768): the Needs a Reply scope
+    (:func:`_needs_reply`, the list scope with a preview honoured), the request that has waited
+    longest first, each row built as the tab builds it, so Confirm and Decline are the tab's own
+    endpoints and never a second path. A viewer who runs nothing gets no rows.
+    """
+    from hub.view_as import has_refund_authority
+
+    waiting = _needs_reply(request, OrientationBooking.objects.all()).order_by("requested_at", "pk")
+    total = waiting.count()
+    if not total:
+        return [], 0
+    view_as = getattr(request, "view_as", None)
+    refund_authority = has_refund_authority(request)
+    is_admin = view_as is not None and view_as.is_admin
+    actual_admin = view_as is not None and view_as.has_actual("admin")
+    rows = [
+        build_row(
+            booking,
+            viewer=_viewer(request),
+            can_manage=True,
+            refund_authority=refund_authority,
+            is_admin=is_admin,
+            actual_admin=actual_admin,
+        )
+        for booking in _with_related(waiting)[:limit]
+    ]
+    return rows, total

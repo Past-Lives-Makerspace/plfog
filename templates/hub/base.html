@@ -235,6 +235,14 @@
             {% url 'hub_equipment_index' as equipment_url %}
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.equipment url=equipment_url label="Reservations" icon="hub/partials/nav_icons/_equipment.html" active=equipment_active %}
 
+            {% if manage_bookings_nav %}
+            {# One home for everyone who runs orientations or equipment (#768): gated by role in hub_sidebar, never by a feature switch, so an admin keeps it with both switches above off. #}
+            <a href="{{ manage_bookings_nav.url }}" class="hub-sidebar__link{% if manage_bookings_nav.is_active %} active{% endif %}" data-nav="manage-bookings">
+                {% include "hub/partials/nav_icons/_manage_bookings.html" %}
+                Manage Bookings
+            </a>
+            {% endif %}
+
             {# The admin destination. The member block below points the same switch at hub_guild_voting. #}
             {% active_nav 'hub_admin_voting_overview' as voting_active %}
             {% url 'hub_admin_voting_overview' as voting_url %}
@@ -351,6 +359,14 @@
             {% active_nav 'hub_equipment_index' as equipment_active %}
             {% url 'hub_equipment_index' as equipment_url %}
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.equipment url=equipment_url label="Reservations" icon="hub/partials/nav_icons/_equipment.html" active=equipment_active %}
+
+            {% if manage_bookings_nav %}
+            {# The same entry as the admin block above (#768): a lead, staffer or equipment manager who runs something. #}
+            <a href="{{ manage_bookings_nav.url }}" class="hub-sidebar__link{% if manage_bookings_nav.is_active %} active{% endif %}" data-nav="manage-bookings">
+                {% include "hub/partials/nav_icons/_manage_bookings.html" %}
+                Manage Bookings
+            </a>
+            {% endif %}
 
             <hr class="hub-sidebar__divider" />
 

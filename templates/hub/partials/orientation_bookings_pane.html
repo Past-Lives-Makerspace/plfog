@@ -110,55 +110,7 @@ and closes the modal.
       </thead>
       <tbody>
       {% for row in booking_rows %}
-        {% with b=row.booking %}
-        <tr data-booking-row="{{ b.pk }}">
-          <td class="pl-bookings-table__when">{{ b.slot.starts_at|date:"D M j, g:i A" }}</td>
-          {% if is_staff_view %}
-          <td data-label="Member">{% if row.is_own %}You{% elif row.can_manage %}<a href="{% url 'hub_orientation_respond' b.pk %}">{{ b.member.display_name }}</a>{% else %}{{ b.member.display_name }}{% endif %}</td>
-          {% endif %}
-          <td{% if is_staff_view %} data-label="Orientation"{% endif %} class="pl-bookings-table__orientation">
-            <span class="pl-bookings-table__name">{{ b.orientation_type.name }}</span>
-            <span class="pl-bookings-table__owner">{{ b.orientation_type.owner_name }}</span>
-          </td>
-          {% if is_staff_view %}
-          <td data-label="Run By">{% if b.slot.orienter %}{{ b.slot.orienter.display_name }}{% else %}Any orienter{% endif %}</td>
-          {% endif %}
-          <td{% if is_staff_view %} data-label="Status"{% endif %} class="pl-bookings-table__status">
-            <span class="hub-pill {% if b.status == 'confirmed' %}hub-pill--ok{% elif b.status == 'requested' or b.status == 'pending_payment' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-booking-status="{{ b.status }}">{{ b.get_status_display }}</span>
-            {% if b.is_completed %}<span class="hub-pill hub-pill--ok" data-booking-oriented>Oriented</span>{% endif %}
-            {% if row.fee_unpaid %}<span class="hub-pill hub-pill--danger" data-booking-fee>Fee unpaid</span>{% endif %}
-            {% if not is_staff_view and b.amount_paid_cents %}
-            <span class="pl-bookings-table__paid">{% if b.refund_state == "full" or b.refund_state == "partial" %}Refunded{% else %}Paid {{ b.amount_paid_cents|cents_as_price }}{% endif %}</span>
-            {% endif %}
-          </td>
-          {% if is_staff_view %}
-          <td data-label="Paid">
-            {% if not b.amount_paid_cents %}<span class="hub-text-muted">None</span>
-            {% elif b.refund_state == "failed" %}
-            {{ b.amount_paid_cents|cents_as_price }} ·
-            {% if viewer_has_refund_authority %}<a href="{% url 'billing_admin_dashboard' %}?tab=payments&source=orientation&status=failed" class="pl-bookings-table__failed">Refund failed</a>{% else %}<strong class="pl-bookings-table__failed">Refund failed</strong>{% endif %}
-            {% elif b.refund_state == "full" or b.refund_state == "partial" %}
-            <span class="hub-text-muted">{{ b.amount_paid_cents|cents_as_price }} · Refunded</span>
-            {% else %}{{ b.amount_paid_cents|cents_as_price }}
-            {% endif %}
-          </td>
-          {% endif %}
-          <td class="pl-bookings-table__actions">
-            {# The viewer's own row is named by what and when, not by their own name. #}
-            {% if row.is_own %}
-            {% with when=b.slot.starts_at|date:"D M j, g:i A" %}
-            {% with menu_label="Actions for "|add:b.orientation_type.name|add:" on "|add:when %}
-            {% include "components/row_actions.html" with menu_include="hub/partials/orientation_booking_row_menu.html" menu_label=menu_label %}
-            {% endwith %}
-            {% endwith %}
-            {% else %}
-            {% with menu_label="Actions for "|add:b.member.display_name %}
-            {% include "components/row_actions.html" with menu_include="hub/partials/orientation_booking_row_menu.html" menu_label=menu_label %}
-            {% endwith %}
-            {% endif %}
-          </td>
-        </tr>
-        {% endwith %}
+      {% include "hub/partials/_orientation_booking_row.html" %}
       {% endfor %}
       </tbody>
     </table>

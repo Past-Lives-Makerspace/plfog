@@ -331,3 +331,39 @@ def reservation_bookings_context(request: HttpRequest) -> dict[str, Any]:
         "bookings_next": f"{reverse('hub_equipment_index')}?{page_query}",
         "bookings_refresh_url": f"{reverse('hub_equipment_bookings')}?{page_query}",
     }
+
+
+def awaiting_approval_rows(request: HttpRequest, *, limit: int) -> tuple[list[ReservationRow], int]:
+    """The soonest ``limit`` requests awaiting the viewer's approval, as rows with the tab's staff menu, and how many wait in all.
+
+    The Manage Bookings home's Needs Attention group (#768): the Needs Approval scope
+    (:func:`manageable_reservations` over ``awaiting_approval()``, a preview honoured), each row
+    built as the tab builds it, so Approve and Decline Reservation are the tab's own endpoints
+    and never a second path. A viewer who manages nothing gets no rows.
+    """
+    from hub.view_as import has_refund_authority
+    from hub.views import _get_member
+
+    waiting = manageable_reservations(
+        request, EquipmentReservation.objects.reservations().awaiting_approval(), honour_preview=True
+    )
+    total = waiting.count()
+    if not total:
+        return [], 0
+    view_as = getattr(request, "view_as", None)
+    refund_authority = has_refund_authority(request)
+    is_admin = view_as is not None and view_as.is_admin
+    actual_admin = view_as is not None and view_as.has_actual("admin")
+    member = _get_member(request)
+    rows = [
+        build_row(
+            reservation,
+            viewer=member,
+            can_manage=True,
+            refund_authority=refund_authority,
+            is_admin=is_admin,
+            actual_admin=actual_admin,
+        )
+        for reservation in _with_related(waiting)[:limit]
+    ]
+    return rows, total
