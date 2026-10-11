@@ -1,0 +1,9 @@
+# changelog.d/771-discount-code-reassign.toml
+bump = "minor"
+date = "2026-10-11"
+title = "Discount codes can be re-assigned to one class"
+changes = [
+  "On the Discount Codes page, each code now has an Actions menu: approve, edit, re-assign or delete it from one place.",
+  "Re-assign points an existing code at one class, or back at every class, without making a new code. Its approval, dates and uses stay as they were.",
+  "A new Scope column shows where each code works.",
+]
