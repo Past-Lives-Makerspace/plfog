@@ -28,8 +28,8 @@ posted in, so the hidden sort_order inputs only carry the row along.
         {% for f in formset %}
         <div class="pl-instructor-resources__row">
             <div class="pl-instructor-resources__fields">
-                <div class="pl-instructor-resources__label">{% include "components/form_field.html" with field=f.label %}</div>
-                <div class="pl-instructor-resources__url">{% include "components/form_field.html" with field=f.url %}</div>
+                <div class="pl-instructor-resources__label">{% include "components/form_field.html" with field=f.label field_hint_off=True %}</div>
+                <div class="pl-instructor-resources__url">{% include "components/form_field.html" with field=f.url field_hint_off=True %}</div>
             </div>
             {% if f.instance.pk %}
             <div hidden>{{ f.DELETE }}</div>
@@ -37,6 +37,9 @@ posted in, so the hidden sort_order inputs only carry the row along.
                     onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete
             </button>
+            {% else %}
+            {# A new row back on the page with an error: still unsaved, so Remove only drops it. #}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.pl-instructor-resources__row').remove();">Remove</button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}
@@ -51,8 +54,8 @@ posted in, so the hidden sort_order inputs only carry the row along.
         <div class="pl-instructor-resources__row">
             {% with formset.empty_form as ef %}
             <div class="pl-instructor-resources__fields">
-                <div class="pl-instructor-resources__label">{% include "components/form_field.html" with field=ef.label %}</div>
-                <div class="pl-instructor-resources__url">{% include "components/form_field.html" with field=ef.url %}</div>
+                <div class="pl-instructor-resources__label">{% include "components/form_field.html" with field=ef.label field_hint_off=True %}</div>
+                <div class="pl-instructor-resources__url">{% include "components/form_field.html" with field=ef.url field_hint_off=True %}</div>
             </div>
             {{ ef.id }}
             {{ ef.sort_order }}

@@ -364,7 +364,8 @@ def describe_instructor_resources_card():
         assert review < release
         assert card.count("pl-instructor-resources-card__row") == 2
         # Last on the page: after the dashboard's final card.
-        assert html.index('href="https://g.page/review-us"') > html.index(reverse("classes:teach_registrations"))
+        # Last on the page: after the dashboard's final card, Recent Sign-Ups.
+        assert html.index('href="https://g.page/review-us"') > html.index("Recent Sign-Ups</h2>")
 
     def it_shows_the_card_last_for_a_teacher_with_no_classes(instructor_fixture, client):
         _two_links()
@@ -373,7 +374,8 @@ def describe_instructor_resources_card():
         html = resp.content.decode()
         assert resp.context["has_classes"] is False
         assert html.count(CARD) == 1
-        assert html.index(CARD) > html.index(reverse("classes:teach_class_create"))
+        # Last on the page: after the Teach Your First Class card.
+        assert html.index(CARD) > html.index("Teach Your First Class</h2>")
         assert 'href="https://g.page/review-us" target="_blank" rel="noopener"' in html
         assert 'href="https://forms.example.com/release" target="_blank" rel="noopener"' in html
 

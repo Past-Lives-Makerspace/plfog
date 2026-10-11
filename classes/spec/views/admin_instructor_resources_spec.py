@@ -207,7 +207,32 @@ def describe_admin_instructor_resources():
             assert InstructorResource.objects.count() == 3
             assert InstructorResource.objects.get(pk=first.pk).sort_order == 0
 
+        def it_ignores_an_added_row_removed_again_before_save(admin_user, client, db):
+            # Remove drops the row from the page, but TOTAL_FORMS still counts it, so the
+            # post carries no keys at all for index 1.
+            first, _second, _third = _three_saved()
+            client.force_login(admin_user)
+            payload = {**_post(_saved_row(first, 0), initial=1), f"{PREFIX}-TOTAL_FORMS": "2"}
+            assert client.post(reverse(URL_NAME), payload).status_code == 302
+            assert InstructorResource.objects.count() == 3
+            assert InstructorResource.objects.get(pk=first.pk).sort_order == 0
+
     def describe_validation():
+        def it_offers_remove_not_delete_on_a_new_row_that_failed_to_save(admin_user, client, db):
+            client.force_login(admin_user)
+            payload = _post(_row(0, "Hosting Guide", ""), initial=0)
+            response = client.post(reverse(URL_NAME), payload)
+            assert response.status_code == 200
+            content = response.content.decode()
+            row = (
+                content.split('name="links-0-label"')[1]
+                .split("</template>")[0]
+                .split('class="pl-instructor-resources__row"')[0]
+            )
+            assert ">Remove</button>" in row
+            assert ">Delete</button>" not in content
+            assert InstructorResource.objects.count() == 0
+
         def it_rejects_a_blank_label_with_the_error_under_the_field_and_saves_nothing(admin_user, client, db):
             first, second, third = _three_saved()
             client.force_login(admin_user)

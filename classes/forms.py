@@ -2359,6 +2359,18 @@ class InstructorResourceForm(forms.ModelForm):
         labels = {"url": "URL"}
         widgets = {"sort_order": forms.HiddenInput()}
 
+    def has_changed(self) -> bool:
+        """A row added with "+ Add a link" and removed again before Save never changed anything.
+
+        Remove drops the row from the page but TOTAL_FORMS still counts it, so Django builds
+        the form with no posted keys at all. Its hidden ``sort_order`` then reads as changed
+        (initial 0, nothing posted), which turns the missing row into two required errors the
+        admin cannot dismiss. A new row that posted neither a label nor a URL is that row.
+        """
+        if self.instance._state.adding and not any(self.data.get(self.add_prefix(name)) for name in ("label", "url")):
+            return False
+        return super().has_changed()
+
 
 class BaseInstructorResourceFormSet(forms.BaseModelFormSet):
     """The Instructor Resources editor: every row kept is numbered by its place on the page."""
