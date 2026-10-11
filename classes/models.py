@@ -4445,8 +4445,9 @@ class DiscountCode(models.Model):
     @property
     def scope_label(self) -> str:
         """The Scope column: \"Everywhere\" or the class title. Callers list with ``select_related(\"class_offering\")``."""
-        if self.class_offering_id:
-            return self.class_offering.title
+        offering = self.class_offering
+        if offering is not None:
+            return offering.title
         return str(self.Scope.EVERYWHERE.label)
 
     def scope_sentence(self, *, future: bool = False) -> str:
@@ -4457,8 +4458,9 @@ class DiscountCode(models.Model):
         live rewrite builds the future form in the browser from the same words.
         """
         verb = "will work" if future else "now works"
-        if self.class_offering_id:
-            return f"{self.code} {verb} only on {self.class_offering.title}."
+        offering = self.class_offering
+        if offering is not None:
+            return f"{self.code} {verb} only on {offering.title}."
         return f"{self.code} {verb} on every class."
 
     def reassign(self, *, class_offering: "ClassOffering | None" = None) -> None:

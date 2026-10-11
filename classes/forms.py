@@ -1685,9 +1685,8 @@ class DiscountCodeReassignForm(forms.Form):
         kwargs.setdefault("initial", {"scope": code.scope, "class_offering": code.class_offering_id})
         super().__init__(*args, **kwargs)
         self.code = code
-        self.fields["class_offering"].queryset = ClassOffering.objects.discount_code_targets(
-            keep_pk=code.class_offering_id
-        )
+        picker = cast(forms.ModelChoiceField, self.fields["class_offering"])
+        picker.queryset = ClassOffering.objects.discount_code_targets(keep_pk=code.class_offering_id)
 
     def clean(self) -> dict[str, Any]:
         data = super().clean() or {}
