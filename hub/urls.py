@@ -2,6 +2,7 @@ from django.urls import path
 from django.views.generic import RedirectView
 
 from . import (
+    day_off_views,
     discord_views,
     equipment_views,
     feedback_views,
@@ -114,6 +115,27 @@ urlpatterns = [
         "guilds/<int:pk>/orientation/hours/form/",
         views.guild_orientation_hours_form,
         name="hub_guild_orientation_hours_form",
+    ),
+    # Days off (#767): the modal body, its impact preview, save and delete, under the hours gate.
+    path(
+        "guilds/<int:pk>/orientation/days-off/",
+        day_off_views.guild_orientation_days_off,
+        name="hub_guild_orientation_days_off",
+    ),
+    path(
+        "guilds/<int:pk>/orientation/days-off/preview/",
+        day_off_views.guild_orientation_day_off_preview,
+        name="hub_guild_orientation_day_off_preview",
+    ),
+    path(
+        "guilds/<int:pk>/orientation/days-off/save/",
+        day_off_views.guild_orientation_day_off_save,
+        name="hub_guild_orientation_day_off_save",
+    ),
+    path(
+        "guilds/<int:pk>/orientation/days-off/<int:day_off_pk>/delete/",
+        day_off_views.guild_orientation_day_off_delete,
+        name="hub_guild_orientation_day_off_delete",
     ),
     path(
         "guilds/<int:pk>/studio-hours/save/",
@@ -440,6 +462,27 @@ urlpatterns = [
         "equipment/<slug:slug>/manage/orientation/hours/save/",
         equipment_views.hub_equipment_orientation_hours_save,
         name="hub_equipment_orientation_hours_save",
+    ),
+    # Days off (#767), the equipment twin of the guild routes above.
+    path(
+        "equipment/<slug:slug>/manage/orientation/days-off/",
+        day_off_views.hub_equipment_orientation_days_off,
+        name="hub_equipment_orientation_days_off",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/orientation/days-off/preview/",
+        day_off_views.hub_equipment_orientation_day_off_preview,
+        name="hub_equipment_orientation_day_off_preview",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/orientation/days-off/save/",
+        day_off_views.hub_equipment_orientation_day_off_save,
+        name="hub_equipment_orientation_day_off_save",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/orientation/days-off/<int:day_off_pk>/delete/",
+        day_off_views.hub_equipment_orientation_day_off_delete,
+        name="hub_equipment_orientation_day_off_delete",
     ),
     path(
         "equipment/<slug:slug>/manage/blocks/add/",

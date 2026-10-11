@@ -1119,6 +1119,7 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
     list with attendee sub-rows. ``can_edit_others_hours`` gates the whole-schedule
     view and the Runs with picker; a plain manager sees only their own group.
     """
+    from hub.day_off_views import days_off_by_orienter
     from membership.models import OrientationAvailability, OrientationBooking, OrientationSlot
     from membership.permissions import can_edit_equipment_orienter_hours
 
@@ -1183,6 +1184,8 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
         "orientation_pending_requests": pending_requests,
         "orientation_upcoming_slots": upcoming_slots,
         "orienter_overview": orienter_overview,
+        # Each person's upcoming days off (#767), the "Off Nov 26, Dec 25." line under their rules.
+        "days_off_by_orienter": days_off_by_orienter(managers),
         "former_managers_overview": former_managers_overview,
         "shared_rules": shared_rules,
         "can_edit_others_hours": can_edit_others_hours,

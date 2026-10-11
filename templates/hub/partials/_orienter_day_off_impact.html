@@ -1,0 +1,16 @@
+{% comment %}
+The Days Off form's tail (#767): the count line for the chosen date and the actions, swapped as
+one by the date input's hx-get so the line and the Save label follow the date together. The Save
+label names the email while booked members would get one (FRONTEND rule 21's exception), from the
+same numbers the save acts on. Context: times (orientations.DayOffTimes, or None while no valid
+date is chosen).
+{% endcomment %}
+<div id="day-off-impact">
+  {% if times is not None %}
+  <p class="pl-hours-row__hint" data-day-off-impact>{{ times.count }} time{{ times.count|pluralize }} that day will be cancelled.</p>
+  {% endif %}
+  <div class="pl-oneoff__actions">
+    <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('close-modal', 'days-off-modal')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this" data-day-off-save>{% if times is not None and times.emailed %}Save and email {{ times.emailed }} member{{ times.emailed|pluralize }}{% else %}Save{% endif %}</button>
+  </div>
+</div>
