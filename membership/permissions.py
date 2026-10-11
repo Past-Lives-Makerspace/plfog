@@ -74,24 +74,69 @@ def can_edit_guild(request: HttpRequest, guild: Guild) -> bool:
     return member is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member))
 
 
-def guilds_for_new_orientation(request: HttpRequest) -> list[Guild]:
-    """The guilds this request may add an orientation to, name-ordered, in one query.
+def manageable_guilds(request: HttpRequest) -> QuerySet[Guild]:
+    """The guilds this request may edit, name-ordered, as a queryset (one query when read).
 
-    The bulk companion to :func:`can_edit_guild` behind the Orientations page's "+ Add an
-    Orientation" button (#637): effective staff (admin or officer) get every active guild,
-    so their menu skips the hidden ones; anyone else gets every guild they lead or staff,
-    hidden ones included, because the guild settings page and its orientations still work
-    for a hidden guild. Same legs, same ``view_as`` preview, so every guild listed passes
+    The queryset form of :func:`can_edit_guild`: effective staff (admin or officer) get every
+    active guild, so their lists skip the hidden ones; anyone else gets every guild they lead or
+    staff, hidden ones included, because the guild settings page and its orientations still
+    work for a hidden guild. Same legs, same ``view_as`` preview, so every guild listed passes
     :func:`can_edit_guild`. An equipment manager who is not on a guild's staff gets nothing.
     """
     from membership.models import Guild
 
     if is_effective_staff(request):
-        return list(Guild.objects.filter(is_active=True).order_by("name"))
+        return Guild.objects.filter(is_active=True).order_by("name")
     member = _editing_member(request)
     if member is None:
-        return []
-    return list(member.staffed_guilds.order_by("name"))
+        return Guild.objects.none()
+    return member.staffed_guilds.order_by("name")
+
+
+def guilds_for_new_orientation(request: HttpRequest) -> list[Guild]:
+    """The guilds this request may add an orientation to, name-ordered, in one query.
+
+    The list behind the Orientations page's "+ Add an Orientation" button (#637):
+    :func:`manageable_guilds`, read.
+    """
+    return list(manageable_guilds(request))
+
+
+def member_runs_anything(member: Member) -> bool:
+    """Whether ``member`` leads or staffs a guild, or holds an equipment staff row, in ONE query (#768).
+
+    The role question behind the Manage Bookings sidebar entry and its Your Hours card, asked
+    of the member's actual rows (no ``view_as``): one EXISTS over the three leadership joins,
+    where :attr:`Member.is_guild_lead`, :attr:`Member.is_guild_staff` and an equipment staff
+    read would cost three. Admin and officer tiers are not leadership; the request form,
+    :func:`runs_bookings`, adds them.
+    """
+    from membership.models import Member
+
+    return (
+        Member.objects.filter(pk=member.pk)
+        .filter(
+            Q(led_guilds__isnull=False)
+            | Q(guild_staff_roles__isnull=False)
+            | Q(equipment_staff_memberships__isnull=False)
+        )
+        .exists()
+    )
+
+
+def runs_bookings(request: HttpRequest) -> bool:
+    """True when this request runs orientations or equipment: the Manage Bookings gate (#768).
+
+    An admin or officer (``view_as`` aware, no query), else a member who leads or staffs a
+    guild or holds an equipment staff row (:func:`member_runs_anything`, one query). Read on
+    every hub page for the sidebar, so it deliberately asks about roles, never rows, and
+    skips the EQUIPMENT capability leg :func:`manages_orientations` carries: that is a
+    second query for everyone who has nothing to run, which is most of the roster.
+    """
+    if is_effective_staff(request):
+        return True
+    member = _editing_member(request)
+    return member is not None and member_runs_anything(member)
 
 
 def can_manage_orientations(request: HttpRequest, guild: Guild) -> bool:
@@ -338,13 +383,14 @@ def manages_orientations(request: HttpRequest, *, honour_preview: bool = False) 
     )
 
 
-def _reservation_scope(request: HttpRequest, *, honour_preview: bool) -> Q | None:
-    """The reservations this request may manage as a ``Q``, or None for every one.
+def _equipment_scope(request: HttpRequest, *, honour_preview: bool, prefix: str = "") -> Q | None:
+    """The equipment this request may manage as a ``Q``, or None for every item.
 
-    The queryset form of :func:`can_manage_equipment` read through a reservation's equipment:
-    a full admin (``view_as`` aware) or an EQUIPMENT capability holder manages all of it;
-    otherwise the owning guild's lead or staff, or an equipment staff row. Guild officers get
-    no blanket grant, as in :func:`manageable_equipment_ids`.
+    The queryset form of :func:`can_manage_equipment`: a full admin (``view_as`` aware) or an
+    EQUIPMENT capability holder manages all of it; otherwise the owning guild's lead or staff,
+    or an equipment staff row. Guild officers get no blanket grant, as in
+    :func:`manageable_equipment_ids`. ``prefix`` reaches the equipment from the queried model
+    (``""`` for :class:`Equipment` itself, ``"equipment__"`` for a reservation).
     """
     from membership.models import AdminCapability
 
@@ -357,10 +403,37 @@ def _reservation_scope(request: HttpRequest, *, honour_preview: bool) -> Q | Non
     if member is None:
         return Q(pk__in=[])
     return (
-        Q(equipment__guild__guild_lead=member)
-        | Q(equipment__guild__staff_memberships__member=member)
-        | Q(equipment__staff_memberships__member=member)
+        Q(**{f"{prefix}guild__guild_lead": member})
+        | Q(**{f"{prefix}guild__staff_memberships__member": member})
+        | Q(**{f"{prefix}staff_memberships__member": member})
     )
+
+
+def manageable_equipment(
+    request: HttpRequest, queryset: QuerySet[Equipment], *, honour_preview: bool = False
+) -> QuerySet:
+    """``queryset`` narrowed to equipment this request may manage: the queryset form of :func:`can_manage_equipment` (#768).
+
+    An item is in it exactly when :func:`can_manage_equipment` is true for it. ``honour_preview``
+    is a list's scope (the Manage Bookings home's What You Run): the same, minus a capability
+    the viewer is previewing away (:func:`_capability_counts`). A ``pk__in`` subquery, so the
+    staff joins never repeat a row.
+    """
+    from membership.models import Equipment
+
+    scope = _equipment_scope(request, honour_preview=honour_preview)
+    if scope is None:
+        return queryset
+    in_scope = Equipment.objects.filter(scope)
+    return queryset.filter(pk__in=in_scope.values("pk"))
+
+
+def _reservation_scope(request: HttpRequest, *, honour_preview: bool) -> Q | None:
+    """The reservations this request may manage as a ``Q``, or None for every one.
+
+    :func:`_equipment_scope` read through a reservation's equipment.
+    """
+    return _equipment_scope(request, honour_preview=honour_preview, prefix="equipment__")
 
 
 def manageable_reservations(

@@ -45,6 +45,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
             "user_profile_photo_url": "",
             "can_create_classes": False,
             "teach_nav": None,
+            "manage_bookings_nav": None,
             "classes_admin_nav_active": False,
             "classes_catalog_active_class": "",
             "kiln_nav": KilnNav(None),
@@ -72,6 +73,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "view_as_instructor": _instructor_row(request, member),
         "can_create_classes": member is not None and member.can_create_classes,
         "teach_nav": teach_nav,
+        "manage_bookings_nav": _manage_bookings_nav(request),
         "classes_admin_nav_active": admin_nav_active,
         "classes_catalog_active_class": _classes_catalog_active_class(request, admin_nav_active, teach_nav),
         # The guest menu and the kiln pages' way back (#691); no query.
@@ -179,6 +181,33 @@ def _teach_nav(request: HttpRequest, member: Member | None, admin_nav_active: bo
         "active_class": "active" if is_active else "",
         # False means this is the "Host a Class" invitation, which features.teach governs.
         "teaches": member.can_create_classes,
+    }
+
+
+def _manage_bookings_nav(request: HttpRequest) -> dict[str, Any] | None:
+    """The sidebar's Manage Bookings entry (#768), or ``None`` for anyone who runs nothing.
+
+    One home for everyone who runs orientations or equipment, the way Teaching is for classes.
+    The gate is :func:`membership.permissions.runs_bookings`: an admin or officer (``view_as``
+    aware, so a preview shows the member's sidebar, and no query), else a member who leads or
+    staffs a guild or holds an equipment staff row, in ONE query. That query is the whole cost
+    the entry adds to every hub page for a member with nothing to run, and
+    ``tests/hub/wiki_views_spec.py``'s home page budget holds it there. No feature switch: an
+    admin keeps the entry with Orientations and Reservations both off.
+
+    Active on the home and every path under it, the same shape as :func:`_teach_nav`.
+    """
+    from django.urls import reverse
+
+    from membership.permissions import runs_bookings
+
+    if not runs_bookings(request):
+        return None
+    is_active = request.path.startswith("/manage/bookings/")
+    return {
+        "url": reverse("hub_manage_bookings"),
+        "is_active": is_active,
+        "active_class": "active" if is_active else "",
     }
 
 

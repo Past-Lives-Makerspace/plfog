@@ -28,7 +28,6 @@ from django.http import (
     HttpResponse,
     HttpResponseBadRequest,
     JsonResponse,
-    QueryDict,
     StreamingHttpResponse,
 )
 from django.shortcuts import get_object_or_404, redirect, render
@@ -2874,21 +2873,14 @@ def _manageable_slots(request: HttpRequest) -> Any:
 
 @login_required
 def orientations_dashboard(request: HttpRequest) -> HttpResponse:
-    """The old staff dashboard's address: the Orientations page's Bookings tab, filters kept (#626).
+    """The old staff dashboard's address: the Manage Bookings home (#768).
 
     A 302, not a 301, so a cached redirect never outlives a later move. The URL name stays so a
-    stray ``reverse()`` still resolves. The dashboard's own parameters are translated to the
-    tab's: its search ``q`` is the tab's ``search`` (``q`` there is the List pane's), its
-    ``completed`` filter is ``oriented``; ``scope`` (the tab is scoped already) and ``view`` go.
+    stray ``reverse()`` still resolves. It pointed at the Orientations page's Bookings tab from
+    #626 until #768; the home links to that tab, so the dashboard's old filters are dropped
+    rather than carried.
     """
-    renamed = {"q": "search", "completed": "oriented"}
-    query = QueryDict(mutable=True)
-    for key, values in request.GET.lists():
-        if key in ("view", "scope"):
-            continue
-        query.setlist(renamed.get(key, key), values)
-    encoded = query.urlencode()
-    return redirect(f"{_orientation_bookings_tab()}&{encoded}" if encoded else _orientation_bookings_tab())
+    return redirect("hub_manage_bookings")
 
 
 @login_required

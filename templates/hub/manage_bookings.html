@@ -1,0 +1,168 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Manage Bookings{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/bookings-tab.css' %}">
+<link rel="stylesheet" href="{% static 'css/manage-bookings.css' %}">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+The Manage Bookings home (#768), built by hub.manage_bookings.manage_bookings_context. Three cards:
+Needs Attention (the two Bookings tabs' own rows, menus and modals, capped per kind with a View all
+into the tab), What You Run (one .hub-card per guild and per piece of equipment in scope) and Your
+Hours (the viewer's own rules by owner, opening the existing Edit Hours modal). Every action posts
+bookings_next, which is this page, so the viewer lands back here.
+{% endcomment %}
+{% if show_add_orientation %}
+{% include "components/page_header.html" with title="Manage Bookings" description="What needs your reply, what you run, and your hours." action_include="hub/partials/add_orientation_action.html" %}
+{% else %}
+{% include "components/page_header.html" with title="Manage Bookings" description="What needs your reply, what you run, and your hours." %}
+{% endif %}
+
+<div class="pl-manage" data-manage-bookings x-data @refund-done.window="$dispatch('close-modal', 'refund-modal')">
+  {% if booking_rows or reservation_rows %}
+  <section class="hub-card pl-manage__card" data-needs-attention>
+    <h2 class="hub-detail-label pl-manage__title">Needs Attention <span class="pl-manage__count">({{ attention_count }})</span></h2>
+
+    {% if booking_rows %}
+    <div class="pl-manage__group" data-attention-group="orientations">
+      <h3 class="pl-manage__subtitle">Needs a Reply <span class="pl-manage__count">({{ needs_reply_total }})</span></h3>
+      <div class="pl-bookings__table-wrap">
+      <table class="pl-members-table pl-bookings-table">
+        <thead>
+          <tr>
+            <th scope="col">When</th>
+            <th scope="col">Member</th>
+            <th scope="col">Orientation</th>
+            <th scope="col">Run By</th>
+            <th scope="col">Status</th>
+            <th scope="col">Paid</th>
+            <th scope="col"><span class="sr-only">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in booking_rows %}
+        {% include "hub/partials/_orientation_booking_row.html" %}
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <a href="{{ needs_reply_all_url }}" class="pl-manage__more" data-view-all="orientations">View all →</a>
+    </div>
+    {% endif %}
+
+    {% if reservation_rows %}
+    <div class="pl-manage__group" data-attention-group="reservations">
+      <h3 class="pl-manage__subtitle">Needs Approval <span class="pl-manage__count">({{ awaiting_total }})</span></h3>
+      <div class="pl-bookings__table-wrap">
+      <table class="pl-members-table pl-bookings-table">
+        <thead>
+          <tr>
+            <th scope="col">When</th>
+            <th scope="col">Member</th>
+            <th scope="col">Equipment</th>
+            <th scope="col">Purpose</th>
+            <th scope="col">Status</th>
+            <th scope="col"><span class="sr-only">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in reservation_rows %}
+        {% include "hub/partials/_reservation_booking_row.html" %}
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <a href="{{ awaiting_all_url }}" class="pl-manage__more" data-view-all="reservations">View all →</a>
+    </div>
+    {% endif %}
+  </section>
+  {% else %}
+  {% include "classes/_components/needs_attention_clear.html" %}
+  {% endif %}
+
+  <section class="pl-manage__section" data-what-you-run>
+    <h2 class="hub-detail-label pl-manage__title">What You Run</h2>
+    {% if guild_cards or equipment_cards %}
+    <div class="pl-manage-grid">
+      {% for card in guild_cards %}
+      <article class="hub-card pl-manage-card" data-run-guild="{{ card.guild.pk }}">
+        <div class="pl-manage-card__head">
+          <h3 class="pl-manage-card__name">{{ card.guild.name }}</h3>
+          <span class="hub-pill {% if card.state == 'on' %}hub-pill--ok{% elif card.state == 'paused' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-run-state="{{ card.state }}">{{ card.state_label }}</span>
+        </div>
+        {% if card.closed_message %}<p class="pl-manage-card__note hub-text-muted" data-run-closed-message>{{ card.closed_message }}</p>{% endif %}
+        {% if card.orientations %}
+        <ul class="pl-manage-card__lines" data-run-orientations>
+          {% for line in card.orientations %}<li>{{ line.name }} · {{ line.meta }}</li>{% endfor %}
+        </ul>
+        {% else %}
+        <p class="pl-manage-card__note hub-text-muted">No orientations yet.</p>
+        {% endif %}
+        <p class="pl-manage-card__meta hub-text-muted" data-run-hours-people>{{ card.hours_people }} {{ card.hours_people|pluralize:"person,people" }} with published hours</p>
+        <div class="pl-manage-card__links">
+          <a href="{{ card.orientations_url }}" class="hub-btn hub-btn--sm">Orientations</a>
+          <a href="{{ card.bookings_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">Bookings</a>
+        </div>
+      </article>
+      {% endfor %}
+      {% for card in equipment_cards %}
+      <article class="hub-card pl-manage-card" data-run-equipment="{{ card.equipment.pk }}">
+        <div class="pl-manage-card__head">
+          <h3 class="pl-manage-card__name">{{ card.equipment.name }}</h3>
+          <span class="hub-pill {% if card.state == 'open' %}hub-pill--ok{% elif card.state == 'closed' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-run-state="{{ card.state }}">{{ card.state_label }}</span>
+        </div>
+        <p class="pl-manage-card__meta hub-text-muted" data-run-awaiting>{{ card.awaiting }} awaiting approval</p>
+        <div class="pl-manage-card__links">
+          <a href="{{ card.manage_url }}" class="hub-btn hub-btn--sm">Manage</a>
+          <a href="{{ card.bookings_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">Bookings</a>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="hub-card pl-manage__empty" data-run-empty>
+      <p class="hub-text-muted">Nothing is running orientations yet. Add one above.</p>
+    </div>
+    {% endif %}
+  </section>
+
+  {% if hours_groups is not None %}
+  <section class="hub-card pl-manage__card" data-your-hours>
+    <h2 class="hub-detail-label pl-manage__title">Your Hours</h2>
+    {% for group in hours_groups %}
+    <div class="pl-orient-overview__group" data-hours-owner="{{ group.key }}">
+      <div class="pl-orient-overview__person">
+        <strong>{{ group.owner_name }}</strong>
+        <button type="button" class="hub-btn hub-btn--sm" data-edit-hours
+                @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
+                hx-get="{{ group.edit_url }}"
+                hx-target="#edit-hours-modal-body" hx-swap="innerHTML"
+                hx-on::response-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'"
+                hx-on::send-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'">
+          Edit Hours
+        </button>
+      </div>
+      <ul class="pl-orient-overview__rules">
+        {% for r in group.rules %}
+        <li>{{ r.type_display }} · {{ r.cadence_display }}{% if r.starts_on_note %} {{ r.starts_on_note }}{% endif %} · {{ r.start_time|time:"g:i a" }} to {{ r.end_time|time:"g:i a" }}{% if r.is_open %} · <span class="pl-orient-style">any time in the window</span>{% else %} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if group.has_open %} · <span class="pl-orient-style">fixed start times</span>{% endif %}{% endif %}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% empty %}
+    <p class="hub-text-muted pl-manage__hours-empty" data-hours-empty>No hours published yet. Open a guild's Orientations page to publish them.</p>
+    {% endfor %}
+    {# One shared Edit Hours modal for every owner above; its body is HTMX loaded per owner. modal_static: the teleported delete confirm would otherwise read as a click outside. #}
+    {% include "components/modal.html" with modal_id="edit-hours-modal" modal_title="Edit Hours" modal_size="lg" modal_static=True %}
+  </section>
+  {% endif %}
+
+  {% include "hub/partials/orientation_booking_modals.html" %}
+  {% include "hub/partials/reservation_booking_modals.html" %}
+  {% if viewer_has_refund_authority %}
+  {% include "components/modal.html" with modal_id="refund-modal" modal_title="Refund Payment" modal_size="sm" %}
+  {% endif %}
+</div>
+{% endblock %}
