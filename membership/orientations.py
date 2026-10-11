@@ -9,7 +9,9 @@ transition logs ``SiteActivity`` and fires an in-app notification.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 import icalendar
@@ -25,7 +27,7 @@ from core.events.senders import emit_with_email_shell
 from core.models import SiteActivity
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Collection, Sequence
 
     from django.contrib.auth.models import User
     from django.db.models import QuerySet
@@ -1125,6 +1127,121 @@ def cancel_times(guild: Guild, slot_pks: Sequence[int], window_pks: Sequence[int
     return len(slots) + len(windows), emailed
 
 
+_DAY_OFF_REASON = "Day off"
+
+
+def _local_day_span(day: date) -> tuple[datetime, datetime]:
+    """The aware ``[start, end)`` of one local calendar day, each bound made aware on its own (DST safe)."""
+    start = timezone.make_aware(datetime.combine(day, time.min))
+    end = timezone.make_aware(datetime.combine(day + timedelta(days=1), time.min))
+    return start, end
+
+
+@dataclass(frozen=True)
+class DayOffTimes:
+    """What a day off takes from one person on one local date (#767).
+
+    ``slots`` are their upcoming fixed slots that day and ``windows`` their open windows still
+    ahead; ``segments`` are the windows' live booked segments, which go with their window.
+    The slots and segments carry ``active_booking_count``.
+    """
+
+    slots: list[OrientationSlot]
+    windows: list[OrientationAvailabilityBlock]
+    segments: list[OrientationSlot]
+
+    @property
+    def count(self) -> int:
+        """How many times the day off cancels: the slots and the windows (a segment is inside its window)."""
+        return len(self.slots) + len(self.windows)
+
+    @property
+    def emailed(self) -> int:
+        """How many booked members the cancel emails: every active booking on the slots and the segments."""
+        return sum(slot.active_booking_count for slot in self.slots) + sum(
+            segment.active_booking_count for segment in self.segments
+        )
+
+
+def times_on_day_off(member: Member, day: date) -> DayOffTimes:
+    """The upcoming times of ``member`` on local ``day`` that a day off cancels, in any guild or on any equipment.
+
+    Fixed slots that have not started, except one carved out of a live window (that is the
+    window's booked segment, not a time of its own, as on the Upcoming Times card), and
+    open windows with time still ahead. A time with no orienter is never one of theirs.
+    The day is a Pacific calendar day: both bounds are made aware on local wall clock time,
+    so a late evening slot stays on its own day.
+    """
+    from membership.models import OrientationAvailabilityBlock, OrientationBooking, OrientationSlot
+
+    start, end = _local_day_span(day)
+    slots = list(
+        OrientationSlot.objects.upcoming()
+        .filter(orienter=member, starts_at__gte=start, starts_at__lt=end)
+        .exclude(source=OrientationSlot.Source.FROM_BLOCK, block__is_cancelled=False)
+        .with_active_booking_count()
+        .order_by("starts_at")
+    )
+    windows = list(
+        OrientationAvailabilityBlock.objects.upcoming()
+        .filter(orienter=member, starts_at__gte=start, starts_at__lt=end)
+        .order_by("starts_at")
+    )
+    segments: list[OrientationSlot] = []
+    if windows:
+        # The windows' seat holding segments in one query (``booked_segments`` per window would be one each).
+        segments = list(
+            OrientationSlot.objects.filter(
+                block__in=windows,
+                is_cancelled=False,
+                bookings__status__in=[
+                    OrientationBooking.Status.PENDING_PAYMENT,
+                    OrientationBooking.Status.REQUESTED,
+                    OrientationBooking.Status.CONFIRMED,
+                ],
+            )
+            .distinct()
+            .with_active_booking_count()
+            .order_by("starts_at")
+        )
+    return DayOffTimes(slots=slots, windows=windows, segments=segments)
+
+
+def cancel_day_off(member: Member, day: date) -> tuple[int, int]:
+    """Cancel every upcoming time of ``member`` on local ``day`` (#767), in any guild or on any equipment.
+
+    Each fixed slot goes through :func:`cancel_slot` (booked members emailed, checkout holds
+    released); each open window through :meth:`OrientationAvailabilityBlock.cancel`, with its
+    booked segments through :func:`cancel_slot` as well. A generated slot or window nobody
+    was emailed about is then detached from its rule (``mark_retired``), so deleting the day
+    off lets the next generation run offer the time again; a time that emailed members stays
+    cancelled at its key, as a manager's cancel does. Times with no orienter are untouched.
+
+    No transaction wraps the loop: ``cancel_slot`` talks to Stripe for held checkouts and
+    must not run inside an outer atomic block.
+
+    Returns:
+        ``(cancelled, emailed)``: the number of times (slots and windows) cancelled, and the
+        number of booked members emailed, counted before the cancel.
+    """
+    from membership.models import OrientationSlot
+
+    times = times_on_day_off(member, day)
+    for slot in times.slots:
+        cancel_slot(slot, reason=_DAY_OFF_REASON)
+        if slot.source == OrientationSlot.Source.GENERATED and not slot.active_booking_count:
+            slot.mark_retired(reason=_DAY_OFF_REASON)
+    booked_window_ids = {segment.block_id for segment in times.segments}
+    for window in times.windows:
+        if window.pk in booked_window_ids:
+            window.cancel()
+        else:
+            window.mark_retired()
+    for segment in times.segments:
+        cancel_slot(segment, reason=_DAY_OFF_REASON)
+    return times.count, times.emailed
+
+
 def complete_orientation(booking: OrientationBooking) -> None:
     """Mark a booking complete, send the lead's thank-you email (if set), and log activity."""
     from membership.models import GuildOrientationSettings
@@ -1200,15 +1317,32 @@ def auto_complete(*, now: datetime | None = None) -> int:
     return count
 
 
-def _horizon_spans(rule: OrientationAvailability, *, today: date, window_weeks: int) -> list[tuple[datetime, datetime]]:
-    """Every ``(start, end)`` span ``rule`` yields across the rolling window, in order."""
+def _horizon_spans(
+    rule: OrientationAvailability, *, today: date, window_weeks: int, days_off: Collection[date] = ()
+) -> list[tuple[datetime, datetime]]:
+    """Every ``(start, end)`` span ``rule`` yields across the rolling window, in order.
+
+    ``days_off`` are the rule's orienter's days off (#767): a day in it yields nothing, however
+    far ahead it sits. A shared rule has no orienter and is handed none.
+    """
     spans: list[tuple[datetime, datetime]] = []
     for offset in range(window_weeks * 7):
         day = today + timedelta(days=offset)
-        if not rule.occurs_on(day):
+        if not rule.occurs_on(day) or day in days_off:
             continue
         spans.extend(rule.carve_spans(day))
     return spans
+
+
+def _days_off_by_orienter(*, today: date, window_weeks: int) -> dict[int, set[date]]:
+    """Every orienter's days off inside the horizon, loaded once per run so no rule costs a query (#767)."""
+    from membership.models import OrientationDayOff
+
+    by_orienter: dict[int, set[date]] = defaultdict(set)
+    horizon = OrientationDayOff.objects.within(today, today + timedelta(days=window_weeks * 7))
+    for orienter_id, day in horizon.values_list("orienter_id", "date"):
+        by_orienter[orienter_id].add(day)
+    return by_orienter
 
 
 def _occupied_spans(equipment: Equipment, *, reference: datetime) -> list[tuple[int | None, datetime, datetime]]:
@@ -1453,8 +1587,17 @@ def generate_slots(
     if equipment is not None:
         rules = rules.filter(orientation_type__equipment=equipment)
     runners_by_equipment: dict[int, set[int]] = {}
+    days_off_by_orienter = _days_off_by_orienter(today=today, window_weeks=window_weeks)
     eligible = [
-        (rule, _horizon_spans(rule, today=today, window_weeks=window_weeks))
+        (
+            rule,
+            _horizon_spans(
+                rule,
+                today=today,
+                window_weeks=window_weeks,
+                days_off=days_off_by_orienter[rule.orienter_id] if rule.orienter_id is not None else (),
+            ),
+        )
         for rule in rules
         if _rule_generates(rule, runners_by_equipment=runners_by_equipment)
     ]
