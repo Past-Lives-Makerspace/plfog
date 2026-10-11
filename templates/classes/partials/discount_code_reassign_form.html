@@ -1,0 +1,36 @@
+{% comment %}
+The Re-assign modal's body (#764). The Discount Codes row menu loads it by hx-get into
+components/modal.html "reassign-code"; the form posts back into the same body, so a validation
+error re-renders here, and a valid save answers 204 + HX-Redirect to the list. Served by
+admin_discount_code_reassign with form (DiscountCodeReassignForm), code and sentence (the
+current scope's future sentence, what the page says before Alpine rewrites it live). The radios
+and the class select carry x-model from their widgets, so scope and classPk here are the
+controls' values; the live sentence is built from the picked option's text in the same words as
+DiscountCode.scope_sentence, and Re-assign stays disabled until One class has a class.
+{% endcomment %}
+<form data-reassign-form
+      x-data="{
+        scope: '{{ form.scope.value|escapejs }}',
+        classPk: '{{ form.class_offering.value|default_if_none:''|escapejs }}',
+        code: '{{ code.code|escapejs }}',
+        sentence() {
+          if (this.scope !== 'class') { return this.code + ' will work on every class.'; }
+          var picked = Array.from(this.$refs.classSelect.options).find((o) => o.value === String(this.classPk));
+          if (!picked || !picked.value) { return 'Pick a class to see what will change.'; }
+          return this.code + ' will work only on ' + picked.text + '.';
+        }
+      }"
+      hx-post="{% url 'classes:admin_discount_code_reassign' pk=code.pk %}"
+      hx-target="#reassign-code-body"
+      hx-swap="innerHTML">
+    {% csrf_token %}
+    {% include "components/radio_group.html" with field=form.scope %}
+    <div x-show="scope === 'class'" x-cloak>
+        {% include "components/form_field.html" with field=form.class_offering %}
+    </div>
+    <p data-reassign-sentence x-text="sentence()">{{ sentence }}</p>
+    <div class="pl-modal__actions">
+        <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'reassign-code')">Cancel</button>
+        <button type="submit" class="pl-btn pl-btn--primary" :disabled="scope === 'class' && !classPk">Re-assign</button>
+    </div>
+</form>

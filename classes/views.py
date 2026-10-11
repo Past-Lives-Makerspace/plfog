@@ -100,6 +100,7 @@ from classes.forms import (
     ClassSessionFormSet,
     ClassSettingsForm,
     DiscountCodeForm,
+    DiscountCodeReassignForm,
     DiscountCodeRequestDeclineForm,
     DiscountCodeRequestForm,
     TeachClassOfferingForm,
@@ -5865,7 +5866,8 @@ def registration_move(request: HttpRequest, pk: int) -> HttpResponse:
 def admin_discount_codes(request: HttpRequest) -> HttpResponse:
     table = prepare_table(
         request,
-        DiscountCode.objects.all(),
+        # The Scope column reads the class title per row (#764).
+        DiscountCode.objects.select_related("class_offering"),
         search_fields=["code", "description"],
         default_sort="code",
     )
@@ -5930,6 +5932,39 @@ def admin_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
         code.delete()
         messages.success(request, "Discount code deleted.")
     return redirect("classes:admin_discount_codes")
+
+
+@classes_admin_access_required
+def admin_discount_code_reassign(request: HttpRequest, pk: int) -> HttpResponse:
+    """The Re-assign modal's body (#764): where an existing code works.
+
+    GET renders the form partial for the shared ``reassign-code`` modal to load over htmx; a
+    plain GET (a history restore, a pasted URL) has no modal to land in and goes back to the
+    list. A valid POST moves the code through :meth:`DiscountCode.reassign` and answers 204 +
+    ``HX-Redirect`` to the list carrying the sentence as a success message (a non htmx POST
+    gets that redirect outright); an invalid POST re-renders the partial into the modal body,
+    so the error shows where the admin is looking.
+    """
+    code = get_object_or_404(DiscountCode.objects.select_related("class_offering"), pk=pk)
+    if request.method == "POST":
+        form = DiscountCodeReassignForm(request.POST, code=code)
+        if form.is_valid():
+            form.save()
+            messages.success(request, code.scope_sentence())
+            if not wants_fragment(request):
+                return redirect("classes:admin_discount_codes")
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = reverse("classes:admin_discount_codes")
+            return response
+    else:
+        if not wants_fragment(request):
+            return redirect("classes:admin_discount_codes")
+        form = DiscountCodeReassignForm(code=code)
+    return render(
+        request,
+        "classes/partials/discount_code_reassign_form.html",
+        {"form": form, "code": code, "sentence": code.scope_sentence(future=True)},
+    )
 
 
 @login_required

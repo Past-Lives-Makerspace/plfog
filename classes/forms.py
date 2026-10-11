@@ -1658,6 +1658,52 @@ class DiscountCodeForm(forms.ModelForm):
         return code
 
 
+class DiscountCodeReassignForm(forms.Form):
+    """The Re-assign modal (#764): where an existing code works, and nothing else about it.
+
+    A plain form rather than a ModelForm: the answer is a derived choice over the code's scope
+    fields and the save is one model call, :meth:`DiscountCode.reassign`. ``code`` is the code
+    being moved; its current scope is the initial answer, and its current class stays in the
+    picker even once it has started (:meth:`ClassOfferingQuerySet.discount_code_targets`). The
+    widgets carry the Alpine bindings the modal body reads, so the template adds none.
+    """
+
+    scope = forms.ChoiceField(
+        label="Where does this code work?",
+        choices=DiscountCode.Scope.choices,
+        widget=forms.RadioSelect(attrs={"x-model": "scope"}),
+    )
+    class_offering = forms.ModelChoiceField(
+        label="Class",
+        queryset=ClassOffering.objects.none(),
+        required=False,
+        empty_label="Pick a class",
+        widget=forms.Select(attrs={"x-model": "classPk", "x-ref": "classSelect"}),
+    )
+
+    def __init__(self, *args: Any, code: DiscountCode, **kwargs: Any) -> None:
+        kwargs.setdefault("initial", {"scope": code.scope, "class_offering": code.class_offering_id})
+        super().__init__(*args, **kwargs)
+        self.code = code
+        self.fields["class_offering"].queryset = ClassOffering.objects.discount_code_targets(
+            keep_pk=code.class_offering_id
+        )
+
+    def clean(self) -> dict[str, Any]:
+        data = super().clean() or {}
+        # A field that failed its own validation is absent here, hence .get: nothing to cross check.
+        if data.get("scope") == DiscountCode.Scope.ONE_CLASS and data.get("class_offering") is None:
+            self.add_error("class_offering", "Pick the class this code should work on.")
+        if data.get("scope") == DiscountCode.Scope.EVERYWHERE:
+            data["class_offering"] = None
+        return data
+
+    def save(self) -> DiscountCode:
+        """Move the code; the form is valid, so the one target the scope needs is in ``cleaned_data``."""
+        self.code.reassign(class_offering=self.cleaned_data["class_offering"])
+        return self.code
+
+
 class DiscountCodeRequestForm(forms.ModelForm):
     """An instructor's ask for a class code under approval mode.
 

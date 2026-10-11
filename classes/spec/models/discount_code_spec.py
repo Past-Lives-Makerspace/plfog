@@ -245,3 +245,57 @@ def describe_DiscountCode():
             with django_assert_num_queries(0):
                 approver = DiscountCode.approver_for(AnonymousUser())
             assert (approver.approves_any, approver.self_approves) == (False, False)
+
+
+def describe_DiscountCode_scope():
+    """Where a code works and how an admin moves it (#764)."""
+
+    def it_is_everywhere_with_no_class(db):
+        code = DiscountCodeFactory(class_offering=None)
+        assert code.scope == DiscountCode.Scope.EVERYWHERE
+        assert code.scope_label == "Everywhere"
+
+    def it_is_one_class_with_a_class(db):
+        offering = ClassOfferingFactory(title="Bat Carving")
+        code = DiscountCodeFactory(class_offering=offering)
+        assert code.scope == DiscountCode.Scope.ONE_CLASS
+        assert code.scope_label == "Bat Carving"
+
+    def describe_scope_sentence():
+        def it_says_every_class_before_and_after_a_save(db):
+            code = DiscountCodeFactory(code="SPRING20", class_offering=None)
+            assert code.scope_sentence(future=True) == "SPRING20 will work on every class."
+            assert code.scope_sentence() == "SPRING20 now works on every class."
+
+        def it_names_the_class_before_and_after_a_save(db):
+            offering = ClassOfferingFactory(title="Bat Carving")
+            code = DiscountCodeFactory(code="BAT30", class_offering=offering)
+            assert code.scope_sentence(future=True) == "BAT30 will work only on Bat Carving."
+            assert code.scope_sentence() == "BAT30 now works only on Bat Carving."
+
+    def describe_reassign():
+        def it_points_an_everywhere_code_at_one_class(db):
+            offering = ClassOfferingFactory()
+            code = DiscountCodeFactory(class_offering=None)
+            code.reassign(class_offering=offering)
+            code.refresh_from_db()
+            assert code.class_offering == offering
+
+        def it_sets_a_class_code_back_to_everywhere(db):
+            code = DiscountCodeFactory(class_offering=ClassOfferingFactory())
+            code.reassign(class_offering=None)
+            code.refresh_from_db()
+            assert code.class_offering is None
+
+        def it_moves_only_the_scope(db):
+            """Approval, dates, uses and auto apply stay (AC4): the write is the scope column alone,
+            so even a stale in-memory edit to another field never reaches the row."""
+            code = DiscountCodeFactory(
+                is_approved=True, auto_apply=True, max_uses=5, use_count=2, valid_until=date(2030, 1, 1)
+            )
+            code.is_approved = False
+            code.reassign(class_offering=ClassOfferingFactory())
+            code.refresh_from_db()
+            assert code.is_approved is True
+            assert code.auto_apply is True
+            assert (code.max_uses, code.use_count, code.valid_until) == (5, 2, date(2030, 1, 1))

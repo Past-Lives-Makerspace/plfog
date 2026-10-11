@@ -1,0 +1,18 @@
+{% comment %}
+Menu items for one row of the admin Discount Codes list (#764), rendered inside
+components/row_actions.html, so it reads c (the DiscountCode), code_modal_id and code_delete_url
+from the table loop. Approve/Unapprove posts at once, as the old button did; Edit is the edit
+page; Re-assign loads its form into the shared reassign-code modal (the Refund Late Fee pattern);
+Delete opens the row's confirm modal, which stays in the row exactly as before.
+{% endcomment %}
+<form method="post" action="{% url 'classes:admin_discount_code_approve' pk=c.pk %}">
+    {% csrf_token %}
+    <button type="submit" class="pl-row-menu__item" role="menuitem" data-approve-menu-item>{% if c.is_approved %}Unapprove{% else %}Approve{% endif %}</button>
+</form>
+<a href="{% url 'classes:admin_discount_code_edit' pk=c.pk %}" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">Edit</a>
+<button type="button" class="pl-row-menu__item" role="menuitem" data-reassign-menu-item
+        hx-get="{% url 'classes:admin_discount_code_reassign' pk=c.pk %}" hx-target="#reassign-code-body" hx-swap="innerHTML"
+        @click="closeAndRefocus(); document.getElementById('reassign-code-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'reassign-code')">Re-assign</button>
+<div class="pl-row-menu__divider" role="separator"></div>
+<button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem"
+        @click="closeAndRefocus(); $dispatch('open-confirm', '{{ code_modal_id }}')">Delete</button>

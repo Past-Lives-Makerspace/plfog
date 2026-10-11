@@ -423,6 +423,19 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             .distinct()
         )
 
+    def discount_code_targets(self, *, keep_pk: int | None = None) -> "ClassOfferingQuerySet":
+        """The classes the Re-assign modal offers a discount code (#764): upcoming, never cancelled
+        or archived, by title.
+
+        ``keep_pk`` is the code's current class, kept in the list even once it has started, so the
+        modal opens on what the code is scoped to today instead of a blank pick.
+        """
+        upcoming = self.upcoming().exclude(status__in=[ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED])
+        chosen = Q(pk__in=upcoming.values("pk"))
+        if keep_pk is not None:
+            chosen |= Q(pk=keep_pk)
+        return self.filter(chosen).order_by("title")
+
     def pending_review(self) -> "ClassOfferingQuerySet":
         return self.filter(status="pending")
 
@@ -4227,6 +4240,12 @@ class DiscountApprover(NamedTuple):
 
 
 class DiscountCode(models.Model):
+    class Scope(models.TextChoices):
+        """Where a code works (#764). Derived from the scope fields, never stored."""
+
+        EVERYWHERE = "everywhere", "Everywhere"
+        ONE_CLASS = "class", "One class"
+
     code = models.CharField(max_length=40, unique=True, help_text="Uppercase code — normalized on save.")
     description = models.CharField(max_length=255, blank=True, help_text="Admin-only description.")
     discount_pct = models.PositiveIntegerField(null=True, blank=True, help_text="Percent off (0-100).")
@@ -4415,6 +4434,44 @@ class DiscountCode(models.Model):
         """
         self.is_approved = False
         self.save(update_fields=["is_approved"])
+
+    @property
+    def scope(self) -> "DiscountCode.Scope":
+        """Where this code works today: one class when ``class_offering`` is set, else everywhere."""
+        if self.class_offering_id:
+            return self.Scope.ONE_CLASS
+        return self.Scope.EVERYWHERE
+
+    @property
+    def scope_label(self) -> str:
+        """The Scope column: \"Everywhere\" or the class title. Callers list with ``select_related(\"class_offering\")``."""
+        if self.class_offering_id:
+            return self.class_offering.title
+        return str(self.Scope.EVERYWHERE.label)
+
+    def scope_sentence(self, *, future: bool = False) -> str:
+        """One line on where this code works, in the words the Re-assign modal uses (#764).
+
+        ``future`` is the modal's sentence before the save (\"CODE will work only on Title.\");
+        the default is the message after it (\"CODE now works only on Title.\"). The modal's
+        live rewrite builds the future form in the browser from the same words.
+        """
+        verb = "will work" if future else "now works"
+        if self.class_offering_id:
+            return f"{self.code} {verb} only on {self.class_offering.title}."
+        return f"{self.code} {verb} on every class."
+
+    def reassign(self, *, class_offering: "ClassOffering | None" = None) -> None:
+        """Point this code at one class, or back at every class (#764).
+
+        Only the scope moves: approval, dates, uses and auto apply stay as they are, so a code
+        an admin already approved keeps working the moment it lands on its new target.
+
+        Args:
+            class_offering: The one class the code should work on, or ``None`` for everywhere.
+        """
+        self.class_offering = class_offering
+        self.save(update_fields=["class_offering"])
 
 
 class DiscountCodeRequestQuerySet(models.QuerySet["DiscountCodeRequest"]):
