@@ -250,10 +250,10 @@ def describe_links_into_the_page():
         content = client.get(reverse("hub_equipment_manage", args=[equipment.slug])).content.decode()
         assert f'<a href="{_page(guild)}">Create a new Print Guild orientation</a>' in content
 
-    def it_points_both_running_orientations_screenshots_at_the_page():
+    def it_points_the_running_orientations_screenshots_at_the_page_and_manage_bookings():
         article = next(a for a in help_content.ARTICLES if a["slug"] == "running-orientations")
         pages = [shot["page"] for shot in article["screenshots"] if shot["file"].startswith(("01-", "02-"))]
-        assert pages == ["/guilds/1/orientations/", "/guilds/1/orientations/"]
+        assert pages == ["/guilds/1/orientations/", "/manage/bookings/"]
 
     def it_leaves_no_help_screenshot_on_the_old_tab_url():
         pages = [shot["page"] for article in help_content.ARTICLES for shot in article.get("screenshots", ())]
