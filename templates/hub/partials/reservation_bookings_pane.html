@@ -83,53 +83,7 @@ refund-done, which reloads the body below and closes the refund modal.
       </thead>
       <tbody>
       {% for row in reservation_rows %}
-        {% with r=row.reservation %}
-        <tr data-reservation-row="{{ r.pk }}">
-          <td class="pl-bookings-table__when">{{ r.starts_at|date:"D M j, g:i A" }} to {{ r.ends_at|date:"g:i A" }}</td>
-          {% if is_staff_view %}
-          <td data-label="Member">{% if row.is_own %}You{% else %}{{ r.member.display_name }}{% endif %}</td>
-          {% endif %}
-          <td{% if is_staff_view %} data-label="Equipment"{% endif %} class="pl-bookings-table__orientation">
-            <span class="pl-bookings-table__name">{{ r.equipment.name }}</span>
-            {% if is_staff_view %}
-            <span class="pl-bookings-table__owner">{% if r.equipment.guild %}{{ r.equipment.guild.name }}{% else %}Standalone{% endif %}</span>
-            {% elif r.purpose %}
-            <span class="pl-bookings-table__owner">{{ r.purpose }}</span>
-            {% endif %}
-          </td>
-          {% if is_staff_view %}
-          <td data-label="Purpose" class="pl-bookings-table__purpose">{% if r.purpose %}{{ r.purpose|truncatechars:60 }}{% else %}<span class="hub-text-muted">None</span>{% endif %}</td>
-          {% endif %}
-          <td{% if is_staff_view %} data-label="Status"{% endif %} class="pl-bookings-table__status">
-            {% if r.is_cancelled_by_manager %}
-            <span class="hub-pill hub-pill--neutral" data-reservation-status="cancelled-by-manager">Cancelled by a manager</span>
-            {% elif row.is_undecided %}
-            <span class="hub-pill hub-pill--neutral" data-reservation-status="not-decided">Not decided</span>
-            {% elif r.own_manager_cancel_label %}
-            <span class="hub-pill hub-pill--neutral" data-reservation-status="manager-cancelled{% if r.late_fee_waived %}-fee-waived{% endif %}">{{ r.own_manager_cancel_label }}</span>
-            {% else %}
-            <span class="hub-pill {% if r.status == 'confirmed' %}hub-pill--ok{% elif r.status == 'pending_approval' or r.status == 'pending_payment' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-reservation-status="{{ r.status }}">{{ r.get_status_display }}</span>
-            {% endif %}
-            {% if r.amount_paid_cents %}<span class="hub-pill hub-pill--neutral" data-booking-paid>Paid {{ r.paid_display }}</span>{% endif %}
-            {% if r.refund_state == "full" %}<span class="hub-pill hub-pill--neutral" data-booking-refunded>Refunded</span>{% endif %}
-            {% if row.fee_unpaid %}<span class="hub-pill hub-pill--danger" data-booking-fee>Fee unpaid</span>{% elif row.late_fee %}<span class="hub-pill hub-pill--neutral" data-booking-fee>Fee {{ row.late_fee.get_status_display|lower }}</span>{% endif %}
-          </td>
-          <td class="pl-bookings-table__actions">
-            {# The viewer's own row is named by what and when, not by their own name. #}
-            {% if row.is_own %}
-            {% with when=r.starts_at|date:"D M j, g:i A" %}
-            {% with menu_label="Actions for "|add:r.equipment.name|add:" on "|add:when %}
-            {% include "components/row_actions.html" with menu_include="hub/partials/reservation_booking_row_menu.html" menu_label=menu_label %}
-            {% endwith %}
-            {% endwith %}
-            {% else %}
-            {% with menu_label="Actions for "|add:r.member.display_name %}
-            {% include "components/row_actions.html" with menu_include="hub/partials/reservation_booking_row_menu.html" menu_label=menu_label %}
-            {% endwith %}
-            {% endif %}
-          </td>
-        </tr>
-        {% endwith %}
+      {% include "hub/partials/_reservation_booking_row.html" %}
       {% endfor %}
       </tbody>
     </table>

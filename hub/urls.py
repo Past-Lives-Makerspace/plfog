@@ -7,6 +7,7 @@ from . import (
     feedback_views,
     leadership_views,
     location_views,
+    manage_bookings,
     meeting_views,
     notification_views,
     orientations_views,
@@ -239,6 +240,8 @@ urlpatterns = [
         name="hub_orientation_type_qr",
     ),
     path("orientations/manage/", views.orientations_dashboard, name="hub_orientations_dashboard"),
+    # The Manage Bookings home (#768): one page for everyone who runs orientations or equipment.
+    path("manage/bookings/", manage_bookings.hub_manage_bookings, name="hub_manage_bookings"),
     path("orientations/manage/export/", views.orientations_export, name="hub_orientations_export"),
     path("orientations/manage/add-member/", views.orientation_add_member, name="hub_orientation_add_member"),
     path("orientations/manage/records/", orientations_views.hub_orientation_record, name="hub_orientation_record"),

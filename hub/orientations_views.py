@@ -204,7 +204,8 @@ def hub_orientations(request: HttpRequest) -> HttpResponse:
         _dress_card(
             section,
             bookable=bookable,
-            type_slots=slots_by_type.get(orientation_type.pk, []) if bookable else [],
+            # The same slots the shared builder offers: none inside the type's Booking notice (#766).
+            type_slots=orientation_type.offerable_slots(slots_by_type.get(orientation_type.pk, [])) if bookable else [],
             type_blocks=[
                 block
                 for block in blocks

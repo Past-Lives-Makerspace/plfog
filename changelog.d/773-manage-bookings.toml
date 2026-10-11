@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-11"
+title = "Manage Bookings: one place for everyone who runs orientations or equipment"
+changes = [
+  "If you lead or staff a guild, or manage a piece of equipment, the sidebar now has a Manage Bookings entry, right after Reservations.",
+  "It opens on what needs your reply: orientation requests waiting on you and reservations awaiting your approval, with Confirm, Decline and Approve right there.",
+  "Below that, a card for each guild and piece of equipment you run, with its state, its orientations and links to its Orientations page, Manage panel and Bookings.",
+  "Your own published hours sit at the bottom, with Edit Hours for each guild or tool.",
+]

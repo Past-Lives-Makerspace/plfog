@@ -1,8 +1,0 @@
-# changelog.d/774-discount-code-instructor.toml
-bump = "minor"
-date = "2026-10-11"
-title = "A discount code can cover everything one instructor teaches"
-changes = [
-  "Re-assign now offers a third choice, An instructor's classes: pick the instructor and the code works on every class they teach, including ones added later, and nowhere else.",
-  "Where a class lists its discount codes (the class's Discount Codes tab, the class editor's Discounts step, an instructor's My Discount Codes page), a code aimed at the instructor appears with their name as its scope.",
-]

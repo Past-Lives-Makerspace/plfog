@@ -290,12 +290,15 @@ def request_orientation(
     return booking
 
 
-def _ensure_custom_requestable(owner: Guild | Equipment, orientation_type: OrientationType) -> None:
-    """Raise :class:`OrientationError` unless a custom request may target this owner + type.
+def _ensure_custom_requestable(
+    owner: Guild | Equipment, orientation_type: OrientationType, starts_at: datetime
+) -> None:
+    """Raise :class:`OrientationError` unless a custom request may target this owner + type at ``starts_at``.
 
     The owner's half of :attr:`OrientationType.allows_custom_requests` first (a guild's
     settings row, or the equipment's own switch, #733), so a refusal names the owner; then
-    the type must be one of the owner's active types.
+    the type must be one of the owner's active types; then the time must clear the type's
+    Booking notice (#766), refused here before any slot is written.
     """
     from membership.models import Equipment, GuildOrientationSettings, OrientationError
 
@@ -310,6 +313,7 @@ def _ensure_custom_requestable(owner: Guild | Equipment, orientation_type: Orien
         owned = orientation_type.guild_id == owner.pk
     if not owned or not orientation_type.is_active:
         raise OrientationError("That orientation isn't offered right now.")
+    orientation_type.ensure_outside_booking_notice(starts_at)
 
 
 def _create_custom_slot(orientation_type: OrientationType, starts_at: datetime) -> OrientationSlot:
@@ -355,7 +359,8 @@ def request_custom_orientation(
     Args:
         owner: The guild or equipment to orient for.
         member: The requesting member.
-        starts_at: The proposed start (future, validated by :func:`parse_proposed_time`).
+        starts_at: The proposed start, already in the future; one inside the type's Booking
+            notice (#766) is refused before any slot is written.
         orientation_type: Which of the owner's orientations the member wants.
         note: Optional free-text note passed to the orienter.
 
@@ -364,12 +369,13 @@ def request_custom_orientation(
 
     Raises:
         OrientationError: If the owner isn't taking custom requests, the type isn't
-            offered, or the booking fails. A booking failure deletes the orphan slot
-            before re-raising, so a failed custom request never leaves a dangling slot.
+            offered, the time is inside the Booking notice, or the booking fails. A booking
+            failure deletes the orphan slot before re-raising, so a failed custom request
+            never leaves a dangling slot.
     """
     from membership.models import OrientationError
 
-    _ensure_custom_requestable(owner, orientation_type)
+    _ensure_custom_requestable(owner, orientation_type, starts_at)
     slot = _create_custom_slot(orientation_type, starts_at)
     try:
         return request_orientation(slot, member, note=note)
@@ -606,11 +612,11 @@ def start_custom_orientation_checkout(
 
     Raises:
         OrientationError: If the owner isn't taking custom requests, the type isn't
-            offered, or booking fails.
+            offered, the time is inside the Booking notice, or booking fails.
     """
     from membership.models import OrientationSlot
 
-    _ensure_custom_requestable(owner, orientation_type)
+    _ensure_custom_requestable(owner, orientation_type, starts_at)
     slot = _create_custom_slot(orientation_type, starts_at)
     try:
         return start_orientation_checkout(slot, member, note=note, amount_cents=amount_cents)

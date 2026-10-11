@@ -216,6 +216,17 @@ class DiscountCodeRequestFactory(DjangoModelFactory):
     status = models.DiscountCodeRequest.Status.PENDING
 
 
+class InstructorResourceFactory(DjangoModelFactory):
+    """One link in the Instructor Resources card (#765); pass ``sort_order`` to fix its place."""
+
+    class Meta:
+        model = models.InstructorResource
+
+    label = factory.Sequence(lambda n: f"Resource {n}")
+    url = factory.Sequence(lambda n: f"https://resources.example.com/link-{n}")
+    sort_order = factory.Sequence(lambda n: n)
+
+
 class RegistrationFactory(DjangoModelFactory):
     class Meta:
         model = models.Registration

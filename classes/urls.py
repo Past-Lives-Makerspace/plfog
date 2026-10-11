@@ -391,6 +391,11 @@ urlpatterns = [
         views.admin_teaching_page_settings,
         name="admin_teaching_page_settings",
     ),
+    path(
+        "admin/settings/instructor-resources/",
+        views.admin_instructor_resources,
+        name="admin_instructor_resources",
+    ),
     # Legacy CMS image proxy — must come before the bare slug catch-all below.
     path("_legacy-image/", views_legacy_image.legacy_image, name="legacy_image"),
     # Class QR download (editor-gated) — before the bare slug catch-all below.

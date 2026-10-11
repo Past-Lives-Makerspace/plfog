@@ -10,7 +10,9 @@ hides the Orientations tab otherwise), so there is no empty state here. Context:
       is_oriented — bool, member completed THIS type
       booking     — the member's live booking for this type, or None
       hold        — the member's PENDING_PAYMENT checkout hold for this type, or None
-      slots       — bookable upcoming slots of this type (only when none of the above)
+      slots       — bookable upcoming slots of this type (only when none of the above), none
+                    inside the type's Booking notice (#766)
+      booking_notice_sentence — "Book at least N hours ahead.", or "" with no notice
   The hold and booking blocks and the slot confirm modals are the shared partials
   _orientation_type_state.html and _orientation_slot_confirm.html (#502).
   orientation_all_done — bool, member completed every type in orientation_sections
@@ -47,6 +49,7 @@ hides the Orientations tab otherwise), so there is no empty state here. Context:
         {% if sec.type.is_paid %}<span class="pl-price-chip">{{ sec.type.price_cents|cents_as_price }}</span>{% elif sec.type.is_donation %}<span class="pl-price-chip">{{ sec.type.donation_label }}</span>{% endif %}
         <span class="hub-text-muted" style="font-size:0.85rem;">{{ sec.type.duration_minutes }} min</span>
       </div>
+      {% if sec.booking_notice_sentence %}<p class="pl-orient-card__note">{{ sec.booking_notice_sentence }}</p>{% endif %}
       {% if sec.type.description %}<p class="hub-text-muted" style="margin:0.25rem 0 0.75rem; font-size:0.9rem;">{{ sec.type.description|truncatewords:40 }}</p>{% endif %}
 
       {% if sec.is_oriented %}

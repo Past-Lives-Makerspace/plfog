@@ -110,6 +110,8 @@ from classes.forms import (
     TeachPublishedClassForm,
     TeachWelcomeEmailForm,
     TeachingPageSettingsForm,
+    BaseInstructorResourceFormSet,
+    InstructorResourceFormSet,
     FinishRegistrationForm,
     RegistrationForm,
     RegistrationQuestionForm,
@@ -132,6 +134,7 @@ from classes.models import (
     DiscountCode,
     DiscountCodeRequest,
     DiscountCodeRequestAlreadyDecided,
+    InstructorResource,
     ReadinessItem,
     Registration,
     RegistrationQuestion,
@@ -1834,6 +1837,8 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
             "guild_lead_awaiting_admin": guild_lead_awaiting_admin,
             # Settings, Payouts nudge (#662): until this teacher finishes Stripe signup.
             "payouts_nudge": payouts.needs_nudge(teaching_member),
+            # The Instructor Resources card (#765), last on the page; nothing renders when empty.
+            "instructor_resources": list(InstructorResource.objects.all()),
         },
     )
 
@@ -4186,7 +4191,6 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         "classes/admin/classes_list.html",
         {
             "active_tab": "classes",
-            "pending_count": ClassOffering.objects.pending_review().count(),
             "status_filters": status_filters,
             "selected_status": status_filter,
             "instructors": instructors,
@@ -6144,4 +6148,19 @@ def admin_teaching_page_settings(request: HttpRequest) -> HttpResponse:
         request,
         "classes/admin/teaching_page_settings.html",
         {"active_tab": "teaching_page", "form": form},
+    )
+
+
+@admin_required
+def admin_instructor_resources(request: HttpRequest) -> HttpResponse:
+    """Instructor Resources: the links every instructor sees in a card on their Teaching page."""
+    formset = InstructorResourceFormSet(request.POST or None, queryset=InstructorResource.objects.all(), prefix="links")
+    if request.method == "POST" and formset.is_valid():
+        cast(BaseInstructorResourceFormSet, formset).save_in_page_order()
+        messages.success(request, "Instructor Resources saved.")
+        return redirect("classes:admin_instructor_resources")
+    return render(
+        request,
+        "classes/admin/instructor_resources.html",
+        {"active_tab": "instructor_resources", "formset": formset},
     )

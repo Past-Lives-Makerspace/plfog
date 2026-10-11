@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("classes", "0089_classoffering_video_thumbnail_source_default"),
+        ("classes", "0090_instructorresource"),
         ("membership", "0225_communityevent_discord_pushed_start"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

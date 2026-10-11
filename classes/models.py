@@ -6333,3 +6333,25 @@ class ClassSettings(models.Model):
     def teach_page_faq_intro_html(self) -> SafeString:
         """Whatever the admin wrote above the first question, sanitized; empty when nothing."""
         return mark_safe(self._teach_page_faq_parts()[0].strip())
+
+
+class InstructorResource(models.Model):
+    """A link every instructor sees in the Instructor Resources card on their Teaching page.
+
+    Admins keep the list under Class Settings: the review link, the release and liability
+    forms, whatever instructors ask for next. The rows have no parent, because
+    ``ClassSettings`` is a singleton and a key to it would carry nothing. ``sort_order`` is
+    the row's place on the editor page; the editor renumbers it on every save.
+    """
+
+    label = models.CharField(max_length=100, help_text="The words instructors click, e.g. 'Leave a Google review'.")
+    url = models.URLField(help_text="Where the link opens, in a new tab.")
+    sort_order = models.PositiveIntegerField(
+        default=0, help_text="Ascending; lower shows first. Set from the row's place on the editor page."
+    )
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+
+    def __str__(self) -> str:
+        return self.label
