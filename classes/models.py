@@ -37,7 +37,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.fields.files import ImageFieldFile
-from django.db.models.functions import Cast, Now
+from django.db.models.functions import Cast, Coalesce, Now, NullIf
 from django.utils import timezone
 from django.utils.formats import date_format
 from django.utils.html import strip_tags
@@ -422,6 +422,34 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             )
             .distinct()
         )
+
+    def discount_code_targets(self, *, keep_pk: int | None = None) -> "ClassOfferingQuerySet":
+        """The classes the Re-assign modal offers a discount code (#764): upcoming, never cancelled
+        or archived, by title.
+
+        ``keep_pk`` is the code's current class, kept in the list even once it has started, so the
+        modal opens on what the code is scoped to today instead of a blank pick.
+        """
+        upcoming = self.upcoming().exclude(status__in=[ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED])
+        chosen = Q(pk__in=upcoming.values("pk"))
+        if keep_pk is not None:
+            chosen |= Q(pk=keep_pk)
+        return self.filter(chosen).order_by("title")
+
+    def teaching_members(self, *, keep_pk: int | None = None) -> "models.QuerySet[Member]":
+        """The members who teach at least one of these classes, by name: the Re-assign modal's
+        instructor picker (#764).
+
+        ``keep_pk`` is the code's current instructor, kept even once no class of theirs is left,
+        so the modal opens on what the code is scoped to today instead of a blank pick.
+        """
+        from membership.models import Member
+
+        chosen = Q(pk__in=self.exclude(instructor__isnull=True).values("instructor_id"))
+        if keep_pk is not None:
+            chosen |= Q(pk=keep_pk)
+        by_name = Coalesce(NullIf("preferred_name", Value("")), "full_legal_name")
+        return Member.objects.filter(chosen).order_by(by_name, "pk")
 
     def pending_review(self) -> "ClassOfferingQuerySet":
         return self.filter(status="pending")
@@ -1533,6 +1561,11 @@ class ClassOffering(HeroCropMixin, models.Model):
     )
 
     objects = ClassOfferingQuerySet.as_manager()
+
+    @property
+    def scoped_discount_codes(self) -> "DiscountCodeQuerySet":
+        """This class's own codes and its instructor's (#764), by code: what the per class section lists."""
+        return DiscountCode.objects.scoped_to(self).select_related("class_offering", "instructor").order_by("code")
 
     class Meta:
         ordering = ["-created_at"]
@@ -4172,26 +4205,47 @@ class ClassSession(models.Model):
 
 
 class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
+    def everywhere(self) -> "DiscountCodeQuerySet":
+        """The codes with no scope at all: neither a class nor an instructor, so every class honours them (#764)."""
+        return self.filter(class_offering__isnull=True, instructor__isnull=True)
+
+    def scoped_to(self, offering: "ClassOffering") -> "DiscountCodeQuerySet":
+        """The codes aimed at ``offering`` in particular: its own and its instructor's, never the site wide ones (#764).
+
+        A class with no instructor (a legacy import) has no instructor leg: the clause is built only
+        when there is one, so a null never matches every instructor-null row.
+        """
+        scopes = Q(class_offering=offering)
+        if offering.instructor_id is not None:
+            scopes |= Q(instructor_id=offering.instructor_id)
+        return self.filter(scopes)
+
+    def honoured_on(self, offering: "ClassOffering") -> "DiscountCodeQuerySet":
+        """Every code a registrant may use on ``offering``: the site wide ones plus :meth:`scoped_to` (#764)."""
+        scopes = Q(class_offering__isnull=True, instructor__isnull=True) | Q(class_offering=offering)
+        if offering.instructor_id is not None:
+            scopes |= Q(instructor_id=offering.instructor_id)
+        return self.filter(scopes)
+
     def site_wide_live(self) -> "DiscountCodeQuerySet":
-        """The codes anyone can type at checkout on any class: no class scope, active and approved, by code.
+        """The codes anyone can type at checkout on any class: no scope, active and approved, by code.
 
         The date window and the use cap stay with :meth:`DiscountCode.is_currently_valid` at
         redemption; a code outside its window is still worth listing, dates and all, which is
         what the composer's Discounts step does (#428).
         """
-        return self.filter(class_offering__isnull=True, is_active=True, is_approved=True).order_by("code")
+        return self.everywhere().filter(is_active=True, is_approved=True).order_by("code")
 
     def best_auto_apply_for(self, offering: "ClassOffering", base_price_cents: int) -> "DiscountCode | None":
-        """The class-scoped auto-apply code that drops ``base_price_cents`` furthest.
+        """The auto-apply code aimed at this class (its own or its instructor's) that drops ``base_price_cents`` furthest.
 
         Walks this offering's currently-valid, approved, active auto-apply codes
         and returns the one yielding the lowest final price, or ``None`` when no
-        such code qualifies.
+        such code qualifies. Site wide codes never auto apply.
         """
         best: DiscountCode | None = None
         best_price: int | None = None
-        for code in self.filter(
-            class_offering=offering,
+        for code in self.scoped_to(offering).filter(
             is_active=True,
             is_approved=True,
             auto_apply=True,
@@ -4227,6 +4281,13 @@ class DiscountApprover(NamedTuple):
 
 
 class DiscountCode(models.Model):
+    class Scope(models.TextChoices):
+        """Where a code works (#764). Derived from the scope fields, never stored."""
+
+        EVERYWHERE = "everywhere", "Everywhere"
+        ONE_CLASS = "class", "One class"
+        INSTRUCTOR = "instructor", "An instructor's classes"
+
     code = models.CharField(max_length=40, unique=True, help_text="Uppercase code — normalized on save.")
     description = models.CharField(max_length=255, blank=True, help_text="Admin-only description.")
     discount_pct = models.PositiveIntegerField(null=True, blank=True, help_text="Percent off (0-100).")
@@ -4254,6 +4315,17 @@ class DiscountCode(models.Model):
             "When null, the code is global and any class can use it."
         ),
     )
+    instructor = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="instructor_discount_codes",
+        help_text=(
+            "When set, this code works on every class this member teaches, now and later (#764). "
+            "Never set together with class_offering; both null means the code works everywhere."
+        ),
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -4279,6 +4351,11 @@ class DiscountCode(models.Model):
             models.CheckConstraint(
                 condition=(Q(discount_pct__isnull=False) | Q(discount_fixed_cents__isnull=False)),
                 name="discount_has_value",
+            ),
+            # A code has one scope: a class, an instructor, or neither (everywhere), never both (#764).
+            models.CheckConstraint(
+                condition=(Q(class_offering__isnull=True) | Q(instructor__isnull=True)),
+                name="discount_scope_exclusive",
             ),
         ]
 
@@ -4415,6 +4492,65 @@ class DiscountCode(models.Model):
         """
         self.is_approved = False
         self.save(update_fields=["is_approved"])
+
+    @property
+    def scope(self) -> "DiscountCode.Scope":
+        """Where this code works today: one class, one instructor's classes, or everywhere."""
+        if self.class_offering_id:
+            return self.Scope.ONE_CLASS
+        if self.instructor_id:
+            return self.Scope.INSTRUCTOR
+        return self.Scope.EVERYWHERE
+
+    @property
+    def scope_label(self) -> str:
+        """The Scope column: \"Everywhere\", the class title or the instructor's name.
+
+        Callers list with ``select_related(\"class_offering\", \"instructor\")``.
+        """
+        offering = self.class_offering
+        if offering is not None:
+            return offering.title
+        instructor = self.instructor
+        if instructor is not None:
+            return instructor.display_name
+        return str(self.Scope.EVERYWHERE.label)
+
+    def scope_sentence(self, *, future: bool = False) -> str:
+        """One line on where this code works, in the words the Re-assign modal uses (#764).
+
+        ``future`` is the modal's sentence before the save (\"CODE will work only on Title.\");
+        the default is the message after it (\"CODE now works only on Title.\"). The modal's
+        live rewrite builds the future form in the browser from the same words.
+        """
+        verb = "will work" if future else "now works"
+        offering = self.class_offering
+        if offering is not None:
+            return f"{self.code} {verb} only on {offering.title}."
+        instructor = self.instructor
+        if instructor is not None:
+            return f"{self.code} {verb} on every class {instructor.display_name} teaches, now and later."
+        return f"{self.code} {verb} on every class."
+
+    def reassign(self, *, class_offering: "ClassOffering | None" = None, instructor: "Member | None" = None) -> None:
+        """Point this code at one class, at every class one instructor teaches, or back at every class (#764).
+
+        Only the scope moves: approval, dates, uses and auto apply stay as they are, so a code
+        an admin already approved keeps working the moment it lands on its new target.
+
+        Args:
+            class_offering: The one class the code should work on.
+            instructor: The member whose classes, now and later, the code should work on.
+            Neither means everywhere.
+
+        Raises:
+            ValueError: When both targets are given; a code has one scope.
+        """
+        if class_offering is not None and instructor is not None:
+            raise ValueError("A discount code works on one class or on an instructor's classes, not both.")
+        self.class_offering = class_offering
+        self.instructor = instructor
+        self.save(update_fields=["class_offering", "instructor"])
 
 
 class DiscountCodeRequestQuerySet(models.QuerySet["DiscountCodeRequest"]):

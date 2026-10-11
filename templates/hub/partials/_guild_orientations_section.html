@@ -117,6 +117,15 @@
               hx-on::send-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'">
         Edit Hours
       </button>
+      {# Days Off (#767): the same gate as Edit Hours; the body is HTMX-loaded per person into one shared modal. #}
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-days-off-button
+              @click="document.getElementById('days-off-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'days-off-modal')"
+              hx-get="{% url 'hub_guild_orientation_days_off' guild.pk %}?orienter={{ staffer.pk }}"
+              hx-target="#days-off-modal-body" hx-swap="innerHTML"
+              hx-on::response-error="document.getElementById('days-off-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'"
+              hx-on::send-error="document.getElementById('days-off-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'">
+        Days Off
+      </button>
     </div>
     {% if staffer_rules %}
     <ul class="pl-orient-overview__rules">
@@ -127,6 +136,9 @@
     {% else %}
     <p class="hub-text-muted" style="font-size:0.85rem; margin:0.4rem 0 0;">No hours published</p>
     {% endif %}
+    {% with person_days_off=days_off_by_orienter|get_item:staffer.pk %}
+    {% if person_days_off %}<p class="pl-orient-overview__off" data-days-off-line>Off {% for day_off in person_days_off %}{{ day_off.date|date:"M j" }}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
+    {% endwith %}
   </div>
   {% endif %}
   {% endfor %}
@@ -162,6 +174,8 @@
 {# modal_static: the teleported delete-confirm lives outside this modal's DOM, so click-outside #}
 {# would otherwise close the editor when confirming/cancelling a delete. #}
 {% include "components/modal.html" with modal_id="edit-hours-modal" modal_title="Edit Hours" modal_size="lg" modal_static=True %}
+{# The Days Off modal (#767), shared by every row the same way; static for the same teleported-confirm reason. #}
+{% include "components/modal.html" with modal_id="days-off-modal" modal_title="Days Off" modal_size="md" modal_static=True %}
 {% endif %}
 
 {# Guild Hours (Any Orienter) — legacy shared rules; renders only while such rows exist. #}

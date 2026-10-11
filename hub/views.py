@@ -1242,6 +1242,7 @@ def _guild_orientations_context(
         OrientationSlotForm,
         OrientationTypeFormSet,
     )
+    from hub.day_off_views import days_off_by_orienter
     from membership.models import GuildOrientationSettings
     from membership.permissions import can_edit_orienter_hours, guilds_for_new_orientation
 
@@ -1303,6 +1304,8 @@ def _guild_orientations_context(
         "show_my_hours_card": show_my_hours_card,
         "can_edit_others_hours": can_edit_others_hours,
         "orienter_overview": orienter_overview,
+        # Each person's upcoming days off (#767), the "Off Nov 26, Dec 25." line under their rules.
+        "days_off_by_orienter": days_off_by_orienter(leadership),
         "former_staff_overview": former_staff_overview,
         "guild_rule_formset": (
             guild_rule_formset

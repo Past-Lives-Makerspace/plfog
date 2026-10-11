@@ -73,6 +73,7 @@ from membership.models import (
     OrgLink,
     OrientationAvailability,
     OrientationAvailabilityBlock,
+    OrientationDayOff,
     OrientationError,
     OrientationRecord,
     OrientationSlot,
@@ -3488,6 +3489,55 @@ class OrientationTimesBulkCancelForm(forms.Form):
         cleaned["slot_pks"] = slot_pks
         cleaned["window_pks"] = window_pks
         return cleaned
+
+
+class OrientationDayOffForm(forms.ModelForm):
+    """One day off for one orienter (#767): the date and an optional note.
+
+    The person is fixed by the view (the modal is per person), never posted. The date input
+    carries the impact preview: on change it asks ``preview_url`` for the day's count line and
+    Save label (``hub/partials/_orienter_day_off_impact.html``). A past date and a repeat of a
+    saved day off are refused with the words the modal shows.
+    """
+
+    class Meta:
+        model = OrientationDayOff
+        fields = ["date", "note"]
+        labels = {"date": "Day off", "note": "Note"}
+        widgets = {
+            "date": forms.DateInput(
+                # Rule 14: the whole field opens the picker, and .pl-slot-date inverts the black
+                # picker icon on the dark theme, as the one off slot date does.
+                attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
+            ),
+            "note": forms.TextInput(attrs={"placeholder": "Optional: a word on why"}),
+        }
+
+    def __init__(self, *args: Any, orienter: Member, preview_url: str, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.orienter = orienter
+        self.fields["date"].widget.attrs.update(
+            {"hx-get": preview_url, "hx-trigger": "change", "hx-target": "#day-off-impact", "hx-swap": "outerHTML"}
+        )
+
+    def clean_date(self) -> date:
+        day: date = self.cleaned_data["date"]
+        if day < timezone.localdate():
+            raise forms.ValidationError("Pick today or a day ahead.")
+        if OrientationDayOff.objects.filter(orienter=self.orienter, date=day).exists():
+            raise forms.ValidationError("That day is already off.")
+        return day
+
+    def chosen_day(self) -> date | None:
+        """The date a bound form carries once it cleaned, else None (unbound, blank, past or repeated)."""
+        if not self.is_bound:
+            return None
+        self.is_valid()
+        return self.cleaned_data["date"] if "date" in self.cleaned_data else None
+
+    def save(self, commit: bool = True) -> OrientationDayOff:
+        self.instance.orienter = self.orienter
+        return super().save(commit=commit)
 
 
 class CommunityEventForm(forms.ModelForm):

@@ -185,3 +185,62 @@ def describe_admin_discount_codes():
         client.force_login(member_user)
         response = client.get(reverse("classes:admin_discount_codes"))
         assert response.status_code == 403
+
+    def describe_the_scope_and_actions_columns():
+        """#764: a Scope column before Active, and one ... menu per row in place of the loose buttons."""
+
+        def it_shows_everywhere_or_the_class_title_under_scope(admin_user, client, db):
+            from classes.factories import ClassOfferingFactory, DiscountCodeFactory
+
+            client.force_login(admin_user)
+            DiscountCodeFactory(code="GLOBAL10", class_offering=None)
+            DiscountCodeFactory(code="BAT30", class_offering=ClassOfferingFactory(title="Bat Carving Night"))
+            response = client.get(reverse("classes:admin_discount_codes"))
+            html = response.content.decode()
+            assert "<th>Scope</th>" in html
+            assert html.index("<th>Scope</th>") < html.index(">Active<")
+            assert "<td>Everywhere</td>" in html
+            assert "<td>Bat Carving Night</td>" in html
+
+        def it_shows_the_instructors_name_under_scope(admin_user, client, db):
+            from classes.factories import DiscountCodeFactory, InstructorFactory
+
+            client.force_login(admin_user)
+            DiscountCodeFactory(
+                code="JACQUELINE30",
+                class_offering=None,
+                instructor=InstructorFactory(full_legal_name="Jacqueline Sowell"),
+            )
+            html = client.get(reverse("classes:admin_discount_codes")).content.decode()
+            assert "<td>Jacqueline Sowell</td>" in html
+
+        def it_puts_one_actions_menu_per_row_and_no_loose_buttons(admin_user, client, db):
+            from classes.factories import DiscountCodeFactory
+
+            client.force_login(admin_user)
+            approved = DiscountCodeFactory(code="YES10", is_approved=True)
+            pending = DiscountCodeFactory(code="WAIT10", is_approved=False)
+            response = client.get(reverse("classes:admin_discount_codes"))
+            html = response.content.decode()
+            assert "<th>Actions</th>" in html
+            assert html.count('class="pl-row-menu"') == 2
+            assert 'aria-label="Actions for YES10"' in html
+            assert 'aria-label="Actions for WAIT10"' in html
+            assert "admin-actions" not in html
+            # The menu keeps every old action, each at its old endpoint, plus Re-assign.
+            assert html.count(reverse("classes:admin_discount_code_approve", kwargs={"pk": approved.pk})) == 1
+            assert ">Unapprove</button>" in html
+            assert ">Approve</button>" in html
+            assert reverse("classes:admin_discount_code_edit", kwargs={"pk": pending.pk}) in html
+            assert reverse("classes:admin_discount_code_reassign", kwargs={"pk": pending.pk}) in html
+            assert reverse("classes:admin_discount_code_delete", kwargs={"pk": pending.pk}) in html
+
+        def it_renders_one_shared_reassign_modal(admin_user, client, db):
+            from classes.factories import DiscountCodeFactory
+
+            client.force_login(admin_user)
+            DiscountCodeFactory()
+            DiscountCodeFactory()
+            html = client.get(reverse("classes:admin_discount_codes")).content.decode()
+            assert html.count('id="reassign-code-body"') == 1
+            assert html.count('hx-target="#reassign-code-body"') == 2

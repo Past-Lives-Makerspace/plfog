@@ -21,7 +21,8 @@ Example: {% include "classes/_components/class_discount_codes_section.html"
   New codes need approval before they go live.
 </p>
 <div class="hub-card" style="padding:0.75rem 1rem;">
-  {% with codes=offering.discount_codes.all %}
+  {# This class's own codes and its instructor's (#764); an instructor's carries their name. #}
+  {% with codes=offering.scoped_discount_codes %}
     {% if codes %}
       <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
         <thead>
@@ -37,7 +38,7 @@ Example: {% include "classes/_components/class_discount_codes_section.html"
         <tbody>
           {% for code in codes %}
             <tr style="border-bottom:1px solid var(--hub-card-border);">
-              <td style="padding:8px;"><code style="font-weight:700;">{{ code.code }}</code></td>
+              <td style="padding:8px;"><code style="font-weight:700;">{{ code.code }}</code>{% if code.instructor_id %} <span class="hub-pill hub-pill--neutral" data-scope-instructor>{{ code.scope_label }}</span>{% endif %}</td>
               <td style="padding:8px;">
                 {% if code.discount_pct %}{{ code.discount_pct }}% off
                 {% elif code.discount_fixed_cents %}{{ code.discount_fixed_cents|cents_as_price }} off

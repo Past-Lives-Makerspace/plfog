@@ -12817,6 +12817,60 @@ class OrientationAvailability(models.Model):
         return [start for start, _end in self.carve_spans(day)]
 
 
+class OrientationDayOffQuerySet(models.QuerySet):
+    def upcoming(self) -> OrientationDayOffQuerySet:
+        """Days off from today on, soonest first: the ones that still change what members can book."""
+        return self.filter(date__gte=timezone.localdate()).order_by("date")
+
+    def for_orienters(self, members: Iterable[Member]) -> OrientationDayOffQuerySet:
+        """The days off of these people, for one card's lines in one query."""
+        return self.filter(orienter__in=[member.pk for member in members])
+
+    def within(self, start: date_type, end: date_type) -> OrientationDayOffQuerySet:
+        """Days off on or after ``start`` and before ``end`` (the generation horizon)."""
+        return self.filter(date__gte=start, date__lt=end)
+
+
+class OrientationDayOff(models.Model):
+    """A day an orienter is away (#767): none of their orientation times that day can be booked.
+
+    A day off belongs to the person, not a guild: one person, one calendar, so it covers
+    their hours in every guild and on every piece of equipment. Generation skips the day
+    for every rule of theirs (``orientations._horizon_spans``), and saving one cancels the
+    day's upcoming times they already had (``orientations.cancel_day_off``). A shared rule
+    with no orienter is never affected. Deleting the row lets the next generation run offer
+    the day's unbooked generated times again; a time that emailed members stays cancelled.
+    """
+
+    orienter = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="orientation_days_off",
+        help_text="The person who is away that day.",
+    )
+    date = models.DateField(
+        help_text="The local calendar day off. None of this person's orientation times that day can be booked."
+    )
+    note = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="Optional: a word on why, for the person and their leads. Members never see it.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the day off was saved.")
+
+    objects = OrientationDayOffQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["date"]
+        constraints = [
+            models.UniqueConstraint(fields=["orienter", "date"], name="uq_orientdayoff_orienter_date"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.orienter} off {self.date:%Y-%m-%d}"
+
+
 class OrientationAvailabilityBlockQuerySet(models.QuerySet):
     def upcoming(self) -> OrientationAvailabilityBlockQuerySet:
         """Uncancelled blocks with time still remaining (a partly elapsed block can still book its tail)."""

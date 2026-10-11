@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-11"
+title = "Orienters can mark a day off"
+changes = [
+  "On a guild's Orientations page, or an equipment Manage page, each orienter now has a Days Off button beside Edit Hours. Pick a date and none of your orientation times that day can be booked, in every guild and on every piece of equipment, however far ahead the day is.",
+  "Saving a day off cancels every time you already had that day. Anyone booked gets the usual cancellation email, and the button tells you how many before you save.",
+  "Delete a day off and your regular hours that day come back with the next overnight update. Your upcoming days off are listed under your hours.",
+]
