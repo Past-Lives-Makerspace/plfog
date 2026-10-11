@@ -574,10 +574,12 @@ def _orientation_sections(
     cannot drift: completed comes from the one resolver (a completed booking or a
     hand-entered record, issue #465), live booking / pending-payment hold from the
     member's bookings on exactly these types; the (caller-filtered, ordered) slot
-    lists render only when the type is open for the member. ``slot_cap`` can bound
-    each type's list; both pages pass ``None`` (the five per page pager bounds the
-    view). Extras are layered on by each caller: the guild view adds availability blocks
-    and custom requests, the equipment page adds custom requests.
+    lists render only when the type is open for the member, and never a slot inside the
+    type's Booking notice (#766, :meth:`OrientationType.offerable_slots`), whose member
+    line rides along as ``booking_notice_sentence``. ``slot_cap`` can bound each type's
+    list; both pages pass ``None`` (the five per page pager bounds the view). Extras are
+    layered on by each caller: the guild view adds availability blocks and custom
+    requests, the equipment page adds custom requests.
     """
     from core.models import SiteConfiguration
     from membership.late_cancel import booking_cancel_warning, booking_sentence, policy_for_type
@@ -615,7 +617,9 @@ def _orientation_sections(
         done = orientation_type.pk in completed_type_ids
         record = None if orientation_type.pk in booked_type_ids else record_by_type.get(orientation_type.pk)
         open_for_type = not (done or live_booking or hold)
-        type_slots = slots_by_type.get(orientation_type.pk, []) if open_for_type else []
+        type_slots = (
+            orientation_type.offerable_slots(slots_by_type.get(orientation_type.pk, [])) if open_for_type else []
+        )
         policy = policy_for_type(orientation_type, site=site)
         # The cancel modal's fee line (#456); "" otherwise, so the modal is unchanged.
         late_cancel_warning = booking_cancel_warning(live_booking, policy) if live_booking is not None else ""
@@ -627,6 +631,8 @@ def _orientation_sections(
                 "booking": live_booking,
                 "hold": hold,
                 "slots": type_slots[:slot_cap] if slot_cap is not None else type_slots,
+                # Under length and price on the guild page and the card (#766); "" with no notice.
+                "booking_notice_sentence": orientation_type.booking_notice_sentence,
                 # The booking prompts append this; "" when no late fee applies to the type.
                 "late_cancel_sentence": booking_sentence(policy),
                 "late_cancel_warning": late_cancel_warning,

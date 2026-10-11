@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
@@ -173,3 +174,41 @@ def describe_parse_proposed_time():
         def it_raises_a_future_error():
             with pytest.raises(OrientationError, match="already past"):
                 orientations.parse_proposed_time("2000-01-01", "10:00")
+
+
+def describe_booking_notice_on_custom_requests():
+    """A custom time inside the guild's Booking notice (#766) is refused before any slot is written."""
+
+    def _guild_with_notice(hours: int = 24):
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(
+            guild=guild, is_enabled=True, allow_custom_requests=True, booking_notice_hours=hours
+        )
+        return guild, OrientationTypeFactory(guild=guild)
+
+    def it_refuses_a_time_inside_the_notice_with_the_member_sentence():
+        guild, orientation_type = _guild_with_notice()
+        with pytest.raises(OrientationError, match=r"^Book at least 24 hours ahead\.$"):
+            orientations.request_custom_orientation(
+                guild, _member(), timezone.now() + timedelta(hours=23), orientation_type=orientation_type
+            )
+        assert not OrientationSlot.objects.filter(guild=guild).exists()
+
+    def it_books_a_time_past_the_notice():
+        guild, orientation_type = _guild_with_notice()
+        booking = orientations.request_custom_orientation(
+            guild, _member(), timezone.now() + timedelta(hours=25), orientation_type=orientation_type
+        )
+        assert booking.status == OrientationBooking.Status.REQUESTED
+
+    @patch("billing.stripe_utils.create_checkout_session")
+    def it_refuses_a_paid_time_inside_the_notice_before_any_checkout(mock_create):
+        guild, orientation_type = _guild_with_notice()
+        orientation_type.price_cents = 1500
+        orientation_type.save(update_fields=["price_cents"])
+        with pytest.raises(OrientationError, match="Book at least 24 hours ahead."):
+            orientations.start_custom_orientation_checkout(
+                guild, _member(), timezone.now() + timedelta(hours=23), orientation_type=orientation_type
+            )
+        mock_create.assert_not_called()
+        assert not OrientationSlot.objects.filter(guild=guild).exists()

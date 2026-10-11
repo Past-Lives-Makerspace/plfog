@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from membership.models import Member, OrientationBooking
 from tests.membership.factories import (
+    EquipmentFactory,
     GuildFactory,
     GuildOrientationSettingsFactory,
     MemberFactory,
@@ -372,3 +373,88 @@ def describe_orientation_cancel_mine():
         booking = OrientationBookingFactory(member=user.member)
         client.login(username="cm3", password="pass")
         assert client.get(reverse("hub_orientation_cancel_mine", args=[booking.pk])).status_code == 405
+
+
+def describe_booking_notice():
+    """A guild's Booking notice (#766) on the member roads: hidden inside it, refused inside it, open past it."""
+
+    # The member line as the page renders it; the changelog never renders inside this element.
+    NOTICE_LINE = '<p class="pl-orient-card__note">Book at least 24 hours ahead.</p>'
+    ANY_NOTICE_LINE = '<p class="pl-orient-card__note">Book at least'
+
+    def _guild_with_notice(hours: int):
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True, booking_notice_hours=hours)
+        return guild
+
+    def _slot_ahead(guild, hours: int):
+        starts = timezone.now() + timedelta(hours=hours)
+        return OrientationSlotFactory(guild=guild, starts_at=starts, ends_at=starts + timedelta(hours=1))
+
+    def _book(client: Client, slot):
+        return client.post(reverse("hub_orientation_book", args=[slot.pk]), follow=True)
+
+    def it_hides_a_slot_inside_the_notice_on_the_guild_page_and_the_orientations_card(client: Client):
+        _user_with_role("bn_hide")
+        guild = _guild_with_notice(24)
+        inside, past = _slot_ahead(guild, 23), _slot_ahead(guild, 25)
+        client.login(username="bn_hide", password="pass")
+        for url in (reverse("hub_guild_detail", args=[guild.slug]), reverse("hub_orientations")):
+            content = client.get(url).content.decode()
+            assert f"'book-slot-{past.pk}'" in content
+            assert f"'book-slot-{inside.pk}'" not in content
+
+    def it_refuses_a_post_for_a_slot_inside_the_notice(client: Client):
+        user = _user_with_role("bn_refuse")
+        slot = _slot_ahead(_guild_with_notice(24), 23)
+        client.login(username="bn_refuse", password="pass")
+        response = _book(client, slot)
+        assert any(str(m) == "Book at least 24 hours ahead." for m in response.context["messages"])
+        assert not OrientationBooking.objects.filter(member=user.member).exists()
+
+    def it_books_a_slot_past_the_notice_as_today(client: Client):
+        user = _user_with_role("bn_book")
+        slot = _slot_ahead(_guild_with_notice(24), 25)
+        client.login(username="bn_book", password="pass")
+        _book(client, slot)
+        assert OrientationBooking.objects.filter(
+            member=user.member, slot=slot, status=OrientationBooking.Status.REQUESTED
+        ).exists()
+
+    def it_lets_a_staffer_add_a_member_inside_the_notice(client: Client):
+        _user_with_role("bn_staff", fog_role=Member.FogRole.ADMIN)
+        slot = _slot_ahead(_guild_with_notice(24), 1)
+        member = MemberFactory()
+        client.login(username="bn_staff", password="pass")
+        client.post(reverse("hub_orientation_add_member"), {"member": member.pk, "slot": slot.pk})
+        assert OrientationBooking.objects.filter(member=member, slot=slot).exists()
+
+    def it_shows_the_member_line_on_both_pages_only_with_a_notice(client: Client):
+        _user_with_role("bn_line")
+        with_notice, without = _guild_with_notice(24), _guild_with_notice(0)
+        _slot_ahead(with_notice, 30)
+        _slot_ahead(without, 30)
+        client.login(username="bn_line", password="pass")
+        assert NOTICE_LINE in client.get(reverse("hub_guild_detail", args=[with_notice.slug])).content.decode()
+        assert ANY_NOTICE_LINE not in client.get(reverse("hub_guild_detail", args=[without.slug])).content.decode()
+        orientations_page = client.get(reverse("hub_orientations")).content.decode()
+        assert orientations_page.count(NOTICE_LINE) == 1
+        assert orientations_page.count(ANY_NOTICE_LINE) == 1
+
+    def it_leaves_an_equipment_orientation_alone(client: Client):
+        user = _user_with_role("bn_equip")
+        equipment = EquipmentFactory(guild=_guild_with_notice(24))
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment)
+        starts = timezone.now() + timedelta(hours=1)
+        slot = OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+        )
+        client.login(username="bn_equip", password="pass")
+        content = client.get(reverse("hub_orientations")).content.decode()
+        assert f"'book-slot-{slot.pk}'" in content
+        assert ANY_NOTICE_LINE not in content
+        _book(client, slot)
+        assert OrientationBooking.objects.filter(member=user.member, slot=slot).exists()

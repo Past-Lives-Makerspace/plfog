@@ -758,3 +758,59 @@ def describe_guild_late_cancel_fee():
         assert 'name="late_cancel_fee"' not in client.get(url).content.decode()
         _late_fees(True)
         assert 'name="late_cancel_fee"' in client.get(url).content.decode()
+
+
+def describe_guild_booking_notice():
+    """The Booking card's Booking notice (hours), saved with the card like its neighbours (#766)."""
+
+    def _lead(client: Client, username: str):
+        user = _user_with_role(username)
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username=username, password="pass")
+        return guild
+
+    def _save_url(guild) -> str:
+        return reverse("hub_guild_orientation_edit", args=[guild.pk])
+
+    def _notice(guild) -> int:
+        return GuildOrientationSettings.objects.get(guild=guild).booking_notice_hours
+
+    def it_renders_on_the_booking_card_at_zero_by_default(client: Client):
+        guild = _lead(client, "bn_render")
+        content = client.get(reverse("hub_guild_orientations", args=[guild.pk])).content.decode()
+        assert 'name="booking_notice_hours"' in content
+        assert "Booking notice (hours)" in content
+        assert "Members must book at least this many hours ahead. 0 means any time before it starts." in content
+        assert _notice(guild) == 0
+
+    def it_autosaves_the_notice_with_the_card(client: Client):
+        guild = _lead(client, "bn_save")
+        response = client.post(
+            _save_url(guild), _settings_payload(is_enabled="on", booking_notice_hours="24"), HTTP_X_AUTOSAVE="1"
+        )
+        assert response.status_code == 200
+        assert response.json()["saved"] is True
+        assert _notice(guild) == 24
+
+    def it_refuses_a_negative_value(client: Client):
+        guild = _lead(client, "bn_negative")
+        response = client.post(
+            _save_url(guild), _settings_payload(is_enabled="on", booking_notice_hours="-1"), HTTP_X_AUTOSAVE="1"
+        )
+        assert response.status_code == 422
+        assert "booking_notice_hours" in response.json()["errors"]
+        assert _notice(guild) == 0
+
+    def it_treats_blank_as_no_notice(client: Client):
+        guild = _lead(client, "bn_blank")
+        GuildOrientationSettingsFactory(guild=guild, booking_notice_hours=24)
+        response = client.post(_save_url(guild), _settings_payload(is_enabled="on", booking_notice_hours=""))
+        assert response.status_code == 302
+        assert _notice(guild) == 0
+
+    def it_leaves_the_notice_alone_when_the_field_is_not_posted(client: Client):
+        guild = _lead(client, "bn_absent")
+        GuildOrientationSettingsFactory(guild=guild, booking_notice_hours=24)
+        response = client.post(_save_url(guild), _settings_payload(is_enabled="on"))
+        assert response.status_code == 302
+        assert _notice(guild) == 24

@@ -3,10 +3,11 @@ One orientation's card on the Orientations page (#502). The frame, photo strip a
 come from the Reservations card (.hub-card.pl-equip-card); the .pl-orient-card__* rules add
 the owner line, the meta line, the member's state and the next times. Context:
   sec      — a section from hub.orientations_views.hub_orientations: the shared builder's
-             type / is_oriented / record / booking / hold / slots (up to three), plus
-             blocks (up to three open windows), more_times, all_full (every posted time is
-             taken), paused_message, custom_form, custom_amount_form (a donation
-             type's amount input, else None), image and image_position
+             type / is_oriented / record / booking / hold / slots (up to three, none inside
+             the type's Booking notice, #766) / booking_notice_sentence, plus blocks (up to
+             three open windows), more_times, all_full (every posted time is taken),
+             paused_message, custom_form, custom_amount_form (a donation type's amount
+             input, else None), image and image_position
   next_url — this page's own path, posted as ``next`` by every control so the member
              lands back here
 Exactly one state renders: completed, the hold or booking (shared partial), paused, or open.
@@ -38,6 +39,7 @@ No stretched name link: the Book buttons are the tap targets.
       <span>{{ sec.type.duration_minutes }} min</span>
       {% if sec.type.is_paid %}<span class="pl-price-chip">{{ sec.type.price_cents|cents_as_price }}</span>{% elif sec.type.is_donation %}<span class="pl-price-chip">{{ sec.type.donation_label }}</span>{% else %}<span>Free</span>{% endif %}
     </div>
+    {% if sec.booking_notice_sentence %}<p class="pl-orient-card__note">{{ sec.booking_notice_sentence }}</p>{% endif %}
 
     {% if sec.is_oriented %}
     <p class="pl-orient-card__booked">✓ You've completed this orientation.</p>

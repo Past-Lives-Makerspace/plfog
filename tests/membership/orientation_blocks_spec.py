@@ -311,3 +311,44 @@ def describe_start_block_orientation_checkout():
             )
         assert not OrientationSlot.objects.filter(block=block).exists()
         assert not OrientationBooking.objects.exists()
+
+
+def describe_booking_notice_on_windows():
+    """A window start inside the guild's Booking notice (#766) is neither offered nor taken."""
+
+    def _window_across_the_notice():
+        """A 3 hour window opening 23 hours from now, at a guild whose notice is 24 hours."""
+        opens = (timezone.now() + timedelta(hours=23)).replace(second=0, microsecond=0)
+        block = OrientationAvailabilityBlockFactory(starts_at=opens)
+        settings_obj = block.guild.orientation_settings
+        settings_obj.booking_notice_hours = 24
+        settings_obj.save(update_fields=["booking_notice_hours"])
+        return block, OrientationTypeFactory(guild=block.guild, duration_minutes=60)
+
+    def it_offers_no_start_inside_the_notice():
+        block, orientation_type = _window_across_the_notice()
+        starts = block.valid_starts_for(orientation_type)
+        # The notice falls an hour into the window: the quarter hours before it go, the rest stay.
+        assert block.starts_at + timedelta(minutes=45) not in starts
+        assert block.starts_at + timedelta(minutes=75) in starts
+        assert starts[-1] == block.ends_at - timedelta(minutes=60)
+
+    def it_refuses_a_start_inside_the_notice_with_the_member_sentence():
+        block, orientation_type = _window_across_the_notice()
+        with pytest.raises(OrientationError, match=r"^Book at least 24 hours ahead\.$"):
+            block.ensure_start_valid(orientation_type, block.starts_at + timedelta(minutes=15))
+
+    def it_carves_nothing_for_a_booking_inside_the_notice():
+        block, orientation_type = _window_across_the_notice()
+        with pytest.raises(OrientationError, match="Book at least 24 hours ahead."):
+            orientations.request_block_orientation(
+                block, MemberFactory(), block.starts_at + timedelta(minutes=15), orientation_type=orientation_type
+            )
+        assert not OrientationSlot.objects.filter(block=block).exists()
+
+    def it_books_a_start_past_the_notice():
+        block, orientation_type = _window_across_the_notice()
+        booking = orientations.request_block_orientation(
+            block, MemberFactory(), block.starts_at + timedelta(minutes=90), orientation_type=orientation_type
+        )
+        assert booking.status == OrientationBooking.Status.REQUESTED
