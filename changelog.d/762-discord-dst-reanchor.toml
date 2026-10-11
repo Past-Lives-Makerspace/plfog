@@ -1,0 +1,8 @@
+bump = "patch"
+date = "2026-10-10"
+title = "Repeating events keep their time in Discord"
+changes = [
+  "When the clocks change, a repeating event in Discord's Events tab stays at the time you set instead of shifting an hour.",
+  "A repeating event edited after its first date reaches Discord again. Two guild meetings had been failing to update there since their first dates.",
+  "A Discord event that was removed by hand is recreated from the portal instead of the update failing quietly.",
+]

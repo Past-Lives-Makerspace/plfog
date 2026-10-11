@@ -90,10 +90,13 @@ def describe_retry_discord_event_pushes():
             discord_event_id="series1",
             discord_sync_state=_State.SYNCED,
         )
-        for recurrence, start, discord_id in [
-            (CommunityEvent.Recurrence.MONTHLY, noon, "series2"),
-            (CommunityEvent.Recurrence.WEEKLY, evening, "series3"),
-            (CommunityEvent.Recurrence.NONE, evening, "one1"),
+        # Seen from Mon 2026-10-05: the noon monthly's next date is Fri Nov 6 (PST) and the
+        # weekly evening's is Fri Oct 9 (PDT); each was last pushed at exactly that, so
+        # neither has drifted.
+        for recurrence, start, discord_id, pushed_start in [
+            (CommunityEvent.Recurrence.MONTHLY, noon, "series2", timezone.make_aware(datetime(2026, 11, 6, 12, 0))),
+            (CommunityEvent.Recurrence.WEEKLY, evening, "series3", timezone.make_aware(datetime(2026, 10, 9, 18, 0))),
+            (CommunityEvent.Recurrence.NONE, evening, "one1", evening),
         ]:
             CommunityEventFactory(
                 recurrence=recurrence,
@@ -101,11 +104,53 @@ def describe_retry_discord_event_pushes():
                 ends_at=start + timedelta(hours=1),
                 discord_event_id=discord_id,
                 discord_sync_state=_State.SYNCED,
+                discord_pushed_start=pushed_start,
             )
         pushed_pks: list[int] = []
         with (
             patch.object(DiscordScheduledEventsClient, "from_settings", return_value=_enabled_client()),
             patch.object(CommunityEvent, "push_to_discord", _record_pushes(pushed_pks)),
+            patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 10, 5, 9, 0))),
         ):
             call_command("retry_discord_event_pushes")
         assert pushed_pks == [stale.pk]
+
+    def it_reanchors_a_native_series_after_the_clocks_change():
+        # Clay Play pushed in October sits at 01:00 UTC on Discord; its first November
+        # occurrence is 02:00 UTC. Pushed. A series already at the right UTC time is left
+        # alone; one pushed before discord_pushed_start existed is re-anchored once.
+        _turn_sync_on()
+        anchor = timezone.make_aware(datetime(2026, 10, 6, 18, 0))
+        drifted = CommunityEventFactory(
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+            starts_at=anchor,
+            ends_at=anchor + timedelta(hours=2),
+            discord_event_id="clay",
+            discord_sync_state=_State.SYNCED,
+            discord_pushed_start=timezone.make_aware(datetime(2026, 10, 27, 18, 0)),
+        )
+        current = CommunityEventFactory(
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+            starts_at=anchor,
+            ends_at=anchor + timedelta(hours=2),
+            discord_event_id="fine",
+            discord_sync_state=_State.SYNCED,
+            discord_pushed_start=timezone.make_aware(datetime(2026, 11, 3, 18, 0)),
+        )
+        legacy = CommunityEventFactory(
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+            starts_at=anchor,
+            ends_at=anchor + timedelta(hours=2),
+            discord_event_id="old",
+            discord_sync_state=_State.SYNCED,
+            discord_pushed_start=None,
+        )
+        pushed_pks: list[int] = []
+        with (
+            patch.object(DiscordScheduledEventsClient, "from_settings", return_value=_enabled_client()),
+            patch.object(CommunityEvent, "push_to_discord", _record_pushes(pushed_pks)),
+            patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 11, 2, 9, 0))),
+        ):
+            call_command("retry_discord_event_pushes")
+        assert set(pushed_pks) == {drifted.pk, legacy.pk}
+        assert current.pk not in pushed_pks

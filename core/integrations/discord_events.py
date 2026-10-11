@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
 import httpx
@@ -39,8 +40,6 @@ import httpx
 from core.events.discord_dm import API_BASE, _auth_headers, bot_disabled, bot_token
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from django.contrib.auth.models import User
 
     from membership.models import CommunityEvent
@@ -234,26 +233,74 @@ def _build_description(event: CommunityEvent) -> str:
     return "\n\n".join(parts)
 
 
-def _recurrence_rule_for(event: CommunityEvent) -> dict[str, Any] | None:
-    """Map a :class:`CommunityEvent` recurrence to a Discord ``recurrence_rule`` dict.
+def _crosses_utc_date_line(event: CommunityEvent) -> bool:
+    """Whether the event's local wall-clock start lands on the next calendar day in UTC under
+    either of the zone's offsets (standard or daylight), so under any clock change.
+
+    Checked against both offsets, not just the anchor's: a 4:30 PM Portland start is 23:30
+    UTC the same day in summer and 00:30 UTC the next day in winter, and a monthly rule that
+    held in July would snap to the wrong week in November.
+    """
+    from django.utils import timezone
+
+    local = timezone.localtime(event.starts_at)
+    naive = local.replace(tzinfo=None)
+    for probe in (
+        datetime(local.year, 1, 1, 12, tzinfo=local.tzinfo),
+        datetime(local.year, 7, 1, 12, tzinfo=local.tzinfo),
+    ):
+        offset = probe.utcoffset()
+        if offset is not None and (naive - offset).date() != local.date():
+            return True
+    return False
+
+
+def pushes_as_native_series(event: CommunityEvent) -> bool:
+    """Whether Discord can hold this event as one recurring Scheduled Event (a rule), as
+    opposed to the single-next-occurrence fallback.
+
+    Weekly always can. Monthly can when the start stays on its local calendar day in UTC all
+    year (see :func:`_crosses_utc_date_line`); the other cadences (every-2/3/6-months,
+    twice-a-month, yearly-by-weekday) never can. The cron uses this to catch a series that
+    was pushed as a rule before the map tightened.
+    """
+    from membership.models import CommunityEvent as CE
+
+    if event.recurrence == CE.Recurrence.WEEKLY:
+        return True
+    return event.recurrence == CE.Recurrence.MONTHLY and not _crosses_utc_date_line(event)
+
+
+def _recurrence_rule_for(event: CommunityEvent, start: datetime) -> dict[str, Any] | None:
+    """Map a :class:`CommunityEvent` recurrence to a Discord ``recurrence_rule`` dict anchored
+    at ``start``, the instant being sent as ``scheduled_start_time``.
 
     Returns a dict for the cadences Discord natively expresses (weekly, and monthly-by-weekday
-    when the start sits on the same calendar day in UTC as in Portland) and ``None`` for a
-    one-off event and for the cadences it cannot express (every-2/3/6-months, twice-a-month,
-    yearly-by-weekday, and a monthly evening series that crosses the UTC date line) — a
-    ``None`` routes the caller to the single-next-occurrence fallback (§5.3). Weekday encoding
-    is ``0=Monday … 6=Sunday`` (Python ``weekday()`` == Discord's convention). See the module
-    docstring: these limits are build-time-verify.
+    when the start sits on the same calendar day in UTC as in Portland all year) and ``None``
+    for a one-off event and for the cadences it cannot express — a ``None`` routes the caller
+    to the single-next-occurrence fallback (§5.3). Weekday encoding is ``0=Monday … 6=Sunday``
+    (Python ``weekday()`` == Discord's convention). See the module docstring: these limits are
+    build-time-verify.
 
-    Both halves of the rule are computed from the **UTC** start, never local time: Discord
-    expands the rule on the UTC calendar from the ``scheduled_start_time`` it is sent (dateutil
-    rrule semantics, reproduced in the spec's ``_discord_series`` and checked against a live
-    series 2026-10-09), and a Portland evening event from 5 PM PDT (4 PM PST) onward crosses
-    the UTC date line, so its UTC weekday is one day later than its local weekday. Sending the
-    local weekday made Discord snap the whole series a day early (a Thursday 5–8 PM meeting
-    displayed as Wednesday 5–8 PM, 2026-07-28).
+    Both halves of the rule are computed from the **UTC** value of ``start``, never local
+    time and never the series anchor: Discord expands the rule on the UTC calendar from the
+    ``scheduled_start_time`` it is sent (dateutil rrule semantics, reproduced in the spec's
+    ``_discord_series`` and checked against a live series 2026-10-09), and a Portland evening
+    event from 5 PM PDT (4 PM PST) onward crosses the UTC date line, so its UTC weekday is one
+    day later than its local weekday. Sending the local weekday made Discord snap the whole
+    series a day early (a Thursday 5–8 PM meeting displayed as Wednesday 5–8 PM, 2026-07-28).
+    The rule follows the pushed start rather than the anchor because the clock change moves
+    the UTC weekday of a 4–5 PM series: 4:30 PM Thursday is Thursday 23:30 UTC in summer and
+    Friday 00:30 UTC in winter, and the series is re-anchored at each change (see
+    :func:`series_needs_reanchor`).
 
-    A **monthly** series that crosses the date line has no rule at all. Discord counts the nth
+    The **monthly** rule is the one exception to "from the pushed start": its week and weekday
+    come from the anchor's local calendar position, which under the gate below is its UTC
+    position in every month, so a 5th-week anchor (FOG's "last Friday") stays ``n=5`` rather
+    than following whichever week the pushed occurrence happens to land in (a last-Friday
+    series pushed from Aug 28, the 4th Friday, would otherwise tell Discord "4th Friday").
+
+    A monthly series that crosses the date line has no rule at all. Discord counts the nth
     weekday on the UTC calendar, and "the nth Saturday in UTC" is not "the nth Friday in
     Portland": the first Friday of August 2026 was the 7th, so its UTC instant was the *second*
     Saturday, and the rule ``{"n": 2, "day": 5}`` put the First Friday Art Walk on the second
@@ -269,33 +316,21 @@ def _recurrence_rule_for(event: CommunityEvent) -> dict[str, Any] | None:
 
     from membership.models import CommunityEvent as CE
 
-    if event.recurrence == CE.Recurrence.NONE:
+    if not pushes_as_native_series(event):
         return None
-    utc_start = event.starts_at.astimezone(UTC)
-    weekday = utc_start.weekday()
     if event.recurrence == CE.Recurrence.WEEKLY:
-        return {"frequency": _FREQUENCY_WEEKLY, "interval": 1, "by_weekday": [weekday]}
-    if event.recurrence == CE.Recurrence.MONTHLY:
-        if utc_start.date() != timezone.localdate(event.starts_at):
-            return None
-        return {
-            "frequency": _FREQUENCY_MONTHLY,
-            "interval": 1,
-            "by_n_weekday": [{"n": (utc_start.day - 1) // 7 + 1, "day": weekday}],
-        }
-    return None
-
-
-def pushes_as_native_series(event: CommunityEvent) -> bool:
-    """Whether Discord can hold this event as one recurring Scheduled Event (a rule), as
-    opposed to the single-next-occurrence fallback. The cron uses it to catch a series that
-    was pushed as a rule before the map tightened."""
-    return _recurrence_rule_for(event) is not None
+        return {"frequency": _FREQUENCY_WEEKLY, "interval": 1, "by_weekday": [start.astimezone(UTC).weekday()]}
+    anchor = timezone.localtime(event.starts_at)
+    return {
+        "frequency": _FREQUENCY_MONTHLY,
+        "interval": 1,
+        "by_n_weekday": [{"n": (anchor.day - 1) // 7 + 1, "day": anchor.weekday()}],
+    }
 
 
 def _next_occurrence(event: CommunityEvent) -> datetime | None:
-    """The next concrete start datetime (>= now) of an unmappable-cadence event, within the
-    fallback horizon, or ``None`` when the series has no occurrence in that window yet."""
+    """The next concrete start datetime (>= now) of a recurring event, within the fallback
+    horizon, or ``None`` when the series has no occurrence in that window yet."""
     from datetime import timedelta
 
     from django.utils import timezone
@@ -307,6 +342,64 @@ def _next_occurrence(event: CommunityEvent) -> datetime | None:
         if occ >= now:
             return occ
     return None
+
+
+def _series_start(event: CommunityEvent) -> datetime:
+    """The instant a native series is pushed at: its next occurrence (>= now) in local
+    wall-clock time, or the anchor itself while that is still ahead or beyond the horizon.
+
+    Never the anchor once it has passed: Discord rejects a ``scheduled_start_time`` in the
+    past (``GUILD_SCHEDULED_EVENT_SCHEDULE_PAST``), which is why every edit of a weekly
+    meeting after its first date failed to reach Discord until 2026-10-10. And the next
+    occurrence carries the UTC offset in force on its own date, which is what keeps the
+    series at its local time across a clock change.
+    """
+    from membership.models import CommunityEvent as CE
+
+    if event.recurrence == CE.Recurrence.NONE:
+        return event.starts_at
+    return _next_occurrence(event) or event.starts_at
+
+
+def _occurrence_in_progress(event: CommunityEvent) -> bool:
+    """Whether one of the event's occurrences is running right now."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    now = timezone.now()
+    duration = event.ends_at - event.starts_at
+    today = timezone.localdate(now)
+    for occ in event.occurrences_in(today - timedelta(days=duration.days + 1), today):
+        if occ <= now < occ + duration:
+            return True
+    return False
+
+
+def series_needs_reanchor(event: CommunityEvent) -> bool:
+    """Whether the series Discord holds for a synced native event drifted from its local time.
+
+    Discord keeps a rule at the fixed UTC instant it was last given, with no time zone, so a
+    5 PM Portland series pushed in summer (00:00 UTC) shows 4 PM all winter. The cron asks
+    this each tick: when the next occurrence's UTC time of day differs from the one last
+    pushed (``discord_pushed_start``), a re-push PATCHes the same Discord event with the next
+    occurrence as its start, and the series reads at its local time again until the next
+    change. A row pushed before ``discord_pushed_start`` existed is re-anchored once.
+
+    Never while an occurrence is running: :func:`_series_start` would skip the running one,
+    and a PATCH that moves an ACTIVE Discord event's start a week out either fails until it
+    ends or moves it out from under the people at it. The last occurrence before a clock
+    change is exactly when the drift first shows, so the first tick after it ends re-anchors,
+    still days before the change.
+    """
+    from datetime import UTC
+
+    if _occurrence_in_progress(event):
+        return False
+    if event.discord_pushed_start is None:
+        return True
+    pushed = event.discord_pushed_start.astimezone(UTC)
+    return _series_start(event).astimezone(UTC).timetz() != pushed.timetz()
 
 
 def _cover_image_data_uri(event: CommunityEvent) -> str:
@@ -353,8 +446,10 @@ def _build_scheduled_event_body(event: CommunityEvent, *, occurrence: datetime |
     as the banner in its Events tab. That read can fail where nothing else here can (it goes
     to object storage), so :func:`_cover_image_data_uri` swallows its own failures and the
     key is simply absent — the event still syncs, without a banner.
+
+    A series starts at :func:`_series_start`, its next occurrence, never a passed anchor.
     """
-    start = occurrence if occurrence is not None else event.starts_at
+    start = occurrence if occurrence is not None else _series_start(event)
     end = start + (event.ends_at - event.starts_at)
     location = event.location or event.video_url or DEFAULT_LOCATION
     body: dict[str, Any] = {
@@ -370,7 +465,7 @@ def _build_scheduled_event_body(event: CommunityEvent, *, occurrence: datetime |
     if cover:
         body["image"] = cover
     if occurrence is None:
-        rule = _recurrence_rule_for(event)
+        rule = _recurrence_rule_for(event, start)
         if rule is not None:
             # Discord requires the rule to carry its own start matching scheduled_start_time
             # (omitting it is a hard 400: recurrence_rule.start BASE_TYPE_REQUIRED —
@@ -440,7 +535,7 @@ def push_community_event(event: CommunityEvent, *, actor: User | None = None) ->
         return
 
     occurrence: datetime | None = None
-    if event.recurrence != CE.Recurrence.NONE and _recurrence_rule_for(event) is None:
+    if event.recurrence != CE.Recurrence.NONE and not pushes_as_native_series(event):
         if event.discord_event_id and event.discord_pushed_occurrence is None:
             # A native series became unmappable (an edit moved a monthly event past 5 PM, or
             # the map tightened). Left alone, the old series keeps showing its wrong dates
@@ -461,15 +556,31 @@ def push_community_event(event: CommunityEvent, *, actor: User | None = None) ->
 
     body = _build_scheduled_event_body(event, occurrence=occurrence)
     try:
-        if event.discord_event_id:
-            result = client.update_event(client.server_id, event.discord_event_id, body)
-        else:
-            result = client.insert_event(client.server_id, body)
+        result = _send(client, event, body)
         event.discord_event_id = str(result["id"])
         event.discord_pushed_occurrence = occurrence
+        event.discord_pushed_start = datetime.fromisoformat(body["scheduled_start_time"])
         _mark(event, CE.SyncState.SYNCED, "")
     except DiscordEventsError as exc:
         _mark(event, CE.SyncState.FAILED, str(exc)[:_SYNC_ERROR_MAX])
+
+
+def _send(client: DiscordScheduledEventsClient, event: CommunityEvent, body: dict[str, Any]) -> dict[str, Any]:
+    """PATCH the event's Discord Scheduled Event, or POST a new one when it has none.
+
+    A 404 on the PATCH means the remote event is gone (cancelled by hand on Discord, or a
+    series Discord retired), so the id is dropped and a fresh one is created rather than the
+    row failing every tick against an event that no longer exists.
+    """
+    if event.discord_event_id:
+        try:
+            return client.update_event(client.server_id, event.discord_event_id, body)
+        except DiscordEventsError as exc:
+            if "404" not in str(exc):
+                raise
+            logger.info("Discord event %s for event %s is gone; creating a fresh one", event.discord_event_id, event.pk)
+            event.discord_event_id = ""
+    return client.insert_event(client.server_id, body)
 
 
 def remove_community_event(event: CommunityEvent) -> None:
