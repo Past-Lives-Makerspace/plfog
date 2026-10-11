@@ -279,6 +279,33 @@ def describe_saving():
         assert response.status_code == 204
         assert OrientationDayOff.objects.filter(orienter=bob.member, date=_day(4)).exists()
 
+    def it_refuses_a_lead_a_member_who_orients_only_in_another_guild(client: Client):
+        guild, lead, bob, _alice = _guild_setup()
+        other_guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=other_guild, is_enabled=True)
+        OrientationTypeFactory(guild=other_guild)
+        stranger = _member_user("do_stranger", name="Sam Stranger")
+        GuildStaffMembershipFactory(guild=other_guild, member=stranger.member, role=GuildStaffMembership.Role.ORIENTER)
+        day = _day(4)
+        theirs = _slot(other_guild, stranger.member, day, 10)
+        _login(client, lead)
+        response = client.post(
+            _save_url(guild),
+            {"orienter": str(stranger.member.pk), "day_off-date": day.isoformat()},
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 403
+        assert not OrientationDayOff.objects.exists()
+        theirs.refresh_from_db()
+        assert theirs.is_cancelled is False
+        assert client.get(_modal_url(guild, stranger.member), HTTP_HX_REQUEST="true").status_code == 403
+        # The same lead reaches their own orienter as before.
+        response = client.post(
+            _save_url(guild), {"orienter": str(bob.member.pk), "day_off-date": day.isoformat()}, HTTP_HX_REQUEST="true"
+        )
+        assert response.status_code == 204
+        assert OrientationDayOff.objects.filter(orienter=bob.member, date=day).exists()
+
     def it_takes_only_posts(client: Client):
         guild, _lead, bob, _alice = _guild_setup()
         _login(client, bob)
@@ -406,6 +433,27 @@ def describe_on_equipment():
         )
         assert response.status_code == 403
         assert not OrientationDayOff.objects.exists()
+
+    def it_refuses_the_owning_guilds_lead_a_member_who_does_not_orient_on_the_tool(client: Client):
+        equipment, dana, _quinn = _equipment_setup()
+        lead = _member_user("do_tool_lead", name="Lead Person")
+        equipment.guild = GuildFactory(guild_lead=lead.member)
+        equipment.save(update_fields=["guild"])
+        outsider = _member_user("do_outsider", name="Olive Outsider")
+        _login(client, lead)
+        response = client.post(
+            reverse("hub_equipment_orientation_day_off_save", args=[equipment.slug]),
+            {"orienter": str(outsider.member.pk), "day_off-date": _day(4).isoformat()},
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 403
+        assert not OrientationDayOff.objects.exists()
+        response = client.post(
+            reverse("hub_equipment_orientation_day_off_save", args=[equipment.slug]),
+            {"orienter": str(dana.member.pk), "day_off-date": _day(4).isoformat()},
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
 
     def it_lists_the_days_off_on_the_card_for_an_admin(client: Client):
         equipment, dana, _quinn = _equipment_setup()

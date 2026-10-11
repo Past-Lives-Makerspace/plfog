@@ -31,7 +31,7 @@ from django.views.decorators.http import require_POST
 from hub.forms import OrientationDayOffForm
 from membership import orientations
 from membership.models import Equipment, Guild, Member, OrientationDayOff
-from membership.permissions import can_edit_equipment_orienter_hours, can_edit_orienter_hours
+from membership.permissions import can_edit_equipment_orienter_hours, can_edit_orienter_hours, is_effective_staff
 
 
 @dataclass(frozen=True)
@@ -46,12 +46,29 @@ class _Owner:
     delete_url_name: str
 
 
+def _reaches(request: HttpRequest, orienter: Member, roster: list[Member]) -> bool:
+    """Whether this request may touch ``orienter``'s days off from a card whose people are ``roster``.
+
+    Edit Hours lets a lead edit any member's rows in that guild, and those rows only ever
+    touch that guild. A day off cancels and emails across every guild and tool the person
+    orients on, so anyone short of effective staff (admin or officer) reaches only the people
+    on the card they opened: the guild's leadership, or the equipment's orienters. One's own
+    day off is unchanged, since the hours gate's self scope already requires being on it.
+    """
+    if is_effective_staff(request):
+        return True
+    return any(member.pk == orienter.pk for member in roster)
+
+
 def _guild_owner(pk: int) -> _Owner:
     """The guild's Orientations page as an owner, or a 404."""
     guild = get_object_or_404(Guild, pk=pk)
     return _Owner(
         key=str(guild.pk),
-        gate=lambda request, orienter: can_edit_orienter_hours(request, guild, orienter),
+        gate=lambda request, orienter: (
+            can_edit_orienter_hours(request, guild, orienter)
+            and _reaches(request, orienter, guild.leadership_members())
+        ),
         return_url=reverse("hub_guild_orientations", args=[guild.pk]),
         save_url=reverse("hub_guild_orientation_day_off_save", args=[guild.pk]),
         preview_url=reverse("hub_guild_orientation_day_off_preview", args=[guild.pk]),
@@ -64,7 +81,10 @@ def _equipment_owner(slug: str) -> _Owner:
     equipment = get_object_or_404(Equipment.objects.select_related("guild"), slug=slug)
     return _Owner(
         key=equipment.slug,
-        gate=lambda request, orienter: can_edit_equipment_orienter_hours(request, equipment, orienter),
+        gate=lambda request, orienter: (
+            can_edit_equipment_orienter_hours(request, equipment, orienter)
+            and _reaches(request, orienter, equipment.orienter_members())
+        ),
         return_url=f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation",
         save_url=reverse("hub_equipment_orientation_day_off_save", args=[equipment.slug]),
         preview_url=reverse("hub_equipment_orientation_day_off_preview", args=[equipment.slug]),
