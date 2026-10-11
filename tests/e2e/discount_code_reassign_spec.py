@@ -21,7 +21,7 @@ from django.utils import timezone
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect
 
-from classes.factories import ClassOfferingFactory, ClassSessionFactory, DiscountCodeFactory
+from classes.factories import ClassOfferingFactory, ClassSessionFactory, DiscountCodeFactory, InstructorFactory
 from classes.models import ClassOffering, DiscountCode
 from tests.membership.factories import MembershipPlanFactory
 
@@ -153,6 +153,54 @@ def describe_an_admin():
         code.refresh_from_db()
         assert code.class_offering is None
         assert code.is_approved is True
+
+    def it_re_assigns_a_code_to_an_instructors_classes_and_the_class_tab_shows_it(live_server, page, login_via_code):
+        """Part 2 of #764: the third answer, and AC6 on the class's Discount Codes tab."""
+        teacher = InstructorFactory(full_legal_name="Jacqueline Sowell")
+        bat = ClassOfferingFactory(
+            title="Make a Halloween Bat", instructor=teacher, status=ClassOffering.Status.PUBLISHED
+        )
+        ClassSessionFactory(class_offering=bat, starts_at=timezone.now() + timedelta(days=7))
+        ClassOfferingFactory(title="Someone Else's Class", status=ClassOffering.Status.PUBLISHED)
+        code = DiscountCodeFactory(code="JACQUELINE30", class_offering=None, is_approved=True, discount_pct=30)
+        _login_as_admin(login_via_code)
+        page.set_viewport_size({"width": 1200, "height": 800})
+
+        _, menu = _open_reassign(page, live_server, "JACQUELINE30")
+        menu.get_by_role("menuitem", name="Re-assign").click()
+        dialog = page.get_by_role("dialog", name="Re-assign Discount Code")
+        form = dialog.locator("[data-reassign-form]")
+        sentence = form.locator("[data-reassign-sentence]")
+        picker = form.get_by_label("Instructor", exact=True)
+        expect(picker).to_be_hidden()
+        form.get_by_role("radio", name="An instructor's classes").check()
+        expect(picker).to_be_visible()
+        expect(form.get_by_label("Class", exact=True)).to_be_hidden()
+        submit = form.get_by_role("button", name="Re-assign")
+        expect(submit).to_be_disabled()
+        expect(sentence).to_have_text("Pick an instructor to see what will change.")
+        picker.select_option(label="Jacqueline Sowell")
+        expect(sentence).to_have_text("JACQUELINE30 will work on every class Jacqueline Sowell teaches, now and later.")
+        expect(submit).to_be_enabled()
+        _capture_both_themes(page, "764-reassign-instructor-03")
+
+        submit.click()
+        expect(
+            page.locator("#plt-container").get_by_text(
+                "JACQUELINE30 now works on every class Jacqueline Sowell teaches, now and later."
+            )
+        ).to_be_visible()
+        expect(page.locator("tbody tr", has_text="JACQUELINE30").locator("td").nth(SCOPE_COLUMN)).to_have_text(
+            "Jacqueline Sowell"
+        )
+        code.refresh_from_db()
+        assert (code.instructor, code.class_offering, code.is_approved) == (teacher, None, True)
+
+        # AC6: the class's own Discount Codes tab lists the code with its scope.
+        page.goto(f"{live_server.url}{reverse('classes:teach_class_discount_codes', kwargs={'pk': bat.pk})}")
+        row = page.locator("tbody tr", has_text="JACQUELINE30")
+        expect(row.locator("[data-scope-instructor]")).to_have_text("Jacqueline Sowell")
+        _capture_both_themes(page, "764-class-tab-instructor-04")
 
     def it_closes_on_cancel_without_moving_the_code(live_server, page, login_via_code):
         _seed_bat_class()

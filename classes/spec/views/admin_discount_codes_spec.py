@@ -202,6 +202,18 @@ def describe_admin_discount_codes():
             assert "<td>Everywhere</td>" in html
             assert "<td>Bat Carving Night</td>" in html
 
+        def it_shows_the_instructors_name_under_scope(admin_user, client, db):
+            from classes.factories import DiscountCodeFactory, InstructorFactory
+
+            client.force_login(admin_user)
+            DiscountCodeFactory(
+                code="JACQUELINE30",
+                class_offering=None,
+                instructor=InstructorFactory(full_legal_name="Jacqueline Sowell"),
+            )
+            html = client.get(reverse("classes:admin_discount_codes")).content.decode()
+            assert "<td>Jacqueline Sowell</td>" in html
+
         def it_puts_one_actions_menu_per_row_and_no_loose_buttons(admin_user, client, db):
             from classes.factories import DiscountCodeFactory
 

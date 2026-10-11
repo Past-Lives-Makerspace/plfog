@@ -4,20 +4,30 @@ components/modal.html "reassign-code"; the form posts back into the same body, s
 error re-renders here, and a valid save answers 204 + HX-Redirect to the list. Served by
 admin_discount_code_reassign with form (DiscountCodeReassignForm), code and sentence (the
 current scope's future sentence, what the page says before Alpine rewrites it live). The radios
-and the class select carry x-model from their widgets, so scope and classPk here are the
-controls' values; the live sentence is built from the picked option's text in the same words as
-DiscountCode.scope_sentence, and Re-assign stays disabled until One class has a class.
+and the two selects carry x-model from their widgets, so scope, classPk and instructorPk here are
+the controls' values; the live sentence is built from the picked option's text in the same words
+as DiscountCode.scope_sentence, and Re-assign stays disabled until the chosen scope has its target.
 {% endcomment %}
 <form data-reassign-form
       x-data="{
         scope: '{{ form.scope.value|escapejs }}',
         classPk: '{{ form.class_offering.value|default_if_none:''|escapejs }}',
+        instructorPk: '{{ form.instructor.value|default_if_none:''|escapejs }}',
         code: '{{ code.code|escapejs }}',
+        picked(select, value) {
+          var option = Array.from(select.options).find((o) => o.value === String(value));
+          return option && option.value ? option.text : '';
+        },
         sentence() {
-          if (this.scope !== 'class') { return this.code + ' will work on every class.'; }
-          var picked = Array.from(this.$refs.classSelect.options).find((o) => o.value === String(this.classPk));
-          if (!picked || !picked.value) { return 'Pick a class to see what will change.'; }
-          return this.code + ' will work only on ' + picked.text + '.';
+          if (this.scope === 'class') {
+            var title = this.picked(this.$refs.classSelect, this.classPk);
+            return title ? this.code + ' will work only on ' + title + '.' : 'Pick a class to see what will change.';
+          }
+          if (this.scope === 'instructor') {
+            var name = this.picked(this.$refs.instructorSelect, this.instructorPk);
+            return name ? this.code + ' will work on every class ' + name + ' teaches, now and later.' : 'Pick an instructor to see what will change.';
+          }
+          return this.code + ' will work on every class.';
         }
       }"
       hx-post="{% url 'classes:admin_discount_code_reassign' pk=code.pk %}"
@@ -28,9 +38,12 @@ DiscountCode.scope_sentence, and Re-assign stays disabled until One class has a 
     <div x-show="scope === 'class'" x-cloak>
         {% include "components/form_field.html" with field=form.class_offering %}
     </div>
+    <div x-show="scope === 'instructor'" x-cloak>
+        {% include "components/form_field.html" with field=form.instructor %}
+    </div>
     <p data-reassign-sentence x-text="sentence()">{{ sentence }}</p>
     <div class="pl-modal__actions">
         <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'reassign-code')">Cancel</button>
-        <button type="submit" class="pl-btn pl-btn--primary" :disabled="scope === 'class' && !classPk">Re-assign</button>
+        <button type="submit" class="pl-btn pl-btn--primary" :disabled="(scope === 'class' && !classPk) || (scope === 'instructor' && !instructorPk)">Re-assign</button>
     </div>
 </form>

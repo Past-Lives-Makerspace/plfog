@@ -9,8 +9,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.db.utils import IntegrityError
 
-from classes.factories import ClassOfferingFactory, DiscountCodeFactory, UserFactory
-from classes.models import DiscountApprover, DiscountCode
+from classes.factories import ClassOfferingFactory, DiscountCodeFactory, InstructorFactory, UserFactory
+from classes.models import ClassOffering, DiscountApprover, DiscountCode
 
 
 def _active_member_user(username: str, *, is_admin: bool = False, can_self_approve: bool = False):
@@ -299,3 +299,112 @@ def describe_DiscountCode_scope():
             assert code.is_approved is True
             assert code.auto_apply is True
             assert (code.max_uses, code.use_count, code.valid_until) == (5, 2, date(2030, 1, 1))
+
+
+def describe_DiscountCode_instructor_scope():
+    """A code aimed at every class one member teaches, now and later (#764, part 2)."""
+
+    def it_is_an_instructors_classes_with_an_instructor(db):
+        teacher = InstructorFactory(full_legal_name="Jacqueline Sowell")
+        code = DiscountCodeFactory(class_offering=None, instructor=teacher)
+        assert code.scope == DiscountCode.Scope.INSTRUCTOR
+        assert code.scope_label == "Jacqueline Sowell"
+
+    def it_names_the_instructor_before_and_after_a_save(db):
+        teacher = InstructorFactory(full_legal_name="Jacqueline Sowell")
+        code = DiscountCodeFactory(code="JACQUELINE30", class_offering=None, instructor=teacher)
+        assert (
+            code.scope_sentence(future=True)
+            == "JACQUELINE30 will work on every class Jacqueline Sowell teaches, now and later."
+        )
+        assert (
+            code.scope_sentence() == "JACQUELINE30 now works on every class Jacqueline Sowell teaches, now and later."
+        )
+
+    def it_never_holds_both_a_class_and_an_instructor(db):
+        with pytest.raises(IntegrityError):
+            DiscountCode.objects.create(
+                code="BOTH", discount_pct=10, class_offering=ClassOfferingFactory(), instructor=InstructorFactory()
+            )
+
+    def describe_reassign():
+        def it_points_a_class_code_at_an_instructor_and_keeps_its_approval(db):
+            teacher = InstructorFactory()
+            code = DiscountCodeFactory(class_offering=ClassOfferingFactory(), is_approved=True)
+            code.reassign(instructor=teacher)
+            code.refresh_from_db()
+            assert (code.class_offering, code.instructor, code.is_approved) == (None, teacher, True)
+
+        def it_sets_an_instructor_code_back_to_one_class_or_everywhere(db):
+            code = DiscountCodeFactory(class_offering=None, instructor=InstructorFactory())
+            offering = ClassOfferingFactory()
+            code.reassign(class_offering=offering)
+            code.refresh_from_db()
+            assert (code.class_offering, code.instructor) == (offering, None)
+            code.reassign()
+            code.refresh_from_db()
+            assert (code.class_offering, code.instructor) == (None, None)
+
+        def it_refuses_both_targets_and_writes_nothing(db):
+            code = DiscountCodeFactory(class_offering=None)
+            with pytest.raises(ValueError, match="not both"):
+                code.reassign(class_offering=ClassOfferingFactory(), instructor=InstructorFactory())
+            code.refresh_from_db()
+            assert (code.class_offering, code.instructor) == (None, None)
+
+    def describe_the_scope_querysets():
+        def it_honours_everywhere_this_class_and_this_instructors_codes_and_nothing_else(db):
+            teacher = InstructorFactory()
+            mine = ClassOfferingFactory(instructor=teacher)
+            everywhere = DiscountCodeFactory(class_offering=None)
+            this_class = DiscountCodeFactory(class_offering=mine)
+            theirs = DiscountCodeFactory(class_offering=None, instructor=teacher)
+            DiscountCodeFactory(class_offering=ClassOfferingFactory(instructor=teacher))  # another of their classes
+            DiscountCodeFactory(class_offering=None, instructor=InstructorFactory())  # someone else's classes
+            assert set(DiscountCode.objects.honoured_on(mine)) == {everywhere, this_class, theirs}
+            assert set(DiscountCode.objects.scoped_to(mine)) == {this_class, theirs}
+            assert list(DiscountCode.objects.everywhere()) == [everywhere]
+
+        def it_gives_an_instructorless_legacy_class_no_instructor_code(db):
+            legacy = ClassOfferingFactory(instructor=None)
+            everywhere = DiscountCodeFactory(class_offering=None)
+            DiscountCodeFactory(class_offering=None, instructor=InstructorFactory())
+            assert list(DiscountCode.objects.honoured_on(legacy)) == [everywhere]
+            assert list(DiscountCode.objects.scoped_to(legacy)) == []
+
+        def it_keeps_an_instructors_code_off_the_site_wide_list(db):
+            DiscountCodeFactory(class_offering=None, instructor=InstructorFactory(), code="THEIRS")
+            everywhere = DiscountCodeFactory(class_offering=None, code="ALL5")
+            assert list(DiscountCode.objects.site_wide_live()) == [everywhere]
+
+        def it_auto_applies_an_instructors_code_on_their_classes_only(db):
+            teacher = InstructorFactory()
+            code = DiscountCodeFactory(class_offering=None, instructor=teacher, auto_apply=True, discount_pct=30)
+            assert DiscountCode.objects.best_auto_apply_for(ClassOfferingFactory(instructor=teacher), 10_000) == code
+            assert DiscountCode.objects.best_auto_apply_for(ClassOfferingFactory(), 10_000) is None
+            assert DiscountCode.objects.best_auto_apply_for(ClassOfferingFactory(instructor=None), 10_000) is None
+
+    def describe_teaching_members():
+        def it_lists_members_with_a_class_by_name_once_each(db):
+            zed = InstructorFactory(full_legal_name="Zed Zane")
+            amy = InstructorFactory(full_legal_name="Zoe Bell", preferred_name="Amy")
+            ClassOfferingFactory(instructor=zed)
+            ClassOfferingFactory(instructor=zed)
+            ClassOfferingFactory(instructor=amy)
+            InstructorFactory(full_legal_name="Nobody Teaches")
+            ClassOfferingFactory(instructor=None)
+            assert list(ClassOffering.objects.teaching_members()) == [amy, zed]
+
+        def it_keeps_the_codes_current_instructor_with_no_class_left(db):
+            idle = InstructorFactory(full_legal_name="Idle Teacher")
+            assert list(ClassOffering.objects.teaching_members()) == []
+            assert list(ClassOffering.objects.teaching_members(keep_pk=idle.pk)) == [idle]
+
+    def describe_scoped_discount_codes():
+        def it_lists_the_classs_own_and_its_instructors_codes_by_code(db):
+            teacher = InstructorFactory()
+            mine = ClassOfferingFactory(instructor=teacher)
+            theirs = DiscountCodeFactory(code="B", class_offering=None, instructor=teacher)
+            own = DiscountCodeFactory(code="A", class_offering=mine)
+            DiscountCodeFactory(code="C", class_offering=None)
+            assert list(mine.scoped_discount_codes) == [own, theirs]

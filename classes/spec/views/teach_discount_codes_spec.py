@@ -134,3 +134,45 @@ def describe_approve_button_visibility():
         approve_url = reverse("classes:teach_discount_code_approve", kwargs={"pk": mine.pk})
         assert approve_url.encode() not in resp.content
         assert b"Pending approval" not in resp.content
+
+
+def describe_an_instructors_code_on_my_discount_codes():
+    """AC6 of #764: a code an admin aimed at this instructor lists with their own, labelled, read only."""
+
+    def _jacqueline():
+        user = UserFactory(username="dc-jacqueline@example.com")
+        teacher = InstructorFactory(user=user, instructor_slug="dc-jacqueline", full_legal_name="Jacqueline Sowell")
+        return user, teacher
+
+    def _seed(teacher):
+        admin = UserFactory(username="dc-admin-764@example.com")
+        mine = DiscountCodeFactory(code="JACQUELINE30", class_offering=None, instructor=teacher, created_by=admin)
+        DiscountCodeFactory(code="OTHERS30", class_offering=None, instructor=InstructorFactory(), created_by=admin)
+        return mine
+
+    def it_lists_the_code_with_its_scope_and_no_controls_in_the_direct_flow(client):
+        user, teacher = _jacqueline()
+        mine = _seed(teacher)
+        client.force_login(user)
+        html = client.get(reverse("classes:teach_discount_codes")).content.decode()
+        assert "JACQUELINE30" in html
+        assert '<span class="hub-pill hub-pill--neutral" data-scope-instructor>Jacqueline Sowell</span>' in html
+        assert "OTHERS30" not in html
+        assert reverse("classes:teach_discount_code_edit", kwargs={"pk": mine.pk}) not in html
+        assert reverse("classes:teach_discount_code_delete", kwargs={"pk": mine.pk}) not in html
+        # Not a site wide code either: with no everywhere code seeded, that table never renders.
+        assert "Site-Wide Codes" not in html
+
+    def it_lists_the_code_under_approval_mode_too(client):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.instructor_discount_codes_need_approval = True
+        config.save(update_fields=["instructor_discount_codes_need_approval"])
+        user, teacher = _jacqueline()
+        _seed(teacher)
+        client.force_login(user)
+        html = client.get(reverse("classes:teach_discount_codes")).content.decode()
+        assert "JACQUELINE30" in html
+        assert '<span class="hub-pill hub-pill--neutral" data-scope-instructor>Jacqueline Sowell</span>' in html
+        assert "OTHERS30" not in html

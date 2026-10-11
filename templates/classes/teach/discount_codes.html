@@ -27,7 +27,7 @@
     <tbody>
     {% for c in own_codes %}
         <tr style="border-bottom:1px solid var(--hub-border);{% if not c.is_approved %} background:rgba(248,180,75,0.06);{% endif %}">
-            <td style="padding:0.5rem 0.75rem;">{{ c.code }}</td>
+            <td style="padding:0.5rem 0.75rem;">{{ c.code }}{% if c.instructor_id %} <span class="hub-pill hub-pill--neutral" data-scope-instructor>{{ c.scope_label }}</span>{% endif %}</td>
             <td style="padding:0.5rem 0.75rem;">{{ c.discount_pct|default:"—" }}</td>
             <td style="padding:0.5rem 0.75rem;">{% if c.discount_fixed_cents %}{{ c.discount_fixed_cents|cents_as_dollars }}{% else %}—{% endif %}</td>
             <td style="padding:0.5rem 0.75rem;">{{ c.valid_from|default:"—" }} → {{ c.valid_until|default:"—" }}</td>
@@ -42,8 +42,8 @@
                 {% endif %}
             </td>
             <td style="padding:0.5rem 0.75rem; display:flex; gap:0.375rem; justify-content:flex-end;">
-                {% if not approval_mode %}
-                {# Under approval mode the instructor reads their codes; an admin decides what exists. #}
+                {% if not approval_mode and c.created_by_id == user.pk %}
+                {# Under approval mode the instructor reads their codes; an admin decides what exists. A code an admin aimed at this instructor (#764) is read only too. #}
                 {% url 'classes:teach_discount_code_delete' pk=c.pk as code_delete_url %}
                 {% concat "inst-del-code-" c.pk as code_modal_id %}
                 {% if not c.is_approved and c|approvable_by:approver %}

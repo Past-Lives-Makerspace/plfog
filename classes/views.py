@@ -2911,7 +2911,8 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
     Splits codes into the instructor's own (editable, keyed off the ``created_by``
     audit FK) and the site-wide admin codes — ``class_offering`` null and created
     by someone else, e.g. the PLMEMBERS member discount. Site-wide codes are shown
-    read-only here; admins manage them from the Classes admin.
+    read-only here; admins manage them from the Classes admin. A code an admin aimed at
+    this instructor's classes (#764) lists with their own, read only, in either mode.
     """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     config = SiteConfiguration.load()
@@ -2920,7 +2921,12 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
         # Read only: the codes on the instructor's classes, plus any they made under the direct
         # flow before the switch, and where each of their requests stands.
         own_codes = (
-            DiscountCode.objects.filter(Q(created_by=request.user) | Q(class_offering__instructor=teaching_member))
+            DiscountCode.objects.filter(
+                Q(created_by=request.user)
+                | Q(class_offering__instructor=teaching_member)
+                | Q(instructor=teaching_member)
+            )
+            .select_related("class_offering", "instructor")
             .distinct()
             .order_by("code")
         )
@@ -2928,11 +2934,13 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
             "class_offering", "discount_code"
         )
     else:
-        own_codes = DiscountCode.objects.filter(created_by=request.user).order_by("code")
+        own_codes = (
+            DiscountCode.objects.filter(Q(created_by=request.user) | Q(instructor=teaching_member))
+            .select_related("class_offering", "instructor")
+            .order_by("code")
+        )
         code_requests = DiscountCodeRequest.objects.none()
-    sitewide_codes = (
-        DiscountCode.objects.filter(class_offering__isnull=True).exclude(created_by=request.user).order_by("code")
-    )
+    sitewide_codes = DiscountCode.objects.everywhere().exclude(created_by=request.user).order_by("code")
     return render(
         request,
         "classes/teach/discount_codes.html",
@@ -3589,7 +3597,7 @@ def teach_class_waitlist(request: HttpRequest, pk: int) -> HttpResponse:
 
 @class_screen_required
 def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
-    """This class's discount codes, plus the global ones that also apply to it.
+    """This class's discount codes, its instructor's (#764) and the global ones that also apply to it.
 
     The tab itself is conditional for an instructor (the site flag), and
     ``can_view_discount_codes`` already carries that flag, so the page and the tab strip
@@ -3604,7 +3612,7 @@ def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
             return redirect("classes:teach_dashboard")
         raise Http404("Discount codes on this class are not open to this viewer.")
     offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
-    codes = DiscountCode.objects.filter(Q(class_offering=offering) | Q(class_offering__isnull=True)).order_by("code")
+    codes = DiscountCode.objects.honoured_on(offering).select_related("instructor").order_by("code")
     # The instructor under approval mode (#428) reads this tab and asks for codes; admins keep today's page.
     approval_mode = access.role == ROLE_INSTRUCTOR and SiteConfiguration.load().instructor_discount_codes_approval_mode
     code_requests = (
@@ -5866,8 +5874,8 @@ def registration_move(request: HttpRequest, pk: int) -> HttpResponse:
 def admin_discount_codes(request: HttpRequest) -> HttpResponse:
     table = prepare_table(
         request,
-        # The Scope column reads the class title per row (#764).
-        DiscountCode.objects.select_related("class_offering"),
+        # The Scope column reads the class title or the instructor's name per row (#764).
+        DiscountCode.objects.select_related("class_offering", "instructor"),
         search_fields=["code", "description"],
         default_sort="code",
     )
@@ -5945,7 +5953,7 @@ def admin_discount_code_reassign(request: HttpRequest, pk: int) -> HttpResponse:
     gets that redirect outright); an invalid POST re-renders the partial into the modal body,
     so the error shows where the admin is looking.
     """
-    code = get_object_or_404(DiscountCode.objects.select_related("class_offering"), pk=pk)
+    code = get_object_or_404(DiscountCode.objects.select_related("class_offering", "instructor"), pk=pk)
     if request.method == "POST":
         form = DiscountCodeReassignForm(request.POST, code=code)
         if form.is_valid():
