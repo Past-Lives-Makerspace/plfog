@@ -15,6 +15,7 @@ Core domain models for Past Lives Makerspace.
 | `Space` | space_id, space_type, status, size_sqft | Physical space; read from Airtable |
 | `Lease` | GenericFK tenant (Member or Guild), space FK | Active when start_date≤today and end_date null/≥today |
 | `Location` | name, guild FK, note, shares_space_with (symmetric M2M), is_active | A named area of the building (#616). `ClassOffering`, `CommunityEvent`, `OrientationType` and `Equipment` carry a nullable `area` FK to it (label "Location"); slots and reservations take their type's or equipment's. `services/location_status.guild_location_statuses` lights a guild's locations on its page in a fixed number of queries. Managed at `/manage/locations/`. |
+| `OrientationDayOff` | orienter FK (Member), date, note, created_at; unique on (orienter, date) | A day an orienter is away (#767). It belongs to the person, not a guild: `orientations.generate_slots` skips the day for every rule of theirs (`_horizon_spans`) in any guild or on any equipment, a shared rule with no orienter is unaffected, and saving one runs `orientations.cancel_day_off` (fixed slots through `cancel_slot`, open windows cancelled with their booked segments; a generated time nobody was emailed about is detached so deleting the day off lets the next run recreate it). Managed from the Days Off modal on the Orientation Schedule card (`hub/day_off_views.py`), gated like Edit Hours. |
 
 ## Email Model — Three Stores (IMPORTANT)
 

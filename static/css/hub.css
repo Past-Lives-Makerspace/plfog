@@ -4177,6 +4177,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font-size: 0.9rem;
     color: var(--hub-text);
 }
+/* The "Off Nov 26, Dec 25." line under a person's hours (#767). */
+.pl-orient-overview__off { margin: 0.35rem 0 0; font-size: 0.85rem; color: var(--hub-text-muted); }
 .pl-slot-admin__row {
     display: flex;
     align-items: center;

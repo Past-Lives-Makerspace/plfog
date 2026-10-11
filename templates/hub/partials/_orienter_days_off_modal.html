@@ -1,0 +1,38 @@
+{% comment %}
+Days Off modal body (#767): one person's days off, loaded over HTMX into #days-off-modal-body
+from their row on the Orientation Schedule card. The guild's Orientations page and the equipment
+manage page's Orientation tab share it; hub/day_off_views.py renders it for both.
+
+Context: target (the Member), form (an OrientationDayOffForm, bound on an invalid POST so its
+errors show inside the open modal), times (orientations.DayOffTimes for the chosen date, or
+None), days_off (the person's upcoming rows), save_url, delete_url_name and owner_key (the
+owner's delete route and its URL argument). The form's tail is _orienter_day_off_impact.html,
+which the date input swaps on every change so the count line and the Save label follow the date.
+{% endcomment %}
+<h2 class="hub-detail-label">{{ target.display_name }}'s Days Off</h2>
+<p class="pl-hours-row__hint">A day off cancels every orientation time of {{ target.display_name }}'s that day, in every guild and on every piece of equipment, and none is generated for it however far ahead. Anyone booked is emailed.</p>
+<form id="days-off-modal-form" class="hub-form" hx-post="{{ save_url }}" hx-target="#days-off-modal-body" hx-swap="innerHTML">
+  {% csrf_token %}
+  <input type="hidden" name="orienter" value="{{ target.pk }}">
+  <div class="pl-hours-row__line">
+    <div class="pl-hours-row__narrow">{% include "components/form_field.html" with field=form.date field_hint_off=True %}</div>
+    <div>{% include "components/form_field.html" with field=form.note field_hint_off=True %}</div>
+  </div>
+  {% include "hub/partials/_orienter_day_off_impact.html" %}
+</form>
+<div class="pl-oneoff">
+  <h3 class="hub-detail-label">Upcoming Days Off</h3>
+  {% for day_off in days_off %}
+  {% with pks=day_off.pk|stringformat:"s" %}
+  <div class="pl-slot-admin__row" data-day-off="{{ day_off.pk }}">
+    <span class="pl-slot-admin__when">{{ day_off.date|date:"D, M j, Y" }}</span>
+    <span class="pl-slot-admin__with hub-text-muted">{{ day_off.note }}</span>
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'day-off-del-{{ day_off.pk }}')">Delete</button>
+    {% url delete_url_name owner_key day_off.pk as delete_url %}
+    {% include "components/confirm_modal.html" with confirm_id="day-off-del-"|add:pks confirm_title="Delete this day off?" confirm_message="Their hours that day generate again." confirm_action_url=delete_url confirm_button_text="Delete" %}
+  </div>
+  {% endwith %}
+  {% empty %}
+  <p class="hub-text-muted" data-days-off-empty>No days off yet.</p>
+  {% endfor %}
+</div>
