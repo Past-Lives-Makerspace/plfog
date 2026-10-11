@@ -230,7 +230,7 @@ def describe_admin_instructor_resources():
                 .split('class="pl-instructor-resources__row"')[0]
             )
             assert ">Remove</button>" in row
-            assert ">Delete</button>" not in content
+            assert f'id="id_{PREFIX}-0-DELETE"' not in content
             assert InstructorResource.objects.count() == 0
 
         def it_rejects_a_blank_label_with_the_error_under_the_field_and_saves_nothing(admin_user, client, db):
