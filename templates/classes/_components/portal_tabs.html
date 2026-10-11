@@ -18,7 +18,7 @@ teaching rows simply do not render for them.
 Catalog Activity sits inside the admin group even though Registrations, which a non-admin with
 catalog access can reach, renders above it: the feed spans the whole catalog. The view's own
 permission decorator is the real gate; this only decides whether the tab is offered.{% endcomment %}
-{% with actually_admin=request.view_as.actual_is_admin teaches=request.user.member.can_create_classes settings_tabs="categories discount_codes questions settings teaching_page" %}
+{% with actually_admin=request.view_as.actual_is_admin teaches=request.user.member.can_create_classes settings_tabs="categories discount_codes questions settings teaching_page instructor_resources" %}
 <nav class="pl-tabs" aria-label="Class management sections">
     <a href="{% if actually_admin %}{% url 'classes:admin_overview' %}{% else %}{% url 'classes:teach_overview' %}{% endif %}" class="vote-tab{% if active_tab == 'overview' %} vote-tab--active{% endif %}"{% if active_tab == 'overview' %} aria-current="page"{% endif %}>Overview</a>
     {% if teaches %}

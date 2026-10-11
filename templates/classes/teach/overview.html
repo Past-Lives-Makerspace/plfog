@@ -182,4 +182,19 @@ guild still must not be offered it.{% endcomment %}
 
   </div>
 {% endif %}
+
+{% comment %}Instructor Resources (#765): the links an admin keeps under Class Settings, one a row,
+each opening in a new tab. Last on the page for everyone who can teach, with or without classes
+of their own, and not rendered at all while the list is empty. cms-overview on the section
+itself so its title takes the Overview heading style without a wrapper.{% endcomment %}
+{% if instructor_resources %}
+  <section class="hub-card cms-overview pl-instructor-resources-card">
+    <h2 class="overview-title">Instructor Resources</h2>
+    <ul class="pl-instructor-resources-card__list">
+      {% for r in instructor_resources %}
+      <li class="pl-instructor-resources-card__row"><a href="{{ r.url }}" target="_blank" rel="noopener">{{ r.label }} ↗</a></li>
+      {% endfor %}
+    </ul>
+  </section>
+{% endif %}
 {% endblock %}
