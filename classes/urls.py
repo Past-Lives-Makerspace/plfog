@@ -363,6 +363,11 @@ urlpatterns = [
         name="admin_discount_code_approve",
     ),
     path(
+        "admin/discount-codes/<int:pk>/reassign/",
+        views.admin_discount_code_reassign,
+        name="admin_discount_code_reassign",
+    ),
+    path(
         "admin/discount-codes/requests/<int:pk>/",
         views.admin_discount_code_request_review,
         name="admin_discount_code_request_review",

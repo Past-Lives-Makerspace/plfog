@@ -11,7 +11,7 @@ from urllib.parse import urlencode
 from django import forms
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator, validate_email
-from django.db.models import BLANK_CHOICE_DASH, Q
+from django.db.models import BLANK_CHOICE_DASH
 from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.forms.formsets import DELETION_FIELD_NAME
 from django.utils import timezone
@@ -1659,6 +1659,73 @@ class DiscountCodeForm(forms.ModelForm):
         return code
 
 
+class DiscountCodeReassignForm(forms.Form):
+    """The Re-assign modal (#764): where an existing code works, and nothing else about it.
+
+    A plain form rather than a ModelForm: the answer is a derived choice over the code's two scope
+    fields and the save is one model call, :meth:`DiscountCode.reassign`. ``code`` is the code
+    being moved; its current scope is the initial answer, and its current class or instructor
+    stays in the picker even once the class has started or the member teaches nothing
+    (:meth:`ClassOfferingQuerySet.discount_code_targets`, :meth:`ClassOfferingQuerySet.teaching_members`).
+    The widgets carry the Alpine bindings the modal body reads, so the template adds none.
+    """
+
+    scope = forms.ChoiceField(
+        label="Where does this code work?",
+        choices=DiscountCode.Scope.choices,
+        widget=forms.RadioSelect(attrs={"x-model": "scope"}),
+    )
+    class_offering = forms.ModelChoiceField(
+        label="Class",
+        queryset=ClassOffering.objects.none(),
+        required=False,
+        empty_label="Pick a class",
+        widget=forms.Select(attrs={"x-model": "classPk", "x-ref": "classSelect"}),
+    )
+    # Annotated because the queryset is only known per code (set in __init__), so the field starts empty.
+    instructor: "forms.ModelChoiceField[Member]" = forms.ModelChoiceField(
+        label="Instructor",
+        queryset=None,
+        required=False,
+        empty_label="Pick an instructor",
+        widget=forms.Select(attrs={"x-model": "instructorPk", "x-ref": "instructorSelect"}),
+    )
+
+    def __init__(self, *args: Any, code: DiscountCode, **kwargs: Any) -> None:
+        kwargs.setdefault(
+            "initial",
+            {"scope": code.scope, "class_offering": code.class_offering_id, "instructor": code.instructor_id},
+        )
+        super().__init__(*args, **kwargs)
+        self.code = code
+        classes = cast(forms.ModelChoiceField, self.fields["class_offering"])
+        classes.queryset = ClassOffering.objects.discount_code_targets(keep_pk=code.class_offering_id)
+        teachers = cast(forms.ModelChoiceField, self.fields["instructor"])
+        teachers.queryset = ClassOffering.objects.teaching_members(keep_pk=code.instructor_id)
+
+    def clean(self) -> dict[str, Any]:
+        data = super().clean() or {}
+        # A field that failed its own validation is absent here, hence .get: nothing to cross check.
+        scope = data.get("scope")
+        if scope == DiscountCode.Scope.ONE_CLASS and data.get("class_offering") is None:
+            self.add_error("class_offering", "Pick the class this code should work on.")
+        if scope == DiscountCode.Scope.INSTRUCTOR and data.get("instructor") is None:
+            self.add_error("instructor", "Pick the instructor whose classes this code should work on.")
+        # The scope decides which target is kept; the other picker's value is noise from the modal.
+        if scope != DiscountCode.Scope.ONE_CLASS:
+            data["class_offering"] = None
+        if scope != DiscountCode.Scope.INSTRUCTOR:
+            data["instructor"] = None
+        return data
+
+    def save(self) -> DiscountCode:
+        """Move the code; the form is valid, so the one target the scope needs is in ``cleaned_data``."""
+        self.code.reassign(
+            class_offering=self.cleaned_data["class_offering"], instructor=self.cleaned_data["instructor"]
+        )
+        return self.code
+
+
 class DiscountCodeRequestForm(forms.ModelForm):
     """An instructor's ask for a class code under approval mode.
 
@@ -1999,14 +2066,10 @@ class RegistrationForm(forms.ModelForm):
     def _code_for(self, raw: str) -> DiscountCode | None:
         """The code spelled ``raw`` that this class honours, valid or not, else ``None``.
 
-        Codes are either global (class_offering is null) or scoped to this class. A code
-        scoped to some other class is not recognized here.
+        A code works everywhere, on one class, or on every class one instructor teaches
+        (:meth:`DiscountCodeQuerySet.honoured_on`); one aimed elsewhere is not recognized here.
         """
-        return (
-            DiscountCode.objects.filter(Q(class_offering__isnull=True) | Q(class_offering=self.offering))
-            .filter(code=raw)
-            .first()
-        )
+        return DiscountCode.objects.honoured_on(self.offering).filter(code=raw).first()
 
     def clean_discount_code(self) -> DiscountCode | None:
         raw = (self.cleaned_data.get("discount_code") or "").strip().upper()

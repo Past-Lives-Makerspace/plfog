@@ -46,21 +46,24 @@
             <th>Fixed</th>
             <th>Valid</th>
             <th>Uses</th>
+            <th>Scope</th>
             {% sort_header "Active" "is_active" sort sort_dir base_params %}
             {% sort_header "Approved" "is_approved" sort sort_dir base_params %}
-            <th></th>
+            <th>Actions</th>
         </tr>
     </thead>
     <tbody>
     {% for c in page %}
         {% url 'classes:admin_discount_code_delete' pk=c.pk as code_delete_url %}
         {% concat "del-code-" c.pk as code_modal_id %}
+        {% concat "Actions for " c.code as code_menu_label %}
         <tr{% if not c.is_approved %} style="background:rgba(248,180,75,0.06);"{% endif %}>
             <td>{{ c.code }}</td>
             <td>{{ c.discount_pct|default:"—" }}</td>
             <td>{% if c.discount_fixed_cents %}{{ c.discount_fixed_cents|cents_as_dollars }}{% else %}—{% endif %}</td>
             <td>{{ c.valid_from|default:"—" }} → {{ c.valid_until|default:"—" }}</td>
             <td>{{ c.use_count }}/{{ c.max_uses|default:"∞" }}</td>
+            <td>{{ c.scope_label }}</td>
             <td>{{ c.is_active|yesno }}</td>
             <td>
                 {% if c.is_approved %}
@@ -70,21 +73,13 @@
                 {% endif %}
             </td>
             <td>
-                <div class="admin-actions">
-                    <form method="post" action="{% url 'classes:admin_discount_code_approve' pk=c.pk %}" style="display:inline;">
-                        {% csrf_token %}
-                        <button type="submit" class="hub-btn hub-btn--sm {% if c.is_approved %}hub-btn--ghost{% else %}hub-btn--success{% endif %}">{% if c.is_approved %}Unapprove{% else %}Approve{% endif %}</button>
-                    </form>
-                    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_discount_code_edit' pk=c.pk %}">Edit</a>
-                    <button type="button"
-                            class="hub-btn hub-btn--sm hub-btn--danger"
-                            @click="$dispatch('open-confirm', '{{ code_modal_id }}')">Delete</button>
-                    {% include "components/confirm_modal.html" with confirm_id=code_modal_id confirm_title="Delete this discount code?" confirm_message="The code will be permanently removed. Registrations that already used it keep the discount." confirm_action_url=code_delete_url confirm_button_text="Delete Code" %}
-                </div>
+                {# One ... menu per row (#764); the confirm modal teleports to body, so it stays in the cell. #}
+                {% include "components/row_actions.html" with menu_include="classes/partials/discount_code_row_menu.html" menu_label=code_menu_label %}
+                {% include "components/confirm_modal.html" with confirm_id=code_modal_id confirm_title="Delete this discount code?" confirm_message="The code will be permanently removed. Registrations that already used it keep the discount." confirm_action_url=code_delete_url confirm_button_text="Delete Code" %}
             </td>
         </tr>
     {% empty %}
-        <tr><td colspan="8" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">
+        <tr><td colspan="9" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">
             {% if q %}No codes matching "{{ q }}".{% else %}No discount codes yet.{% endif %}
         </td></tr>
     {% endfor %}
@@ -92,4 +87,6 @@
 </table>
 </div>
 {% include "components/table_pagination.html" with page=page base_params=base_params %}
+{# One shared modal; each row's Re-assign loads its own form into #reassign-code-body (#764). #}
+{% include "components/modal.html" with modal_id="reassign-code" modal_title="Re-assign Discount Code" modal_size="sm" %}
 {% endblock %}

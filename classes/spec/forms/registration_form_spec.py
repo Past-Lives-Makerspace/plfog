@@ -541,3 +541,44 @@ def describe_the_sold_out_guard_on_a_flexible_class():
         form = RegistrationForm(data=_post_data(), offering=offering, settings_obj=settings_obj)
         assert not form.is_valid()
         assert "sold out" in str(form.errors).lower()
+
+
+def describe_an_instructors_code_at_checkout():
+    """AC3 of #764: a code aimed at an instructor works on every class they teach and nowhere else."""
+
+    def _class_by(teacher) -> ClassOffering:
+        return ClassOfferingFactory(
+            instructor=teacher, status=ClassOffering.Status.PUBLISHED, price_cents=10000, capacity=4
+        )
+
+    def it_is_accepted_on_their_classes_including_one_made_after_the_assignment(settings_obj):
+        teacher = InstructorFactory()
+        code = DiscountCodeFactory(code="JACQUELINE30", discount_pct=30, class_offering=None, instructor=teacher)
+        later = _class_by(teacher)
+        form = RegistrationForm(
+            data=_post_data(discount_code="jacqueline30"), offering=later, settings_obj=settings_obj
+        )
+        assert form.is_valid(), form.errors
+        assert form.validated_discount == code
+        assert form.compute_final_price_cents() == 7000
+
+    def it_is_unrecognised_on_another_instructors_class_and_on_a_class_with_no_instructor(settings_obj):
+        DiscountCodeFactory(code="JACQUELINE30", discount_pct=30, class_offering=None, instructor=InstructorFactory())
+        for offering in (_class_by(InstructorFactory()), _class_by(None)):
+            form = RegistrationForm(
+                data=_post_data(discount_code="JACQUELINE30"), offering=offering, settings_obj=settings_obj
+            )
+            assert not form.is_valid()
+            assert form.errors["discount_code"] == ["That discount code isn't recognized."]
+
+    def it_auto_applies_on_their_classes_only(settings_obj):
+        teacher = InstructorFactory()
+        auto = DiscountCodeFactory(
+            code="JAUTO", discount_pct=20, class_offering=None, instructor=teacher, auto_apply=True
+        )
+        theirs = RegistrationForm(offering=_class_by(teacher), settings_obj=settings_obj, member=object())
+        assert theirs.auto_applied_discount == auto
+        assert theirs.quoted_price_cents() == 8000
+        for offering in (_class_by(InstructorFactory()), _class_by(None)):
+            elsewhere = RegistrationForm(offering=offering, settings_obj=settings_obj, member=object())
+            assert elsewhere.auto_applied_discount is None
