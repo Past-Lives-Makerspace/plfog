@@ -22,6 +22,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from membership.models import (
+    AdminCapability,
     EquipmentReservation,
     GuildStaffMembership,
     Member,
@@ -201,6 +202,25 @@ def describe_needs_attention():
         assert "pl-attention-clear" in content
         assert "data-needs-attention" not in content
 
+    def it_reloads_the_body_after_a_refund_the_way_the_panes_do(client: Client):
+        # A paid request's row offers Refund; the refund answers refund-done, and the body
+        # (rows, counts and their modals) reloads from this page so the Paid cell follows.
+        _request(_led_guild(_login(client, "mb_na_refund")), name="Refund Watcher")
+        content = _page(client)
+        body = content[
+            content.index("<div data-attention-body") : content.index(">", content.index("<div data-attention-body"))
+        ]
+        assert f'hx-get="{PAGE}"' in body
+        assert 'hx-trigger="refund-done from:body"' in body
+        assert 'hx-select="[data-attention-body]"' in body
+        assert 'hx-swap="outerHTML"' in body
+        assert (
+            content.index("data-attention-body")
+            < content.index("data-needs-attention")
+            < content.index("data-what-you-run")
+        )
+        assert "@refund-done.window=\"$dispatch('close-modal', 'refund-modal')\"" in content
+
     def it_honours_an_admins_preview_as_a_member(client: Client):
         admin = _login(client, "mb_na_preview", fog_role=Member.FogRole.ADMIN)
         own = _request(_led_guild(admin, name="Admin's Own Guild"), name="Own Guild Requester")
@@ -373,6 +393,36 @@ def describe_what_you_run():
         assert "data-run-empty" in content
         assert "Nothing is running orientations yet. Add one above." in content
 
+    def it_gives_an_officer_every_guild_with_settings_and_only_the_equipment_they_staff(client: Client):
+        # An officer edits every guild but has no blanket equipment grant (manageable_equipment_ids).
+        officer = _login(client, "mb_run_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+        with_settings = GuildFactory(name="Officer Settings Guild")
+        GuildOrientationSettingsFactory(guild=with_settings)
+        GuildFactory(name="Officer Bare Guild")
+        EquipmentFactory(name="Unstaffed Tool")
+        EquipmentFactory(name="Officer Guild Tool", guild=with_settings)
+        content = _what_you_run(_page(client))
+        assert f'data-run-guild="{with_settings.pk}"' in content
+        assert "Officer Bare Guild" not in content
+        assert "data-run-equipment=" not in content
+        staffed = EquipmentFactory(name="Officer Staffed Tool")
+        EquipmentStaffMembershipFactory(equipment=staffed, member=officer)
+        content = _what_you_run(_page(client))
+        assert content.count("data-run-equipment=") == 1
+        assert f'data-run-equipment="{staffed.pk}"' in content
+
+    def it_gives_an_equipment_administrator_every_active_equipment(client: Client):
+        # The site tier: a lead who also holds the EQUIPMENT capability sees every active item, not only their own.
+        member = _login(client, "mb_run_capability")
+        member.sync_admin_capabilities([AdminCapability.Capability.EQUIPMENT])
+        guild = _led_guild(member, name="Capability Guild")
+        every = EquipmentFactory(name="Anybody's Tool")
+        EquipmentFactory(name="Retired Anywhere", is_active=False)
+        content = _what_you_run(_page(client))
+        assert f'data-run-guild="{guild.pk}"' in content
+        assert f'data-run-equipment="{every.pk}"' in content
+        assert "Retired Anywhere" not in content
+
     def it_keeps_the_query_count_flat_as_cards_grow(client: Client):
         member = _login(client, "mb_run_queries")
         _led_guild(member, name="First Card Guild")
@@ -440,6 +490,23 @@ def describe_your_hours():
         guild = GuildFactory(name="Orienter Guild")
         GuildStaffMembershipFactory(guild=guild, member=member, role=GuildStaffMembership.Role.ORIENTER)
         assert "data-your-hours" in _page(client)
+
+    def it_leaves_behind_the_rules_on_a_guild_or_tool_the_member_has_left(client: Client):
+        # Their Edit Hours would be refused (can_edit_orienter_hours); those rows are the guild's Former Staff business.
+        member = _login(client, "mb_hours_left")
+        current = _led_guild(member, name="Current Guild")
+        OrientationAvailabilityFactory(guild=current, orienter=member)
+        left = GuildFactory(name="Left Guild")
+        GuildOrientationSettingsFactory(guild=left)
+        OrientationAvailabilityFactory(guild=left, orienter=member)
+        gone_tool = EquipmentFactory(name="Gone Tool")
+        gone_type = OrientationTypeFactory(equipment_owned=True, equipment=gone_tool, name="Gone Checkout")
+        OrientationAvailabilityFactory(equipment_owned=True, orientation_type=gone_type, orienter=member)
+        content = _page(client)
+        assert content.count("data-hours-owner=") == 1
+        assert f'data-hours-owner="guild-{current.pk}"' in content
+        assert f'data-hours-owner="guild-{left.pk}"' not in content
+        assert "Gone Checkout" not in content
 
 
 def describe_the_old_dashboard_url():

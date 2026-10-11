@@ -428,6 +428,16 @@ def manageable_equipment(
     return queryset.filter(pk__in=in_scope.values("pk"))
 
 
+def manages_all_equipment(request: HttpRequest, *, honour_preview: bool = False) -> bool:
+    """True when this request manages every item: the site tier of :func:`can_manage_equipment` (#768).
+
+    A full admin (``view_as`` aware) or an EQUIPMENT capability holder, which is where a list
+    stops asking "which ones" and shows every active item. ``honour_preview`` drops a capability
+    the viewer is previewing away, as :func:`manageable_equipment` does.
+    """
+    return _equipment_scope(request, honour_preview=honour_preview) is None
+
+
 def _reservation_scope(request: HttpRequest, *, honour_preview: bool) -> Q | None:
     """The reservations this request may manage as a ``Q``, or None for every one.
 

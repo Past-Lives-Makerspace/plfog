@@ -22,6 +22,8 @@ bookings_next, which is this page, so the viewer lands back here.
 {% endif %}
 
 <div class="pl-manage" data-manage-bookings x-data @refund-done.window="$dispatch('close-modal', 'refund-modal')">
+  {# The panes' refund idiom: a refund answers refund-done, which closes the modal above and reloads this body (rows, counts and their modals) from the page itself, so the Paid cell and the row's menu follow. #}
+  <div data-attention-body hx-get="{% url 'hub_manage_bookings' %}" hx-trigger="refund-done from:body" hx-select="[data-attention-body]" hx-swap="outerHTML">
   {% if booking_rows or reservation_rows %}
   <section class="hub-card pl-manage__card" data-needs-attention>
     <h2 class="hub-detail-label pl-manage__title">Needs Attention <span class="pl-manage__count">({{ attention_count }})</span></h2>
@@ -82,6 +84,9 @@ bookings_next, which is this page, so the viewer lands back here.
   {% else %}
   {% include "classes/_components/needs_attention_clear.html" %}
   {% endif %}
+  {% include "hub/partials/orientation_booking_modals.html" %}
+  {% include "hub/partials/reservation_booking_modals.html" %}
+  </div>
 
   <section class="pl-manage__section" data-what-you-run>
     <h2 class="hub-detail-label pl-manage__title">What You Run</h2>
@@ -159,8 +164,6 @@ bookings_next, which is this page, so the viewer lands back here.
   </section>
   {% endif %}
 
-  {% include "hub/partials/orientation_booking_modals.html" %}
-  {% include "hub/partials/reservation_booking_modals.html" %}
   {% if viewer_has_refund_authority %}
   {% include "components/modal.html" with modal_id="refund-modal" modal_title="Refund Payment" modal_size="sm" %}
   {% endif %}

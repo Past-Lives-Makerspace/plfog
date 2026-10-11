@@ -20,6 +20,7 @@ from membership.permissions import (
     guilds_for_new_orientation,
     manageable_equipment,
     manageable_guilds,
+    manages_all_equipment,
     member_runs_anything,
     runs_bookings,
 )
@@ -202,6 +203,23 @@ def describe_manageable_equipment():
         for request in (_request(rf, _member()), _request(rf, None)):
             assert list(manageable_equipment(request, Equipment.objects.all())) == []
             _parity(request, items)
+
+    def it_names_the_site_tier_as_managing_all_of_it(rf, items):
+        # The question a list asks before it stops asking "which ones": admin or EQUIPMENT holder.
+        assert manages_all_equipment(_request(rf, _member(Member.FogRole.ADMIN))) is True
+        holder = _member()
+        holder.sync_admin_capabilities([AdminCapability.Capability.EQUIPMENT])
+        assert manages_all_equipment(_request(rf, holder)) is True
+        previewing = _member(Member.FogRole.ADMIN)
+        previewing.sync_admin_capabilities([AdminCapability.Capability.EQUIPMENT])
+        assert manages_all_equipment(_request(rf, previewing, ROLE_MEMBER)) is True
+        assert manages_all_equipment(_request(rf, previewing, ROLE_MEMBER), honour_preview=True) is False
+        lead = _member()
+        items["guild_owned"].guild.guild_lead = lead
+        items["guild_owned"].guild.save(update_fields=["guild_lead"])
+        assert manages_all_equipment(_request(rf, lead)) is False
+        assert manages_all_equipment(_request(rf, _member(Member.FogRole.GUILD_OFFICER))) is False
+        assert manages_all_equipment(_request(rf, None)) is False
 
     def it_never_repeats_an_item_a_member_reaches_two_ways(rf, items):
         member = _member()

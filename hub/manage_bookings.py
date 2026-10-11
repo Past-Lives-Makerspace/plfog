@@ -42,6 +42,7 @@ from membership.permissions import (
     is_effective_staff,
     manageable_equipment,
     manageable_guilds,
+    manages_all_equipment,
     member_runs_anything,
     runs_bookings,
 )
@@ -196,13 +197,14 @@ def _guild_cards(request: HttpRequest) -> list[GuildCard]:
 def _equipment_cards(request: HttpRequest) -> list[EquipmentCard]:
     """What You Run's equipment cards: every item in scope with its chip and how many requests await approval, in one query.
 
-    An admin sees every active item (the site rule); everyone else sees exactly what
-    :func:`manageable_equipment` says they manage, retired gear included, since a retired tool
-    stays with the people assigned to it. The preview is honoured like the Bookings tabs.
+    The site tier (an admin or an EQUIPMENT capability holder, :func:`manages_all_equipment`)
+    sees every active item; everyone else, an officer included, sees exactly what
+    :func:`manageable_equipment` says they lead, staff or manage, retired gear included, since
+    a retired tool stays with the people assigned to it. The preview is honoured like the
+    Bookings tabs.
     """
-    view_as = getattr(request, "view_as", None)
     items: QuerySet[Equipment]
-    if view_as is not None and view_as.is_admin:
+    if manages_all_equipment(request, honour_preview=True):
         items = Equipment.objects.active()
     else:
         items = manageable_equipment(request, Equipment.objects.all(), honour_preview=True)
@@ -228,14 +230,22 @@ def _equipment_cards(request: HttpRequest) -> list[EquipmentCard]:
 
 
 def _hours_groups(member: Member) -> list[HoursGroup]:
-    """Your Hours: the member's own recurring rules across every guild and equipment, grouped by owner, in one query.
+    """Your Hours: the member's own recurring rules on every owner they are still on, grouped by owner, in one query.
 
-    Each group's Edit Hours URL is the owner's existing modal form scoped to the member
-    (``?orienter=<self>``), the guild one or its equipment twin; the modal's save lands on the
-    owner's page as it always has.
+    Only rules whose owner the member still leads or staffs (a guild) or still runs (equipment:
+    a staff row, or the owning guild's leadership) are listed, which is exactly what
+    ``can_edit_orienter_hours`` and its equipment twin let them open. A rule left behind on a
+    guild they have since left is that guild's Former Staff business, and its Edit Hours would
+    only be refused. Each group's Edit Hours URL is the owner's existing modal form scoped to
+    the member (``?orienter=<self>``); the modal's save lands on the owner's page as it always has.
     """
+    led_or_staffed = member.staffed_guilds.values("pk")
+    run = Equipment.objects.filter(
+        Q(staff_memberships__member=member) | Q(guild__guild_lead=member) | Q(guild__staff_memberships__member=member)
+    ).values("pk")
     rules = (
         OrientationAvailability.objects.for_orienter(member)
+        .filter(Q(guild__in=led_or_staffed) | Q(orientation_type__equipment__in=run))
         .select_related("guild", "orientation_type__guild", "orientation_type__equipment")
         .order_by("weekday", "start_time", "pk")
     )
