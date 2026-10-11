@@ -11722,6 +11722,11 @@ class GuildOrientationSettings(models.Model):
             "in cents. 0 = no fee (the default). Applies only while Site Settings charges late fees."
         ),
     )
+    booking_notice_hours = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name="Booking notice (hours)",
+        help_text="Members must book at least this many hours ahead. 0 means any time before it starts.",
+    )
     thankyou_email_enabled = models.BooleanField(
         default=True,
         help_text=(
@@ -12365,6 +12370,55 @@ class OrientationType(models.Model):
             return equipment.is_active and not equipment.is_closed
         settings_obj = GuildOrientationSettings.objects.filter(guild=self.guild).first()
         return settings_obj is not None and settings_obj.is_accepting
+
+    @property
+    def booking_notice_hours(self) -> int:
+        """How many hours ahead a member must book this type (#766).
+
+        The one read every offer and every refusal makes: the owning guild's Booking notice,
+        and 0 for an equipment owned type or a guild that never saved orientation settings.
+        """
+        if self.is_equipment_owned:
+            return 0
+        guild = cast(Guild, self.guild)
+        try:
+            return int(guild.orientation_settings.booking_notice_hours)
+        except GuildOrientationSettings.DoesNotExist:
+            return 0
+
+    @property
+    def booking_notice_sentence(self) -> str:
+        """The member line and the refusal, "Book at least 24 hours ahead.", or "" with no notice."""
+        hours = self.booking_notice_hours
+        if hours == 0:
+            return ""
+        return f"Book at least {duration_label(hours * 60)} ahead."
+
+    def earliest_bookable_start(self, *, now: datetime_type | None = None) -> datetime_type:
+        """The first moment a member may book this type for: ``now`` plus the Booking notice."""
+        return (timezone.now() if now is None else now) + timedelta(hours=self.booking_notice_hours)
+
+    def inside_booking_notice(self, starts_at: datetime_type) -> bool:
+        """True when ``starts_at`` begins less than the Booking notice from now; never with no notice."""
+        return self.booking_notice_hours > 0 and starts_at < self.earliest_bookable_start()
+
+    def ensure_outside_booking_notice(self, starts_at: datetime_type) -> None:
+        """Refuse a member's time inside the Booking notice (#766), on every booking road alike.
+
+        Raises:
+            OrientationError: "Book at least N hours ahead.", the sentence the pages show.
+        """
+        if self.inside_booking_notice(starts_at):
+            raise OrientationError(self.booking_notice_sentence)
+
+    def offerable_slots(self, slots: Sequence[OrientationSlot]) -> list[OrientationSlot]:
+        """``slots`` of this type a member may still book (#766): those starting at or past the notice, in order.
+
+        Python rather than SQL, so SQLite (local specs) and Postgres (production) agree on
+        the duration arithmetic; callers pass a list already scoped to the page.
+        """
+        earliest = self.earliest_bookable_start()
+        return [slot for slot in slots if slot.starts_at >= earliest]
 
     def default_runner(self) -> Member | None:
         """The fallback ``oriented_by`` when nobody explicit ran it.
@@ -13047,22 +13101,28 @@ class OrientationAvailabilityBlock(models.Model):
     ) -> list[datetime_type]:
         """Future 15-minute-aligned starts (measured from the block start) that fit the type's duration.
 
-        A cancelled window, or one for another orientation only, offers none. ``free``
-        takes this block's :meth:`free_intervals` already read; left out, they are read here.
+        A cancelled window, or one for another orientation only, offers none, and a start
+        inside the type's Booking notice (#766) is left out. ``free`` takes this block's
+        :meth:`free_intervals` already read; left out, they are read here.
         """
         if self.is_cancelled or not self.admits(orientation_type):
             return []
         duration = timedelta(minutes=orientation_type.duration_minutes)
         step = timedelta(minutes=self.SNAP_MINUTES)
         now = timezone.now()
+        earliest = orientation_type.earliest_bookable_start(now=now)
         if free is None:
             free = self.free_intervals()
         starts: list[datetime_type] = []
         candidate = self.starts_at
         while candidate + duration <= self.ends_at:
-            if candidate > now and any(
-                interval_start <= candidate and candidate + duration <= interval_end
-                for interval_start, interval_end in free
+            if (
+                candidate > now
+                and candidate >= earliest
+                and any(
+                    interval_start <= candidate and candidate + duration <= interval_end
+                    for interval_start, interval_end in free
+                )
             ):
                 starts.append(candidate)
             candidate += step
@@ -13072,9 +13132,9 @@ class OrientationAvailabilityBlock(models.Model):
         """Raise :class:`OrientationError` unless ``starts_at`` is a bookable start for this type.
 
         Checks (in order): the block is not cancelled, the type belongs to this guild and
-        is active, the start is in the future, on the 15 minute grid from the block start,
-        inside the block with room for the type's duration, and not overlapping an
-        occupied segment. Callers re-run this under ``select_for_update`` on the block
+        is active, the start is in the future and clears the type's Booking notice (#766),
+        on the 15 minute grid from the block start, inside the block with room for the
+        type's duration, and not overlapping an occupied segment. Callers re-run this under ``select_for_update`` on the block
         row before carving out a slot, so two members can't take one interval.
 
         Raises:
@@ -13088,6 +13148,7 @@ class OrientationAvailabilityBlock(models.Model):
             raise OrientationError(f"That window is for {cast(OrientationType, self.orientation_type).name} only.")
         if starts_at <= timezone.now():
             raise OrientationError("That time's already past. Please pick a future time.")
+        orientation_type.ensure_outside_booking_notice(starts_at)
         offset = starts_at - self.starts_at
         if offset < timedelta(0) or starts_at + timedelta(minutes=orientation_type.duration_minutes) > self.ends_at:
             raise OrientationError("That time doesn't fit inside this availability window.")
@@ -13476,11 +13537,11 @@ class OrientationSlot(models.Model):
     def ensure_bookable_for(self, member: Member, *, by_staff: bool = False) -> None:
         """Raise :class:`OrientationError` unless ``member`` may take a seat on this slot.
 
-        ``by_staff=True`` licenses exactly one thing: it lets a lead, orienter or admin
-        seat a member who still owes a late cancellation fee (#456), since the dashboard's
-        add-a-member path is a staffer's call, not the member booking their own way around
-        the block. It relaxes nothing else; every seat, duplicate and cancellation guard
-        below still applies.
+        ``by_staff=True`` licenses exactly two things: it lets a lead, orienter or admin
+        seat a member who still owes a late cancellation fee (#456), and seat one inside
+        the guild's Booking notice (#766), since the dashboard's add-a-member path is a
+        staffer's call, not the member booking their own way around either block. It
+        relaxes nothing else; every seat, duplicate and cancellation guard below still applies.
 
         The duplicate guard runs at the ``seat_holding()`` scope — a member with a
         live ``PENDING_PAYMENT`` checkout is caught here with a friendly error, never
@@ -13507,6 +13568,10 @@ class OrientationSlot(models.Model):
                     "It frees up within an hour if they don't complete payment."
                 )
             raise OrientationError("This orientation slot is not available to book.")
+        # The Booking notice (#766): a member books at least N hours ahead. A staffer seating
+        # someone by hand is the lead's own call on their own time, so it stands aside.
+        if not by_staff:
+            self.orientation_type.ensure_outside_booking_notice(self.starts_at)
         if member.is_oriented_for_type(self.orientation_type):
             raise OrientationError("You've already completed this orientation.")
         # The block until paid (#456): an unpaid late cancellation fee closes every member

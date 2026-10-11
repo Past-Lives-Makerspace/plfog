@@ -1,0 +1,87 @@
+{% extends "classes/admin/base.html" %}
+{% block title %}Instructor Resources{% endblock %}
+{% block tab_content %}
+{% comment %}
+Instructor Resources under Class Settings (#765): the links every instructor sees in a card
+on their Teaching page. The head mirrors the Teaching Marketing Page; the rows are the Help
+editor's links rows (FRONTEND, Editable Lists): extra=0, a "+ Add a link" button that clones
+the <template> of the empty form, a Delete button on a saved row that flips its hidden DELETE
+and submits the page so nothing typed is lost, a Remove button on a cloned row that only drops
+it, and one Save last (Rule 21). The server numbers sort_order from the order the rows are
+posted in, so the hidden sort_order inputs only carry the row along.
+{% endcomment %}
+<div class="pl-teach-page-settings__head">
+    <h2 class="pl-teach-page-settings__title">
+        Instructor Resources
+        <span class="pl-help">
+            <span class="pl-help__icon" tabindex="0" role="img" aria-label="Instructor Resources: These links show in a card on every instructor's Teaching page.">?</span>
+            <span class="pl-help__bubble">These links show in a card on every instructor's Teaching page.</span>
+        </span>
+    </h2>
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_overview' %}" target="_blank" rel="noopener">View the Page</a>
+</div>
+<p class="pl-teach-page-settings__intro">Each row is one link: the words instructors see and the address it opens. They show in this order.</p>
+<form method="post">
+    {% csrf_token %}
+    {{ formset.management_form }}
+    <div id="instructor-resource-rows" class="pl-instructor-resources__rows">
+        {% for f in formset %}
+        <div class="pl-instructor-resources__row">
+            <div class="pl-instructor-resources__fields">
+                <div class="pl-instructor-resources__label">{% include "components/form_field.html" with field=f.label field_hint_off=True %}</div>
+                <div class="pl-instructor-resources__url">{% include "components/form_field.html" with field=f.url field_hint_off=True %}</div>
+            </div>
+            {% if f.instance.pk %}
+            <div hidden>{{ f.DELETE }}</div>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
+                    onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                Delete
+            </button>
+            {% else %}
+            {# A new row back on the page with an error: still unsaved, so Remove only drops it. #}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.pl-instructor-resources__row').remove();">Remove</button>
+            {% endif %}
+            {{ f.id }}
+            {{ f.sort_order }}
+        </div>
+        {% empty %}
+        <p class="hub-text-muted pl-instructor-resources__empty">No links yet. Add your first.</p>
+        {% endfor %}
+    </div>
+
+    {# The empty form, cloned by the "+ Add a link" button below. #}
+    <template id="instructor-resource-empty-template">
+        <div class="pl-instructor-resources__row">
+            {% with formset.empty_form as ef %}
+            <div class="pl-instructor-resources__fields">
+                <div class="pl-instructor-resources__label">{% include "components/form_field.html" with field=ef.label field_hint_off=True %}</div>
+                <div class="pl-instructor-resources__url">{% include "components/form_field.html" with field=ef.url field_hint_off=True %}</div>
+            </div>
+            {{ ef.id }}
+            {{ ef.sort_order }}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.pl-instructor-resources__row').remove();">Remove</button>
+            {% endwith %}
+        </div>
+    </template>
+
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost pl-instructor-resources__add"
+            onclick="
+                const tpl = document.getElementById('instructor-resource-empty-template');
+                const total = document.getElementById('id_links-TOTAL_FORMS');
+                const rows = document.getElementById('instructor-resource-rows');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                const empty = rows.querySelector('.pl-instructor-resources__empty');
+                if (empty) { empty.remove(); }
+                rows.appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+            ">
+        + Add a link
+    </button>
+
+    <div class="pl-teach-page-settings__actions">
+        <button type="submit" class="hub-btn hub-btn--primary">Save</button>
+    </div>
+</form>
+{% endblock %}

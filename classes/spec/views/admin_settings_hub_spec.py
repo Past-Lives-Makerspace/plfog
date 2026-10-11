@@ -28,6 +28,7 @@ def describe_admin_settings_hub():
             "classes:admin_registration_questions",
             "classes:admin_settings",
             "classes:admin_teaching_page_settings",
+            "classes:admin_instructor_resources",
         ]:
             assert reverse(name).encode() in resp.content
 
@@ -46,6 +47,19 @@ def describe_admin_settings_hub():
         assert reverse("classes:admin_settings") in waivers_tile
         teaching_tile = content.split("Teaching Marketing Page</h3>")[0].rsplit("<a ", 1)[1]
         assert reverse("classes:admin_teaching_page_settings") in teaching_tile
+
+    def it_offers_instructor_resources_as_the_sixth_tile_after_the_teaching_page(admin_user, client, db):
+        client.force_login(admin_user)
+        content = client.get(reverse("classes:admin_settings_hub")).content.decode()
+        assert "Instructor Resources</h3>" in content
+        assert (
+            "Links every instructor sees on their Teaching page: the review link, release and liability forms, "
+            "whatever else they need." in content
+        )
+        resources_tile = content.split("Instructor Resources</h3>")[0].rsplit("<a ", 1)[1]
+        assert reverse("classes:admin_instructor_resources") in resources_tile
+        assert content.index("Teaching Marketing Page</h3>") < content.index("Instructor Resources</h3>")
+        assert content.count('<a class="hub-card"') == 6
 
 
 def describe_waivers_form_move():

@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0225_communityevent_discord_pushed_start"),
+        ("membership", "0226_guildorientationsettings_booking_notice_hours"),
     ]
 
     operations = [

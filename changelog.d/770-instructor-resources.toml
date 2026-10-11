@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-11"
+title = "Instructors get a resources card on their Teaching page"
+changes = [
+  "Admins keep a list of links under Class Settings, Instructor Resources: the review link, the release and liability forms, anything else instructors need.",
+  "Every instructor sees those links in a card at the bottom of their Teaching page, each opening in a new tab.",
+]

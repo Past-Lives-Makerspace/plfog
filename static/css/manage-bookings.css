@@ -1,0 +1,30 @@
+/* The Manage Bookings home (#768), hub/manage_bookings.html: the page's three cards stacked, the
+   Needs Attention groups (rows and chips come from bookings-tab.css), the What You Run grid of
+   .hub-card tiles (two columns, one on a phone) and Your Hours (its groups reuse the Orientation
+   Schedule rules in hub.css). Tokens only, so both themes read; no page-specific rule goes in hub.css. */
+
+.pl-manage { display: flex; flex-direction: column; gap: 1.25rem; }
+.pl-manage__card { margin: 0; }
+.pl-manage__title { margin: 0 0 0.75rem; }
+.pl-manage__count { color: var(--hub-text-muted); font-weight: 400; }
+.pl-manage__group + .pl-manage__group { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--hub-border); }
+.pl-manage__subtitle { margin: 0 0 0.5rem; font-size: 0.95rem; font-weight: 600; }
+.pl-manage__more { display: inline-block; margin-top: 0.5rem; font-size: 0.9rem; }
+.pl-manage__empty { margin: 0; }
+.pl-manage__empty p { margin: 0; }
+
+.pl-manage-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.pl-manage-card { margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.pl-manage-card__head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+.pl-manage-card__name { margin: 0; font-size: 1.05rem; }
+.pl-manage-card__lines { margin: 0; padding-left: 1.1rem; font-size: 0.9rem; }
+.pl-manage-card__lines li + li { margin-top: 0.15rem; }
+.pl-manage-card__note,
+.pl-manage-card__meta { margin: 0; font-size: 0.85rem; }
+.pl-manage-card__links { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: auto; padding-top: 0.25rem; }
+
+.pl-manage__hours-empty { margin: 0; }
+
+@media (max-width: 768px) {
+    .pl-manage-grid { grid-template-columns: 1fr; }
+}

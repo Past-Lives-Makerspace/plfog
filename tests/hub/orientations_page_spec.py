@@ -96,13 +96,16 @@ def describe_the_page():
         )
         response = client.get("/orientations/manage/")
         assert response.status_code == 302
-        assert response["Location"] == "/orientations/?view=bookings"
+        assert response["Location"] == reverse("hub_manage_bookings")
 
-    def it_sends_a_plain_member_to_their_own_bookings(client: Client):
+    def it_sends_a_plain_member_to_the_manage_bookings_home_which_sends_them_on(client: Client):
+        # The home (#768) is for people who run something; a plain member bounces from it to the hub home.
         _login(client, "op_dash_member")
-        response = client.get("/orientations/manage/")
-        assert response.status_code == 302
-        assert response["Location"] == "/orientations/?view=bookings"
+        response = client.get("/orientations/manage/", follow=True)
+        assert [url for url, _status in response.redirect_chain] == [
+            reverse("hub_manage_bookings"),
+            reverse("hub_home"),
+        ]
 
     def it_lists_cards_for_a_signed_in_account_with_no_member(client: Client):
         user = _login(client, "op_unlinked")

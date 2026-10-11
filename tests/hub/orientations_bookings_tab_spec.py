@@ -705,24 +705,17 @@ def describe_query_counts():
 
 
 def describe_the_old_dashboard_url():
-    def it_redirects_to_the_tab_with_its_query(client: Client):
+    # It pointed here, at the tab, from #626 to #768; the Manage Bookings home owns it now and links to the tab.
+    def it_redirects_to_the_manage_bookings_home(client: Client):
         _login(client, "bt_redirect")
-        response = client.get("/orientations/manage/?status=requested")
+        response = client.get("/orientations/manage/")
         assert response.status_code == 302
-        assert response["Location"] == "/orientations/?view=bookings&status=requested"
+        assert response["Location"] == reverse("hub_manage_bookings")
 
-    def it_redirects_without_a_query(client: Client):
-        _login(client, "bt_redirect_bare")
-        assert client.get("/orientations/manage/")["Location"] == "/orientations/?view=bookings"
-
-    def it_translates_the_dashboards_own_parameters(client: Client):
+    def it_drops_the_dashboards_old_filters(client: Client):
         _login(client, "bt_redirect_map")
         response = client.get("/orientations/manage/?q=ana&completed=yes&scope=mine&view=list&guild=3")
-        assert response["Location"] == "/orientations/?view=bookings&search=ana&oriented=yes&guild=3"
-
-    def it_redirects_to_the_bare_tab_when_only_dropped_parameters_came(client: Client):
-        _login(client, "bt_redirect_dropped")
-        assert client.get("/orientations/manage/?scope=mine")["Location"] == "/orientations/?view=bookings"
+        assert response["Location"] == reverse("hub_manage_bookings")
 
 
 def describe_the_export():

@@ -276,3 +276,41 @@ def describe_bookings_tab_without_blocks():
         response = client.get(reverse("hub_orientations"), {"view": "bookings"})
         assert response.status_code == 200
         assert b'data-bookings-pane="staff"' in response.content
+
+
+def describe_booking_notice_in_the_picker():
+    """The pick-a-time modal (#766): no start inside the guild's Booking notice, and a crafted one is refused."""
+
+    def _window_across_the_notice():
+        """A 3 hour window opening 23 hours from now, at a guild whose notice is 24 hours."""
+        opens = (timezone.now() + timedelta(hours=23)).replace(second=0, microsecond=0)
+        block = OrientationAvailabilityBlockFactory(starts_at=opens)
+        settings_obj = block.guild.orientation_settings
+        settings_obj.booking_notice_hours = 24
+        settings_obj.save(update_fields=["booking_notice_hours"])
+        return block, OrientationTypeFactory(guild=block.guild, duration_minutes=60)
+
+    def it_offers_no_start_inside_the_notice(client: Client):
+        _user_with_role("bnp_offer")
+        block, orientation_type = _window_across_the_notice()
+        client.login(username="bnp_offer", password="pass")
+        url = reverse("hub_orientation_block_starts", args=[block.pk, orientation_type.pk])
+        content = client.get(url).content.decode()
+        assert _option_value(block.starts_at + timedelta(minutes=45)) not in content
+        assert _option_value(block.starts_at + timedelta(minutes=75)) in content
+
+    def it_refuses_a_crafted_post_inside_the_notice(client: Client):
+        user = _user_with_role("bnp_post")
+        block, orientation_type = _window_across_the_notice()
+        client.login(username="bnp_post", password="pass")
+        response = client.post(
+            reverse("hub_orientation_block_book", args=[block.pk]),
+            {
+                "orientation_type": orientation_type.pk,
+                "starts_at": _option_value(block.starts_at + timedelta(minutes=15)),
+                "note": "",
+            },
+            follow=True,
+        )
+        assert any(str(m) == "Book at least 24 hours ahead." for m in response.context["messages"])
+        assert not OrientationBooking.objects.filter(member=user.member).exists()

@@ -1341,3 +1341,20 @@ def describe_grouped_classes():
         counts = {label: count for _url, label, count, _selected in response.context["status_filters"]}
         assert counts["Upcoming"] == len(response.context["page"]) == 1
         assert response.context["mine_count"] == 1
+
+    def it_shows_the_waiting_for_review_count_once_on_the_needs_review_chip(admin_user, client, db):
+        # The yellow pill after My Classes repeated this count (#769); the chip is the one place now.
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        ClassOfferingFactory(status=ClassOffering.Status.PENDING, slug="waiting-on-review")
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes"))
+        counts = {label: count for _url, label, count, _selected in response.context["status_filters"]}
+        assert counts["Needs review"] == 1
+        assert "pending_count" not in response.context
+        toolbar = response.content.decode().split('class="admin-filters pl-facets"')[1].split("</div>")[0]
+        assert "border-radius:9999px" not in toolbar
+        # Nothing follows the My Classes help bubble: its own close and the pl-help close, then the div ends.
+        after_bubble = toolbar.split("pl-help__bubble")[1]
+        assert after_bubble.count("<") == 2 and after_bubble.count("</span>") == 2

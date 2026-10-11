@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-11"
+title = "The Classes list shows the waiting for review count once"
+changes = [
+  "On Manage All Classes, the yellow pill next to My Classes is gone. The Needs review filter already shows that count and opens the list.",
+]

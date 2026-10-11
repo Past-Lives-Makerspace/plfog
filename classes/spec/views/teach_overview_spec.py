@@ -8,6 +8,7 @@ from django.urls import reverse
 from classes.factories import (
     ClassOfferingFactory,
     InstructorFactory,
+    InstructorResourceFactory,
     RegistrationFactory,
     UserFactory,
 )
@@ -338,3 +339,61 @@ def describe_a_leads_own_pending_class():
         resp = client.get(reverse("classes:teach_overview"))
         assert list(resp.context["pending_classes"]) == [offering]
         assert "Needs Your Attention" in resp.content.decode()
+
+
+def describe_instructor_resources_card():
+    """The links an admin keeps under Class Settings (#765), last on the page for anyone who can teach."""
+
+    CARD = 'class="hub-card cms-overview pl-instructor-resources-card"'
+
+    def _two_links():
+        InstructorResourceFactory(label="Model Release", url="https://forms.example.com/release", sort_order=1)
+        InstructorResourceFactory(label="Review Us", url="https://g.page/review-us", sort_order=0)
+
+    def it_lists_every_link_in_order_opening_in_a_new_tab_for_a_teacher_with_classes(instructor_fixture, client):
+        ClassOfferingFactory(instructor=instructor_fixture, slug="with-resources")
+        _two_links()
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_overview"))
+        html = resp.content.decode()
+        assert resp.context["has_classes"] is True
+        assert html.count(CARD) == 1
+        card = html.split(CARD)[1]
+        review = card.index('href="https://g.page/review-us" target="_blank" rel="noopener">Review Us')
+        release = card.index('href="https://forms.example.com/release" target="_blank" rel="noopener">Model Release')
+        assert review < release
+        assert card.count("pl-instructor-resources-card__row") == 2
+        # Last on the page: after the dashboard's final card.
+        # Last on the page: after the dashboard's final card, Recent Sign-Ups.
+        assert html.index('href="https://g.page/review-us"') > html.index("Recent Sign-Ups</h2>")
+
+    def it_shows_the_card_last_for_a_teacher_with_no_classes(instructor_fixture, client):
+        _two_links()
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_overview"))
+        html = resp.content.decode()
+        assert resp.context["has_classes"] is False
+        assert html.count(CARD) == 1
+        # Last on the page: after the Teach Your First Class card.
+        assert html.index(CARD) > html.index("Teach Your First Class</h2>")
+        assert 'href="https://g.page/review-us" target="_blank" rel="noopener"' in html
+        assert 'href="https://forms.example.com/release" target="_blank" rel="noopener"' in html
+
+    def it_renders_no_card_markup_with_no_links(instructor_fixture, client):
+        ClassOfferingFactory(instructor=instructor_fixture, slug="no-resources")
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_overview"))
+        assert resp.context["instructor_resources"] == []
+        assert "pl-instructor-resources-card" not in resp.content.decode()
+
+    def it_never_shows_the_card_on_the_host_a_class_page(db, client):
+        _two_links()
+        user = UserFactory(username="hopeful@example.com")
+        InstructorFactory(user=user, instructor_oriented_at=None)
+        client.force_login(user)
+        resp = client.get(reverse("classes:teach_overview"))
+        assert resp.status_code == 200
+        assert "instructor_resources" not in resp.context
+        html = resp.content.decode()
+        assert "pl-instructor-resources-card" not in html
+        assert "https://g.page/review-us" not in html
