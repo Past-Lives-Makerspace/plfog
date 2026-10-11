@@ -4182,7 +4182,6 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         "classes/admin/classes_list.html",
         {
             "active_tab": "classes",
-            "pending_count": ClassOffering.objects.pending_review().count(),
             "status_filters": status_filters,
             "selected_status": status_filter,
             "instructors": instructors,
