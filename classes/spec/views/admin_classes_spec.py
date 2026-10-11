@@ -1355,4 +1355,6 @@ def describe_grouped_classes():
         assert "pending_count" not in response.context
         toolbar = response.content.decode().split('class="admin-filters pl-facets"')[1].split("</div>")[0]
         assert "border-radius:9999px" not in toolbar
-        assert toolbar.rstrip().endswith("</span>")
+        # Nothing follows the My Classes help bubble: its own close and the pl-help close, then the div ends.
+        after_bubble = toolbar.split("pl-help__bubble")[1]
+        assert after_bubble.count("<") == 2 and after_bubble.count("</span>") == 2
