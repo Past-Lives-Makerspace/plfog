@@ -73,6 +73,22 @@ def describe_instructor_access_gate():
 
 
 def describe_instructor_dashboard():
+    def it_lists_a_class_the_member_co_teaches(instructor_fixture, other_instructor, client):
+        # #686: the second listed instructor sees the class on Manage My Classes too.
+        shared = ClassOfferingFactory(
+            instructor=other_instructor,
+            instructors=[other_instructor, instructor_fixture],
+            title="Shared Framing",
+            slug="shared-framing",
+            status=ClassOffering.Status.DRAFT,
+        )
+        client.force_login(instructor_fixture.user)
+        response = client.get(reverse("classes:teach_dashboard"))
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "Shared Framing" in html
+        assert reverse("classes:teach_class_edit", kwargs={"pk": shared.pk}) in html
+
     def it_shows_only_my_classes(instructor_fixture, other_instructor, client):
         mine = ClassOfferingFactory(
             instructor=instructor_fixture,

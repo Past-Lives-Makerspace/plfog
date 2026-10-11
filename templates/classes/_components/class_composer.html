@@ -247,7 +247,7 @@ Do not merge them.
       {% include "components/form_field.html" with field=form.title %}
       {% include "components/form_field.html" with field=form.subtitle %}
       {% include "components/form_field.html" with field=form.category %}
-      {% if is_admin %}{% include "components/form_field.html" with field=form.instructor %}{% endif %}
+      {% include "classes/_components/instructors_field.html" with form=form can_edit=composer_can_edit_instructors %}
       {% include "components/form_field.html" with field=form.description %}
       {# The live count toward the minimum (#425), painted by static/js/composer_description_count.js and empty until it runs. The box's id and the minimum are stamped here, so the script names neither. #}
       <p class="pl-field-hint pl-composer-count-hint" data-description-count data-description-for="{{ form.description.id_for_label }}" data-description-min="{{ description_min_chars }}" aria-live="polite"></p>

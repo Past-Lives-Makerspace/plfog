@@ -12,7 +12,7 @@ from classes.factories import ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassApproval, ClassOffering
 from hub.home import TEACHING_CAP, TeachingRow, _teaching
 from membership.models import Member
-from tests.membership.factories import MembershipPlanFactory, UserFactory
+from tests.membership.factories import MemberFactory, MembershipPlanFactory, UserFactory
 
 
 @pytest.fixture
@@ -94,6 +94,22 @@ def describe_teaching_card():
         assert rows[0].cta == "Roster"
         assert rows[0].url == reverse("classes:teach_class_registrations", kwargs={"pk": live.pk})
         assert timezone.localtime(start).strftime("%a %b %-d") in rows[0].note
+
+    def it_shows_a_class_the_member_co_teaches_and_its_session(instructor_user):
+        # #686: the second listed instructor gets the card's rows for the class too.
+        member = _member(instructor_user)
+        lead = MemberFactory()
+        draft = ClassOfferingFactory(
+            instructor=lead, instructors=[lead, member], title="Shared Spoons", status=ClassOffering.Status.DRAFT
+        )
+        live = ClassOfferingFactory(
+            instructor=lead, instructors=[lead, member], title="Shared Lathe", status=ClassOffering.Status.PUBLISHED
+        )
+        start = timezone.now() + timedelta(days=2)
+        ClassSessionFactory(class_offering=live, starts_at=start, ends_at=start + timedelta(hours=2))
+        rows = _teaching(member)
+        assert [(r.title, r.cta) for r in rows] == [("Shared Spoons", "Finish"), ("Shared Lathe", "Roster")]
+        assert rows[0].url == reverse("classes:teach_class_edit", kwargs={"pk": draft.pk})
 
     def it_caps_at_three_rows(instructor_user):
         member = _member(instructor_user)

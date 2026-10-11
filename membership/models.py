@@ -1507,7 +1507,7 @@ class Member(models.Model):
         guild = offering.category.guild
         if guild is not None and (guild.guild_lead_id == self.pk or guild.is_staffed_by(self)):
             return True
-        return offering.instructor_id == self.pk
+        return offering.teaches(self)
 
     def can_manage_equipment(self, equipment: Equipment) -> bool:
         """True when this member may manage the given equipment.

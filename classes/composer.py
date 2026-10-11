@@ -40,7 +40,9 @@ COMPOSER_STEPS: tuple[ComposerStep, ...] = (
         heading="The Basics",
         # price_cents is NOT NULL with no default and required on the form, so the price must
         # be on the first step for a Save Draft from step 1 to succeed.
-        fields=("title", "subtitle", "category", "instructor", "description", "price_cents"),
+        # instructors and add_instructor are the Instructors control (#686): the checked rows and
+        # the "Add an instructor" select that appends one.
+        fields=("title", "subtitle", "category", "instructors", "add_instructor", "description", "price_cents"),
         readiness_labels=("Description",),
     ),
     ComposerStep(

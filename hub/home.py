@@ -127,7 +127,7 @@ def _teaching(member: Member) -> list[TeachingRow]:
 
     this_week = (
         ClassSession.objects.filter(
-            class_offering__instructor=member,
+            class_offering__instructors=member,
             class_offering__status=ClassOffering.Status.PUBLISHED,
             starts_at__gte=now,
             starts_at__lt=week_end,

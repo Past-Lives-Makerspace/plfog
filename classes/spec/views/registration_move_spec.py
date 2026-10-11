@@ -92,6 +92,18 @@ def describe_gating():
 
 
 def describe_instructor_move():
+    def it_lets_a_second_instructor_move_a_student_between_classes_they_co_teach(client):
+        # #686: the move gate and the target list read the instructors list, not the payee.
+        me = _login_instructor(client, "mv-second@example.com", "mv-second")
+        lead = InstructorFactory(instructor_slug="mv-lead")
+        source = ClassOfferingFactory(slug="mv-shared-src", instructor=lead, instructors=[lead, me])
+        target = _bookable_for(lead, "mv-shared-dst", instructors=[lead, me])
+        reg = RegistrationFactory(class_offering=source, status=Registration.Status.CONFIRMED)
+        response = client.post(_move_url(reg), {"target": target.pk})
+        assert response.status_code == 302
+        reg.refresh_from_db()
+        assert reg.class_offering_id == target.pk
+
     def it_moves_a_student_to_another_class_they_instruct(client):
         mine = _login_instructor(client, "mv-own@example.com", "mv-own")
         source = ClassOfferingFactory(slug="mv-own-src", instructor=mine)

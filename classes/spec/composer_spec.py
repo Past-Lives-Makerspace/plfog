@@ -36,6 +36,7 @@ def _teach_data(**overrides) -> dict:
     data = {
         "title": "Forge Basics",
         "category": str(CategoryFactory().pk),
+        "instructors": [str(InstructorFactory().pk)],
         "description": "Hands-on intro.",
         "price_cents": "100.00",
         "capacity": "6",
@@ -93,7 +94,13 @@ def describe_composer_steps():
 
     def it_keeps_the_admin_only_fields_off_the_teach_form():
         teach = set(TeachClassOfferingForm().fields)
-        assert {"instructor", "is_private", "private_for_name"}.isdisjoint(teach)
+        assert {"is_private", "private_for_name"}.isdisjoint(teach)
+
+    def it_puts_the_instructors_control_on_both_forms():
+        # #686: the checked rows and the Add an instructor select, on the Basics step of each composer.
+        for form_class in (TeachClassOfferingForm, ClassOfferingForm):
+            assert {"instructors", "add_instructor"} <= set(form_class().fields)
+        assert {"instructors", "add_instructor"} <= set(COMPOSER_STEPS[0].fields)
 
     def it_puts_the_sale_fields_on_no_step():
         on_steps = {name for step in COMPOSER_STEPS for name in step.fields}
@@ -263,12 +270,12 @@ def describe_error_steps():
         assert sorted(summary[0][1]) == ["Price", "Title"]
         assert summary[1][1] == ["Capacity"]
 
-    def it_lands_the_admin_instructor_field_on_step_one():
-        # instructor is optional on the model, so a blank passes; an unknown pk does not.
-        form = ClassOfferingForm(data=_teach_data(instructor="999999", is_private="", private_for_name="", title=""))
+    def it_lands_the_instructors_field_on_step_one():
+        # An unknown pk in the instructors rows is refused, and the refusal lands on the Basics step (#686).
+        form = ClassOfferingForm(data=_teach_data(instructors=["999999"], is_private="", private_for_name="", title=""))
         assert error_steps(form, {"sessions": None, "faq": None}) == [1]
         [(_step, labels)] = error_summary(form, {"sessions": None, "faq": None})
-        assert sorted(labels) == ["Instructor", "Title"]
+        assert sorted(labels) == ["Instructors", "Title"]
 
 
 def describe_step_marks():

@@ -327,8 +327,7 @@ def describe_sync_legacy_cms():
             sync_legacy_cms()
 
         offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
-        offering.instructor = ash
-        offering.save(update_fields=["instructor"])
+        offering.set_instructors([ash])
 
         with patch(
             "urllib.request.urlopen", return_value=_make_mock_resp(_page([_class_item(title="Forging with Billy")]))

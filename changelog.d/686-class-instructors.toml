@@ -1,0 +1,9 @@
+# changelog.d/686-class-instructors.toml
+bump = "minor"
+date = "2026-10-11"
+title = "A class can have more than one instructor"
+changes = [
+  "When you write up a class, the Basics step now has an Instructors list. Add anyone with teaching access, and they can edit the class, submit it for review and see who registered, just as you can.",
+  "A class you co-teach shows up in your Manage My Classes and on your home page's Teaching card.",
+  "Admins pick a class's instructors from the same list; the old single Instructor box is gone.",
+]

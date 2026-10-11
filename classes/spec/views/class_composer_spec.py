@@ -84,12 +84,19 @@ class _FormValuesParser(HTMLParser):
         self._select_first: str | None = None
         self._select_chosen = False
         self._textarea: str | None = None
+        self._template_depth = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         a = dict(attrs)
         if tag == "form" and a.get("id") == "composer-form":
             self._in_form = True
         if not self._in_form:
+            return
+        # A <template> is inert markup (the Instructors rows, #686): the draft script's
+        # querySelectorAll never descends into one, so neither does this.
+        if tag == "template":
+            self._template_depth += 1
+        if self._template_depth:
             return
         name = a.get("name")
         if tag == "input" and name:
@@ -113,6 +120,11 @@ class _FormValuesParser(HTMLParser):
             self.values[name] = ""
 
     def handle_endtag(self, tag: str) -> None:
+        if tag == "template" and self._template_depth:
+            self._template_depth -= 1
+            return
+        if self._template_depth:
+            return
         if tag == "select" and self._select:
             if not self._select_chosen:
                 self.values[self._select] = self._select_first or ""
@@ -269,6 +281,7 @@ def _full_payload(category, **extra) -> dict:
         "registration_cutoff_enabled": "on",
         "registration_cutoff_hours": "36",
         "area": "",
+        "add_instructor": "",
         "video_url": VIDEO,
         "hero_crop": json.dumps({"x": 10, "y": 20, "w": 320, "h": 180}),
         "card_focus": json.dumps({"x": 30, "y": 70}),
@@ -281,7 +294,7 @@ def _full_payload(category, **extra) -> dict:
 
 
 def _admin_payload(category, inst, **extra) -> dict:
-    payload = _full_payload(category, instructor=inst.pk, is_private="on", private_for_name="The Guild")
+    payload = _full_payload(category, instructors=[inst.pk], is_private="on", private_for_name="The Guild")
     payload.update(extra)
     return payload
 
@@ -339,9 +352,11 @@ def _assert_crop_followed_the_downsize(offering: ClassOffering) -> None:
 
 def describe_the_step_map_matches_the_payload():
     def it_posts_every_teach_form_field():
-        # The round trip below only proves what it posts; this keeps the payload honest.
+        # The round trip below only proves what it posts; this keeps the payload honest. The
+        # instructors rows are the one field left out on purpose: a teach POST without them
+        # keeps the author listed (#686), which is what the page posts on a new class.
         posted = set(_full_payload(CategoryFactory.build()))
-        assert set(TeachClassOfferingForm().fields) - {"image"} <= posted
+        assert set(TeachClassOfferingForm().fields) - {"image", "instructors"} <= posted
 
     def it_posts_every_admin_form_field():
         posted = set(_admin_payload(CategoryFactory.build(), InstructorFactory.build()))
@@ -1036,7 +1051,7 @@ def describe_admin_composer():
     def it_switches_on_the_admin_only_fields_and_publish(admin_user, client, db):
         client.force_login(admin_user)
         html = client.get(reverse("classes:admin_class_create")).content.decode()
-        assert 'name="instructor"' in html
+        assert 'name="instructors"' in html and 'name="add_instructor"' in html
         assert 'name="is_private"' in html and 'name="private_for_name"' in html
         assert 'name="is_free"' not in html
         assert "Publish This Class?" in html
@@ -1177,13 +1192,13 @@ def describe_admin_composer():
         client.force_login(admin_user)
         resp = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            _admin_payload(offering.category, offering.instructor, instructor="999999", capacity="", step="5"),
+            _admin_payload(offering.category, offering.instructor, instructors=["999999"], capacity="", step="5"),
         )
         html = resp.content.decode()
         assert resp.status_code == 200
         assert "phase: 1," in html
         assert "errorSteps: [1, 3]," in html
-        assert "The Basics: Instructor" in html
+        assert "The Basics: Instructors" in html
 
     def it_refuses_a_crafted_publish_on_a_live_class(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.PUBLISHED, ready=True, published_at=timezone.now())

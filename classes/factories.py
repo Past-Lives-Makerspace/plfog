@@ -121,6 +121,16 @@ class ClassOfferingFactory(DjangoModelFactory):
             ClassImageFactory(class_offering=obj, sort_order=i)
 
     @factory.post_generation
+    def instructors(obj, create, extracted, **kwargs):  # noqa: N805  # factory-boy hook, obj is the instance
+        """``instructors=[a, b]`` lists those members in that order (#686), the first becoming the payee.
+
+        Left out, the class keeps the one row ``ClassOffering.save`` seeds from ``instructor``.
+        """
+        if not create or extracted is None:
+            return
+        obj.set_instructors(list(extracted))
+
+    @factory.post_generation
     def ready(obj, create, extracted, **kwargs):  # noqa: N805  # factory-boy hook, obj is the instance
         """``ready=True`` makes the class pass every readiness check (``ClassOffering.readiness``).
 
