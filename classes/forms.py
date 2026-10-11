@@ -38,6 +38,7 @@ from classes.models import (
     DiscountCodeRequest,
     InstructorMessage,
     InstructorMessageRecipient,
+    InstructorResource,
     Registration,
     RegistrationAnswer,
     RegistrationQuestion,
@@ -2347,6 +2348,43 @@ class TeachingPageSettingsForm(forms.ModelForm):
             if sum(cleaned[name] for name in self.PERCENT_FIELDS) != 100:
                 self.add_error("teach_page_split_instructor_pct", "The three shares have to add up to 100.")
         return cleaned
+
+
+class InstructorResourceForm(forms.ModelForm):
+    """One Instructor Resources row: a label and where it opens (the ``OrgLinkForm`` shape, no parent)."""
+
+    class Meta:
+        model = InstructorResource
+        fields = ["label", "url", "sort_order"]
+        labels = {"url": "URL"}
+        widgets = {"sort_order": forms.HiddenInput()}
+
+
+class BaseInstructorResourceFormSet(forms.BaseModelFormSet):
+    """The Instructor Resources editor: every row kept is numbered by its place on the page."""
+
+    def save_in_page_order(self) -> None:
+        """Save the rows, then number ``sort_order`` 0, 1, 2 down the page over the rows kept.
+
+        ``save()`` writes only a form whose posted values changed and skips a cloned row
+        left blank, so a row whose place moved (the row above it was deleted, or the rows
+        were posted in a new order) is renumbered with an update of its own afterwards.
+        """
+        self.save()
+        kept = [form.instance for form in self.forms if form not in self.deleted_forms and form.instance.pk]
+        for index, resource in enumerate(kept):
+            if resource.sort_order != index:
+                resource.sort_order = index
+                resource.save(update_fields=["sort_order"])
+
+
+InstructorResourceFormSet = forms.modelformset_factory(
+    InstructorResource,
+    form=InstructorResourceForm,
+    formset=BaseInstructorResourceFormSet,
+    extra=0,
+    can_delete=True,
+)
 
 
 class _AnyValueMultipleChoiceField(forms.MultipleChoiceField):

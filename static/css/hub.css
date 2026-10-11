@@ -8096,6 +8096,67 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     flex: 1 1 8rem;
 }
 
+/* Instructor Resources under Class Settings (#765): the links editor's rows, each a label
+   and a URL side by side on a surface tile with its Delete or Remove button under them. */
+.pl-instructor-resources__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.pl-instructor-resources__row {
+    padding: 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+}
+
+.pl-instructor-resources__fields {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.pl-instructor-resources__fields .pl-form-group {
+    margin-bottom: 0;
+}
+
+.pl-instructor-resources__label {
+    flex: 1 1 12rem;
+}
+
+.pl-instructor-resources__url {
+    flex: 2 1 16rem;
+}
+
+.pl-instructor-resources__empty {
+    margin: 0;
+}
+
+.pl-instructor-resources__add {
+    margin-top: 1rem;
+}
+
+/* The Instructor Resources card on the Teaching page (#765): the last card, one link a row. */
+.pl-instructor-resources-card {
+    margin: 1.25rem 0 0;
+}
+
+.pl-instructor-resources-card__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.pl-instructor-resources-card__row {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--hub-border);
+}
+
+.pl-instructor-resources-card__row:last-child {
+    border-bottom: 0;
+}
+
 /* ========================================
    Meetings workspace (.pl-meeting-*)
    Spec: docs/superpowers/plans/2026-08-11-meetings.md §6.3
