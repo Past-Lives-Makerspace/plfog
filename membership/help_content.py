@@ -1485,43 +1485,61 @@ The primary guild lead is set by an admin, not on this tab. If your guild's lead
         "sort_order": 40,
         "related": ["getting-oriented", "guild-staff-roles"],
         "body": """\
-Members request orientations from your guild's own page. Every request stays pending until you (or any of your staff) confirm it; nothing is official until then. This guide is the lead's side: setting up booking, responding, and tracking who's oriented.
+Members request orientations from your guild's page and from the Orientations page. Every request stays pending until you (or any of your staff) confirm it; nothing is official until then. This guide is the lead's side: setting up booking, publishing hours, responding, and tracking who's oriented.
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
+### Your Guild's Orientations Page
+
+Everything you set up lives on one page. Open it from **Manage Bookings** in the left menu (the **Orientations** link on your guild's card) or from the **Orientations** tab in **Guild Settings**. Every change on this page saves as you make it; there is no Save button to find.
+
+![Your guild's Orientations page: booking settings, your orientations, the Orientation Schedule, and Upcoming Times.](/static/help/running-orientations/01-orientations-tab.png)
+
 ### Turn On Booking
 
-1. Open your guild's **Orientations** page: click the **Orientations** tab in **Guild Settings**, or **+ Add an Orientation** on the Orientations page.
-2. In the **Booking** card, switch booking on and fill in your defaults: how many seats a slot holds, where orientations happen, and how long they run. The info text you write here is shown to members before they book.
+1. Click **Add New Orientation +** at the top of the **Orientations** card. The **Add an Orientation** page asks for the guild first, then the orientation: its name, length, seats, location, price (or donation based) and description. Save, and you land back on your guild's Orientations page, where the new orientation sits as one line (name, length, price) with an **Edit** button for the full form.
+2. In the **Booking** card, switch booking on. The info text you write here is shown to members before they book.
 3. Choose whether members may propose their own time (custom requests).
-4. Click **Save orientation settings**.
+4. Set a **Booking notice (hours)** if you don't want last minute bookings: members must book at least that many hours ahead, and any time closer than that is simply not offered. 0 means any time before it starts.
 
-![Your guild's Orientations page: booking settings, the thank you email, and the Orientation Schedule.](/static/help/running-orientations/01-orientations-tab.png)
+Length, price, seats and location are per orientation, so a guild can offer Shop Basics for free and a paid Lathe orientation side by side. Completing any one of them counts as oriented for the guild.
 
-Going away for a while? The **Closed for orientations** card pauses bookings without losing any of your settings, and shows members your message (like: on vacation till Sept 8).
+Going away for a while? The **Closed for orientations** card pauses bookings without losing any of your settings, and shows members your message (like: on vacation till Sept 8). For a single day, take a day off instead (below).
 
-### Recurring Hours {#orientation-recurring-hours}
+### Hours {#orientation-recurring-hours}
 
-The **Recurring hours** card is where bookable times come from. Add one row per weekly window (Tuesdays 6-7 pm and Saturdays 10-11 am are two rows), then click **Save Hours**. Saving turns your hours into concrete bookable slots immediately, and a nightly job keeps the next eight weeks open.
+Bookable times come from people's hours. The **Orientation Schedule** card lists everyone on your staff who can give orientations; click **Edit Hours** beside a name to open their hours. Each row is one recurring window: the orientation it is for, **How members book** (fixed start times, or any time in the window), the day, from and until, how often it repeats (every week, every other week, monthly, and so on) and the day it starts. Click **+ Add hours** for another row, then **Save**. Saving turns the hours into concrete bookable times right away, and a nightly job keeps the next eight weeks open.
 
-![Recurring hours become bookable slots automatically.](/static/help/running-orientations/02-recurring-hours.png)
+Hours belong to a person: members book you by name. A plain orienter edits only their own hours; the lead and admins edit anyone's.
 
-### Availability Blocks {#orientation-availability-blocks}
+### Days Off {#orientation-days-off}
 
-Open windows are another way to open up time. Add one from the **Upcoming Times** card on your guild's **Orientations** page (opened from the **Orientations** tab in Guild Settings or the **+ Add an Orientation** button): post one window (say, Saturday 1 to 4 pm) and members pick any of the guild's orientations plus a start time inside it; each booking takes up that orientation's length, so one window can serve several members back to back. Windows can't be edited once posted; cancel one and post a fresh window instead. Cancelling stops new bookings right away but keeps anything already booked on the calendar.
+Away on a day your hours fall on? Click **Days Off** beside your name on the **Orientation Schedule** card, pick the date, and save. Every orientation time of yours that day is cancelled (anyone booked is emailed), and nothing is generated for that day however far ahead it is, so a holiday three months out is handled now. Before you save, the form tells you how many times that day will be cancelled. Your upcoming days off read under your hours ("Off Nov 26, Dec 25"), and deleting one puts the day back on the next nightly run.
 
-### Custom Times and One-Off Slots
+### Open Windows {#orientation-availability-blocks}
 
-If you allow custom requests, a member who can't make your posted times can propose their own. That creates a one-off, single-seat slot at their proposed time and sends you the same request as any other booking; confirm it and it's on. You can also put a member into any upcoming slot yourself from the Bookings tab (below).
+An open window is a span of time (say, Saturday 1 to 4 pm) where members pick an orientation and any start time inside it; each booking takes up that orientation's length, so one window can serve several members back to back. Publish one as recurring hours with **How members book** set to any time in the window, or post a single one from **+ Add a one off** on the **Upcoming Times** card. Windows can't be edited once posted; cancel one and post a fresh window instead. Cancelling stops new bookings right away but keeps anything already booked on the calendar.
+
+### Custom Times and One Offs
+
+If you allow custom requests, a member who can't make your posted times can propose their own. That creates a one off, single seat slot at their proposed time and sends you the same request as any other booking; confirm it and it's on. You can post a one off yourself from **+ Add a one off** on the **Upcoming Times** card, and put a member into any upcoming slot from the Bookings tab (below).
+
+**Upcoming Times** lists everything members can book for the next eight weeks. Cancel one time with its **Cancel** button, or tick several and **Cancel selected**; anyone booked on them is emailed.
 
 ### Respond to a Request {#orientation-respond-requests}
 
 When a member requests a slot, the guild lead and every staff member get an email, and orienters get an in-app notice. You can respond two ways:
 
 - **From the email.** It carries direct confirm and decline links. Each opens a one-click confirmation page and works without logging in, so you can handle a request from your phone.
-- **From the app.** On the Orientations page's **Bookings** tab, open the row's **...** menu and pick **Confirm Request** or **Decline Request** (with an optional note, like suggesting another time). **View Request** opens the full request, which has the same buttons, as do the email's respond link and the in-app notice.
+- **From the app.** **Manage Bookings** in the left menu opens on **Needs Attention**, every request waiting on you; open the row's **...** menu and pick **Confirm Request** or **Decline Request** (with an optional note, like suggesting another time). The same rows are on the Orientations page's **Bookings** tab. **View Request** opens the full request, which has the same buttons, as do the email's respond link and the in-app notice.
 
 Confirming emails the member a calendar invite. Declining emails them your note. If plans change after you've confirmed, **Cancel this orientation** notifies the member; members can also cancel their own bookings, and you'll see the status change.
+
+### Manage Bookings {#manage-bookings}
+
+**Manage Bookings** in the left menu is the one place for everything you run. Leads, staff, equipment managers and admins see it; nobody else does. **Needs Attention** holds the orientation requests waiting on you and the reservation requests on equipment you manage, with their actions in each row's menu. **What You Run** is one card per guild and piece of equipment you run: whether booking is on, its orientations, and links to its Orientations page and its Bookings. **Your Hours** is your own recurring hours everywhere, with **Edit Hours**.
+
+![Manage Bookings: what needs your reply, what you run, and your hours.](/static/help/running-orientations/02-manage-bookings.png)
 
 ### The Bookings Tab {#orientation-dashboard}
 
@@ -1547,14 +1565,14 @@ Every 15 minutes, a background job marks confirmed orientations complete once th
                 "file": "01-orientations-tab.png",
                 "page": "/guilds/1/orientations/",
                 "selector": "[data-guild-orientations]",
-                "caption": "Your guild's Orientations page: booking settings, the thank you email, and the Orientation Schedule.",
+                "caption": "Your guild's Orientations page: booking settings, your orientations, the Orientation Schedule, and Upcoming Times.",
                 "as_role": "guild_lead",
             },
             {
-                "file": "02-recurring-hours.png",
-                "page": "/guilds/1/orientations/",
-                "selector": "form[action='/guilds/1/orientation/hours/save/']",
-                "caption": "Recurring hours become bookable slots automatically.",
+                "file": "02-manage-bookings.png",
+                "page": "/manage/bookings/",
+                "selector": None,
+                "caption": "Manage Bookings: what needs your reply, what you run, and your hours.",
                 "as_role": "guild_lead",
             },
             {

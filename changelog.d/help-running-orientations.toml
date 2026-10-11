@@ -1,0 +1,8 @@
+# changelog.d/help-running-orientations.toml
+bump = "patch"
+audience = "internal"
+date = "2026-10-11"
+title = "The Running Orientations guide matches today's pages"
+changes = [
+  "Rewritten around the guild Orientations page, the Add an Orientation page, Booking notice, Days Off and Manage Bookings.",
+]
