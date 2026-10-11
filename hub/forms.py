@@ -2467,7 +2467,9 @@ class GuildOrientationSettingsForm(LateCancelFeeFormMixin):
     The lead-authored thank-you email lives on its own :class:`GuildThankyouEmailForm`
     (also on the Orientations tab). Per-orientation config — duration, price, seats,
     location — is edited per type on :class:`OrientationTypeFormSet`, not here. The late
-    cancellation fee comes from :class:`LateCancelFeeFormMixin`.
+    cancellation fee comes from :class:`LateCancelFeeFormMixin`; the Booking notice (#766)
+    follows its shape: blank means 0, a POST without the field leaves the saved notice alone,
+    and the model's own floor refuses a negative value.
 
     ``info`` is written in the rich-text editor and stored as its sanitized HTML, the way a
     class description is (``classes.forms._RichDescriptionMixin``): a body saved before the
@@ -2482,6 +2484,7 @@ class GuildOrientationSettingsForm(LateCancelFeeFormMixin):
             "info",
             "is_closed",
             "closed_message",
+            "booking_notice_hours",
         ]
         widgets = {
             "info": RichBodyEditorWidget(),
@@ -2495,8 +2498,20 @@ class GuildOrientationSettingsForm(LateCancelFeeFormMixin):
             "closed_message": "Closed message",
         }
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Optional on the form so :meth:`clean_booking_notice_hours` can read blank as 0.
+        self.fields["booking_notice_hours"].required = False
+
     def clean_info(self) -> str:
         return clean_rich_body(self.cleaned_data["info"])
+
+    def clean_booking_notice_hours(self) -> int:
+        """Blank means 0, any time before it starts; a POST without the field leaves the notice unchanged."""
+        if self.add_prefix("booking_notice_hours") not in self.data:
+            return int(self.instance.booking_notice_hours)
+        hours = self.cleaned_data["booking_notice_hours"]
+        return 0 if hours is None else int(hours)
 
 
 class OrientationTypeForm(forms.ModelForm):

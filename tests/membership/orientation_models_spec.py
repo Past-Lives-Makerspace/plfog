@@ -1003,3 +1003,83 @@ def describe_departed_manager_gate():
         slot = OrientationSlotFactory(equipment_owned=True)
         assert slot.orienter is None
         _assert_bookable(slot, True)
+
+
+def describe_booking_notice():
+    """A guild's Booking notice (#766): how many hours ahead a member must book, read through the type."""
+
+    def _guild_with_notice(hours: int):
+        return GuildOrientationSettingsFactory(booking_notice_hours=hours).guild
+
+    def _slot_ahead(guild, hours: float):
+        starts = timezone.now() + timedelta(hours=hours)
+        return OrientationSlotFactory(guild=guild, starts_at=starts, ends_at=starts + timedelta(hours=1))
+
+    def it_defaults_to_no_notice():
+        assert GuildOrientationSettingsFactory().booking_notice_hours == 0
+
+    def describe_OrientationType_booking_notice_hours():  # noqa: N802
+        def it_reads_the_owning_guilds_notice():
+            assert OrientationTypeFactory(guild=_guild_with_notice(24)).booking_notice_hours == 24
+
+        def it_is_zero_for_a_guild_that_never_saved_settings():
+            assert OrientationTypeFactory(guild=GuildFactory()).booking_notice_hours == 0
+
+        def it_is_zero_for_an_equipment_owned_type_whatever_its_guild_set():
+            equipment = EquipmentFactory(guild=_guild_with_notice(24))
+            assert OrientationTypeFactory(equipment_owned=True, equipment=equipment).booking_notice_hours == 0
+
+    def describe_booking_notice_sentence():
+        def it_is_blank_with_no_notice():
+            assert OrientationTypeFactory(guild=_guild_with_notice(0)).booking_notice_sentence == ""
+
+        def it_names_one_hour_in_the_singular():
+            sentence = OrientationTypeFactory(guild=_guild_with_notice(1)).booking_notice_sentence
+            assert sentence == "Book at least 1 hour ahead."
+
+        def it_names_the_hours():
+            sentence = OrientationTypeFactory(guild=_guild_with_notice(24)).booking_notice_sentence
+            assert sentence == "Book at least 24 hours ahead."
+
+    def describe_offerable_slots():
+        def it_drops_a_slot_inside_the_notice_and_keeps_one_past_it():
+            guild = _guild_with_notice(24)
+            inside, past = _slot_ahead(guild, 23), _slot_ahead(guild, 25)
+            assert inside.orientation_type.offerable_slots([inside, past]) == [past]
+
+        def it_keeps_every_slot_with_no_notice():
+            soon = _slot_ahead(_guild_with_notice(0), 0.5)
+            assert soon.orientation_type.offerable_slots([soon]) == [soon]
+
+    def describe_ensure_bookable_for():
+        def it_refuses_a_member_inside_the_notice_with_the_member_sentence():
+            slot = _slot_ahead(_guild_with_notice(24), 23)
+            with pytest.raises(OrientationError, match=r"^Book at least 24 hours ahead\.$"):
+                slot.book(MemberFactory())
+            assert not slot.bookings.exists()
+
+        def it_books_a_slot_past_the_notice():
+            slot = _slot_ahead(_guild_with_notice(24), 25)
+            assert slot.book(MemberFactory()).status == OrientationBooking.Status.REQUESTED
+
+        def it_lets_staff_seat_a_member_inside_the_notice():
+            slot = _slot_ahead(_guild_with_notice(24), 1)
+            assert slot.book(MemberFactory(), by_staff=True).status == OrientationBooking.Status.REQUESTED
+
+        def it_keeps_the_started_slot_sentence_ahead_of_the_notice():
+            # Half an hour in: the slot has started, and that is what the member hears, not the notice.
+            slot = _slot_ahead(_guild_with_notice(24), -0.5)
+            with pytest.raises(OrientationError, match="not available to book"):
+                slot.book(MemberFactory())
+
+        def it_leaves_an_equipment_slot_alone_whatever_its_guild_set():
+            equipment = EquipmentFactory(guild=_guild_with_notice(24))
+            orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment)
+            starts = timezone.now() + timedelta(hours=1)
+            slot = OrientationSlotFactory(
+                equipment_owned=True,
+                orientation_type=orientation_type,
+                starts_at=starts,
+                ends_at=starts + timedelta(hours=1),
+            )
+            assert slot.book(MemberFactory()).status == OrientationBooking.Status.REQUESTED

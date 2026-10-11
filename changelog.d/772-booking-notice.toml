@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-11"
+title = "Guild leads can ask for notice before an orientation"
+changes = [
+  "Guild leads and staff can set a Booking notice on their guild's Orientations page: how many hours ahead members must book an orientation. 0 keeps things as they are.",
+  "Times inside that notice are no longer offered, and each orientation says how far ahead to book it.",
+  "Leads and staff can still add a member to any time by hand.",
+]
