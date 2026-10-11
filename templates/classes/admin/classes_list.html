@@ -22,11 +22,6 @@
             aria-label="My Classes: shows only classes where you are the instructor or the class author.">?</span>
       <span class="pl-help__bubble">Shows only classes where you are the instructor or the class author.</span>
     </span>
-    {% if pending_count %}
-        <span style="margin-left:0.5rem; display:inline-block; background:var(--color-tuscan-yellow,#EEB44B); color:#000; font-size:0.75rem; font-weight:600; padding:0.15rem 0.55rem; border-radius:9999px;">
-            {{ pending_count }} pending review
-        </span>
-    {% endif %}
 </div>
 {% if instructors %}
 <div class="admin-filters" style="margin-top:0.5rem;">
