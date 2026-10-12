@@ -2317,7 +2317,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             period=f"offering:{self.pk}:change_request:{row.pk}",
         )
 
-    def _change_request_repeats(self, actor: "User", note: str) -> bool:
+    def _change_request_repeats(self, actor: "User | None", note: str) -> bool:
         """True when ``actor``'s latest request on this class is this note, sent inside the window.
 
         Only the latest request counts: a different note in between makes the same note new
