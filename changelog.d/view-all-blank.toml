@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-12"
+title = "View all on Manage Bookings opens the Bookings tab"
+changes = [
+  "For guild leads, orienters and equipment managers: View all under Needs a Reply or Needs Approval on Manage Bookings opens the Bookings tab it names, instead of a blank page.",
+  "The Upcoming, Past and All chips on the Orientations and Reservations Bookings tabs keep the page around them: the header, the tabs and the sidebar no longer vanish.",
+]
