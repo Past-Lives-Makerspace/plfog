@@ -1932,3 +1932,20 @@ def describe_a_queued_class_going_live():
 
         assert offering.eventbrite_sync_state == State.FAILED
         assert _rules_emails() == []
+
+    def it_emails_every_instructor_when_the_rules_fail(eventbrite: FakeEventbrite):
+        # #686: the rules notice reaches each listed instructor at their own address.
+        offering = _described(_queued(), f"<p>{_KATE}</p>")
+        partner = InstructorFactory(
+            user=UserFactory(username="partner-eb@example.com", email="partner-eb@example.com"),
+            instructor_slug="partner-eb",
+        )
+        offering.set_instructors([offering.instructor, partner])
+        ClassOffering.objects.filter(pk=offering.pk).update(status=ClassOffering.Status.PUBLISHED)
+        offering.refresh_from_db()
+
+        offering.sync_eventbrite_listing()
+
+        assert offering.eventbrite_sync_state == State.FAILED
+        recipients = sorted(addr for message in _rules_emails() for addr in message.to)
+        assert recipients == sorted([offering.instructor.primary_email, "partner-eb@example.com"])

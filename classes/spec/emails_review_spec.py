@@ -86,6 +86,24 @@ def describe_send_guild_lead_review_request():
         assert f"/classes/review/{row.token}/" in review_email.body
         assert "Guild Lead" in review_email.body
 
+    def it_emails_the_explainer_to_every_instructor(db):
+        # #686: the instructor explainer goes to each listed instructor at their own address.
+        lead = _leader("lead-two@example.com")
+        offering, row = _pending_guild_class(_guild_led_by(lead))
+        partner = InstructorFactory(
+            user=UserFactory(username="partner-two@example.com", email="partner-two@example.com"),
+            instructor_slug="partner-two",
+        )
+        offering.set_instructors([offering.instructor, partner])
+
+        send_guild_lead_review_request(offering, row)
+
+        recipients = sorted(addr for message in mail.outbox for addr in message.to)
+        assert recipients == sorted(
+            ["lead-two@example.com", offering.instructor.primary_email, "partner-two@example.com"]
+        )
+        assert len(mail.outbox) == 3
+
     def it_also_emails_guild_staff_on_the_review_request(db):
         """The review request fans out to the lead and every staff member."""
         lead = _leader("emailguildlead@example.com")

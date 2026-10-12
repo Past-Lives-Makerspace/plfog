@@ -59,6 +59,17 @@ def describe_admin_registrations_list():
         assert "<td>Ungranted Links</td>" in html
         assert _class_link(offering) not in html
 
+    def it_links_the_class_a_granted_co_instructor_may_open(client, db):
+        """#686: listed second on the class with the teaching grant, they open its screen too."""
+        user = UserFactory(username="links-partner")
+        partner = InstructorFactory(user=user, instructor_slug="links-partner")
+        lead = InstructorFactory(instructor_slug="links-lead-two")
+        shared = ClassOfferingFactory(instructor=lead, instructors=[lead, partner], title="Shared Links")
+        RegistrationFactory(class_offering=shared)
+        client.force_login(user)
+        html = client.get(reverse("classes:admin_registrations")).content.decode()
+        assert f"<td><a {_class_link(shared)}>Shared Links</a></td>" in html
+
 
 def describe_teach_registrations_page():
     def it_links_each_group_header_to_the_class_screen(client, db):

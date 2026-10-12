@@ -3913,7 +3913,11 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
     # Two-stage queue: what waits on the admin (PENDING with no open guild-lead gate,
     # including a PENDING class with zero rows) and what is still with a guild lead.
     waiting_on_you = list(
-        ClassOffering.objects.awaiting_admin().select_related("instructor", "category").order_by("created_at")
+        ClassOffering.objects.awaiting_admin()
+        .select_related("category")
+        # The Instructor line names every listed instructor (#686); prefetched, so no query per class.
+        .prefetch_related("instructor_rows")
+        .order_by("created_at")
     )
     with_guild_leads = _with_guild_leads_queue(now)
     teaching_applications = _teaching_application_queue(now)
