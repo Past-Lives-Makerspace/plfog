@@ -32,7 +32,7 @@ and closes the modal.
   {% endif %}
   {% endif %}
 
-  <div data-bookings-body hx-get="{{ bookings_refresh_url }}" hx-trigger="refund-done from:body" hx-select="[data-bookings-body]" hx-swap="outerHTML">
+  <div data-bookings-body hx-get="{{ bookings_refresh_url }}" hx-trigger="refund-done from:body" hx-select="[data-bookings-body]" hx-swap="outerHTML" hx-disinherit="hx-select hx-swap">
     <div class="pl-equip-chips pl-bookings__chips" role="group" aria-label="Which bookings">
       {% for chip in chips %}
       {% if chip.key != "reply" or needs_reply_count or show == "reply" %}
