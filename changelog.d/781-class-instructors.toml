@@ -1,4 +1,4 @@
-# changelog.d/686-class-instructors.toml
+# changelog.d/781-class-instructors.toml
 bump = "minor"
 date = "2026-10-11"
 title = "A class can have more than one instructor"

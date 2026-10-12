@@ -157,6 +157,62 @@ def describe_the_admin_composer():
         assert "instructor" not in TeachClassOfferingForm().fields
 
 
+def describe_when_the_viewer_may_not_change_the_list():
+    """The guild's staff on a draft they do not teach: no fields, nothing posted counts, rows stay."""
+
+    def it_carries_neither_field():
+        a = InstructorFactory()
+        offering = ClassOfferingFactory(instructor=a)
+        form = TeachClassOfferingForm(
+            instance=offering, teaching_member=InstructorFactory(), can_edit_instructors=False
+        )
+        assert "instructors" not in form.fields
+        assert "add_instructor" not in form.fields
+        assert form.instructors_editable is False
+        assert [row["pk"] for row in form.instructor_rows] == [a.pk]
+
+    def it_ignores_a_posted_list_and_keeps_the_rows_and_the_payee():
+        a, b, staffer = InstructorFactory(), InstructorFactory(), InstructorFactory()
+        offering = ClassOfferingFactory(instructor=a, instructors=[a, b])
+        form = TeachClassOfferingForm(
+            data=_data(instructors=_pks(staffer), add_instructor=str(staffer.pk), title="Renamed By Staff"),
+            instance=offering,
+            teaching_member=staffer,
+            can_edit_instructors=False,
+        )
+        assert form.is_valid(), form.errors
+        form.save()
+        offering.refresh_from_db()
+        assert offering.title == "Renamed By Staff"
+        assert _members(offering) == [a.pk, b.pk]
+        assert offering.instructor_id == a.pk
+
+    def it_saves_a_class_nobody_is_listed_on_without_the_at_least_one_rule():
+        offering = ClassOfferingFactory(instructor=None)
+        form = TeachClassOfferingForm(
+            data=_data(title="Legacy Run"),
+            instance=offering,
+            teaching_member=InstructorFactory(),
+            can_edit_instructors=False,
+        )
+        assert form.is_valid(), form.errors
+        form.save()
+        offering.refresh_from_db()
+        assert offering.title == "Legacy Run"
+        assert _members(offering) == []
+        assert offering.instructor_id is None
+
+    def it_applies_to_the_admin_form_too():
+        a = InstructorFactory()
+        offering = ClassOfferingFactory(instructor=a)
+        form = ClassOfferingForm(
+            data=_data(instructors=_pks(InstructorFactory())), instance=offering, can_edit_instructors=False
+        )
+        assert form.is_valid(), form.errors
+        form.save()
+        assert _members(offering) == [a.pk]
+
+
 def describe_the_add_an_instructor_select():
     def it_offers_active_members_with_teaching_access():
         teacher = InstructorFactory()
@@ -166,6 +222,20 @@ def describe_the_add_an_instructor_select():
         assert teacher in choices
         assert plain not in choices
         assert invited not in choices
+
+    def it_leaves_out_whoever_is_already_listed():
+        a, b, c = InstructorFactory(), InstructorFactory(), InstructorFactory()
+        offering = ClassOfferingFactory(instructor=a, instructors=[a, b])
+        choices = TeachClassOfferingForm(instance=offering, teaching_member=a).fields["add_instructor"].queryset  # type: ignore[attr-defined]
+        assert a not in choices and b not in choices
+        assert c in choices
+
+    def it_leaves_out_the_rows_posted_on_a_refused_save():
+        author, partner = InstructorFactory(), InstructorFactory()
+        form = TeachClassOfferingForm(data=_data(instructors=_pks(author, partner), title=""), teaching_member=author)
+        assert not form.is_valid()
+        choices = form.fields["add_instructor"].queryset  # type: ignore[attr-defined]
+        assert partner not in choices and author not in choices
 
     def it_keeps_nothing_it_posts():
         author, partner = InstructorFactory(), InstructorFactory()

@@ -2236,11 +2236,9 @@ def _composer_context(
         if access is not None
         else SiteConfiguration.load().instructor_discount_codes_enabled
     )
-    # Who may change the Instructors list (#686): admins, and every instructor of the class. On
-    # create the only person here is an instructor starting their own. The guild's staff editing
-    # a draft they do not teach see the rows as hidden inputs, so the set round trips unchanged.
-    member = getattr(request.user, "member", None)
-    can_edit_instructors = is_admin or saved is None or (member is not None and saved.teaches(member))
+    # Who may change the Instructors list (#686) is the form's call, made where the form is built
+    # (admins, and every instructor of the class); the template only follows it.
+    can_edit_instructors = form.instructors_editable
     if saved is not None:
         # The card preview frames render the REAL catalog card three times (two widths on
         # the Photos step, the phone on the Review step) and each read offering.sessions.all; one prefetch
@@ -2578,7 +2576,13 @@ def _instructor_composer(request: HttpRequest, pk: int) -> HttpResponse:
         # A live class gets the light-edit form on the same URL: content only, no re-review.
         return _teach_published_class_edit(request, offering, teaching_member)
     form = TeachClassOfferingForm(
-        request.POST or None, request.FILES or None, instance=offering, teaching_member=teaching_member
+        request.POST or None,
+        request.FILES or None,
+        instance=offering,
+        teaching_member=teaching_member,
+        # The guild's staff edit the draft but never its instructors (#686): the form drops the
+        # list for them, so a POST carrying one changes nothing.
+        can_edit_instructors=offering.teaches(teaching_member),
     )
     formset = ClassSessionFormSet(request.POST or None, instance=offering, prefix="sessions")
     faq_formset = build_class_faq_formset(request.POST or None, offering)
@@ -2665,7 +2669,13 @@ def _render_unsaved_composer_post(
         with_hero: Whether to keep the hero uploader. Spelled at both call sites rather than
             defaulted, because it is the one control here that still writes to the class.
     """
-    form = TeachClassOfferingForm(request.POST, request.FILES, instance=offering, teaching_member=teaching_member)
+    form = TeachClassOfferingForm(
+        request.POST,
+        request.FILES,
+        instance=offering,
+        teaching_member=teaching_member,
+        can_edit_instructors=offering.teaches(teaching_member),
+    )
     formset = ClassSessionFormSet(request.POST, instance=offering, prefix="sessions")
     faq_formset = build_class_faq_formset(request.POST, offering)
     return _render_teach_class_form(
@@ -4124,7 +4134,8 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     )
     qs = facet.apply(base)  # type: ignore[arg-type]  # annotated queryset keeps its aliases
     if instructor_filter:
-        qs = qs.filter(instructor_id=instructor_filter)  # type: ignore[misc]  # Django coerces the str PK at query time
+        # Every class this member is listed on (#686), not only the ones they are paid for.
+        qs = qs.filter(instructors=instructor_filter)  # type: ignore[misc]  # Django coerces the str PK at query time
 
     # "My Classes": classes I teach or authored. Always available; "me" is the real
     # logged-in user's member even under a view-as preview. A bogus mine value is

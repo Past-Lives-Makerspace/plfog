@@ -930,17 +930,31 @@ class _InstructorsMixin:
     is_bound: bool
     data: Any
 
-    def setup_instructors_fields(self, *, author: Member | None) -> None:
-        """Add both fields. ``author`` is who a new class starts with; ``None`` on an existing one."""
+    def setup_instructors_fields(self, *, author: Member | None, can_edit: bool = True) -> None:
+        """Add both fields. ``author`` is who a new class starts with; ``None`` on an existing one.
+
+        ``can_edit`` is whether this viewer may change the list (admins and the class's own
+        instructors). When it is False neither field exists, so whatever a POST carries under
+        ``instructors`` or ``add_instructor`` is ignored, the saved rows stay as they are, and the
+        at-least-one rule does not run: the guild's staff can save a legacy class nobody is listed
+        on without being refused over a control they do not have.
+        """
         from membership.models import Member
 
+        self.instructors_editable = can_edit
         self._instructors_author = author
-        self._instructors_omitted = self.is_bound and "instructors" not in self.data
+        self._instructors_omitted = not can_edit or (self.is_bound and "instructors" not in self.data)
         self._current_instructors: list[Member] | None = None
+        if not can_edit:
+            return
         self.fields["instructors"] = InstructorsField(initial=[member.pk for member in self.current_instructors()])
+        # Minus anyone already listed on the page (the posted rows after a refused save), so the
+        # same person cannot be picked twice; the browser keeps that true as rows come and go.
+        listed = [row["pk"] for row in self.instructor_rows]
         self.fields["add_instructor"] = forms.ModelChoiceField(
             queryset=Member.objects.active()
             .in_teaching_state(Member.TeachingApplicationState.APPROVED)
+            .exclude(pk__in=listed)
             .order_by("full_legal_name"),
             required=False,
             label="Add an instructor",
@@ -979,7 +993,12 @@ class _InstructorsMixin:
         return None
 
     def save_instructors(self, offering: ClassOffering) -> None:
-        """Write the cleaned list to the saved class; the payee follows its first row."""
+        """Write the cleaned list to the saved class; the payee follows its first row.
+
+        Nothing is written for a viewer who may not change the list: the rows stay as saved.
+        """
+        if not self.instructors_editable:
+            return
         offering.set_instructors(self.cleaned_data["instructors"])
 
     @property
@@ -1068,11 +1087,11 @@ class ClassOfferingForm(
             "flexible_ends_on": "",
         }
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, can_edit_instructors: bool = True, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.fields["category"].label = "Class Type"
         # An admin picks every instructor; a new class starts with nobody listed.
-        self.setup_instructors_fields(author=None)
+        self.setup_instructors_fields(author=None, can_edit=can_edit_instructors)
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
@@ -1172,18 +1191,25 @@ class TeachClassOfferingForm(
             "flexible_ends_on": "",
         }
 
-    def __init__(self, *args, teaching_member: "Member | None" = None, **kwargs) -> None:
+    def __init__(
+        self, *args, teaching_member: "Member | None" = None, can_edit_instructors: bool = True, **kwargs
+    ) -> None:
         self.teaching_member = teaching_member
         super().__init__(*args, **kwargs)
         # What save() will set, set now, so the booking line box on a new class names the
         # instructor and not "your instructor". The payee follows the instructors list on save
         # (#686), so nothing posted can point it at someone off the list.
-        if teaching_member is not None and not self.instance.instructor_id:
+        # A new class only: on a saved class nobody is listed on, the viewer (the guild's staff)
+        # is not its instructor, and save() would seed them as one from this column (#686).
+        if teaching_member is not None and not self.instance.pk and not self.instance.instructor_id:
             self.instance.instructor = teaching_member
         self.fields["category"].label = "Class Type"
-        # A new class starts with its author listed; an existing one lists its saved rows, whoever
-        # is editing (the guild's staff reach this form too and are not added by it).
-        self.setup_instructors_fields(author=None if self.instance.pk else teaching_member)
+        # A new class starts with its author listed; an existing one lists its saved rows. The
+        # guild's staff reach this form too: the view passes can_edit_instructors=False for them,
+        # and the list is then neither shown nor written.
+        self.setup_instructors_fields(
+            author=None if self.instance.pk else teaching_member, can_edit=can_edit_instructors
+        )
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()

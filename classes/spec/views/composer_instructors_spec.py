@@ -92,7 +92,7 @@ def describe_the_basics_step():
         assert [row["pk"] for row in _rows(html)] == [offering.instructor_id]
         assert 'name="instructor"' not in html
 
-    def it_gives_the_guilds_staff_the_rows_as_hidden_inputs(client):
+    def it_gives_the_guilds_staff_no_instructors_control(client):
         staffer = _instructor("Sam Staff")
         guild = GuildFactory()
         GuildStaffMembershipFactory(guild=guild, member=staffer)
@@ -101,20 +101,40 @@ def describe_the_basics_step():
         html = client.get(_edit(offering)).content.decode()
         assert "data-instructor-rows" not in html
         assert 'name="add_instructor"' not in html
-        assert f'<input type="hidden" name="instructors" value="{offering.instructor_id}">' in html
+        assert 'name="instructors"' not in html
 
-    def it_keeps_the_set_when_the_guilds_staff_save(client):
+    def it_ignores_a_changed_list_the_guilds_staff_post(client):
+        # The form built for a staffer carries no instructors field, so the rows and the payee stay.
         staffer = _instructor("Sam Staff")
         guild = GuildFactory()
         GuildStaffMembershipFactory(guild=guild, member=staffer)
         offering = ClassOfferingFactory(category=CategoryFactory(guild=guild), status=ClassOffering.Status.DRAFT)
         teacher_pk = offering.instructor_id
         client.force_login(staffer.user)
-        resp = client.post(_edit(offering), _payload(offering, title="Renamed By Staff", instructors=[teacher_pk]))
+        resp = client.post(
+            _edit(offering),
+            _payload(offering, title="Renamed By Staff", instructors=[staffer.pk], add_instructor=staffer.pk),
+        )
         assert resp.status_code == 302
         offering.refresh_from_db()
         assert offering.title == "Renamed By Staff"
         assert _members(offering) == [teacher_pk]
+        assert offering.instructor_id == teacher_pk
+
+    def it_lets_the_guilds_staff_save_a_class_nobody_is_listed_on(client):
+        # Six legacy runs carry no instructor; the staffer has no control to satisfy, so no rule fires.
+        staffer = _instructor("Sam Staff")
+        guild = GuildFactory()
+        GuildStaffMembershipFactory(guild=guild, member=staffer)
+        offering = ClassOfferingFactory(
+            category=CategoryFactory(guild=guild), instructor=None, status=ClassOffering.Status.DRAFT
+        )
+        client.force_login(staffer.user)
+        resp = client.post(_edit(offering), _payload(offering, title="Legacy Run"))
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.title == "Legacy Run"
+        assert _members(offering) == []
 
 
 def describe_saving_the_list():

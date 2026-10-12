@@ -712,6 +712,20 @@ def describe_edit_class():
         assert offering.slug == "original-2025-01-01"
 
 
+def describe_instructor_filter():
+    def it_lists_every_class_the_member_is_listed_on(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory, InstructorFactory
+
+        # #686: the dropdown reads the instructors list, so a co-taught class matches too.
+        lead, partner = InstructorFactory(), InstructorFactory()
+        ClassOfferingFactory(title="Shared Framing", instructor=lead, instructors=[lead, partner])
+        ClassOfferingFactory(title="Lead Alone", instructor=lead)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + f"?instructor={partner.pk}")
+        assert b"Shared Framing" in response.content
+        assert b"Lead Alone" not in response.content
+
+
 def describe_mine_filter():
     def it_filters_to_classes_taught_by_me(admin_user, client, db):
         from classes.factories import ClassOfferingFactory
