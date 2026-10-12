@@ -498,6 +498,16 @@ urlpatterns = [
         name="hub_equipment_block_remove",
     ),
     path(
+        "equipment/<slug:slug>/manage/credit/add/",
+        equipment_views.hub_equipment_credit_add,
+        name="hub_equipment_credit_add",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/credit/<int:member_pk>/take-back/",
+        equipment_views.hub_equipment_credit_take_back,
+        name="hub_equipment_credit_take_back",
+    ),
+    path(
         "equipment/<slug:slug>/manage/orientation/slots/add/",
         equipment_views.hub_equipment_orientation_slot_add,
         name="hub_equipment_orientation_slot_add",

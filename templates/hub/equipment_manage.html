@@ -567,6 +567,50 @@
     </div>
   </div>
 
+  {% if equipment.is_hourly %}
+  {# Give Credit (#787): Who Has Credit first, then the form behind a toggle; a refused grant comes back open with its errors. #}
+  <div class="hub-card pl-equip-panel" data-give-credit-card x-data="{ creditOpen: {{ credit_form_open|yesno:'true,false' }} }">
+    <div class="pl-equip-credit__head">
+      <h2 class="hub-detail-label pl-equip-panel__title">Give Credit</h2>
+      <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" :aria-expanded="creditOpen.toString()" aria-expanded="{{ credit_form_open|yesno:'true,false' }}" @click="creditOpen = !creditOpen" x-text="creditOpen ? 'Done' : 'Give Credit'" data-give-credit-toggle>{% if credit_form_open %}Done{% else %}Give Credit{% endif %}</button>
+    </div>
+    <p class="hub-text-muted pl-equip-panel__intro">Hours of credit on the {{ equipment.name }} for one member, for time they paid for and did not use or an approved shop project. It applies the next time they book here. It is never a refund.</p>
+    <div x-show="creditOpen"{% if not credit_form_open %} x-cloak{% endif %} class="pl-equip-credit__form">
+      <form method="post" action="{% url 'hub_equipment_credit_add' equipment.slug %}" class="hub-form" data-give-credit-form>
+        {% csrf_token %}
+        {% for error in credit_form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+        <div class="hub-form-group">
+          {% include "components/form_field.html" with field=credit_form.member field_hint="Start typing and pick from the list." %}
+          <datalist id="{{ credit_form.MEMBER_LIST_ID }}">
+            {% for label in credit_form.member_options %}<option value="{{ label }}"></option>{% endfor %}
+          </datalist>
+          {% include "components/form_field.html" with field=credit_form.hours field_hint="Half hour steps, up to 100." %}
+          {% include "components/form_field.html" with field=credit_form.note %}
+        </div>
+        <div class="pl-equip-save-row">
+          <button type="submit" class="pl-btn pl-btn--primary">Give credit</button>
+        </div>
+      </form>
+    </div>
+    <h3 class="pl-equip-credit__subtitle">Who Has Credit</h3>
+    {% if credit_holders %}
+    <div class="pl-equip-res-list" data-credit-holders>
+      {% for holder in credit_holders %}
+      <div class="pl-equip-res-row pl-equip-credit-row" data-credit-holder="{{ holder.member.pk }}">
+        <span class="pl-equip-credit-row__main">
+          <span class="pl-equip-credit-row__who"><strong>{{ holder.member.display_name }}</strong> <span class="pl-equip-badge pl-equip-badge--ok" data-credit-hours>{{ holder.hours_label }}</span></span>
+          <span class="pl-equip-credit-row__note hub-text-muted">{% if holder.note %}{{ holder.note }} · {% endif %}{{ holder.granted_at|date:"M j, Y" }}</span>
+        </span>
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'credit-take-back-{{ holder.member.pk }}')" data-credit-take-back>Take back</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="hub-text-muted pl-equip-panel__empty" data-credit-empty>No one has credit here yet.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <div class="hub-card pl-equip-panel" data-upcoming-reservations-card>
     <h2 class="hub-detail-label pl-equip-panel__title">Upcoming Reservations</h2>
     {% if manage_reservations %}
@@ -640,6 +684,14 @@
 {# Decline confirms (#748), one per waiting request, outside the panes; the reason is required and the member sees it. #}
 {% for reservation in manage_approvals %}
 {% include "hub/partials/reservation_decline_modal.html" with r=reservation decline_next="" %}
+{% endfor %}
+
+{# Take back confirms (#787), one per member with credit, outside the panes; it zeroes their balance here and emails nobody. #}
+{% for holder in credit_holders %}
+{% url 'hub_equipment_credit_take_back' equipment.slug holder.member.pk as take_back_url %}
+{% with hpks=holder.member.pk|stringformat:"s" take_back_message="This takes back all "|add:holder.hours_label|add:" of "|add:holder.member.display_name|add:"'s credit on the "|add:equipment.name|add:". To leave them some, give it again after." %}
+{% include "components/confirm_modal.html" with confirm_id="credit-take-back-"|add:hpks confirm_title="Take Back This Credit?" confirm_message=take_back_message confirm_action_url=take_back_url confirm_button_text="Take back" %}
+{% endwith %}
 {% endfor %}
 
 {# Remove block confirms (#657), one per block, outside the panes; no reason field, nobody is told. #}

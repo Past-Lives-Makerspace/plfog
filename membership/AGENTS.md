@@ -108,6 +108,10 @@ Helpers on `Member`: `has_admin_capability(cap)` (the authorization gate) and `s
 
 `Equipment.payee` (part 2) is Who gets paid: one of the item's managers, or nobody (the whole payment stays with Past Lives). `EquipmentStaffMembership.delete()` clears the pick when that manager is removed. The books and payouts read it in `billing/` (see `billing/AGENTS.md`). `reserve()` re-runs `checkout_amount_cents` under its lock, so a price or a donation minimum raised after the page read never books free.
 
+## Hourly credit (#787)
+
+`EquipmentCredit` is an append only ledger of minutes per member per hourly item; the balance is the sum (`EquipmentCredit.objects.balance_for`). Managers write GRANTED (the Give Credit card) or UNUSED (Credit Unused Time on a started, confirmed booking, never past its length) and TAKEN_BACK (the whole balance); `reserve()` and `start_reservation_checkout()` read the balance under the Equipment lock, store `EquipmentReservation.credit_minutes` and write a negative SPENT row, charging the rate on the rest (`Equipment.checkout_amount_cents(..., credit_minutes=)`), so a covered booking takes the free road. An unpaid hold's SPENT row cascades with the deleted hold; `cancel()` and `decline()` add a RESTORED row in their transaction and refund the paid part as before. Credit is never money: no refund, reconciliation line or payout reads it. Free and donation items show none.
+
 ## Vote Calculator
 
 `membership/vote_calculator.py` — `calculate_results(votes, paying_voter_count, pool_override)` returns a dict with per-guild allocations. Called by `FundingSnapshot.take()`.

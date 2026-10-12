@@ -33,6 +33,8 @@ is_staff_view (the staff columns) and bookings_next (where the menu's Approve la
     <span class="hub-pill {% if r.status == 'confirmed' %}hub-pill--ok{% elif r.status == 'pending_approval' or r.status == 'pending_payment' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-reservation-status="{{ r.status }}">{{ r.get_status_display }}</span>
     {% endif %}
     {% if r.amount_paid_cents %}<span class="hub-pill hub-pill--neutral" data-booking-paid>Paid {{ r.paid_display }}</span>{% endif %}
+    {% if r.credit_minutes %}<span class="hub-pill hub-pill--neutral" data-booking-credit-used>{{ r.credit_used_label }}</span>{% endif %}
+    {% if row.credited_label %}<span class="hub-pill hub-pill--neutral" data-booking-credited>{{ row.credited_label }}</span>{% endif %}
     {% if r.refund_state == "full" %}<span class="hub-pill hub-pill--neutral" data-booking-refunded>Refunded</span>{% endif %}
     {% if row.fee_unpaid %}<span class="hub-pill hub-pill--danger" data-booking-fee>Fee unpaid</span>{% elif row.late_fee %}<span class="hub-pill hub-pill--neutral" data-booking-fee>Fee {{ row.late_fee.get_status_display|lower }}</span>{% endif %}
   </td>

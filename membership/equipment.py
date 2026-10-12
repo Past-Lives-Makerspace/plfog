@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
 
     from billing.models import LateCancellationFee
-    from membership.models import Equipment, EquipmentReservation, Member
+    from membership.models import Equipment, EquipmentCredit, EquipmentReservation, Member
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +119,32 @@ def _placeholder_context(reservation: EquipmentReservation) -> dict[str, str]:
 
 #: The refusal when an item started charging between the page's read and the booking lock (#749).
 PRICE_CHANGED_MESSAGE = "The price for this time just changed. Please pick your time again."
+#: The refusal when the member's credit here was spent or taken back between the page's read and the lock (#787).
+CREDIT_CHANGED_MESSAGE = "Your credit here just changed. Please pick your time again."
+
+
+def _locked_credit_balance(locked: Equipment, member: Member) -> int:
+    """The member's credit minutes on ``locked``, read under its row lock; 0 on anything not hourly (#787)."""
+    from membership.models import EquipmentCredit
+
+    if not locked.is_hourly:
+        return 0
+    return EquipmentCredit.objects.balance_for(member, locked)
+
+
+def _spend_credit(reservation: EquipmentReservation) -> None:
+    """Write the negative SPENT line for the credit ``reservation`` used, inside the caller's lock (#787)."""
+    from membership.models import EquipmentCredit
+
+    if not reservation.credit_minutes:
+        return
+    EquipmentCredit.objects.create(
+        equipment_id=reservation.equipment_id,
+        member_id=reservation.member_id,
+        minutes=-reservation.credit_minutes,
+        kind=EquipmentCredit.Kind.SPENT,
+        reservation=reservation,
+    )
 
 
 def reserve(
@@ -129,6 +155,7 @@ def reserve(
     *,
     purpose: str = "",
     donation_cents: int | None = None,
+    credit_expected: bool = False,
 ) -> EquipmentReservation:
     """Make a reservation, safely under concurrency: instant, or a request when the equipment needs approval.
 
@@ -146,12 +173,17 @@ def reserve(
     anything that would now charge (an hourly item, or a donation above $0) is refused, and a
     donation based item re-checks the member's ``donation_cents`` against its current rules, so
     a switch to a price or a minimum raised between the caller's read and this lock can never
-    book for free.
+    book for free. An hourly booking the member's credit covers in full is free (#787): the
+    balance is read under the same lock, the booking stores the minutes it used, and the
+    negative SPENT line is written in the same transaction, so two tabs spend it once.
+    ``credit_expected`` is the caller saying it chose this road because the member's credit
+    covered the booking, so losing that credit to another tab gets the credit refusal.
 
     Raises:
         EquipmentError: Propagated from :meth:`Equipment.ensure_reservable` with the
             member-facing message when any check fails (including a lost race), the donation
-            rule's own message (a minimum raised meanwhile), or :attr:`PRICE_CHANGED_MESSAGE`
+            rule's own message (a minimum raised meanwhile), :attr:`CREDIT_CHANGED_MESSAGE` when
+            the credit that covered it was spent meanwhile, or :attr:`PRICE_CHANGED_MESSAGE`
             when the item now charges.
     """
     from membership.models import Equipment, EquipmentError, EquipmentReservation
@@ -161,8 +193,12 @@ def reserve(
         # A donation item read as free sent no amount: the member never saw the amount box.
         if locked.is_donation and donation_cents is None:
             raise EquipmentError(PRICE_CHANGED_MESSAGE)
-        if locked.checkout_amount_cents(duration_minutes, donation_cents if locked.is_donation else None) != 0:
-            raise EquipmentError(PRICE_CHANGED_MESSAGE)
+        balance = _locked_credit_balance(locked, member)
+        charge = locked.checkout_amount_cents(
+            duration_minutes, donation_cents if locked.is_donation else None, credit_minutes=balance
+        )
+        if charge != 0:
+            raise EquipmentError(CREDIT_CHANGED_MESSAGE if credit_expected else PRICE_CHANGED_MESSAGE)
         locked.ensure_reservable(member, starts_at, duration_minutes)
         reservation = EquipmentReservation.objects.create(
             equipment=locked,
@@ -175,7 +211,9 @@ def reserve(
                 if locked.requires_approval and not member.can_manage_equipment(locked)
                 else EquipmentReservation.Status.CONFIRMED
             ),
+            credit_minutes=locked.credit_applied_minutes(duration_minutes, balance),
         )
+        _spend_credit(reservation)
     if reservation.is_awaiting_approval:
         _notify_requested(reservation)
         _notify_needs_approval(reservation)
@@ -468,10 +506,12 @@ def start_reservation_checkout(
 
     The charge is :meth:`Equipment.checkout_amount_cents`, read under the same
     ``select_for_update`` lock :func:`reserve` takes, after :meth:`Equipment.ensure_reservable`
-    passes, so a lost race or a bad donation never reaches Stripe. The hold sends nothing:
-    nothing has happened until the money lands (:func:`finalize_paid_reservation`). The lock
-    covers only the guard and the hold, never the Stripe round trip. A Stripe failure deletes
-    the hold and re-raises.
+    passes, so a lost race or a bad donation never reaches Stripe. On an hourly item the
+    member's credit there covers what it can (#787): the hold stores the minutes it used and
+    the negative SPENT line is written under the same lock, and the charge is the rate on the
+    rest. The hold sends nothing: nothing has happened until the money lands
+    (:func:`finalize_paid_reservation`). The lock covers only the guard and the hold, never the
+    Stripe round trip. A Stripe failure deletes the hold, its spent credit with it, and re-raises.
 
     Raises:
         EquipmentError: From the guards, the amount check, or when the amount comes to $0.
@@ -482,7 +522,8 @@ def start_reservation_checkout(
     with transaction.atomic():
         locked = Equipment.objects.select_for_update().get(pk=equipment.pk)
         locked.ensure_reservable(member, starts_at, duration_minutes)
-        charge_cents = locked.checkout_amount_cents(duration_minutes, amount_cents)
+        balance = _locked_credit_balance(locked, member)
+        charge_cents = locked.checkout_amount_cents(duration_minutes, amount_cents, credit_minutes=balance)
         if charge_cents <= 0:
             raise EquipmentError("Reserving this time doesn't charge anything.")
         # amount_paid_cents stays 0 until money is in hand; finalize stamps Stripe's amount_total.
@@ -493,7 +534,9 @@ def start_reservation_checkout(
             ends_at=starts_at + timedelta(minutes=duration_minutes),
             purpose=purpose.strip(),
             status=EquipmentReservation.Status.PENDING_PAYMENT,
+            credit_minutes=locked.credit_applied_minutes(duration_minutes, balance),
         )
+        _spend_credit(reservation)
     success_url, cancel_url = _checkout_urls(reservation)
     try:
         session = stripe_utils.create_checkout_session(
@@ -587,7 +630,8 @@ def _delete_hold(reservation: EquipmentReservation, *, expire_session: bool = Tr
     """Delete an unpaid hold, never CANCELLED: nothing was sent about it, so nothing should remember it.
 
     The delete is status guarded, so a row a concurrent webhook just finalized is never
-    destroyed, and a row already gone is a quiet no-op. Deleting frees the time.
+    destroyed, and a row already gone is a quiet no-op. Deleting frees the time, and its
+    SPENT credit line cascades in the same delete, so the credit is the member's again (#787).
     """
     from membership.models import EquipmentReservation
 
@@ -756,3 +800,147 @@ def refund_line(reservation: EquipmentReservation) -> str:
     if reservation.refund_outcome == "failed":
         return f"Your {reservation.paid_display} refund is being processed. "
     return ""
+
+
+# ── Hourly credit (#787): managers give it, bookings spend it, cancels give it back ──
+
+#: The refusal for minutes off the half hour grid or outside half an hour to 100 hours.
+CREDIT_STEP_MESSAGE = "Give credit in half hour steps, from half an hour to 100 hours."
+
+
+def _ensure_can_credit(equipment: Equipment, actor: Member) -> None:
+    """The gates every grant and take back share: an hourly item, and a manager of it.
+
+    Raises:
+        EquipmentError: With the member facing reason when either fails.
+    """
+    from membership.models import EquipmentError
+
+    if not equipment.is_hourly:
+        raise EquipmentError("Credit is only for items that charge by the hour.")
+    if not actor.can_manage_equipment(equipment):
+        raise EquipmentError("Only a manager of this equipment can give or take back credit.")
+
+
+def _ensure_creditable_reservation(reservation: EquipmentReservation, equipment: Equipment, minutes: int) -> None:
+    """The Credit Unused Time gates: a started, confirmed booking on this item with that much left to credit.
+
+    Raises:
+        EquipmentError: With the reason when the booking cannot take this credit.
+    """
+    from membership.models import duration_label, EquipmentCredit, EquipmentError, EquipmentReservation
+
+    if (
+        reservation.equipment_id != equipment.pk
+        or reservation.is_block
+        or reservation.status != EquipmentReservation.Status.CONFIRMED
+    ):
+        raise EquipmentError("Only a confirmed reservation can have its unused time credited.")
+    if reservation.starts_at > timezone.now():
+        raise EquipmentError("This reservation hasn't started yet.")
+    left = reservation.duration_minutes - EquipmentCredit.objects.credited_on(reservation)
+    if minutes > left:
+        if left <= 0:
+            raise EquipmentError("All of this reservation's time is already credited.")
+        raise EquipmentError(f"Only {duration_label(left)} of this reservation is left to credit.")
+
+
+def grant_credit(
+    equipment: Equipment,
+    member: Member,
+    actor: Member,
+    minutes: int,
+    *,
+    note: str = "",
+    reservation: EquipmentReservation | None = None,
+) -> EquipmentCredit:
+    """Give ``member`` ``minutes`` of credit on ``equipment`` as ``actor``, a manager of it; the member is emailed.
+
+    With ``reservation`` it is that booking's unused time (Credit Unused Time): the booking must
+    be confirmed, started, on this item, and the credit can never add up past its length; the
+    member is the booking's. Written under the Equipment row lock every spend takes.
+
+    Raises:
+        EquipmentError: When the item is not hourly, ``actor`` does not manage it, the minutes
+            are off the half hour grid or outside half an hour to 100 hours, the note is too
+            long, or the booking cannot take this credit.
+    """
+    from membership.models import Equipment, EquipmentCredit, EquipmentError
+
+    cleaned_note = note.strip()
+    if minutes % Equipment.RESERVATION_SNAP_MINUTES or not 0 < minutes <= EquipmentCredit.MAX_GRANT_MINUTES:
+        raise EquipmentError(CREDIT_STEP_MESSAGE)
+    if len(cleaned_note) > EquipmentCredit.NOTE_MAX_LENGTH:
+        raise EquipmentError(f"Keep the note to {EquipmentCredit.NOTE_MAX_LENGTH} characters.")
+    with transaction.atomic():
+        locked = Equipment.objects.select_for_update().get(pk=equipment.pk)
+        _ensure_can_credit(locked, actor)
+        if reservation is not None:
+            _ensure_creditable_reservation(reservation, locked, minutes)
+            member = reservation.member
+        credit = EquipmentCredit.objects.create(
+            equipment=locked,
+            member=member,
+            minutes=minutes,
+            kind=EquipmentCredit.Kind.UNUSED if reservation is not None else EquipmentCredit.Kind.GRANTED,
+            reservation=reservation,
+            granted_by=actor,
+            note=cleaned_note,
+        )
+    _notify_credit_granted(credit)
+    return credit
+
+
+def take_back_credit(equipment: Equipment, member: Member, actor: Member) -> int:
+    """Zero ``member``'s credit on ``equipment`` as ``actor``, a manager of it; return the minutes taken back.
+
+    One negative TAKEN_BACK line for the whole balance, read under the Equipment row lock. A
+    partial take back is a fresh grant after this. Nobody is emailed.
+
+    Raises:
+        EquipmentError: From the shared gates, or when the member has no credit here.
+    """
+    from membership.models import Equipment, EquipmentCredit, EquipmentError
+
+    with transaction.atomic():
+        locked = Equipment.objects.select_for_update().get(pk=equipment.pk)
+        _ensure_can_credit(locked, actor)
+        balance = EquipmentCredit.objects.balance_for(member, locked)
+        if balance <= 0:
+            raise EquipmentError(f"{member.display_name} has no credit here.")
+        EquipmentCredit.objects.create(
+            equipment=locked,
+            member=member,
+            minutes=-balance,
+            kind=EquipmentCredit.Kind.TAKEN_BACK,
+            granted_by=actor,
+        )
+    return balance
+
+
+def _notify_credit_granted(credit: EquipmentCredit) -> None:
+    """Tell the member a manager gave them credit (#787): bell on, email on, with a Book a Time button."""
+    from core.events.emit import emit
+    from membership.models import duration_label
+
+    member = credit.member
+    equipment = credit.equipment
+    manager = credit.granted_by
+    note = credit.note
+    emit(
+        "equipment.credit_granted",
+        actor=manager.user if manager is not None else None,
+        target=credit,
+        context={
+            "user": member.user,
+            "member_name": member.display_name,
+            "manager_name": manager.display_name if manager is not None else "A manager",
+            "credit_hours": duration_label(credit.minutes),
+            "equipment_name": equipment.name,
+            "equipment_url": _absolute_url(reverse("hub_equipment_detail", args=[equipment.slug])),
+            # The manager's own words, guarded: "" when they left the note blank.
+            "note_line": f"Their note: {note.rstrip('.!?')}." if note else "",
+        },
+        url=reverse("hub_equipment_detail", args=[equipment.slug]),
+        period=f"credit:{credit.pk}:granted",
+    )

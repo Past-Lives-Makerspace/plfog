@@ -92,6 +92,7 @@ from membership.models import (
     WikiPageFact,
     money_display,
     WikiWantedPage,
+    duration_label,
     normalize_wiki_ask,
     orientation_way_phrase,
 )
@@ -6885,6 +6886,94 @@ class EquipmentBlockForm(forms.Form):
         cleaned["starts_at"] = timezone.make_aware(datetime.combine(day, start))
         cleaned["ends_at"] = timezone.make_aware(datetime.combine(day, end))
         return cleaned
+
+
+class EquipmentCreditForm(forms.Form):
+    """The manage tab's Give Credit card (#787): a member, the hours, an optional note.
+
+    The member picker is a text input over a ``<datalist>`` of active members, matched exactly,
+    the way the Record Orientation picker works: a member is labelled by display name, with
+    their member number after it when two share one. Shape only; who may give credit, on
+    what, is ``membership.equipment.grant_credit`` under the equipment lock.
+    ``cleaned_data`` carries the ``Member`` and whole ``minutes``.
+    """
+
+    #: The datalist the Member input reads.
+    MEMBER_LIST_ID = "equip-credit-member-options"
+
+    member = forms.CharField(
+        label="Member",
+        max_length=200,
+        widget=forms.TextInput(
+            attrs={"list": MEMBER_LIST_ID, "autocomplete": "off", "placeholder": "Start typing a name"}
+        ),
+        error_messages={"required": "Pick a member from the list."},
+    )
+    hours = forms.DecimalField(
+        label="Hours",
+        min_value=Decimal("0.5"),
+        max_value=Decimal("100"),
+        step_size=Decimal("0.5"),
+        decimal_places=1,
+        widget=forms.NumberInput(attrs={"step": "0.5", "min": "0.5", "max": "100", "inputmode": "decimal"}),
+        error_messages={"step_size": "Use half hour steps, like 1.5 or 2."},
+    )
+    note = forms.CharField(
+        label="Note (optional)",
+        max_length=140,
+        required=False,
+        widget=forms.TextInput(attrs={"placeholder": "e.g. Shop storage cabinet project"}),
+    )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        members = list(
+            Member.objects.filter(status=Member.Status.ACTIVE).without_hidden().order_by("full_legal_name", "pk")
+        )
+        name_counts = Counter(m.display_name.casefold() for m in members)
+        self.member_options: list[str] = []
+        self._members_by_label: dict[str, Member] = {}
+        for candidate in members:
+            name = candidate.display_name
+            label = name if name_counts[name.casefold()] == 1 else f"{name} (#{candidate.pk})"
+            self.member_options.append(label)
+            self._members_by_label[label.casefold()] = candidate
+
+    def clean_member(self) -> Member:
+        picked = self._members_by_label.get(self.cleaned_data["member"].strip().casefold())
+        if picked is None:
+            raise forms.ValidationError("Pick a member from the list.")
+        return picked
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        hours = cleaned.get("hours")
+        if hours is not None:
+            cleaned["minutes"] = int(hours * 60)
+        return cleaned
+
+
+class EquipmentCreditUnusedForm(forms.Form):
+    """The Credit Unused Time modal on a booking row (#787): half hour steps up to what is left, and a note.
+
+    ``limit_minutes`` is the booking's length less what was already credited from it, so the
+    choices never offer more than the booking could give back. ``cleaned_data["minutes"]`` is
+    the pick in minutes.
+    """
+
+    minutes = forms.TypedChoiceField(label="Hours", coerce=int)
+    note = forms.CharField(
+        label="Note (optional)",
+        max_length=140,
+        required=False,
+        widget=forms.TextInput(attrs={"placeholder": "e.g. Finished two hours early"}),
+    )
+
+    def __init__(self, *args: Any, limit_minutes: int, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        steps = range(Equipment.RESERVATION_SNAP_MINUTES, limit_minutes + 1, Equipment.RESERVATION_SNAP_MINUTES)
+        field = cast(forms.TypedChoiceField, self.fields["minutes"])
+        field.choices = [(minutes, duration_label(minutes)) for minutes in steps]
 
 
 class EquipmentOrientationSlotForm(forms.ModelForm):

@@ -64,6 +64,7 @@ _BRAND_NEW_KEYS = {
     "equipment.reservation_requested",
     "equipment.reservation_needs_approval",
     "equipment.reservation_declined",
+    "equipment.credit_granted",
     "billing.late_fee_paid",
     "billing.late_fee_waived",
     "billing.payout_failed_admin",

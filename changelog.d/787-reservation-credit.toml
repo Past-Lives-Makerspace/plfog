@@ -1,0 +1,10 @@
+bump = "minor"
+audience = "members"
+date = "2026-10-12"
+title = "Hours of credit on equipment you pay for by the hour"
+changes = [
+  "A manager can give you hours of credit on a piece of equipment, for time you paid for and did not use or for an approved shop project. You get an email when they do.",
+  "The next time you book that equipment, you see your credit and it comes off what you pay. If your credit covers the whole time, you reserve without paying.",
+  "If you cancel, or a manager declines your request, the credit you used comes back to you. Anything you paid is refunded as before.",
+  "Managers give and take back credit on the equipment's Manage page, under Reservations, and can credit unused time from a reservation's menu on the Bookings tab.",
+]
