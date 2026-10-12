@@ -25,11 +25,11 @@
         <tr><td style="padding:12px 0;border-top:1px solid rgba(13,72,118,0.12);">
           <span style="font-size:12px;color:#55697a;text-transform:uppercase;letter-spacing:0.08em;">You're now in</span><br>
           <span style="font-size:14px;color:#33424f;font-weight:700;">{{ offering.title }}</span>
-          {% if offering.instructor %}<br><span style="font-size:14px;color:#55697a;">with {{ offering.instructor.display_name }}</span>{% endif %}
+          {% if offering.instructor_names %}<br><span style="font-size:14px;color:#55697a;">with {{ offering.instructor_names }}</span>{% endif %}
         </td></tr>
         <tr><td style="padding:12px 0;border-top:1px solid rgba(13,72,118,0.12);">
           <span style="font-size:12px;color:#55697a;text-transform:uppercase;letter-spacing:0.08em;">New schedule</span><br>
-          {% if upcoming_sessions %}{% for session in upcoming_sessions %}<span style="font-size:14px;color:#33424f;">{{ session.starts_at|date:"l, F j, Y" }} at {{ session.starts_at|time:"g:i A" }}</span>{% if not forloop.last %}<br>{% endif %}{% endfor %}{% else %}<span style="font-size:14px;color:#33424f;">TBA. {% if offering.instructor %}{{ offering.instructor.display_name }} will be in touch with dates.{% else %}We'll be in touch with dates.{% endif %}</span>{% endif %}
+          {% if upcoming_sessions %}{% for session in upcoming_sessions %}<span style="font-size:14px;color:#33424f;">{{ session.starts_at|date:"l, F j, Y" }} at {{ session.starts_at|time:"g:i A" }}</span>{% if not forloop.last %}<br>{% endif %}{% endfor %}{% else %}<span style="font-size:14px;color:#33424f;">TBA. {% if offering.instructor_names %}{{ offering.instructor_names }} will be in touch with dates.{% else %}We'll be in touch with dates.{% endif %}</span>{% endif %}
         </td></tr>
         <tr><td style="padding:12px 0;border-top:1px solid rgba(13,72,118,0.12);">
           <span style="font-size:12px;color:#55697a;text-transform:uppercase;letter-spacing:0.08em;">Location</span><br>

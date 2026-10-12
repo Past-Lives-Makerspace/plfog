@@ -21,6 +21,13 @@ def describe_ClassOffering():
             ClassSessionFactory(class_offering=o2, starts_at=timezone.now() + timedelta(days=30))
             assert o1.seo_title != o2.seo_title
 
+        def it_names_every_instructor_when_the_title_has_room(db):
+            # #686: the title reads the instructors list, in the order added.
+            first = InstructorFactory(full_legal_name="Alex Eason")
+            second = InstructorFactory(full_legal_name="Jo Giordano")
+            o = ClassOfferingFactory(title="Framing", slug="framing-two", instructor=first, instructors=[first, second])
+            assert "with Alex Eason and Jo Giordano" in o.seo_title
+
         def it_stays_within_sixty_chars(db):
             o = ClassOfferingFactory(
                 title="An Extremely Long Introductory Workshop About Hand Forging Knives",

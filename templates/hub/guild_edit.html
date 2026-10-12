@@ -64,7 +64,7 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
         {# Editing needs the class screen's own gate; without it the title, Edit and View are all dead links. #}
         <span class="pl-attention-row__main">{{ item.offering.title }}</span>
         {% endif %}
-        <span class="pl-attention-row__sub">{% if item.offering.instructor %}{{ item.offering.instructor.display_name }} · {% endif %}submitted {{ item.submitted_at|date:"M j" }}</span>
+        <span class="pl-attention-row__sub">{% if item.offering.instructor_names %}{{ item.offering.instructor_names }} · {% endif %}submitted {{ item.submitted_at|date:"M j" }}</span>
         <span class="pl-attention-row__actions">
           {% if item.can_open %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">Edit</a>{% endif %}
           {# The tokenized review page is signed and needs no teaching access, so it stays for everyone. #}
@@ -86,7 +86,7 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
         {% else %}
         <span class="pl-attention-row__main">{{ item.offering.title }}</span>
         {% endif %}
-        <span class="pl-attention-row__sub">{% if item.offering.instructor %}{{ item.offering.instructor.display_name }} · {% endif %}approved{% if item.approved_at %} {{ item.approved_at|date:"M j" }}{% endif %}</span>
+        <span class="pl-attention-row__sub">{% if item.offering.instructor_names %}{{ item.offering.instructor_names }} · {% endif %}approved{% if item.approved_at %} {{ item.approved_at|date:"M j" }}{% endif %}</span>
         <span class="pl-attention-row__actions">
           {% if item.can_open %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">View</a>{% endif %}
         </span>

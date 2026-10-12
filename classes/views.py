@@ -173,7 +173,7 @@ def _browsable_classes() -> Any:
     classes always qualify; a dated class (single or series) drops off the
     instant its first session starts, so a part-finished series is never listed.
     """
-    return ClassOffering.objects.bookable().select_related("category", "instructor").prefetch_related("sessions")
+    return ClassOffering.objects.bookable().select_related("category").prefetch_related("sessions", "instructor_rows")
 
 
 def _bookable_run_options(offering: Any) -> list[Any]:
@@ -224,7 +224,8 @@ def _apply_browse_filters(qs: Any, request: HttpRequest) -> Any:
 
     instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
     if instructor_slugs:
-        qs = qs.filter(instructor__instructor_slug__in=instructor_slugs)
+        # Every class the person is listed on (#686); two picked slugs on one class join it twice.
+        qs = qs.filter(instructors__instructor_slug__in=instructor_slugs).distinct()
 
     min_price = _coerce_dollars_to_cents(request.GET.get("min_price"))
     if min_price > 0:
@@ -302,7 +303,7 @@ def public_list(request: HttpRequest) -> HttpResponse:
     from membership.models import Member as MemberModel
 
     instructors_for_filter = list(
-        MemberModel.objects.filter(classes__in=_browsable_classes(), instructor_slug__gt="")
+        MemberModel.objects.filter(taught_classes__in=_browsable_classes(), instructor_slug__gt="")
         .distinct()
         .order_by("full_legal_name")
     )
@@ -429,8 +430,7 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
             ClassOffering.objects.registration_open()
             .filter(grouping_key=offering.grouping_key)
             .exclude(pk=offering.pk)
-            .select_related("instructor")
-            .prefetch_related("sessions")
+            .prefetch_related("sessions", "instructor_rows")
         )
         sib_spots = ClassOffering.objects.filter(pk__in=[s.pk for s in sibling_offerings]).spots_remaining_map()
         for sibling in sibling_offerings:
@@ -444,7 +444,7 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
         ClassOffering.objects.bookable()
         .filter(category=offering.category)
         .exclude(pk=offering.pk)
-        .select_related("instructor")[:3]
+        .prefetch_related("instructor_rows")[:3]
     )
 
     # If the class has NO specific image (real or legacy), it falls back to the category image.
@@ -488,7 +488,9 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
 def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """Full class detail page — schedule, info grid, (future: registration form)."""
     offering = get_object_or_404(
-        ClassOffering.objects.public().select_related("category", "instructor", "area").prefetch_related("sessions"),
+        ClassOffering.objects.public()
+        .select_related("category", "area")
+        .prefetch_related("sessions", "instructor_rows"),
         slug=slug,
     )
     from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER
@@ -546,8 +548,8 @@ def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
     now = timezone.now()
     current_classes = (
         ClassOffering.objects.public()  # type: ignore[misc]  # django-stubs can't see annotate() aliases
-        .filter(instructor=instructor)
-        .prefetch_related("sessions")
+        .for_instructor(instructor)
+        .prefetch_related("sessions", "instructor_rows")
         # ``next_session_at``, not ``first_session_at``: that name is the ``bookable()`` /
         # ``upcoming()`` contract (the earliest session ever) and the booking gates read it.
         .annotate(next_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
@@ -555,7 +557,8 @@ def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
         .order_by("next_session_at", "title")
     )
     past_classes = (
-        ClassOffering.objects.filter(instructor=instructor, status=ClassOffering.Status.ARCHIVED)
+        ClassOffering.objects.for_instructor(instructor)
+        .filter(status=ClassOffering.Status.ARCHIVED)
         .select_related("category")
         .order_by("-updated_at")
     )
@@ -1216,7 +1219,7 @@ def register_cancelled(request: HttpRequest, slug: str) -> HttpResponse:
 def my_registration(request: HttpRequest, token: str) -> HttpResponse:
     """Self-serve registration page — no auth, identified by the unguessable token."""
     registration = get_object_or_404(
-        Registration.objects.select_related("class_offering", "class_offering__instructor"),
+        Registration.objects.select_related("class_offering"),
         self_serve_token=token,
     )
     return _render_my_registration(request, registration)
@@ -1267,7 +1270,7 @@ def my_registration_finish(request: HttpRequest, token: str) -> HttpResponse:
     from classes.eventbrite_orders import AlreadyFinishedError, finish_registration
 
     registration = get_object_or_404(
-        Registration.objects.select_related("class_offering", "class_offering__instructor"),
+        Registration.objects.select_related("class_offering"),
         self_serve_token=token,
     )
     if not needs_finishing(registration):
@@ -1317,7 +1320,7 @@ def my_registration_pay(request: HttpRequest, token: str) -> HttpResponse:
     from classes.forms import STRIPE_MIN_CHARGE_CENTS
 
     registration = get_object_or_404(
-        Registration.objects.select_related("class_offering", "class_offering__instructor"),
+        Registration.objects.select_related("class_offering"),
         self_serve_token=token,
     )
     if not registration.is_unpaid:
@@ -1638,8 +1641,8 @@ def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> d
     if settings_obj.example_class_id is not None:
         example = (
             ClassOffering.objects.filter(pk=settings_obj.example_class_id, status=ClassOffering.Status.PUBLISHED)
-            .select_related("category", "instructor")
-            .prefetch_related("sessions")
+            .select_related("category")
+            .prefetch_related("sessions", "instructor_rows")
             .first()
         )
     return {
@@ -3917,7 +3920,11 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
     # Two-stage queue: what waits on the admin (PENDING with no open guild-lead gate,
     # including a PENDING class with zero rows) and what is still with a guild lead.
     waiting_on_you = list(
-        ClassOffering.objects.awaiting_admin().select_related("instructor", "category").order_by("created_at")
+        ClassOffering.objects.awaiting_admin()
+        .select_related("category")
+        # The Instructor line names every listed instructor (#686); prefetched, so no query per class.
+        .prefetch_related("instructor_rows")
+        .order_by("created_at")
     )
     with_guild_leads = _with_guild_leads_queue(now)
     teaching_applications = _teaching_application_queue(now)
@@ -4099,7 +4106,9 @@ def _admin_class_rows(qs: Any, group_filter: str, q: str, search_fields: list[st
     """
     if group_filter:
         return qs.filter(grouping_key=group_filter), {}
-    shown_pks, group_sizes = admin_group_rows(table_search(qs, q, search_fields), timezone.now())
+    # The search joins the instructors rows, so a two instructor class would otherwise come back
+    # once per instructor and be counted twice in its group (#686).
+    shown_pks, group_sizes = admin_group_rows(table_search(qs, q, search_fields).distinct(), timezone.now())
     return qs.filter(pk__in=shown_pks), group_sizes
 
 
@@ -4119,8 +4128,9 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     base = (
         ClassOffering.objects.select_related("instructor", "category__guild")
         .with_lifecycle_inputs()
-        # The badge note reads the latest bouncing row; prefetching keeps that off the per-row path.
-        .prefetch_related("approvals")
+        # The badge note reads the latest bouncing row, and the Instructor cell every listed name
+        # (#686); prefetching keeps both off the per-row path.
+        .prefetch_related("approvals", "instructor_rows")
         .annotate(
             # Seat-holders only, matching the capacity this renders against (see teach_dashboard).
             # distinct=True so the sessions join below doesn't inflate the registration tally.
@@ -4198,7 +4208,8 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
 
     # Runs of one class (same title and category) share a row, picked only after every filter
     # and the search have applied, so no run is ever hidden behind one the filters exclude.
-    search_fields = ["title", "instructor__full_legal_name", "instructor__preferred_name", "category__name"]
+    # Any listed instructor's name matches (#686); _admin_class_rows makes the joined rows distinct.
+    search_fields = ["title", "instructors__full_legal_name", "instructors__preferred_name", "category__name"]
     qs, group_sizes = _admin_class_rows(qs, group_filter, request.GET.get("q", "").strip(), search_fields)
 
     from membership.models import Member as MemberModel
@@ -5300,17 +5311,17 @@ def admin_guild_tagging(request: HttpRequest) -> HttpResponse:
     )
 
 
-def _granted_instructor_pk(request: HttpRequest) -> int | None:
-    """The viewer's member pk when they may open the classes they teach, else None.
+def _granted_instructor_class_pks(request: HttpRequest) -> set[int]:
+    """The pks of the classes this viewer may open as their instructor; empty when none.
 
-    Mirrors the instructor leg of :func:`classes.access.class_access`: a member named as a
-    class's instructor opens its screen only with the teaching grant
-    (``Member.can_create_classes``). Memberless users and ungranted members get None.
+    Mirrors the instructor leg of :func:`classes.access.class_access`: a member listed on a
+    class (#686) opens its screen only with the teaching grant (``Member.can_create_classes``).
+    Memberless users and ungranted members get an empty set.
     """
     member = getattr(request.user, "member", None)
     if member is None or not member.can_create_classes:
-        return None
-    return member.pk  # type: ignore[no-any-return]
+        return set()
+    return set(ClassOffering.objects.for_instructor(member).values_list("pk", flat=True))
 
 
 @classes_registrations_access_required
@@ -5375,10 +5386,10 @@ def admin_registrations(request: HttpRequest) -> HttpResponse:
             "class_filter": request.GET.get("class", ""),
             "show_instructor_filter": is_actual_admin,
             # The Class link opens the class screen, which opens for the actual admin and for
-            # the class's instructor once they hold the teaching grant (classes/access.py);
-            # the template links only what will open, so a guild lead and a named but
+            # every instructor of the class once they hold the teaching grant (classes/access.py);
+            # the template links only what will open, so a guild lead and a listed but
             # ungranted instructor get the title alone.
-            "own_member_pk": _granted_instructor_pk(request),
+            "own_class_pks": _granted_instructor_class_pks(request),
             "instructors": instructors,
             "instructor_filter": request.GET.get("instructor", ""),
             "mine_active": mine_active,

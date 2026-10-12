@@ -111,11 +111,13 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
       {% if offering.subtitle %}
       <p class="cp-detail__subtitle">{{ offering.subtitle }}</p>
       {% endif %}
-      {% if offering.instructor %}
+      {% with instructors=offering.instructor_list %}
+      {% if instructors %}
       <div class="cp-detail__byline">
-        with {% if offering.instructor.instructor_slug %}<a href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>{% else %}{{ offering.instructor.display_name }}{% endif %}
+        with {% include "classes/public/_instructor_names.html" with members=instructors link=True %}
       </div>
       {% endif %}
+      {% endwith %}
     </div>
   </header>
 
@@ -275,33 +277,37 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
         </section>
       {% endif %}
 
-      {# Instructor card — kept right below the schedule so students meet their teacher early. #}
-      {% if offering.instructor %}
+      {# Instructor cards — kept right below the schedule so students meet their teachers early. One card per instructor, in the order added (#686). #}
+      {% with instructors=offering.instructor_list %}
+      {% if instructors %}
       <section class="cp-detail__section">
-        <h2 class="cp-detail__h2">Your Instructor</h2>
+        <h2 class="cp-detail__h2">{% if instructors|length > 1 %}About the Instructors{% else %}Your Instructor{% endif %}</h2>
+        {% for instructor in instructors %}
         <div class="cp-detail__instructor">
-          {% if offering.instructor.profile_photo %}
-            <img class="cp-detail__instructor-photo" src="{{ offering.instructor.profile_photo.url }}" alt="{{ offering.instructor.display_name }}">
+          {% if instructor.profile_photo %}
+            <img class="cp-detail__instructor-photo" src="{{ instructor.profile_photo.url }}" alt="{{ instructor.display_name }}">
           {% else %}
-            <div class="cp-detail__instructor-photo cp-detail__instructor-photo--ph">{{ offering.instructor.display_name|slice:":1" }}</div>
+            <div class="cp-detail__instructor-photo cp-detail__instructor-photo--ph">{{ instructor.display_name|slice:":1" }}</div>
           {% endif %}
           <div class="cp-detail__instructor-body">
-            {% if offering.instructor.instructor_slug %}
-              <a class="cp-detail__instructor-name" href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>
+            {% if instructor.instructor_slug %}
+              <a class="cp-detail__instructor-name" href="{% url 'classes:public_instructor' slug=instructor.instructor_slug %}">{{ instructor.display_name }}</a>
             {% else %}
-              <span class="cp-detail__instructor-name">{{ offering.instructor.display_name }}</span>
+              <span class="cp-detail__instructor-name">{{ instructor.display_name }}</span>
             {% endif %}
             {# The teaching bio, never the member-directory one: that has a directory-only privacy toggle this public page cannot honour (#526). #}
-            {% if offering.instructor.instructor_bio %}
-              <div class="cp-detail__prose">{{ offering.instructor.instructor_bio|linebreaks }}</div>
+            {% if instructor.instructor_bio %}
+              <div class="cp-detail__prose">{{ instructor.instructor_bio|linebreaks }}</div>
             {% endif %}
-            {% if offering.instructor.instructor_slug %}
-              <a class="cp-detail__instructor-link" href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">See all classes by {{ offering.instructor.display_name }} &rarr;</a>
+            {% if instructor.instructor_slug %}
+              <a class="cp-detail__instructor-link" href="{% url 'classes:public_instructor' slug=instructor.instructor_slug %}">See all classes by {{ instructor.display_name }} &rarr;</a>
             {% endif %}
           </div>
         </div>
+        {% endfor %}
       </section>
       {% endif %}
+      {% endwith %}
 
       {# Other dates this same class is offered on — each keeps its own seats. #}
       {% if sibling_offerings %}
@@ -518,7 +524,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
             {% include "classes/public/_class_card_media.html" with offering=related preview=True %}
             <div class="cls-body">
               <div class="cls-title">{{ related.title }}</div>
-              <div class="cls-inst">with {{ related.instructor.display_name }}</div>
+              {% with instructors=related.instructor_list %}{% if instructors %}<div class="cls-inst">with {% include "classes/public/_instructor_names.html" with members=instructors link=False %}</div>{% endif %}{% endwith %}
               <div class="cls-footer">
                 <span class="cls-price">{{ related.price_cents|cents_as_price }}</span>
               </div>

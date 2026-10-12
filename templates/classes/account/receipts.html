@@ -23,7 +23,7 @@
           <div class="bk-rec-date">{{ reg.confirmed_at|date:"M j, Y" }}</div>
           <div class="bk-rec-title">
             {{ reg.class_offering.title }}
-            <span class="sub">{{ reg.class_offering.instructor.display_name }}</span>
+            <span class="sub">{{ reg.class_offering.instructor_names }}</span>
           </div>
           <div class="bk-rec-method">Stripe</div>
           <div class="bk-rec-amount">{{ reg.amount_paid_cents|cents_as_dollars }}</div>

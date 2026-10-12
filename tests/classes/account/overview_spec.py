@@ -78,6 +78,24 @@ def describe_account_overview():
             assert inst.display_name.encode() in resp.content
             assert b"/classes/instructors//" not in resp.content
 
+    def describe_with_two_instructors():
+        def it_names_both_on_the_card_each_linked_to_their_page(book_client, db):
+            # #686: the card reads the instructors list, linking everyone with a page.
+            user = UserFactory()
+            first = InstructorFactory(instructor_slug="alex-eason", full_legal_name="Alex Eason")
+            second = InstructorFactory(instructor_slug="jenelle", full_legal_name="Jenelle Giordano")
+            offering = ClassOfferingFactory(
+                status="published", title="Picture Framing", instructor=first, instructors=[first, second]
+            )
+            ClassSessionFactory(class_offering=offering, starts_at=timezone.now() + timedelta(days=5))
+            RegistrationFactory(email=user.email, class_offering=offering, status=Registration.Status.CONFIRMED)
+            book_client.force_login(user)
+            html = book_client.get("/account/").content.decode()
+            card = html.split('class="bk-card-inst"')[1].split("</div>")[0]
+            assert card.index("Alex Eason") < card.index("Jenelle Giordano")
+            assert 'href="/classes/instructors/alex-eason/"' in card or "/alex-eason/" in card
+            assert "/jenelle/" in card
+
     def describe_persona_member():
         def it_shows_the_member_banner(book_client, db):
             user = UserFactory()

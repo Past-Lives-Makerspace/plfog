@@ -67,8 +67,8 @@ def _class_line(offering: ClassOffering, *, time_prefix: str = "") -> str:
     """One digest bullet: optional time, linked title, and the instructor's name."""
     title_part = f"[{offering.title}]({offering.public_url})"
     line = f"• {time_prefix}{title_part}"
-    if offering.instructor is not None:
-        line += f" · with {offering.instructor.display_name}"
+    if offering.instructor_names:
+        line += f" · with {offering.instructor_names}"
     return line
 
 
@@ -81,7 +81,8 @@ def _digest_blocks(now: datetime) -> list[str]:
     public_ids = ClassOffering.objects.public().values_list("pk", flat=True)
     sessions = (
         ClassSession.objects.filter(class_offering_id__in=public_ids, starts_at__gte=now, starts_at__lt=horizon)
-        .select_related("class_offering", "class_offering__instructor")
+        .select_related("class_offering")
+        .prefetch_related("class_offering__instructor_rows")
         .order_by("starts_at")
     )
     grouped: dict[Any, list[ClassSession]] = {}

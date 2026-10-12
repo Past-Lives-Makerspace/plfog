@@ -1,0 +1,8 @@
+# changelog.d/783-class-instructors-everywhere.toml
+bump = "minor"
+date = "2026-10-11"
+title = "Every instructor is named everywhere a class is"
+changes = [
+  "Emails about a class, the weekly Discord digest, the printable flyer, your receipts and your My Classes cards now name every instructor of a class, not only the first.",
+  "In the hub, a class's screens and the Manage Classes list show every instructor, and admins can search by any of their names.",
+]

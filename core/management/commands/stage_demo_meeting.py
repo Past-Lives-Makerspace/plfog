@@ -455,7 +455,6 @@ class Command(BaseCommand):
         offering.title = title
         offering.description = description
         offering.category = category
-        offering.instructor = instructor
         offering.created_by = instructor
         offering.price_cents = price_cents
         offering.capacity = capacity
@@ -467,6 +466,9 @@ class Command(BaseCommand):
         offering.materials_to_bring = materials_to_bring
         offering.image = hero_key
         offering.save()
+        # The rows decide who teaches and who is paid (#686); a direct instructor assignment on a
+        # class that already has rows is undone on save, so the demo lists the instructor instead.
+        offering.set_instructors([instructor])
 
         offering.sessions.all().delete()
         ClassSession.objects.create(

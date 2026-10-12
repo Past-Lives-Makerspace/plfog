@@ -168,18 +168,18 @@ def send_class_welcome_email_test(offering: "ClassOffering", recipient_email: st
 def emit_instructor_new_registration(registration: "Registration") -> None:
     """Emit the instructor's new-registration notice: flat email + in-app row, one event.
 
-    The flat email body is preserved exactly and addressed to
-    ``instructor.primary_email`` (which may be an alias differing from the login
-    email); the in-app row goes to the instructor the ``instructor`` resolver
-    finds. No-op when the offering has no instructor.
+    The flat email body is preserved exactly and addressed to every instructor's
+    ``primary_email`` (which may be an alias differing from the login email); the
+    in-app rows go to the instructors the ``instructor`` resolver finds, one each
+    (#686). No-op when the offering has nobody listed.
     """
     from core.events.channels import Message
     from core.events.emit import emit
     from core.events.registry import Channel
 
     offering = registration.class_offering
-    instructor = offering.instructor
-    if instructor is None:
+    instructors = offering.instructor_list
+    if not instructors:
         return
     subject = f"New registration: {registration.first_name} {registration.last_name} for {offering.title}"
     manage_url = _absolute_url(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}))
@@ -207,7 +207,8 @@ def emit_instructor_new_registration(registration: "Registration") -> None:
         body=offering.title,
         url=manage_url,
         messages={Channel.EMAIL: email_message},
-        email_to=instructor.primary_email or None,
+        # Every instructor's own address (#686); one with no address gets the bell row alone.
+        email_to=[member.primary_email for member in instructors if member.primary_email] or None,
         period=f"reg:{registration.pk}:instructor_notice",
     )
 
@@ -229,7 +230,7 @@ def send_admin_registration_notification(registration: "Registration") -> None:
     subject = f"[Classes] New registration: {registration.first_name} {registration.last_name} — {offering.title}"
     body = (
         f"{registration.first_name} {registration.last_name} ({registration.email}) "
-        f'registered for "{offering.title}" (instructor: {offering.instructor.display_name if offering.instructor else "N/A"}).\n\n'
+        f'registered for "{offering.title}" (instructor: {offering.instructor_names or "N/A"}).\n\n'
         f"Status: {registration.get_status_display()}\n"
         f"Paid: ${registration.amount_paid_cents / 100:.2f}\n"
         f"Capacity: {offering.seats_taken}/{offering.capacity}\n\n"
@@ -324,7 +325,7 @@ def send_guild_lead_review_reminder(row: "ClassApproval") -> "EmitResult | None"
     guild = offering.category.guild if offering.category_id else None
     if not guild_has_reachable_leadership(guild):
         return None
-    instructor_name = offering.instructor.display_name if offering.instructor is not None else "An instructor"
+    instructor_name = offering.instructor_names or "An instructor"
     today = timezone.localdate().isoformat()
     return _emit_review_request(
         offering,
@@ -349,7 +350,9 @@ def _emit_instructor_review_explainer(offering: "ClassOffering", row: "ClassAppr
     event key (``class_review_requested``), and its ``email:<instructor>`` dedup ref
     keeps it independent of the reviewer email. No-op without an instructor email.
     """
-    if not (offering.instructor and offering.instructor.primary_email):
+    # Every listed instructor at their own address (#686); nobody with one, nothing sent.
+    instructor_addresses = [member.primary_email for member in offering.instructor_list if member.primary_email]
+    if not instructor_addresses:
         return
     from core.events.senders import emit_with_email_shell
 
@@ -368,7 +371,7 @@ def _emit_instructor_review_explainer(offering: "ClassOffering", row: "ClassAppr
         html_template="classes/emails/review_submitted_instructor.html",
         template_context=template_context,
         url=instructor_url,
-        email_to=offering.instructor.primary_email,
+        email_to=instructor_addresses,
         period=f"approval:{row.pk}:instructor_explainer",
         recipient_user_ids=set(),
     )
@@ -384,7 +387,7 @@ def send_guild_lead_review_request(offering: "ClassOffering", approval: "ClassAp
     event sends the instructor explainer (email only).
     """
     guild = offering.category.guild if offering.category_id else None
-    instructor_name = offering.instructor.display_name if offering.instructor is not None else "An instructor"
+    instructor_name = offering.instructor_names or "An instructor"
     _emit_review_request(offering, approval, role_label="Guild Lead", guild=guild, instructor_name=instructor_name)
     _emit_instructor_review_explainer(offering, approval)
 
@@ -397,7 +400,7 @@ def send_admin_review_request(offering: "ClassOffering", approval: "ClassApprova
     ``None`` guild it composes to the CMS Administrators (holders only) instead of
     blasting a static admin address list. The instructor still gets the explainer.
     """
-    instructor_name = offering.instructor.display_name if offering.instructor is not None else "An instructor"
+    instructor_name = offering.instructor_names or "An instructor"
     _emit_review_request(
         offering,
         approval,
@@ -429,7 +432,7 @@ def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApp
         "approval": approval,
         "review_url": review_url,
         "guild_lead_name": lead.display_name if lead is not None else "A guild lead",
-        "instructor_name": offering.instructor.display_name if offering.instructor is not None else "the instructor",
+        "instructor_name": offering.instructor_names or "the instructor",
     }
     instructor_name = template_context["instructor_name"]
     lead_name = template_context["guild_lead_name"]
@@ -469,8 +472,11 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
     from classes.models import ClassApproval
     from core.events.senders import emit_with_email_shell
 
-    instructor = offering.instructor
-    if not (instructor and instructor.primary_email):
+    # Every listed instructor (#686): one email each at their own address, and the bell row
+    # through the resolver for the two outcomes that ring it. Nobody with an address, nothing sent.
+    instructors = offering.instructor_list
+    addresses = [member.primary_email for member in instructors if member.primary_email]
+    if not addresses:
         return
 
     fully_approved = offering.status == offering.Status.PUBLISHED and row.decision == ClassApproval.Decision.APPROVED
@@ -484,14 +490,14 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
         edit_url = public_url
         event_key = "instructor_class_approved"
         in_app_title, in_app_body, in_app_url = "Your class was approved", offering.title, f"/classes/{offering.slug}/"
-        resolver_instructor: "Member | None" = instructor
+        resolver_instructors: "list[Member]" = instructors
     elif row.decision == ClassApproval.Decision.APPROVED:
         subject = f"{row.get_role_display()} approved '{offering.title}'"
         edit_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         public_url = ""
         event_key = "instructor_class_approved"
         in_app_title, in_app_body, in_app_url = "", "", edit_url
-        resolver_instructor = None
+        resolver_instructors = []
     elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
         subject = f"Changes requested on '{offering.title}'"
         edit_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
@@ -502,14 +508,14 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
             offering.title,
             f"/classes/{offering.slug}/",
         )
-        resolver_instructor = instructor
+        resolver_instructors = instructors
     else:  # DENIED
         subject = f"Your class submission was declined: '{offering.title}'"
         edit_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         public_url = ""
         event_key = "instructor_changes_requested"
         in_app_title, in_app_body, in_app_url = "", "", edit_url
-        resolver_instructor = None
+        resolver_instructors = []
 
     pending_rows = list(offering.approvals.filter(decision=""))
     template_context = {
@@ -523,7 +529,7 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
     emit_with_email_shell(
         event_key,
         target=offering,
-        context={"instructor": resolver_instructor},
+        context={"instructors": resolver_instructors},
         subject=subject,
         text_template="classes/emails/review_decision.txt",
         html_template="classes/emails/review_decision.html",
@@ -531,7 +537,7 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
         in_app_title=in_app_title,
         in_app_body=in_app_body,
         url=in_app_url,
-        email_to=instructor.primary_email,
+        email_to=addresses,
         period=f"approval:{row.pk}:decision",
     )
 
@@ -1006,12 +1012,12 @@ def send_eventbrite_rules_failed(offering: "ClassOffering") -> None:
     its own. Flat text, like the other operational class notices; a class with no instructor
     email sends nothing.
     """
-    instructor = offering.instructor
-    if not (instructor and instructor.primary_email):
+    addresses = [member.primary_email for member in offering.instructor_list if member.primary_email]
+    if not addresses:
         return
     subject, body = eventbrite_rules_failed_email(offering, offering.eventbrite_listing_check().problems)
     core_email.send(
-        to=instructor.primary_email,
+        to=addresses,
         subject=subject,
         trigger_kind="classes.eventbrite_rules_failed",
         text_body=body,

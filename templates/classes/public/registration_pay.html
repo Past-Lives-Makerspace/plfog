@@ -11,7 +11,7 @@
         <div>
           <div class="dc-cat">Payment due</div>
           <div class="dc-title"><a href="{% url 'classes:public_class_detail' slug=offering.slug %}" style="color:inherit;text-decoration:none;">{{ offering.title }}</a></div>
-          <div class="dc-inst">with {{ offering.instructor.display_name }}</div>
+          <div class="dc-inst">with {{ offering.instructor_names }}</div>
         </div>
         <a class="back-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}">Class page →</a>
       </div>

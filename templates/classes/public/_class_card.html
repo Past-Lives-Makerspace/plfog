@@ -43,11 +43,13 @@ which the composer's card preview frames include on their own.
       {% if offering.scheduling_type == 'series_package' %}<span class="badge series">Multi-session series</span>{% endif %}
       {% if offering.sale_is_active %}<span class="badge sale">Sale</span>{% endif %}
     {% if preview %}</span>{% else %}</a>{% endif %}
-    {% if offering.instructor %}
+    {% with instructors=offering.instructor_list %}
+    {% if instructors %}
     <div class="cls-inst">
-      with {% if offering.instructor.instructor_slug and not preview %}<a href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>{% else %}{{ offering.instructor.display_name }}{% endif %}
+      with {% if preview %}{% include "classes/public/_instructor_names.html" with members=instructors link=False %}{% else %}{% include "classes/public/_instructor_names.html" with members=instructors link=True %}{% endif %}
     </div>
     {% endif %}
+    {% endwith %}
     <div class="cls-schedule">
       {% if group.is_multi %}
         {% comment %}

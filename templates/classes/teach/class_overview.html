@@ -55,8 +55,10 @@ an admin reading a queue wants the glance.{% endcomment %}
 <table>
     <tbody>
         <tr>
-            <td style="font-weight:600; color:var(--hub-text-muted); width:120px;">Instructor</td>
-            <td>{{ offering.instructor.display_name }}</td>
+            {% with instructors=offering.instructor_list %}
+            <td style="font-weight:600; color:var(--hub-text-muted); width:120px;">{% if instructors|length > 1 %}Instructors{% else %}Instructor{% endif %}</td>
+            <td>{% include "classes/public/_instructor_names.html" with members=instructors link=False %}</td>
+            {% endwith %}
         </tr>
         <tr>
             <td style="font-weight:600; color:var(--hub-text-muted);">Class Type</td>

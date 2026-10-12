@@ -147,3 +147,24 @@ def describe_the_queryset_helpers():
         assert list(ClassOffering.objects.hosted_by(a)) == [offering]
         assert ClassOffering.objects.hosted_by(a).count() == 1
         assert list(ClassOffering.objects.hosted_by(b)) == [offering]
+
+
+def describe_instructor_names():
+    def it_is_empty_with_nobody_listed():
+        assert ClassOfferingFactory(instructor=None).instructor_names == ""
+
+    def it_is_the_one_name_for_one_instructor():
+        a = InstructorFactory(full_legal_name="Alex Eason")
+        assert ClassOfferingFactory(instructor=a).instructor_names == "Alex Eason"
+
+    def it_joins_two_with_and_and_more_with_commas_in_the_order_added():
+        a = InstructorFactory(full_legal_name="Alex Eason")
+        b = InstructorFactory(full_legal_name="Jenelle Giordano")
+        c = InstructorFactory(full_legal_name="Pat Plain", preferred_name="Pat")
+        assert (
+            ClassOfferingFactory(instructor=a, instructors=[a, b]).instructor_names == "Alex Eason and Jenelle Giordano"
+        )
+        assert (
+            ClassOfferingFactory(instructor=a, instructors=[b, a, c]).instructor_names
+            == "Jenelle Giordano, Alex Eason and Pat"
+        )

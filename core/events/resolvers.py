@@ -422,15 +422,21 @@ def _registrant_member(context: dict[str, Any]) -> Member | None:
 
 
 def instructor(context: dict[str, Any]) -> list[Recipient]:
-    """The instructor of a class offering (instructor-side notifications)."""
-    if "instructor" in context:
-        member = context["instructor"]
+    """Every instructor of a class offering, each once (instructor-side notifications, #686).
+
+    ``instructors`` in the context is the list to reach (empty for nobody); ``instructor`` is
+    one member, kept for callers that name a single person; otherwise the offering's own list.
+    """
+    if "instructors" in context:
+        members = list(context["instructors"])
+    elif "instructor" in context:
+        members = [context["instructor"]] if context["instructor"] is not None else []
     else:
         offering = _require(context, "offering")
-        member = offering.instructor
-    if member is None:
+        members = offering.instructor_list
+    if not members:
         return []
-    return _members_to_recipients([member], "instructor")
+    return _members_to_recipients(members, "instructor")
 
 
 def class_roster(context: dict[str, Any]) -> list[Recipient]:

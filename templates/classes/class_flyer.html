@@ -34,7 +34,7 @@
   <header class="pl-flyer__header">
     <p class="pl-flyer__cat">{{ offering.category.name }}</p>
     <h1 class="pl-flyer__name">{{ offering.title|strip_date_suffix }}</h1>
-    {% if offering.instructor %}<p class="pl-flyer__byline">with {{ offering.instructor.display_name }}</p>{% endif %}
+    {% if offering.instructor_names %}<p class="pl-flyer__byline">with {{ offering.instructor_names }}</p>{% endif %}
   </header>
 
   {# 3 · One-paragraph about (hidden when blank) #}

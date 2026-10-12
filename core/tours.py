@@ -150,7 +150,7 @@ def _demo_class_slug(member: Member) -> dict[str, Any]:
 def _instructor_class_pk(member: Member) -> dict[str, Any]:
     # The instructor tour's roster + waitlist stops: the instructor's newest
     # class. Owns none -> drop those stops (the tour shortens to create+submit).
-    offering = member.classes.order_by("-created_at", "-pk").first()
+    offering = member.taught_classes.order_by("-created_at", "-pk").first()
     if offering is None:
         raise ValueError(f"Instructor {member.pk} owns no class for the roster stops")
     return {"pk": offering.pk}
@@ -159,7 +159,7 @@ def _instructor_class_pk(member: Member) -> dict[str, Any]:
 def _instructor_class_audience(member: Member) -> dict[str, str]:
     # The instructor tour's compose stop: pre-aim the announcement at the
     # instructor's newest class and lock the picker. Owns none -> drop the step.
-    offering = member.classes.order_by("-created_at", "-pk").first()
+    offering = member.taught_classes.order_by("-created_at", "-pk").first()
     if offering is None:
         raise ValueError(f"Instructor {member.pk} owns no class for the compose stop")
     return {"audience": f"class:{offering.pk}", "lock": "1"}

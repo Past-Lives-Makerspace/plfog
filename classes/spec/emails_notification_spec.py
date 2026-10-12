@@ -50,6 +50,38 @@ def describe_emit_instructor_new_registration():
 
         assert len(mail.outbox) == 0
 
+    def it_reaches_every_instructor_once(db):
+        # #686: one email at each instructor's own address and one bell row each, the payee no different.
+        first_user = UserFactory(email="alex@example.com")
+        second_user = UserFactory(email="jenelle@example.com")
+        first = InstructorFactory(user=first_user, full_legal_name="Alex Eason")
+        second = InstructorFactory(user=second_user, full_legal_name="Jenelle Giordano")
+        offering = ClassOfferingFactory(
+            instructor=first, instructors=[first, second], status=ClassOffering.Status.PUBLISHED
+        )
+        registration = RegistrationFactory(
+            class_offering=offering, first_name="Sam", last_name="Park", status="confirmed"
+        )
+
+        emit_instructor_new_registration(registration)
+
+        assert sorted(addr for m in mail.outbox for addr in m.to) == ["alex@example.com", "jenelle@example.com"]
+        assert len(mail.outbox) == 2
+        for user in (first_user, second_user):
+            assert Notification.objects.filter(trigger="instructor_new_registration", user=user).count() == 1
+
+    def it_still_reaches_the_rest_when_one_instructor_has_no_email(db):
+        first = InstructorFactory(user=UserFactory(email="alex@example.com"))
+        second = InstructorFactory(user=UserFactory(email=""))
+        offering = ClassOfferingFactory(
+            instructor=first, instructors=[first, second], status=ClassOffering.Status.PUBLISHED
+        )
+        registration = RegistrationFactory(class_offering=offering)
+
+        emit_instructor_new_registration(registration)
+
+        assert [m.to for m in mail.outbox] == [["alex@example.com"]]
+
 
 def _admin(email: str) -> Member:
     """An Admin with a login: the admin copy reaches only people who hold switches."""

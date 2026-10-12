@@ -89,6 +89,40 @@ def describe_minting_on_first_publish():
         offering.refresh_from_db()
         assert offering.status == ClassOffering.Status.PUBLISHED
 
+    def it_mints_for_a_co_instructor_who_is_not_the_payee(admin_user):
+        # #686: every listed instructor with teaching access gets a page, not only the first.
+        MembershipPlanFactory()
+        payee = Member.objects.get(user=UserFactory(username="payee@example.com"))
+        payee.instructor_oriented_at = timezone.now()
+        payee.save(update_fields=["instructor_oriented_at"])
+        partner = Member.objects.get(user=UserFactory(username="partner@example.com"))
+        partner.full_legal_name = "Jenelle Giordano"
+        partner.instructor_oriented_at = timezone.now()
+        partner.save(update_fields=["full_legal_name", "instructor_oriented_at"])
+        offering = ClassOfferingFactory(
+            ready=True, status=ClassOffering.Status.PENDING, instructor=payee, instructors=[payee, partner]
+        )
+        offering.publish(admin_user)
+        partner.refresh_from_db()
+        assert partner.instructor_slug == "jenelle-giordano"
+        assert offering.instructor_id == payee.pk
+
+    def it_never_mints_for_a_listed_instructor_whose_access_was_revoked(admin_user):
+        MembershipPlanFactory()
+        payee = Member.objects.get(user=UserFactory(username="payee-2@example.com"))
+        payee.instructor_oriented_at = timezone.now()
+        payee.save(update_fields=["instructor_oriented_at"])
+        revoked = Member.objects.get(user=UserFactory(username="revoked-partner@example.com"))
+        revoked.instructor_oriented_at = None
+        revoked.save(update_fields=["instructor_oriented_at"])
+        offering = ClassOfferingFactory(
+            ready=True, status=ClassOffering.Status.PENDING, instructor=payee, instructors=[payee, revoked]
+        )
+        offering.publish(admin_user)
+        revoked.refresh_from_db()
+        assert revoked.instructor_slug == ""
+        assert offering.teaches(revoked) is True
+
 
 def describe_admin_paths_still_mint_through_the_shared_helper():
     def it_grant_instructor_mints_and_unlocks_exactly_as_before():

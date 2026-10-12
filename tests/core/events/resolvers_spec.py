@@ -218,6 +218,21 @@ def describe_instructor():
     def it_is_empty_when_instructor_is_none():
         assert resolvers.instructor({"instructor": None}) == []
 
+    def it_resolves_every_instructor_of_the_offering_once(linked_member):
+        # #686: both listed instructors, each one recipient, whoever the payee is.
+        from classes.factories import ClassOfferingFactory
+
+        first, second = linked_member(), linked_member()
+        offering = ClassOfferingFactory(instructor=first, instructors=[first, second])
+        recipients = resolvers.instructor({"offering": offering})
+        assert _user_pks(recipients) == {first.user_id, second.user_id}
+        assert len(recipients) == 2
+
+    def it_takes_an_explicit_list_and_an_empty_one_means_nobody(linked_member):
+        first, second = linked_member(), linked_member()
+        assert _user_pks(resolvers.instructor({"instructors": [second, first]})) == {first.user_id, second.user_id}
+        assert resolvers.instructor({"instructors": []}) == []
+
 
 def describe_next_waitlisted():
     def it_resolves_the_promoted_member(linked_member):
