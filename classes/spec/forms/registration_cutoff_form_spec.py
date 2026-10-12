@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from classes.composer import step_for_field
-from classes.factories import CategoryFactory, ClassOfferingFactory
+from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory
 from classes.forms import (
     REGISTRATION_CUTOFF_REQUIRED_MESSAGE,
     ClassOfferingForm,
@@ -26,6 +26,7 @@ def _data(**overrides) -> dict:
     data = {
         "title": "Forge Basics",
         "category": str(CategoryFactory().pk),
+        "instructors": [str(InstructorFactory().pk)],
         "description": "Hands-on intro.",
         "price_cents": "100.00",
         "capacity": "6",

@@ -36,8 +36,7 @@ RETIRED_REASONS = {
 def describe_class_flyer():
     def describe_access():
         def it_renders_for_the_owning_instructor(member_user, client, free_offering, db):
-            free_offering.instructor = member_user.member
-            free_offering.save(update_fields=["instructor"])
+            free_offering.set_instructors([member_user.member])
             client.force_login(member_user)
             resp = client.get(reverse("classes:class_flyer", args=[free_offering.pk]))
             assert resp.status_code == 200

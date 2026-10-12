@@ -499,7 +499,7 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     is_admin = view_as is not None and (view_as.has_actual(ROLE_ADMIN) or view_as.has_actual(ROLE_GUILD_OFFICER))
 
     member = getattr(request.user, "member", None)
-    is_instructor = member is not None and offering.instructor_id == member.pk
+    is_instructor = member is not None and offering.teaches(member)
 
     # One shared rule decides edit rights: admin/officer, the lead of the
     # category's guild (FK only), or the instructor. view_as preview is honored.
@@ -1594,7 +1594,7 @@ def _filter_registrations(request: HttpRequest, qs: QuerySet[Registration]) -> Q
         qs = qs.filter(class_offering_id=int(raw_class))
     raw_instructor = request.GET.get("instructor", "")
     if raw_instructor.isdigit():
-        qs = qs.filter(class_offering__instructor_id=int(raw_instructor))
+        qs = qs.filter(class_offering__instructors=int(raw_instructor))
     if request.GET.get("mine", "") == "1":
         # "Mine" is defined once, on the queryset — reuse it via class_offering__in
         # rather than inlining a second copy of the Q. A memberless viewer gets
@@ -1771,7 +1771,7 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
         .order_by("-waiting")
     )
     recent_registrations = (
-        Registration.objects.filter(class_offering__instructor=teaching_member)
+        Registration.objects.filter(class_offering__instructors=teaching_member)
         .select_related("class_offering")
         .order_by("-registered_at")[:8]
     )
@@ -1809,7 +1809,7 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
         "drafts": drafts.count(),
         "bounced": len(bounced_rows),
         "total_signups": Registration.objects.filter(
-            class_offering__instructor=teaching_member, status=Registration.Status.CONFIRMED
+            class_offering__instructors=teaching_member, status=Registration.Status.CONFIRMED
         ).count(),
     }
     # The "Needs Your Attention" group's own count, matching the rows it renders.
@@ -2047,7 +2047,13 @@ def _rendered_initial(form: Any, into: dict[str, str]) -> None:
     the types instead is how a "saved" value stops matching its own rendering, which puts the
     field back in the copy as if it had been edited.
     """
+    from django.forms import CheckboxSelectMultiple
+
     for bound in form:
+        # A checked list (the Instructors rows, #686) is a set of checkboxes, which the browser
+        # never keeps (composer_draft.js skips them), so it has no baseline to compare against.
+        if isinstance(bound.field.widget, CheckboxSelectMultiple):
+            continue
         rendered = bound.field.widget.format_value(bound.field.prepare_value(bound.initial))
         if isinstance(rendered, list | tuple):
             rendered = rendered[0] if rendered else ""
@@ -2230,6 +2236,9 @@ def _composer_context(
         if access is not None
         else SiteConfiguration.load().instructor_discount_codes_enabled
     )
+    # Who may change the Instructors list (#686) is the form's call, made where the form is built
+    # (admins, and every instructor of the class); the template only follows it.
+    can_edit_instructors = form.instructors_editable
     if saved is not None:
         # The card preview frames render the REAL catalog card three times (two widths on
         # the Photos step, the phone on the Review step) and each read offering.sessions.all; one prefetch
@@ -2238,6 +2247,7 @@ def _composer_context(
     return {
         "is_admin": is_admin,
         "offering": offering,
+        "composer_can_edit_instructors": can_edit_instructors,
         # The genuine CatalogGroup for this class, so the preview frames render exactly
         # the card the catalog would build. None until the class has a pk.
         "card_group": CatalogGroup(saved) if saved is not None else None,
@@ -2566,7 +2576,13 @@ def _instructor_composer(request: HttpRequest, pk: int) -> HttpResponse:
         # A live class gets the light-edit form on the same URL: content only, no re-review.
         return _teach_published_class_edit(request, offering, teaching_member)
     form = TeachClassOfferingForm(
-        request.POST or None, request.FILES or None, instance=offering, teaching_member=teaching_member
+        request.POST or None,
+        request.FILES or None,
+        instance=offering,
+        teaching_member=teaching_member,
+        # The guild's staff edit the draft but never its instructors (#686): the form drops the
+        # list for them, so a POST carrying one changes nothing.
+        can_edit_instructors=offering.teaches(teaching_member),
     )
     formset = ClassSessionFormSet(request.POST or None, instance=offering, prefix="sessions")
     faq_formset = build_class_faq_formset(request.POST or None, offering)
@@ -2653,7 +2669,13 @@ def _render_unsaved_composer_post(
         with_hero: Whether to keep the hero uploader. Spelled at both call sites rather than
             defaulted, because it is the one control here that still writes to the class.
     """
-    form = TeachClassOfferingForm(request.POST, request.FILES, instance=offering, teaching_member=teaching_member)
+    form = TeachClassOfferingForm(
+        request.POST,
+        request.FILES,
+        instance=offering,
+        teaching_member=teaching_member,
+        can_edit_instructors=offering.teaches(teaching_member),
+    )
     formset = ClassSessionFormSet(request.POST, instance=offering, prefix="sessions")
     faq_formset = build_class_faq_formset(request.POST, offering)
     return _render_teach_class_form(
@@ -2738,7 +2760,7 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
             "change_form": ClassChangeRequestForm(),
             # Request a change posts through the instructor-only scope, so only the
             # instructor sees it; guild staff making light edits get the page without it.
-            "is_own_class": offering.instructor_id == teaching_member.pk,
+            "is_own_class": offering.teaches(teaching_member),
             **_teach_gallery_context(offering),
         },
     )
@@ -2928,7 +2950,7 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
         own_codes = (
             DiscountCode.objects.filter(
                 Q(created_by=request.user)
-                | Q(class_offering__instructor=teaching_member)
+                | Q(class_offering__instructors=teaching_member)
                 | Q(instructor=teaching_member)
             )
             .select_related("class_offering", "instructor")
@@ -2993,7 +3015,7 @@ def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
     raw_class = request.GET.get("class") or request.POST.get("class")
     if raw_class:
         try:
-            scoped_to = ClassOffering.objects.filter(instructor=teaching_member).get(pk=int(raw_class))
+            scoped_to = ClassOffering.objects.for_instructor(teaching_member).get(pk=int(raw_class))
         except (ClassOffering.DoesNotExist, ValueError, TypeError):
             scoped_to = None
     form = DiscountCodeForm(request.POST or None, scoped_to=scoped_to, created_by=request.user)
@@ -3452,7 +3474,7 @@ def _registration_move_form(request: HttpRequest, offering: ClassOffering) -> "R
     if view_as is not None and view_as.has_actual("admin"):
         return RegistrationMoveForm(current=offering, auto_id=False)
     member = getattr(request.user, "member", None)
-    if member is not None and offering.instructor_id == member.pk:
+    if member is not None and offering.teaches(member):
         return RegistrationMoveForm(current=offering, instructor=member, auto_id=False)
     return None
 
@@ -3794,7 +3816,7 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
 
     assert request.user.is_authenticated  # @login_required guarantees a real User
     user_member = MemberModel.objects.filter(user=request.user).first()
-    is_instructor = user_member is not None and offering.instructor_id == user_member.pk
+    is_instructor = user_member is not None and offering.teaches(user_member)
 
     from membership.models import AdminCapability
 
@@ -4112,7 +4134,8 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     )
     qs = facet.apply(base)  # type: ignore[arg-type]  # annotated queryset keeps its aliases
     if instructor_filter:
-        qs = qs.filter(instructor_id=instructor_filter)  # type: ignore[misc]  # Django coerces the str PK at query time
+        # Every class this member is listed on (#686), not only the ones they are paid for.
+        qs = qs.filter(instructors=instructor_filter)  # type: ignore[misc]  # Django coerces the str PK at query time
 
     # "My Classes": classes I teach or authored. Always available; "me" is the real
     # logged-in user's member even under a view-as preview. A bogus mine value is
@@ -4287,6 +4310,7 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
             offering = form.save(commit=False)
             offering.status = ClassOffering.Status.DRAFT
             offering.save()
+            form.save_instructors(offering)
             session_formset.instance = offering
             session_formset.save()
             offering.apply_scheduling_model()
@@ -5852,7 +5876,7 @@ def registration_move(request: HttpRequest, pk: int) -> HttpResponse:
         form = RegistrationMoveForm(request.POST, current=source)
     else:
         member = getattr(request.user, "member", None)
-        if member is None or source.instructor_id != member.pk:
+        if member is None or not source.teaches(member):
             raise PermissionDenied("You don't have access to move this registration.")
         form = RegistrationMoveForm(request.POST, current=source, instructor=member)
     if form.is_valid():

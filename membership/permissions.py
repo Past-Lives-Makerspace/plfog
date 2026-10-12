@@ -533,7 +533,7 @@ def can_edit_class(request: HttpRequest, offering: ClassOffering) -> bool:
     guild = offering.category.guild
     if guild is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member)):
         return True
-    return offering.instructor_id == member.pk
+    return offering.teaches(member)
 
 
 def can_print_class_marketing(request: HttpRequest, offering: ClassOffering) -> bool:

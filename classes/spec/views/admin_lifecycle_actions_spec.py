@@ -72,7 +72,7 @@ def _payload(cat, inst, **extra) -> dict:
         "action": "publish",
         "title": "Direct Publish",
         "category": cat.pk,
-        "instructor": inst.pk,
+        "instructors": [inst.pk],
         "price_cents": "50.00",
         "capacity": 6,
         "scheduling_model": "flexible",
@@ -234,8 +234,7 @@ def describe_remind_lead():
         from classes.factories import InstructorFactory
 
         instructor = InstructorFactory(user=UserFactory(email="teacher@example.com"), instructor_slug="rem-t")
-        held_by_lead.instructor = instructor
-        held_by_lead.save(update_fields=["instructor"])
+        held_by_lead.set_instructors([instructor])
         client.force_login(admin_user)
         url = reverse("classes:admin_class_remind_lead", kwargs={"pk": held_by_lead.pk})
         first = client.post(url)

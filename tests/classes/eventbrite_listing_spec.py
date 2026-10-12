@@ -1718,7 +1718,7 @@ def describe_a_refused_save_through_each_page():
 
     def it_refuses_a_new_class_on_the_admin_composer(client: Any):
         client.force_login(_rules_admin())
-        data = _composer_post(description=_LAB_FEES, instructor=str(InstructorFactory().pk))
+        data = _composer_post(description=_LAB_FEES, instructors=[str(InstructorFactory().pk)])
 
         _refused(client.post(reverse("classes:admin_class_create"), data))
 
@@ -1923,6 +1923,8 @@ def describe_a_queued_class_going_live():
 
     def it_emails_nobody_when_the_instructor_has_no_email(eventbrite: FakeEventbrite):
         offering = _described(_queued(), f"<p>{_KATE}</p>")
+        # Nobody listed: the payee follows the instructors rows on save (#686), so they go too.
+        offering.instructor_rows.all().delete()
         ClassOffering.objects.filter(pk=offering.pk).update(instructor=None, status=ClassOffering.Status.PUBLISHED)
         offering.refresh_from_db()
 

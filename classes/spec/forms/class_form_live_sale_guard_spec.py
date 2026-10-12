@@ -23,6 +23,8 @@ def _data(offering: ClassOffering, **overrides) -> dict:
     data = {
         "title": offering.title,
         "category": str(offering.category_id),
+        # A saved class posts its own rows; a built one (no instructor yet) gets them from the test.
+        **({"instructors": [str(offering.instructor_id)]} if offering.instructor_id else {}),
         "description": offering.description,
         "prerequisites": "",
         "materials_included": "",
@@ -46,7 +48,7 @@ def _data(offering: ClassOffering, **overrides) -> dict:
 def _form(form_class, offering: ClassOffering, **overrides):
     data = _data(offering, **overrides)
     if form_class is ClassOfferingForm:
-        data.update(instructor=str(InstructorFactory().pk), is_private="", private_for_name="")
+        data.update(is_private="", private_for_name="")
     return form_class(data=data, instance=offering)
 
 
@@ -166,13 +168,18 @@ def describe_live_sale_guard():
             assert form.errors["price_cents"] == ["This field is required."]
 
         def it_leaves_a_new_class_alone(form_class):
-            form = form_class(data=_data(ClassOfferingFactory.build(category=CategoryFactory()), price_cents="1.00"))
+            teacher = str(InstructorFactory().pk)
+            form = form_class(
+                data=_data(
+                    ClassOfferingFactory.build(category=CategoryFactory()), price_cents="1.00", instructors=[teacher]
+                )
+            )
             if form_class is ClassOfferingForm:
                 form = form_class(
                     data=_data(
                         ClassOfferingFactory.build(category=CategoryFactory()),
                         price_cents="1.00",
-                        instructor=str(InstructorFactory().pk),
+                        instructors=[teacher],
                         is_private="",
                         private_for_name="",
                     )

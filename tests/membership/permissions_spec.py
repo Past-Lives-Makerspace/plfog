@@ -43,6 +43,13 @@ def describe_member_can_edit_class():
         offering = ClassOfferingFactory(instructor=me)
         assert me.can_edit_class(offering) is True
 
+    def it_allows_a_second_instructor_and_not_a_bystander():
+        # #686: every listed instructor edits; being the payee is not the test.
+        lead, me, other = MemberFactory(), MemberFactory(), MemberFactory()
+        offering = ClassOfferingFactory(instructor=lead, instructors=[lead, me])
+        assert me.can_edit_class(offering) is True
+        assert other.can_edit_class(offering) is False
+
     def it_allows_the_lead_of_the_categorys_guild():
         lead = MemberFactory()
         guild = GuildFactory(guild_lead=lead)

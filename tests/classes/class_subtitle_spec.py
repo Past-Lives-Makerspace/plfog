@@ -47,6 +47,7 @@ def _composer_data(**overrides: str) -> dict[str, str]:
     data = {
         "title": "Forge a Leaf Dish",
         "category": str(CategoryFactory().pk),
+        "instructors": [str(InstructorFactory().pk)],
         "description": "Hands-on intro.",
         "price_cents": "100.00",
         "capacity": "6",

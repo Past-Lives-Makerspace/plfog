@@ -36,7 +36,7 @@ from classes.access import (
     class_access,
     class_screen_required,
 )
-from classes.factories import CategoryFactory, ClassOfferingFactory, UserFactory
+from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.models import ClassOffering
 from core.models import SiteConfiguration
 from hub.view_as import ROLE_GUEST, ROLE_MEMBER, ViewAs, compute_actual_roles
@@ -422,21 +422,45 @@ def describe_guild_authority_without_teaching_access():
         assert class_access(_request(user), other) is None
 
 
+def describe_a_second_instructor():
+    """#686: every listed instructor reaches the instructor leg, under its teaching access precondition."""
+
+    def it_gets_the_instructor_set_with_teaching_access(db):
+        user, partner = _teaching_member()
+        lead = InstructorFactory()
+        offering = ClassOfferingFactory(instructor=lead, instructors=[lead, partner])
+        access = _access_or_fail(_request(user), offering)
+        assert access.role == ROLE_INSTRUCTOR
+        assert access.can_edit is True and access.can_submit is True
+        assert access.can_view_registrations is True
+
+    def it_matches_no_leg_without_teaching_access(db):
+        user, partner = _user_with_member()
+        offering = ClassOfferingFactory()
+        offering.set_instructors([*offering.instructor_list, partner])
+        assert offering.teaches(partner) is True
+        assert class_access(_request(user), offering) is None
+
+    def it_still_reads_the_guild_leg_for_the_guilds_staff(db):
+        # A staffer on a class they do not teach keeps the guild set, not the instructor's.
+        user, staffer = _teaching_member()
+        offering = _guild_class(staffer, staff=True)
+        assert _access_or_fail(_request(user), offering).role == ROLE_GUILD
+
+
 def describe_a_guild_lead_who_is_also_the_instructor():
     """Criterion 4 — the instructor leg beats the guild leg."""
 
     def it_gets_the_instructor_role(db):
         user, member = _teaching_member()
         offering = _guild_class(member)
-        offering.instructor = member
-        offering.save(update_fields=["instructor"])
+        offering.set_instructors([member])
         assert _access_or_fail(_request(user), offering).role == ROLE_INSTRUCTOR
 
     def it_gets_the_full_instructor_set_not_the_guild_one(db):
         user, member = _teaching_member()
         offering = _guild_class(member)
-        offering.instructor = member
-        offering.save(update_fields=["instructor"])
+        offering.set_instructors([member])
         access = _access_or_fail(_request(user), offering)
         assert access.can_view_overview is True
         assert access.can_view_registrations is True
@@ -786,8 +810,7 @@ def describe_a_class_approver_who_is_also_the_instructor_or_the_guild():
             user, member = _user_with_member(fog_role=Member.FogRole.ADMIN)
             member.admin_capabilities.create(capability=CLASS_APPROVER)
             offering = _guild_class(member)
-            offering.instructor = member
-            offering.save(update_fields=["instructor"])
+            offering.set_instructors([member])
             assert _access_or_fail(_request(user), offering) == admin_access
 
 

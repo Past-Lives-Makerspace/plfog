@@ -149,6 +149,21 @@ def describe_teach_overview():
             resp = client.get(reverse("classes:teach_overview"))
             assert resp.context["stats"]["published"] == 1
 
+        def it_counts_the_signups_on_a_class_the_member_co_teaches(instructor_fixture, other_instructor, client):
+            # #686: a second listed instructor's overview numbers include the shared class.
+            shared = ClassOfferingFactory(
+                instructor=other_instructor,
+                instructors=[other_instructor, instructor_fixture],
+                slug="shared-pub",
+                status=ClassOffering.Status.PUBLISHED,
+            )
+            RegistrationFactory(class_offering=shared, status=Registration.Status.CONFIRMED)
+            RegistrationFactory(class_offering=shared, status=Registration.Status.CONFIRMED)
+            client.force_login(instructor_fixture.user)
+            resp = client.get(reverse("classes:teach_overview"))
+            assert resp.context["stats"]["published"] == 1
+            assert resp.context["stats"]["total_signups"] == 2
+
     def describe_guild_lead_queue():
         def describe_when_member_is_a_guild_lead():
             def it_shows_the_pending_class_with_a_review_link(instructor_fixture, client):
@@ -299,8 +314,7 @@ def describe_a_leads_own_pending_class():
 
     def it_appears_once_in_the_queue_that_is_actually_blocking(instructor_fixture, client):
         offering = _pending_class_in_guild_led_by(instructor_fixture, "Double Booked", "double-booked")
-        offering.instructor = instructor_fixture
-        offering.save(update_fields=["instructor"])
+        offering.set_instructors([instructor_fixture])
         client.force_login(instructor_fixture.user)
         resp = client.get(reverse("classes:teach_overview"))
         html = resp.content.decode()
@@ -311,8 +325,7 @@ def describe_a_leads_own_pending_class():
 
     def it_counts_the_class_once(instructor_fixture, client):
         offering = _pending_class_in_guild_led_by(instructor_fixture, "Counted Once", "counted-once")
-        offering.instructor = instructor_fixture
-        offering.save(update_fields=["instructor"])
+        offering.set_instructors([instructor_fixture])
         client.force_login(instructor_fixture.user)
         resp = client.get(reverse("classes:teach_overview"))
         assert resp.context["stats"]["needs_attention"] == 1
@@ -321,8 +334,7 @@ def describe_a_leads_own_pending_class():
     def it_leaves_at_a_glance_counting_every_pending_class(instructor_fixture, client):
         """That tile is a plain fact about their catalog, not a mirror of the card."""
         offering = _pending_class_in_guild_led_by(instructor_fixture, "Still Pending", "still-pending")
-        offering.instructor = instructor_fixture
-        offering.save(update_fields=["instructor"])
+        offering.set_instructors([instructor_fixture])
         client.force_login(instructor_fixture.user)
         resp = client.get(reverse("classes:teach_overview"))
         assert resp.context["stats"]["pending"] == 1

@@ -1,0 +1,57 @@
+{% comment %}
+The Instructors control on the composer's Basics step (#686): the people listed, one checked row
+each (the announcement composer's "Added people" rows), and an "Add an instructor" select that
+appends a row. Unticking a row removes that person; the last row cannot be unticked; the select
+resets after each add, drops the person just added and offers back anyone unticked. Alpine only:
+the rows live in the browser until the save posts them as name="instructors", in the order listed.
+A viewer who may not change the list (the guild's staff on a draft they do not teach) gets no
+control at all: the form built for them carries neither field, so nothing they post changes it.
+
+Params:
+  form     — a composer form carrying instructors and add_instructor (_InstructorsMixin)
+  can_edit — whether this viewer may change the list (form.instructors_editable)
+{% endcomment %}
+{% if can_edit %}
+<div class="pl-form-group" id="id_instructors">
+  <span class="pl-form-label" id="id_instructors_label">Instructors</span>
+  <div data-instructor-rows="{{ form.instructor_rows_json }}"
+       x-data="{
+         rows: JSON.parse($el.dataset.instructorRows),
+         picker() { return this.$root.querySelector('select[name=add_instructor]'); },
+         has(pk) { return this.rows.some(row => row.pk === pk); },
+         add(select) {
+           const pk = Number(select.value);
+           if (pk && !this.has(pk)) {
+             this.rows.push({ pk: pk, name: select.options[select.selectedIndex].text });
+             select.remove(select.selectedIndex);
+           }
+           select.value = '';
+         },
+         remove(pk) {
+           if (this.rows.length < 2) { return; }
+           const row = this.rows.find(r => r.pk === pk);
+           this.rows = this.rows.filter(r => r.pk !== pk);
+           const select = this.picker();
+           if (select && row) { select.add(new Option(row.name, String(pk))); }
+         }
+       }">
+    <div class="pl-recipient-checklist pl-site-added" role="group" aria-labelledby="id_instructors_label">
+      <template x-for="row in rows" :key="row.pk">
+        <label class="pl-recipient-checklist__row">
+          <input type="checkbox" name="instructors" :value="row.pk" checked
+                 @click="rows.length === 1 ? $event.preventDefault() : remove(row.pk)">
+          <span class="pl-recipient-checklist__label" x-text="row.name"></span>
+        </label>
+      </template>
+    </div>
+    {% if form.instructors.errors %}
+    <ul class="pl-field-errors">
+      {% for error in form.instructors.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    <div class="pl-recipient-add">
+      {% include "components/form_field.html" with field=form.add_instructor %}
+    </div>
+  </div>
+</div>
+{% endif %}

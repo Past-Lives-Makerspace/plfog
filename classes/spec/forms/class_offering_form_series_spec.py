@@ -16,7 +16,7 @@ def _admin_post_data(**overrides) -> dict:
         "title": "Forge Basics",
         "slug": "forge-basics",
         "category": str(CategoryFactory().pk),
-        "instructor": str(InstructorFactory().pk),
+        "instructors": [str(InstructorFactory().pk)],
         "description": "Hands-on intro.",
         "prerequisites": "",
         "materials_included": "",

@@ -440,12 +440,13 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         """The members who teach at least one of these classes, by name: the Re-assign modal's
         instructor picker (#764).
 
-        ``keep_pk`` is the code's current instructor, kept even once no class of theirs is left,
-        so the modal opens on what the code is scoped to today instead of a blank pick.
+        Every listed instructor counts, not only the payee (#686). ``keep_pk`` is the code's
+        current instructor, kept even once no class of theirs is left, so the modal opens on
+        what the code is scoped to today instead of a blank pick.
         """
         from membership.models import Member
 
-        chosen = Q(pk__in=self.exclude(instructor__isnull=True).values("instructor_id"))
+        chosen = Q(pk__in=ClassInstructor.objects.filter(class_offering__in=self).values("member_id"))
         if keep_pk is not None:
             chosen |= Q(pk=keep_pk)
         by_name = Coalesce(NullIf("preferred_name", Value("")), "full_legal_name")
@@ -604,17 +605,24 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         )
 
     def for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
-        return self.filter(instructor=instructor)
+        """Classes this member is listed as an instructor of (#686).
+
+        The join is on the instructors rows filtered to one member, and a member is on a
+        class at most once (``ClassInstructor``'s unique constraint), so it yields one row
+        per class and needs no ``.distinct()``; callers keep chaining annotations on it.
+        """
+        return self.filter(instructors=instructor)
 
     def hosted_by(self, member: "Member") -> "ClassOfferingQuerySet":
-        """Classes this member teaches or authored (instructor OR created_by).
+        """Classes this member teaches or authored (an instructors row OR created_by).
 
-        Both are direct single-valued FK comparisons on the row, so no join can
-        multiply rows — no ``.distinct()`` needed. ``member`` must be a real
-        Member: callers guard ``None`` (passing ``None`` would match every class
-        with a NULL instructor/author, the opposite of intended).
+        ``.distinct()`` is load-bearing since #686: the OR makes the instructors join a
+        left join over every row of the class, so a class this member authored and that
+        two people teach came back twice without it. ``member`` must be a real Member:
+        callers guard ``None`` (passing ``None`` would match every class with a NULL
+        author, the opposite of intended).
         """
-        return self.filter(Q(instructor=member) | Q(created_by=member))
+        return self.filter(Q(instructors=member) | Q(created_by=member)).distinct()
 
     def editable_by(self, member: "Member") -> "ClassOfferingQuerySet":
         """Offerings this member may edit.
@@ -626,7 +634,7 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         if member.is_fog_admin or member.is_guild_officer:
             return self
         return self.filter(
-            Q(instructor=member)
+            Q(instructors=member)
             | Q(category__guild__guild_lead=member)
             | Q(category__guild__staff_memberships__member=member)
         ).distinct()
@@ -1026,7 +1034,20 @@ class ClassOffering(HeroCropMixin, models.Model):
         related_name="classes",
         null=True,
         blank=True,
-        help_text="Member who teaches this class.",
+        help_text=(
+            "The member billing credits for this class: always the first listed instructor (#686). "
+            "Set through the instructors list; a direct assignment is overwritten on save."
+        ),
+    )
+    instructors = models.ManyToManyField(
+        "membership.Member",
+        through="ClassInstructor",
+        related_name="taught_classes",
+        blank=True,
+        help_text=(
+            "Everyone who teaches this class, in the order added (#686). Each one gets the instructor's "
+            "access to the class; the first is the billing payee."
+        ),
     )
     area = models.ForeignKey(
         "membership.Location",
@@ -1764,6 +1785,59 @@ class ClassOffering(HeroCropMixin, models.Model):
 
             activity.log(CmsActivity.Kind.CLASS_CREATED, class_offering=self)
 
+        self._sync_payee()
+
+    # ── Instructors (#686) ───────────────────────────────────────────────────────────
+
+    def teaches(self, member: "Member") -> bool:
+        """True when ``member`` is one of this class's instructors."""
+        return self.instructor_rows.filter(member=member).exists()
+
+    @property
+    def instructor_list(self) -> list["Member"]:
+        """Every instructor in the order added, in one query."""
+        return [row.member for row in self.instructor_rows.select_related("member")]
+
+    def set_instructors(self, members: Sequence["Member"]) -> None:
+        """Make ``members``, in that order, the class's instructors, and move the payee with them.
+
+        A member already listed keeps their row and so their place; the rest leave; new ones are
+        appended one at a time so ``added_at`` keeps the order given. The class must be saved.
+
+        Raises:
+            ValueError: When ``members`` is empty. A class always has at least one instructor.
+        """
+        if not members:
+            raise ValueError("A class needs at least one instructor.")
+        wanted: list[int] = []
+        for member in members:
+            if member.pk not in wanted:
+                wanted.append(member.pk)
+        existing = set(self.instructor_rows.values_list("member_id", flat=True))
+        self.instructor_rows.exclude(member_id__in=wanted).delete()
+        for pk in wanted:
+            if pk not in existing:
+                ClassInstructor.objects.create(class_offering=self, member_id=pk)
+        self._sync_payee()
+
+    def _sync_payee(self) -> None:
+        """Keep ``instructor`` equal to the first listed instructor, on every save.
+
+        The rows are the source of truth. A class with rows gets its payee from the first
+        row, whatever was assigned to ``instructor`` in memory. A class with no rows and an
+        ``instructor`` (a factory, Run Again, the legacy import, a row the previous release
+        saved during the deploy window) seeds that member as its first row, so nobody loses
+        the access they had. The write bypasses :meth:`save`, so this cannot recurse.
+        """
+        first = self.instructor_rows.order_by("added_at", "pk").values_list("member_id", flat=True).first()
+        if first is None:
+            if self.instructor_id is not None:
+                ClassInstructor.objects.create(class_offering=self, member_id=self.instructor_id)
+            return
+        if first != self.instructor_id:
+            type(self)._default_manager.filter(pk=self.pk).update(instructor_id=first)
+            self.instructor_id = first
+
     def suggest_guild_category(self, categories_by_name: dict[str, "Category"] | None = None) -> "Category | None":
         """Suggest a guild-linked category from keywords in the title + description.
 
@@ -2132,7 +2206,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         refund.
         """
         actor_member = getattr(actor, "member", None) if actor is not None else None
-        if actor_member is None or self.instructor_id is None or actor_member.pk != self.instructor_id:
+        if actor_member is None or not self.teaches(actor_member):
             return
         paid = self.paid_registration_count
         if not paid:
@@ -3690,6 +3764,14 @@ class ClassOffering(HeroCropMixin, models.Model):
             for faq in ClassFaq.objects.filter(class_offering_id=source_pk).order_by("sort_order", "pk")
             if not is_locked_class_faq(faq.question)
         )
+        # Every instructor comes across in the source's order (#686). The clone's save already
+        # seeded the payee (the source's first) as its first row, so only the rest are added. A
+        # source with nobody listed (six legacy runs carry no instructor) clones with nobody.
+        source_instructors = [
+            row.member for row in ClassInstructor.objects.filter(class_offering_id=source_pk).select_related("member")
+        ]
+        if source_instructors:
+            self.set_instructors(source_instructors)
 
     def duplicate_as_new_run(self) -> "ClassOffering":
         """Clone as a fresh draft "run" of the SAME class on a new set of dates.
@@ -3713,6 +3795,41 @@ class ClassOffering(HeroCropMixin, models.Model):
         _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
         self._copy_photos_and_faqs_from(source_pk)
         return self
+
+
+class ClassInstructor(models.Model):
+    """One instructor of one class: a row of :attr:`ClassOffering.instructors` (#686).
+
+    Its own row so the list has an order ("in the order added" is ``added_at``) and so the
+    member side can PROTECT, as the payee column always has: a member who teaches a class
+    cannot be deleted out from under it.
+    """
+
+    class_offering = models.ForeignKey(
+        ClassOffering,
+        on_delete=models.CASCADE,
+        related_name="instructor_rows",
+        help_text="The class this member teaches.",
+    )
+    member = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.PROTECT,
+        related_name="instructor_rows",
+        help_text="The member who teaches it. PROTECT: a member on a class cannot be deleted.",
+    )
+    added_at = models.DateTimeField(
+        default=timezone.now,
+        help_text="When this member was added to the class; the list is in this order, the first is the payee.",
+    )
+
+    class Meta:
+        ordering = ["added_at", "pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["class_offering", "member"], name="cls_instructor_once_per_class"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member} teaches {self.class_offering}"
 
 
 class ClassApprovalQuerySet(models.QuerySet["ClassApproval"]):
@@ -4210,21 +4327,22 @@ class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
         return self.filter(class_offering__isnull=True, instructor__isnull=True)
 
     def scoped_to(self, offering: "ClassOffering") -> "DiscountCodeQuerySet":
-        """The codes aimed at ``offering`` in particular: its own and its instructor's, never the site wide ones (#764).
+        """The codes aimed at ``offering`` in particular: its own and its instructors', never the site wide ones (#764).
 
-        A class with no instructor (a legacy import) has no instructor leg: the clause is built only
-        when there is one, so a null never matches every instructor-null row.
+        A code aimed at an instructor's classes reaches every class they are listed on (#686). A
+        class with nobody listed (a legacy import) has an empty instructor leg: ``__in`` an empty
+        set matches nothing, so a null never matches every instructor-null row.
         """
-        scopes = Q(class_offering=offering)
-        if offering.instructor_id is not None:
-            scopes |= Q(instructor_id=offering.instructor_id)
+        scopes = Q(class_offering=offering) | Q(instructor__in=offering.instructor_rows.values("member_id"))
         return self.filter(scopes)
 
     def honoured_on(self, offering: "ClassOffering") -> "DiscountCodeQuerySet":
         """Every code a registrant may use on ``offering``: the site wide ones plus :meth:`scoped_to` (#764)."""
-        scopes = Q(class_offering__isnull=True, instructor__isnull=True) | Q(class_offering=offering)
-        if offering.instructor_id is not None:
-            scopes |= Q(instructor_id=offering.instructor_id)
+        scopes = (
+            Q(class_offering__isnull=True, instructor__isnull=True)
+            | Q(class_offering=offering)
+            | Q(instructor__in=offering.instructor_rows.values("member_id"))
+        )
         return self.filter(scopes)
 
     def site_wide_live(self) -> "DiscountCodeQuerySet":

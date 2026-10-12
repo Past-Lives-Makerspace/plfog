@@ -415,7 +415,7 @@ def _role_access(request: HttpRequest, offering: ClassOffering) -> ClassAccess |
     holds_reviewer_grant = not view_as.is_previewing and member.has_admin_capability(
         AdminCapability.Capability.CLASS_APPROVER
     )
-    if member.can_create_classes and offering.instructor_id == member.pk:
+    if member.can_create_classes and offering.teaches(member):
         access = _instructor_access()
     elif can_edit_class(request, offering) and (member.can_create_classes or leads_or_staffs(member, offering)):
         access = _guild_access()

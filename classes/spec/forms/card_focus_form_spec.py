@@ -17,6 +17,7 @@ def _base_data(**overrides) -> dict:
     data = {
         "title": "Forge Basics",
         "category": str(CategoryFactory().pk),
+        "instructors": [str(InstructorFactory().pk)],
         "description": "Hands-on intro.",
         "prerequisites": "",
         "materials_included": "",

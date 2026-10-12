@@ -868,7 +868,161 @@ class _EventbriteMixin(_EventbriteRulesMixin, _EventbriteCategoryMixin):
             self.eventbrite_ticked = False
 
 
+AT_LEAST_ONE_INSTRUCTOR = "A class needs at least one instructor."
+INSTRUCTORS_HINT = "Anyone you add can edit this class, see who registered, and is named on the class page."
+
+
+def no_teaching_access_message(member: Member) -> str:
+    """The refusal for a member picked as an instructor who may not be one."""
+    return f"{member.display_name} doesn't have teaching access yet."
+
+
+class InstructorsField(forms.ModelMultipleChoiceField):
+    """The class's instructors as the Basics step posts them: checked rows, in the order posted (#686).
+
+    Any member validates here. Who may be ADDED is the form's rule (:meth:`_InstructorsMixin.clean_instructors`),
+    because it depends on who is already on the class. ``clean`` returns a list rather than a queryset
+    so the order the rows were posted in survives to :meth:`ClassOffering.set_instructors`.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        from membership.models import Member
+
+        super().__init__(
+            queryset=Member.objects.all(),
+            required=False,
+            widget=forms.CheckboxSelectMultiple,
+            label="Instructors",
+            **kwargs,
+        )
+
+    def clean(self, value: Any) -> list[Member]:  # type: ignore[override]  # a list keeps the posted order
+        # A blank entry is no row: an unchecked box posts nothing, so blanks only come from a POST
+        # built by hand, and reading one as "member ''" would refuse the whole save for nothing.
+        posted = [str(raw) for raw in value or [] if str(raw).strip()]
+        chosen = {member.pk: member for member in super().clean(posted)}
+        ordered: list[Member] = []
+        for raw in posted:
+            member = chosen[int(raw)]
+            if member not in ordered:
+                ordered.append(member)
+        return ordered
+
+
+class _InstructorsMixin:
+    """The Instructors control (#686) both composer forms carry on the Basics step.
+
+    ``instructors`` is the checked rows the page posts; ``add_instructor`` is the select that
+    appends a row in the browser and posts nothing the server keeps. The rules:
+
+    - A POST with no ``instructors`` key at all leaves the list alone: the control was not on
+      the page (a partial POST, the light form of a live class). On a new class from the
+      teaching composer the list is its author.
+    - A list with nobody on it is refused: ``AT_LEAST_ONE_INSTRUCTOR``.
+    - A member being ADDED must be active with teaching access. A member already on the class
+      is kept whatever their access today, so a co-instructor who lost it never makes the class
+      unsaveable; they leave when unticked.
+    """
+
+    fields: dict[str, forms.Field]
+    instance: ClassOffering
+    cleaned_data: dict[str, Any]
+    is_bound: bool
+    data: Any
+
+    def setup_instructors_fields(self, *, author: Member | None, can_edit: bool = True) -> None:
+        """Add both fields. ``author`` is who a new class starts with; ``None`` on an existing one.
+
+        ``can_edit`` is whether this viewer may change the list (admins and the class's own
+        instructors). When it is False neither field exists, so whatever a POST carries under
+        ``instructors`` or ``add_instructor`` is ignored, the saved rows stay as they are, and the
+        at-least-one rule does not run: the guild's staff can save a legacy class nobody is listed
+        on without being refused over a control they do not have.
+        """
+        from membership.models import Member
+
+        self.instructors_editable = can_edit
+        self._instructors_author = author
+        self._instructors_omitted = not can_edit or (self.is_bound and "instructors" not in self.data)
+        self._current_instructors: list[Member] | None = None
+        if not can_edit:
+            return
+        self.fields["instructors"] = InstructorsField(initial=[member.pk for member in self.current_instructors()])
+        # Minus anyone already listed on the page (the posted rows after a refused save), so the
+        # same person cannot be picked twice; the browser keeps that true as rows come and go.
+        listed = [row["pk"] for row in self.instructor_rows]
+        self.fields["add_instructor"] = forms.ModelChoiceField(
+            queryset=Member.objects.active()
+            .in_teaching_state(Member.TeachingApplicationState.APPROVED)
+            .exclude(pk__in=listed)
+            .order_by("full_legal_name"),
+            required=False,
+            label="Add an instructor",
+            empty_label="Add an instructor…",
+            help_text=INSTRUCTORS_HINT,
+            widget=forms.Select(attrs={"@change": "add($event.target)"}),
+        )
+
+    def current_instructors(self) -> list[Member]:
+        """The list as it stands: the saved rows, or on a new teaching class its author. One query, once."""
+        if self._current_instructors is None:
+            if self.instance.pk:
+                self._current_instructors = self.instance.instructor_list
+            else:
+                self._current_instructors = [] if self._instructors_author is None else [self._instructors_author]
+        return self._current_instructors
+
+    def clean_instructors(self) -> list[Member]:
+        from membership.models import Member
+
+        members: list[Member] = (
+            self.current_instructors() if self._instructors_omitted else self.cleaned_data["instructors"]
+        )
+        if not members:
+            raise ValidationError(AT_LEAST_ONE_INSTRUCTOR)
+        listed = {member.pk for member in self.current_instructors()}
+        for member in members:
+            if member.pk in listed:
+                continue
+            if member.status != Member.Status.ACTIVE or not member.can_create_classes:
+                raise ValidationError(no_teaching_access_message(member))
+        return members
+
+    def clean_add_instructor(self) -> None:
+        """The select is the browser's control; whatever it posts is dropped."""
+        return None
+
+    def save_instructors(self, offering: ClassOffering) -> None:
+        """Write the cleaned list to the saved class; the payee follows its first row.
+
+        Nothing is written for a viewer who may not change the list: the rows stay as saved.
+        """
+        if not self.instructors_editable:
+            return
+        offering.set_instructors(self.cleaned_data["instructors"])
+
+    @property
+    def instructor_rows(self) -> list[dict[str, Any]]:
+        """What the Basics step lists: the posted rows after a refused save, else the current list."""
+        from membership.models import Member
+
+        if self.is_bound and not self._instructors_omitted:
+            raw = self.data.getlist("instructors") if hasattr(self.data, "getlist") else self.data["instructors"]
+            pks = [int(value) for value in raw if str(value).isdigit()]
+            by_pk = {member.pk: member for member in Member.objects.filter(pk__in=pks)}
+            members = [by_pk[pk] for pk in pks if pk in by_pk]
+        else:
+            members = self.current_instructors()
+        return [{"pk": member.pk, "name": member.display_name} for member in members]
+
+    @property
+    def instructor_rows_json(self) -> str:
+        """:attr:`instructor_rows` as the JSON the Basics step's Alpine list starts from."""
+        return json.dumps(self.instructor_rows)
+
+
 class ClassOfferingForm(
+    _InstructorsMixin,
     _EventbriteMixin,
     _RichDescriptionMixin,
     _HeroCropMixin,
@@ -890,7 +1044,6 @@ class ClassOfferingForm(
             "title",
             "subtitle",
             "category",
-            "instructor",
             "description",
             "prerequisites",
             "materials_included",
@@ -934,9 +1087,11 @@ class ClassOfferingForm(
             "flexible_ends_on": "",
         }
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, can_edit_instructors: bool = True, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.fields["category"].label = "Class Type"
+        # An admin picks every instructor; a new class starts with nobody listed.
+        self.setup_instructors_fields(author=None, can_edit=can_edit_instructors)
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
@@ -964,10 +1119,12 @@ class ClassOfferingForm(
         if commit:
             offering.save()
             self.save_m2m()
+            self.save_instructors(offering)
         return offering
 
 
 class TeachClassOfferingForm(
+    _InstructorsMixin,
     _EventbriteMixin,
     _RichDescriptionMixin,
     _HeroCropMixin,
@@ -979,9 +1136,10 @@ class TeachClassOfferingForm(
     _RegistrationCutoffMixin,
     forms.ModelForm,
 ):
-    """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated.
+    """Class form for teaching members — no `is_private`, slug auto-generated.
 
-    The six ``sale_*`` fields live on :class:`ClassSaleForm` (the Manage Class sale modal).
+    The author starts a new class as its first instructor and may add others (#686). The six
+    ``sale_*`` fields live on :class:`ClassSaleForm` (the Manage Class sale modal).
     """
 
     price_cents = CentsAsDollarsField(label="Price", help_text=PRICE_HELP_TEXT)
@@ -1033,15 +1191,25 @@ class TeachClassOfferingForm(
             "flexible_ends_on": "",
         }
 
-    def __init__(self, *args, teaching_member: "Member | None" = None, **kwargs) -> None:
+    def __init__(
+        self, *args, teaching_member: "Member | None" = None, can_edit_instructors: bool = True, **kwargs
+    ) -> None:
         self.teaching_member = teaching_member
         super().__init__(*args, **kwargs)
         # What save() will set, set now, so the booking line box on a new class names the
-        # instructor and not "your instructor". The instructor is not one of this form's fields,
-        # so nothing posted can overwrite it.
-        if teaching_member is not None and not self.instance.instructor_id:
+        # instructor and not "your instructor". The payee follows the instructors list on save
+        # (#686), so nothing posted can point it at someone off the list.
+        # A new class only: on a saved class nobody is listed on, the viewer (the guild's staff)
+        # is not its instructor, and save() would seed them as one from this column (#686).
+        if teaching_member is not None and not self.instance.pk and not self.instance.instructor_id:
             self.instance.instructor = teaching_member
         self.fields["category"].label = "Class Type"
+        # A new class starts with its author listed; an existing one lists its saved rows. The
+        # guild's staff reach this form too: the view passes can_edit_instructors=False for them,
+        # and the list is then neither shown nor written.
+        self.setup_instructors_fields(
+            author=None if self.instance.pk else teaching_member, can_edit=can_edit_instructors
+        )
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
@@ -1065,13 +1233,17 @@ class TeachClassOfferingForm(
         offering = super().save(commit=False)
         self.apply_hero_crop_to_instance(offering)
         self.apply_card_focus_to_instance(offering)
-        if self.teaching_member is not None and not offering.instructor_id:
-            offering.instructor = self.teaching_member
+        if self.teaching_member is not None and not offering.pk:
+            # The author is the payee until the list says otherwise, and stays the author (#686).
+            # Both were guarded on a blank instructor before, which __init__ had already set.
+            if not offering.instructor_id:
+                offering.instructor = self.teaching_member
             if not offering.created_by_id:
                 offering.created_by = self.teaching_member
         _assign_provisional_slug(offering)
         if commit:
             offering.save()
+            self.save_instructors(offering)
         return offering
 
 
@@ -1769,7 +1941,7 @@ class DiscountCodeRequestForm(forms.ModelForm):
         self._teaching_member = teaching_member
         class_field = cast(forms.ModelChoiceField, self.fields["class_offering"])
         class_field.queryset = (
-            ClassOffering.objects.filter(instructor=teaching_member)
+            ClassOffering.objects.for_instructor(teaching_member)
             .exclude(status__in=[ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED])
             .order_by("title")
         )
@@ -2512,7 +2684,7 @@ class RosterSelectionForm(forms.Form):
         # so it is always in cleaned_data by here.
         ids = [value for value in cleaned["registration_ids"] if value.isdigit()]
         selected = list(
-            Registration.objects.filter(pk__in=ids, class_offering__instructor=self.teaching_member)
+            Registration.objects.filter(pk__in=ids, class_offering__instructors=self.teaching_member)
             .select_related("class_offering", "member__user")
             .order_by("pk")
         )
@@ -2584,7 +2756,7 @@ class RosterSelectionForm(forms.Form):
 class TeachEmailForm(forms.Form):
     """Form for a teaching member to send a manual email to selected registrants of one of their classes.
 
-    Recipient selection is bounded to ``Registration.objects.filter(class_offering__instructor=teaching_member)``
+    Recipient selection is bounded to ``Registration.objects.filter(class_offering__instructors=teaching_member)``
     so the form will not accept registration IDs outside the teaching member's own
     classes even if a hostile client submits them.
     """
@@ -2602,7 +2774,7 @@ class TeachEmailForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.teaching_member = teaching_member
         self.fields["registration_ids"].queryset = Registration.objects.filter(  # type: ignore[attr-defined]  # ModelMultipleChoiceField has queryset
-            class_offering__instructor=teaching_member,
+            class_offering__instructors=teaching_member,
         ).select_related("class_offering")
 
     def send(self) -> InstructorMessage:
@@ -2768,7 +2940,7 @@ class RegistrationMoveForm(forms.Form):
         super().__init__(*args, **kwargs)
         self._instructor = instructor
         if instructor is not None:
-            offerings = ClassOffering.objects.bookable().filter(instructor=instructor)
+            offerings = ClassOffering.objects.bookable().for_instructor(instructor)
         else:
             # Published only: private classes stay available to admins, drafts do not.
             offerings = ClassOffering.objects.upcoming().filter(status=ClassOffering.Status.PUBLISHED)

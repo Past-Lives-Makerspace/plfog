@@ -39,6 +39,14 @@ def describe_editable_by():
         assert mine in result
         assert theirs not in result
 
+    def it_includes_a_class_the_member_co_teaches_once():
+        # #686: the second listed instructor edits too, and the extra row never doubles the class.
+        lead, me = MemberFactory(), MemberFactory()
+        shared = ClassOfferingFactory(slug="ed-shared", instructor=lead, instructors=[lead, me])
+        result = ClassOffering.objects.editable_by(me)
+        assert list(result) == [shared]
+        assert result.count() == 1
+
     def it_includes_classes_in_a_guild_the_member_leads():
         lead = MemberFactory()
         guild = GuildFactory(guild_lead=lead)
