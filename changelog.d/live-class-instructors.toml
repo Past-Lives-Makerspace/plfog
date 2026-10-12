@@ -1,0 +1,6 @@
+bump = "minor"
+date = "2026-10-11"
+title = "Add a co-instructor to a live class"
+changes = [
+  "An instructor can add another instructor to a class that is already live, from its edit page. The person added can edit the class and see who registered.",
+]
