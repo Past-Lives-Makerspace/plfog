@@ -1,9 +1,9 @@
-# changelog.d/686-instructors-2-class-page.toml
+# changelog.d/782-class-instructors-page.toml
 bump = "minor"
 date = "2026-10-11"
 title = "Classes name every instructor"
 changes = [
   "A class taught by two or more people now names each of them on its page and on its card in the catalog, with a link to each instructor's page where they have one.",
   "Each instructor's page lists the classes they co-teach, and the catalog's instructor filter finds a class under any of its instructors.",
-  "Every instructor of a class hears about new registrations and review decisions, each under their own notification settings.",
+  "Every instructor of a class gets the new registration and review decision notices.",
 ]
