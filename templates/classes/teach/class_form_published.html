@@ -55,10 +55,14 @@
         {% endfor %}
     </ul>
     {% endif %}
+    {# The class's own instructors add a partner here (#686): the Basics step's control, since a new name changes nothing a registrant booked on. The guild's staff get no control. #}
+    {% include "classes/_components/instructors_field.html" with form=form can_edit=form.instructors_editable %}
     {# The subtitle is one short line, open like on the composer; it leads the form so it sits above the description. #}
     {% for field in form %}
         {% if field.name == 'hero_crop' %}
             {# Rendered by the banner photo field below, beside the cropper that writes it. #}
+        {% elif field.name == 'instructors' or field.name == 'add_instructor' %}
+            {# Rendered by the Instructors control above the loop. #}
         {% elif field.is_hidden %}
             {{ field }}
         {% elif field.name == 'video_url' or field.name == 'subtitle' %}

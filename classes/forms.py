@@ -1634,7 +1634,9 @@ class CategoryForm(forms.ModelForm):
         fields = ["name", "slug", "sort_order", "hero_image"]
 
 
-class TeachPublishedClassForm(_EventbriteRulesMixin, _RichDescriptionMixin, _HeroCropMixin, forms.ModelForm):
+class TeachPublishedClassForm(
+    _InstructorsMixin, _EventbriteRulesMixin, _RichDescriptionMixin, _HeroCropMixin, forms.ModelForm
+):
     """Light edits an instructor may make to a LIVE class without re-review.
 
     Only fields that do not change what registrants booked on: the subtitle (#563), description,
@@ -1648,6 +1650,10 @@ class TeachPublishedClassForm(_EventbriteRulesMixin, _RichDescriptionMixin, _Her
     sale modal (:class:`ClassSaleForm`). A crafted POST carrying locked fields is simply
     ignored: a ModelForm saves only its declared fields. Eventbrite is the class's own tab
     (#725); a save of a class on Eventbrite still runs the listing check.
+
+    The instructors list (#686) stays open after publish: a partner added changes nothing a
+    registrant booked on, so the class's own instructors get the Basics step's Instructors
+    control here too (``can_edit_instructors``), and the guild's staff save the list untouched.
     """
 
     class Meta:
@@ -1671,7 +1677,7 @@ class TeachPublishedClassForm(_EventbriteRulesMixin, _RichDescriptionMixin, _Her
         }
         help_texts = {"subtitle": SUBTITLE_HELP_TEXT}
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, can_edit_instructors: bool = True, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         # The booking line exists only on a flexible class's page, so a fixed class does not
         # get the box (the page renders every field of this form).
@@ -1680,6 +1686,7 @@ class TeachPublishedClassForm(_EventbriteRulesMixin, _RichDescriptionMixin, _Her
         else:
             del self.fields["flexible_booking_text"]
         self.add_hero_crop_field()
+        self.setup_instructors_fields(author=None, can_edit=can_edit_instructors)
 
     def clean_flexible_booking_text(self) -> str:
         return clean_flexible_booking_text(self)
@@ -1693,6 +1700,7 @@ class TeachPublishedClassForm(_EventbriteRulesMixin, _RichDescriptionMixin, _Her
         if commit:
             offering.save()
             self.save_m2m()
+            self.save_instructors(offering)
         return offering
 
 

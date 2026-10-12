@@ -2715,7 +2715,10 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
     """
     from membership.permissions import can_print_class_marketing
 
-    form = TeachPublishedClassForm(request.POST or None, instance=offering)
+    # The class's own instructors may add a partner from here (#686); the guild's staff save
+    # the list untouched, as on the composer. The same answer gates Request a change below.
+    is_own_class = offering.teaches(teaching_member)
+    form = TeachPublishedClassForm(request.POST or None, instance=offering, can_edit_instructors=is_own_class)
     faq_formset = build_class_faq_formset(request.POST or None, offering)
     # Both exits, resolved once: the template has no ClassAccess of its own, and a save that
     # landed must not return the saver to a 404 that reads as the save having failed.
@@ -2739,6 +2742,10 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
         faq_formset.save()
         saved.mark_eventbrite_edit_saved()
         messages.success(request, "Class updated.")
+        # An instructor who took themselves off the list no longer opens this class, so the
+        # class screen would answer a save that landed with a 404; the dashboard is theirs.
+        if is_own_class and not saved.teaches(teaching_member):
+            return redirect("classes:teach_dashboard")
         return redirect(leave_url)
     return render(
         request,
@@ -2760,7 +2767,7 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
             "change_form": ClassChangeRequestForm(),
             # Request a change posts through the instructor-only scope, so only the
             # instructor sees it; guild staff making light edits get the page without it.
-            "is_own_class": offering.teaches(teaching_member),
+            "is_own_class": is_own_class,
             **_teach_gallery_context(offering),
         },
     )
