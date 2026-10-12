@@ -2742,6 +2742,10 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
         faq_formset.save()
         saved.mark_eventbrite_edit_saved()
         messages.success(request, "Class updated.")
+        # An instructor who took themselves off the list no longer opens this class, so the
+        # class screen would answer a save that landed with a 404; the dashboard is theirs.
+        if is_own_class and not saved.teaches(teaching_member):
+            return redirect("classes:teach_dashboard")
         return redirect(leave_url)
     return render(
         request,

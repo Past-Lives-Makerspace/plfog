@@ -115,6 +115,21 @@ def describe_the_live_edit_page():
         assert offering.materials_to_bring == "Gloves"
         assert _members(offering) == [me.pk, partner.pk]
 
+    def it_sends_an_instructor_who_removed_themselves_to_the_dashboard(client):
+        # Allowed, as on the composer: the partner keeps the class and becomes its payee. The
+        # class screen is closed to the remover now, so a save that landed must not end on it.
+        me, partner = _instructor("Alex Eason"), _instructor("Jenelle Giordano")
+        offering = _live(me, instructors=[me, partner])
+        client.force_login(me.user)
+        resp = client.post(_edit(offering), _payload(instructors=[partner.pk]))
+        assert resp.status_code == 302
+        assert resp.url == reverse("classes:teach_dashboard")
+        assert client.get(resp.url).status_code == 200
+        offering.refresh_from_db()
+        assert _members(offering) == [partner.pk]
+        assert offering.instructor_id == partner.pk
+        assert client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).status_code == 404
+
     def it_keeps_the_list_when_a_post_carries_none(client):
         # A save from a page opened before the control shipped changes nothing about the list.
         me, partner = _instructor("Alex Eason"), _instructor("Jenelle Giordano")
