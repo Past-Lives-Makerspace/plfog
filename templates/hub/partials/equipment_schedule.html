@@ -105,6 +105,8 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
       {% csrf_token %}
       <input type="hidden" name="day" value="{{ selected_day|date:'Y-m-d' }}">
       <input type="hidden" name="week" value="{{ week_offset }}">
+      {# The credit this page showed (#787): the booking is refused if the balance changed since. #}
+      <input type="hidden" name="credit_shown" value="{{ credit_minutes }}">
       {% if equipment.is_donation %}<input type="hidden" name="amount" value="" data-reserve-amount>{% endif %}
       <div class="pl-equip-book-row hub-form-group">
         <label class="pl-form-group pl-equip-book-field">

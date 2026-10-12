@@ -131,8 +131,11 @@ def _durations(content: str) -> dict[str, list[dict[str, Any]]]:
     return json.loads(content.split('id="equip-durations-data" type="application/json">')[1].split("</script>")[0])
 
 
-def _reserve(client: Client, equipment: Equipment, *, hour: int = 8, minutes: int = 480):
+def _reserve(client: Client, equipment: Equipment, *, hour: int = 8, minutes: int = 480, shown: int | None = None):
+    """POST Book a Time; ``shown`` is the credit_shown the page carried, left out when None (an older page)."""
     payload = {"starts_at": _at(_day(), hour).isoformat(), "duration_minutes": str(minutes), "purpose": ""}
+    if shown is not None:
+        payload["credit_shown"] = str(shown)
     return client.post(reverse("hub_equipment_reserve", args=[equipment.slug]), payload, HTTP_HX_REQUEST="true")
 
 
@@ -396,7 +399,7 @@ def describe_book_a_time_with_credit():
         router = _hourly()
         member = _login(client, "coveredres")
         _give(router, member, 240)
-        response = _reserve(client, router, minutes=240)
+        response = _reserve(client, router, minutes=240, shown=240)
         assert _toast(response)[1] == "success"
         mock_create.assert_not_called()
         booking = EquipmentReservation.objects.get(member=member)
@@ -409,34 +412,10 @@ def describe_book_a_time_with_credit():
         router = _hourly()
         member = _login(client, "partpayer")
         _give(router, member, 120)
-        response = _reserve(client, router)
+        response = _reserve(client, router, shown=120)
         assert response["HX-Redirect"] == _SESSION["url"]
         assert mock_create.call_args.kwargs["amount_cents"] == 15000
         assert EquipmentCredit.objects.balance_for(member, router) == 0
-
-    @patch("billing.stripe_utils.create_checkout_session")
-    def it_says_the_credit_changed_when_another_tab_spent_it(mock_create, client: Client):
-        router = _hourly()
-        member = _login(client, "racetab")
-        _give(router, member, 240)
-        real = EquipmentCredit.objects.balance_for
-        reads: list[int] = []
-
-        def stale_then_spent(target: Member, equipment: Equipment) -> int:
-            reads.append(1)
-            if len(reads) == 1:
-                return real(target, equipment)
-            # Another tab spends the credit between this read and the lock.
-            EquipmentCredit.objects.create(
-                equipment=router, member=member, minutes=-240, kind=EquipmentCredit.Kind.SPENT
-            )
-            return real(target, equipment)
-
-        with patch.object(EquipmentCredit.objects, "balance_for", side_effect=stale_then_spent):
-            response = _reserve(client, router, minutes=240)
-        assert _toast(response) == ("Your credit here just changed. Please pick your time again.", "error")
-        mock_create.assert_not_called()
-        assert not EquipmentReservation.objects.filter(member=member).exists()
 
 
 def describe_member_pills():
@@ -533,28 +512,6 @@ def describe_review_round_one():
         credited.refresh_from_db()
         assert credited.status == EquipmentReservation.Status.CONFIRMED
 
-    @patch("billing.stripe_utils.create_checkout_session")
-    def it_refuses_the_checkout_road_when_another_tab_spent_the_credit(mock_create, client: Client):
-        router = _hourly()
-        member = _login(client, "checkoutrace")
-        _give(router, member, 120)
-        real = EquipmentCredit.objects.balance_for
-        reads: list[int] = []
-
-        def stale_then_spent(target: Member, equipment: Equipment) -> int:
-            reads.append(1)
-            if len(reads) == 2:
-                EquipmentCredit.objects.create(
-                    equipment=router, member=member, minutes=-120, kind=EquipmentCredit.Kind.SPENT
-                )
-            return real(target, equipment)
-
-        with patch.object(EquipmentCredit.objects, "balance_for", side_effect=stale_then_spent):
-            response = _reserve(client, router)
-        assert _toast(response) == ("Your credit here just changed. Please pick your time again.", "error")
-        mock_create.assert_not_called()
-        assert not EquipmentReservation.objects.filter(member=member).exists()
-
     def it_builds_no_credit_form_on_a_free_item(client: Client):
         saw = EquipmentFactory(name="Plain Bandsaw")
         _manager_of(client, saw)
@@ -566,3 +523,42 @@ def describe_review_round_one():
         member = _login(client, "coveredsummary")
         _give(router, member, 240)
         assert "option.covered ? ' · Covered by your credit'" in _schedule(client, router)
+
+
+def describe_review_round_two():
+    _CHANGED = ("Your credit here just changed. Please pick your time again.", "error")
+
+    def it_carries_the_shown_credit_in_the_form(client: Client):
+        router = _hourly()
+        member = _login(client, "carrier")
+        _give(router, member, 120)
+        assert '<input type="hidden" name="credit_shown" value="120">' in _schedule(client, router)
+
+    @pytest.mark.parametrize(("minutes", "label"), [(480, "checkout road"), (120, "covered road")])
+    @patch("billing.stripe_utils.create_checkout_session")
+    def it_refuses_a_stale_page_whose_credit_was_spent(mock_create, client: Client, minutes: int, label: str):
+        router = _hourly()
+        member = _login(client, "stalepage")
+        # The page showed 2 hours; another tab spent them before this POST.
+        response = _reserve(client, router, minutes=minutes, shown=120)
+        assert _toast(response) == _CHANGED, label
+        mock_create.assert_not_called()
+        assert not EquipmentReservation.objects.filter(member=member).exists()
+
+    @patch("billing.stripe_utils.create_checkout_session")
+    def it_refuses_a_page_when_the_credit_grew_since(mock_create, client: Client):
+        router = _hourly()
+        member = _login(client, "grownpage")
+        _give(router, member, 240)
+        response = _reserve(client, router, shown=120)
+        assert _toast(response) == _CHANGED
+        mock_create.assert_not_called()
+        assert EquipmentCredit.objects.balance_for(member, router) == 240
+
+    @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
+    def it_treats_an_older_page_with_no_field_as_showing_no_credit(mock_create, client: Client):
+        router = _hourly()
+        _login(client, "oldpage")
+        response = _reserve(client, router)
+        assert response["HX-Redirect"] == _SESSION["url"]
+        assert mock_create.call_args.kwargs["amount_cents"] == 20000

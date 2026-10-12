@@ -6802,6 +6802,12 @@ class EquipmentReservationForm(forms.Form):
     purpose = forms.CharField(max_length=140, required=False)
     # Donation based equipment (#749): the member's amount in dollars, read by amount_cents().
     amount = forms.CharField(max_length=12, required=False)
+    # The credit minutes the page showed (#787); a page from before credit sends none, read as 0.
+    credit_shown = forms.IntegerField(min_value=0, required=False)
+
+    def clean_credit_shown(self) -> int:
+        """The shown credit in minutes, 0 when the page sent none."""
+        return self.cleaned_data["credit_shown"] or 0
 
     def amount_cents(self) -> int | None:
         """The entered donation in cents, or ``None`` when none was sent; whether it is allowed is the equipment's call.

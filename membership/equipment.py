@@ -132,6 +132,20 @@ def _locked_credit_balance(locked: Equipment, member: Member) -> int:
     return EquipmentCredit.objects.balance_for(member, locked)
 
 
+def _ensure_credit_unchanged(locked: Equipment, duration_minutes: int, balance: int, shown: int) -> None:
+    """Refuse when the locked ``balance`` covers a different part of this booking than the page's ``shown`` credit (#787).
+
+    Raises:
+        EquipmentError: With :attr:`CREDIT_CHANGED_MESSAGE`.
+    """
+    from membership.models import EquipmentError
+
+    if locked.credit_applied_minutes(duration_minutes, balance) != locked.credit_applied_minutes(
+        duration_minutes, shown
+    ):
+        raise EquipmentError(CREDIT_CHANGED_MESSAGE)
+
+
 def _spend_credit(reservation: EquipmentReservation) -> None:
     """Write the negative SPENT line for the credit ``reservation`` used, inside the caller's lock (#787)."""
     from membership.models import EquipmentCredit
@@ -155,7 +169,7 @@ def reserve(
     *,
     purpose: str = "",
     donation_cents: int | None = None,
-    credit_expected: bool = False,
+    credit_expected: int = 0,
 ) -> EquipmentReservation:
     """Make a reservation, safely under concurrency: instant, or a request when the equipment needs approval.
 
@@ -176,8 +190,9 @@ def reserve(
     book for free. An hourly booking the member's credit covers in full is free (#787): the
     balance is read under the same lock, the booking stores the minutes it used, and the
     negative SPENT line is written in the same transaction, so two tabs spend it once.
-    ``credit_expected`` is the caller saying it chose this road because the member's credit
-    covered the booking, so losing that credit to another tab gets the credit refusal.
+    ``credit_expected`` is the credit balance the member's page showed: when the balance under
+    the lock would apply a different number of minutes to this booking (another tab spent it,
+    or a manager gave more since), the price the page showed is wrong, so it is refused.
 
     Raises:
         EquipmentError: Propagated from :meth:`Equipment.ensure_reservable` with the
@@ -194,11 +209,12 @@ def reserve(
         if locked.is_donation and donation_cents is None:
             raise EquipmentError(PRICE_CHANGED_MESSAGE)
         balance = _locked_credit_balance(locked, member)
+        _ensure_credit_unchanged(locked, duration_minutes, balance, credit_expected)
         charge = locked.checkout_amount_cents(
             duration_minutes, donation_cents if locked.is_donation else None, credit_minutes=balance
         )
         if charge != 0:
-            raise EquipmentError(CREDIT_CHANGED_MESSAGE if credit_expected else PRICE_CHANGED_MESSAGE)
+            raise EquipmentError(PRICE_CHANGED_MESSAGE)
         locked.ensure_reservable(member, starts_at, duration_minutes)
         reservation = EquipmentReservation.objects.create(
             equipment=locked,
@@ -514,9 +530,10 @@ def start_reservation_checkout(
     (:func:`finalize_paid_reservation`). The lock covers only the guard and the hold, never the
     Stripe round trip. A Stripe failure deletes the hold, its spent credit with it, and re-raises.
 
-    ``credit_expected`` is the credit balance the caller's page read (#787): when the balance under
-    the lock covers less of this booking than that one did (another tab spent it), the member is
-    refused with :attr:`CREDIT_CHANGED_MESSAGE` rather than sent to a dearer Checkout.
+    ``credit_expected`` is the credit balance the member's page showed (#787): when the balance
+    under the lock would apply a different number of minutes (another tab spent it, or more was
+    given since), the member is refused with :attr:`CREDIT_CHANGED_MESSAGE` rather than sent to a
+    Checkout for a price the page never showed.
 
     Raises:
         EquipmentError: From the guards, the amount check, a credit that changed since the read,
@@ -529,10 +546,7 @@ def start_reservation_checkout(
         locked = Equipment.objects.select_for_update().get(pk=equipment.pk)
         locked.ensure_reservable(member, starts_at, duration_minutes)
         balance = _locked_credit_balance(locked, member)
-        if locked.credit_applied_minutes(duration_minutes, balance) < locked.credit_applied_minutes(
-            duration_minutes, credit_expected
-        ):
-            raise EquipmentError(CREDIT_CHANGED_MESSAGE)
+        _ensure_credit_unchanged(locked, duration_minutes, balance, credit_expected)
         charge_cents = locked.checkout_amount_cents(duration_minutes, amount_cents, credit_minutes=balance)
         if charge_cents <= 0:
             raise EquipmentError("Reserving this time doesn't charge anything.")
@@ -875,7 +889,7 @@ def grant_credit(
             are off the half hour grid or outside half an hour to 100 hours, the note is too
             long, or the booking cannot take this credit.
     """
-    from membership.models import Equipment, EquipmentCredit, EquipmentError
+    from membership.models import Equipment, EquipmentCredit, EquipmentError, EquipmentReservation
 
     cleaned_note = note.strip()
     if minutes % Equipment.RESERVATION_SNAP_MINUTES or not 0 < minutes <= EquipmentCredit.MAX_GRANT_MINUTES:
@@ -886,6 +900,9 @@ def grant_credit(
         locked = Equipment.objects.select_for_update().get(pk=equipment.pk)
         _ensure_can_credit(locked, actor)
         if reservation is not None:
+            # Re-read under the Equipment lock a cancel or decline also takes, so a booking cancelled
+            # in the same moment is never credited (#787).
+            reservation = EquipmentReservation.objects.select_related("member").get(pk=reservation.pk)
             _ensure_creditable_reservation(reservation, locked, minutes)
             member = reservation.member
         credit = EquipmentCredit.objects.create(

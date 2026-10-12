@@ -16851,7 +16851,6 @@ class EquipmentReservation(models.Model):
         """
         cleaned_reason = reason.strip()
         self._ensure_decidable(actor)
-        self._ensure_not_credited()
         if not cleaned_reason:
             raise ValueError("A decline needs a reason the member will see.")
         now = timezone.now()
@@ -16964,7 +16963,6 @@ class EquipmentReservation(models.Model):
             raise EquipmentError("This request was already declined.")
         if self.status not in self.HOLDING_STATUSES:
             raise EquipmentError("This reservation was already cancelled.")
-        self._ensure_not_credited()
         was_waiting = self.status == self.Status.PENDING_APPROVAL
         now = timezone.now()
         is_own_row = actor.pk == self.member_id
@@ -17020,14 +17018,18 @@ class EquipmentReservation(models.Model):
         return fee
 
     def _lock_equipment_for_credit(self) -> None:
-        """Take the Equipment row lock before a cancel or decline that gives credit back (#787).
+        """Take the Equipment row lock a cancel or decline holds through its flip, then refuse a credited booking (#787).
 
-        The same ``select_for_update`` lock every spend takes, taken before the reservation's
-        own conditional update so the lock order matches :func:`membership.equipment.reserve`.
-        A booking that used no credit restores nothing and skips the lock.
+        The same ``select_for_update`` lock every spend and every Credit Unused Time takes, taken
+        before the reservation's own conditional update so the lock order matches
+        :func:`membership.equipment.reserve`. Under it, a booking whose unused time was credited
+        is refused, so a concurrent Credit Unused Time and cancel never both win.
+
+        Raises:
+            EquipmentError: With :attr:`CREDITED_NOT_CANCELLABLE_MESSAGE`.
         """
-        if self.credit_minutes:
-            Equipment.objects.select_for_update().filter(pk=self.equipment_id).exists()
+        Equipment.objects.select_for_update().filter(pk=self.equipment_id).exists()
+        self._ensure_not_credited()
 
     def _lost_cancel_race_message(self) -> str:
         """Why a cancel lost its conditional update, from the row as it stands now (#748).

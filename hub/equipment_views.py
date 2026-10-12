@@ -857,10 +857,11 @@ def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
     starts_at = form.cleaned_data["starts_at"]
     duration = form.cleaned_data["duration_minutes"]
     try:
-        # Priced equipment (#749): anything above $0 holds the time and goes to Stripe Checkout. The member's
-        # hourly credit here covers what it can (#787); both roads re-read it under the equipment lock.
+        # Priced equipment (#749): anything above $0 holds the time and goes to Stripe Checkout. The road follows
+        # the credit the page showed (#787); both roads re-read the balance under the equipment lock and refuse
+        # when it no longer covers what the page said, so the member never pays a price they were not shown.
         entered = form.amount_cents() if equipment.is_donation else None
-        credit = EquipmentCredit.objects.balance_for(member, equipment) if equipment.is_hourly else 0
+        credit = form.cleaned_data["credit_shown"]
         if equipment.checkout_amount_cents(duration, entered, credit_minutes=credit):
             checkout_url = equipment_service.start_reservation_checkout(
                 equipment,
@@ -880,7 +881,7 @@ def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
             duration,
             purpose=form.cleaned_data["purpose"],
             donation_cents=entered,
-            credit_expected=bool(credit),
+            credit_expected=credit,
         )
     except EquipmentError as exc:
         response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)

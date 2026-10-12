@@ -320,7 +320,7 @@ def describe_spending_on_the_free_road():
         _give(router, member, 240)
         mail.outbox.clear()
 
-        booking = equipment_service.reserve(router, member, _at(_day(), 9), 240)
+        booking = equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=240)
 
         assert booking.status == EquipmentReservation.Status.CONFIRMED
         assert booking.credit_minutes == 240
@@ -334,7 +334,7 @@ def describe_spending_on_the_free_road():
         router = _hourly(requires_approval=True)
         member = _member()
         _give(router, member, 240)
-        booking = equipment_service.reserve(router, member, _at(_day(), 9), 240)
+        booking = equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=240)
         assert booking.status == EquipmentReservation.Status.PENDING_APPROVAL
         assert _balance(member, router) == 0
 
@@ -342,10 +342,10 @@ def describe_spending_on_the_free_road():
         router = _hourly()
         member = _member()
         _give(router, member, 240)
-        equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=True)
+        equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=240)
         # The second tab read the same 4 hour balance before the first one's lock.
         with pytest.raises(EquipmentError, match=r"^Your credit here just changed\. Please pick your time again\.$"):
-            equipment_service.reserve(router, member, _at(_day(), 13), 240, credit_expected=True)
+            equipment_service.reserve(router, member, _at(_day(), 13), 240, credit_expected=240)
         assert EquipmentReservation.objects.count() == 1
         assert _balance(member, router) == 0
 
@@ -353,9 +353,10 @@ def describe_spending_on_the_free_road():
         router = _hourly()
         member = _member()
         _give(router, member, 60)
-        with pytest.raises(EquipmentError, match="Your credit here just changed"):
-            equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=True)
         with pytest.raises(EquipmentError, match="price for this time just changed"):
+            equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=60)
+        # A page that showed no credit is refused too: the balance it would apply differs from what it showed.
+        with pytest.raises(EquipmentError, match="Your credit here just changed"):
             equipment_service.reserve(router, member, _at(_day(), 9), 240)
         assert _balance(member, router) == 60
 
@@ -367,7 +368,7 @@ def describe_spending_on_the_checkout_road():
         member = _member()
         _give(router, member, 120)
 
-        equipment_service.start_reservation_checkout(router, member, _at(_day(), 8), 480)
+        equipment_service.start_reservation_checkout(router, member, _at(_day(), 8), 480, credit_expected=120)
 
         assert mock_create.call_args.kwargs["amount_cents"] == 15000
         hold = EquipmentReservation.objects.get(member=member)
@@ -380,7 +381,7 @@ def describe_spending_on_the_checkout_road():
         member = _member()
         _give(router, member, 240)
         with pytest.raises(EquipmentError, match="doesn't charge"):
-            equipment_service.start_reservation_checkout(router, member, _at(_day(), 9), 240)
+            equipment_service.start_reservation_checkout(router, member, _at(_day(), 9), 240, credit_expected=240)
         mock_create.assert_not_called()
         assert _balance(member, router) == 240
 
@@ -390,7 +391,7 @@ def describe_spending_on_the_checkout_road():
         member = _member()
         _give(router, member, 120)
         with pytest.raises(RuntimeError):
-            equipment_service.start_reservation_checkout(router, member, _at(_day(), 8), 480)
+            equipment_service.start_reservation_checkout(router, member, _at(_day(), 8), 480, credit_expected=120)
         assert not EquipmentReservation.objects.exists()
         assert _balance(member, router) == 120
 
@@ -404,7 +405,7 @@ def describe_spending_on_the_checkout_road():
         member = _member()
         _give(router, member, 120)
         with patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION):
-            equipment_service.start_reservation_checkout(router, member, _at(_day(), 8), 480)
+            equipment_service.start_reservation_checkout(router, member, _at(_day(), 8), 480, credit_expected=120)
         hold = EquipmentReservation.objects.get(member=member)
         assert _balance(member, router) == 0
 
@@ -419,7 +420,7 @@ def describe_spending_on_the_checkout_road():
         member = _member()
         _give(router, member, 120)
         with patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION):
-            equipment_service.start_reservation_checkout(router, member, _at(_day(), 8), 480)
+            equipment_service.start_reservation_checkout(router, member, _at(_day(), 8), 480, credit_expected=120)
         hold = EquipmentReservation.objects.get(member=member)
         equipment_service.finalize_paid_reservation(hold, payment_intent="pi_credit_1", amount_total=15000)
         hold.refresh_from_db()
@@ -484,7 +485,7 @@ def describe_giving_it_back():
         router = _hourly()
         member = _member()
         _give(router, member, 240)
-        booking = equipment_service.reserve(router, member, _at(_day(), 9), 240)
+        booking = equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=240)
         booking.cancel(member)
         assert _balance(member, router) == 240
         assert booking.refund_outcome == ""
@@ -493,7 +494,7 @@ def describe_giving_it_back():
         router = _hourly()
         member = _member()
         _give(router, member, 240)
-        booking = equipment_service.reserve(router, member, _at(_day(), 9), 240)
+        booking = equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=240)
         stale = EquipmentReservation.objects.get(pk=booking.pk)
         booking.cancel(member)
         with pytest.raises(EquipmentError):
@@ -537,7 +538,7 @@ def describe_review_round_one():
         router = _hourly()
         member = _member()
         _give(router, member, 240)
-        equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=True)
+        equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=240)
         # The second tab read the same 4 hours and picked 8, so it expected $100 and would now be charged $200.
         with pytest.raises(EquipmentError, match=r"^Your credit here just changed\. Please pick your time again\.$"):
             equipment_service.start_reservation_checkout(router, member, _at(_day(), 13), 240, credit_expected=240)
@@ -593,8 +594,52 @@ def describe_review_round_one():
         router = _hourly()
         member = _member()
         _give(router, member, 240)
-        booking = equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=True)
+        booking = equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=240)
         equipment_service._delete_hold(booking, expire_session=False)
         assert EquipmentReservation.objects.filter(pk=booking.pk).exists()
         assert EquipmentCredit.objects.filter(reservation=booking, kind=EquipmentCredit.Kind.SPENT).exists()
         assert _balance(member, router) == 0
+
+
+def describe_review_round_two():
+    def it_refuses_a_free_road_booking_when_more_credit_arrived_since_the_page():
+        router = _hourly()
+        member = _member()
+        _give(router, member, 240)
+        # The page showed 2 hours: the 4 hour pick would have cost $50 there, so its price is wrong now.
+        with pytest.raises(EquipmentError, match="Your credit here just changed"):
+            equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=120)
+        assert _balance(member, router) == 240
+
+    @patch("billing.stripe_utils.create_checkout_session")
+    def it_refuses_a_checkout_when_more_credit_arrived_since_the_page(mock_create):
+        router = _hourly()
+        member = _member()
+        _give(router, member, 240)
+        with pytest.raises(EquipmentError, match="Your credit here just changed"):
+            equipment_service.start_reservation_checkout(router, member, _at(_day(), 8), 480, credit_expected=120)
+        mock_create.assert_not_called()
+        assert not EquipmentReservation.objects.exists()
+
+    def it_refuses_credit_unused_time_on_a_booking_cancelled_since_it_was_read():
+        router = _hourly()
+        manager = _manager(router)
+        booking = _started(router, _member())
+        stale = EquipmentReservation.objects.get(pk=booking.pk)
+        booking.cancel(manager, reason="Spindle out", as_manager=True)
+        # Credit Unused Time re-reads the booking under the Equipment lock the cancel also took.
+        with pytest.raises(EquipmentError, match="Only a confirmed reservation"):
+            equipment_service.grant_credit(router, stale.member, manager, 60, reservation=stale)
+        assert not EquipmentCredit.objects.exists()
+
+    def it_refuses_a_cancel_from_a_copy_read_before_the_credit_was_given():
+        router = _hourly()
+        manager = _manager(router)
+        booking = _started(router, _member())
+        stale = EquipmentReservation.objects.get(pk=booking.pk)
+        equipment_service.grant_credit(router, booking.member, manager, 60, reservation=booking)
+        # The cancel re-checks for credited unused time under the Equipment lock, after the grant committed.
+        with pytest.raises(EquipmentError, match="already credited"):
+            stale.cancel(manager, reason="Late", as_manager=True)
+        stale.refresh_from_db()
+        assert stale.status == EquipmentReservation.Status.CONFIRMED
