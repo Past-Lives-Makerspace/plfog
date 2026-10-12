@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-12"
+title = "Instructor cards keep their distance"
+changes = [
+  "On a class taught by more than one person, the cards introducing each teacher no longer touch each other.",
+]

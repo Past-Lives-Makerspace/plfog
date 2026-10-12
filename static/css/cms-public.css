@@ -1177,6 +1177,8 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   border: 1px solid var(--border);
   border-radius: var(--r2);
 }
+/* One card per instructor since #686; stacked cards keep a gap instead of touching. */
+.cp-detail__instructor + .cp-detail__instructor { margin-top: 16px; }
 @media (max-width: 640px) {
   .cp-detail__instructor {
     grid-template-columns: 1fr;
