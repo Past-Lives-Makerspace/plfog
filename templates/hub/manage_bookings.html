@@ -23,7 +23,7 @@ bookings_next, which is this page, so the viewer lands back here.
 
 <div class="pl-manage" data-manage-bookings x-data @refund-done.window="$dispatch('close-modal', 'refund-modal')">
   {# The panes' refund idiom: a refund answers refund-done, which closes the modal above and reloads this body (rows, counts and their modals) from the page itself, so the Paid cell and the row's menu follow. #}
-  <div data-attention-body hx-get="{% url 'hub_manage_bookings' %}" hx-trigger="refund-done from:body" hx-select="[data-attention-body]" hx-swap="outerHTML" hx-disinherit="*">
+  <div data-attention-body hx-get="{% url 'hub_manage_bookings' %}" hx-trigger="refund-done from:body" hx-select="[data-attention-body]" hx-swap="outerHTML" hx-disinherit="hx-select hx-swap">
   {% if booking_rows or reservation_rows %}
   <section class="hub-card pl-manage__card" data-needs-attention>
     <h2 class="hub-detail-label pl-manage__title">Needs Attention <span class="pl-manage__count">({{ attention_count }})</span></h2>

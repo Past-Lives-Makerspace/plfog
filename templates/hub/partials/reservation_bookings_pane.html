@@ -10,7 +10,7 @@ refund-done, which reloads the body below and closes the refund modal.
 {% endcomment %}
 <div class="pl-bookings" data-bookings-pane="{% if is_staff_view %}staff{% else %}member{% endif %}"
      x-data @refund-done.window="$dispatch('close-modal', 'refund-modal')">
-  <div data-bookings-body hx-get="{{ bookings_refresh_url }}" hx-trigger="refund-done from:body" hx-select="[data-bookings-body]" hx-swap="outerHTML" hx-disinherit="*">
+  <div data-bookings-body hx-get="{{ bookings_refresh_url }}" hx-trigger="refund-done from:body" hx-select="[data-bookings-body]" hx-swap="outerHTML" hx-disinherit="hx-select hx-swap">
     <div class="pl-equip-chips pl-bookings__chips" role="group" aria-label="Which reservations">
       {% for chip in chips %}
       <a href="{{ chip.url }}" class="pl-equip-chip{% if chip.key == show %} pl-equip-chip--active{% endif %}" data-bookings-chip="{{ chip.key }}"{% if chip.key == show %} aria-current="true"{% endif %}>{{ chip.label }}{% if chip.count %}<span class="pl-equip-chip__count" data-bookings-chip-count>{{ chip.count }}</span>{% endif %}</a>
