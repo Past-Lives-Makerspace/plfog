@@ -2186,12 +2186,15 @@ select[multiple] option:checked {
    style.css, which hub pages never load, and it hides the label; here the spinner sits beside
    a visible "Saving..." in the button's own colour, so it reads in both themes. */
 .hub-btn[aria-busy="true"],
-.hub-btn[aria-busy="true"]:disabled {
+.hub-btn[aria-busy="true"]:disabled,
+.pl-btn[aria-busy="true"],
+.pl-btn[aria-busy="true"]:disabled {
     cursor: progress;
     opacity: 0.85;
 }
 
-.hub-btn[aria-busy="true"]::before {
+.hub-btn[aria-busy="true"]::before,
+.pl-btn[aria-busy="true"]::before {
     content: '';
     display: inline-block;
     width: 0.9em;

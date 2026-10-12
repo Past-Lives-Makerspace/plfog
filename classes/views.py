@@ -3350,11 +3350,14 @@ def teach_class_request_change(request: HttpRequest, pk: int) -> HttpResponse:
         return _render_class_overview(request, offering, change_form=form)
     teaching_member: Member = request.user.member
     try:
-        offering.request_change(teaching_member, form.cleaned_data["note"])
+        sent = offering.request_change(teaching_member, form.cleaned_data["note"])
     except ValueError as exc:
         messages.error(request, str(exc))
         return redirect("classes:teach_class_detail", pk=offering.pk)
-    messages.success(request, "Sent to the admins.")
+    if sent:
+        messages.success(request, "Sent to the admins.")
+    else:
+        messages.info(request, "The admins already have this note.")
     return redirect("classes:teach_class_detail", pk=offering.pk)
 
 

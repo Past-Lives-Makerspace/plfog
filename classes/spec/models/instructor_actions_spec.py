@@ -14,6 +14,7 @@ from classes.factories import ClassOfferingFactory, ClassSessionFactory, Registr
 from classes.models import ClassApproval, ClassOffering, CmsActivity, Registration
 from core.models import Notification
 from membership.models import AdminCapability, Member
+from tests.membership.factories import MemberFactory
 
 Status = ClassOffering.Status
 
@@ -120,15 +121,42 @@ def describe_request_change():
         # Picture Framing, 2026-10-12: one note tapped 33 times in 49 seconds reached every
         # CMS Administrator 33 times. A repeat inside the window is the same request.
         note = "Please add Jenelle Giordano as an instructor. Thanks!"
-        for _ in range(3):
-            offering.request_change(instructor, note)
-        assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).count() == 1
+        rows = CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED)
+        assert offering.request_change(instructor, note) is True
+        assert offering.request_change(instructor, note) is False
+        assert offering.request_change(instructor, note) is False
+        assert rows.count() == 1
         assert Notification.objects.filter(trigger="class_change_requested", user=holder_user).count() == 1
         assert len([m for m in mail.outbox if m.to == ["cms-repeat@example.com"]]) == 1
+        # Only the latest request counts: a different note in between makes the same note new again.
+        assert offering.request_change(instructor, "Also add a seat.") is True
+        assert offering.request_change(instructor, note) is True
+        assert rows.count() == 3
         # The same note from a co-instructor is that person's own first request.
         partner_user = UserFactory(username="partner@example.com", email="partner@example.com")
         partner = Member.objects.get(user=partner_user)
-        offering.request_change(partner, note)
+        assert offering.request_change(partner, note) is True
+        assert rows.count() == 4
+
+    def it_treats_a_long_note_edited_past_two_hundred_characters_as_new(instructor, db):
+        offering = _live(instructor)
+        head = "Please move the class to the following Saturday and raise the cap by two, " * 3
+        assert len(head) > 200
+        assert offering.request_change(instructor, head + "and keep the price.") is True
+        assert offering.request_change(instructor, head + "and drop the price to $60.") is True
+        rows = CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).order_by("pk")
+        assert [row.payload["note"] for row in rows] == [
+            " ".join((head + "and keep the price.").split()),
+            " ".join((head + "and drop the price to $60.").split()),
+        ]
+
+    def it_never_matches_a_member_with_no_login_against_anyone(db):
+        # Unreachable from the page (it needs a login), kept honest at the model: with no user
+        # there is nothing to repeat, so the request goes out each time.
+        nobody = MemberFactory(full_legal_name="No Login")
+        offering = _live(nobody)
+        assert offering.request_change(nobody, "Move it.") is True
+        assert offering.request_change(nobody, "Move it.") is True
         assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).count() == 2
 
     def it_sends_the_same_note_again_once_the_hour_has_passed(instructor, db):
