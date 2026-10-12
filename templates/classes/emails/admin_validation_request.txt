@@ -1,7 +1,7 @@
 {% load classes_tags %}ADMIN SIGN-OFF REQUESTED
 
 {{ offering.title }}
-by {{ offering.instructor.display_name }}{% if offering.category %} · {{ offering.category.name }}{% endif %}
+by {{ offering.instructor_names }}{% if offering.category %} · {{ offering.category.name }}{% endif %}
 Price {{ offering.price_cents }} cents · Capacity {{ offering.capacity }}
 
 {{ guild_lead_name }} and {{ instructor_name }} request admin sign-off

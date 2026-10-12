@@ -668,7 +668,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     from billing.models import Product
 
     guild = get_object_or_404(
-        Guild.objects.select_related("featured_class__instructor").prefetch_related(
+        Guild.objects.select_related("featured_class").prefetch_related(
+            "featured_class__instructor_rows",
             "products__splits__guild",
             # Feeds Guild.studio_hours_display() + next_meeting_occurrence() from one cache (no N+1).
             "events",
@@ -750,7 +751,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         .filter(_first_session_at__lt=dj_timezone.now())
         .count()
     )
-    upcoming_classes = guild_classes.bookable().select_related("instructor")[:4]
+    upcoming_classes = guild_classes.bookable().prefetch_related("instructor_rows")[:4]
     calendar = _get_calendar_context(request, guild=guild)
     calendar["events_url"] = reverse("hub_guild_calendar_events", args=[guild.pk])
     # No default_filters_json: the guild calendar persists *disabled* filters
@@ -1086,8 +1087,8 @@ def _guild_attention_context(request: HttpRequest, guild: Guild) -> dict[str, An
         # fetching one; approvals so the token and date reads stay off the DB too.
         return list(
             queryset.filter(category__guild=guild)
-            .select_related("category__guild", "instructor")
-            .prefetch_related("approvals")
+            .select_related("category__guild")
+            .prefetch_related("approvals", "instructor_rows")
             .order_by("created_at")
         )
 
@@ -7800,7 +7801,7 @@ def admin_members(request: HttpRequest) -> HttpResponse:
 
     members = (
         Member.objects.select_related("user", "membership_plan")
-        .annotate(class_count=Count("classes", distinct=True))
+        .annotate(class_count=Count("taught_classes", distinct=True))
         .prefetch_related(_primary_email_prefetch("user__emailaddress_set"))
         .order_by("full_legal_name")
     )
@@ -8483,18 +8484,15 @@ def _legacy_instructor_sync_status() -> tuple[list[dict[str, object]], int]:
 
     rows = []
     for member in MemberModel.objects.filter(instructor_slug__gt="").order_by("full_legal_name"):
-        matched = ClassOffering.objects.filter(
-            legacy_cms_id__gt="",
-            instructor=member,
-        ).count()
+        matched = ClassOffering.objects.filter(legacy_cms_id__gt="").for_instructor(member).count()
         rows.append(
             {
                 "instructor": member,
                 "matched": matched,
             }
         )
-    # Also count unmatched offerings (has legacy_cms_id but instructor is null)
-    unmatched = ClassOffering.objects.filter(legacy_cms_id__gt="", instructor__isnull=True).count()
+    # Also count unmatched offerings (has legacy_cms_id but nobody listed as its instructor)
+    unmatched = ClassOffering.objects.filter(legacy_cms_id__gt="", instructor_rows__isnull=True).count()
     return rows, unmatched
 
 

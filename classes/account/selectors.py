@@ -33,8 +33,8 @@ def _registrations_for(user) -> QuerySet[Registration]:
     emails = _emails_for(user)
     qs = (
         Registration.objects.annotate(_email_lower=Lower("email"))
-        .select_related("class_offering", "class_offering__instructor")
-        .prefetch_related("class_offering__sessions")
+        .select_related("class_offering")
+        .prefetch_related("class_offering__sessions", "class_offering__instructor_rows")
     )
     filters = Q()
     member = getattr(user, "member", None)

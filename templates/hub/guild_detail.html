@@ -150,7 +150,7 @@
                 <div style="flex:1;">
                     <span class="hub-badge">Featured</span>
                     <div style="font-weight:600; font-size:1.05rem; margin-top:0.35rem;">{{ guild.featured_class.title }}</div>
-                    {% if guild.featured_class.instructor %}<div class="hub-text-muted" style="font-size:0.85rem;">with {{ guild.featured_class.instructor.display_name }}</div>{% endif %}
+                    {% if guild.featured_class.instructor_names %}<div class="hub-text-muted" style="font-size:0.85rem;">with {{ guild.featured_class.instructor_names }}</div>{% endif %}
                     {% if guild.featured_class.first_upcoming_session_at %}<div class="hub-text-muted" style="font-size:0.85rem;">{{ guild.featured_class.first_upcoming_session_at|date:"M j, Y" }}</div>{% endif %}
                 </div>
                 <span class="pl-btn pl-btn--sm pl-btn--primary">Sign up →</span>
@@ -206,7 +206,7 @@
                 <a href="{% if is_guilds_surface %}{{ BOOK_BASE_URL }}{% endif %}{% url 'classes:register' c.slug %}"{% if is_guilds_surface %} hx-boost="false"{% endif %} class="hub-card" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; text-decoration:none;">
                     <div>
                         <strong>{{ c.title }}</strong>
-                        {% if c.instructor %}<div class="hub-text-muted" style="font-size:0.8125rem;">with {{ c.instructor.display_name }}</div>{% endif %}
+                        {% if c.instructor_names %}<div class="hub-text-muted" style="font-size:0.8125rem;">with {{ c.instructor_names }}</div>{% endif %}
                     </div>
                     <div class="hub-text-muted" style="font-size:0.8125rem; white-space:nowrap;">{% if c.first_session_at %}{{ c.first_session_at|date:"M j" }}{% else %}Flexible{% endif %}</div>
                 </a>

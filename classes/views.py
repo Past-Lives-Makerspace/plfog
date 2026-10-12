@@ -1219,7 +1219,7 @@ def register_cancelled(request: HttpRequest, slug: str) -> HttpResponse:
 def my_registration(request: HttpRequest, token: str) -> HttpResponse:
     """Self-serve registration page — no auth, identified by the unguessable token."""
     registration = get_object_or_404(
-        Registration.objects.select_related("class_offering", "class_offering__instructor"),
+        Registration.objects.select_related("class_offering"),
         self_serve_token=token,
     )
     return _render_my_registration(request, registration)
@@ -1270,7 +1270,7 @@ def my_registration_finish(request: HttpRequest, token: str) -> HttpResponse:
     from classes.eventbrite_orders import AlreadyFinishedError, finish_registration
 
     registration = get_object_or_404(
-        Registration.objects.select_related("class_offering", "class_offering__instructor"),
+        Registration.objects.select_related("class_offering"),
         self_serve_token=token,
     )
     if not needs_finishing(registration):
@@ -1320,7 +1320,7 @@ def my_registration_pay(request: HttpRequest, token: str) -> HttpResponse:
     from classes.forms import STRIPE_MIN_CHARGE_CENTS
 
     registration = get_object_or_404(
-        Registration.objects.select_related("class_offering", "class_offering__instructor"),
+        Registration.objects.select_related("class_offering"),
         self_serve_token=token,
     )
     if not registration.is_unpaid:
@@ -4095,7 +4095,9 @@ def _admin_class_rows(qs: Any, group_filter: str, q: str, search_fields: list[st
     """
     if group_filter:
         return qs.filter(grouping_key=group_filter), {}
-    shown_pks, group_sizes = admin_group_rows(table_search(qs, q, search_fields), timezone.now())
+    # The search joins the instructors rows, so a two instructor class would otherwise come back
+    # once per instructor and be counted twice in its group (#686).
+    shown_pks, group_sizes = admin_group_rows(table_search(qs, q, search_fields).distinct(), timezone.now())
     return qs.filter(pk__in=shown_pks), group_sizes
 
 
@@ -4115,8 +4117,9 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     base = (
         ClassOffering.objects.select_related("instructor", "category__guild")
         .with_lifecycle_inputs()
-        # The badge note reads the latest bouncing row; prefetching keeps that off the per-row path.
-        .prefetch_related("approvals")
+        # The badge note reads the latest bouncing row, and the Instructor cell every listed name
+        # (#686); prefetching keeps both off the per-row path.
+        .prefetch_related("approvals", "instructor_rows")
         .annotate(
             # Seat-holders only, matching the capacity this renders against (see teach_dashboard).
             # distinct=True so the sessions join below doesn't inflate the registration tally.
@@ -4194,7 +4197,8 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
 
     # Runs of one class (same title and category) share a row, picked only after every filter
     # and the search have applied, so no run is ever hidden behind one the filters exclude.
-    search_fields = ["title", "instructor__full_legal_name", "instructor__preferred_name", "category__name"]
+    # Any listed instructor's name matches (#686); _admin_class_rows makes the joined rows distinct.
+    search_fields = ["title", "instructors__full_legal_name", "instructors__preferred_name", "category__name"]
     qs, group_sizes = _admin_class_rows(qs, group_filter, request.GET.get("q", "").strip(), search_fields)
 
     from membership.models import Member as MemberModel
@@ -5296,17 +5300,17 @@ def admin_guild_tagging(request: HttpRequest) -> HttpResponse:
     )
 
 
-def _granted_instructor_pk(request: HttpRequest) -> int | None:
-    """The viewer's member pk when they may open the classes they teach, else None.
+def _granted_instructor_class_pks(request: HttpRequest) -> set[int]:
+    """The pks of the classes this viewer may open as their instructor; empty when none.
 
-    Mirrors the instructor leg of :func:`classes.access.class_access`: a member named as a
-    class's instructor opens its screen only with the teaching grant
-    (``Member.can_create_classes``). Memberless users and ungranted members get None.
+    Mirrors the instructor leg of :func:`classes.access.class_access`: a member listed on a
+    class (#686) opens its screen only with the teaching grant (``Member.can_create_classes``).
+    Memberless users and ungranted members get an empty set.
     """
     member = getattr(request.user, "member", None)
     if member is None or not member.can_create_classes:
-        return None
-    return member.pk  # type: ignore[no-any-return]
+        return set()
+    return set(ClassOffering.objects.for_instructor(member).values_list("pk", flat=True))
 
 
 @classes_registrations_access_required
@@ -5371,10 +5375,10 @@ def admin_registrations(request: HttpRequest) -> HttpResponse:
             "class_filter": request.GET.get("class", ""),
             "show_instructor_filter": is_actual_admin,
             # The Class link opens the class screen, which opens for the actual admin and for
-            # the class's instructor once they hold the teaching grant (classes/access.py);
-            # the template links only what will open, so a guild lead and a named but
+            # every instructor of the class once they hold the teaching grant (classes/access.py);
+            # the template links only what will open, so a guild lead and a listed but
             # ungranted instructor get the title alone.
-            "own_member_pk": _granted_instructor_pk(request),
+            "own_class_pks": _granted_instructor_class_pks(request),
             "instructors": instructors,
             "instructor_filter": request.GET.get("instructor", ""),
             "mine_active": mine_active,

@@ -16,7 +16,7 @@
         <div>
           <div class="dc-cat">{% if class_cancelled %}Class cancelled{% else %}{{ registration.get_status_display }}{% endif %}</div>
           <div class="dc-title">{% if class_cancelled %}<a href="{% url 'classes:public_list' %}" style="color:inherit;text-decoration:none;">{{ offering.title }}</a>{% else %}{{ offering.title }}{% endif %}</div>
-          <div class="dc-inst">with {{ offering.instructor.display_name }}</div>
+          <div class="dc-inst">with {{ offering.instructor_names }}</div>
         </div>
         {% if class_cancelled %}
           <a class="back-link" href="{% url 'classes:public_list' %}">All classes →</a>
@@ -85,7 +85,7 @@
         {% else %}
           <div class="dc-sec">
             <div class="dc-lbl">Schedule</div>
-            <div class="dc-txt" style="color:var(--text3)">TBA — {{ offering.instructor.display_name }} will be in touch.</div>
+            <div class="dc-txt" style="color:var(--text3)">TBA — {{ offering.instructor_names }} will be in touch.</div>
           </div>
         {% endif %}
 

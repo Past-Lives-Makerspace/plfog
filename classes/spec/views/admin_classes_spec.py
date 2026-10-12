@@ -725,6 +725,27 @@ def describe_instructor_filter():
         assert b"Shared Framing" in response.content
         assert b"Lead Alone" not in response.content
 
+    def it_lists_every_name_in_the_instructor_column(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory, InstructorFactory
+
+        lead = InstructorFactory(full_legal_name="Alex Eason")
+        partner = InstructorFactory(full_legal_name="Jenelle Giordano")
+        ClassOfferingFactory(title="Shared Framing", instructor=lead, instructors=[lead, partner])
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_classes")).content.decode()
+        assert "Alex Eason and Jenelle Giordano" in html
+
+    def it_finds_a_class_by_any_instructors_name_once(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory, InstructorFactory
+
+        lead = InstructorFactory(full_legal_name="Alex Eason")
+        partner = InstructorFactory(full_legal_name="Jenelle Giordano")
+        shared = ClassOfferingFactory(title="Shared Framing", instructor=lead, instructors=[lead, partner])
+        ClassOfferingFactory(title="Lead Alone", instructor=lead)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?q=Giordano")
+        assert [c.pk for c in response.context["page"]] == [shared.pk]
+
 
 def describe_mine_filter():
     def it_filters_to_classes_taught_by_me(admin_user, client, db):

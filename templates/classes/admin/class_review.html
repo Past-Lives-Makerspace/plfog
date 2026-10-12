@@ -13,7 +13,7 @@
       </div>
       <h1 style="margin:6px 0 4px;font-size:1.75rem;">{{ offering.title }}</h1>
       <div style="color:var(--hub-text-muted);font-size:0.95rem;">
-        by {{ offering.instructor.display_name }}{% if offering.category %} · {{ offering.category.name }}{% endif %}
+        by {{ offering.instructor_names }}{% if offering.category %} · {{ offering.category.name }}{% endif %}
       </div>
     </div>
     {% if is_tokenized %}

@@ -77,8 +77,8 @@ def derive_tags(registration: Registration) -> list[str]:
         tags.append(f"category-{category.slug}")
         if category.guild_id and category.guild:
             tags.append(f"guild-{slugify(category.guild.name)}")
-    if offering.instructor and offering.instructor.instructor_slug:
-        tags.append(f"instructor-{offering.instructor.instructor_slug}")
+    # One tag per listed instructor with a page (#686), in the order added.
+    tags.extend(f"instructor-{member.instructor_slug}" for member in offering.instructor_list if member.instructor_slug)
 
     prior_confirmed = (
         Registration.objects.filter(

@@ -65,7 +65,7 @@
             <td>{{ r.registered_at|date:"Y-m-d H:i" }}</td>
             <td><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.order_number }}</a></td>
             {# The name opens the class screen, so an admin can answer "which class was this payment for" from the list. A guild lead cannot open a class they do not teach, so they get the name alone. #}
-            <td>{% if show_instructor_filter or r.class_offering.instructor_id == own_member_pk %}<a href="{% url 'classes:teach_class_detail' pk=r.class_offering.pk %}">{{ r.class_offering.title }}</a>{% else %}{{ r.class_offering.title }}{% endif %}</td>
+            <td>{% if show_instructor_filter or r.class_offering_id in own_class_pks %}<a href="{% url 'classes:teach_class_detail' pk=r.class_offering.pk %}">{{ r.class_offering.title }}</a>{% else %}{{ r.class_offering.title }}{% endif %}</td>
             {# Same reading as the admin Classes list's Date(s) cell. #}
             <td>{% if r.class_offering.is_flexible %}{% firstof r.class_offering.flexible_window_label "Flexible" %}{% elif r.class_first_session %}{{ r.class_first_session|date:"M j" }}{% if r.class_last_session != r.class_first_session %} – {{ r.class_last_session|date:"M j" }}{% endif %}, {{ r.class_last_session|date:"Y" }}{% else %}<span style="color:var(--hub-text-muted);">—</span>{% endif %}</td>
             <td><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.first_name }} {{ r.last_name }}</a> <small style="color:var(--hub-text-muted);">({{ r.email }})</small></td>

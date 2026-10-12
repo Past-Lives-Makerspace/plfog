@@ -64,3 +64,28 @@ def describe_send_registration_confirmation_for_a_single():
 
         assert len(mail.outbox) == 1
         assert "series package" not in mail.outbox[0].body.lower()
+
+    def it_names_every_instructor_in_the_body(db):
+        # #686: the confirmation reads the instructors list, in the order added.
+        first = InstructorFactory(full_legal_name="Alex Eason")
+        second = InstructorFactory(full_legal_name="Jenelle Giordano")
+        offering = ClassOfferingFactory(
+            title="Picture Framing",
+            instructor=first,
+            instructors=[first, second],
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        ClassSessionFactory(class_offering=offering)
+        registration = RegistrationFactory(
+            class_offering=offering,
+            status=Registration.Status.CONFIRMED,
+            amount_paid_cents=8000,
+            email="buyer@example.com",
+        )
+
+        send_registration_confirmation(registration)
+
+        assert len(mail.outbox) == 1
+        assert "with Alex Eason and Jenelle Giordano" in mail.outbox[0].body
+        html_body = mail.outbox[0].alternatives[0][0] if mail.outbox[0].alternatives else ""
+        assert "Alex Eason and Jenelle Giordano" in html_body

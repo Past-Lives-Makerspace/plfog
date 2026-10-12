@@ -408,3 +408,16 @@ def describe_RegistrationQuestion_tag_for():
             mailchimp_tag="bringing-kids",
         )
         assert q.tag_for("No") is None
+
+
+def describe_derive_tags_with_two_instructors():
+    def it_tags_every_instructor_who_has_a_page():
+        category = CategoryFactory(name="Wood", slug="wood")
+        first = InstructorFactory(instructor_slug="alex")
+        second = InstructorFactory(instructor_slug="jenelle")
+        no_page = InstructorFactory(instructor_slug="")
+        offering = ClassOfferingFactory(category=category, instructor=first, instructors=[first, second, no_page])
+        tags = derive_tags(RegistrationFactory(class_offering=offering))
+        assert "instructor-alex" in tags
+        assert "instructor-jenelle" in tags
+        assert sum(tag.startswith("instructor-") for tag in tags) == 2

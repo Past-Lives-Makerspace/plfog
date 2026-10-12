@@ -213,6 +213,12 @@ def describe_a_second_instructor():
         assert client.get(reverse("classes:teach_class_registrations", kwargs={"pk": offering.pk})).status_code == 200
         assert client.get(reverse("classes:teach_class_discount_codes", kwargs={"pk": offering.pk})).status_code == 200
 
+    def it_sees_both_names_on_the_class_screen_header(shared, client):
+        partner, offering = shared
+        client.force_login(partner.user)
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        assert '<span class="pl-class-meta__item">Alex Eason and Jenelle Giordano</span>' in html
+
     def it_loses_the_instructor_screens_with_teaching_access(shared, client):
         partner, offering = shared
         partner.instructor_oriented_at = None

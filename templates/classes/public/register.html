@@ -16,7 +16,7 @@
         <div>
           <div class="dc-cat">Register</div>
           <div class="dc-title">{{ offering.title }}</div>
-          <div class="dc-inst">with {{ offering.instructor.display_name }}</div>
+          <div class="dc-inst">with {{ offering.instructor_names }}</div>
         </div>
         <a class="back-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}">&larr; Class details</a>
       </div>
