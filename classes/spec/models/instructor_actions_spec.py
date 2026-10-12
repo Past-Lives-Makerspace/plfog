@@ -111,6 +111,40 @@ def describe_request_change():
         offering.request_change(instructor, "Also add a seat.")
         assert Notification.objects.filter(trigger="class_change_requested", user=holder_user).count() == 2
 
+    def it_sends_an_identical_note_once_within_the_hour(instructor, db):
+        holder_user = UserFactory(username="cms-repeat@example.com", email="cms-repeat@example.com")
+        Member.objects.get(user=holder_user).admin_capabilities.create(
+            capability=AdminCapability.Capability.CLASS_APPROVER
+        )
+        offering = _live(instructor)
+        # Picture Framing, 2026-10-12: one note tapped 33 times in 49 seconds reached every
+        # CMS Administrator 33 times. A repeat inside the window is the same request.
+        note = "Please add Jenelle Giordano as an instructor. Thanks!"
+        for _ in range(3):
+            offering.request_change(instructor, note)
+        assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).count() == 1
+        assert Notification.objects.filter(trigger="class_change_requested", user=holder_user).count() == 1
+        assert len([m for m in mail.outbox if m.to == ["cms-repeat@example.com"]]) == 1
+        # The same note from a co-instructor is that person's own first request.
+        partner_user = UserFactory(username="partner@example.com", email="partner@example.com")
+        partner = Member.objects.get(user=partner_user)
+        offering.request_change(partner, note)
+        assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).count() == 2
+
+    def it_sends_the_same_note_again_once_the_hour_has_passed(instructor, db):
+        holder_user = UserFactory(username="cms-later@example.com", email="cms-later@example.com")
+        Member.objects.get(user=holder_user).admin_capabilities.create(
+            capability=AdminCapability.Capability.CLASS_APPROVER
+        )
+        offering = _live(instructor)
+        offering.request_change(instructor, "Move it to Friday.")
+        CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).update(
+            created_at=timezone.now() - ClassOffering.CHANGE_REQUEST_REPEAT_WINDOW - timedelta(minutes=1)
+        )
+        offering.request_change(instructor, "Move it to Friday.")
+        assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).count() == 2
+        assert Notification.objects.filter(trigger="class_change_requested", user=holder_user).count() == 2
+
     def it_refuses_a_blank_note_and_a_class_that_is_not_live(instructor, db):
         live = _live(instructor)
         with pytest.raises(ValueError):
