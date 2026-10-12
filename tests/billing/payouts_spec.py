@@ -554,3 +554,15 @@ def describe_admin_switch():
 
     def it_is_off_by_default():
         assert BillingSettings.load().connect_enabled is False
+
+
+def describe_has_earning():
+    def it_credits_a_paid_registration_to_the_payee_and_not_a_second_instructor(db):
+        # #686: billing keeps reading ``instructor``; a co-instructor earns nothing until #780.
+        from classes.factories import InstructorFactory
+
+        payee, partner = InstructorFactory(), InstructorFactory()
+        offering = ClassOfferingFactory(instructor=payee, instructors=[payee, partner])
+        RegistrationFactory(class_offering=offering, amount_paid_cents=5000, status="confirmed")
+        assert payouts.has_earning(payee) is True
+        assert payouts.has_earning(partner) is False

@@ -294,6 +294,40 @@ def describe_send_class_review_decision():
 
         assert len(mail.outbox) == 0
 
+    def it_reaches_every_instructor_once_on_changes_requested(db):
+        # #686: one decision email at each instructor's address and one bell row each.
+        first_user = UserFactory(username="alex@example.com", email="alex@example.com")
+        second_user = UserFactory(username="jenelle@example.com", email="jenelle@example.com")
+        first = InstructorFactory(user=first_user, full_legal_name="Alex Eason", instructor_slug="alex-eason")
+        second = InstructorFactory(user=second_user, full_legal_name="Jenelle Giordano", instructor_slug="jenelle")
+        offering = ClassOfferingFactory(
+            instructor=first, instructors=[first, second], status=ClassOffering.Status.PENDING
+        )
+        row = ClassApproval.objects.create(
+            class_offering=offering, role=ClassApproval.Role.ADMIN, decision=ClassApproval.Decision.CHANGES_REQUESTED
+        )
+
+        send_class_review_decision(offering, row)
+
+        assert sorted(addr for m in mail.outbox for addr in m.to) == ["alex@example.com", "jenelle@example.com"]
+        assert len(mail.outbox) == 2
+        for user in (first_user, second_user):
+            assert Notification.objects.filter(trigger="instructor_changes_requested", user=user).count() == 1
+
+    def it_still_emails_the_rest_when_the_payee_has_no_email(db):
+        payee = InstructorFactory(user=UserFactory(email=""))
+        partner = InstructorFactory(user=UserFactory(username="partner@example.com", email="partner@example.com"))
+        offering = ClassOfferingFactory(
+            instructor=payee, instructors=[payee, partner], status=ClassOffering.Status.PENDING
+        )
+        row = ClassApproval.objects.create(
+            class_offering=offering, role=ClassApproval.Role.ADMIN, decision=ClassApproval.Decision.APPROVED
+        )
+
+        send_class_review_decision(offering, row)
+
+        assert [m.to for m in mail.outbox] == [["partner@example.com"]]
+
     def it_emails_approved_but_not_yet_published(db):
         """When admin approves but another gate remains, subject reflects partial approval."""
         inst_user = UserFactory(username="teach5@example.com")

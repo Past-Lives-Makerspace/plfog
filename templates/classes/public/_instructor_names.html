@@ -1,0 +1,11 @@
+{% comment %}
+The instructors of a class as one line of names (#686): "Alex Eason and Jenelle Giordano", three or
+more as "A, B and C", in the order they were added. Each name is a link to the member's instructor
+page when they have one and `link` is on (off inside the composer's card preview, which is not a page).
+The caller writes the "with" in front, so the line reads the same in a byline, a card and a related card.
+
+Params:
+  members — the class's instructor_list
+  link    — whether a member with an instructor page gets a link
+{% endcomment %}
+{% for member in members %}{% if not forloop.first %}{% if forloop.last %} and {% else %}, {% endif %}{% endif %}{% if link and member.instructor_slug %}<a href="{% url 'classes:public_instructor' slug=member.instructor_slug %}">{{ member.display_name }}</a>{% else %}{{ member.display_name }}{% endif %}{% endfor %}

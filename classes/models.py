@@ -1795,8 +1795,12 @@ class ClassOffering(HeroCropMixin, models.Model):
 
     @property
     def instructor_list(self) -> list["Member"]:
-        """Every instructor in the order added, in one query."""
-        return [row.member for row in self.instructor_rows.select_related("member")]
+        """Every instructor in the order added, in one query.
+
+        The rows' manager joins the member, so a queryset that prefetched ``instructor_rows``
+        answers this from the cache: a catalog of cards costs one rows query, not one per card.
+        """
+        return [row.member for row in self.instructor_rows.all()]
 
     def set_instructors(self, members: Sequence["Member"]) -> None:
         """Make ``members``, in that order, the class's instructors, and move the payee with them.
@@ -2130,11 +2134,13 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.published_at = timezone.now()
         self.save(update_fields=["status", "approved_by", "published_at", "updated_at"])
         activity.log(CmsActivity.Kind.CLASS_PUBLISHED, class_offering=self, actor=actor)
-        # The public instructor page goes live with the first published class, but only
-        # while the member still holds teaching access: a revoked instructor whose class
-        # an admin publishes never gets a page re-minted behind an admin's back.
-        if self.instructor is not None and self.instructor.can_create_classes:
-            self.instructor.ensure_instructor_slug()
+        # The public instructor page goes live with the first published class, for every
+        # listed instructor (#686), but only while the member still holds teaching access: a
+        # revoked instructor whose class an admin publishes never gets a page re-minted behind
+        # an admin's back.
+        for member in self.instructor_list:
+            if member.can_create_classes:
+                member.ensure_instructor_slug()
         self.sync_eventbrite_listing()
 
     def cancel(self, actor: "User | None", reason: str) -> None:
@@ -3797,6 +3803,17 @@ class ClassOffering(HeroCropMixin, models.Model):
         return self
 
 
+class ClassInstructorManager(models.Manager["ClassInstructor"]):
+    """Every read of a row brings its member in the same query.
+
+    :attr:`ClassOffering.instructor_list` and every ``prefetch_related("instructor_rows")`` go
+    through this, so naming the instructors of a page of cards never costs a query per card.
+    """
+
+    def get_queryset(self) -> models.QuerySet[ClassInstructor]:
+        return super().get_queryset().select_related("member")
+
+
 class ClassInstructor(models.Model):
     """One instructor of one class: a row of :attr:`ClassOffering.instructors` (#686).
 
@@ -3804,6 +3821,8 @@ class ClassInstructor(models.Model):
     member side can PROTECT, as the payee column always has: a member who teaches a class
     cannot be deleted out from under it.
     """
+
+    objects = ClassInstructorManager()
 
     class_offering = models.ForeignKey(
         ClassOffering,

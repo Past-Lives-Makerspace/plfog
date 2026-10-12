@@ -173,7 +173,7 @@ def _browsable_classes() -> Any:
     classes always qualify; a dated class (single or series) drops off the
     instant its first session starts, so a part-finished series is never listed.
     """
-    return ClassOffering.objects.bookable().select_related("category", "instructor").prefetch_related("sessions")
+    return ClassOffering.objects.bookable().select_related("category").prefetch_related("sessions", "instructor_rows")
 
 
 def _bookable_run_options(offering: Any) -> list[Any]:
@@ -224,7 +224,8 @@ def _apply_browse_filters(qs: Any, request: HttpRequest) -> Any:
 
     instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
     if instructor_slugs:
-        qs = qs.filter(instructor__instructor_slug__in=instructor_slugs)
+        # Every class the person is listed on (#686); two picked slugs on one class join it twice.
+        qs = qs.filter(instructors__instructor_slug__in=instructor_slugs).distinct()
 
     min_price = _coerce_dollars_to_cents(request.GET.get("min_price"))
     if min_price > 0:
@@ -302,7 +303,7 @@ def public_list(request: HttpRequest) -> HttpResponse:
     from membership.models import Member as MemberModel
 
     instructors_for_filter = list(
-        MemberModel.objects.filter(classes__in=_browsable_classes(), instructor_slug__gt="")
+        MemberModel.objects.filter(taught_classes__in=_browsable_classes(), instructor_slug__gt="")
         .distinct()
         .order_by("full_legal_name")
     )
@@ -429,8 +430,7 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
             ClassOffering.objects.registration_open()
             .filter(grouping_key=offering.grouping_key)
             .exclude(pk=offering.pk)
-            .select_related("instructor")
-            .prefetch_related("sessions")
+            .prefetch_related("sessions", "instructor_rows")
         )
         sib_spots = ClassOffering.objects.filter(pk__in=[s.pk for s in sibling_offerings]).spots_remaining_map()
         for sibling in sibling_offerings:
@@ -444,7 +444,7 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
         ClassOffering.objects.bookable()
         .filter(category=offering.category)
         .exclude(pk=offering.pk)
-        .select_related("instructor")[:3]
+        .prefetch_related("instructor_rows")[:3]
     )
 
     # If the class has NO specific image (real or legacy), it falls back to the category image.
@@ -488,7 +488,9 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
 def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """Full class detail page — schedule, info grid, (future: registration form)."""
     offering = get_object_or_404(
-        ClassOffering.objects.public().select_related("category", "instructor", "area").prefetch_related("sessions"),
+        ClassOffering.objects.public()
+        .select_related("category", "area")
+        .prefetch_related("sessions", "instructor_rows"),
         slug=slug,
     )
     from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER
@@ -546,8 +548,8 @@ def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
     now = timezone.now()
     current_classes = (
         ClassOffering.objects.public()  # type: ignore[misc]  # django-stubs can't see annotate() aliases
-        .filter(instructor=instructor)
-        .prefetch_related("sessions")
+        .for_instructor(instructor)
+        .prefetch_related("sessions", "instructor_rows")
         # ``next_session_at``, not ``first_session_at``: that name is the ``bookable()`` /
         # ``upcoming()`` contract (the earliest session ever) and the booking gates read it.
         .annotate(next_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
@@ -555,7 +557,8 @@ def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
         .order_by("next_session_at", "title")
     )
     past_classes = (
-        ClassOffering.objects.filter(instructor=instructor, status=ClassOffering.Status.ARCHIVED)
+        ClassOffering.objects.for_instructor(instructor)
+        .filter(status=ClassOffering.Status.ARCHIVED)
         .select_related("category")
         .order_by("-updated_at")
     )
@@ -1638,8 +1641,8 @@ def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> d
     if settings_obj.example_class_id is not None:
         example = (
             ClassOffering.objects.filter(pk=settings_obj.example_class_id, status=ClassOffering.Status.PUBLISHED)
-            .select_related("category", "instructor")
-            .prefetch_related("sessions")
+            .select_related("category")
+            .prefetch_related("sessions", "instructor_rows")
             .first()
         )
     return {

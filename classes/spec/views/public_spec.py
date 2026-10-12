@@ -1586,3 +1586,126 @@ def describe_sale_markup():
         url = reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
         detail = client.get(url).content.decode()
         assert "cp-detail__sale-banner" not in detail
+
+
+def describe_a_class_with_two_instructors():
+    """#686, part 2: every instructor is named in order, linked when they have a page, and found by the filter."""
+
+    @pytest.fixture
+    def shared(published_class):
+        partner = InstructorFactory(full_legal_name="Jenelle Giordano", instructor_slug="jenelle")
+        published_class.set_instructors([published_class.instructor, partner])
+        return partner
+
+    def _instructor_url(slug: str) -> str:
+        return reverse("classes:public_instructor", kwargs={"slug": slug})
+
+    def it_names_both_in_the_byline_in_order_each_linked(published_class, shared, client):
+        html = client.get(
+            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
+        ).content.decode()
+        byline = html.split('class="cp-detail__byline"')[1].split("</div>")[0]
+        assert byline.index("Deenie") < byline.index("Jenelle Giordano")
+        assert f'href="{_instructor_url("deenie")}"' in byline
+        assert f'href="{_instructor_url("jenelle")}"' in byline
+        assert " and " in byline
+
+    def it_links_only_those_with_an_instructor_page(published_class, client):
+        no_page = InstructorFactory(full_legal_name="Pat Newhand", instructor_slug="")
+        published_class.set_instructors([published_class.instructor, no_page])
+        html = client.get(
+            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
+        ).content.decode()
+        byline = html.split('class="cp-detail__byline"')[1].split("</div>")[0]
+        assert "Pat Newhand" in byline
+        assert byline.count("<a ") == 1
+
+    def it_repeats_the_about_block_per_instructor_under_a_plural_heading(published_class, shared, client):
+        html = client.get(
+            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
+        ).content.decode()
+        assert "About the Instructors" in html
+        assert "Your Instructor<" not in html
+        assert html.count('class="cp-detail__instructor"') == 2
+        assert html.index("See all classes by Deenie") < html.index("See all classes by Jenelle Giordano")
+
+    def it_keeps_the_singular_heading_for_one_instructor(published_class, client):
+        html = client.get(
+            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
+        ).content.decode()
+        assert "Your Instructor" in html
+        assert "About the Instructors" not in html
+        assert html.count('class="cp-detail__instructor"') == 1
+
+    def it_names_both_on_the_catalog_card(published_class, shared, client):
+        html = client.get(reverse("classes:public_list")).content.decode()
+        card = html.split('class="cls-inst"')[1].split("</div>")[0]
+        assert card.index("Deenie") < card.index("Jenelle Giordano")
+        assert f'href="{_instructor_url("jenelle")}"' in card
+
+    def it_is_found_by_the_catalog_filter_under_either_name(published_class, shared, client):
+        for slug in ("deenie", "jenelle"):
+            response = client.get(reverse("classes:public_list") + f"?instructor={slug}")
+            assert response.content.count(b"Intro to Wheel Throwing") >= 1
+        both = client.get(reverse("classes:public_list") + "?instructor=deenie&instructor=jenelle")
+        assert both.content.decode().count('class="cls-inst"') == 1
+
+    def it_lists_both_in_the_instructor_facet(published_class, shared, client):
+        response = client.get(reverse("classes:public_list"))
+        names = [member.full_legal_name for member in response.context["instructors_for_filter"]]
+        assert names == ["Deenie", "Jenelle Giordano"]
+
+    def it_lists_the_class_on_each_instructors_page(published_class, shared, client):
+        for slug in ("deenie", "jenelle"):
+            response = client.get(_instructor_url(slug))
+            assert response.status_code == 200
+            assert b"Intro to Wheel Throwing" in response.content
+
+    def it_lists_a_past_class_on_the_partners_page(published_class, shared, client):
+        past = ClassOfferingFactory(
+            title="Last Winter Bowls",
+            slug="last-winters-bowls",
+            category=published_class.category,
+            instructor=published_class.instructor,
+            instructors=[published_class.instructor, shared],
+            status=ClassOffering.Status.ARCHIVED,
+        )
+        response = client.get(_instructor_url("jenelle"))
+        assert past.title.encode() in response.content
+
+    def it_costs_no_query_per_card_for_the_names(published_class, client):
+        # The same four cards, first with one instructor each and then with two: naming the
+        # second person costs nothing per card, because the rows come prefetched with their member.
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        partner = InstructorFactory(full_legal_name="Jenelle Giordano", instructor_slug="jenelle")
+        offerings = [published_class]
+        for n in range(3):
+            more = ClassOfferingFactory(
+                title=f"More Bowls {n}",
+                slug=f"more-bowls-{n}",
+                category=published_class.category,
+                instructor=published_class.instructor,
+                status=ClassOffering.Status.PUBLISHED,
+            )
+            ClassSessionFactory(
+                class_offering=more,
+                starts_at=timezone.now() + timedelta(days=3 + n),
+                ends_at=timezone.now() + timedelta(days=3 + n, hours=2),
+            )
+            offerings.append(more)
+        url = reverse("classes:public_list")
+        client.get(url)  # warm the per-request caches once
+        with CaptureQueriesContext(connection) as one_each:
+            client.get(url)
+        for offering in offerings:
+            offering.set_instructors([published_class.instructor, partner])
+        with CaptureQueriesContext(connection) as two_each:
+            response = client.get(url)
+        html = response.content.decode()
+        assert html.count('class="cls-inst"') == 4
+        bylines = [part.split("</div>")[0] for part in html.split('class="cls-inst"')[1:]]
+        assert sum("Jenelle Giordano" in byline for byline in bylines) == 4
+        extra = [q["sql"][:160] for q in two_each.captured_queries[len(one_each) :]]
+        assert len(two_each) == len(one_each), extra
