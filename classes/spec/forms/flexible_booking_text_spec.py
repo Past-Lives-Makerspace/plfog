@@ -26,6 +26,19 @@ def _flexible(**traits) -> ClassOffering:
     return ClassOfferingFactory(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, **traits)
 
 
+def describe_the_default_line_with_two_instructors():
+    def it_names_both_in_the_order_added(db):
+        # #686: the line reads the instructors list; "your instructor" only when nobody is listed.
+        partner = InstructorFactory(full_legal_name="Chris Tongs")
+        offering = _flexible()
+        offering.set_instructors([offering.instructor, partner])
+        assert "with Billy Anvil and Chris Tongs and pick a day" in offering.default_flexible_booking_line
+        offering.instructor_rows.all().delete()
+        ClassOffering.objects.filter(pk=offering.pk).update(instructor=None)
+        offering.refresh_from_db()
+        assert "with your instructor and pick a day" in offering.default_flexible_booking_line
+
+
 def _post(form_class, offering: ClassOffering, text: str, rendered: str | None = None):
     """A composer POST with ``text`` in the box; ``rendered`` is the line the box was filled with (today's unless given)."""
     data = {

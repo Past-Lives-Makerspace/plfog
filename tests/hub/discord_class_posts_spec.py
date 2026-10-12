@@ -337,3 +337,15 @@ def describe_a_flexible_class_with_a_date_window():
         _flexible_class("Over", flexible_ends_on=date(2020, 1, 1))
 
         assert dcp.announce_new_classes() == 0
+
+
+def describe_a_class_with_two_instructors():
+    def it_names_both_in_the_digest_line():
+        # #686: the weekly digest reads the instructors list, in the order added.
+        from classes.factories import InstructorFactory
+
+        first = InstructorFactory(full_legal_name="Alex Eason")
+        second = InstructorFactory(full_legal_name="Jenelle Giordano")
+        _published_class("Picture Framing", days=2, instructor=first, instructors=[first, second])
+        description = dcp.build_weekly_classes_digest_embeds(timezone.now())[0]["description"]
+        assert "with Alex Eason and Jenelle Giordano" in description

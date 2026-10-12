@@ -1799,8 +1799,24 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         The rows' manager joins the member, so a queryset that prefetched ``instructor_rows``
         answers this from the cache: a catalog of cards costs one rows query, not one per card.
+        A class not yet saved has no rows; it answers with the payee set in memory (the composer
+        names the author on a new class this way), or nobody.
         """
+        if self.pk is None:
+            return [self.instructor] if self.instructor is not None else []
         return [row.member for row in self.instructor_rows.all()]
+
+    @property
+    def instructor_names(self) -> str:
+        """Every instructor's name as one line, in the order added: "A", "A and B", "A, B and C".
+
+        The plain text twin of ``classes/public/_instructor_names.html``, for emails, Discord, the
+        flyer and every hub line that names who teaches; empty when nobody is listed.
+        """
+        names = [member.display_name for member in self.instructor_list]
+        if len(names) <= 1:
+            return "".join(names)
+        return f"{', '.join(names[:-1])} and {names[-1]}"
 
     def set_instructors(self, members: Sequence["Member"]) -> None:
         """Make ``members``, in that order, the class's instructors, and move the payee with them.
@@ -2968,7 +2984,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         with this and stores blank when the instructor leaves it as is (``classes.forms``), which
         is what keeps the line live.
         """
-        name = self.instructor.display_name if self.instructor else "your instructor"
+        name = self.instructor_names or "your instructor"
         window = "inside this window " if self.has_flexible_window else ""
         return f"After you register, you'll book your session directly with {name} and pick a day {window}that works for both of you."
 
@@ -3642,8 +3658,8 @@ class ClassOffering(HeroCropMixin, models.Model):
             candidate = f"{result} — {date_label}"
             if len(candidate) <= 60:
                 result = candidate
-        if self.instructor:
-            name = (self.instructor.display_name or "").strip()
+        name = self.instructor_names.strip()
+        if name:
             first_name = name.split(" ")[0]
             # Skip the instructor segment when the title already names them, so
             # "Blacksmithing 101 with Glen" + instructor "Glen Morris" doesn't

@@ -86,6 +86,20 @@ def describe_admin_members():
         assert b"Manage Members" in response.content
         assert response.context["status_filter"] == "active"
 
+    def it_counts_every_class_a_member_is_listed_on_once(client):
+        # #686: the Classes count reads the instructors rows: a co-instructor's class counts, each class once.
+        from classes.factories import ClassOfferingFactory, InstructorFactory
+
+        _create_superuser(client)
+        lead = InstructorFactory(full_legal_name="Lead Counted")
+        partner = InstructorFactory(full_legal_name="Partner Counted")
+        ClassOfferingFactory(instructor=lead, instructors=[lead, partner])
+        ClassOfferingFactory(instructor=lead)
+        html = client.get(reverse("hub_admin_members")).content.decode()
+        link = 'class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false">'
+        assert f'?instructor={partner.pk}" {link}1 →</a>' in html
+        assert f'?instructor={lead.pk}" {link}2 →</a>' in html
+
     def it_renders_the_invites_card(client):
         _create_superuser(client)
         response = client.get(reverse("hub_admin_members"))
@@ -1021,6 +1035,24 @@ def describe_admin_site_settings_legacy_cms():
         assert response.status_code == 200
         rows = response.context["instructor_sync_rows"]
         assert any(row["instructor"].display_name == "Test Instructor" for row in rows)
+
+    def it_counts_a_legacy_class_for_every_listed_instructor_and_an_unlisted_one_as_unmatched(client):
+        # #686: matched counts go through the instructors rows; nobody listed is unmatched.
+        from classes.factories import ClassOfferingFactory, InstructorFactory
+        from hub.views import _legacy_instructor_sync_status
+
+        _create_superuser(client)
+        lead = InstructorFactory(full_legal_name="Lead Legacy", instructor_slug="lead-legacy")
+        partner = InstructorFactory(full_legal_name="Partner Legacy", instructor_slug="partner-legacy")
+        ClassOfferingFactory(legacy_cms_id="node-shared", instructor=lead, instructors=[lead, partner])
+        ClassOfferingFactory(legacy_cms_id="node-lead-only", instructor=lead)
+        ClassOfferingFactory(legacy_cms_id="node-nobody", instructor=None)
+        ClassOfferingFactory(instructor=None)  # not a legacy import: never counted
+        rows, unmatched = _legacy_instructor_sync_status()
+        matched = {row["instructor"].pk: row["matched"] for row in rows}
+        assert matched[lead.pk] == 2
+        assert matched[partner.pk] == 1
+        assert unmatched == 1
 
 
 def describe_admin_site_settings_features():

@@ -792,6 +792,39 @@ def describe_admin_classes_query_count():
         assert len(ten) == len(two)
 
 
+def describe_admin_overview_query_count():
+    def _awaiting_admin(count: int, start: int = 0) -> None:
+        # PENDING under a guildless category: no guild lead gate, so it waits on the admin.
+        from classes.factories import InstructorFactory
+
+        for i in range(start, start + count):
+            first, second = (
+                InstructorFactory(full_legal_name=f"First {i}"),
+                InstructorFactory(full_legal_name=f"Second {i}"),
+            )
+            ClassOfferingFactory(
+                title=f"Waiting {i}", status=Status.PENDING, instructor=first, instructors=[first, second]
+            )
+
+    def it_holds_the_query_count_constant_from_two_to_six_waiting_classes(admin_user, client, db):
+        # #686: the Waiting on You list names every instructor from prefetched rows, not a query per class.
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        client.force_login(admin_user)
+        url = reverse("classes:admin_overview")
+        _awaiting_admin(2)
+        client.get(url)  # warm-up, as the Manage Classes count above
+        with CaptureQueriesContext(connection) as two:
+            resp = client.get(url)
+        assert resp.status_code == 200 and b"First 1 and Second 1" in resp.content
+        _awaiting_admin(4, start=2)
+        with CaptureQueriesContext(connection) as six:
+            resp = client.get(url)
+        assert b"First 5 and Second 5" in resp.content
+        assert len(six) == len(two)
+
+
 def describe_permission_edges():
     def it_refuses_a_plain_member_cancel_restore_and_remind(member_user, client, db):
         """404, not 403: the merged screen declines to confirm the class exists, and its 404

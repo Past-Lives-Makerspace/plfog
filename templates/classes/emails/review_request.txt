@@ -1,7 +1,7 @@
 {% load classes_tags %}{{ role_label|upper }} REVIEW REQUESTED
 
 {{ offering.title }}
-by {{ offering.instructor.display_name }}{% if offering.category %} · {{ offering.category.name }}{% endif %}
+by {{ offering.instructor_names }}{% if offering.category %} · {{ offering.category.name }}{% endif %}
 Price {{ offering.price_cents }} cents · Capacity {{ offering.capacity }}
 
 An instructor submitted this class for review, and you've been asked

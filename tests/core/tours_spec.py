@@ -602,3 +602,17 @@ def describe__tour_payload():
         )
         with pytest.raises(ValueError, match="cross-origin"):
             _tour_payload(bad, member, autostart=False)
+
+
+def describe_the_instructor_tour_sample_class_with_a_co_teacher():
+    def it_is_the_newest_class_the_member_is_listed_on():
+        # #686: the roster and compose stops read the instructors list, not only the payee.
+        from classes.factories import ClassOfferingFactory, InstructorFactory
+        from core.tours import _instructor_class_audience
+
+        member = _member("ic-co")
+        lead = InstructorFactory()
+        ClassOfferingFactory(instructor=lead)
+        shared = ClassOfferingFactory(instructor=lead, instructors=[lead, member])
+        assert _instructor_class_pk(member) == {"pk": shared.pk}
+        assert _instructor_class_audience(member)["audience"] == f"class:{shared.pk}"
