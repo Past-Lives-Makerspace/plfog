@@ -335,6 +335,7 @@ def _schedule_context(
             .exclude(status=EquipmentReservation.Status.CANCELLED, cancelled_by=member)
             .select_related("cancelled_by")  # a declined row names the manager (#748)
             .prefetch_related("refunds")  # a paid row's refund line (#749)
+            .with_credited_unused()  # a credited row offers no Cancel (#787)
             .order_by("starts_at")
         )
         for reservation in my_reservations:
@@ -862,7 +863,13 @@ def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
         credit = EquipmentCredit.objects.balance_for(member, equipment) if equipment.is_hourly else 0
         if equipment.checkout_amount_cents(duration, entered, credit_minutes=credit):
             checkout_url = equipment_service.start_reservation_checkout(
-                equipment, member, starts_at, duration, purpose=form.cleaned_data["purpose"], amount_cents=entered
+                equipment,
+                member,
+                starts_at,
+                duration,
+                purpose=form.cleaned_data["purpose"],
+                amount_cents=entered,
+                credit_expected=credit,
             )
             return _to_checkout(request, equipment, checkout_url, week_offset=week_offset, selected_day=selected_day)
         # The free road: an explicit $0 donation, or nothing for a free item; reserve() re-checks under its lock.
@@ -1322,7 +1329,8 @@ def _render_manage(
                 equipment.reservations.upcoming()
                 .reservations()
                 .exclude(status=EquipmentReservation.Status.PENDING_APPROVAL)
-                .select_related("member"),
+                .select_related("member")
+                .with_credited_unused(),  # a credited row offers no Cancel (#787)
                 25,
             ).get_page(request.GET.get("page", 1)),
             # The Needs Approval card (#748), shown while the switch is on or anything still waits.
@@ -1332,7 +1340,10 @@ def _render_manage(
             "block_form": block_form if block_form is not None else EquipmentBlockForm(),
             "manage_blocks": list(equipment.reservations.upcoming().blocks().select_related("member")),
             # The Give Credit card and Who Has Credit (#787), on hourly items only. A refused grant opens the form.
-            "credit_form": credit_form if credit_form is not None else EquipmentCreditForm(),
+            # Built only for hourly items: its member list reads every active member.
+            "credit_form": (credit_form if credit_form is not None else EquipmentCreditForm())
+            if equipment.is_hourly
+            else None,
             "credit_form_open": credit_form is not None,
             "credit_holders": EquipmentCredit.objects.holders(equipment) if equipment.is_hourly else [],
             # The Reservations tab's late fee card (#456): the rows and where its Waive returns to.

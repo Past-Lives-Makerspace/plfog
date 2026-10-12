@@ -101,7 +101,7 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
     <form id="equip-reserve-form" method="post" action="{% url 'hub_equipment_reserve' equipment.slug %}"
           hx-post="{% url 'hub_equipment_reserve' equipment.slug %}" hx-target="#equipment-schedule"
           hx-swap="outerHTML" hx-indicator="#equipment-schedule"
-          x-data="{ start: '{{ starts.0.isoformat }}', minutes: '', durations: JSON.parse(document.getElementById('equip-durations-data').textContent), options() { return this.durations[this.start] || []; }, picked() { const options = this.options(); return options.find((option) => String(option.v) === String(this.minutes)) || options[0] || null; }, summary() { const option = this.picked(); return option ? '{{ selected_day|date:"D, M j" }} · ' + option.span + (option.total ? ' · ' + option.total : '') : ''; }, covered() { const option = this.picked(); return Boolean(option && option.covered); } }">
+          x-data="{ start: '{{ starts.0.isoformat }}', minutes: '', durations: JSON.parse(document.getElementById('equip-durations-data').textContent), options() { return this.durations[this.start] || []; }, picked() { const options = this.options(); return options.find((option) => String(option.v) === String(this.minutes)) || options[0] || null; }, summary() { const option = this.picked(); return option ? '{{ selected_day|date:"D, M j" }} · ' + option.span + (option.covered ? ' · Covered by your credit' : option.total ? ' · ' + option.total : '') : ''; }, covered() { const option = this.picked(); return Boolean(option && option.covered); } }">
       {% csrf_token %}
       <input type="hidden" name="day" value="{{ selected_day|date:'Y-m-d' }}">
       <input type="hidden" name="week" value="{{ week_offset }}">
@@ -196,7 +196,7 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
           <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--ok">Confirmed</span>{% if reservation.amount_paid_cents %} Paid {{ reservation.paid_display }}{% endif %}{% if reservation.credit_minutes %} <span class="pl-equip-badge pl-equip-badge--credit" data-credit-used>{{ reservation.credit_used_label }}</span>{% endif %}</span>
           {% endif %}
         </span>
-        {% if not reservation.is_declined %}
+        {% if not reservation.is_declined and not reservation.credited_minutes_total %}
         <span class="pl-equip-res-row__actions">
           {% if reservation.is_awaiting_payment %}
           {# Pay now resumes the same Checkout; unboosted, because the answer is a redirect to Stripe. #}
@@ -219,7 +219,7 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
         </span>
         {% if reservation.is_cancelled_by_manager %}
         <span class="hub-text-muted">Cancelled by the manager: {{ reservation.cancelled_reason }}{% if reservation.refund_note %} {{ reservation.refund_note }}{% endif %}</span>
-        {% elif reservation.status == "confirmed" %}
+        {% elif reservation.status == "confirmed" and not reservation.credited_minutes_total %}
         <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                 @click="$dispatch('open-confirm', 'cancel-my-res-{{ reservation.pk }}')">Cancel</button>
         {% include "hub/partials/_equipment_my_cancel_modal.html" %}

@@ -529,3 +529,72 @@ def describe_the_credit_email_event():
             copy = default_copy_for("equipment.credit_granted", channel)
             for fragment in (copy.subject, copy.body_text, copy.body_html):
                 assert "[missing:" not in render_text(fragment, context), channel.value
+
+
+def describe_review_round_one():
+    @patch("billing.stripe_utils.create_checkout_session")
+    def it_refuses_a_checkout_whose_credit_another_tab_spent(mock_create):
+        router = _hourly()
+        member = _member()
+        _give(router, member, 240)
+        equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=True)
+        # The second tab read the same 4 hours and picked 8, so it expected $100 and would now be charged $200.
+        with pytest.raises(EquipmentError, match=r"^Your credit here just changed\. Please pick your time again\.$"):
+            equipment_service.start_reservation_checkout(router, member, _at(_day(), 13), 240, credit_expected=240)
+        mock_create.assert_not_called()
+        assert not EquipmentReservation.objects.filter(status=HOLD).exists()
+        assert _balance(member, router) == 0
+
+    @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
+    def it_opens_the_checkout_when_the_credit_is_still_there(mock_create):
+        router = _hourly()
+        member = _member()
+        _give(router, member, 120)
+        equipment_service.start_reservation_checkout(router, member, _at(_day(), 8), 480, credit_expected=120)
+        assert mock_create.call_args.kwargs["amount_cents"] == 15000
+
+    def it_never_cancels_a_booking_whose_unused_time_was_credited():
+        router = _hourly()
+        manager = _manager(router)
+        booking = _started(router, _member(), amount_paid_cents=20000, stripe_payment_id="pi_credited")
+        equipment_service.grant_credit(router, booking.member, manager, 480, reservation=booking)
+        with pytest.raises(
+            EquipmentError, match=r"^Unused time on this reservation was already credited, so it can't be cancelled\.$"
+        ):
+            booking.cancel(manager, reason="Spindle out", as_manager=True)
+        booking.refresh_from_db()
+        assert booking.status == EquipmentReservation.Status.CONFIRMED
+        assert booking.refunds.count() == 0
+        assert _balance(booking.member, router) == 480
+
+    def it_never_declines_a_booking_with_unused_time_credited():
+        router = _hourly(requires_approval=True)
+        manager = _manager(router)
+        booking = EquipmentReservationFactory(equipment=router, status=EquipmentReservation.Status.PENDING_APPROVAL)
+        EquipmentCredit.objects.create(
+            equipment=router, member=booking.member, minutes=60, kind=EquipmentCredit.Kind.UNUSED, reservation=booking
+        )
+        with pytest.raises(EquipmentError, match="already credited"):
+            booking.decline(manager, reason="No")
+        booking.refresh_from_db()
+        assert booking.status == EquipmentReservation.Status.PENDING_APPROVAL
+
+    def it_caps_unused_credit_across_grants_at_the_booked_length():
+        router = _hourly()
+        manager = _manager(router)
+        booking = _started(router, _member(), hours=8)
+        equipment_service.grant_credit(router, booking.member, manager, 360, reservation=booking)
+        equipment_service.grant_credit(router, booking.member, manager, 120, reservation=booking)
+        with pytest.raises(EquipmentError, match="already credited"):
+            equipment_service.grant_credit(router, booking.member, manager, 30, reservation=booking)
+        assert EquipmentCredit.objects.credited_on(booking) == 480
+
+    def it_only_ever_deletes_an_unpaid_hold_so_other_ledger_rows_survive():
+        router = _hourly()
+        member = _member()
+        _give(router, member, 240)
+        booking = equipment_service.reserve(router, member, _at(_day(), 9), 240, credit_expected=True)
+        equipment_service._delete_hold(booking, expire_session=False)
+        assert EquipmentReservation.objects.filter(pk=booking.pk).exists()
+        assert EquipmentCredit.objects.filter(reservation=booking, kind=EquipmentCredit.Kind.SPENT).exists()
+        assert _balance(member, router) == 0

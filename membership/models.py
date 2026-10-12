@@ -16433,6 +16433,21 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
         """Held reservations (confirmed or awaiting approval, #748) that haven't ended yet, soonest first."""
         return self.holding().filter(ends_at__gt=timezone.now()).order_by("starts_at")
 
+    def with_credited_unused(self) -> EquipmentReservationQuerySet:
+        """Annotate ``credited_minutes_total``: each booking's unused time credited back (#787), 0 when none.
+
+        One scalar subquery, so a list shows the "Credited 2h" pill and hides Cancel at no
+        extra query per row.
+        """
+        credited = (
+            EquipmentCredit.objects.filter(reservation=OuterRef("pk"), kind=EquipmentCredit.Kind.UNUSED)
+            .order_by()
+            .values("reservation")
+            .annotate(total=Sum("minutes"))
+            .values("total")
+        )
+        return self.annotate(credited_minutes_total=Coalesce(Subquery(credited), 0))
+
     def active_count_for(self, member: Member, equipment: Equipment) -> int:
         """The per-member anti-hog input: this member's upcoming held count here (#748), blocks excluded."""
         return (
@@ -16702,6 +16717,15 @@ class EquipmentReservation(models.Model):
         return money_display(self.amount_paid_cents) if self.amount_paid_cents else ""
 
     @property
+    def credited_unused_label(self) -> str:
+        """The manager's "Credited 2h" chip (#787), read off :meth:`EquipmentReservationQuerySet.with_credited_unused`.
+
+        A row read without that annotation fails loudly rather than reading as uncredited.
+        """
+        minutes = cast(int, self.credited_minutes_total)  # type: ignore[attr-defined]
+        return f"Credited {credit_hours_short(minutes)}" if minutes else ""
+
+    @property
     def credit_used_label(self) -> str:
         """The member's pill beside Paid (#787): "2h credit used", or "" when no credit went into this booking."""
         return f"{credit_hours_short(self.credit_minutes)} credit used" if self.credit_minutes else ""
@@ -16827,6 +16851,7 @@ class EquipmentReservation(models.Model):
         """
         cleaned_reason = reason.strip()
         self._ensure_decidable(actor)
+        self._ensure_not_credited()
         if not cleaned_reason:
             raise ValueError("A decline needs a reason the member will see.")
         now = timezone.now()
@@ -16848,6 +16873,19 @@ class EquipmentReservation(models.Model):
         # A paid request is refunded in full (#749); a refund Stripe refuses never undoes the decline.
         self.refund_outcome = equipment_service.refund_if_paid(self, actor=actor.user)
         equipment_service.notify_declined(self, actor)
+
+    #: The refusal for cancelling or declining a booking whose unused time was credited (#787): the
+    #: member already has that time back as credit, so a refund on top would pay them twice.
+    CREDITED_NOT_CANCELLABLE_MESSAGE = "Unused time on this reservation was already credited, so it can't be cancelled."
+
+    def _ensure_not_credited(self) -> None:
+        """Refuse a cancel or decline once any of this booking's unused time was credited (#787).
+
+        Raises:
+            EquipmentError: With :attr:`CREDITED_NOT_CANCELLABLE_MESSAGE`.
+        """
+        if EquipmentCredit.objects.credited_on(self):
+            raise EquipmentError(self.CREDITED_NOT_CANCELLABLE_MESSAGE)
 
     #: The friendly refusal for deciding a row that is no longer a waiting request.
     NOT_WAITING_MESSAGE = "This reservation isn't waiting for approval any more."
@@ -16926,6 +16964,7 @@ class EquipmentReservation(models.Model):
             raise EquipmentError("This request was already declined.")
         if self.status not in self.HOLDING_STATUSES:
             raise EquipmentError("This reservation was already cancelled.")
+        self._ensure_not_credited()
         was_waiting = self.status == self.Status.PENDING_APPROVAL
         now = timezone.now()
         is_own_row = actor.pk == self.member_id
@@ -17138,6 +17177,7 @@ class EquipmentCredit(models.Model):
         "EquipmentReservation",
         null=True,
         blank=True,
+        # CASCADE on purpose: _delete_hold's delete of an unpaid hold (the only reservation delete) takes its SPENT row, restoring the credit.
         on_delete=models.CASCADE,
         related_name="credits",
         help_text="The booking that spent or gave back this credit, or whose unused time it is; blank for a plain grant.",

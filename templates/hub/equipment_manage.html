@@ -626,8 +626,13 @@
       <div class="pl-equip-res-row">
         <span>{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</span>
         <span>{{ reservation.member.display_name }}{% if reservation.purpose %} <span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}{% if reservation.amount_paid_cents %} <span class="pl-price-chip" data-paid-chip>Paid {{ reservation.paid_display }}</span>{% endif %}</span>
+        {% if reservation.credited_minutes_total %}
+        {# Unused time was credited (#787): the member has it back as credit, so the row is never cancelled. #}
+        <span class="pl-price-chip" data-credited-chip>{{ reservation.credited_unused_label }}</span>
+        {% else %}
         <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                 @click="$dispatch('open-confirm', 'mgr-cancel-{{ reservation.pk }}')">Cancel</button>
+        {% endif %}
       </div>
       {% endif %}
       {% endfor %}
@@ -668,7 +673,7 @@
 
 {# Manager-cancel modals — one per row, reason required (server-enforced), outside the panes. #}
 {% for reservation in manage_reservations %}
-{% if not reservation.is_awaiting_payment %}
+{% if not reservation.is_awaiting_payment and not reservation.credited_minutes_total %}
 {% url 'hub_equipment_reservation_cancel' equipment.slug reservation.pk as mgr_cancel_url %}
 {% with rpks=reservation.pk|stringformat:"s" who=reservation.member.display_name %}
 {# A paid row (#749) adds "Their $50.00 is refunded in full." #}

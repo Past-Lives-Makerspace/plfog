@@ -18,15 +18,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
-from django.db.models import OuterRef, Q, Subquery, Sum
-from django.db.models.functions import Coalesce
+from django.db.models import Q
 from django.http import HttpRequest
 from django.urls import reverse
 from django.utils import timezone
 
 from classes.table import prepare_table, table_search
 from hub.bookings_tab import date_param, late_fee_of, pane_query
-from membership.models import Equipment, EquipmentCredit, EquipmentReservation, Member, credit_hours_short
+from membership.models import Equipment, EquipmentReservation, Member, credit_hours_short
 from membership.permissions import manageable_reservations, manages_equipment
 
 if TYPE_CHECKING:
@@ -34,6 +33,7 @@ if TYPE_CHECKING:
 
     from billing.models import LateCancellationFee
     from core.models import SiteConfiguration
+    from membership.models import EquipmentReservationQuerySet
 
 #: The chips above the table (``?show=``). Upcoming is the default and never written to the URL.
 #: Needs Approval (#748) is the staff view's alone: the requests on equipment they manage.
@@ -174,18 +174,11 @@ def _with_related(rows: QuerySet[EquipmentReservation]) -> QuerySet[EquipmentRes
 
     # The reservation's own refunds feed its Paid and Refunded pills (#749); the unused time credited back
     # rides the row as one scalar subquery (#787), so the "Credited 2h" pill and the menu cost no query.
-    credited = (
-        EquipmentCredit.objects.filter(reservation=OuterRef("pk"), kind=EquipmentCredit.Kind.UNUSED)
-        .order_by()
-        .values("reservation")
-        .annotate(total=Sum("minutes"))
-        .values("total")
+    related = rows.select_related("equipment__guild", "member__user", "late_fee__member").prefetch_related(
+        "late_fee__refunds", "refunds", _primary_email_prefetch("member__user__emailaddress_set")
     )
-    return (
-        rows.select_related("equipment__guild", "member__user", "late_fee__member")
-        .prefetch_related("late_fee__refunds", "refunds", _primary_email_prefetch("member__user__emailaddress_set"))
-        .annotate(credited_minutes_total=Coalesce(Subquery(credited), 0))
-    )
+    # Every caller passes EquipmentReservation.objects rows, so the model's own queryset is what arrives here.
+    return cast("EquipmentReservationQuerySet", related).with_credited_unused()
 
 
 def build_row(
@@ -230,9 +223,12 @@ def build_row(
             and fee.status == LateCancellationFee.Status.PAID
             and fee.refundable_cents > 0
         )
-        row.can_cancel = confirmed and reservation.ends_at > now
+        # A booking whose unused time was credited is never cancelled or declined (#787): no refund on top.
+        credited = row.credited_minutes > 0
+        row.can_cancel = confirmed and reservation.ends_at > now and not credited
         # A request awaiting approval offers Approve and Decline in place of Cancel (#748).
-        row.can_approve = row.can_decline = waiting
+        row.can_approve = waiting
+        row.can_decline = waiting and not credited
         # Credit Unused Time (#787): once a confirmed booking on an hourly item has started, while time is left to credit.
         credit_left = reservation.duration_minutes - row.credited_minutes
         if confirmed and reservation.equipment.is_hourly and reservation.starts_at <= now and credit_left > 0:
@@ -244,7 +240,7 @@ def build_row(
             )
         return row
     # The member menu: only ever on the viewer's own row (the staff rows are managed or own).
-    row.can_cancel_mine = is_own and (confirmed or waiting) and reservation.starts_at > now
+    row.can_cancel_mine = is_own and (confirmed or waiting) and reservation.starts_at > now and not row.credited_minutes
     row.can_pay_fee = is_own and fee is not None and fee.is_unpaid
     # A request was never booked, so cancelling it never carries a fee line (#748).
     if row.can_cancel_mine and confirmed:

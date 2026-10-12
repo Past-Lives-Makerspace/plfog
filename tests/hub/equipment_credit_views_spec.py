@@ -495,3 +495,74 @@ def describe_an_account_with_no_member():
         holder = _member("unreached")
         url = reverse("hub_equipment_credit_take_back", args=[router.slug, holder.pk])
         assert client.post(url).status_code == 403
+
+
+def describe_review_round_one():
+    def _credited(router: Equipment, member: Member) -> EquipmentReservation:
+        booking = _started(router, member, amount_paid_cents=20000)
+        EquipmentCredit.objects.create(
+            equipment=router, member=member, minutes=120, kind=EquipmentCredit.Kind.UNUSED, reservation=booking
+        )
+        return booking
+
+    def it_hides_cancel_on_a_credited_row_in_the_bookings_menu_and_on_the_manage_page(client: Client):
+        router = _hourly()
+        _manager_of(client, router)
+        credited = _credited(router, _member("creditedrow"))
+        plain = _started(router, _member("plainrow"))
+        tab = _tab(client, show="all")
+        assert f"reservation-cancel-{credited.pk}'" not in _row(tab, credited)
+        assert f"reservation-cancel-{plain.pk}'" in _row(tab, plain)
+        manage = _manage(client, router)
+        assert "data-credited-chip>Credited 2h</span>" in manage
+        assert f"mgr-cancel-{credited.pk}" not in manage
+        assert f"mgr-cancel-{plain.pk}" in manage
+
+    def it_hides_the_members_own_cancel_on_a_credited_row(client: Client):
+        router = _hourly()
+        member = _login(client, "owncredited")
+        credited = _credited(router, member)
+        assert f"cancel-my-res-{credited.pk}" not in _schedule(client, router)
+
+    def it_refuses_a_posted_cancel_of_a_credited_row(client: Client):
+        router = _hourly()
+        _manager_of(client, router)
+        credited = _credited(router, _member("postcancel"))
+        url = reverse("hub_equipment_reservation_cancel", args=[router.slug, credited.pk])
+        client.post(url, {"reason": "Broken", "next": "/equipment/?view=bookings"})
+        credited.refresh_from_db()
+        assert credited.status == EquipmentReservation.Status.CONFIRMED
+
+    @patch("billing.stripe_utils.create_checkout_session")
+    def it_refuses_the_checkout_road_when_another_tab_spent_the_credit(mock_create, client: Client):
+        router = _hourly()
+        member = _login(client, "checkoutrace")
+        _give(router, member, 120)
+        real = EquipmentCredit.objects.balance_for
+        reads: list[int] = []
+
+        def stale_then_spent(target: Member, equipment: Equipment) -> int:
+            reads.append(1)
+            if len(reads) == 2:
+                EquipmentCredit.objects.create(
+                    equipment=router, member=member, minutes=-120, kind=EquipmentCredit.Kind.SPENT
+                )
+            return real(target, equipment)
+
+        with patch.object(EquipmentCredit.objects, "balance_for", side_effect=stale_then_spent):
+            response = _reserve(client, router)
+        assert _toast(response) == ("Your credit here just changed. Please pick your time again.", "error")
+        mock_create.assert_not_called()
+        assert not EquipmentReservation.objects.filter(member=member).exists()
+
+    def it_builds_no_credit_form_on_a_free_item(client: Client):
+        saw = EquipmentFactory(name="Plain Bandsaw")
+        _manager_of(client, saw)
+        response = client.get(f"{reverse('hub_equipment_manage', args=[saw.slug])}?tab=reservations")
+        assert response.context["credit_form"] is None
+
+    def it_says_covered_in_the_confirm_summary(client: Client):
+        router = _hourly()
+        member = _login(client, "coveredsummary")
+        _give(router, member, 240)
+        assert "option.covered ? ' · Covered by your credit'" in _schedule(client, router)

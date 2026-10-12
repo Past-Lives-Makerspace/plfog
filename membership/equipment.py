@@ -501,6 +501,7 @@ def start_reservation_checkout(
     *,
     purpose: str = "",
     amount_cents: int | None = None,
+    credit_expected: int = 0,
 ) -> str:
     """Hold the time ``PENDING_PAYMENT`` and open a Stripe Checkout for it; return the hosted Checkout URL.
 
@@ -513,8 +514,13 @@ def start_reservation_checkout(
     (:func:`finalize_paid_reservation`). The lock covers only the guard and the hold, never the
     Stripe round trip. A Stripe failure deletes the hold, its spent credit with it, and re-raises.
 
+    ``credit_expected`` is the credit balance the caller's page read (#787): when the balance under
+    the lock covers less of this booking than that one did (another tab spent it), the member is
+    refused with :attr:`CREDIT_CHANGED_MESSAGE` rather than sent to a dearer Checkout.
+
     Raises:
-        EquipmentError: From the guards, the amount check, or when the amount comes to $0.
+        EquipmentError: From the guards, the amount check, a credit that changed since the read,
+            or when the amount comes to $0.
     """
     from billing import stripe_utils
     from membership.models import Equipment, EquipmentError, EquipmentReservation
@@ -523,6 +529,10 @@ def start_reservation_checkout(
         locked = Equipment.objects.select_for_update().get(pk=equipment.pk)
         locked.ensure_reservable(member, starts_at, duration_minutes)
         balance = _locked_credit_balance(locked, member)
+        if locked.credit_applied_minutes(duration_minutes, balance) < locked.credit_applied_minutes(
+            duration_minutes, credit_expected
+        ):
+            raise EquipmentError(CREDIT_CHANGED_MESSAGE)
         charge_cents = locked.checkout_amount_cents(duration_minutes, amount_cents, credit_minutes=balance)
         if charge_cents <= 0:
             raise EquipmentError("Reserving this time doesn't charge anything.")
