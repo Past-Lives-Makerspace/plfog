@@ -2281,13 +2281,23 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.save(update_fields=["status", "updated_at"])
         activity.log(CmsActivity.Kind.CLASS_WITHDRAWN, class_offering=self, actor=actor)
 
-    def request_change(self, instructor: "Member", note: str) -> None:
+    # How long an identical note from the same instructor counts as the same request. Picture
+    # Framing's note reached every CMS Administrator 33 times on 2026-10-12: the page showed
+    # nothing while the fan out ran, Send stayed tappable, and every tap landed as its own period.
+    CHANGE_REQUEST_REPEAT_WINDOW = timedelta(hours=1)
+
+    def request_change(self, instructor: "Member", note: str) -> bool:
         """Ask an admin to change a live class's title, dates, price, or capacity.
 
         Registrants booked on those facts, so they change through a human: this logs
         ``CLASS_CHANGE_REQUESTED`` and emits ``class_change_requested`` to the CMS
         Administrators with the note and a link to the admin edit page. Each request is
-        its own dedupe period.
+        its own dedupe period, except a repeat: the same note from the same instructor
+        inside :attr:`CHANGE_REQUEST_REPEAT_WINDOW` logs nothing and notifies nobody, since
+        the admins already hold it.
+
+        Returns:
+            True when the request went out, False when it repeated one the admins have.
 
         Raises:
             ValueError: If the class is not PUBLISHED, has already finished, or ``note``
@@ -2307,11 +2317,15 @@ class ClassOffering(HeroCropMixin, models.Model):
         from core.events.emit import emit
 
         actor = instructor.user
+        if self._change_request_repeats(actor, note):
+            return False
+        # The whole note: the repeat check compares against it, and a clipped copy would read
+        # an edit past the clip as the same note.
         row = activity.log(
             CmsActivity.Kind.CLASS_CHANGE_REQUESTED,
             class_offering=self,
             actor=actor,
-            payload={"note": note[:200]},
+            payload={"note": note},
         )
         # The legacy name, for the same reason as ``registrations_path`` above: this one is
         # stamped into a persisted notification URL and an unrecallable email.
@@ -2328,6 +2342,26 @@ class ClassOffering(HeroCropMixin, models.Model):
             },
             url=edit_path,
             period=f"offering:{self.pk}:change_request:{row.pk}",
+        )
+        return True
+
+    def _change_request_repeats(self, actor: "User | None", note: str) -> bool:
+        """True when ``actor``'s latest request on this class is this note, sent inside the window.
+
+        Only the latest request counts: a different note in between makes the same note new
+        again, as a conversation would. A member with no login has no requests to repeat.
+        """
+        if actor is None:
+            return False
+        latest = (
+            CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED, class_offering=self, actor=actor)
+            .order_by("-created_at")
+            .first()
+        )
+        if latest is None:
+            return False
+        return (
+            latest.created_at >= timezone.now() - self.CHANGE_REQUEST_REPEAT_WINDOW and latest.payload["note"] == note
         )
 
     @property

@@ -227,6 +227,19 @@ def describe_request_change():
             kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED, class_offering=offering
         ).exists()
 
+    def it_tells_the_instructor_when_the_admins_already_have_the_note(instructor_fixture, client):
+        offering = _live(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        url = reverse("classes:teach_class_request_change", kwargs={"pk": offering.pk})
+        first = client.post(url, {"note": "Move it to Friday."})
+        # The page after the first post shows its flash, so the second response carries only its own.
+        client.get(first.url)
+        resp = client.post(url, {"note": "Move it to Friday."})
+        assert resp.status_code == 302
+        assert resp.url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        assert _messages(resp) == ["The admins already have this note."]
+        assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).count() == 1
+
     def it_re_renders_the_modal_open_with_the_error_on_a_blank_note(instructor_fixture, client):
         offering = _live(instructor_fixture)
         client.force_login(instructor_fixture.user)

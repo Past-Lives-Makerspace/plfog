@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-11"
+title = "Asking an admin for a change sends once"
+changes = [
+  "On a live class, the Send button for a note to the admins reads Sending... while the note goes out, and sending the same note again within an hour reaches the admins once instead of once per tap.",
+]

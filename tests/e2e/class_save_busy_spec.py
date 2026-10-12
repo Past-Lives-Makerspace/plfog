@@ -101,7 +101,10 @@ def describe_the_published_class_edit_page():
         offering = ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.PUBLISHED, ready=True)
         login_via_code(TEACHER)
         page.goto(f"{live_server.url}{reverse('classes:teach_class_edit', kwargs={'pk': offering.pk})}")
-        save = page.locator("form[data-pl-busy-submit] button[type='submit'][data-pl-busy]")
+        # The page's own form, not the Request a change modal's, which carries the same guard (#785).
+        save = page.locator(
+            "form[data-pl-busy-submit]:not(.pl-request-change-form) button[type='submit'][data-pl-busy]"
+        )
         expect(save).to_have_text("Save")
         held = _hold_posts(page)
 
