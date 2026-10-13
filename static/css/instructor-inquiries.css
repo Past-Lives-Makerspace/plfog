@@ -23,6 +23,42 @@
 .pl-inquiries__wrap { min-width: 6.5rem; max-width: 9rem; overflow-wrap: anywhere; }
 .pl-inquiries__empty { margin: 0; }
 
+/* The full application (#793): a View Application button under the name opens a row
+   below with every answer, in the application page's sections. */
+.pl-inquiries__who { min-width: 9rem; }
+.pl-inquiries__toggle { display: flex; margin-top: 0.5rem; white-space: nowrap; }
+.pl-inquiries__title { display: block; margin-bottom: 0.25rem; color: var(--hub-text); }
+.pl-inquiries__detail > td { background: var(--hub-surface); padding: 1.25rem 1rem; }
+.pl-inquiries__application {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 1.25rem 1.5rem;
+}
+.pl-inquiries__answers-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  color: var(--hub-link);
+}
+.pl-inquiries__answers dl { margin: 0; }
+.pl-inquiries__answers dt {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--hub-text-muted);
+}
+.pl-inquiries__answers dt:first-child { margin-top: 0; }
+.pl-inquiries__answers dd { margin: 0.2rem 0 0; overflow-wrap: anywhere; }
+/* On a phone the table scrolls sideways and its detail cell is as wide as the whole
+   table, so the answers are held to the visible width (page gutters, card and cell
+   padding) and pinned to the left edge as the table scrolls, one section under another. */
+@media (max-width: 640px) {
+  .pl-inquiries__application {
+    position: sticky;
+    left: 1rem;
+    width: calc(100vw - 7.5rem);
+    grid-template-columns: 1fr;
+  }
+}
+
 .pl-inquiries__status--pending { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
 .pl-inquiries__status--approved { background: rgba(52, 211, 153, 0.15); color: #6ee7b7; }
 .pl-inquiries__status--declined { background: rgba(224, 85, 85, 0.16); color: #f0a0a0; }

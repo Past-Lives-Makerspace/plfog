@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 
 from django import forms
 from django.core.exceptions import ValidationError
-from django.core.validators import MaxValueValidator, MinValueValidator, validate_email
+from django.core.validators import MaxValueValidator, MinValueValidator, URLValidator, validate_email
 from django.db.models import BLANK_CHOICE_DASH
 from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.forms.formsets import DELETION_FIELD_NAME
@@ -1337,44 +1337,227 @@ def _teaching_contact_method_choices() -> list[tuple[str, str]]:
 
 
 def _teaching_experience_choices() -> list[tuple[str, str]]:
-    """The Teaching experience options, behind a blank so a missed pick is a field error."""
+    """The Teaching experience options. Radio chips, so no blank: nothing picked is ``required``."""
     from membership.models import Member
 
-    return [("", "Pick one"), *Member.TeachingExperience.choices]
+    return list(Member.TeachingExperience.choices)
+
+
+def _teaching_class_format_choices() -> list[tuple[str, str]]:
+    from membership.models import Member
+
+    return list(Member.TeachingClassFormat.choices)
+
+
+def _teaching_practice_years_choices() -> list[tuple[str, str]]:
+    from membership.models import Member
+
+    return list(Member.TeachingPracticeYears.choices)
+
+
+def _teaching_class_size_choices() -> list[tuple[str, str]]:
+    from membership.models import Member
+
+    return list(Member.TeachingClassSize.choices)
+
+
+def _teaching_availability_choices() -> list[tuple[str, str]]:
+    from membership.models import Member
+
+    return list(Member.TeachingAvailability.choices)
+
+
+_YES_NO = [("yes", "Yes"), ("no", "No")]
+
+
+def _chips(model: str) -> forms.RadioSelect:
+    """A radio group drawn as .pl-chip labels whose pick an Alpine property follows (``x-model``)."""
+    return forms.RadioSelect(attrs={"x-model": model})
+
+
+class _WebAddressField(forms.URLField):
+    """A URLField for the schemes apply_to_teach stores, so an ftp address is a field error, not a lost application."""
+
+    default_validators = [URLValidator(schemes=["http", "https"])]
 
 
 class TeachingApplicationForm(forms.Form):
-    """The I'm Interested modal: the note, how to reach the member, and where.
+    """The application page behind I'm Interested (#793): the class idea, the experience
+    behind it, logistics, past work, how to reach the member, and anything else.
 
-    Validation lives here, not the view: the note is what an admin reads when they
-    decide, so a blank submit gets the field error rather than filing an empty ask.
-    ``strip`` is Django's default, so a note of only whitespace fails ``required``.
-    The detail is checked against the method in ``clean``: Email must be an address;
-    Text message and Phone call need a phone number with at least seven digits,
-    however it is punctuated. What the member typed is stored as typed.
+    Validation lives here, not the view: what an admin reads before the instructor
+    training must be there, so a missing answer is a field error rather than an
+    application with a gap. ``strip`` is Django's default, so text of only whitespace
+    fails ``required``.
 
-    Website, socials and experience (#690) are what the Instructor Inquiries page
-    shows; experience is required and the other two are optional.
+    The rules between answers live in ``clean`` and match what the page shows and hides
+    in place with Alpine:
 
-    The widget attributes on the two contact fields are what the modal's Alpine
-    component hooks: the select reports a change and the detail input takes the
-    prefill (``templates/classes/teach/partials/apply_form.html``).
+    * The contact detail is checked against the method: Email must be an address; Text
+      message and Phone call need a phone number with at least seven digits, however it
+      is punctuated. What the member typed is stored as typed.
+    * Where they have taught is required for every experience level except first time,
+      and dropped for a first timer.
+    * A website address is required on Website yes and dropped on no, even when one was
+      typed (and so is any error it had). Socials follow the same rule.
+
+    Reuse: a form that files an application another way (#794, an admin adding one by
+    hand) subclasses this one for the same fields and rules, and hands ``answers()`` to
+    ``Member.apply_to_teach``. ``initial_for`` prefills the page from the last ask.
+
+    The widget attributes are what the page's Alpine component hooks: the method select
+    reports a change, the detail input takes the prefill, and the chip groups mirror
+    their pick into the properties the conditional fields read
+    (``templates/classes/teach/partials/apply_form.html``).
     """
 
+    # Your Class Idea
+    class_title = forms.CharField(
+        required=True,
+        max_length=120,
+        label="Working title",
+        help_text="A short name for the class. It can change later.",
+        error_messages={
+            "required": "Give the class a working title.",
+            "max_length": "Keep the title to 120 characters or fewer.",
+        },
+    )
     note = forms.CharField(
         required=True,
         max_length=2000,
-        label="What Would You Like to Host?",
-        help_text=(
-            "A sentence or two is plenty. Tell us the subject, roughly how long it would run, "
-            "and anything you have taught before."
-        ),
+        label="What would students make or learn?",
+        help_text="Tell us the subject, what people leave with, and roughly how long it would run.",
         widget=forms.Textarea(attrs={"rows": 5}),
         error_messages={
             "required": "Tell us a little about what you want to host.",
             "max_length": "That is longer than we can store. Trim it to 2000 characters or fewer.",
         },
     )
+    class_format = forms.ChoiceField(
+        required=True,
+        choices=_teaching_class_format_choices,
+        label="Format",
+        widget=_chips("classFormat"),
+        error_messages={
+            "required": "Pick the format you have in mind.",
+            "invalid_choice": "Pick the format you have in mind.",
+        },
+    )
+    shop_area = forms.CharField(
+        required=False,
+        max_length=200,
+        label="Which shop or area would it use?",
+        help_text="Optional. For example the wood shop, the jewelry bench or the classroom.",
+        error_messages={"max_length": "Keep this to 200 characters or fewer."},
+    )
+    # Your Experience
+    practice_years = forms.ChoiceField(
+        required=True,
+        choices=_teaching_practice_years_choices,
+        label="How long have you practiced this craft?",
+        widget=_chips("practiceYears"),
+        error_messages={
+            "required": "Pick how long you have practiced this craft.",
+            "invalid_choice": "Pick how long you have practiced this craft.",
+        },
+    )
+    experience = forms.ChoiceField(
+        required=True,
+        choices=_teaching_experience_choices,
+        label="Teaching experience",
+        widget=_chips("experience"),
+        error_messages={
+            "required": "Pick how much teaching you have done.",
+            "invalid_choice": "Pick how much teaching you have done.",
+        },
+    )
+    taught_where = forms.CharField(
+        required=False,
+        max_length=1000,
+        label="Where have you taught before?",
+        help_text="Studios, schools, community centers, private lessons. Anywhere counts.",
+        widget=forms.Textarea(attrs={"rows": 3}),
+        error_messages={"max_length": "Trim this to 1000 characters or fewer."},
+    )
+    certifications = forms.CharField(
+        required=False,
+        max_length=1000,
+        label="Certifications or safety training",
+        help_text="Optional. Anything relevant to this class, such as a welding certificate or first aid.",
+        widget=forms.Textarea(attrs={"rows": 3}),
+        error_messages={"max_length": "Trim this to 1000 characters or fewer."},
+    )
+    # Logistics
+    space_needs = forms.CharField(
+        required=False,
+        max_length=1000,
+        label="Equipment or space at Past Lives you would need",
+        help_text="Optional. Machines, benches, a kiln, a room with a sink.",
+        widget=forms.Textarea(attrs={"rows": 3}),
+        error_messages={"max_length": "Trim this to 1000 characters or fewer."},
+    )
+    class_size = forms.ChoiceField(
+        required=True,
+        choices=_teaching_class_size_choices,
+        label="Comfortable class size",
+        widget=_chips("classSize"),
+        error_messages={
+            "required": "Pick a class size you would be comfortable with.",
+            "invalid_choice": "Pick a class size you would be comfortable with.",
+        },
+    )
+    availability = forms.MultipleChoiceField(
+        required=True,
+        choices=_teaching_availability_choices,
+        label="When could you usually teach?",
+        help_text="Pick as many as work.",
+        widget=forms.CheckboxSelectMultiple,
+        error_messages={
+            "required": "Pick at least one time that usually works.",
+            "invalid_choice": "Pick from the times listed.",
+        },
+    )
+    # Show Your Work
+    has_website = forms.ChoiceField(
+        required=True,
+        choices=_YES_NO,
+        label="Do you have a website?",
+        widget=_chips("hasWebsite"),
+        error_messages={
+            "required": "Tell us whether you have a website.",
+            "invalid_choice": "Tell us whether you have a website.",
+        },
+    )
+    website = _WebAddressField(
+        required=False,
+        max_length=200,
+        label="Website address",
+        help_text="Your own site or a portfolio.",
+        error_messages={
+            "invalid": "That does not look like a web address. Check it and try again.",
+            "max_length": "That is longer than we can store. Keep it to 200 characters or fewer.",
+        },
+    )
+    has_socials = forms.ChoiceField(
+        required=True,
+        choices=_YES_NO,
+        label="Do you share your work on social media?",
+        widget=_chips("hasSocials"),
+        error_messages={
+            "required": "Tell us whether you share your work on social media.",
+            "invalid_choice": "Tell us whether you share your work on social media.",
+        },
+    )
+    socials = forms.CharField(
+        required=False,
+        max_length=500,
+        label="Handles or links",
+        help_text="One or more, such as @yourname on Instagram.",
+        error_messages={
+            "max_length": "That is longer than we can store. Keep it to 500 characters or fewer.",
+        },
+    )
+    # How to Reach You
     contact_method = forms.ChoiceField(
         required=True,
         choices=_teaching_contact_method_choices,
@@ -1395,41 +1578,37 @@ class TeachingApplicationForm(forms.Form):
             "max_length": "That is longer than we can store. Keep it to 254 characters or fewer.",
         },
     )
-    experience = forms.ChoiceField(
-        required=True,
-        choices=_teaching_experience_choices,
-        label="Teaching experience",
-        error_messages={
-            "required": "Pick how much teaching you have done.",
-            "invalid_choice": "Pick how much teaching you have done.",
-        },
-    )
-    website = forms.URLField(
+    # Anything Else
+    anything_else = forms.CharField(
         required=False,
-        max_length=200,
-        label="Website",
-        help_text="Optional. Your own site or a portfolio.",
-        error_messages={
-            "invalid": "That does not look like a web address. Check it and try again.",
-            "max_length": "That is longer than we can store. Keep it to 200 characters or fewer.",
-        },
-    )
-    socials = forms.CharField(
-        required=False,
-        max_length=500,
-        label="Socials",
-        help_text="Optional. One or more handles or links, such as @yourname on Instagram.",
-        error_messages={
-            "max_length": "That is longer than we can store. Keep it to 500 characters or fewer.",
-        },
+        max_length=2000,
+        label="Anything else you would like Lee to know?",
+        help_text="Optional.",
+        widget=forms.Textarea(attrs={"rows": 4}),
+        error_messages={"max_length": "Trim this to 2000 characters or fewer."},
     )
 
     def clean(self) -> dict:
         data = super().clean() or {}
+        from membership.models import Member
+
+        self._clean_contact(data)
+        experience = data.get("experience")
+        if experience == Member.TeachingExperience.FIRST_TIME:
+            data["taught_where"] = ""
+            self.errors.pop("taught_where", None)
+        elif experience and not data.get("taught_where") and "taught_where" not in self.errors:
+            self.add_error("taught_where", "Tell us where you have taught before.")
+        self._clean_yes_no(data, "has_website", "website", "Add your website's address, or pick No.")
+        self._clean_yes_no(data, "has_socials", "socials", "Add your handles or links, or pick No.")
+        return data
+
+    def _clean_contact(self, data: dict) -> None:
+        """Check the detail against the method; the field errors already cover a blank either."""
         method = data.get("contact_method")
         detail = data.get("contact_detail")
         if not method or not detail:
-            return data  # the field errors already say which one is missing
+            return
         from membership.models import Member
 
         if method == Member.TeachingContactMethod.EMAIL:
@@ -1439,7 +1618,70 @@ class TeachingApplicationForm(forms.Form):
                 self.add_error("contact_detail", "That does not look like an email address. Check it and try again.")
         elif sum(ch.isdigit() for ch in detail) < 7:
             self.add_error("contact_detail", "That does not look like a phone number. It needs at least seven digits.")
-        return data
+
+    def _clean_yes_no(self, data: dict, switch: str, field: str, missing: str) -> None:
+        """A yes needs ``field`` filled; a no drops whatever was typed there, error and all."""
+        answer = data.get(switch)
+        if answer == "no":
+            data[field] = ""
+            self.errors.pop(field, None)
+        elif answer == "yes" and not data.get(field) and field not in self.errors:
+            self.add_error(field, missing)
+
+    def answers(self) -> dict[str, Any]:
+        """The cleaned answers as ``Member.apply_to_teach`` keywords (``note`` included).
+
+        Only valid after ``is_valid()``; the yes or no switches are the form's own and
+        are not stored, because the address itself says whether there is one.
+        """
+        data = self.cleaned_data
+        return {
+            "note": data["note"],
+            "contact_method": data["contact_method"],
+            "contact_detail": data["contact_detail"],
+            "website": data["website"],
+            "socials": data["socials"],
+            "experience": data["experience"],
+            "class_title": data["class_title"],
+            "class_format": data["class_format"],
+            "shop_area": data["shop_area"],
+            "practice_years": data["practice_years"],
+            "taught_where": data["taught_where"],
+            "certifications": data["certifications"],
+            "space_needs": data["space_needs"],
+            "class_size": data["class_size"],
+            "availability": data["availability"],
+            "anything_else": data["anything_else"],
+        }
+
+    @staticmethod
+    def initial_for(member: Member) -> dict[str, Any]:
+        """The member's last answers as the page's starting values, so asking again after a
+        decline starts from what they wrote. Every value is blank for a first ask.
+
+        A stored website or socials answers its switch Yes; nothing stored leaves the switch
+        unpicked, because an older application never asked.
+        """
+        return {
+            "class_title": member.teaching_class_title,
+            "note": member.teaching_application_note,
+            "class_format": member.teaching_class_format,
+            "shop_area": member.teaching_shop_area,
+            "practice_years": member.teaching_practice_years,
+            "experience": member.teaching_experience,
+            "taught_where": member.teaching_taught_where,
+            "certifications": member.teaching_certifications,
+            "space_needs": member.teaching_space_needs,
+            "class_size": member.teaching_class_size,
+            "availability": list(member.teaching_availability),
+            "has_website": "yes" if member.teaching_website else "",
+            "website": member.teaching_website,
+            "has_socials": "yes" if member.teaching_socials else "",
+            "socials": member.teaching_socials,
+            "contact_method": member.teaching_contact_method,
+            "contact_detail": member.teaching_contact_detail,
+            "anything_else": member.teaching_anything_else,
+        }
 
 
 _INQUIRY_DATE_ATTRS = {"type": "date", "@click": "(() => { try { $el.showPicker() } catch (e) {} })()"}

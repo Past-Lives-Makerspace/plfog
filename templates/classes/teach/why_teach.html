@@ -28,16 +28,14 @@ Class Settings; a blanked field hides its section, so every one is guarded here,
 the money section by its own toggle. The prose sections (rich editor HTML, or older
 Markdown) arrive already sanitized (a SafeString from the model), so nothing on this
 page goes through |safe; Common Questions is split on its headings server side
-(`faq_items`) into the accordion below. The x-data below reopens the interest modal
-when a POST came back with a bound
-(invalid) form so the error shows inside it; the dispatch waits a tick because the
-modal's @open-modal.window listener is not bound yet when this x-init runs.
+(`faq_items`) into the accordion below. Both I'm Interested buttons are plain links to
+the application page (classes:teach_apply, #793); there is no modal here any more.
 {% endcomment %}
-<div class="pl-teach" x-data{% if apply_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'apply-to-teach'))"{% endif %} data-help-key="teach.become-instructor">
+<div class="pl-teach" data-help-key="teach.become-instructor">
 
     {% if application_state == 'pending' %}
     <div class="hub-card pl-orientation-banner">
-        <h2 class="pl-orientation-banner__title">Thanks, We Got Your Note</h2>
+        <h2 class="pl-orientation-banner__title">Thanks, We Got Your Application</h2>
         <p class="pl-orientation-banner__body">
             An admin will get back to you. You will get an email either way, and you can check this page any time.
         </p>
@@ -79,7 +77,7 @@ modal's @open-modal.window listener is not bound yet when this x-init runs.
             {% endif %}
             <div class="pl-teach-hero__actions">
                 {% if application_state == 'pending' %}
-                    <span class="pl-lifecycle-badge pl-lifecycle-badge--awaiting_admin">Note Sent</span>
+                    <span class="pl-lifecycle-badge pl-lifecycle-badge--awaiting_admin">Application Sent</span>
                     {% if example_url %}
                     <a class="pl-btn pl-btn--primary" href="{{ example_url }}" target="_blank" rel="noopener">See an Example Class Page</a>
                     {% endif %}
@@ -89,9 +87,9 @@ modal's @open-modal.window listener is not bound yet when this x-init runs.
                     <a class="pl-btn pl-btn--secondary" href="{{ example_url }}" target="_blank" rel="noopener">See an Example Class Page</a>
                     {% endif %}
                 {% else %}
-                    <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-modal', 'apply-to-teach')">
+                    <a class="pl-btn pl-btn--primary" href="{% url 'classes:teach_apply' %}" data-teach-apply>
                         {% if application_state == 'declined' %}I'm Still Interested{% else %}I'm Interested{% endif %}
-                    </button>
+                    </a>
                     {% if example_url %}
                     <a class="pl-btn pl-btn--secondary" href="{{ example_url }}" target="_blank" rel="noopener">See an Example Class Page</a>
                     {% endif %}
@@ -253,7 +251,7 @@ modal's @open-modal.window listener is not bound yet when this x-init runs.
             {% else %}
             <a class="pl-btn pl-btn--primary" href="{{ catalog_url }}" target="_blank" rel="noopener">Have a Look at the Catalog</a>
             {% endif %}
-            <p class="pl-teach-apply__footnote">Want to add something to your note? Ask an admin and they can update it for you.</p>
+            <p class="pl-teach-apply__footnote">Want to add something to your application? Ask an admin and they can update it for you.</p>
         {% elif application_state == 'approved' %}
             <h2 class="pl-teach-section__title">You Are Already In</h2>
             <p class="hub-text-muted">The teaching portal is open. Start a class whenever you are ready.</p>
@@ -265,15 +263,11 @@ modal's @open-modal.window listener is not bound yet when this x-init runs.
             {% if teach_page.teach_page_cta_line %}
             <p class="hub-text-muted">{{ teach_page.teach_page_cta_line }}</p>
             {% endif %}
-            <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-modal', 'apply-to-teach')">
+            <a class="pl-btn pl-btn--primary" href="{% url 'classes:teach_apply' %}" data-teach-apply>
                 {% if application_state == 'declined' %}I'm Still Interested{% else %}I'm Interested{% endif %}
-            </button>
+            </a>
         {% endif %}
     </section>
-
-    {% if application_state == 'none' or application_state == 'declined' %}
-    {% include "components/modal.html" with modal_id="apply-to-teach" modal_title="What Would You Host?" modal_size="sm" modal_body_include="classes/teach/partials/apply_form.html" %}
-    {% endif %}
 
 </div>
 {% endblock %}

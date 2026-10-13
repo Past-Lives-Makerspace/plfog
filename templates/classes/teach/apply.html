@@ -1,0 +1,41 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Apply to Host a Class{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/teach-application.css' %}">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+The application page behind both I'm Interested buttons on Host a Class (#793). It
+replaced the short "What Would You Host?" modal. GET and POST are classes:teach_apply;
+an invalid POST renders this page again with the bound form, so every answer stays and
+each error sits beside its field, with one line at the top saying to look below.
+The form is novalidate: the server is the gate. A browser check would block Send on a
+field the member cannot see, such as a broken address left under Website No.
+The sections live in partials/apply_form.html so another form can file the same
+answers (#794).
+{% endcomment %}
+<div class="pl-teach-application" data-help-key="teach.become-instructor">
+    <a href="{% url 'classes:teach_why' %}" class="hub-btn hub-btn--sm hub-btn--ghost pl-teach-application__back">&larr; Back to Host a Class</a>
+
+    <header class="pl-teach-application__header">
+        <h1 class="hub-page-title">Apply to Host a Class</h1>
+        <p class="hub-text-muted pl-teach-application__lead">Tell us about the class you have in mind and the experience behind it. Lee reads every application before meeting new instructors for a 1 on 1 training, so the more you share here, the more of that time goes to your class.</p>
+    </header>
+
+    {% if apply_form.errors %}
+    <p class="pl-teach-application__alert" role="alert" data-apply-errors>Some answers need another look. They are marked below.</p>
+    {% endif %}
+
+    <form method="post" action="{% url 'classes:teach_apply' %}" class="pl-teach-application__form" data-teach-application novalidate>
+        {% csrf_token %}
+        {% include "classes/teach/partials/apply_form.html" with form=apply_form %}
+        <div class="pl-teach-application__actions">
+            <a href="{% url 'classes:teach_why' %}" class="pl-btn pl-btn--secondary">Cancel</a>
+            <button type="submit" class="pl-btn pl-btn--primary">Send Application</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

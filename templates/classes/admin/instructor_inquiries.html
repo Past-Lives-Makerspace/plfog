@@ -40,20 +40,28 @@
           <th>Status</th>
         </tr>
       </thead>
-      <tbody>
-        {% for member in inquiries %}
+      {% for member in inquiries %}
+      <tbody class="pl-inquiries__item" x-data="{ open: false }">
         <tr data-inquiry-row="{{ member.pk }}">
           <td class="pl-inquiries__date">{{ member.teaching_applied_at|date:"M j, Y" }}</td>
-          <td><a href="{% url 'hub_admin_member_edit' member.pk %}">{{ member.display_name }}</a></td>
-          <td class="pl-inquiries__note">{{ member.teaching_application_note|linebreaksbr }}</td>
+          <td class="pl-inquiries__who">
+            <a href="{% url 'hub_admin_member_edit' member.pk %}">{{ member.display_name }}</a>
+            <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-inquiries__toggle" @click="open = !open" :aria-expanded="open.toString()" aria-expanded="false" data-inquiry-toggle>
+              <span x-text="open ? 'Hide Application' : 'View Application'">View Application</span>
+            </button>
+          </td>
+          <td class="pl-inquiries__note">{% if member.teaching_class_title %}<strong class="pl-inquiries__title">{{ member.teaching_class_title }}</strong>{% endif %}{{ member.teaching_application_note|linebreaksbr }}</td>
           <td class="pl-inquiries__wrap">{% if member.teaching_website %}<a href="{{ member.teaching_website }}" target="_blank" rel="noopener">{{ member.teaching_website }}</a>{% endif %}</td>
           <td class="pl-inquiries__wrap">{{ member.teaching_socials|urlize }}</td>
           <td>{{ member.get_teaching_experience_display }}</td>
           <td class="pl-inquiries__wrap">{{ member.teaching_contact_summary }}</td>
           <td><span class="hub-pill pl-inquiries__status pl-inquiries__status--{{ member.teaching_application_state.value }}">{{ member.teaching_application_state.value|capfirst }}</span></td>
         </tr>
-        {% endfor %}
+        <tr class="pl-inquiries__detail" x-show="open" x-cloak>
+          <td colspan="8">{% include "classes/admin/partials/inquiry_application.html" %}</td>
+        </tr>
       </tbody>
+      {% endfor %}
     </table>
   </div>
   {% elif form.is_valid %}

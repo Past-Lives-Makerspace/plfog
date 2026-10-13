@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-13"
+title = "A proper application to host a class"
+changes = [
+  "I'm Interested on the Host a Class page now opens a full application instead of a short pop up.",
+  "It asks about your class idea, how long you have practiced the craft, where you have taught, what you would need at Past Lives, a comfortable class size and when you could teach, so Lee knows you before your instructor training.",
+  "Website and social media fields only ask for an address once you say you have one.",
+  "Admins see every answer on the Instructor Inquiries page and in its export.",
+]

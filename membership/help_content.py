@@ -846,7 +846,7 @@ All four are covered in [Run Your Class](/help/teaching/run-your-class/).
 
 - Nobody self-publishes. Every class — including every new run of an old one — goes through review first.
 - Draft and pending classes are all yours to edit. Once a class publishes, only an admin can change it.
-- An admin saying yes to your [note about hosting](/classes/teach/why/) is what opens the portal, and the quality bar lives in the [hosting guide](/help/more/instructor-orientation/).
+- An admin saying yes to your [application to host](/classes/teach/why/) is what opens the portal, and the quality bar lives in the [hosting guide](/help/more/instructor-orientation/).
 
 ![The teaching portal: overview, your classes, and registrations.](/static/help/instructor-quickstart/01-the-teaching-portal.png)
 """,
@@ -873,9 +873,9 @@ Got something to share? Past Lives instructors come from our membership base. If
 
 ### Say You're Interested {#teach-become-instructor}
 
-Click **Host a Class** in the left menu and you land on [Host a Class](/classes/teach/why/). It shows what you get, links a real example class page, and carries the **I'm Interested** button. Tell us what you would like to host, in a sentence or two, and send it.
+Click **Host a Class** in the left menu and you land on [Host a Class](/classes/teach/why/). It shows what you get, links a real example class page, and carries the **I'm Interested** button. It opens an application: your class idea, your experience, what the class would need, where to see your work, and how to reach you. Fill it in and press **Send Application**.
 
-An admin reads every note and usually gets to them within a week. You get an email either way, and you can open that page any time to see where things stand. If the answer is no, the admin leaves a note saying why, and you are welcome to say you're interested again whenever you like.
+An admin reads every application and usually gets to them within a week. You get an email either way, and you can open that page any time to see where things stand. If the answer is no, the admin leaves a note saying why, and you are welcome to say you're interested again whenever you like.
 
 Once an admin says yes the teaching portal opens, the menu entry reads **Teaching**, and you get a public instructor page in the class catalog. (This is about using the portal; it is separate from any guild equipment or tool orientations.)
 
