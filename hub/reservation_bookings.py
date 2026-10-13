@@ -25,10 +25,12 @@ from django.utils import timezone
 
 from classes.table import prepare_table, table_search
 from hub.bookings_tab import date_param, late_fee_of, pane_query
-from membership.models import Equipment, EquipmentReservation, Member, credit_hours_short
+from membership.models import Equipment, EquipmentReservation, Member, credit_hours_short, duration_label
 from membership.permissions import manageable_reservations, manages_equipment
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from django.db.models import QuerySet
 
     from billing.models import LateCancellationFee
@@ -82,6 +84,8 @@ class ReservationRow:
     can_credit_unused: bool = False
     #: The Credit Unused Time modal's form, built only for a row that offers it.
     credit_form: Any = None
+    #: End Early (#787) on the member's own in progress booking: the hours it would credit, "" when not offered.
+    end_early_hours: str = ""
 
     @property
     def has_money_item(self) -> bool:
@@ -231,22 +235,40 @@ def build_row(
         row.can_decline = waiting and not credited
         # Credit Unused Time (#787): once a confirmed booking on an hourly item has started, while time is left to credit.
         credit_left = reservation.duration_minutes - row.credited_minutes
-        if confirmed and reservation.equipment.is_hourly and reservation.starts_at <= now and credit_left > 0:
+        # A booking the member ended early already had its unused time credited (#787).
+        ended_early = cast(bool, reservation.has_ended_early)  # type: ignore[attr-defined]
+        if (
+            confirmed
+            and reservation.equipment.is_hourly
+            and reservation.starts_at <= now
+            and credit_left > 0
+            and not ended_early
+        ):
             from hub.forms import EquipmentCreditUnusedForm
 
             row.can_credit_unused = True
             row.credit_form = EquipmentCreditUnusedForm(
                 limit_minutes=credit_left, auto_id=f"credit-unused-{reservation.pk}-%s"
             )
+        # A manager's own booking takes this staff menu, and still offers End Early under the same gates (#787).
+        _offer_end_early(row, viewer, now)
         return row
     # The member menu: only ever on the viewer's own row (the staff rows are managed or own).
     row.can_cancel_mine = is_own and (confirmed or waiting) and reservation.starts_at > now and not row.credited_minutes
     row.can_pay_fee = is_own and fee is not None and fee.is_unpaid
+    _offer_end_early(row, viewer, now)
     # A request was never booked, so cancelling it never carries a fee line (#748).
     if row.can_cancel_mine and confirmed:
         policy = policy_for_equipment(reservation.equipment, site=site)
         row.late_cancel_warning = cancel_sentence(policy) if policy.is_late(reservation.starts_at, now=now) else ""
     return row
+
+
+def _offer_end_early(row: ReservationRow, viewer: Member | None, now: datetime) -> None:
+    """Set the row's End Early hours (#787) while the viewer's own booking would take it, in either menu."""
+    reservation = row.reservation
+    if reservation.can_end_early(viewer, now=now, credited_minutes=row.credited_minutes):
+        row.end_early_hours = duration_label(reservation.end_early_minutes(now))
 
 
 def _scope_equipment(request: HttpRequest) -> list[Equipment]:

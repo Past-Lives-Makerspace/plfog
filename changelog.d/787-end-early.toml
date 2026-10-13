@@ -1,0 +1,9 @@
+bump = "minor"
+audience = "members"
+date = "2026-10-12"
+title = "Finish early on hourly equipment and keep the time you did not use"
+changes = [
+  "On equipment you pay for by the hour, once your reservation has started you can end it whenever you are done, where the managers have turned this on.",
+  "The time you did not use comes back as credit on that equipment for your next booking, rounded up to the half hour in your favor.",
+  "There is no fee and no refund. The freed time opens up for other members.",
+]

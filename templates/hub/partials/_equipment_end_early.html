@@ -1,0 +1,12 @@
+{% comment %}
+End Early (#787) on the member's own in progress row on Your Reservations Here: the button and its
+confirm, rendered only while the schedule builder set reservation.end_early_hours. The confirm posts
+through htmx and the refreshed schedule comes back with the toast; hx-vals keeps the week and day.
+Context: reservation, equipment, week_offset_str, selected_day_str.
+{% endcomment %}
+{% url 'hub_equipment_reservation_end_early' equipment.slug reservation.pk as end_early_url %}
+<button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" data-end-early
+        @click="$dispatch('open-confirm', 'end-early-{{ reservation.pk }}')">End Early</button>
+{% with rpks=reservation.pk|stringformat:"s" end_vals='{"week": "'|add:week_offset_str|add:'", "day": "'|add:selected_day_str|add:'"}' end_message="The "|add:reservation.end_early_hours|add:" you have not used become credit here." %}
+{% include "components/confirm_modal.html" with confirm_id="end-early-"|add:rpks confirm_title="End your reservation now?" confirm_message=end_message confirm_button_text="End Early" confirm_button_style="primary" confirm_cancel_text="Keep It" confirm_hx_post=end_early_url confirm_hx_target="#equipment-schedule" confirm_hx_vals=end_vals %}
+{% endwith %}

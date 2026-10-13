@@ -339,6 +339,9 @@ def _schedule_context(
             .order_by("starts_at")
         )
         for reservation in my_reservations:
+            # End Early (#787): the hours it would credit, only while the row offers it.
+            if reservation.can_end_early(member, now=now, credited_minutes=reservation.credited_unused_minutes):
+                reservation.end_early_hours = duration_label(reservation.end_early_minutes(now))
             # The cancel modal's fee line, only while a cancel right now would be late (#456). A request
             # awaiting approval was never booked, so cancelling it never costs anything (#748), and an
             # unpaid hold (#749) is released, not cancelled.
@@ -1006,6 +1009,39 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
         return redirect(back)
     messages.success(request, _manager_cancel_message(reservation, member))
     return redirect(back)
+
+
+@login_required
+@require_POST
+def hub_equipment_reservation_end_early(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
+    """POST — the member ends their own in progress booking now and keeps the unused time as credit (#787).
+
+    From the schedule it answers the refreshed partial with a toast; from the Bookings tab (a
+    posted ``next``) a message and that page. Every gate is :meth:`EquipmentReservation.end_early`'s,
+    so a crafted POST from anyone else, early, or with the switch off is refused with its reason.
+    """
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    reservation = get_object_or_404(EquipmentReservation, pk=pk, equipment=equipment)
+    member = _get_member(request)
+    if member is None:
+        return HttpResponse("Forbidden", status=403)
+    try:
+        minutes = reservation.end_early(member)
+    except EquipmentError as exc:
+        level, text = "error", str(exc)
+    else:
+        level, text = "success", f"Ended. {duration_label(minutes)} of credit added."
+    if "next" in request.POST:
+        getattr(messages, level)(request, text)
+        return redirect(_safe_next(request, f"{reverse('hub_equipment_index')}?view=bookings"))
+    response = _render_schedule(
+        request,
+        equipment,
+        week_offset=_parse_week_value(request.POST.get("week", "0")),
+        selected_day=_parse_day(request.POST.get("day", "")),
+    )
+    trigger_toast(response, text, level)
+    return response
 
 
 def _self_cancel_on_schedule(
