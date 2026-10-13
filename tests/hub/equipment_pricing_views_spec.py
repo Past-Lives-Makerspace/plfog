@@ -435,9 +435,9 @@ def describe_reserving_priced_equipment():
         for equipment in (_hourly(), _donation(name="Stale Press")):
             calls: list[int] = []
 
-            def stale_once(self: Equipment, *args: object, _calls: list[int] = calls) -> int:
+            def stale_once(self: Equipment, *args: object, _calls: list[int] = calls, **kwargs: int) -> int:
                 _calls.append(1)
-                return 0 if len(_calls) == 1 else real(self, *args)  # type: ignore[arg-type]
+                return 0 if len(_calls) == 1 else real(self, *args, **kwargs)  # type: ignore[arg-type]
 
             with patch.object(Equipment, "checkout_amount_cents", autospec=True, side_effect=stale_once):
                 response = _reserve(client, equipment)

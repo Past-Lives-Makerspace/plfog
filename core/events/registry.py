@@ -507,6 +507,7 @@ EQUIPMENT_RESERVATION_CANCELLED = "equipment.reservation_cancelled"  # the membe
 EQUIPMENT_RESERVATION_REQUESTED = "equipment.reservation_requested"  # your request is in, the time held (#748)
 EQUIPMENT_RESERVATION_NEEDS_APPROVAL = "equipment.reservation_needs_approval"  # managers: approve or decline (#748)
 EQUIPMENT_RESERVATION_DECLINED = "equipment.reservation_declined"  # a manager declined your request, with why (#748)
+EQUIPMENT_CREDIT_GRANTED = "equipment.credit_granted"  # a manager gave you hourly credit on an item (#787)
 BILLING_LATE_FEE_PAID = "billing.late_fee_paid"  # the receipt for a paid late cancellation fee
 BILLING_LATE_FEE_WAIVED = "billing.late_fee_waived"  # an unpaid late cancellation fee was forgiven
 BILLING_PAYOUT_FAILED_ADMIN = "billing.payout_failed_admin"  # Stripe rejected a payout transfer (#662)
@@ -1211,6 +1212,18 @@ _NEW_EVENTS: list[EventType] = [
         category="Spaces & Equipment",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # equipment.credit_granted — a manager gave the member hourly credit on one item (#787),
+    # by hand or from a reservation's unused time. Good news, not an obligation, so email
+    # defaults on rather than forced; a Book a Time button takes them to spend it.
+    EventType(
+        key=EQUIPMENT_CREDIT_GRANTED,
+        label="Equipment credit given",
+        description="A manager gave you hours of credit on a piece of equipment. It applies the next time you book it.",
+        category="Spaces & Equipment",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
     # billing.late_fee_paid — the receipt for a late cancellation fee paid through Stripe

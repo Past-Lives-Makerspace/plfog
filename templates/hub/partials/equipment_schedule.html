@@ -89,6 +89,9 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
       <h2 class="hub-detail-label">Book a Time</h2>
       {% if price_chip %}<span class="pl-price-chip" data-price-chip>{{ price_chip }}</span>{% endif %}
     </div>
+    {% if credit_line %}
+    <p class="pl-equip-book__credit" data-credit-line>{{ credit_line }}</p>
+    {% endif %}
     {% if booking_terms %}
     <p class="pl-equip-book__terms"{% if needs_approval %} data-approval-terms{% endif %}{% if equipment.is_priced %} data-pay-terms{% endif %}>{{ booking_terms }}</p>
     {% endif %}
@@ -98,10 +101,12 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
     <form id="equip-reserve-form" method="post" action="{% url 'hub_equipment_reserve' equipment.slug %}"
           hx-post="{% url 'hub_equipment_reserve' equipment.slug %}" hx-target="#equipment-schedule"
           hx-swap="outerHTML" hx-indicator="#equipment-schedule"
-          x-data="{ start: '{{ starts.0.isoformat }}', minutes: '', durations: JSON.parse(document.getElementById('equip-durations-data').textContent), options() { return this.durations[this.start] || []; }, picked() { const options = this.options(); return options.find((option) => String(option.v) === String(this.minutes)) || options[0] || null; }, summary() { const option = this.picked(); return option ? '{{ selected_day|date:"D, M j" }} · ' + option.span + (option.total ? ' · ' + option.total : '') : ''; } }">
+          x-data="{ start: '{{ starts.0.isoformat }}', minutes: '', durations: JSON.parse(document.getElementById('equip-durations-data').textContent), options() { return this.durations[this.start] || []; }, picked() { const options = this.options(); return options.find((option) => String(option.v) === String(this.minutes)) || options[0] || null; }, summary() { const option = this.picked(); return option ? '{{ selected_day|date:"D, M j" }} · ' + option.span + (option.covered ? ' · Covered by your credit' : option.total ? ' · ' + option.total : '') : ''; }, covered() { const option = this.picked(); return Boolean(option && option.covered); } }">
       {% csrf_token %}
       <input type="hidden" name="day" value="{{ selected_day|date:'Y-m-d' }}">
       <input type="hidden" name="week" value="{{ week_offset }}">
+      {# The credit this page showed (#787): the booking is refused if the balance changed since. #}
+      <input type="hidden" name="credit_shown" value="{{ credit_minutes }}">
       {% if equipment.is_donation %}<input type="hidden" name="amount" value="" data-reserve-amount>{% endif %}
       <div class="pl-equip-book-row hub-form-group">
         <label class="pl-form-group pl-equip-book-field">
@@ -126,10 +131,11 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
         </label>
       </div>
       {% if equipment.is_hourly %}
-      <p class="pl-equip-book__total" data-reserve-total>Total: <strong x-text="picked() ? picked().total : ''"></strong></p>
+      {# With credit here (#787) the line goes on to what it covers and what is left to pay, or that it covers it all. #}
+      <p class="pl-equip-book__total" data-reserve-total>Total: <strong x-text="picked() ? picked().total : ''"></strong>{% if credit_minutes %}<template x-if="picked() && picked().credit"><span data-reserve-credit> · <span x-text="picked().credit"></span> · <strong x-text="covered() ? 'Covered by your credit' : 'You pay ' + picked().pay"></strong></span></template>{% endif %}</p>
       {% endif %}
       <div class="pl-equip-save-row">
-        <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('equip-book-picked', { summary: summary(), total: picked() ? picked().total : '' }); $dispatch('open-confirm', 'equip-reserve-confirm')">{{ reserve_label }}</button>
+        <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('equip-book-picked', { summary: summary(), total: picked() ? picked().pay || picked().total : '', credit: picked() ? picked().credit : '' }); $dispatch('open-confirm', {% if credit_minutes %}covered() ? 'equip-reserve-confirm-covered' : {% endif %}'equip-reserve-confirm')"{% if credit_minutes %} x-text="covered() ? '{% if needs_approval %}Send request{% else %}Reserve{% endif %}' : '{{ reserve_label }}'"{% endif %}>{{ reserve_label }}</button>
       </div>
     </form>
     {% if late_cancel_sentence %}
@@ -138,6 +144,10 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
     {% if equipment.is_hourly %}
     {# Hourly (#749): the summary with the amount, then Stripe Checkout. #}
     {% include "components/confirm_modal.html" with confirm_id="equip-reserve-confirm" confirm_title=needs_approval|yesno:"Request this time?,Reserve and pay?" confirm_body_include="hub/partials/_equipment_reserve_confirm_body.html" confirm_button_text="Continue to Payment" confirm_button_style="primary" confirm_js="document.getElementById('equip-reserve-form').requestSubmit();" %}
+    {% if credit_minutes %}
+    {# Credit covers the whole pick (#787): no checkout, so its own confirm, which says nothing is charged. #}
+    {% include "components/confirm_modal.html" with confirm_id="equip-reserve-confirm-covered" confirm_title=needs_approval|yesno:"Request this time?,Reserve this time?" confirm_body_include="hub/partials/_equipment_reserve_confirm_body.html" credit_covered=True confirm_button_text=needs_approval|yesno:"Send request,Reserve" confirm_button_style="primary" confirm_js="document.getElementById('equip-reserve-form').requestSubmit();" %}
+    {% endif %}
     {% elif equipment.is_donation %}
     {# Donation based (#749): the member's amount rides into the reserve form; $0 reserves for free. #}
     {% include "components/confirm_modal.html" with confirm_id="equip-reserve-confirm" confirm_title="Reserve this time?" confirm_body_include="hub/partials/_equipment_reserve_confirm_body.html" confirm_amount_name="amount" confirm_amount_label="Your amount ($)" confirm_amount_value=equipment.donation_suggested_dollars confirm_amount_hint=equipment.donation_amount_hint confirm_amount_max="500" confirm_button_text="Reserve" confirm_button_style="primary" confirm_js="var form = document.getElementById('equip-reserve-form'); form.querySelector('[data-reserve-amount]').value = document.getElementById('equip-reserve-confirm-amount').value; form.requestSubmit();" %}
@@ -168,8 +178,8 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
     <h2 class="hub-detail-label" style="margin:0 0 0.75rem;">Your Reservations Here</h2>
     <ul class="pl-equip-res-list">
       {% for reservation in my_reservations %}
-      {% if reservation.is_awaiting_payment or reservation.is_awaiting_approval or reservation.is_declined or reservation.amount_paid_cents and reservation.status == "confirmed" %}
-      {# A row with a state line (#748, #749): awaiting payment or approval, declined, or a paid confirmed row. #}
+      {% if reservation.is_awaiting_payment or reservation.is_awaiting_approval or reservation.is_declined or reservation.amount_paid_cents and reservation.status == "confirmed" or reservation.credit_minutes and reservation.status == "confirmed" %}
+      {# A row with a state line (#748, #749, #787): awaiting payment or approval, declined, or a paid or credit confirmed row. #}
       <li class="pl-equip-res-row" data-my-reservation-state="{{ reservation.status }}">
         <span class="pl-equip-res-row__main">
           <span>
@@ -181,14 +191,14 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
           {% elif reservation.is_declined %}
           <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--declined">Declined</span> {{ reservation.cancelled_by.display_name }}: {{ reservation.cancelled_reason }}{% if reservation.refund_note %} {{ reservation.refund_note }}{% endif %}</span>
           {% elif reservation.is_awaiting_approval and reservation.amount_paid_cents %}
-          <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--warn">Awaiting approval</span> Paid {{ reservation.paid_display }}. A manager will approve or decline it. Automatic full refund if it's declined.</span>
+          <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--warn">Awaiting approval</span> Paid {{ reservation.paid_display }}. A manager will approve or decline it. Automatic full refund if it's declined.{% if reservation.credit_minutes %} <span class="pl-equip-badge pl-equip-badge--credit" data-credit-used>{{ reservation.credit_used_label }}</span>{% endif %}</span>
           {% elif reservation.is_awaiting_approval %}
-          <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--warn">Awaiting approval</span> A manager will approve or decline it.</span>
+          <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--warn">Awaiting approval</span> A manager will approve or decline it.{% if reservation.credit_minutes %} <span class="pl-equip-badge pl-equip-badge--credit" data-credit-used>{{ reservation.credit_used_label }}</span>{% endif %}</span>
           {% else %}
-          <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--ok">Confirmed</span> Paid {{ reservation.paid_display }}</span>
+          <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--ok">Confirmed</span>{% if reservation.amount_paid_cents %} Paid {{ reservation.paid_display }}{% endif %}{% if reservation.credit_minutes %} <span class="pl-equip-badge pl-equip-badge--credit" data-credit-used>{{ reservation.credit_used_label }}</span>{% endif %}</span>
           {% endif %}
         </span>
-        {% if not reservation.is_declined %}
+        {% if not reservation.is_declined and not reservation.credited_minutes_total %}
         <span class="pl-equip-res-row__actions">
           {% if reservation.is_awaiting_payment %}
           {# Pay now resumes the same Checkout; unboosted, because the answer is a redirect to Stripe. #}
@@ -211,7 +221,7 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
         </span>
         {% if reservation.is_cancelled_by_manager %}
         <span class="hub-text-muted">Cancelled by the manager: {{ reservation.cancelled_reason }}{% if reservation.refund_note %} {{ reservation.refund_note }}{% endif %}</span>
-        {% elif reservation.status == "confirmed" %}
+        {% elif reservation.status == "confirmed" and not reservation.credited_minutes_total %}
         <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                 @click="$dispatch('open-confirm', 'cancel-my-res-{{ reservation.pk }}')">Cancel</button>
         {% include "hub/partials/_equipment_my_cancel_modal.html" %}

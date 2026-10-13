@@ -16,7 +16,7 @@ the list is, so a menu never offers what the list says the viewer does not run.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db.models import Q
 from django.http import HttpRequest
@@ -25,7 +25,7 @@ from django.utils import timezone
 
 from classes.table import prepare_table, table_search
 from hub.bookings_tab import date_param, late_fee_of, pane_query
-from membership.models import Equipment, EquipmentReservation, Member
+from membership.models import Equipment, EquipmentReservation, Member, credit_hours_short
 from membership.permissions import manageable_reservations, manages_equipment
 
 if TYPE_CHECKING:
@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
     from billing.models import LateCancellationFee
     from core.models import SiteConfiguration
+    from membership.models import EquipmentReservationQuerySet
 
 #: The chips above the table (``?show=``). Upcoming is the default and never written to the URL.
 #: Needs Approval (#748) is the staff view's alone: the requests on equipment they manage.
@@ -77,11 +78,29 @@ class ReservationRow:
     is_undecided: bool = False
     #: The Waive modal's form, built only for a row that offers Waive Late Fee.
     waive_form: Any = None
+    #: Credit Unused Time (#787): a started, confirmed, hourly booking the viewer manages with time left to credit.
+    can_credit_unused: bool = False
+    #: The Credit Unused Time modal's form, built only for a row that offers it.
+    credit_form: Any = None
 
     @property
     def has_money_item(self) -> bool:
         """Whether the staff menu's Money group has an item (so it gets a divider)."""
-        return self.can_waive_fee or self.can_refund_fee
+        return self.can_waive_fee or self.can_refund_fee or self.can_credit_unused
+
+    @property
+    def credited_minutes(self) -> int:
+        """Minutes of this booking's unused time credited back (#787), from the row query's annotation.
+
+        Read straight off the annotation :func:`_with_related` adds, so a row built without it fails loudly.
+        """
+        return cast(int, self.reservation.credited_minutes_total)  # type: ignore[attr-defined]
+
+    @property
+    def credited_label(self) -> str:
+        """The row's "Credited 2h" pill (#787): the unused time a manager credited back, "" when none."""
+        minutes = self.credited_minutes
+        return f"Credited {credit_hours_short(minutes)}" if minutes else ""
 
     @property
     def fee_unpaid(self) -> bool:
@@ -153,10 +172,13 @@ def _with_related(rows: QuerySet[EquipmentReservation]) -> QuerySet[EquipmentRes
     """Everything a row and its menu read, so the pane costs the same with 1 row or 25."""
     from hub.views import _primary_email_prefetch
 
-    # The reservation's own refunds feed its Paid and Refunded pills (#749).
-    return rows.select_related("equipment__guild", "member__user", "late_fee__member").prefetch_related(
+    # The reservation's own refunds feed its Paid and Refunded pills (#749); the unused time credited back
+    # rides the row as one scalar subquery (#787), so the "Credited 2h" pill and the menu cost no query.
+    related = rows.select_related("equipment__guild", "member__user", "late_fee__member").prefetch_related(
         "late_fee__refunds", "refunds", _primary_email_prefetch("member__user__emailaddress_set")
     )
+    # Every caller passes EquipmentReservation.objects rows, so the model's own queryset is what arrives here.
+    return cast("EquipmentReservationQuerySet", related).with_credited_unused()
 
 
 def build_row(
@@ -201,12 +223,24 @@ def build_row(
             and fee.status == LateCancellationFee.Status.PAID
             and fee.refundable_cents > 0
         )
-        row.can_cancel = confirmed and reservation.ends_at > now
+        # A booking whose unused time was credited is never cancelled or declined (#787): no refund on top.
+        credited = row.credited_minutes > 0
+        row.can_cancel = confirmed and reservation.ends_at > now and not credited
         # A request awaiting approval offers Approve and Decline in place of Cancel (#748).
-        row.can_approve = row.can_decline = waiting
+        row.can_approve = waiting
+        row.can_decline = waiting and not credited
+        # Credit Unused Time (#787): once a confirmed booking on an hourly item has started, while time is left to credit.
+        credit_left = reservation.duration_minutes - row.credited_minutes
+        if confirmed and reservation.equipment.is_hourly and reservation.starts_at <= now and credit_left > 0:
+            from hub.forms import EquipmentCreditUnusedForm
+
+            row.can_credit_unused = True
+            row.credit_form = EquipmentCreditUnusedForm(
+                limit_minutes=credit_left, auto_id=f"credit-unused-{reservation.pk}-%s"
+            )
         return row
     # The member menu: only ever on the viewer's own row (the staff rows are managed or own).
-    row.can_cancel_mine = is_own and (confirmed or waiting) and reservation.starts_at > now
+    row.can_cancel_mine = is_own and (confirmed or waiting) and reservation.starts_at > now and not row.credited_minutes
     row.can_pay_fee = is_own and fee is not None and fee.is_unpaid
     # A request was never booked, so cancelling it never carries a fee line (#748).
     if row.can_cancel_mine and confirmed:

@@ -5,7 +5,8 @@ only when the row's flag says its endpoint would take it. Staff rows (row.can_ma
 menu in groups (Look, Money, Stop) with a divider only between non empty groups; the viewer's own
 row elsewhere gets the member menu. Confirms open the row's modal in reservation_booking_modals.html;
 Refund Late Fee loads its form into the shared refund modal. A request awaiting approval (#748) shows
-Approve (posts at once, no confirm) and Decline Reservation in place of Cancel Reservation.
+Approve (posts at once, no confirm) and Decline Reservation in place of Cancel Reservation. A started,
+confirmed, hourly booking adds Credit Unused Time to the Money group (#787), opening its row's modal.
 {% endcomment %}
 {% with r=row.reservation pk=row.reservation.pk|stringformat:"s" %}
 <a href="{% url 'hub_equipment_detail' r.equipment.slug %}" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">View Equipment</a>
@@ -21,6 +22,9 @@ Approve (posts at once, no confirm) and Decline Reservation in place of Cancel R
 <div class="pl-row-menu__divider" role="separator"></div>
 {% if row.can_waive_fee %}
 <button type="button" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus(); $dispatch('open-modal', 'waive-fee-{{ row.late_fee.pk }}')">Waive Late Fee</button>
+{% endif %}
+{% if row.can_credit_unused %}
+<button type="button" class="pl-row-menu__item" role="menuitem" data-credit-unused-menu-item @click="closeAndRefocus(); $dispatch('open-modal', 'credit-unused-{{ pk }}')">Credit Unused Time</button>
 {% endif %}
 {% if row.can_refund_fee %}
 <button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem"

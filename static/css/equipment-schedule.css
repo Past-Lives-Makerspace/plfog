@@ -101,3 +101,16 @@
 .pl-checkout-card__form {
     margin: 0;
 }
+
+/* Hourly credit (#787): the line under the price chip, and the "2h credit used" badge on a member's row. */
+.pl-equip-book__credit {
+    margin: 0 0 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--hub-text);
+}
+.pl-equip-badge--credit {
+    color: var(--hub-text);
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+}

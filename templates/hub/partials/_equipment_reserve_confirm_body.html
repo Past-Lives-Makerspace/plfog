@@ -2,11 +2,17 @@
 The Book a Time confirm's body for priced equipment and for a request (#748, #749): the summary line
 ("Fri, Oct 16 · 2:00 PM to 3:30 PM · $37.50") and what happens next. The modal is teleported out of
 the form, so the Reserve button sends the summary and total in an equip-book-picked window event just
-before it opens the modal. Context: equipment, needs_approval, late_cancel_sentence.
+before it opens the modal. Context: equipment, needs_approval, late_cancel_sentence; credit_covered when
+the member's credit covers the whole pick (#787), and the event's credit names what credit goes in.
 {% endcomment %}
-<div x-data="{ summary: '', total: '' }" @equip-book-picked.window="summary = $event.detail.summary; total = $event.detail.total">
+<div x-data="{ summary: '', total: '', credit: '' }" @equip-book-picked.window="summary = $event.detail.summary; total = $event.detail.total; credit = $event.detail.credit || ''">
   <p class="pl-equip-confirm-summary" x-text="summary" data-confirm-summary></p>
-  {% if equipment.is_hourly and needs_approval %}
+  {% if equipment.is_hourly %}<p class="pl-equip-confirm-copy" x-show="credit" data-confirm-credit><span x-text="credit"></span> goes toward this time.</p>{% endif %}
+  {% if credit_covered and needs_approval %}
+  <p class="pl-equip-confirm-copy">Your credit covers this time, so nothing is charged. A manager approves each reservation; until they do, the time is held for you but not booked. If they decline, or you cancel, your credit comes back.</p>
+  {% elif credit_covered %}
+  <p class="pl-equip-confirm-copy">Your credit covers this time, so nothing is charged and your reservation confirms right away. If you cancel, your credit comes back.{% if late_cancel_sentence %} {{ late_cancel_sentence }}{% endif %}</p>
+  {% elif equipment.is_hourly and needs_approval %}
   <p class="pl-equip-confirm-copy">You'll pay <span x-text="total"></span> now through our secure checkout. Then a manager approves your reservation; until they do, the time is held for you but not booked. If they decline, or you cancel, you get an automatic full refund.</p>
   {% elif equipment.is_hourly %}
   <p class="pl-equip-confirm-copy">You'll pay <span x-text="total"></span> now through our secure checkout, and your reservation confirms when the payment goes through. If you cancel, you get an automatic full refund.{% if late_cancel_sentence %} {{ late_cancel_sentence }}{% endif %}</p>

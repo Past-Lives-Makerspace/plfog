@@ -28,6 +28,8 @@ from hub.calendar_pages import calendar_nav_params, reservations_calendar_contex
 from hub.forms import (
     EquipmentAgreementForm,
     EquipmentBlockForm,
+    EquipmentCreditForm,
+    EquipmentCreditUnusedForm,
     EquipmentForm,
     EquipmentHoursWindowFormSet,
     EquipmentManagerCancelForm,
@@ -59,6 +61,7 @@ from core.htmx import wants_fragment
 from membership.models import (
     Equipment,
     EquipmentAgreementAcceptance,
+    EquipmentCredit,
     EquipmentError,
     EquipmentQuerySet,
     EquipmentReservation,
@@ -235,20 +238,31 @@ def _clock_label(value: datetime) -> str:
     return f"{local.hour % 12 or 12}:{local.minute:02d} {'AM' if local.hour < 12 else 'PM'}"
 
 
-def _duration_option(equipment: Equipment, start: datetime, minutes: int) -> dict[str, Any]:
+def _duration_option(equipment: Equipment, start: datetime, minutes: int, *, credit_minutes: int = 0) -> dict[str, Any]:
     """One Duration option for the Book a Time form: minutes, label, the span it books and its total (#749).
 
     ``total`` is "" unless the equipment charges by the hour; it comes from
-    :meth:`Equipment.charge_cents_for`, the same method the checkout charges with.
+    :meth:`Equipment.charge_cents_for`, the same method the checkout charges with. With the
+    member's ``credit_minutes`` balance here (#787), ``credit`` names what it covers ("2 hours
+    of credit"), ``pay`` is what is still charged, and ``covered`` is True when nothing is.
     """
     end = start + timedelta(minutes=minutes)
     cents = equipment.charge_cents_for(minutes)
-    return {
+    option: dict[str, Any] = {
         "v": minutes,
         "label": duration_label(minutes),
         "span": f"{_clock_label(start)} to {_clock_label(end)}",
         "total": money_display(cents) if cents else "",
     }
+    applied = equipment.credit_applied_minutes(minutes, credit_minutes)
+    if applied:
+        pay_cents = equipment.checkout_amount_cents(minutes, None, credit_minutes=credit_minutes)
+        option.update(
+            credit=f"{duration_label(applied)} of credit",
+            pay=money_display(pay_cents) if pay_cents else "",
+            covered=pay_cents == 0,
+        )
+    return option
 
 
 def _schedule_context(
@@ -285,6 +299,10 @@ def _schedule_context(
     timeline: list[dict[str, Any]] = []
     starts: list[Any] = []
     durations_data: dict[str, list[dict[str, Any]]] = {}
+    # The member's hourly credit here (#787); free and donation items show none.
+    credit_minutes = (
+        EquipmentCredit.objects.balance_for(member, equipment) if member is not None and equipment.is_hourly else 0
+    )
     if selected_day is not None:
         timeline = _day_timeline(equipment, selected_day)
         starts = equipment.free_starts_for_day(selected_day)
@@ -292,7 +310,8 @@ def _schedule_context(
         # by the model, so the live Total line and the confirm summary never do arithmetic in the browser.
         durations_data = {
             start.isoformat(): [
-                _duration_option(equipment, start, minutes) for minutes in equipment.durations_for(start)
+                _duration_option(equipment, start, minutes, credit_minutes=credit_minutes)
+                for minutes in equipment.durations_for(start)
             ]
             for start in starts
         }
@@ -316,6 +335,7 @@ def _schedule_context(
             .exclude(status=EquipmentReservation.Status.CANCELLED, cancelled_by=member)
             .select_related("cancelled_by")  # a declined row names the manager (#748)
             .prefetch_related("refunds")  # a paid row's refund line (#749)
+            .with_credited_unused()  # a credited row offers no Cancel (#787)
             .order_by("starts_at")
         )
         for reservation in my_reservations:
@@ -358,6 +378,9 @@ def _schedule_context(
         "price_chip": equipment.price_chip,
         "booking_terms": equipment.booking_terms(needs_approval=needs_approval),
         "reserve_label": "Reserve and Pay" if equipment.is_hourly else "Reserve",
+        # The line under the price chip while the member has credit here (#787); the options carry what it covers.
+        "credit_minutes": credit_minutes,
+        "credit_line": f"You have {duration_label(credit_minutes)} of credit here." if credit_minutes else "",
         # Under the Book a Time form and appended to its Reserve prompt; "" when no fee applies.
         "late_cancel_sentence": "" if fee_exempt else booking_sentence(policy),
         # The block until paid (#456): the requirements banner shows it with a Pay button.
@@ -834,16 +857,31 @@ def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
     starts_at = form.cleaned_data["starts_at"]
     duration = form.cleaned_data["duration_minutes"]
     try:
-        # Priced equipment (#749): anything above $0 holds the time and goes to Stripe Checkout.
+        # Priced equipment (#749): anything above $0 holds the time and goes to Stripe Checkout. The road follows
+        # the credit the page showed (#787); both roads re-read the balance under the equipment lock and refuse
+        # when it no longer covers what the page said, so the member never pays a price they were not shown.
         entered = form.amount_cents() if equipment.is_donation else None
-        if equipment.checkout_amount_cents(duration, entered):
+        credit = form.cleaned_data["credit_shown"]
+        if equipment.checkout_amount_cents(duration, entered, credit_minutes=credit):
             checkout_url = equipment_service.start_reservation_checkout(
-                equipment, member, starts_at, duration, purpose=form.cleaned_data["purpose"], amount_cents=entered
+                equipment,
+                member,
+                starts_at,
+                duration,
+                purpose=form.cleaned_data["purpose"],
+                amount_cents=entered,
+                credit_expected=credit,
             )
             return _to_checkout(request, equipment, checkout_url, week_offset=week_offset, selected_day=selected_day)
         # The free road: an explicit $0 donation, or nothing for a free item; reserve() re-checks under its lock.
         reservation = equipment_service.reserve(
-            equipment, member, starts_at, duration, purpose=form.cleaned_data["purpose"], donation_cents=entered
+            equipment,
+            member,
+            starts_at,
+            duration,
+            purpose=form.cleaned_data["purpose"],
+            donation_cents=entered,
+            credit_expected=credit,
         )
     except EquipmentError as exc:
         response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
@@ -1234,6 +1272,7 @@ def _render_manage(
     orientation_requests_form: EquipmentOrientationRequestsForm | None = None,
     slot_add_form: EquipmentOrientationSlotForm | None = None,
     block_form: EquipmentBlockForm | None = None,
+    credit_form: EquipmentCreditForm | None = None,
     active_tab: str = "details",
     agreement_member_count: int | None = None,
 ) -> HttpResponse:
@@ -1291,7 +1330,8 @@ def _render_manage(
                 equipment.reservations.upcoming()
                 .reservations()
                 .exclude(status=EquipmentReservation.Status.PENDING_APPROVAL)
-                .select_related("member"),
+                .select_related("member")
+                .with_credited_unused(),  # a credited row offers no Cancel (#787)
                 25,
             ).get_page(request.GET.get("page", 1)),
             # The Needs Approval card (#748), shown while the switch is on or anything still waits.
@@ -1300,6 +1340,13 @@ def _render_manage(
             # The Block Time card and its Upcoming Blocks list (#657).
             "block_form": block_form if block_form is not None else EquipmentBlockForm(),
             "manage_blocks": list(equipment.reservations.upcoming().blocks().select_related("member")),
+            # The Give Credit card and Who Has Credit (#787), on hourly items only. A refused grant opens the form.
+            # Built only for hourly items: its member list reads every active member.
+            "credit_form": (credit_form if credit_form is not None else EquipmentCreditForm())
+            if equipment.is_hourly
+            else None,
+            "credit_form_open": credit_form is not None,
+            "credit_holders": EquipmentCredit.objects.holders(equipment) if equipment.is_hourly else [],
             # The Reservations tab's late fee card (#456): the rows and where its Waive returns to.
             "manage_late_fees": _manage_late_fees(equipment),
             "manage_late_fees_next": f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations",
@@ -1356,6 +1403,104 @@ def hub_equipment_block_remove(request: HttpRequest, slug: str, pk: int) -> Http
     else:
         messages.success(request, "Block removed. The time is open again.")
     return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations")
+
+
+def _manage_reservations_tab(equipment: Equipment) -> str:
+    """The equipment's Manage > Reservations tab, where the credit card's actions land."""
+    return f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations"
+
+
+@login_required
+@require_POST
+def hub_equipment_credit_add(request: HttpRequest, slug: str) -> HttpResponse:
+    """POST — give a member hourly credit (#787): the Give Credit card, or a booking row's Credit Unused Time.
+
+    A post carrying ``reservation`` is the row menu's modal: it credits that booking's unused
+    time and lands back on ``next`` with a message. Otherwise it is the card: a refused grant
+    re-renders the card with its errors inline.
+    """
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    member = _get_member(request)
+    if member is None:
+        return HttpResponse("Forbidden", status=403)
+    forbidden = _require_can_manage(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    raw_reservation = request.POST.get("reservation", "")
+    if raw_reservation:
+        return _credit_unused_time(request, equipment, member, raw_reservation)
+    form = EquipmentCreditForm(request.POST)
+    if form.is_valid():
+        try:
+            credit = equipment_service.grant_credit(
+                equipment,
+                form.cleaned_data["member"],
+                member,
+                form.cleaned_data["minutes"],
+                note=form.cleaned_data["note"],
+            )
+        except EquipmentError as exc:
+            form.add_error(None, str(exc))
+        else:
+            messages.success(
+                request,
+                f"Gave {credit.member.display_name} {duration_label(credit.minutes)} of credit. They have been emailed.",
+            )
+            return redirect(_manage_reservations_tab(equipment))
+    return _render_manage(request, equipment, credit_form=form, active_tab="reservations")
+
+
+def _credit_unused_time(request: HttpRequest, equipment: Equipment, manager: Member, raw_pk: str) -> HttpResponse:
+    """Credit a started booking's unused time from the row menu's modal (#787); land back on ``next``."""
+    next_url = _safe_next(request, f"{reverse('hub_equipment_index')}?view=bookings")
+    if not raw_pk.isdigit():
+        raise Http404("No such reservation.")
+    reservation = get_object_or_404(
+        EquipmentReservation.objects.select_related("member"), pk=int(raw_pk), equipment=equipment
+    )
+    left = reservation.duration_minutes - EquipmentCredit.objects.credited_on(reservation)
+    form = EquipmentCreditUnusedForm(request.POST, limit_minutes=max(left, 0))
+    if not form.is_valid():
+        messages.error(request, "Pick how many hours to credit, up to what is left on the reservation.")
+        return redirect(next_url)
+    try:
+        credit = equipment_service.grant_credit(
+            equipment,
+            reservation.member,
+            manager,
+            form.cleaned_data["minutes"],
+            note=form.cleaned_data["note"],
+            reservation=reservation,
+        )
+    except EquipmentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            f"Credited {_first_name(credit.member)} {duration_label(credit.minutes)}. They have been emailed.",
+        )
+    return redirect(next_url)
+
+
+@login_required
+@require_POST
+def hub_equipment_credit_take_back(request: HttpRequest, slug: str, member_pk: int) -> HttpResponse:
+    """POST — zero a member's credit on this item (#787), from Who Has Credit's Take back confirm. Nobody is emailed."""
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    member = _get_member(request)
+    if member is None:
+        return HttpResponse("Forbidden", status=403)
+    forbidden = _require_can_manage(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    target = get_object_or_404(Member, pk=member_pk)
+    try:
+        minutes = equipment_service.take_back_credit(equipment, target, member)
+    except EquipmentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f"Took back {target.display_name}'s {duration_label(minutes)} of credit.")
+    return redirect(_manage_reservations_tab(equipment))
 
 
 def _first_name(member: Member) -> str:

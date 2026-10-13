@@ -35,6 +35,7 @@ from django.db.models import (
     Max,
     OuterRef,
     Q,
+    Subquery,
     Sum,
     Value,
     When,
@@ -15027,6 +15028,11 @@ class OrientationUnlock:
     done: bool = False
 
 
+def credit_hours_short(minutes: int) -> str:
+    """Credit minutes as the short hours a pill shows (#787): 120 -> "2h", 90 -> "1.5h", 30 -> "0.5h"."""
+    return f"{minutes / 60:g}h"
+
+
 def duration_label(minutes: int) -> str:
     """A friendly duration label: 30 -> "30 minutes", 60 -> "1 hour", 90 -> "1.5 hours"."""
     if minutes < 60:
@@ -16110,10 +16116,23 @@ class Equipment(HeroCropMixin, models.Model):
             f"{OrientationType.dollars(OrientationType.DONATION_FLOOR_CENTS)}, paid by card when you reserve."
         )
 
-    def checkout_amount_cents(self, duration_minutes: int, entered_cents: int | None) -> int:
+    def credit_applied_minutes(self, duration_minutes: int, credit_minutes: int) -> int:
+        """How much of a ``credit_minutes`` balance a booking of ``duration_minutes`` uses here (#787).
+
+        The smaller of the two on an hourly item, never below zero; 0 anywhere else, since
+        free and donation items show no credit at all.
+        """
+        if not self.is_hourly:
+            return 0
+        return max(0, min(credit_minutes, duration_minutes))
+
+    def checkout_amount_cents(
+        self, duration_minutes: int, entered_cents: int | None, *, credit_minutes: int = 0
+    ) -> int:
         """What reserving ``duration_minutes`` charges, in cents: 0 reserves free, anything above goes to checkout.
 
-        Free charges nothing. Hourly charges :meth:`charge_cents_for`, whatever the member sent.
+        Free charges nothing. Hourly charges :meth:`charge_cents_for` on the minutes the member's
+        ``credit_minutes`` balance here does not cover (#787), whatever the member sent.
         Donation based charges what the member entered once it clears the orientation floors
         (#636): given, at least this item's minimum, $0 or at least $1, and no more than $500.
 
@@ -16121,7 +16140,9 @@ class Equipment(HeroCropMixin, models.Model):
             EquipmentError: With member copy, when a donation amount is missing, too low or too high.
         """
         if self.is_hourly:
-            return self.charge_cents_for(duration_minutes)
+            return self.charge_cents_for(
+                duration_minutes - self.credit_applied_minutes(duration_minutes, credit_minutes)
+            )
         if not self.is_donation:
             return 0
         minimum = self.donation_minimum_cents
@@ -16412,6 +16433,21 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
         """Held reservations (confirmed or awaiting approval, #748) that haven't ended yet, soonest first."""
         return self.holding().filter(ends_at__gt=timezone.now()).order_by("starts_at")
 
+    def with_credited_unused(self) -> EquipmentReservationQuerySet:
+        """Annotate ``credited_minutes_total``: each booking's unused time credited back (#787), 0 when none.
+
+        One scalar subquery, so a list shows the "Credited 2h" pill and hides Cancel at no
+        extra query per row.
+        """
+        credited = (
+            EquipmentCredit.objects.filter(reservation=OuterRef("pk"), kind=EquipmentCredit.Kind.UNUSED)
+            .order_by()
+            .values("reservation")
+            .annotate(total=Sum("minutes"))
+            .values("total")
+        )
+        return self.annotate(credited_minutes_total=Coalesce(Subquery(credited), 0))
+
     def active_count_for(self, member: Member, equipment: Equipment) -> int:
         """The per-member anti-hog input: this member's upcoming held count here (#748), blocks excluded."""
         return (
@@ -16582,6 +16618,12 @@ class EquipmentReservation(models.Model):
         db_default="",
         help_text="Stripe PaymentIntent ID, stamped when the payment lands.",
     )
+    # --- Credit (#787): the database default too, since the old release inserts without it.
+    credit_minutes = models.PositiveIntegerField(
+        default=0,
+        db_default=0,
+        help_text="Minutes of the member's credit on this equipment this booking used; the charge covers the rest.",
+    )
 
     objects = EquipmentReservationQuerySet.as_manager()
 
@@ -16673,6 +16715,20 @@ class EquipmentReservation(models.Model):
     def paid_display(self) -> str:
         """What the member paid, "$25.00", or "" when nothing was paid."""
         return money_display(self.amount_paid_cents) if self.amount_paid_cents else ""
+
+    @property
+    def credited_unused_label(self) -> str:
+        """The manager's "Credited 2h" chip (#787), read off :meth:`EquipmentReservationQuerySet.with_credited_unused`.
+
+        A row read without that annotation fails loudly rather than reading as uncredited.
+        """
+        minutes = cast(int, self.credited_minutes_total)  # type: ignore[attr-defined]
+        return f"Credited {credit_hours_short(minutes)}" if minutes else ""
+
+    @property
+    def credit_used_label(self) -> str:
+        """The member's pill beside Paid (#787): "2h credit used", or "" when no credit went into this booking."""
+        return f"{credit_hours_short(self.credit_minutes)} credit used" if self.credit_minutes else ""
 
     # --- RefundableSource (#749): the protocol billing.refunds reads, mirroring OrientationBooking.
 
@@ -16798,11 +16854,15 @@ class EquipmentReservation(models.Model):
         if not cleaned_reason:
             raise ValueError("A decline needs a reason the member will see.")
         now = timezone.now()
-        flipped = EquipmentReservation.objects.filter(pk=self.pk, status=self.Status.PENDING_APPROVAL).update(
-            status=self.Status.DECLINED, cancelled_by=actor, cancelled_reason=cleaned_reason, cancelled_at=now
-        )
-        if not flipped:
-            raise EquipmentError(self.NOT_WAITING_MESSAGE)
+        with transaction.atomic():
+            self._lock_equipment_for_credit()
+            flipped = EquipmentReservation.objects.filter(pk=self.pk, status=self.Status.PENDING_APPROVAL).update(
+                status=self.Status.DECLINED, cancelled_by=actor, cancelled_reason=cleaned_reason, cancelled_at=now
+            )
+            if not flipped:
+                raise EquipmentError(self.NOT_WAITING_MESSAGE)
+            # The credit this request spent goes back, in the same transaction as the decline (#787).
+            EquipmentCredit.objects.restore_for(self)
         self.status = self.Status.DECLINED
         self.cancelled_by = actor
         self.cancelled_reason = cleaned_reason
@@ -16812,6 +16872,19 @@ class EquipmentReservation(models.Model):
         # A paid request is refunded in full (#749); a refund Stripe refuses never undoes the decline.
         self.refund_outcome = equipment_service.refund_if_paid(self, actor=actor.user)
         equipment_service.notify_declined(self, actor)
+
+    #: The refusal for cancelling or declining a booking whose unused time was credited (#787): the
+    #: member already has that time back as credit, so a refund on top would pay them twice.
+    CREDITED_NOT_CANCELLABLE_MESSAGE = "Unused time on this reservation was already credited, so it can't be cancelled."
+
+    def _ensure_not_credited(self) -> None:
+        """Refuse a cancel or decline once any of this booking's unused time was credited (#787).
+
+        Raises:
+            EquipmentError: With :attr:`CREDITED_NOT_CANCELLABLE_MESSAGE`.
+        """
+        if EquipmentCredit.objects.credited_on(self):
+            raise EquipmentError(self.CREDITED_NOT_CANCELLABLE_MESSAGE)
 
     #: The friendly refusal for deciding a row that is no longer a waiting request.
     NOT_WAITING_MESSAGE = "This reservation isn't waiting for approval any more."
@@ -16906,6 +16979,7 @@ class EquipmentReservation(models.Model):
         fee_waived = fee_exempt and not was_waiting and would_charge(self, now=now)
         fee: LateCancellationFee | None = None
         with transaction.atomic():
+            self._lock_equipment_for_credit()
             # A conditional update keyed on status, not a save: two requests that both loaded
             # this row as CONFIRMED (two tabs, a double POST, a network retry) both pass the
             # guards above, and a plain save would let both of them charge the fee. Only the
@@ -16922,6 +16996,8 @@ class EquipmentReservation(models.Model):
             )
             if not flipped:
                 raise EquipmentError(self._lost_cancel_race_message())
+            # The credit this booking spent goes back with the cancel, never with the refund (#787).
+            EquipmentCredit.objects.restore_for(self)
             self.status = self.Status.CANCELLED
             self.cancelled_by = actor
             self.cancelled_reason = cleaned_reason
@@ -16940,6 +17016,20 @@ class EquipmentReservation(models.Model):
         elif not is_own_row:
             equipment_service.notify_manager_cancelled(self)
         return fee
+
+    def _lock_equipment_for_credit(self) -> None:
+        """Take the Equipment row lock a cancel or decline holds through its flip, then refuse a credited booking (#787).
+
+        The same ``select_for_update`` lock every spend and every Credit Unused Time takes, taken
+        before the reservation's own conditional update so the lock order matches
+        :func:`membership.equipment.reserve`. Under it, a booking whose unused time was credited
+        is refused, so a concurrent Credit Unused Time and cancel never both win.
+
+        Raises:
+            EquipmentError: With :attr:`CREDITED_NOT_CANCELLABLE_MESSAGE`.
+        """
+        Equipment.objects.select_for_update().filter(pk=self.equipment_id).exists()
+        self._ensure_not_credited()
 
     def _lost_cancel_race_message(self) -> str:
         """Why a cancel lost its conditional update, from the row as it stands now (#748).
@@ -16968,6 +17058,159 @@ class EquipmentReservation(models.Model):
                 raise EquipmentError("This reservation already ended.")
         elif self.starts_at <= now:
             raise EquipmentError("This reservation already started. Ask a manager if it needs cancelling.")
+
+
+@dataclass(frozen=True)
+class CreditHolder:
+    """One line of the Who Has Credit list (#787): a member, their balance here, and the latest grant."""
+
+    member: Member
+    minutes: int
+    note: str
+    granted_at: datetime_type
+
+    @property
+    def hours_label(self) -> str:
+        """The balance as a pill reads it: "2h"."""
+        return credit_hours_short(self.minutes)
+
+
+class EquipmentCreditQuerySet(models.QuerySet["EquipmentCredit"]):
+    """The credit ledger's reads and its one automatic write, the restore (#787)."""
+
+    def balance_for(self, member: Member, equipment: Equipment) -> int:
+        """A member's credit minutes on one item: the sum of their ledger rows there, 0 when none."""
+        total = self.filter(member=member, equipment=equipment).aggregate(total=Coalesce(Sum("minutes"), 0))["total"]
+        return int(total)
+
+    def holders(self, equipment: Equipment) -> list[CreditHolder]:
+        """Everyone with a balance above zero on ``equipment``, by name, with their latest grant's note and date.
+
+        Two queries for any number of holders: the grouped balances with the latest grant as
+        subqueries, then the members in bulk.
+        """
+        latest_grant = self.filter(
+            equipment=equipment, member=OuterRef("member"), kind__in=EquipmentCredit.GRANT_KINDS
+        ).order_by("-created_at", "-pk")
+        rows = list(
+            self.filter(equipment=equipment)
+            .order_by()
+            .values("member")
+            .annotate(
+                balance=Sum("minutes"),
+                latest_note=Subquery(latest_grant.values("note")[:1]),
+                latest_at=Subquery(latest_grant.values("created_at")[:1]),
+            )
+            .filter(balance__gt=0)
+        )
+        members = Member.objects.in_bulk([row["member"] for row in rows])
+        holders = [
+            CreditHolder(
+                member=members[row["member"]],
+                minutes=row["balance"],
+                note=row["latest_note"] or "",
+                granted_at=row["latest_at"],
+            )
+            for row in rows
+        ]
+        return sorted(holders, key=lambda holder: holder.member.display_name.casefold())
+
+    def credited_on(self, reservation: EquipmentReservation) -> int:
+        """Minutes of a reservation's unused time already credited back (#787), 0 when none."""
+        total = self.filter(reservation=reservation, kind=EquipmentCredit.Kind.UNUSED).aggregate(
+            total=Coalesce(Sum("minutes"), 0)
+        )["total"]
+        return int(total)
+
+    def restore_for(self, reservation: EquipmentReservation) -> EquipmentCredit | None:
+        """Give back the credit a cancelled or declined booking spent (#787); None when it spent none.
+
+        Called inside the cancel's or decline's transaction, after its conditional update won,
+        so a booking restores exactly once.
+        """
+        if not reservation.credit_minutes:
+            return None
+        return self.create(
+            equipment_id=reservation.equipment_id,
+            member_id=reservation.member_id,
+            minutes=reservation.credit_minutes,
+            kind=EquipmentCredit.Kind.RESTORED,
+            reservation=reservation,
+        )
+
+
+class EquipmentCredit(models.Model):
+    """One line of a member's hourly credit ledger on one piece of equipment (#787).
+
+    Append only: the balance is the sum of a member's rows on an item, in minutes on the half
+    hour grid. A manager gives it (GRANTED, or UNUSED from a reservation that ran short), takes
+    it back to zero (TAKEN_BACK), a booking spends it (SPENT, negative, linked to the booking)
+    and a cancel or decline of that booking gives it back (RESTORED). It is never money: it
+    never touches ``amount_paid_cents``, a refund, a reconciliation line or a payout. The one
+    deletion is an unpaid hold's: its SPENT row cascades with the hold, since the hold never
+    happened.
+    """
+
+    class Kind(models.TextChoices):
+        GRANTED = "granted", "Given by a manager"
+        UNUSED = "unused", "Unused time credited"
+        TAKEN_BACK = "taken_back", "Taken back"
+        SPENT = "spent", "Spent on a booking"
+        RESTORED = "restored", "Given back by a cancel"
+
+    #: The kinds a manager writes by hand; Who Has Credit shows the newest one's note and date.
+    GRANT_KINDS: ClassVar[tuple[str, ...]] = (Kind.GRANTED, Kind.UNUSED)
+    #: The most one grant may give: 100 hours.
+    MAX_GRANT_MINUTES: ClassVar[int] = 6000
+    #: The longest note a grant carries.
+    NOTE_MAX_LENGTH: ClassVar[int] = 140
+
+    equipment = models.ForeignKey(
+        Equipment, on_delete=models.CASCADE, related_name="credits", help_text="The item this credit is good on."
+    )
+    member = models.ForeignKey(
+        Member, on_delete=models.CASCADE, related_name="equipment_credits", help_text="Whose credit this is."
+    )
+    minutes = models.IntegerField(
+        help_text="Signed minutes on the half hour grid: positive adds to the balance, negative takes from it."
+    )
+    kind = models.CharField(max_length=20, choices=Kind.choices, help_text="What this line records.")
+    reservation = models.ForeignKey(
+        "EquipmentReservation",
+        null=True,
+        blank=True,
+        # CASCADE on purpose: _delete_hold's delete of an unpaid hold (the only reservation delete) takes its SPENT row, restoring the credit.
+        on_delete=models.CASCADE,
+        related_name="credits",
+        help_text="The booking that spent or gave back this credit, or whose unused time it is; blank for a plain grant.",
+    )
+    granted_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The manager who gave or took back this credit; blank for a spend or a restore.",
+    )
+    note = models.CharField(
+        max_length=140, blank=True, default="", help_text="The manager's optional note, shown on Who Has Credit."
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this line was written.")
+
+    objects = EquipmentCreditQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(condition=~Q(minutes=0), name="ck_equipcredit_nonzero"),
+        ]
+        indexes = [
+            models.Index(fields=["equipment", "member"], name="idx_equipcredit_member"),
+        ]
+
+    def __str__(self) -> str:
+        sign = "+" if self.minutes > 0 else ""
+        return f"{self.equipment.name}: {self.member.display_name} {sign}{self.minutes} min ({self.get_kind_display()})"
 
 
 # ---------------------------------------------------------------------------------------

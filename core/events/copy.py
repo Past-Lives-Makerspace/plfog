@@ -2428,6 +2428,47 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # equipment.credit_granted — a manager gave the member hourly credit on one item (#787).
+    # The equipment name links to its page; one primary CTA to Book a Time there; the manager's
+    # note rides note_line, "" when they wrote none.
+    "equipment.credit_granted": EventCopy(
+        placeholders=("member_name", "manager_name", "credit_hours", "equipment_name", "equipment_url", "note_line"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "manager_name": "Sami Lee",
+            "credit_hours": "2 hours",
+            "equipment_name": "CNC Router",
+            "equipment_url": "https://pastlives.example/equipment/cnc-router/",
+            "note_line": "Their note: For the shop storage cabinet.",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ credit_hours }} of credit on the {{ equipment_name }}",
+                body_text="{{ manager_name }} credited you {{ credit_hours }}. It applies the next time you book there.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="You have {{ credit_hours }} of credit on the {{ equipment_name }}",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "{{ manager_name }} credited you {{ credit_hours }} on the {{ equipment_name }}. "
+                    "It applies the next time you book there.\n\n"
+                    "{{ note_line }}\n\n"
+                    "Book a time: {{ equipment_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    '<p>{{ manager_name }} credited you {{ credit_hours }} on the <strong><a href="{{ equipment_url }}">'
+                    "{{ equipment_name }}</a></strong>. It applies the next time you book there.</p>"
+                    "<p>{{ note_line }}</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ equipment_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Book a Time</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     # equipment.reservation_cancelled_by_manager — carries the manager's required reason and
     # sends the member straight back to pick a new time.
     "equipment.reservation_cancelled_by_manager": EventCopy(

@@ -250,3 +250,43 @@
     gap: 0.5rem;
     flex-wrap: wrap;
 }
+
+/* Give Credit (#787): the title with its Give Credit toggle on the right, the form it opens, and Who Has Credit. */
+.pl-equip-credit__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.pl-equip-credit__head .pl-equip-panel__title {
+    margin-bottom: 0.25rem;
+}
+.pl-equip-credit__form {
+    margin: 0 0 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-equip-credit__subtitle {
+    margin: 0 0 0.75rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--hub-text);
+}
+.pl-equip-credit-row__main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+}
+.pl-equip-credit-row__who {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.pl-equip-credit-row__note {
+    font-size: 0.8125rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}

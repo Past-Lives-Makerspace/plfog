@@ -1,0 +1,20 @@
+{% comment %}
+The Credit Unused Time modal's body (#787), one per started, confirmed, hourly booking row the viewer
+manages. Posts to the equipment's credit view with the reservation set, so the credit is linked to it
+and never adds up past the booking's length; the view lands back on next with a message.
+Context: credit_form (hub.forms.EquipmentCreditUnusedForm), credit_reservation, credit_next.
+{% endcomment %}
+<form method="post" action="{% url 'hub_equipment_credit_add' credit_reservation.equipment.slug %}" class="hub-form" data-credit-unused-form="{{ credit_reservation.pk }}">
+  {% csrf_token %}
+  <input type="hidden" name="reservation" value="{{ credit_reservation.pk }}">
+  <input type="hidden" name="next" value="{{ credit_next }}">
+  <p class="pl-form-note">{{ credit_reservation.member.display_name }} booked {{ credit_reservation.starts_at|date:"D, M j" }}, {{ credit_reservation.starts_at|time:"g:i A" }} to {{ credit_reservation.ends_at|time:"g:i A" }}. The hours you credit apply the next time they book the {{ credit_reservation.equipment.name }}. Nothing is refunded.</p>
+  <div class="hub-form-group">
+    {% include "components/form_field.html" with field=credit_form.minutes %}
+    {% include "components/form_field.html" with field=credit_form.note %}
+  </div>
+  <div class="pl-modal__actions">
+    <button type="submit" class="pl-btn pl-btn--primary">Credit Hours</button>
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'credit-unused-{{ credit_reservation.pk }}')">Cancel</button>
+  </div>
+</form>
