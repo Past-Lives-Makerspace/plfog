@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from classes.factories import RegistrationFactory
 from classes.models import CmsActivity
-from hub.growth import LEGACY_SIGNUP_SOURCE
+from hub.growth import LAUNCH, LEGACY_SIGNUP_SOURCE
 from tests.membership.factories import GuildFactory, MemberFactory
 
 pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("spring_launch")]
@@ -124,11 +124,18 @@ def describe_page():
         assert 'data-preset="custom" aria-current="true"' in body
         assert "growth-cms-actions-2026-05-04-to-2026-05-31.png" in body
 
-    def it_offers_since_launch_and_since_cms_launch(client: Client):
+    def it_offers_since_launch_and_since_cms_launch(client: Client, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("hub.growth.LAUNCH", LAUNCH)  # the real launch, too close to compare with
         _login_admin(client)
         body = client.get(URL, {"range": "cms"}).content.decode()
         assert ">Since Launch</a>" in body
         assert 'data-preset="cms" aria-current="true">Since CMS Launch</a>' in body
+        assert "Too little before the CMS launch to compare with." in body
+        assert body.count(">Since CMS launch</span>") == 5
+
+    def it_names_the_launch_day_the_page_counts_from(client: Client, spring_launch: date):
+        _login_admin(client)
+        assert "since it went live on March 27, 2026." in client.get(URL).content.decode()
 
     def it_keeps_the_metric_and_mode_in_the_preset_links(client: Client):
         _login_admin(client)

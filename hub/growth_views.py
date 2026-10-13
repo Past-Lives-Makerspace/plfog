@@ -14,7 +14,8 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
 
-from hub.growth import LAUNCH, METRICS, MODES, PRESETS, GrowthForm, dashboard
+from hub import growth
+from hub.growth import METRICS, MODES, PRESETS, GrowthForm, dashboard
 from hub.views import _get_hub_context, _require_admin
 
 
@@ -46,7 +47,7 @@ def hub_admin_growth(request: HttpRequest) -> HttpResponse:
             "form": form,
             "selection": selection,
             "board": board,
-            "launch": LAUNCH,
+            "launch": growth.LAUNCH,
             "metric_label": METRICS[selection.metric].label,
             "presets": [(key, label, urlencode({"range": key, **trend})) for key, label in PRESETS if key != "custom"],
             "modes": [

@@ -29,7 +29,7 @@
       <input type="hidden" name="mode" value="{{ selection.mode }}">
       <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary" data-apply>Apply</button>
     </div>
-    <p class="pl-growth__range-note" data-range-note>{{ rng.label }} ({{ rng.days }} day{{ rng.days|pluralize }}).{% if previous %} Each tile compares it with the {{ rng.days }} day{{ rng.days|pluralize }} before, {{ previous.label }}.{% else %} Nothing before launch to compare with.{% endif %}</p>
+    <p class="pl-growth__range-note" data-range-note>{{ rng.label }} ({{ rng.days }} day{{ rng.days|pluralize }}).{% if previous %} Each tile compares it with the {{ rng.days }} day{{ rng.days|pluralize }} before, {{ previous.label }}.{% elif selection.preset == 'cms' %} Too little before the CMS launch to compare with.{% else %} Nothing before launch to compare with.{% endif %}</p>
   </form>
 </div>
 
@@ -39,7 +39,7 @@
     <span class="pl-growth__tile-label">{{ tile.label }}</span>
     <span class="pl-growth__tile-value" data-tile-value>{{ tile.value }}</span>
     {% if tile.change == "since_launch" %}
-    <span class="pl-growth__tile-delta" data-tile-change="since_launch">Since launch</span>
+    <span class="pl-growth__tile-delta" data-tile-change="since_launch">{% if selection.preset == "cms" %}Since CMS launch{% else %}Since launch{% endif %}</span>
     {% elif tile.change == "none" %}
     <span class="pl-growth__tile-delta" data-tile-change="none">None in either period</span>
     {% elif tile.change == "new" %}
