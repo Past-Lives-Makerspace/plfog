@@ -15,7 +15,14 @@ import respx
 
 from classes.factories import ClassFaqFactory, ClassOfferingFactory
 from classes.models import LOCKED_CLASS_FAQS, ClassOffering
-from core.integrations.eventbrite import API_BASE, EventbriteClient, EventbriteError, _listing_text, estimate_fee_cents
+from core.integrations.eventbrite import (
+    API_BASE,
+    EventbriteClient,
+    EventbriteError,
+    _listing_html,
+    _listing_text,
+    estimate_fee_cents,
+)
 from core.models import SiteConfiguration
 
 pytestmark = pytest.mark.django_db
@@ -1113,8 +1120,6 @@ def describe_what_the_listing_leaves_out():
         ],
     )
     def it_strips_phone_numbers_and_handles_like_links(typed: str, sent: str):
-        from core.integrations.eventbrite import _listing_html
-
         assert _listing_text(typed) == sent
         assert " ".join(_listing_html(f"<p>{typed}</p>").split()) == f"<p>{sent}</p>"
 
@@ -1133,3 +1138,41 @@ def describe_what_the_listing_leaves_out():
     def it_keeps_numbers_and_at_signs_that_are_not_phones_or_handles(typed: str):
         assert _listing_text(typed) == typed
         assert _check(typed).left_out == ()
+
+
+def describe_the_listing_description_spacing():
+    """The editor's blank lines (``<p><br></p>``) stay off Eventbrite, which spaces every paragraph itself."""
+
+    @pytest.mark.parametrize("blank", ["<p><br></p>", "<p></p>", "<p> </p>", "<p>&nbsp;</p>", "<p><br/></p>"])
+    def it_drops_a_blank_paragraph_between_two_written_ones(blank: str):
+        assert _listing_html(f"<p>One</p>{blank}<p>Two</p>") == "<p>One</p><p>Two</p>"
+
+    def it_keeps_formatting_lists_and_line_breaks_inside_a_paragraph():
+        typed = "<p><strong>Bring:</strong></p><ul><li>Gloves</li></ul><p>Line one<br>line two</p>"
+
+        assert _listing_html(typed) == typed
+
+    def it_drops_a_paragraph_left_empty_by_a_removed_address():
+        assert _listing_html("<p>One</p><p>https://pastlives.space</p><p>Two</p>") == "<p>One</p><p>Two</p>"
+
+    @respx.mock
+    def it_sends_the_class_description_without_its_blank_lines(settings: Any):
+        _credentials(settings)
+        _switch_on()
+        routes = _listing_routes("ev-1")
+        offering = ClassOfferingFactory(
+            ready=True,
+            status=ClassOffering.Status.PUBLISHED,
+            image="",
+            gallery=0,
+            eventbrite_enabled=True,
+        )
+        # ``ready`` writes its own description after the build, so this one goes on afterwards.
+        offering.description = "<p>Go Batty!</p><p><br></p><p>Wear cotton.</p><p><br></p>"
+        offering.save(update_fields=["description"])
+
+        offering.sync_eventbrite_listing()
+
+        text = _sent(routes["description"])["modules"][0]["data"]["body"]["text"]
+        assert text.startswith("<p>Go Batty!</p><p>Wear cotton.</p><p>Sessions:</p>")
+        assert "<br>" not in text
