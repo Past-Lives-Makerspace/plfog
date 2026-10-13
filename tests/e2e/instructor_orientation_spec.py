@@ -1,24 +1,33 @@
-"""End-to-end: saying you're interested in hosting, and an admin opening the portal.
+"""End-to-end: applying to host a class, and an admin opening the portal.
 
 Teaching stopped being self-service. This drives the real loop in a browser: a member
-who cannot teach lands on the Host a Class page (not a 403, not a dead end), opens
-the interest modal, sends a note, sees the note-sent state, and stays out of the
-portal until an admin grants Instructor. The Alpine modal open/close and the
+who cannot teach lands on the Host a Class page (not a 403, not a dead end), follows
+I'm Interested to the application page (#793), sees the conditional questions open and
+close in place, gets a field error for Website yes with no address with every other
+answer kept, sends it, sees the application-sent state, and stays out of the portal
+until an admin grants Instructor. The Alpine reveals and prefill and the
 server-rendered state flip are exactly what the unit specs cannot prove. Run with
 ``pytest -m e2e``.
 """
 
 from __future__ import annotations
 
-from playwright.sync_api import expect
+from playwright.sync_api import Page, expect
 
 from tests.membership.factories import MembershipPlanFactory
 
 HERO = "Share What You Love"
-APPLIED_BANNER = "Thanks, We Got Your Note"
+APPLY_HEADING = "Apply to Host a Class"
+APPLIED_BANNER = "Thanks, We Got Your Application"
 SUCCESS_MESSAGE = "Thanks. An admin will get back to you."
 INTEREST_BUTTON = "I'm Interested"
-SEND_BUTTON = "Send It"
+SEND_BUTTON = "Send Application"
+WEBSITE_ERROR = "Add your website's address, or pick No."
+
+
+def _chip(page: Page, field: str, label: str) -> None:
+    """Click the chip (a label around a radio or checkbox) for ``label`` in ``field``'s group."""
+    page.locator(f'label.pl-chip:has(input[name="{field}"])', has_text=label).click()
 
 
 def describe_apply_to_teach():
@@ -36,16 +45,40 @@ def describe_apply_to_teach():
         expect(page.get_by_role("heading", name=HERO)).to_be_visible()
         expect(page.locator('[data-nav="teach"]').first).to_contain_text("Host a Class")
 
-        # The interest modal is closed until the hero button opens it.
-        send = page.get_by_role("button", name=SEND_BUTTON)
-        expect(send).to_be_hidden()
-        page.get_by_role("button", name=INTEREST_BUTTON).first.click()
-        expect(send).to_be_visible()
+        # #793: I'm Interested is a link straight to the application page; no modal.
+        page.get_by_role("link", name=INTEREST_BUTTON).first.click()
+        page.wait_for_url(lambda url: url.rstrip("/").endswith("/classes/teach/apply"))
+        expect(page.get_by_role("heading", name=APPLY_HEADING)).to_be_visible()
 
+        page.locator("#id_class_title").fill("Wheel Throwing 101")
         page.locator("#id_note").fill("I would like to run a two hour intro to wheel throwing.")
-        page.select_option("#id_experience", "a_few")  # #690: required
+        _chip(page, "class_format", "A series of sessions")
+        page.locator("#id_shop_area").fill("Ceramics studio")
+        _chip(page, "practice_years", "3 to 10 years")
 
-        # Issue #536: the modal also asks how to reach the member. The detail field's label
+        # Where they have taught opens for every level except first time, in place.
+        taught_where = page.locator("#id_taught_where")
+        expect(taught_where).to_be_hidden()
+        _chip(page, "experience", "Taught a few classes")
+        expect(taught_where).to_be_visible()
+        _chip(page, "experience", "First time teaching")
+        expect(taught_where).to_be_hidden()
+        _chip(page, "experience", "Taught a few classes")
+        taught_where.fill("The community college, two terms.")
+
+        _chip(page, "class_size", "5 to 8")
+        _chip(page, "availability", "Weekday evenings")
+        _chip(page, "availability", "Weekends")
+
+        # The website address opens on Yes; the socials stay closed on No.
+        website = page.locator("#id_website")
+        expect(website).to_be_hidden()
+        _chip(page, "has_website", "Yes")
+        expect(website).to_be_visible()
+        _chip(page, "has_socials", "No")
+        expect(page.locator("#id_socials")).to_be_hidden()
+
+        # Issue #536: the page also asks how to reach the member. The detail field's label
         # follows the pick, and the pick prefills the account email or the profile phone;
         # only a browser proves the Alpine half of that.
         detail = page.locator("#id_contact_detail")
@@ -61,9 +94,27 @@ def describe_apply_to_teach():
         page.select_option("#id_contact_method", "phone")
         expect(detail_label).to_have_text("Phone number for calls")
         expect(detail).to_have_value("503 555 0199")  # a number the member typed is never overwritten
-        send.click()
 
-        # The note lands and the page comes back in the note-sent state.
+        # Website yes with no address: the server says so beside the field, and every
+        # other answer is still there, with the address field open.
+        page.get_by_role("button", name=SEND_BUTTON).click()
+        expect(page.get_by_text(WEBSITE_ERROR)).to_be_visible()
+        expect(page.locator("#id_website")).to_be_visible()
+        expect(page.locator("#id_class_title")).to_have_value("Wheel Throwing 101")
+        expect(page.locator("#id_taught_where")).to_have_value("The community college, two terms.")
+        expect(page.locator('input[name="class_format"][value="series"]')).to_be_checked()
+        expect(page.locator('input[name="availability"][value="weekends"]')).to_be_checked()
+        expect(page.locator("#id_contact_detail")).to_have_value("503 555 0199")
+        assert Member.objects.get(user__username="teach-me@example.com").teaching_applied_at is None
+
+        # A broken address left under No is hidden, not a blocker: the form is novalidate
+        # and the server drops it, so Send goes through and saves no website.
+        page.locator("#id_website").fill("mysite.com")
+        _chip(page, "has_website", "No")
+        expect(page.locator("#id_website")).to_be_hidden()
+        page.get_by_role("button", name=SEND_BUTTON).click()
+
+        # The application lands and the page comes back in the application-sent state.
         page.wait_for_url(lambda url: url.rstrip("/").endswith("/classes/teach"))
         expect(page.get_by_text(SUCCESS_MESSAGE)).to_be_visible()
         # By role, not by text: the Django success message echoes the same words, and a
@@ -75,11 +126,17 @@ def describe_apply_to_teach():
         assert page.url.rstrip("/").endswith("/classes/teach")
         expect(page.get_by_role("heading", name=HERO)).to_be_visible()
 
-        # The contact pair landed with the note.
+        # Every answer landed.
         member = Member.objects.get(user__username="teach-me@example.com")
         assert member.teaching_contact_method == Member.TeachingContactMethod.PHONE
         assert member.teaching_contact_detail == "503 555 0199"
         assert member.teaching_experience == Member.TeachingExperience.A_FEW
+        assert member.teaching_class_title == "Wheel Throwing 101"
+        assert member.teaching_class_format == Member.TeachingClassFormat.SERIES
+        assert member.teaching_taught_where == "The community college, two terms."
+        assert member.teaching_availability == ["weekday_evenings", "weekends"]
+        assert member.teaching_website == ""
+        assert member.teaching_socials == ""
 
         # An admin grants Instructor, exactly as the Permissions tab does.
         member.grant_instructor(granted_by=None)

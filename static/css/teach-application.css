@@ -1,0 +1,131 @@
+/* The teaching application page (#793, classes/teach/apply.html and
+   partials/apply_form.html): one column of section cards, chip groups for the pick one
+   and pick any questions, and the fields that open under a Yes. Theme tokens only, so
+   both themes come from hub.css. */
+
+.pl-teach-application {
+    max-width: 760px;
+    margin: 0 auto;
+}
+
+.pl-teach-application__header {
+    margin-top: 1rem;
+}
+
+.pl-teach-application__lead {
+    margin-top: 0.5rem;
+    line-height: 1.55;
+}
+
+.pl-teach-application__alert {
+    margin-top: 1.5rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--hub-danger-text);
+    border-radius: 8px;
+    color: var(--hub-danger-text);
+    font-size: 0.9375rem;
+}
+
+.pl-teach-application__form {
+    margin-top: 1.5rem;
+}
+
+/* The sections own the vertical rhythm: 1.5rem between cards (FRONTEND.md rule 26). */
+.pl-teach-application__fields {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* Each section is a column whose gap spaces the questions. A gap skips a hidden child,
+   so a closed field at the end of a section (the socials under No) leaves no space
+   behind it, which a bottom margin and :last-child could not do. */
+.pl-teach-application__section {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.pl-teach-application__section > .pl-teach-section__title,
+.pl-teach-application__section > .pl-form-group,
+.pl-teach-application__section > .pl-teach-application__group,
+.pl-teach-application__section > .pl-teach-application__reveal {
+    margin: 0;
+}
+
+/* The intro line sits under its title, closer than the gap between questions. */
+.pl-teach-application__intro {
+    margin: -0.75rem 0 0;
+    color: var(--hub-text-muted);
+    font-size: 0.9375rem;
+}
+
+/* A chip group is laid out like a .pl-form-group. */
+.pl-teach-application__group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.pl-teach-application__choices {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+.pl-teach-application__choices legend {
+    padding: 0;
+    margin-bottom: 0.5rem;
+}
+
+.pl-teach-application__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.pl-teach-application__chips .pl-chip {
+    padding: 0.45rem 0.85rem;
+    color: var(--hub-text);
+}
+
+.pl-teach-application__chips input {
+    accent-color: var(--hub-blue);
+}
+
+.pl-teach-application__choices[aria-invalid="true"] .pl-chip {
+    border-color: var(--hub-danger-text);
+}
+
+/* The field a Yes (or a teaching level past first time) opens, set in under its question. */
+.pl-teach-application__reveal {
+    padding-left: 1rem;
+    border-left: 2px solid var(--hub-border);
+}
+
+/* Send last, with room above it (FRONTEND.md rules 18 and 21). */
+.pl-teach-application__actions {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+@media (max-width: 640px) {
+    .pl-teach-application__section {
+        padding: 1.25rem;
+    }
+
+    .pl-teach-application__actions .pl-btn {
+        flex: 1 1 100%;
+        justify-content: center;
+    }
+}
+
+/* The shared .pl-form-group rule sets no font, so a textarea falls back to monospace. */
+.pl-teach-application textarea {
+    font-family: inherit;
+}

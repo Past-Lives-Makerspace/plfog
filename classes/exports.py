@@ -82,6 +82,18 @@ INSTRUCTOR_INQUIRIES_CSV_HEADERS = [
     "Experience Level",
     "Contact",
     "Status",
+    # The application page's answers (#793), after the original eight so a saved
+    # spreadsheet's columns keep their places.
+    "Class Title",
+    "Format",
+    "Shop or Area",
+    "Years Practicing",
+    "Where They Have Taught",
+    "Certifications or Safety Training",
+    "Equipment or Space Needed",
+    "Class Size",
+    "When They Can Teach",
+    "Anything Else",
 ]
 
 
@@ -114,6 +126,16 @@ def stream_instructor_inquiries_csv(inquiries: QuerySet[Member]) -> StreamingHtt
                 member.get_teaching_experience_display(),
                 member.teaching_contact_summary,
                 member.teaching_application_state.value.capitalize(),
+                member.teaching_class_title,
+                member.get_teaching_class_format_display(),
+                member.teaching_shop_area,
+                member.get_teaching_practice_years_display(),
+                member.teaching_taught_where,
+                member.teaching_certifications,
+                member.teaching_space_needs,
+                member.get_teaching_class_size_display(),
+                member.teaching_availability_display,
+                member.teaching_anything_else,
             ]
             yield writer.writerow([_neutralise_formula(cell) for cell in row])
 

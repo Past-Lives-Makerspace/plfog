@@ -103,6 +103,10 @@ def describe_resetting_the_member_persona():
             teaching_application_note="Wheel throwing.",
             teaching_contact_method="text",
             teaching_contact_detail="503 555 0100",
+            teaching_class_title="Wheel Throwing 101",
+            teaching_website="https://robin.example",
+            teaching_availability=["weekends"],
+            teaching_anything_else="Thanks.",
         )
         member = Command()._reset_member_persona()
         member.refresh_from_db()
@@ -110,3 +114,8 @@ def describe_resetting_the_member_persona():
         assert member.teaching_application_note == ""
         assert member.teaching_contact_method == ""
         assert member.teaching_contact_detail == ""
+        # #793: every application answer clears with them, not only the original four.
+        assert member.teaching_class_title == ""
+        assert member.teaching_website == ""
+        assert member.teaching_availability == []
+        assert member.teaching_anything_else == ""

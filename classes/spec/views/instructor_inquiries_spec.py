@@ -53,6 +53,17 @@ def three(db) -> dict[str, Member]:
             teaching_website="https://avery.example",
             teaching_socials="https://instagram.com/avery @averymakes",
             teaching_experience="experienced",
+            # #793: the application page's answers.
+            teaching_class_title="Lost Wax Casting",
+            teaching_class_format="series",
+            teaching_shop_area="Jewelry bench",
+            teaching_practice_years="over_10",
+            teaching_taught_where="The art center, five years.",
+            teaching_certifications="Torch safety.",
+            teaching_space_needs="The casting kiln.",
+            teaching_class_size="1_to_4",
+            teaching_availability=["weekday_evenings", "weekends"],
+            teaching_anything_else="Happy to co teach.",
         ),
         "declined": _inquiry(
             "Dana Declined", "2026-09-10T10:00", teaching_decided_at=now, teaching_decline_reason="Not yet."
@@ -94,6 +105,57 @@ def describe_the_page():
         assert 'pl-inquiries__status--approved">Approved</span>' in content
         assert 'pl-inquiries__status--declined">Declined</span>' in content
         assert 'pl-inquiries__status--pending">Pending</span>' in content
+
+    def it_puts_the_class_title_above_what_they_want_to_teach(admin_user, client, three):
+        client.force_login(admin_user)
+        content = client.get(PAGE).content.decode()
+        assert '<strong class="pl-inquiries__title">Lost Wax Casting</strong>Avery Approved wants to teach.' in content
+
+    def it_opens_the_whole_application_under_each_row(admin_user, client, three):
+        """#793: every new answer is readable per row, behind a View Application button."""
+        client.force_login(admin_user)
+        content = client.get(PAGE).content.decode()
+        assert content.count("data-inquiry-toggle") == 3
+        assert content.count('class="pl-inquiries__detail" x-show="open" x-cloak') == 3
+        avery = three["approved"]
+        start = content.index(f'data-inquiry-application="{avery.pk}"')
+        detail = content[start : content.index("</tbody>", start)]
+        for answer in (
+            "Lost Wax Casting",
+            "A series of sessions",
+            "Jewelry bench",
+            "Over 10 years",
+            "Experienced instructor",
+            "The art center, five years.",
+            "Torch safety.",
+            "The casting kiln.",
+            "1 to 4",
+            "Weekday evenings, Weekends",
+            "https://avery.example",
+            "503 555 0100 (text message)",
+            "Happy to co teach.",
+        ):
+            assert answer in detail, answer
+        assert "Not given" not in detail
+
+    def it_still_renders_and_exports_a_time_slot_it_no_longer_knows(admin_user, client, three):
+        Member.objects.filter(pk=three["approved"].pk).update(teaching_availability=["weekends", "sunrise"])
+        client.force_login(admin_user)
+        response = client.get(PAGE)
+        assert response.status_code == 200
+        assert "Weekends, sunrise" in response.content.decode()
+        row = _csv(client.get(EXPORT, {"status": "approved"}))[1]
+        assert row[16] == "Weekends, sunrise"
+
+    def it_says_not_given_for_an_answer_an_older_application_never_had(admin_user, client, three):
+        client.force_login(admin_user)
+        content = client.get(PAGE).content.decode()
+        pat = three["pending"]
+        start = content.index(f'data-inquiry-application="{pat.pk}"')
+        detail = content[start : content.index("</tbody>", start)]
+        assert "<dt>Working title</dt><dd>Not given</dd>" in detail
+        assert "<dt>When they can teach</dt><dd>Not given</dd>" in detail
+        assert "<dt>Teaching experience</dt><dd>First time teaching</dd>" in detail
 
     def it_offers_the_csv_with_the_same_filter_as_a_real_download(admin_user, client, three):
         client.force_login(admin_user)
@@ -151,6 +213,16 @@ def describe_the_csv():
                 "Experience Level",
                 "Contact",
                 "Status",
+                "Class Title",
+                "Format",
+                "Shop or Area",
+                "Years Practicing",
+                "Where They Have Taught",
+                "Certifications or Safety Training",
+                "Equipment or Space Needed",
+                "Class Size",
+                "When They Can Teach",
+                "Anything Else",
             ],
             [
                 "2026-08-15",
@@ -161,6 +233,16 @@ def describe_the_csv():
                 "Experienced instructor",
                 "503 555 0100 (text message)",
                 "Approved",
+                "Lost Wax Casting",
+                "A series of sessions",
+                "Jewelry bench",
+                "Over 10 years",
+                "The art center, five years.",
+                "Torch safety.",
+                "The casting kiln.",
+                "1 to 4",
+                "Weekday evenings, Weekends",
+                "Happy to co teach.",
             ],
         ]
 
@@ -177,12 +259,14 @@ def describe_the_csv():
             teaching_application_note=f'{lead}HYPERLINK("https://evil.example","x")',
             teaching_socials=f"{lead}cmd",
             teaching_contact_detail=f"{lead}1+1",
+            teaching_anything_else=f"{lead}SUM(A1)",
         )
         client.force_login(admin_user)
         row = _csv(client.get(EXPORT))[1]
         assert row[2] == f'\'{lead}HYPERLINK("https://evil.example","x")'
         assert row[4] == f"'{lead}cmd"
         assert row[6] == f"'{lead}1+1 (text message)"
+        assert row[17] == f"'{lead}SUM(A1)"
 
     def it_leaves_ordinary_text_alone(admin_user, client, three):
         client.force_login(admin_user)

@@ -510,6 +510,113 @@ def describe_apply_to_teach_inquiry_answers():
         assert (member.teaching_website, member.teaching_socials, member.teaching_experience) == ("", "", "")
 
 
+def describe_apply_to_teach_application_answers():
+    """#793: the application page's answers are stored beside the rest, latest ask only."""
+
+    def _apply_with_everything(member: Member) -> None:
+        member.apply_to_teach(
+            "Wheel throwing.",
+            contact_method="email",
+            contact_detail="reach@example.com",
+            experience="a_few",
+            class_title=" Wheel Throwing 101 ",
+            class_format="series",
+            shop_area=" Ceramics ",
+            practice_years="3_to_10",
+            taught_where=" The library. ",
+            certifications=" Kiln safety. ",
+            space_needs=" Four wheels. ",
+            class_size="5_to_8",
+            availability=["weekday_evenings", "weekends"],
+            anything_else=" Thanks. ",
+        )
+
+    def it_stores_every_answer_trimmed():
+        member = _linked_member("apply-everything")
+        _apply_with_everything(member)
+        member.refresh_from_db()
+        assert member.teaching_class_title == "Wheel Throwing 101"
+        assert member.teaching_class_format == Member.TeachingClassFormat.SERIES
+        assert member.teaching_shop_area == "Ceramics"
+        assert member.teaching_practice_years == Member.TeachingPracticeYears.THREE_TO_TEN
+        assert member.teaching_taught_where == "The library."
+        assert member.teaching_certifications == "Kiln safety."
+        assert member.teaching_space_needs == "Four wheels."
+        assert member.teaching_class_size == Member.TeachingClassSize.FIVE_TO_EIGHT
+        assert member.teaching_availability == ["weekday_evenings", "weekends"]
+        assert member.teaching_anything_else == "Thanks."
+        assert member.teaching_availability_display == "Weekday evenings, Weekends"
+
+    @pytest.mark.parametrize(
+        ("answer", "value"),
+        [
+            ("class_format", "weekly"),
+            ("practice_years", "forever"),
+            ("class_size", "50"),
+            ("availability", ["midnight"]),
+        ],
+    )
+    def it_refuses_an_unknown_choice_and_files_nothing(answer, value):
+        member = _linked_member(f"apply-bad-{answer}")
+        with pytest.raises(ValueError):
+            member.apply_to_teach(
+                "Wheel throwing.", contact_method="email", contact_detail="reach@example.com", **{answer: value}
+            )
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+
+    def it_blanks_every_new_answer_a_later_ask_leaves_out():
+        member = _linked_member("apply-everything-again")
+        _apply_with_everything(member)
+        member.decline_teaching(decided_by=None, reason="Not yet.")
+        member.apply_to_teach("Second ask.", contact_method="email", contact_detail="reach@example.com")
+        member.refresh_from_db()
+        blank = MemberFactory.build()
+        blank.clear_teaching_answers()
+        for field in Member.TEACHING_ANSWER_FIELDS:
+            if field not in ("teaching_application_note", "teaching_contact_method", "teaching_contact_detail"):
+                assert getattr(member, field) == getattr(blank, field), field
+
+    def it_stores_a_repeated_time_slot_once_in_the_order_picked():
+        member = _linked_member("apply-dupe-slots")
+        member.apply_to_teach(
+            "Wheel throwing.",
+            contact_method="email",
+            contact_detail="reach@example.com",
+            availability=["weekends", "weekday_daytime", "weekends"],
+        )
+        member.refresh_from_db()
+        assert member.teaching_availability == ["weekends", "weekday_daytime"]
+        assert member.teaching_availability_display == "Weekends, Weekday daytime"
+
+    @pytest.mark.parametrize("website", ["javascript:alert(1)", "ftp://robin.example", "not a site"])
+    def it_refuses_a_website_that_is_not_an_http_address_and_files_nothing(website):
+        member = _linked_member("apply-bad-site")
+        with pytest.raises(ValueError):
+            member.apply_to_teach(
+                "Wheel throwing.", contact_method="email", contact_detail="reach@example.com", website=website
+            )
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+        assert member.teaching_website == ""
+
+    @pytest.mark.parametrize("website", ["https://robin.example", "http://robin.example/work"])
+    def it_keeps_an_http_or_https_website(website):
+        member = _linked_member("apply-good-site")
+        member.apply_to_teach(
+            "Wheel throwing.", contact_method="email", contact_detail="reach@example.com", website=f" {website} "
+        )
+        member.refresh_from_db()
+        assert member.teaching_website == website
+
+    def it_shows_a_stored_time_slot_it_no_longer_knows_as_stored():
+        member = MemberFactory(teaching_availability=["weekends", "sunrise"])
+        assert member.teaching_availability_display == "Weekends, sunrise"
+
+    def it_reads_blank_availability_for_an_application_that_never_asked():
+        assert MemberFactory().teaching_availability_display == ""
+
+
 def describe_teaching_contact_summary():
     def it_puts_the_method_after_the_detail():
         member = MemberFactory(teaching_contact_method="text", teaching_contact_detail="503 555 0100")

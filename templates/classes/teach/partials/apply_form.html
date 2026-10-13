@@ -1,48 +1,97 @@
 {% comment %}
-Body of the I'm Interested modal. Server-rendered inline (not fetched by HTMX), so a
-POST that fails validation re-renders the page with the bound form and the errors show
-inside the reopened modal. Every field goes through form_field.html, which wraps it in
-.pl-form-group; that is what styles the textarea, the select and the input from the
-theme input tokens (FRONTEND.md rule 13); a bare control on a hub page renders as a
-white box.
+The teaching application's questions (#793), six sections, for a TeachingApplicationForm
+passed as `form`. No <form> tag and no submit: the caller wraps it (the application page,
+classes/teach/apply.html), so another form can carry the same answers (#794). The caller
+also passes contact_prefill_email and contact_prefill_phone.
 
-The Alpine component follows the Best way to reach you select: `method` mirrors the
-select, `label()` is what the detail field's label reads (form_field.html puts it on
-the label through field_label_x_text), and `pick()` prefills the detail from the
-form's data- attributes (the member's account email, or the phone on their profile;
-read through $root, because $el inside a handler is the select it fired on) when the
-field is empty or still holds the previous prefill, so anything the member typed is
-never overwritten. x-init reads the select's rendered value (through the DOM: a root's
-x-init runs before its children register their x-ref), so a bound re-render keeps the
-method the member chose.
+Text fields go through form_field.html, which wraps them in .pl-form-group; that is what
+styles them from the theme input tokens (FRONTEND.md rule 13). Pick one and pick any
+questions are chip groups (_choice_chips.html).
+
+One Alpine component on the wrapper:
+- `experience`, `hasWebsite` and `hasSocials` follow their chip groups (the widgets carry
+  x-model) and show or hide the fields that depend on them in place. They start from the
+  server's value, so a bound form after an error opens what was open; x-cloak keeps a
+  closed one from flashing before Alpine runs. The server applies the same rules
+  (TeachingApplicationForm.clean). The conditional wrappers carry no id (FRONTEND.md rule 25).
+- `method`, `label()` and `pick()` follow the Best way to reach you select: the detail
+  field's label follows the pick, and the pick prefills the account email or the profile
+  phone (from the data- attributes, read through $root) when the box is empty or still
+  holds the previous prefill, so anything the member typed is never overwritten. x-init
+  reads the select's rendered value, so a bound render keeps the method they chose.
 {% endcomment %}
-<form method="post" action="{% url 'classes:teach_apply' %}"
-      data-email="{{ contact_prefill_email }}"
-      data-phone="{{ contact_prefill_phone }}"
-      x-data="{
-          method: '',
-          lastFill: '',
-          label() {
-              return { email: 'Email address', text: 'Phone number for texts', phone: 'Phone number for calls' }[this.method] || 'Where to reach you';
-          },
-          pick(value) {
-              this.method = value;
-              const fill = value === 'email' ? this.$root.dataset.email : (value ? this.$root.dataset.phone : '');
-              const box = this.$refs.detail;
-              if (box.value === '' || box.value === this.lastFill) { box.value = fill; }
-              this.lastFill = fill;
-          }
-      }"
-      x-init="method = $el.querySelector('[name=contact_method]').value">
-    {% csrf_token %}
-    {% include "components/form_field.html" with field=apply_form.note %}
-    {% include "components/form_field.html" with field=apply_form.experience %}
-    {% include "components/form_field.html" with field=apply_form.website %}
-    {% include "components/form_field.html" with field=apply_form.socials %}
-    {% include "components/form_field.html" with field=apply_form.contact_method %}
-    {% include "components/form_field.html" with field=apply_form.contact_detail field_label_x_text="label()" %}
-    <div class="pl-modal__actions">
-        <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Send It</button>
-        <button type="button" @click="$dispatch('close-modal', 'apply-to-teach')" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
-    </div>
-</form>
+<div class="pl-teach-application__fields"
+     data-email="{{ contact_prefill_email }}"
+     data-phone="{{ contact_prefill_phone }}"
+     x-data="{
+         experience: '{{ form.experience.value|default_if_none:''|escapejs }}',
+         hasWebsite: '{{ form.has_website.value|default_if_none:''|escapejs }}',
+         hasSocials: '{{ form.has_socials.value|default_if_none:''|escapejs }}',
+         classFormat: '{{ form.class_format.value|default_if_none:''|escapejs }}',
+         practiceYears: '{{ form.practice_years.value|default_if_none:''|escapejs }}',
+         classSize: '{{ form.class_size.value|default_if_none:''|escapejs }}',
+         method: '',
+         lastFill: '',
+         label() {
+             return { email: 'Email address', text: 'Phone number for texts', phone: 'Phone number for calls' }[this.method] || 'Where to reach you';
+         },
+         pick(value) {
+             this.method = value;
+             const fill = value === 'email' ? this.$root.dataset.email : (value ? this.$root.dataset.phone : '');
+             const box = this.$refs.detail;
+             if (box.value === '' || box.value === this.lastFill) { box.value = fill; }
+             this.lastFill = fill;
+         }
+     }"
+     x-init="method = $el.querySelector('[name=contact_method]').value">
+
+    <section class="hub-card pl-teach-application__section" data-apply-section="idea">
+        <h2 class="pl-teach-section__title">Your Class Idea</h2>
+        <p class="pl-teach-application__intro">Rough is fine. Nothing here is final.</p>
+        {% include "components/form_field.html" with field=form.class_title %}
+        {% include "components/form_field.html" with field=form.note %}
+        {% include "classes/teach/partials/_choice_chips.html" with field=form.class_format %}
+        {% include "components/form_field.html" with field=form.shop_area %}
+    </section>
+
+    <section class="hub-card pl-teach-application__section" data-apply-section="experience">
+        <h2 class="pl-teach-section__title">Your Experience</h2>
+        <p class="pl-teach-application__intro">First time teachers are welcome. This helps Lee plan your training.</p>
+        {% include "classes/teach/partials/_choice_chips.html" with field=form.practice_years %}
+        {% include "classes/teach/partials/_choice_chips.html" with field=form.experience %}
+        <div class="pl-teach-application__reveal" x-show="experience !== '' && experience !== 'first_time'"{% if not form.experience.value or form.experience.value == 'first_time' %} x-cloak{% endif %} data-reveal="taught_where">
+            {% include "components/form_field.html" with field=form.taught_where %}
+        </div>
+        {% include "components/form_field.html" with field=form.certifications %}
+    </section>
+
+    <section class="hub-card pl-teach-application__section" data-apply-section="logistics">
+        <h2 class="pl-teach-section__title">Logistics</h2>
+        {% include "components/form_field.html" with field=form.space_needs %}
+        {% include "classes/teach/partials/_choice_chips.html" with field=form.class_size %}
+        {% include "classes/teach/partials/_choice_chips.html" with field=form.availability %}
+    </section>
+
+    <section class="hub-card pl-teach-application__section" data-apply-section="work">
+        <h2 class="pl-teach-section__title">Show Your Work</h2>
+        {% include "classes/teach/partials/_choice_chips.html" with field=form.has_website %}
+        <div class="pl-teach-application__reveal" x-show="hasWebsite === 'yes'"{% if form.has_website.value != 'yes' %} x-cloak{% endif %} data-reveal="website">
+            {% include "components/form_field.html" with field=form.website %}
+        </div>
+        {% include "classes/teach/partials/_choice_chips.html" with field=form.has_socials %}
+        <div class="pl-teach-application__reveal" x-show="hasSocials === 'yes'"{% if form.has_socials.value != 'yes' %} x-cloak{% endif %} data-reveal="socials">
+            {% include "components/form_field.html" with field=form.socials %}
+        </div>
+    </section>
+
+    <section class="hub-card pl-teach-application__section" data-apply-section="contact">
+        <h2 class="pl-teach-section__title">How to Reach You</h2>
+        {% include "components/form_field.html" with field=form.contact_method %}
+        {% include "components/form_field.html" with field=form.contact_detail field_label_x_text="label()" %}
+    </section>
+
+    <section class="hub-card pl-teach-application__section" data-apply-section="else">
+        <h2 class="pl-teach-section__title">Anything Else</h2>
+        {% include "components/form_field.html" with field=form.anything_else %}
+    </section>
+</div>

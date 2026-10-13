@@ -204,6 +204,11 @@ class MembershipPlan(models.Model):
 # ---------------------------------------------------------------------------
 
 
+def _known_choice_or_blank(choices: type[models.TextChoices], value: str) -> str:
+    """``value`` as a member of ``choices``, or "" when blank; an unknown value raises ``ValueError``."""
+    return choices(value) if value else ""
+
+
 class MemberQuerySet(models.QuerySet):
     def active(self) -> MemberQuerySet:
         return self.filter(status=Member.Status.ACTIVE)
@@ -605,6 +610,58 @@ class Member(models.Model):
         A_FEW = "a_few", "Taught a few classes"
         EXPERIENCED = "experienced", "Experienced instructor"
 
+    class TeachingClassFormat(models.TextChoices):
+        """The shape of the class a member wants to host, asked on the application page (#793)."""
+
+        ONE_TIME = "one_time", "One time workshop"
+        SERIES = "series", "A series of sessions"
+        UNSURE = "unsure", "Not sure yet"
+
+    class TeachingPracticeYears(models.TextChoices):
+        """How long a member has practiced the craft they want to teach (#793)."""
+
+        UNDER_ONE = "under_1", "Under a year"
+        ONE_TO_THREE = "1_to_3", "1 to 3 years"
+        THREE_TO_TEN = "3_to_10", "3 to 10 years"
+        OVER_TEN = "over_10", "Over 10 years"
+
+    class TeachingClassSize(models.TextChoices):
+        """The class size a member is comfortable teaching (#793)."""
+
+        UP_TO_FOUR = "1_to_4", "1 to 4"
+        FIVE_TO_EIGHT = "5_to_8", "5 to 8"
+        NINE_TO_TWELVE = "9_to_12", "9 to 12"
+        OVER_TWELVE = "over_12", "More than 12"
+
+    class TeachingAvailability(models.TextChoices):
+        """When a member could usually teach; they pick any number, stored as a list (#793)."""
+
+        WEEKDAY_DAYTIME = "weekday_daytime", "Weekday daytime"
+        WEEKDAY_EVENINGS = "weekday_evenings", "Weekday evenings"
+        WEEKENDS = "weekends", "Weekends"
+
+    # Every answer a teaching application stores, in the order the application page asks
+    # them. ``apply_to_teach`` overwrites all of them and the demo reset clears all of them,
+    # so a new question added here is kept and cleared the same way as the rest.
+    TEACHING_ANSWER_FIELDS: ClassVar[tuple[str, ...]] = (
+        "teaching_class_title",
+        "teaching_application_note",
+        "teaching_class_format",
+        "teaching_shop_area",
+        "teaching_practice_years",
+        "teaching_experience",
+        "teaching_taught_where",
+        "teaching_certifications",
+        "teaching_space_needs",
+        "teaching_class_size",
+        "teaching_availability",
+        "teaching_website",
+        "teaching_socials",
+        "teaching_contact_method",
+        "teaching_contact_detail",
+        "teaching_anything_else",
+    )
+
     class EmailGap(models.TextChoices):
         """Why a member has no usable email (labels only; no field stores this).
 
@@ -871,6 +928,66 @@ class Member(models.Model):
             "How much teaching the member says they have done. "
             "Blank for an application filed before the question was asked."
         ),
+    )
+    # The application page's answers (#793). Like the ones above they hold the latest ask
+    # only, and blank means an application filed before the question was asked.
+    teaching_class_title = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        help_text="The working title of the class the member wants to host.",
+    )
+    teaching_class_format = models.CharField(
+        max_length=10,
+        choices=TeachingClassFormat.choices,
+        blank=True,
+        default="",
+        help_text="One time workshop, a series of sessions, or not sure yet.",
+    )
+    teaching_shop_area = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="Which shop or area of the space the class would use, as typed. Optional.",
+    )
+    teaching_practice_years = models.CharField(
+        max_length=10,
+        choices=TeachingPracticeYears.choices,
+        blank=True,
+        default="",
+        help_text="How long the member has practiced the craft they want to teach.",
+    )
+    teaching_taught_where = models.TextField(
+        blank=True,
+        default="",
+        help_text="Where the member has taught before. Blank for a first time teacher.",
+    )
+    teaching_certifications = models.TextField(
+        blank=True,
+        default="",
+        help_text="Certifications or safety training relevant to the class. Optional.",
+    )
+    teaching_space_needs = models.TextField(
+        blank=True,
+        default="",
+        help_text="Equipment or space at Past Lives the class would need. Optional.",
+    )
+    teaching_class_size = models.CharField(
+        max_length=10,
+        choices=TeachingClassSize.choices,
+        blank=True,
+        default="",
+        help_text="The class size the member is comfortable teaching.",
+    )
+    teaching_availability = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="When the member could usually teach: a list of TeachingAvailability values.",
+    )
+    teaching_anything_else = models.TextField(
+        blank=True,
+        default="",
+        help_text="Anything else the member wants the admin to know before their instructor training. Optional.",
     )
     teaching_decided_at = models.DateTimeField(
         null=True,
@@ -1662,6 +1779,20 @@ class Member(models.Model):
         method = self.teaching_contact_method_label
         return f"{self.teaching_contact_detail} ({method})" if method else self.teaching_contact_detail
 
+    @property
+    def teaching_availability_display(self) -> str:
+        """When the member could usually teach, as words ("Weekday evenings, Weekends"); "" when never asked."""
+        labels = dict(self.TeachingAvailability.choices)
+        # A value no longer in the choices shows as stored rather than taking the page down.
+        return ", ".join(str(labels.get(value, value)) for value in self.teaching_availability)
+
+    def clear_teaching_answers(self) -> None:
+        """Blank every answer in :attr:`TEACHING_ANSWER_FIELDS`, in memory; the caller saves."""
+        for name in self.TEACHING_ANSWER_FIELDS:
+            field = self._meta.get_field(name)
+            assert isinstance(field, models.Field)  # every answer is a concrete column
+            setattr(self, name, field.get_default())
+
     def apply_to_teach(
         self,
         note: str,
@@ -1671,6 +1802,16 @@ class Member(models.Model):
         website: str = "",
         socials: str = "",
         experience: str = "",
+        class_title: str = "",
+        class_format: str = "",
+        shop_area: str = "",
+        practice_years: str = "",
+        taught_where: str = "",
+        certifications: str = "",
+        space_needs: str = "",
+        class_size: str = "",
+        availability: Sequence[str] = (),
+        anything_else: str = "",
     ) -> None:
         """Record this member's ask to teach and put it in front of the admins.
 
@@ -1678,8 +1819,14 @@ class Member(models.Model):
         Instructor permission on (``grant_teaching``) to actually open the portal.
         Re-applying after a decline is deliberate and clears the old decline, so the
         member is back in the queue with a clean slate rather than reading a stale no.
-        The contact fields tell the admin how to get in touch; a new application
-        overwrites the previous pair.
+        Every answer in :attr:`TEACHING_ANSWER_FIELDS` is overwritten, so an answer
+        left out of a new application reads blank rather than carrying the old one.
+
+        The keyword answers are what :meth:`classes.forms.TeachingApplicationForm.answers`
+        returns, so a caller with a valid form passes ``**form.answers()``. Which answers
+        are required, and the rules between them (where they taught only past a first
+        timer, a website only on yes), are the form's; this checks only what would
+        corrupt the record.
 
         Args:
             note: What they want to teach, in their own words. Required.
@@ -1691,11 +1838,22 @@ class Member(models.Model):
             socials: Social handles or links, as typed. Optional.
             experience: A :class:`TeachingExperience` value. The form requires it; blank
                 is kept for callers that file an application without the question.
+            class_title: The class's working title.
+            class_format: A :class:`TeachingClassFormat` value, or blank.
+            shop_area: Which shop or area the class uses, as typed.
+            practice_years: A :class:`TeachingPracticeYears` value, or blank.
+            taught_where: Where they have taught before, as typed.
+            certifications: Relevant certifications or safety training, as typed.
+            space_needs: Equipment or space at Past Lives the class needs, as typed.
+            class_size: A :class:`TeachingClassSize` value, or blank.
+            availability: :class:`TeachingAvailability` values, any number.
+            anything_else: Anything else for the admin, as typed.
 
         Raises:
             ValueError: If the member is not ACTIVE, if ``note``, ``contact_method`` or
-                ``contact_detail`` is blank, if ``contact_method`` or a given ``experience``
-                is not a known choice, or if they already have an application waiting on an admin.
+                ``contact_detail`` is blank, if a choice answer is not a known choice, if
+                ``website`` is not an http or https address, or
+                if they already have an application waiting on an admin or can already teach.
         """
         from core.events.emit import emit
         from core.models import SiteActivity
@@ -1711,32 +1869,52 @@ class Member(models.Model):
         contact_detail = contact_detail.strip()
         if not contact_detail:
             raise ValueError("A teaching application needs an email address or phone number to reach the member at")
-        if experience:
-            experience = self.TeachingExperience(experience)  # an unknown level raises ValueError
+        experience = _known_choice_or_blank(self.TeachingExperience, experience)
+        class_format = _known_choice_or_blank(self.TeachingClassFormat, class_format)
+        practice_years = _known_choice_or_blank(self.TeachingPracticeYears, practice_years)
+        class_size = _known_choice_or_blank(self.TeachingClassSize, class_size)
+        # Dedupe keeping order, so a repeated pick is stored once.
+        slots = list(dict.fromkeys(str(self.TeachingAvailability(value).value) for value in availability))
+        website = website.strip()
+        if website:
+            # Only http and https, whoever calls this: the address becomes a link on the admin pages.
+            try:
+                URLValidator(schemes=["http", "https"])(website)
+            except ValidationError as error:
+                raise ValueError(f"Not a web address: {website!r}") from error
         if self.teaching_application_state == self.TeachingApplicationState.PENDING:
             raise ValueError(f"Member {self.pk} already has a teaching application waiting on an admin")
         if self.can_create_classes:
             # The page never offers the button to an instructor; this is the crafted POST
             # backstop, so an approved member cannot ping the admins about an empty queue.
             raise ValueError(f"Member {self.pk} can already teach and has nothing to apply for")
+        answers: dict[str, object] = {
+            "teaching_class_title": class_title.strip(),
+            "teaching_application_note": note,
+            "teaching_class_format": class_format,
+            "teaching_shop_area": shop_area.strip(),
+            "teaching_practice_years": practice_years,
+            "teaching_experience": experience,
+            "teaching_taught_where": taught_where.strip(),
+            "teaching_certifications": certifications.strip(),
+            "teaching_space_needs": space_needs.strip(),
+            "teaching_class_size": class_size,
+            "teaching_availability": slots,
+            "teaching_website": website,
+            "teaching_socials": socials.strip(),
+            "teaching_contact_method": method,
+            "teaching_contact_detail": contact_detail,
+            "teaching_anything_else": anything_else.strip(),
+        }
+        for field, value in answers.items():
+            setattr(self, field, value)
         self.teaching_applied_at = timezone.now()
-        self.teaching_application_note = note
-        self.teaching_contact_method = method
-        self.teaching_contact_detail = contact_detail
-        self.teaching_website = website.strip()
-        self.teaching_socials = socials.strip()
-        self.teaching_experience = experience
         self.teaching_decided_at = None
         self.teaching_decline_reason = ""
         self.save(
             update_fields=[
                 "teaching_applied_at",
-                "teaching_application_note",
-                "teaching_contact_method",
-                "teaching_contact_detail",
-                "teaching_website",
-                "teaching_socials",
-                "teaching_experience",
+                *self.TEACHING_ANSWER_FIELDS,
                 "teaching_decided_at",
                 "teaching_decline_reason",
             ]

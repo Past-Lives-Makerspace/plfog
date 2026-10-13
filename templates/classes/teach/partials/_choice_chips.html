@@ -1,0 +1,22 @@
+{% comment %}
+A pick one (RadioSelect) or pick any (CheckboxSelectMultiple) question drawn as .pl-chip
+labels inside a fieldset, with the field's errors and hint below in form_field.html's
+order. form_field.html cannot draw these: a CheckboxSelectMultiple reports input_type
+"checkbox" and would become a single toggle. Pass the bound field as `field`.
+{% endcomment %}
+<div class="pl-teach-application__group">
+    <fieldset class="pl-teach-application__choices"{% if field.errors %} aria-invalid="true"{% endif %}>
+        <legend class="pl-form-label">{{ field.label }}</legend>
+        <div class="pl-teach-application__chips">
+            {% for choice in field %}<label class="pl-chip" for="{{ choice.id_for_label }}">{{ choice.tag }} {{ choice.choice_label }}</label>{% endfor %}
+        </div>
+    </fieldset>
+    {% if field.errors %}
+    <ul class="pl-field-errors">
+        {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    {% if field.help_text %}
+    <p class="pl-field-hint">{{ field.help_text }}</p>
+    {% endif %}
+</div>
