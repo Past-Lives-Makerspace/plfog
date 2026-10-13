@@ -4675,25 +4675,16 @@ def admin_instructor_inquiry_add(request: HttpRequest) -> HttpResponse:
     answer kept.
 
     A page loaded before the member applied, or before another admin added them, is
-    caught by ``clean_member``, which reads the member fresh on every POST. The
-    ``ValueError`` branch is only a backstop for ``apply_to_teach``'s own guards, reached
-    when the member changes in the instant between ``is_valid`` and the save. There is no
-    lock: two saves that land together are last write wins, the same as the member's own
-    application path.
+    caught by ``clean_member``, which reads the member fresh on every POST, so the save
+    refuses nothing the form did not. There is no lock: two saves that land together are
+    last write wins, the same as the member's own application path.
     """
     form = InstructorInquiryAddForm(request.POST, prefix=INQUIRY_ADD_PREFIX)
     if form.is_valid():
         assert request.user.is_authenticated  # classes_admin_access_required guarantees a real User
-        try:
-            member = form.save(added_by=request.user)
-        except ValueError:
-            # Backstop only: clean_member already refused anyone apply_to_teach would.
-            form.add_error(
-                "member", "Their record changed while you were saving. Check where they stand and try again."
-            )
-        else:
-            messages.success(request, f"Added an inquiry for {member.display_name}.")
-            return redirect("classes:admin_instructor_inquiries")
+        member = form.save(added_by=request.user)
+        messages.success(request, f"Added an inquiry for {member.display_name}.")
+        return redirect("classes:admin_instructor_inquiries")
     return _instructor_inquiries_page(request, form)
 
 

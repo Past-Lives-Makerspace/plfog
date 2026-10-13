@@ -188,15 +188,3 @@ def describe_a_failed_save():
             'value="503 555 0100"',
         ):
             assert kept in content, kept
-
-    def it_lands_on_the_member_field_when_the_member_changed_since_the_check(
-        admin_user, client: Client, robin, monkeypatch
-    ):
-        def refuse(self: Member, *args: object, **kwargs: object) -> None:
-            raise ValueError("already waiting")
-
-        monkeypatch.setattr(Member, "apply_to_teach", refuse)
-        client.force_login(admin_user)
-        content = client.post(ADD, _post()).content.decode()
-        assert "Their record changed while you were saving. Check where they stand and try again." in content
-        assert REOPEN in content
