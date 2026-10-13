@@ -1612,7 +1612,7 @@ def _filter_registrations(request: HttpRequest, qs: QuerySet[Registration]) -> Q
     return qs
 
 
-def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> dict[str, Any]:
+def _why_teach_context(member: Member) -> dict[str, Any]:
     """Context for the Host a Class page: state, the admin-edited copy, the example, the guide.
 
     A missing help-center seed must fail soft on the page (a placeholder line) but
@@ -1649,11 +1649,6 @@ def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> d
         "member": member,
         "article": article,
         "guide": guide,
-        "apply_form": apply_form,
-        # What the I'm Interested modal prefills into "Where to reach you" when the member
-        # picks a method: the account email, or the phone on their profile (blank when none).
-        "contact_prefill_email": member.primary_email,
-        "contact_prefill_phone": member.phone,
         "application_state": member.teaching_application_state,
         # The page's words, edited on the classes Settings page. A blanked field hides
         # its section, so the template guards every one.
@@ -1679,39 +1674,60 @@ def teach_why(request: HttpRequest) -> HttpResponse:
     ``teach_overview``; this permanent route is what links point at.
     """
     member: Member = request.teaching_member  # type: ignore[attr-defined]
-    return render(request, "classes/teach/why_teach.html", _why_teach_context(member, TeachingApplicationForm()))
+    return render(request, "classes/teach/why_teach.html", _why_teach_context(member))
+
+
+def _teach_apply_page(request: HttpRequest, member: Member, form: TeachingApplicationForm) -> HttpResponse:
+    return render(
+        request,
+        "classes/teach/apply.html",
+        {
+            "member": member,
+            "apply_form": form,
+            # What "Where to reach you" prefills when the member picks a method: the
+            # account email, or the phone on their profile (blank when none).
+            "contact_prefill_email": member.primary_email,
+            "contact_prefill_phone": member.phone,
+        },
+    )
 
 
 @active_member_required
-@require_POST
 def teach_apply(request: HttpRequest) -> HttpResponse:
-    """Handle the I'm Interested submit: file the note, tell the admins, say so.
+    """The application page behind both I'm Interested buttons (#793): GET shows it, POST files it.
+
+    Only a member with nothing in front of an admin gets the form: one waiting on an
+    admin goes back to the Host a Class page, which says so, and one who can already
+    teach goes to the portal. A GET starts from the member's last answers, so asking
+    again after a decline begins from what they wrote.
 
     A full-page POST, so success is a Django message and not a toast (FRONTEND.md
-    rule 6). An invalid note re-renders the page with the bound form, which reopens
-    the modal with the error inside it. The one guard the UI never offers that can
-    still reach here (a second note while the first waits on an admin, say from two
-    tabs) comes back from the model as ``ValueError`` and becomes a plain message
-    rather than a 500; the decorator already keeps inactive accounts out.
+    rule 6). An invalid submit renders the page again with the bound form, every
+    answer kept and the errors beside their fields. The one guard a page loaded
+    earlier can still reach (a second application while the first waits on an
+    admin, say from two tabs) comes back from the model as ``ValueError`` and becomes
+    a plain message rather than a 500; the decorator already keeps inactive accounts out.
     """
     member: Member = request.teaching_member  # type: ignore[attr-defined]
+    if request.method != "POST":
+        state = member.teaching_application_state
+        if state == member.TeachingApplicationState.APPROVED:
+            return redirect("classes:teach_overview")
+        if state == member.TeachingApplicationState.PENDING:
+            return redirect("classes:teach_why")
+        return _teach_apply_page(
+            request, member, TeachingApplicationForm(initial=TeachingApplicationForm.initial_for(member))
+        )
     form = TeachingApplicationForm(request.POST)
     if not form.is_valid():
-        return render(request, "classes/teach/why_teach.html", _why_teach_context(member, form))
+        return _teach_apply_page(request, member, form)
     try:
-        member.apply_to_teach(
-            form.cleaned_data["note"],
-            contact_method=form.cleaned_data["contact_method"],
-            contact_detail=form.cleaned_data["contact_detail"],
-            website=form.cleaned_data["website"],
-            socials=form.cleaned_data["socials"],
-            experience=form.cleaned_data["experience"],
-        )
+        member.apply_to_teach(**form.answers())
     except ValueError:
         if member.can_create_classes:
             messages.error(request, "You can already host classes. The teaching portal is open.")
         else:
-            messages.error(request, "We already have your note. Refresh the page and check where things stand.")
+            messages.error(request, "We already have your application. Refresh the page and check where things stand.")
         return redirect("classes:teach_why")
     messages.success(request, "Thanks. An admin will get back to you.")
     return redirect("classes:teach_overview")
@@ -1730,9 +1746,7 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
 
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     if not teaching_member.can_create_classes:
-        return render(
-            request, "classes/teach/why_teach.html", _why_teach_context(teaching_member, TeachingApplicationForm())
-        )
+        return render(request, "classes/teach/why_teach.html", _why_teach_context(teaching_member))
     my_classes = ClassOffering.objects.for_instructor(teaching_member)
     now = timezone.now()
 

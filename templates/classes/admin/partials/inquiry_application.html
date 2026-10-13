@@ -1,0 +1,52 @@
+{% comment %}
+One applicant's whole teaching application (#793), in the application page's six
+sections, for the expandable row on Instructor Inquiries. `member` is the applicant.
+An answer the member left blank, or an older application never asked, reads "Not given".
+{% endcomment %}
+<div class="pl-inquiries__application" data-inquiry-application="{{ member.pk }}">
+  <section class="pl-inquiries__answers">
+    <h3 class="pl-inquiries__answers-title">Class Idea</h3>
+    <dl>
+      <dt>Working title</dt><dd>{{ member.teaching_class_title|default:"Not given" }}</dd>
+      <dt>What students would make or learn</dt><dd>{{ member.teaching_application_note|default:"Not given"|linebreaksbr }}</dd>
+      <dt>Format</dt><dd>{{ member.get_teaching_class_format_display|default:"Not given" }}</dd>
+      <dt>Shop or area</dt><dd>{{ member.teaching_shop_area|default:"Not given" }}</dd>
+    </dl>
+  </section>
+  <section class="pl-inquiries__answers">
+    <h3 class="pl-inquiries__answers-title">Experience</h3>
+    <dl>
+      <dt>Years practicing</dt><dd>{{ member.get_teaching_practice_years_display|default:"Not given" }}</dd>
+      <dt>Teaching experience</dt><dd>{{ member.get_teaching_experience_display|default:"Not given" }}</dd>
+      <dt>Where they have taught</dt><dd>{{ member.teaching_taught_where|default:"Not given"|linebreaksbr }}</dd>
+      <dt>Certifications or safety training</dt><dd>{{ member.teaching_certifications|default:"Not given"|linebreaksbr }}</dd>
+    </dl>
+  </section>
+  <section class="pl-inquiries__answers">
+    <h3 class="pl-inquiries__answers-title">Logistics</h3>
+    <dl>
+      <dt>Equipment or space needed</dt><dd>{{ member.teaching_space_needs|default:"Not given"|linebreaksbr }}</dd>
+      <dt>Class size</dt><dd>{{ member.get_teaching_class_size_display|default:"Not given" }}</dd>
+      <dt>When they can teach</dt><dd>{{ member.teaching_availability_display|default:"Not given" }}</dd>
+    </dl>
+  </section>
+  <section class="pl-inquiries__answers">
+    <h3 class="pl-inquiries__answers-title">Their Work</h3>
+    <dl>
+      <dt>Website</dt><dd>{% if member.teaching_website %}<a href="{{ member.teaching_website }}" target="_blank" rel="noopener">{{ member.teaching_website }}</a>{% else %}Not given{% endif %}</dd>
+      <dt>Socials</dt><dd>{% if member.teaching_socials %}{{ member.teaching_socials|urlize }}{% else %}Not given{% endif %}</dd>
+    </dl>
+  </section>
+  <section class="pl-inquiries__answers">
+    <h3 class="pl-inquiries__answers-title">How to Reach Them</h3>
+    <dl>
+      <dt>Contact</dt><dd>{{ member.teaching_contact_summary|default:"Not given" }}</dd>
+    </dl>
+  </section>
+  <section class="pl-inquiries__answers">
+    <h3 class="pl-inquiries__answers-title">Anything Else</h3>
+    <dl>
+      <dt>For Lee</dt><dd>{{ member.teaching_anything_else|default:"Not given"|linebreaksbr }}</dd>
+    </dl>
+  </section>
+</div>
