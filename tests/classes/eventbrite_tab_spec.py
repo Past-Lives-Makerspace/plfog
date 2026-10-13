@@ -14,10 +14,11 @@ import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
+from django.utils.html import escape
 
 from classes.factories import ClassOfferingFactory, InstructorFactory, RegistrationFactory, UserFactory
 from classes.models import ClassOffering
-from core.integrations.eventbrite import EventbriteClient, EventbriteSync
+from core.integrations.eventbrite import EVENTBRITE_RULE_PARTS, EventbriteClient, EventbriteSync, estimate_fee_cents
 from membership.models import AdminCapability, Member
 from tests.classes.eventbrite_listing_spec import (
     _INCLUDED,
@@ -194,7 +195,8 @@ def describe_the_tab_page():
 
         assert 'data-eventbrite-stage="off"' in html
         assert "pl-lifecycle-badge--completed" in html
-        assert "data-eventbrite-rules>Eventbrite takes down listings" in html
+        assert '<div class="pl-eb-callout pl-eb-callout--info" data-eventbrite-rules>' in html
+        assert "<li>Discount codes</li>" in html
         assert f'hx-post="{reverse("classes:teach_class_eventbrite_check", kwargs={"pk": offering.pk})}"' in html
         assert "Validate Listing for Eventbrite</button>" in html
         assert 'data-eventbrite-submit x-show="ebPassed" x-cloak>Submit Listing to Eventbrite</button>' in html
@@ -202,7 +204,7 @@ def describe_the_tab_page():
         assert "data-eventbrite-save" not in html
         assert "data-eventbrite-off" not in html
         assert "data-eventbrite-published" not in html
-        assert "On a $50 ticket that is about" in html
+        assert "data-eventbrite-fees" in html
 
     def it_shows_a_queued_class_with_save_and_off(admin: Client):
         offering = _live(eventbrite_enabled=True)
@@ -272,6 +274,91 @@ def describe_the_tab_page():
         assert "data-eventbrite-awaiting>" in html
         assert "Validate Listing for Eventbrite" in html
         assert "data-eventbrite-off" in html
+
+
+def describe_the_tabs_sections():
+    """The tab laid out in sections: Status, Eventbrite's Rules, Fees, Listing Settings, Turn Off."""
+
+    @pytest.fixture(autouse=True)
+    def _integration_on(eventbrite: FakeEventbrite) -> None:
+        """The site-wide switch is on, so the tab can act."""
+
+    @pytest.fixture
+    def admin(client: Client) -> Client:
+        client.force_login(_admin())
+        return client
+
+    def it_puts_the_sections_in_order_split_by_dividers(admin: Client):
+        html = _tab(admin, _live(eventbrite_enabled=True))
+
+        titles = [
+            ">Status</h4>",
+            ">Eventbrite's Rules</h4>",
+            ">Fees</h4>",
+            ">Listing Settings</h4>",
+            "data-eventbrite-off",
+        ]
+        assert [html.index(title) for title in titles] == sorted(html.index(title) for title in titles)
+        assert html.count('<hr class="pl-eb-divider">') == 4
+
+    def it_lists_every_rule_and_bolds_the_takedown(admin: Client):
+        html = _tab(admin, _live())
+
+        for item in EVENTBRITE_RULE_PARTS.items:
+            assert f"<li>{escape(item)}</li>" in html
+        assert f"<strong>{EVENTBRITE_RULE_PARTS.lead}</strong>" in html
+        assert f'<p class="pl-eb-rules__warn"><strong>{escape(EVENTBRITE_RULE_PARTS.takedown)}</strong></p>' in html
+
+    def it_bolds_the_rates(admin: Client):
+        html = _tab(admin, _live())
+
+        assert "Eventbrite charges <strong>3.7% + $1.79</strong> per ticket, plus <strong>2.9%</strong> payment" in html
+
+    def it_works_both_fee_choices_at_the_class_price(admin: Client):
+        offering = _live(price_cents=8000)
+        fee = estimate_fee_cents(8000)
+
+        html = _tab(admin, offering)
+
+        # $80: the $4.75 service fee and $2.32 processing make up the $7.07 estimate.
+        assert fee == 707
+        assert "At this class's price of $80:" in html
+        buyer = html[html.index('data-eventbrite-fee="buyer"') : html.index('data-eventbrite-fee="included"')]
+        included = html[html.index('data-eventbrite-fee="included"') : html.index("data-eventbrite-settings")]
+        assert "Buyer pays it on top</p>" in buyer
+        assert "<dt>Eventbrite fee</dt><dd>+ $4.75</dd>" in buyer
+        assert "<dt>Processing</dt><dd>+ $2.32</dd>" in buyer
+        assert "<dt>Buyer pays</dt><dd>about $87.07</dd>" in buyer
+        assert "<dt>Class receives</dt><dd>$80</dd>" in buyer
+        assert "Included in my price</p>" in included
+        assert "<dt>Eventbrite fee</dt><dd>&minus; $4.75</dd>" in included
+        assert "<dt>Buyer pays</dt><dd>$80</dd>" in included
+        assert "<dt>Class receives</dt><dd>about $72.93</dd>" in included
+
+    def it_points_the_fee_select_at_the_fees_section(admin: Client):
+        html = _tab(admin, _live())
+
+        assert "The Fees section above shows what each choice means at this class&#x27;s price." in html
+        assert "On a $50 ticket" not in html
+
+    def it_shows_a_listed_class_the_fees_but_not_the_rules(admin: Client):
+        html = _tab(admin, _listed(eventbrite_published=True))
+
+        assert "data-eventbrite-fees" in html
+        assert "data-eventbrite-rules" not in html
+
+    def it_shows_no_fees_on_a_taken_down_event(admin: Client):
+        assert "data-eventbrite-fees" not in _tab(admin, _taken_down())
+
+    def it_shows_a_waiting_sync_as_an_info_callout_and_agreement_as_a_warning(admin: Client):
+        waiting = _tab(admin, _listed(eventbrite_published=True, eventbrite_sync_state=State.PENDING))
+        unagreed = _tab(admin, _live(eventbrite_enabled=True, eventbrite_rules_agreed_at=None))
+
+        assert '<p class="pl-eb-callout pl-eb-callout--info" data-eventbrite-sync>' in waiting
+        assert '<p class="pl-eb-callout pl-eb-callout--warn" data-eventbrite-awaiting>' in unagreed
+
+    def it_loads_the_tabs_stylesheet(admin: Client):
+        assert "css/eventbrite-tab" in _tab(admin, _live())
 
 
 def describe_submit():

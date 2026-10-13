@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-13"
+title = "A clearer Eventbrite tab"
+changes = [
+  "The Eventbrite tab on each class now reads in sections: where the listing stands, Eventbrite's rules as a short list, the fees, your settings, and turning it off.",
+  "Fees show Eventbrite's rates in bold and work out what the buyer pays and what the class receives at your class's price, both ways the fee can be paid.",
+]

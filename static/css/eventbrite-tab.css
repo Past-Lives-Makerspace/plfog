@@ -1,0 +1,161 @@
+/* The class's Eventbrite tab (templates/classes/teach/class_eventbrite.html): Status, Eventbrite's
+   Rules, Fees, Listing Settings and Turn Off Eventbrite, each a section split by a divider. Tokens
+   only; every block carries its own top margin (FRONTEND rules 18 and 26). */
+
+.pl-eb-tab .pl-composer__card-title {
+    margin-bottom: 1.25rem;
+}
+
+.pl-eb-divider {
+    border: 0;
+    border-top: 1px solid var(--hub-border-strong);
+    margin: 1.5rem 0;
+}
+
+.pl-eb-section__title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--hub-text);
+    text-transform: capitalize;
+    margin: 0 0 0.75rem;
+}
+
+.pl-eb-section__lead {
+    color: var(--hub-text);
+    font-size: 0.9375rem;
+    line-height: 1.55;
+}
+.pl-eb-section__lead strong { color: var(--hub-text); font-weight: 700; }
+
+/* A block after another inside a section. */
+.pl-eb-block { margin-top: 1rem; }
+
+/* The badge and View on Eventbrite on one line, wrapping on a phone. */
+.pl-eb-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+}
+.pl-eb-status__link {
+    color: var(--color-tuscan-yellow);
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+.pl-eb-status__link:hover,
+.pl-eb-status__link:focus-visible { text-decoration: underline; }
+[data-theme="light"] .pl-eb-status__link { color: #9a6a00; }
+
+/* A note in its own box, the colour on the left edge; the text stays the theme's text so it reads in both themes. */
+.pl-eb-callout {
+    margin-top: 1rem;
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--hub-card-border);
+    border-left: 3px solid var(--hub-text-muted);
+    border-radius: 6px;
+    background: var(--hub-surface);
+    color: var(--hub-text);
+    font-size: 0.875rem;
+    line-height: 1.55;
+}
+.pl-eb-section__title + .pl-eb-callout { margin-top: 0; }
+.pl-eb-callout p + p,
+.pl-eb-callout p + ul,
+.pl-eb-callout ul + p { margin-top: 0.75rem; }
+.pl-eb-callout--info { border-left-color: var(--hub-blue); }
+.pl-eb-callout--warn { border-left-color: var(--color-tuscan-yellow); }
+.pl-eb-callout--danger {
+    border-left-color: var(--pl-lifecycle-cancelled);
+    background: var(--color-error-bg);
+}
+
+.pl-eb-rules {
+    margin: 0;
+    padding-left: 1.25rem;
+    display: grid;
+    gap: 0.375rem;
+}
+.pl-eb-rules li::marker { color: var(--hub-blue); }
+.pl-eb-callout strong { color: var(--hub-text); font-weight: 700; }
+/* The takedown line: its own row under a rule, a warning mark in the accent before it. */
+.pl-eb-rules__warn {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-eb-rules__warn::before {
+    content: "\26A0";
+    color: var(--color-tuscan-yellow);
+    font-weight: 700;
+}
+[data-theme="light"] .pl-eb-rules__warn::before { color: #9a6a00; }
+
+.pl-eb-check > * { margin-top: 1rem; }
+
+/* The two fee choices side by side, stacked on a phone. */
+.pl-eb-fees {
+    margin-top: 1rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1rem;
+}
+.pl-eb-fee {
+    padding: 1rem 1.125rem;
+    border: 1px solid var(--hub-card-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+}
+.pl-eb-fee__title {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--hub-text);
+    text-transform: capitalize;
+    margin: 0 0 0.75rem;
+}
+.pl-eb-fee__rows { margin: 0; }
+.pl-eb-fee__row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.3rem 0;
+    font-size: 0.875rem;
+    color: var(--hub-text-muted);
+}
+.pl-eb-fee__row dt,
+.pl-eb-fee__row dd { margin: 0; }
+.pl-eb-fee__row dd {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.pl-eb-fee__row--total {
+    color: var(--hub-text);
+    font-weight: 700;
+}
+.pl-eb-fee__row:not(.pl-eb-fee__row--total) + .pl-eb-fee__row--total {
+    margin-top: 0.375rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--hub-border-strong);
+}
+
+.pl-eb-actions {
+    margin-top: 1.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+/* Turn off, set apart at the bottom: the line and the button, side by side where they fit. */
+.pl-eb-off {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+}
+.pl-eb-off__text {
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}

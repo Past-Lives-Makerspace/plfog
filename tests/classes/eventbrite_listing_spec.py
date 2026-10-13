@@ -673,6 +673,18 @@ def describe_the_class_forms():
         assert "On a $80 ticket that is about $7.07." in help_text
         assert "the buyer pays about $87.07" in help_text
 
+    def it_puts_the_rates_in_bold_in_the_fee_example():
+        help_text = (
+            TeachClassOfferingForm(instance=ClassOfferingFactory(price_cents=8000))
+            .fields["eventbrite_fee_payer"]
+            .help_text
+        )
+
+        assert help_text.startswith(
+            "Eventbrite charges <strong>3.7% + $1.79</strong> per ticket, plus <strong>2.9%</strong> payment processing."
+        )
+        assert "the class gets about $72.93." in help_text
+
     def it_leaves_eventbrite_off_the_forms_of_a_live_class():
         # #725 part 2: a live class sells on Eventbrite from its own tab.
         live = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)

@@ -144,7 +144,7 @@ from classes.models import (
 )
 from core.files import delete_if_unreferenced
 from core.htmx import wants_fragment
-from core.integrations.eventbrite import EVENTBRITE_RULES, EventbriteClient, EventbriteSync
+from core.integrations.eventbrite import EVENTBRITE_RULE_PARTS, EventbriteClient, EventbriteSync, fee_breakdown
 from core.models import SiteConfiguration
 from core.urls_util import book_absolute_url
 from core.validators import validate_image_content
@@ -2449,7 +2449,7 @@ def _render_eventbrite_tab(
     form: EventbriteSubmitForm | None = None,
     check: ListingCheck | None = None,
 ) -> HttpResponse:
-    """The Eventbrite tab: badge, Validate, Submit, the Published switch, and the fee and category."""
+    """The Eventbrite tab: badge, the rules and Validate, the fee worked at the class's price, Submit, and settings."""
     stage = offering.eventbrite_stage
     eventbrite_on = EventbriteClient.from_settings().enabled
     title, message, button = _UNPUBLISH_COPY[
@@ -2471,7 +2471,9 @@ def _render_eventbrite_tab(
             "eventbrite_on": eventbrite_on,
             "can_act": eventbrite_on and offering.status == ClassOffering.Status.PUBLISHED,
             "refusal_lead": EventbriteSync.TAB_REFUSAL,
-            "rules_text": EVENTBRITE_RULES,
+            "rules": EVENTBRITE_RULE_PARTS,
+            "fees": fee_breakdown(offering.price_cents),
+            "fee_payers": ClassOffering.EventbriteFeePayer,
         },
     )
 
