@@ -454,6 +454,8 @@ def describe_the_application_page():
         for title in ("Your Class Idea", "Your Experience", "Logistics", "Show Your Work", "How to Reach You"):
             assert f'<h2 class="pl-teach-section__title">{title}</h2>' in content
         assert '<form method="post" action="/classes/teach/apply/"' in content
+        # The server is the gate: a browser check would block Send on a hidden field.
+        assert "data-teach-application novalidate>" in content
         assert f">{SEND_BUTTON}</button>" in content
         assert "data-apply-errors" not in content
 

@@ -873,7 +873,7 @@ Got something to share? Past Lives instructors come from our membership base. If
 
 ### Say You're Interested {#teach-become-instructor}
 
-Click **Host a Class** in the left menu and you land on [Host a Class](/classes/teach/why/). It shows what you get, links a real example class page, and carries the **I'm Interested** button. It opens a short application: your class idea, your experience, what the class would need, where to see your work, and how to reach you. Fill it in and press **Send Application**.
+Click **Host a Class** in the left menu and you land on [Host a Class](/classes/teach/why/). It shows what you get, links a real example class page, and carries the **I'm Interested** button. It opens an application: your class idea, your experience, what the class would need, where to see your work, and how to reach you. Fill it in and press **Send Application**.
 
 An admin reads every application and usually gets to them within a week. You get an email either way, and you can open that page any time to see where things stand. If the answer is no, the admin leaves a note saying why, and you are welcome to say you're interested again whenever you like.
 

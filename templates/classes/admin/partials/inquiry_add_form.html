@@ -7,8 +7,11 @@ The member picker is a text input over a datalist of the members who may ask (th
 Orientation picker's pattern); the application's six sections come from the shared
 partial, drawn flat (apply_flat) because a card inside the modal's card reads as a box in
 a box. A failed save renders the page again with this modal open and every answer kept.
+The form is novalidate, as the application page is: the server is the gate, and a browser
+check would block Save on a field the admin cannot see (a broken address left under
+Website No).
 {% endcomment %}
-<form method="post" action="{% url 'classes:admin_instructor_inquiry_add' %}" class="pl-teach-application pl-inquiry-add" data-inquiry-add-form>
+<form method="post" action="{% url 'classes:admin_instructor_inquiry_add' %}" class="pl-teach-application pl-inquiry-add" data-inquiry-add-form novalidate>
     {% csrf_token %}
     {% if add_form.errors %}
     <p class="pl-teach-application__alert" role="alert" data-inquiry-add-errors>Some answers need another look. They are marked below.</p>

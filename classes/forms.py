@@ -16,11 +16,12 @@ from django.db.models import BLANK_CHOICE_DASH
 from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.forms.formsets import DELETION_FIELD_NAME
 from django.utils import timezone
+from django.utils.html import format_html
 from django.utils.text import slugify
 
 from billing.forms import RefundShareDecisionForm
 from core.html_sanitize import clean_rich_body, clean_rich_html
-from core.integrations.eventbrite import EVENTBRITE_RULES, ListingCheck
+from core.integrations.eventbrite import EVENTBRITE_RULES, ListingCheck, fee_breakdown
 from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
 
 from classes.eventbrite_categories import SUBCATEGORY_PARENT, EventbriteSubcategory, subcategory_fits
@@ -87,6 +88,8 @@ def _video_url_widget() -> forms.TextInput:
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser, User
+
+    from django.utils.safestring import SafeString
 
     from classes.inquiries import BoardReport
     from membership.models import Member, MemberQuerySet
@@ -668,19 +671,42 @@ _AGREEMENT_HELP = (
 _SUBMIT_ALPINE = {"x-model": "ebOn"}
 
 
-def eventbrite_fee_help(price: int) -> str:
-    """The fee choice's hint, worked at the class's own price (a new class shows $50)."""
-    from classes.templatetags.classes_tags import cents_as_price
-    from core.integrations.eventbrite import estimate_fee_cents
+def eventbrite_fee_help(price: int) -> SafeString:
+    """The fee choice's hint, worked at the class's own price (a new class shows $50), the rates in bold."""
+    from classes.templatetags.classes_tags import cents_as_amount, cents_as_price
 
-    fee = estimate_fee_cents(price)
-    return (
-        "Eventbrite charges 3.7% + $1.79 per ticket, plus 2.9% payment processing. "
-        f"On a {cents_as_price(price)} ticket that is about {cents_as_price(fee)}. "
-        f"Buyer pays it on top: the buyer pays about {cents_as_price(price + fee)} and the class gets "
-        f"{cents_as_price(price)}. Included in my price: the buyer pays {cents_as_price(price)} and the "
-        f"class gets about {cents_as_price(price - fee)}."
+    fees = fee_breakdown(price)
+    rates = format_html(
+        "Eventbrite charges <strong>{} + {}</strong> per ticket, plus <strong>{}</strong> payment processing.",
+        fees.service_rate,
+        cents_as_price(fees.service_fixed_cents),
+        fees.processing_rate,
     )
+    if fees.is_free:
+        return format_html("{} Free tickets carry no Eventbrite fee.", rates)
+    included: str
+    if fees.fee_exceeds_price:
+        included = "the fee is more than the price, so the class gets nothing"
+    else:
+        included = format_html(
+            "the buyer pays {} and the class gets about {}",
+            cents_as_price(price),
+            cents_as_amount(fees.class_gets_included_cents),
+        )
+    return format_html(
+        "{} On a {} ticket that is about {}. Buyer pays it on top: the buyer pays about {} and the class gets {}. "
+        "Included in my price: {}.",
+        rates,
+        cents_as_price(price),
+        cents_as_amount(fees.fee_cents),
+        cents_as_amount(fees.buyer_pays_on_top_cents),
+        cents_as_price(price),
+        included,
+    )
+
+
+# On the Eventbrite tab the Fees section above the select works both choices out in full.
+_TAB_FEE_PAYER_HINT = "The Fees section above shows what each choice means."
 
 
 class _EventbriteRulesMixin:
@@ -783,7 +809,7 @@ class EventbriteSubmitForm(_EventbriteCategoryMixin, forms.ModelForm):
         self.setup_eventbrite_category_fields()
         # Optional so a post without it keeps the class's choice.
         self.fields["eventbrite_fee_payer"].required = False
-        self.fields["eventbrite_fee_payer"].help_text = eventbrite_fee_help(self.instance.price_cents)
+        self.fields["eventbrite_fee_payer"].help_text = _TAB_FEE_PAYER_HINT
 
     def clean(self) -> dict:
         data = super().clean() or {}
@@ -1348,11 +1374,13 @@ def _chips(model: str) -> forms.RadioSelect:
     return forms.RadioSelect(attrs={"x-model": model})
 
 
-class HttpUrlField(forms.URLField):
-    """A URLField that takes only http and https addresses.
+class _WebAddressField(forms.URLField):
+    """A URLField for the schemes apply_to_teach stores, http and https only.
 
-    Django's own also takes ftp and ftps. A teaching application's website is rendered as
-    a link on Instructor Inquiries, so nothing else may reach the column (#794).
+    Django's own also takes ftp and ftps, which apply_to_teach refuses, so such an address
+    is a field error rather than a lost application. The website is rendered as a link on
+    Instructor Inquiries, so nothing else may reach the column (#794). The member's form
+    and the admin's Add Inquiry form both use it.
     """
 
     default_validators = [URLValidator(schemes=["http", "https"])]
@@ -1509,7 +1537,7 @@ class TeachingApplicationForm(forms.Form):
             "invalid_choice": "Tell us whether you have a website.",
         },
     )
-    website = HttpUrlField(
+    website = _WebAddressField(
         required=False,
         max_length=200,
         label="Website address",

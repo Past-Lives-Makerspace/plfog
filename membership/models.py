@@ -15,7 +15,6 @@ from datetime import timedelta
 from decimal import Decimal
 from html import unescape
 from typing import Any, ClassVar, NamedTuple, Self, TYPE_CHECKING, cast
-from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -1795,7 +1794,9 @@ class Member(models.Model):
     @property
     def teaching_availability_display(self) -> str:
         """When the member could usually teach, as words ("Weekday evenings, Weekends"); "" when never asked."""
-        return ", ".join(str(self.TeachingAvailability(value).label) for value in self.teaching_availability)
+        labels = dict(self.TeachingAvailability.choices)
+        # A value no longer in the choices shows as stored rather than taking the page down.
+        return ", ".join(str(labels.get(value, value)) for value in self.teaching_availability)
 
     def clear_teaching_answers(self) -> None:
         """Blank every answer in :attr:`TEACHING_ANSWER_FIELDS`, in memory; the caller saves."""
@@ -1900,10 +1901,6 @@ class Member(models.Model):
             raise ValueError("A teaching application needs a note saying what they want to teach")
         contact_detail = contact_detail.strip()
         method = self._teaching_contact_method(contact_method, contact_detail, may_be_unknown=added_by is not None)
-        website = website.strip()
-        if website and urlsplit(website).scheme.lower() not in ("http", "https"):
-            # The Instructor Inquiries page renders the address as a link.
-            raise ValueError("A teaching application's website must be an http or https address")
         now = timezone.now()
         if applied_at is not None and applied_at > now:
             raise ValueError("A teaching application cannot be dated in the future")
@@ -1911,7 +1908,15 @@ class Member(models.Model):
         class_format = _known_choice_or_blank(self.TeachingClassFormat, class_format)
         practice_years = _known_choice_or_blank(self.TeachingPracticeYears, practice_years)
         class_size = _known_choice_or_blank(self.TeachingClassSize, class_size)
-        slots = [str(self.TeachingAvailability(value).value) for value in availability]
+        # Dedupe keeping order, so a repeated pick is stored once.
+        slots = list(dict.fromkeys(str(self.TeachingAvailability(value).value) for value in availability))
+        website = website.strip()
+        if website:
+            # Only http and https, whoever calls this: the address becomes a link on the admin pages.
+            try:
+                URLValidator(schemes=["http", "https"])(website)
+            except ValidationError as error:
+                raise ValueError(f"Not a web address: {website!r}") from error
         if self.teaching_application_state == self.TeachingApplicationState.PENDING:
             raise ValueError(f"Member {self.pk} already has a teaching application waiting on an admin")
         if self.can_create_classes:

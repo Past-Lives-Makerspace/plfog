@@ -3,8 +3,9 @@
 Only a browser proves this part: + Add Inquiry opens an Alpine modal, the application's
 conditional questions open and close in place inside it (prefixed field names, so the
 shared partial must not read a field by name), a failed save reopens the modal on load
-with every answer kept and the website field still open, and a good save lands the row
-in the table as Pending. ``CAPTURE_794_SCREENSHOTS=1`` also saves the PR's pictures
+with every answer kept and the website field still open, a broken address left under
+Website No does not block Save (the form is novalidate), and the save lands the row in
+the table as Pending. ``CAPTURE_794_SCREENSHOTS=1`` also saves the PR's pictures
 under ``mockups/screenshots/``: the page, the empty modal and the modal with errors, in
 both themes at desktop and phone width. Run with ``pytest -m e2e`` on PostgreSQL.
 """
@@ -143,7 +144,11 @@ def describe_add_inquiry():
         page.locator("[data-inquiry-add-form] button[type=submit]").scroll_into_view_if_needed()
         _capture(page, "modal-save", size_name)
 
-        page.locator("#id_inquiry-website").fill("https://robin.example")
+        # A broken address left under No is hidden, not a blocker: the form is novalidate
+        # and the server drops it, so Save goes through and stores no website.
+        page.locator("#id_inquiry-website").fill("mysite.com")
+        _chip(page, "has_website", "No")
+        expect(page.locator("#id_inquiry-website")).to_be_hidden()
         page.locator("[data-inquiry-add-form] button[type=submit]").click()
 
         row = page.locator(f'[data-inquiry-row="{robin.pk}"]')
@@ -154,5 +159,5 @@ def describe_add_inquiry():
         expect(modal).to_be_hidden()
         robin.refresh_from_db()
         assert robin.teaching_application_state == Member.TeachingApplicationState.PENDING
-        assert robin.teaching_website == "https://robin.example"
+        assert robin.teaching_website == ""
         assert robin.teaching_contact_detail == "503 555 0199"

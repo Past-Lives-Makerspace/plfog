@@ -138,6 +138,15 @@ def describe_the_page():
             assert answer in detail, answer
         assert "Not given" not in detail
 
+    def it_still_renders_and_exports_a_time_slot_it_no_longer_knows(admin_user, client, three):
+        Member.objects.filter(pk=three["approved"].pk).update(teaching_availability=["weekends", "sunrise"])
+        client.force_login(admin_user)
+        response = client.get(PAGE)
+        assert response.status_code == 200
+        assert "Weekends, sunrise" in response.content.decode()
+        row = _csv(client.get(EXPORT, {"status": "approved"}))[1]
+        assert row[16] == "Weekends, sunrise"
+
     def it_says_not_given_for_an_answer_an_older_application_never_had(admin_user, client, three):
         client.force_login(admin_user)
         content = client.get(PAGE).content.decode()

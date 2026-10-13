@@ -107,7 +107,11 @@ def describe_apply_to_teach():
         expect(page.locator("#id_contact_detail")).to_have_value("503 555 0199")
         assert Member.objects.get(user__username="teach-me@example.com").teaching_applied_at is None
 
-        page.locator("#id_website").fill("https://robin.example")
+        # A broken address left under No is hidden, not a blocker: the form is novalidate
+        # and the server drops it, so Send goes through and saves no website.
+        page.locator("#id_website").fill("mysite.com")
+        _chip(page, "has_website", "No")
+        expect(page.locator("#id_website")).to_be_hidden()
         page.get_by_role("button", name=SEND_BUTTON).click()
 
         # The application lands and the page comes back in the application-sent state.
@@ -131,7 +135,7 @@ def describe_apply_to_teach():
         assert member.teaching_class_format == Member.TeachingClassFormat.SERIES
         assert member.teaching_taught_where == "The community college, two terms."
         assert member.teaching_availability == ["weekday_evenings", "weekends"]
-        assert member.teaching_website == "https://robin.example"
+        assert member.teaching_website == ""
         assert member.teaching_socials == ""
 
         # An admin grants Instructor, exactly as the Permissions tab does.

@@ -577,6 +577,44 @@ def describe_apply_to_teach_application_answers():
             if field not in ("teaching_application_note", "teaching_contact_method", "teaching_contact_detail"):
                 assert getattr(member, field) == getattr(blank, field), field
 
+    def it_stores_a_repeated_time_slot_once_in_the_order_picked():
+        member = _linked_member("apply-dupe-slots")
+        member.apply_to_teach(
+            "Wheel throwing.",
+            contact_method="email",
+            contact_detail="reach@example.com",
+            availability=["weekends", "weekday_daytime", "weekends"],
+        )
+        member.refresh_from_db()
+        assert member.teaching_availability == ["weekends", "weekday_daytime"]
+        assert member.teaching_availability_display == "Weekends, Weekday daytime"
+
+    @pytest.mark.parametrize(
+        "website", ["javascript:alert(1)", "ftp://robin.example", "data:text/html,hi", "not a site"]
+    )
+    def it_refuses_a_website_that_is_not_an_http_address_and_files_nothing(website):
+        member = _linked_member("apply-bad-site")
+        with pytest.raises(ValueError):
+            member.apply_to_teach(
+                "Wheel throwing.", contact_method="email", contact_detail="reach@example.com", website=website
+            )
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+        assert member.teaching_website == ""
+
+    @pytest.mark.parametrize("website", ["https://robin.example", "http://robin.example/work"])
+    def it_keeps_an_http_or_https_website(website):
+        member = _linked_member("apply-good-site")
+        member.apply_to_teach(
+            "Wheel throwing.", contact_method="email", contact_detail="reach@example.com", website=f" {website} "
+        )
+        member.refresh_from_db()
+        assert member.teaching_website == website
+
+    def it_shows_a_stored_time_slot_it_no_longer_knows_as_stored():
+        member = MemberFactory(teaching_availability=["weekends", "sunrise"])
+        assert member.teaching_availability_display == "Weekends, sunrise"
+
     def it_reads_blank_availability_for_an_application_that_never_asked():
         assert MemberFactory().teaching_availability_display == ""
 
@@ -732,25 +770,7 @@ def describe_apply_to_teach_added_by_an_admin():
             member.apply_to_teach("Again.", added_by=admin.user, **ANSWERS)
 
 
-def describe_apply_to_teach_website_scheme():
-    """The Instructor Inquiries page renders the website as a link: only http and https get in."""
-
-    @pytest.mark.parametrize("website", ["javascript:alert(1)", "ftp://files.example.com", "data:text/html,hi"])
-    def it_refuses_any_other_scheme_and_saves_nothing(website):
-        member = MemberFactory()
-        with pytest.raises(ValueError):
-            member.apply_to_teach("Rings.", contact_method="text", contact_detail="503 555 0100", website=website)
-        member.refresh_from_db()
-        assert member.teaching_applied_at is None
-        assert member.teaching_website == ""
-
-    @pytest.mark.parametrize("website", ["https://robin.example", "HTTP://robin.example/work"])
-    def it_keeps_an_http_or_https_address(website):
-        member = MemberFactory()
-        member.apply_to_teach("Rings.", contact_method="text", contact_detail="503 555 0100", website=website)
-        member.refresh_from_db()
-        assert member.teaching_website == website
-
+def describe_apply_to_teach_applied_at():
     def it_stamps_now_when_no_day_is_given():
         before = timezone.now()
         member = MemberFactory()

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from classes.templatetags.classes_tags import (
+    cents_as_amount,
     cents_as_dollars,
     cents_as_price,
     duration_words,
@@ -120,6 +121,18 @@ def describe_cents_as_dollars():
 # ---------------------------------------------------------------------------
 # cents_as_price
 # ---------------------------------------------------------------------------
+
+
+def describe_cents_as_amount():
+    def it_prints_zero_as_zero_dollars_not_free():
+        assert cents_as_amount(0) == "$0"
+
+    def it_prints_other_amounts_as_a_price():
+        assert (cents_as_amount(475), cents_as_amount(8000)) == ("$4.75", "$80")
+
+    def it_refuses_a_negative_amount():
+        with pytest.raises(ValueError, match="-1"):
+            cents_as_amount(-1)
 
 
 def describe_cents_as_price():
