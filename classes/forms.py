@@ -707,7 +707,7 @@ def eventbrite_fee_help(price: int) -> SafeString:
 
 
 # On the Eventbrite tab the Fees section above the select works both choices out in full.
-_TAB_FEE_PAYER_HINT = "The Fees section above shows what each choice means at this class's price."
+_TAB_FEE_PAYER_HINT = "The Fees section above shows what each choice means."
 
 
 class _EventbriteRulesMixin:

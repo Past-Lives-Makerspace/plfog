@@ -338,7 +338,7 @@ def describe_the_tabs_sections():
     def it_points_the_fee_select_at_the_fees_section(admin: Client):
         html = _tab(admin, _live())
 
-        assert "The Fees section above shows what each choice means at this class&#x27;s price." in html
+        assert "The Fees section above shows what each choice means." in html
         assert "On a $50 ticket" not in html
 
     def it_shows_a_listed_class_the_fees_but_not_the_rules(admin: Client):
