@@ -15259,6 +15259,15 @@ class Equipment(HeroCropMixin, models.Model):
             "removing them as a manager clears it."
         ),
     )
+    early_end_credit = models.BooleanField(
+        default=False,
+        # The database default too: the old release inserts equipment without it while this migrates.
+        db_default=False,
+        help_text=(
+            "Hourly items only (#787): members can end their own reservation early, once it has started, "
+            "and the whole half hours they did not use become credit here."
+        ),
+    )
 
     objects = EquipmentQuerySet.as_manager()
 
@@ -16440,7 +16449,7 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
         extra query per row.
         """
         credited = (
-            EquipmentCredit.objects.filter(reservation=OuterRef("pk"), kind=EquipmentCredit.Kind.UNUSED)
+            EquipmentCredit.objects.filter(reservation=OuterRef("pk"), kind__in=EquipmentCredit.UNUSED_KINDS)
             .order_by()
             .values("reservation")
             .annotate(total=Sum("minutes"))
@@ -16530,6 +16539,9 @@ class EquipmentReservation(models.Model):
     # Set by decline() and cancel() (#749): what the automatic refund of a paid row did, "refunded",
     # "failed" or "" when there was nothing to refund, so the view's message can say so.
     refund_outcome: str = ""
+    # View-attached (#787): the hours End Early would credit, set by the schedule builder on the member's
+    # own row only while it offers End Early; "" otherwise, so a renderer that never set it shows nothing.
+    end_early_hours: str = ""
 
     class Status(models.TextChoices):
         CONFIRMED = "confirmed", "Confirmed"
@@ -16717,12 +16729,17 @@ class EquipmentReservation(models.Model):
         return money_display(self.amount_paid_cents) if self.amount_paid_cents else ""
 
     @property
-    def credited_unused_label(self) -> str:
-        """The manager's "Credited 2h" chip (#787), read off :meth:`EquipmentReservationQuerySet.with_credited_unused`.
+    def credited_unused_minutes(self) -> int:
+        """Unused time credited back from this booking (#787), read off :meth:`EquipmentReservationQuerySet.with_credited_unused`.
 
         A row read without that annotation fails loudly rather than reading as uncredited.
         """
-        minutes = cast(int, self.credited_minutes_total)  # type: ignore[attr-defined]
+        return cast(int, self.credited_minutes_total)  # type: ignore[attr-defined]
+
+    @property
+    def credited_unused_label(self) -> str:
+        """The manager's "Credited 2h" chip (#787)."""
+        minutes = self.credited_unused_minutes
         return f"Credited {credit_hours_short(minutes)}" if minutes else ""
 
     @property
@@ -17031,6 +17048,88 @@ class EquipmentReservation(models.Model):
         Equipment.objects.select_for_update().filter(pk=self.equipment_id).exists()
         self._ensure_not_credited()
 
+    #: The shortest unused stretch End Early credits (#787): one half hour.
+    END_EARLY_MIN_MINUTES: ClassVar[int] = 30
+
+    @staticmethod
+    def end_early_mark(now: datetime_type) -> datetime_type:
+        """The next half hour mark at or after ``now`` (#787): 10:20 becomes 10:30, 10:30 stays 10:30.
+
+        Portland's offset is whole hours, so marks on the UTC half hour grid are local ones too.
+        """
+        step = 30 * 60
+        seconds = now.timestamp()
+        mark = -(-seconds // step) * step
+        return datetime_type.fromtimestamp(mark, tz=now.tzinfo)
+
+    def end_early_minutes(self, now: datetime_type) -> int:
+        """The whole half hours End Early would credit right now (#787): from the next mark to the booked end."""
+        new_end = max(self.end_early_mark(now), self.starts_at + timedelta(minutes=self.END_EARLY_MIN_MINUTES))
+        left = int((self.ends_at - new_end).total_seconds() // 60)
+        return max(0, left - left % self.END_EARLY_MIN_MINUTES)
+
+    def can_end_early(self, member: Member | None, *, now: datetime_type, credited_minutes: int) -> bool:
+        """Whether End Early shows on this row for ``member`` (#787), from what the row already carries.
+
+        ``credited_minutes`` is the row's unused time already credited (the list's annotation), so a
+        list decides every row without a query. :meth:`end_early` re-checks all of it under the lock.
+        """
+        equipment = self.equipment
+        return (
+            member is not None
+            and self.member_id == member.pk
+            and not self.is_block
+            and self.status == self.Status.CONFIRMED
+            and equipment.is_hourly
+            and equipment.early_end_credit
+            and self.starts_at <= now < self.ends_at
+            and credited_minutes == 0
+            and self.end_early_minutes(now) >= self.END_EARLY_MIN_MINUTES
+        )
+
+    def end_early(self, actor: Member, *, now: datetime_type | None = None) -> int:
+        """End the member's own in progress booking now and keep the unused time as credit (#787); return the minutes.
+
+        Under the Equipment lock a cancel and Credit Unused Time also take (the same lock order as
+        :meth:`cancel`), every gate is re-checked on a fresh read: the actor's own confirmed booking,
+        started and not over, on an hourly item with the switch on, nothing credited from it yet,
+        and at least half an hour left. ``ends_at`` moves to the next half hour mark, freeing the
+        rest for others, and one ENDED_EARLY line credits the whole half hours from there to the
+        old end. Never a fee, never a refund, no email.
+
+        Raises:
+            EquipmentError: With the member facing reason when any gate fails.
+        """
+        moment = now or timezone.now()
+        with transaction.atomic():
+            locked = Equipment.objects.select_for_update().get(pk=self.equipment_id)
+            row = EquipmentReservation.objects.get(pk=self.pk)
+            row.equipment = locked
+            if row.member_id != actor.pk or row.is_block:
+                raise EquipmentError("Only the member who booked this can end it early.")
+            if not (locked.is_hourly and locked.early_end_credit):
+                raise EquipmentError("Ending early isn't turned on for this equipment.")
+            if row.status != self.Status.CONFIRMED:
+                raise EquipmentError("Only a confirmed reservation can be ended early.")
+            if row.starts_at > moment:
+                raise EquipmentError("This reservation hasn't started yet.")
+            if EquipmentCredit.objects.credited_on(row):
+                raise EquipmentError("Unused time on this reservation was already credited.")
+            minutes = row.end_early_minutes(moment)
+            if minutes < self.END_EARLY_MIN_MINUTES:
+                raise EquipmentError("Less than half an hour is left, so there is nothing to credit.")
+            new_end = row.ends_at - timedelta(minutes=minutes)
+            EquipmentReservation.objects.filter(pk=row.pk).update(ends_at=new_end)
+            EquipmentCredit.objects.create(
+                equipment=locked,
+                member=actor,
+                minutes=minutes,
+                kind=EquipmentCredit.Kind.ENDED_EARLY,
+                reservation=row,
+            )
+        self.ends_at = new_end
+        return minutes
+
     def _lost_cancel_race_message(self) -> str:
         """Why a cancel lost its conditional update, from the row as it stands now (#748).
 
@@ -17116,8 +17215,12 @@ class EquipmentCreditQuerySet(models.QuerySet["EquipmentCredit"]):
         return sorted(holders, key=lambda holder: holder.member.display_name.casefold())
 
     def credited_on(self, reservation: EquipmentReservation) -> int:
-        """Minutes of a reservation's unused time already credited back (#787), 0 when none."""
-        total = self.filter(reservation=reservation, kind=EquipmentCredit.Kind.UNUSED).aggregate(
+        """Minutes of a reservation's unused time already credited back (#787), 0 when none.
+
+        A manager's Credit Unused Time and the member's End Early both count, so together they
+        never pass the booking's length and either one stops a later cancel.
+        """
+        total = self.filter(reservation=reservation, kind__in=EquipmentCredit.UNUSED_KINDS).aggregate(
             total=Coalesce(Sum("minutes"), 0)
         )["total"]
         return int(total)
@@ -17157,9 +17260,12 @@ class EquipmentCredit(models.Model):
         TAKEN_BACK = "taken_back", "Taken back"
         SPENT = "spent", "Spent on a booking"
         RESTORED = "restored", "Given back by a cancel"
+        ENDED_EARLY = "ended_early", "Ended early"
 
-    #: The kinds a manager writes by hand; Who Has Credit shows the newest one's note and date.
-    GRANT_KINDS: ClassVar[tuple[str, ...]] = (Kind.GRANTED, Kind.UNUSED)
+    #: The kinds that add credit to a balance on purpose; Who Has Credit shows the newest one's note and date.
+    GRANT_KINDS: ClassVar[tuple[str, ...]] = (Kind.GRANTED, Kind.UNUSED, Kind.ENDED_EARLY)
+    #: A booking's unused time given back as credit: by a manager, or by the member ending early.
+    UNUSED_KINDS: ClassVar[tuple[str, ...]] = (Kind.UNUSED, Kind.ENDED_EARLY)
     #: The most one grant may give: 100 hours.
     MAX_GRANT_MINUTES: ClassVar[int] = 6000
     #: The longest note a grant carries.

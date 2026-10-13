@@ -25,7 +25,7 @@ from django.utils import timezone
 
 from classes.table import prepare_table, table_search
 from hub.bookings_tab import date_param, late_fee_of, pane_query
-from membership.models import Equipment, EquipmentReservation, Member, credit_hours_short
+from membership.models import Equipment, EquipmentReservation, Member, credit_hours_short, duration_label
 from membership.permissions import manageable_reservations, manages_equipment
 
 if TYPE_CHECKING:
@@ -82,6 +82,8 @@ class ReservationRow:
     can_credit_unused: bool = False
     #: The Credit Unused Time modal's form, built only for a row that offers it.
     credit_form: Any = None
+    #: End Early (#787) on the member's own in progress booking: the hours it would credit, "" when not offered.
+    end_early_hours: str = ""
 
     @property
     def has_money_item(self) -> bool:
@@ -242,6 +244,8 @@ def build_row(
     # The member menu: only ever on the viewer's own row (the staff rows are managed or own).
     row.can_cancel_mine = is_own and (confirmed or waiting) and reservation.starts_at > now and not row.credited_minutes
     row.can_pay_fee = is_own and fee is not None and fee.is_unpaid
+    if reservation.can_end_early(viewer, now=now, credited_minutes=row.credited_minutes):
+        row.end_early_hours = duration_label(reservation.end_early_minutes(now))
     # A request was never booked, so cancelling it never carries a fee line (#748).
     if row.can_cancel_mine and confirmed:
         policy = policy_for_equipment(reservation.equipment, site=site)

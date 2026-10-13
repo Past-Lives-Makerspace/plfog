@@ -199,6 +199,10 @@
       <div class="pl-equip-pricing__fields hub-form-group" x-show="pricing === 'hourly'"{% if settings_form.pricing_value != "hourly" %} x-cloak{% endif %} data-pricing-hourly>
         {% include "components/form_field.html" with field=settings_form.hourly_rate %}
         <p class="pl-equip-pricing__example" x-show="exampleTotal()"{% if not settings_form.hourly_example_total %} x-cloak{% endif %} data-hourly-example>A 1 hour 30 minute reservation costs <strong x-text="exampleTotal()">{{ settings_form.hourly_example_total }}</strong>.</p>
+        {# End Early (#787): saved only while Hourly is picked. #}
+        <div class="pl-equip-pricing__early-end" data-early-end-switch>
+          {% include "components/form_field.html" with field=settings_form.early_end_credit %}
+        </div>
       </div>
       <div class="pl-equip-pricing__fields hub-form-group" x-show="pricing === 'donation'"{% if settings_form.pricing_value != "donation" %} x-cloak{% endif %} data-pricing-donation>
         <div class="pl-otype-pricing__row">

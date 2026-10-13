@@ -6591,6 +6591,7 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             "max_active_reservations_per_member",
             "pricing",
             "payee",
+            "early_end_credit",
         ]
         widgets = {"pricing": forms.RadioSelect}
         labels = {
@@ -6600,6 +6601,7 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             "max_duration_minutes": "Longest reservation (minutes)",
             "max_advance_days": "Booking horizon (days)",
             "max_active_reservations_per_member": "Upcoming reservations per member",
+            "early_end_credit": "Members can end a reservation early and keep the unused time as credit",
         }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -6614,6 +6616,10 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
         self.fields["max_duration_minutes"].help_text = "Half hour steps."
         self.fields["max_advance_days"].help_text = ""
         self.fields["max_active_reservations_per_member"].help_text = ""
+        self.fields["early_end_credit"].help_text = (
+            "Once a reservation has started, its member can end it. The whole half hours left become "
+            "credit on this item. Nothing is refunded and no fee applies."
+        )
         self.fields["late_cancel_fee"].help_text = "In dollars."
         # Absent from a page drawn before the Pricing card (#749): the stored pricing stands.
         self.fields["pricing"].required = False
@@ -6730,6 +6736,9 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
         if cap is not None and cap < 1:
             self.add_error("max_active_reservations_per_member", "Use at least 1.")
         self._clean_pricing(cleaned)
+        # End Early (#787) is saved only while Hourly is posted; otherwise the item keeps what it had.
+        if not (self.pricing_posted and cleaned.get("pricing") == Equipment.Pricing.HOURLY):
+            cleaned["early_end_credit"] = self.instance.early_end_credit
         if not self.payee_posted:
             self.errors.pop("payee", None)
             cleaned["payee"] = self.instance.payee

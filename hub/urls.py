@@ -498,6 +498,11 @@ urlpatterns = [
         name="hub_equipment_block_remove",
     ),
     path(
+        "equipment/<slug:slug>/reservations/<int:pk>/end-early/",
+        equipment_views.hub_equipment_reservation_end_early,
+        name="hub_equipment_reservation_end_early",
+    ),
+    path(
         "equipment/<slug:slug>/manage/credit/add/",
         equipment_views.hub_equipment_credit_add,
         name="hub_equipment_credit_add",

@@ -290,3 +290,8 @@
     min-width: 0;
     overflow-wrap: anywhere;
 }
+
+/* End Early (#787): the Pricing card's switch under the hourly rate, clear of the example line above it. */
+.pl-equip-pricing__early-end {
+    margin-top: 1rem;
+}
