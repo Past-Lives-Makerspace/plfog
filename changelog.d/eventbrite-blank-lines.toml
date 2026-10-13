@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-13"
+title = "Eventbrite descriptions lose the extra gaps"
+changes = [
+  "Class descriptions on Eventbrite no longer show a blank line between every paragraph. They now read the same as on our own class page, starting with each class's next sync.",
+]
