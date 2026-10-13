@@ -15265,7 +15265,7 @@ class Equipment(HeroCropMixin, models.Model):
         db_default=False,
         help_text=(
             "Hourly items only (#787): members can end their own reservation early, once it has started, "
-            "and the whole half hours they did not use become credit here."
+            "and the time they did not use, rounded up to the half hour, becomes credit here."
         ),
     )
 
@@ -17057,20 +17057,36 @@ class EquipmentReservation(models.Model):
 
     @staticmethod
     def end_early_mark(now: datetime_type) -> datetime_type:
-        """The next half hour mark at or after ``now`` (#787): 10:20 becomes 10:30, 10:30 stays 10:30.
+        """The half hour mark at or before ``now`` (#787): 10:20 becomes 10:00, 10:30 stays 10:30.
 
-        Portland's offset is whole hours, so marks on the UTC half hour grid are local ones too.
+        Ending early rounds in the member's favour, so the booking ends at the last mark and the
+        time from there on comes back as credit. Portland's offset is whole hours, so marks on
+        the UTC half hour grid are local ones too.
         """
         step = 30 * 60
         seconds = now.timestamp()
-        mark = -(-seconds // step) * step
-        return datetime_type.fromtimestamp(mark, tz=now.tzinfo)
+        return datetime_type.fromtimestamp(seconds // step * step, tz=now.tzinfo)
+
+    def end_early_end(self, now: datetime_type) -> datetime_type:
+        """Where End Early moves ``ends_at`` (#787): the last half hour mark, never inside the first half hour."""
+        return max(self.end_early_mark(now), self.starts_at + timedelta(minutes=self.END_EARLY_MIN_MINUTES))
 
     def end_early_minutes(self, now: datetime_type) -> int:
-        """The whole half hours End Early would credit right now (#787): from the next mark to the booked end."""
-        new_end = max(self.end_early_mark(now), self.starts_at + timedelta(minutes=self.END_EARLY_MIN_MINUTES))
-        left = int((self.ends_at - new_end).total_seconds() // 60)
-        return max(0, left - left % self.END_EARLY_MIN_MINUTES)
+        """The credit End Early gives right now (#787): the time left, rounded up to the next half hour.
+
+        Generous on purpose (Felix, 2026-10-12): at 10:20 on a booking to 4:00 PM, 5 hours 40 minutes
+        are left and 6 hours come back. Never more than the booking's length; 0 once it has ended.
+        """
+        left = (self.ends_at - now).total_seconds()
+        if left <= 0:
+            return 0
+        step = self.END_EARLY_MIN_MINUTES * 60
+        rounded = int(-(-left // step)) * self.END_EARLY_MIN_MINUTES
+        return min(rounded, self.duration_minutes)
+
+    def _end_early_has_time_left(self, now: datetime_type) -> bool:
+        """At least half an hour of the booking is still ahead (#787), so a last minute tap earns nothing."""
+        return self.ends_at - now >= timedelta(minutes=self.END_EARLY_MIN_MINUTES)
 
     def can_end_early(self, member: Member | None, *, now: datetime_type, credited_minutes: int) -> bool:
         """Whether End Early shows on this row for ``member`` (#787), from what the row already carries.
@@ -17088,7 +17104,7 @@ class EquipmentReservation(models.Model):
             and equipment.early_end_credit
             and self.starts_at <= now < self.ends_at
             and credited_minutes == 0
-            and self.end_early_minutes(now) >= self.END_EARLY_MIN_MINUTES
+            and self._end_early_has_time_left(now)
         )
 
     def end_early(self, actor: Member, *, now: datetime_type | None = None) -> int:
@@ -17097,9 +17113,9 @@ class EquipmentReservation(models.Model):
         Under the Equipment lock a cancel and Credit Unused Time also take (the same lock order as
         :meth:`cancel`), every gate is re-checked on a fresh read: the actor's own confirmed booking,
         started and not over, on an hourly item with the switch on, nothing credited from it yet,
-        and at least half an hour left. ``ends_at`` moves to the next half hour mark, freeing the
-        rest for others, and one ENDED_EARLY line credits the whole half hours from there to the
-        old end. Never a fee, never a refund, no email.
+        and at least half an hour left. ``ends_at`` moves back to the last half hour mark (never
+        inside the first half hour), freeing the rest for others, and one ENDED_EARLY line credits
+        the time left rounded up to the next half hour. Never a fee, never a refund, no email.
 
         Raises:
             EquipmentError: With the member facing reason when any gate fails.
@@ -17119,10 +17135,10 @@ class EquipmentReservation(models.Model):
                 raise EquipmentError("This reservation hasn't started yet.")
             if EquipmentCredit.objects.credited_on(row):
                 raise EquipmentError("Unused time on this reservation was already credited.")
-            minutes = row.end_early_minutes(moment)
-            if minutes < self.END_EARLY_MIN_MINUTES:
+            if not row._end_early_has_time_left(moment):
                 raise EquipmentError("Less than half an hour is left, so there is nothing to credit.")
-            new_end = row.ends_at - timedelta(minutes=minutes)
+            minutes = row.end_early_minutes(moment)
+            new_end = row.end_early_end(moment)
             EquipmentReservation.objects.filter(pk=row.pk).update(ends_at=new_end)
             EquipmentCredit.objects.create(
                 equipment=locked,

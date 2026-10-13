@@ -6617,8 +6617,8 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
         self.fields["max_advance_days"].help_text = ""
         self.fields["max_active_reservations_per_member"].help_text = ""
         self.fields["early_end_credit"].help_text = (
-            "Once a reservation has started, its member can end it. The whole half hours left become "
-            "credit on this item. Nothing is refunded and no fee applies."
+            "Once a reservation has started, its member can end it. The time left, rounded up to the "
+            "half hour, becomes credit on this item. Nothing is refunded and no fee applies."
         )
         self.fields["late_cancel_fee"].help_text = "In dollars."
         # Absent from a page drawn before the Pricing card (#749): the stored pricing stands.

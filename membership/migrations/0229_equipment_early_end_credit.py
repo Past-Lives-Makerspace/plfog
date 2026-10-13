@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
             field=models.BooleanField(
                 db_default=False,
                 default=False,
-                help_text="Hourly items only (#787): members can end their own reservation early, once it has started, and the whole half hours they did not use become credit here.",
+                help_text="Hourly items only (#787): members can end their own reservation early, once it has started, and the time they did not use, rounded up to the half hour, becomes credit here.",
             ),
         ),
         migrations.AlterField(

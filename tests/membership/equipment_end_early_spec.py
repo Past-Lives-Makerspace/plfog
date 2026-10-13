@@ -68,7 +68,7 @@ def _balance(member: Member, router: Equipment) -> int:
 
 
 def describe_the_rounding():
-    def it_ends_at_the_next_half_hour_and_credits_the_rest():
+    def it_ends_at_the_last_half_hour_and_credits_the_rest_rounded_up():
         router = _router()
         member = _member()
         booking = _booking(router, member)
@@ -76,18 +76,19 @@ def describe_the_rounding():
 
         minutes = booking.end_early(member, now=_at(10, 20))
 
-        assert minutes == 330
+        # 5 hours 40 minutes were left; the member gets 6 hours back.
+        assert minutes == 360
         booking.refresh_from_db()
-        assert booking.ends_at == _at(10, 30)
+        assert booking.ends_at == _at(10)
         assert (booking.status, booking.amount_paid_cents) == (EquipmentReservation.Status.CONFIRMED, 20000)
         line = EquipmentCredit.objects.get()
         assert (line.kind, line.minutes, line.reservation, line.member) == (
             EquipmentCredit.Kind.ENDED_EARLY,
-            330,
+            360,
             booking,
             member,
         )
-        assert _balance(member, router) == 330
+        assert _balance(member, router) == 360
         assert booking.refunds.count() == 0
         assert mail.outbox == []
 
@@ -99,8 +100,30 @@ def describe_the_rounding():
         booking.refresh_from_db()
         assert booking.ends_at == _at(10, 30)
 
-    def it_rounds_a_second_past_the_mark_up_to_the_next_one():
-        assert EquipmentReservation.end_early_mark(_at(10, 30) + timedelta(seconds=1)) == _at(11)
+    def it_rounds_a_second_past_the_mark_in_the_members_favour():
+        router = _router()
+        member = _member()
+        booking = _booking(router, member)
+        assert booking.end_early(member, now=_at(10, 30) + timedelta(seconds=1)) == 330
+        booking.refresh_from_db()
+        assert booking.ends_at == _at(10, 30)
+
+    def it_never_ends_inside_the_first_half_hour_and_still_rounds_the_credit_up():
+        router = _router()
+        member = _member()
+        booking = _booking(router, member)
+        # 7 hours 50 minutes left of an 8 hour booking: the whole 8 hours come back.
+        assert booking.end_early(member, now=_at(8, 10)) == 480
+        booking.refresh_from_db()
+        assert booking.ends_at == _at(8, 30)
+
+    def it_credits_exactly_half_an_hour_with_half_an_hour_left():
+        router = _router()
+        member = _member()
+        booking = _booking(router, member)
+        assert booking.end_early(member, now=_at(15, 30)) == 30
+        booking.refresh_from_db()
+        assert booking.ends_at == _at(15, 30)
 
     def it_frees_the_rest_of_the_time_for_someone_else():
         router = _router()
@@ -108,8 +131,8 @@ def describe_the_rounding():
         booking = _booking(router, member)
         assert EquipmentReservation.objects.overlapping(router, _at(11), _at(12)).exists()
         booking.end_early(member, now=_at(10, 20))
-        assert not EquipmentReservation.objects.overlapping(router, _at(11), _at(12)).exists()
-        assert EquipmentReservation.objects.overlapping(router, _at(10), _at(10, 30)).exists()
+        assert not EquipmentReservation.objects.overlapping(router, _at(10), _at(12)).exists()
+        assert EquipmentReservation.objects.overlapping(router, _at(9, 30), _at(10)).exists()
 
 
 def describe_the_gates():
@@ -187,10 +210,12 @@ def describe_with_credit_unused_time():
         router = _router()
         member = _member()
         manager = _manager(router)
-        starts = timezone.now() - timedelta(hours=1)
+        # Ten minutes in, so the booking keeps its first half hour and still ends in the future:
+        # the cancel below is refused for the credit, not because the row is over.
+        starts = timezone.now() - timedelta(minutes=10)
         booking = _booking(router, member, starts_at=starts, ends_at=starts + timedelta(hours=8))
         minutes = booking.end_early(member)
-        assert minutes >= 360
+        assert minutes == 480
         booking.refresh_from_db()
         assert EquipmentCredit.objects.credited_on(booking) == minutes
         with pytest.raises(EquipmentError, match="already credited"):
@@ -291,7 +316,7 @@ def describe_the_schedule_button():
         assert "data-end-early" not in _schedule(client, router)
         other = _router(name="Mossgate Lathe")
         now = timezone.now()
-        # Ends 20 minutes after the next half hour mark, so no whole half hour is left to credit.
+        # Ends 20 minutes after the last half hour mark, so less than half an hour is left.
         _booking(
             other,
             member,
