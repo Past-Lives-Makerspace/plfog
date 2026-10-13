@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-13"
+title = "Tapping a sign in button twice no longer shows an error"
+changes = [
+  "After the first tap, the Verify, Send code, Sign up and Log out buttons lock and show that they are working. A quick double tap used to show a Forbidden error page even though you were signed in, or send a second login code.",
+]
