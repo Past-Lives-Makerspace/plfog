@@ -347,6 +347,40 @@ def describe_the_tabs_sections():
         assert "data-eventbrite-fees" in html
         assert "data-eventbrite-rules" not in html
 
+    def it_works_the_fees_at_the_sale_price_during_a_sale(admin: Client):
+        offering = _live(price_cents=8000, sale_enabled=True, sale_kind=ClassOffering.SaleKind.PERCENT, sale_percent=25)
+
+        html = _tab(admin, offering)
+
+        # $80 at 25% off sells at $60: 3.7% is $2.22 plus $1.79, and the $5.75 estimate leaves $1.74 processing.
+        assert (offering.sale_price_cents, estimate_fee_cents(6000)) == (6000, 575)
+        assert "At this class's sale price of $60:" in html
+        assert "<dt>Ticket price</dt><dd>$60</dd>" in html
+        assert "<dt>Eventbrite fee</dt><dd>+ $4.01</dd>" in html
+        assert "<dt>Processing</dt><dd>+ $1.74</dd>" in html
+        assert "<dt>Buyer pays</dt><dd>about $65.75</dd>" in html
+        assert "<dt>Class receives</dt><dd>about $54.25</dd>" in html
+        assert "$80" not in html[html.index("data-eventbrite-fees") : html.index("data-eventbrite-settings")]
+
+    def it_says_a_free_class_carries_no_fee_instead_of_the_cards(admin: Client):
+        html = _tab(admin, _live(price_cents=0))
+
+        assert (
+            "data-eventbrite-fee-free>Tickets to this class are free, and free tickets carry no Eventbrite fee.</p>"
+            in html
+        )
+        assert "data-eventbrite-fee=" not in html
+        assert "price of" not in html[html.index("data-eventbrite-fees") : html.index("data-eventbrite-settings")]
+
+    def it_says_the_fee_is_more_than_a_price_below_it(admin: Client):
+        html = _tab(admin, _live(price_cents=100))
+
+        fees = html[html.index("data-eventbrite-fees") : html.index("data-eventbrite-settings")]
+        assert "<dt>Class receives</dt><dd>Nothing</dd>" in fees
+        assert "data-eventbrite-fee-over>The fee is more than this price" in fees
+        assert "$-" not in fees
+        assert "Free" not in fees
+
     def it_shows_no_fees_on_a_taken_down_event(admin: Client):
         assert "data-eventbrite-fees" not in _tab(admin, _taken_down())
 

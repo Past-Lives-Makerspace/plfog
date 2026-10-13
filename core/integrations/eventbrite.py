@@ -229,8 +229,28 @@ class FeeBreakdown:
     processing_percent: ClassVar[float] = PROCESSING_FEE_PERCENT
 
     @property
+    def service_rate(self) -> str:
+        """The service fee's percentage as a page prints it ("3.7%"); the composer hint and the tab share it."""
+        return f"{self.service_percent:g}%"
+
+    @property
+    def processing_rate(self) -> str:
+        """Processing's percentage as a page prints it ("2.9%")."""
+        return f"{self.processing_percent:g}%"
+
+    @property
     def fee_cents(self) -> int:
         return self.service_cents + self.processing_cents
+
+    @property
+    def is_free(self) -> bool:
+        """A free ticket: the listing sends it as free, and Eventbrite charges no fee on it."""
+        return self.price_cents == 0
+
+    @property
+    def fee_exceeds_price(self) -> bool:
+        """The fee is more than the price, so taking it out of the price leaves the class nothing."""
+        return self.fee_cents > self.price_cents
 
     @property
     def buyer_pays_on_top_cents(self) -> int:
@@ -239,8 +259,8 @@ class FeeBreakdown:
 
     @property
     def class_gets_included_cents(self) -> int:
-        """What the class gets when the fee comes out of the price; the buyer pays the price."""
-        return self.price_cents - self.fee_cents
+        """What the class gets when the fee comes out of the price; never below zero (see ``fee_exceeds_price``)."""
+        return max(0, self.price_cents - self.fee_cents)
 
 
 def fee_breakdown(price_cents: int) -> FeeBreakdown:

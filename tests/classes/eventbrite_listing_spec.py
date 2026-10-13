@@ -29,7 +29,13 @@ from classes.factories import (
     SeriesClassOfferingFactory,
     UserFactory,
 )
-from classes.forms import ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm, build_class_faq_formset
+from classes.forms import (
+    ClassOfferingForm,
+    TeachClassOfferingForm,
+    TeachPublishedClassForm,
+    build_class_faq_formset,
+    eventbrite_fee_help,
+)
 from classes.models import LOCKED_CLASS_FAQS, ClassImage, ClassOffering
 from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync, _listing_text
 from core.models import SiteConfiguration
@@ -684,6 +690,18 @@ def describe_the_class_forms():
             "Eventbrite charges <strong>3.7% + $1.79</strong> per ticket, plus <strong>2.9%</strong> payment processing."
         )
         assert "the class gets about $72.93." in help_text
+
+    def it_says_the_fee_is_more_than_a_price_below_it():
+        help_text = eventbrite_fee_help(100)
+
+        assert "On a $1 ticket that is about $1.86." in help_text
+        assert "Included in my price: the fee is more than the price, so the class gets nothing." in help_text
+        assert "$-" not in help_text
+
+    def it_says_a_free_ticket_carries_no_fee():
+        help_text = eventbrite_fee_help(0)
+
+        assert help_text.endswith("payment processing. Free tickets carry no Eventbrite fee.")
 
     def it_leaves_eventbrite_off_the_forms_of_a_live_class():
         # #725 part 2: a live class sells on Eventbrite from its own tab.

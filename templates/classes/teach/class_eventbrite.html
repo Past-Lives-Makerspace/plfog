@@ -70,29 +70,36 @@
   <hr class="pl-eb-divider">
   <div class="pl-eb-section" data-eventbrite-fees>
     <h4 class="pl-eb-section__title">Fees</h4>
-    <p class="pl-eb-section__lead">Eventbrite charges <strong>{{ fees.service_percent|floatformat }}% + {{ fees.service_fixed_cents|cents_as_price }}</strong> per ticket, plus <strong>{{ fees.processing_percent|floatformat }}%</strong> payment processing. At this class's price of {{ fees.price_cents|cents_as_price }}:</p>
+    <p class="pl-eb-section__lead">Eventbrite charges <strong>{{ fees.service_rate }} + {{ fees.service_fixed_cents|cents_as_price }}</strong> per ticket, plus <strong>{{ fees.processing_rate }}</strong> payment processing.{% if not fees.is_free %} At this class's {% if fees_on_sale %}sale {% endif %}price of {{ fees.price_cents|cents_as_price }}:{% endif %}</p>
+    {% if fees.is_free %}
+    <p class="pl-eb-callout pl-eb-callout--info" data-eventbrite-fee-free>Tickets to this class are free, and free tickets carry no Eventbrite fee.</p>
+    {% else %}
     <div class="pl-eb-fees">
       <div class="pl-eb-fee" data-eventbrite-fee="{{ fee_payers.BUYER.value }}">
         <p class="pl-eb-fee__title">{{ fee_payers.BUYER.label }}</p>
         <dl class="pl-eb-fee__rows">
-          <div class="pl-eb-fee__row"><dt>Ticket price</dt><dd>{{ fees.price_cents|cents_as_price }}</dd></div>
-          <div class="pl-eb-fee__row"><dt>Eventbrite fee</dt><dd>+ {{ fees.service_cents|cents_as_price }}</dd></div>
-          <div class="pl-eb-fee__row"><dt>Processing</dt><dd>+ {{ fees.processing_cents|cents_as_price }}</dd></div>
-          <div class="pl-eb-fee__row pl-eb-fee__row--total"><dt>Buyer pays</dt><dd>about {{ fees.buyer_pays_on_top_cents|cents_as_price }}</dd></div>
-          <div class="pl-eb-fee__row pl-eb-fee__row--total"><dt>Class receives</dt><dd>{{ fees.price_cents|cents_as_price }}</dd></div>
+          <div class="pl-eb-fee__row"><dt>Ticket price</dt><dd>{{ fees.price_cents|cents_as_amount }}</dd></div>
+          <div class="pl-eb-fee__row"><dt>Eventbrite fee</dt><dd>+ {{ fees.service_cents|cents_as_amount }}</dd></div>
+          <div class="pl-eb-fee__row"><dt>Processing</dt><dd>+ {{ fees.processing_cents|cents_as_amount }}</dd></div>
+          <div class="pl-eb-fee__row pl-eb-fee__row--total"><dt>Buyer pays</dt><dd>about {{ fees.buyer_pays_on_top_cents|cents_as_amount }}</dd></div>
+          <div class="pl-eb-fee__row pl-eb-fee__row--total"><dt>Class receives</dt><dd>{{ fees.price_cents|cents_as_amount }}</dd></div>
         </dl>
       </div>
       <div class="pl-eb-fee" data-eventbrite-fee="{{ fee_payers.INCLUDED.value }}">
         <p class="pl-eb-fee__title">{{ fee_payers.INCLUDED.label }}</p>
         <dl class="pl-eb-fee__rows">
-          <div class="pl-eb-fee__row"><dt>Ticket price</dt><dd>{{ fees.price_cents|cents_as_price }}</dd></div>
-          <div class="pl-eb-fee__row"><dt>Eventbrite fee</dt><dd>&minus; {{ fees.service_cents|cents_as_price }}</dd></div>
-          <div class="pl-eb-fee__row"><dt>Processing</dt><dd>&minus; {{ fees.processing_cents|cents_as_price }}</dd></div>
-          <div class="pl-eb-fee__row pl-eb-fee__row--total"><dt>Buyer pays</dt><dd>{{ fees.price_cents|cents_as_price }}</dd></div>
-          <div class="pl-eb-fee__row pl-eb-fee__row--total"><dt>Class receives</dt><dd>about {{ fees.class_gets_included_cents|cents_as_price }}</dd></div>
+          <div class="pl-eb-fee__row"><dt>Ticket price</dt><dd>{{ fees.price_cents|cents_as_amount }}</dd></div>
+          <div class="pl-eb-fee__row"><dt>Eventbrite fee</dt><dd>&minus; {{ fees.service_cents|cents_as_amount }}</dd></div>
+          <div class="pl-eb-fee__row"><dt>Processing</dt><dd>&minus; {{ fees.processing_cents|cents_as_amount }}</dd></div>
+          <div class="pl-eb-fee__row pl-eb-fee__row--total"><dt>Buyer pays</dt><dd>{{ fees.price_cents|cents_as_amount }}</dd></div>
+          <div class="pl-eb-fee__row pl-eb-fee__row--total"><dt>Class receives</dt><dd>{% if fees.fee_exceeds_price %}Nothing{% else %}about {{ fees.class_gets_included_cents|cents_as_amount }}{% endif %}</dd></div>
         </dl>
       </div>
     </div>
+    {% if fees.fee_exceeds_price %}
+    <p class="pl-eb-callout pl-eb-callout--warn" data-eventbrite-fee-over>The fee is more than this price, so with the fee included the class gets nothing.</p>
+    {% endif %}
+    {% endif %}
   </div>
 
   <hr class="pl-eb-divider">
@@ -121,7 +128,7 @@
   <hr class="pl-eb-divider">
   <form method="post" action="{{ off_url }}" class="pl-eb-off" data-eventbrite-off>
     {% csrf_token %}
-    <p class="pl-eb-off__text">Changed your mind? Take this class off Eventbrite.</p>
+    <p class="pl-eb-off__text">Stops this class from syncing with Eventbrite.</p>
     <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Turn off Eventbrite</button>
   </form>
   {% endif %}

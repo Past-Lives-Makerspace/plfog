@@ -2472,7 +2472,9 @@ def _render_eventbrite_tab(
             "can_act": eventbrite_on and offering.status == ClassOffering.Status.PUBLISHED,
             "refusal_lead": EventbriteSync.TAB_REFUSAL,
             "rules": EVENTBRITE_RULE_PARTS,
-            "fees": fee_breakdown(offering.price_cents),
+            # The price the Eventbrite ticket sells at (_ticket_body), a sale included.
+            "fees": fee_breakdown(offering.sale_price_cents),
+            "fees_on_sale": offering.sale_is_active,
             "fee_payers": ClassOffering.EventbriteFeePayer,
         },
     )

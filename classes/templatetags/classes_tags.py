@@ -137,6 +137,18 @@ def cents_as_price(value: int | None) -> str:
 
 
 @register.filter
+def cents_as_amount(value: int) -> str:
+    """An amount of money in a breakdown: like ``cents_as_price``, but zero is "$0", never "Free".
+
+    Raises:
+        ValueError: On a negative amount, which ``divmod`` would print wrong.
+    """
+    if value < 0:
+        raise ValueError(f"A negative amount has no price form: {value}")
+    return "$0" if value == 0 else cents_as_price(value)
+
+
+@register.filter
 def duration_words(minutes: int | None) -> str:
     """Human duration — '45m', '2h', '1h30m'."""
     if not minutes:

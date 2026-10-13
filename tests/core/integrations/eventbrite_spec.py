@@ -294,6 +294,30 @@ def describe_fee_breakdown():
 
         assert (fees.buyer_pays_on_top_cents, fees.class_gets_included_cents) == (8707, 7293)
 
+    def it_prints_the_rates_without_trailing_zeros():
+        fees = fee_breakdown(5000)
+
+        assert (fees.service_rate, fees.processing_rate) == ("3.7%", "2.9%")
+
+    def it_knows_a_free_ticket():
+        assert fee_breakdown(0).is_free is True
+        assert fee_breakdown(100).is_free is False
+
+    def it_never_leaves_the_class_less_than_nothing_when_the_fee_is_more_than_the_price():
+        fees = fee_breakdown(100)
+
+        # $1: a $1.86 fee is more than the ticket.
+        assert fees.fee_cents == 186
+        assert fees.fee_exceeds_price is True
+        assert fees.class_gets_included_cents == 0
+
+    def it_knows_a_fee_below_the_price():
+        fees = fee_breakdown(200)
+
+        # $2: 3.7% and 2.9% are 13 cents, plus $1.79, so $1.92 of the $2.
+        assert fees.fee_exceeds_price is False
+        assert fees.class_gets_included_cents == 8
+
     def it_carries_the_rates_the_estimate_uses():
         assert (fees := fee_breakdown(5000)).service_percent == 3.7
         assert (fees.service_fixed_cents, fees.processing_percent) == (179, 2.9)

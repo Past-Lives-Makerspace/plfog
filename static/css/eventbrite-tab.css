@@ -38,14 +38,13 @@
     gap: 0.5rem 1rem;
 }
 .pl-eb-status__link {
-    color: var(--color-tuscan-yellow);
+    color: var(--pl-lifecycle-review);
     font-size: 0.875rem;
     font-weight: 600;
     text-decoration: none;
 }
 .pl-eb-status__link:hover,
 .pl-eb-status__link:focus-visible { text-decoration: underline; }
-[data-theme="light"] .pl-eb-status__link { color: #9a6a00; }
 
 /* A note in its own box, the colour on the left edge; the text stays the theme's text so it reads in both themes. */
 .pl-eb-callout {
@@ -84,14 +83,14 @@
     align-items: baseline;
     gap: 0.5rem;
     padding-top: 0.75rem;
-    border-top: 1px solid var(--hub-border);
+    border-top: 1px solid var(--hub-border-strong);
 }
 .pl-eb-rules__warn::before {
     content: "\26A0";
-    color: var(--color-tuscan-yellow);
+    color: var(--pl-lifecycle-review);
     font-weight: 700;
 }
-[data-theme="light"] .pl-eb-rules__warn::before { color: #9a6a00; }
+
 
 .pl-eb-check > * { margin-top: 1rem; }
 

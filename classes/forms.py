@@ -674,22 +674,35 @@ _SUBMIT_ALPINE = {"x-model": "ebOn"}
 
 def eventbrite_fee_help(price: int) -> SafeString:
     """The fee choice's hint, worked at the class's own price (a new class shows $50), the rates in bold."""
-    from classes.templatetags.classes_tags import cents_as_price
+    from classes.templatetags.classes_tags import cents_as_amount, cents_as_price
 
     fees = fee_breakdown(price)
-    return format_html(
-        "Eventbrite charges <strong>{}% + {}</strong> per ticket, plus <strong>{}%</strong> payment processing. "
-        "On a {} ticket that is about {}. Buyer pays it on top: the buyer pays about {} and the class gets {}. "
-        "Included in my price: the buyer pays {} and the class gets about {}.",
-        f"{fees.service_percent:g}",
+    rates = format_html(
+        "Eventbrite charges <strong>{} + {}</strong> per ticket, plus <strong>{}</strong> payment processing.",
+        fees.service_rate,
         cents_as_price(fees.service_fixed_cents),
-        f"{fees.processing_percent:g}",
+        fees.processing_rate,
+    )
+    if fees.is_free:
+        return format_html("{} Free tickets carry no Eventbrite fee.", rates)
+    included: str
+    if fees.fee_exceeds_price:
+        included = "the fee is more than the price, so the class gets nothing"
+    else:
+        included = format_html(
+            "the buyer pays {} and the class gets about {}",
+            cents_as_price(price),
+            cents_as_amount(fees.class_gets_included_cents),
+        )
+    return format_html(
+        "{} On a {} ticket that is about {}. Buyer pays it on top: the buyer pays about {} and the class gets {}. "
+        "Included in my price: {}.",
+        rates,
         cents_as_price(price),
-        cents_as_price(fees.fee_cents),
-        cents_as_price(fees.buyer_pays_on_top_cents),
+        cents_as_amount(fees.fee_cents),
+        cents_as_amount(fees.buyer_pays_on_top_cents),
         cents_as_price(price),
-        cents_as_price(price),
-        cents_as_price(fees.class_gets_included_cents),
+        included,
     )
 
 
