@@ -15,7 +15,14 @@ import respx
 
 from classes.factories import ClassFaqFactory, ClassOfferingFactory
 from classes.models import LOCKED_CLASS_FAQS, ClassOffering
-from core.integrations.eventbrite import API_BASE, EventbriteClient, EventbriteError, _listing_text, estimate_fee_cents
+from core.integrations.eventbrite import (
+    API_BASE,
+    EventbriteClient,
+    EventbriteError,
+    _listing_html,
+    _listing_text,
+    estimate_fee_cents,
+)
 from core.models import SiteConfiguration
 
 pytestmark = pytest.mark.django_db
@@ -1113,8 +1120,6 @@ def describe_what_the_listing_leaves_out():
         ],
     )
     def it_strips_phone_numbers_and_handles_like_links(typed: str, sent: str):
-        from core.integrations.eventbrite import _listing_html
-
         assert _listing_text(typed) == sent
         assert " ".join(_listing_html(f"<p>{typed}</p>").split()) == f"<p>{sent}</p>"
 
@@ -1140,20 +1145,14 @@ def describe_the_listing_description_spacing():
 
     @pytest.mark.parametrize("blank", ["<p><br></p>", "<p></p>", "<p> </p>", "<p>&nbsp;</p>", "<p><br/></p>"])
     def it_drops_a_blank_paragraph_between_two_written_ones(blank: str):
-        from core.integrations.eventbrite import _listing_html
-
         assert _listing_html(f"<p>One</p>{blank}<p>Two</p>") == "<p>One</p><p>Two</p>"
 
     def it_keeps_formatting_lists_and_line_breaks_inside_a_paragraph():
-        from core.integrations.eventbrite import _listing_html
-
         typed = "<p><strong>Bring:</strong></p><ul><li>Gloves</li></ul><p>Line one<br>line two</p>"
 
         assert _listing_html(typed) == typed
 
     def it_drops_a_paragraph_left_empty_by_a_removed_address():
-        from core.integrations.eventbrite import _listing_html
-
         assert _listing_html("<p>One</p><p>https://pastlives.space</p><p>Two</p>") == "<p>One</p><p>Two</p>"
 
     @respx.mock
