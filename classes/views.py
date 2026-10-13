@@ -4672,8 +4672,14 @@ def admin_instructor_inquiry_add(request: HttpRequest) -> HttpResponse:
     with a site activity row naming the admin and no notice to the class approvers. An
     invalid save renders the page again with the modal open, its own line at the top
     saying to look below (no toast, which would sit over the modal's title), and every
-    answer kept; the model's guard (another admin filed one for the same member a moment earlier) lands
-    on the member field the same way.
+    answer kept.
+
+    A page loaded before the member applied, or before another admin added them, is
+    caught by ``clean_member``, which reads the member fresh on every POST. The
+    ``ValueError`` branch is only a backstop for ``apply_to_teach``'s own guards, reached
+    when the member changes in the instant between ``is_valid`` and the save. There is no
+    lock: two saves that land together are last write wins, the same as the member's own
+    application path.
     """
     form = InstructorInquiryAddForm(request.POST, prefix=INQUIRY_ADD_PREFIX)
     if form.is_valid():
@@ -4681,7 +4687,10 @@ def admin_instructor_inquiry_add(request: HttpRequest) -> HttpResponse:
         try:
             member = form.save(added_by=request.user)
         except ValueError:
-            form.add_error("member", "That member changed since the page loaded. Pick them again.")
+            # Backstop only: clean_member already refused anyone apply_to_teach would.
+            form.add_error(
+                "member", "Their record changed while you were saving. Check where they stand and try again."
+            )
         else:
             messages.success(request, f"Added an inquiry for {member.display_name}.")
             return redirect("classes:admin_instructor_inquiries")

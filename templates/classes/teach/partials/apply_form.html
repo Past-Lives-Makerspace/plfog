@@ -3,8 +3,9 @@ The teaching application's questions (#793), six sections, for a TeachingApplica
 passed as `form`. No <form> tag and no submit: the caller wraps it (the application page,
 classes/teach/apply.html), so another form can carry the same answers (#794). The caller
 also passes contact_prefill_email and contact_prefill_phone. apply_flat (the Add Inquiry
-modal, #794) draws the sections without cards and leaves out the intro lines written to
-the member; the form may carry a prefix, so nothing here reads a field by its name.
+modal, #794) draws the sections without cards, titles them for an admin ("Class Idea",
+"Their Work") and leaves out the intro lines written to the member; the admin form
+relabels the questions that ask in the member's voice; the form may carry a prefix, so nothing here reads a field by its name.
 
 Text fields go through form_field.html, which wraps them in .pl-form-group; that is what
 styles them from the theme input tokens (FRONTEND.md rule 13). Pick one and pick any
@@ -48,7 +49,7 @@ One Alpine component on the wrapper:
      x-init="method = $el.querySelector('select[x-ref=method]').value">
 
     <section class="{% if apply_flat %}pl-teach-application__section--flat{% else %}hub-card{% endif %} pl-teach-application__section" data-apply-section="idea">
-        <h2 class="pl-teach-section__title">Your Class Idea</h2>
+        <h2 class="pl-teach-section__title">{% if apply_flat %}Class Idea{% else %}Your Class Idea{% endif %}</h2>
         {% if not apply_flat %}<p class="pl-teach-application__intro">Rough is fine. Nothing here is final.</p>{% endif %}
         {% include "components/form_field.html" with field=form.class_title %}
         {% include "components/form_field.html" with field=form.note %}
@@ -57,7 +58,7 @@ One Alpine component on the wrapper:
     </section>
 
     <section class="{% if apply_flat %}pl-teach-application__section--flat{% else %}hub-card{% endif %} pl-teach-application__section" data-apply-section="experience">
-        <h2 class="pl-teach-section__title">Your Experience</h2>
+        <h2 class="pl-teach-section__title">{% if apply_flat %}Experience{% else %}Your Experience{% endif %}</h2>
         {% if not apply_flat %}<p class="pl-teach-application__intro">First time teachers are welcome. This helps Lee plan your training.</p>{% endif %}
         {% include "classes/teach/partials/_choice_chips.html" with field=form.practice_years %}
         {% include "classes/teach/partials/_choice_chips.html" with field=form.experience %}
@@ -75,7 +76,7 @@ One Alpine component on the wrapper:
     </section>
 
     <section class="{% if apply_flat %}pl-teach-application__section--flat{% else %}hub-card{% endif %} pl-teach-application__section" data-apply-section="work">
-        <h2 class="pl-teach-section__title">Show Your Work</h2>
+        <h2 class="pl-teach-section__title">{% if apply_flat %}Their Work{% else %}Show Your Work{% endif %}</h2>
         {% include "classes/teach/partials/_choice_chips.html" with field=form.has_website %}
         <div class="pl-teach-application__reveal" x-show="hasWebsite === 'yes'"{% if form.has_website.value != 'yes' %} x-cloak{% endif %} data-reveal="website">
             {% include "components/form_field.html" with field=form.website %}
@@ -87,7 +88,7 @@ One Alpine component on the wrapper:
     </section>
 
     <section class="{% if apply_flat %}pl-teach-application__section--flat{% else %}hub-card{% endif %} pl-teach-application__section" data-apply-section="contact">
-        <h2 class="pl-teach-section__title">How to Reach You</h2>
+        <h2 class="pl-teach-section__title">{% if apply_flat %}How to Reach Them{% else %}How to Reach You{% endif %}</h2>
         {% include "components/form_field.html" with field=form.contact_method %}
         {% include "components/form_field.html" with field=form.contact_detail field_label_x_text="label()" %}
     </section>

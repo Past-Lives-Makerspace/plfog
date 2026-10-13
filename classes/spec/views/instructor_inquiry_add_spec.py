@@ -63,6 +63,11 @@ def describe_access():
         assert '<option value="Robin Reachout"></option>' in content
         assert f'value="{timezone.localdate().isoformat()}"' in content
         assert REOPEN not in content
+        assert 'max="' + timezone.localdate().isoformat() + '"' in content
+        for title in ("Class Idea", "Experience", "Logistics", "Their Work", "How to Reach Them", "Anything Else"):
+            assert f'<h2 class="pl-teach-section__title">{title}</h2>' in content, title
+        assert '<h2 class="pl-teach-section__title">Show Your Work</h2>' not in content
+        assert '<p class="pl-teach-application__intro">Rough is fine' not in content
 
     def it_refuses_a_crafted_post_from_a_member_who_is_not_an_admin(client: Client, robin):
         user = get_user_model().objects.create_user(username="plain", email="plain@example.com", password="pw")
@@ -193,5 +198,5 @@ def describe_a_failed_save():
         monkeypatch.setattr(Member, "apply_to_teach", refuse)
         client.force_login(admin_user)
         content = client.post(ADD, _post()).content.decode()
-        assert "That member changed since the page loaded. Pick them again." in content
+        assert "Their record changed while you were saving. Check where they stand and try again." in content
         assert REOPEN in content

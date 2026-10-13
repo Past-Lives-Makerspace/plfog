@@ -1763,6 +1763,8 @@ class InstructorInquiryAddForm(TeachingApplicationForm):
     """
 
     MEMBER_LIST_ID = "inquiry-member-options"
+    #: The Member Portal opened on this day; no inquiry it tracks can predate it.
+    EARLIEST_DAY = date(2026, 3, 27)
     REQUIRED = frozenset({"member", "reached_out_on", "class_title", "note"})
     TAUGHT_WHERE_REQUIRED = False
 
@@ -1786,7 +1788,20 @@ class InstructorInquiryAddForm(TeachingApplicationForm):
 
         super().__init__(*args, **kwargs)
         self.order_fields(["member", "reached_out_on"])
-        self.fields["reached_out_on"].initial = timezone.localdate()
+        today = timezone.localdate()
+        day = self.fields["reached_out_on"]
+        day.initial = today
+        # The browser's picker offers exactly the days the server takes.
+        day.widget.attrs.update({"min": self.EARLIEST_DAY.isoformat(), "max": today.isoformat()})
+        # Under apply_flat the shared partial titles its sections for the admin; these
+        # are the questions it asks in the member's voice (#794 review).
+        for name, label in (
+            ("has_website", "Do they have a website?"),
+            ("has_socials", "Do they share their work on social media?"),
+            ("contact_method", "Best way to reach them"),
+            ("anything_else", "Anything else Lee should know?"),
+        ):
+            self.fields[name].label = label
         for name, field in self.fields.items():
             field.required = name in self.REQUIRED
         self.fields["class_title"].error_messages["required"] = "Add a working title for the class."
@@ -1812,10 +1827,16 @@ class InstructorInquiryAddForm(TeachingApplicationForm):
         reached_out_on: date = self.cleaned_data["reached_out_on"]
         if reached_out_on > timezone.localdate():
             raise forms.ValidationError("Pick today or a day in the past.")
+        if reached_out_on < self.EARLIEST_DAY:
+            raise forms.ValidationError(
+                f"Pick {self.EARLIEST_DAY:%B} {self.EARLIEST_DAY.day}, {self.EARLIEST_DAY.year} or later, "
+                "when the Member Portal opened."
+            )
         return reached_out_on
 
     def clean(self) -> dict:
         data = super().clean()
+        self._clean_after_last_decision(data)
         method = data.get("contact_method")
         detail = data.get("contact_detail")
         if method and not detail and "contact_detail" not in self.errors:
@@ -1824,20 +1845,42 @@ class InstructorInquiryAddForm(TeachingApplicationForm):
             self.add_error("contact_method", "Pick how they want to be reached, or clear where to reach them.")
         return data
 
+    def _clean_after_last_decision(self, data: dict) -> None:
+        """A declined member's new inquiry cannot be dated before that decline.
+
+        ``apply_to_teach`` clears the decline, so a backdated inquiry would read as an ask
+        that came first and quietly erase the newer no. The day of the decision itself is
+        allowed; ``applied_at`` then stamps it no earlier than the decision.
+        """
+        member: Member | None = data.get("member")
+        reached_out_on: date | None = data.get("reached_out_on")
+        if member is None or reached_out_on is None or member.teaching_decided_at is None:
+            return
+        decided_on = timezone.localdate(member.teaching_decided_at)
+        if reached_out_on < decided_on:
+            self.add_error(
+                "reached_out_on",
+                f"That is before their last application was decided on {decided_on:%b} {decided_on.day}, "
+                f"{decided_on.year}.",
+            )
+
     def applied_at(self) -> datetime:
         """When the inquiry is stamped: now for today, so it sorts with today's asks, and the
-        start of the day in Portland for an earlier day."""
+        start of the day in Portland for an earlier day, but never before the member's last
+        decision, so the inquiry always reads as coming after it."""
         reached_out_on: date = self.cleaned_data["reached_out_on"]
         if reached_out_on == timezone.localdate():
             return timezone.now()
-        return timezone.make_aware(datetime.combine(reached_out_on, time.min))
+        stamp = timezone.make_aware(datetime.combine(reached_out_on, time.min))
+        decided_at: datetime | None = self.cleaned_data["member"].teaching_decided_at
+        return max(stamp, decided_at) if decided_at is not None else stamp
 
     def save(self, added_by: User) -> Member:
         """File the inquiry on the picked member, as the admin ``added_by``. Valid forms only.
 
         Raises:
-            ValueError: From ``Member.apply_to_teach`` when the member changed since the
-                form was checked (say, another admin added an inquiry for them first).
+            ValueError: From ``Member.apply_to_teach``, whose guards back up ``clean_member``.
+                Only a change between ``is_valid`` and this call reaches it.
         """
         member: Member = self.cleaned_data["member"]
         member.apply_to_teach(**self.answers(), applied_at=self.applied_at(), added_by=added_by)

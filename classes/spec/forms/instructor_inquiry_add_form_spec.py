@@ -107,6 +107,48 @@ def describe_InstructorInquiryAddForm():
         def it_starts_on_today():
             assert InstructorInquiryAddForm().fields["reached_out_on"].initial == timezone.localdate()
 
+        def it_offers_the_picker_only_the_days_the_server_takes():
+            attrs = InstructorInquiryAddForm().fields["reached_out_on"].widget.attrs
+            assert attrs["min"] == "2026-03-27"
+            assert attrs["max"] == timezone.localdate().isoformat()
+
+        def it_refuses_a_day_before_the_member_portal_opened(robin):
+            form = _form(reached_out_on="2026-03-26")
+            assert not form.is_valid()
+            assert form.errors["reached_out_on"] == ["Pick March 27, 2026 or later, when the Member Portal opened."]
+            assert _form(reached_out_on="2026-03-27").is_valid()
+
+        def describe_for_a_declined_member():
+            @pytest.fixture
+            def dana() -> Member:
+                decided = timezone.make_aware(datetime(2026, 9, 20, 15, 30))
+                return MemberFactory(
+                    full_legal_name="Dana Declined",
+                    preferred_name="",
+                    teaching_applied_at=decided - timedelta(days=10),
+                    teaching_decided_at=decided,
+                    teaching_decline_reason="Not yet.",
+                )
+
+            def it_refuses_a_day_before_the_decline_so_it_cannot_erase_it(dana):
+                form = _form(member="Dana Declined", reached_out_on="2026-09-19")
+                assert not form.is_valid()
+                assert form.errors["reached_out_on"] == [
+                    "That is before their last application was decided on Sep 20, 2026."
+                ]
+                dana.refresh_from_db()
+                assert dana.teaching_application_state == Member.TeachingApplicationState.DECLINED
+
+            def it_stamps_the_day_of_the_decline_no_earlier_than_the_decision(dana):
+                form = _form(member="Dana Declined", reached_out_on="2026-09-20")
+                assert form.is_valid(), form.errors
+                assert form.applied_at() == dana.teaching_decided_at
+
+            def it_takes_a_later_day_at_its_start(dana):
+                form = _form(member="Dana Declined", reached_out_on="2026-09-25")
+                assert form.is_valid(), form.errors
+                assert form.applied_at() == timezone.make_aware(datetime.combine(date(2026, 9, 25), time.min))
+
         def it_refuses_a_day_in_the_future(robin):
             form = _form(reached_out_on=(timezone.localdate() + timedelta(days=1)).isoformat())
             assert not form.is_valid()
@@ -124,6 +166,20 @@ def describe_InstructorInquiryAddForm():
             stamp = form.applied_at()
             assert stamp == timezone.make_aware(datetime.combine(date(2026, 9, 14), time.min))
             assert timezone.localdate(stamp) == date(2026, 9, 14)
+
+    def describe_the_admins_wording():
+        def it_asks_the_member_voiced_questions_about_them():
+            fields = InstructorInquiryAddForm().fields
+            assert fields["has_website"].label == "Do they have a website?"
+            assert fields["has_socials"].label == "Do they share their work on social media?"
+            assert fields["contact_method"].label == "Best way to reach them"
+            assert fields["anything_else"].label == "Anything else Lee should know?"
+
+        def it_leaves_the_members_own_form_in_the_members_voice():
+            fields = TeachingApplicationForm().fields
+            assert fields["has_website"].label == "Do you have a website?"
+            assert fields["contact_method"].label == "Best way to reach you"
+            assert fields["anything_else"].label == "Anything else you would like Lee to know?"
 
     def describe_the_rules_between_answers():
         def it_needs_the_address_on_a_website_yes(robin):
