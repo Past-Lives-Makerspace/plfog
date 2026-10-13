@@ -5047,6 +5047,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_notifications": is_admin,
             "tool_site_settings": is_admin,
             "tool_slideshow": is_admin,
+            "tool_growth": is_admin,
             "tool_instructor_inquiries": is_admin,
             "tool_leadership": is_admin,
             "tool_locations": is_admin,

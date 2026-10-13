@@ -6,6 +6,7 @@ from . import (
     discord_views,
     equipment_views,
     feedback_views,
+    growth_views,
     leadership_views,
     location_views,
     manage_bookings,
@@ -886,6 +887,8 @@ urlpatterns = [
     path("manage/locations/<int:pk>/", location_views.hub_admin_location_edit, name="hub_admin_location_edit"),
     # The admin Feedback inbox (#693): every request from the Feedback page, and one page per request.
     path("manage/feedback/", feedback_views.hub_admin_feedback_inbox, name="hub_admin_feedback_inbox"),
+    # The admin Growth dashboard (#795): counts since launch for a date range, a GET page.
+    path("manage/growth/", growth_views.hub_admin_growth, name="hub_admin_growth"),
     path("manage/spotlight/", spotlight_views.hub_admin_spotlight, name="hub_admin_spotlight"),
     path("manage/spotlight/text/", spotlight_views.hub_admin_spotlight_text, name="hub_admin_spotlight_text"),
     path(

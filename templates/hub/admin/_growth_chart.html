@@ -1,0 +1,33 @@
+{% comment %}
+One Growth chart at one size (#795), from the geometry in hub/growth.py (a Chart). The title
+and range sit inside the svg so a downloaded PNG says what it shows. The fill and stroke
+attributes are the PNG's colours (dark on white); growth.css themes the chart on the page.
+A hit rect's title is the bucket's tooltip; on the running total its hover dot follows it.
+
+Parameters: chart.
+{% endcomment %}
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {{ chart.width }} {{ chart.height }}" width="{{ chart.width }}" height="{{ chart.height }}" role="img" aria-label="{{ chart.title }}, {{ chart.subtitle }}" font-family="Inter, Arial, sans-serif">
+  <text class="pl-growth__chart-value" x="0" y="20" font-size="17" font-weight="700" fill="#1D1E1E">{{ chart.title }}</text>
+  <text x="0" y="40" font-size="13" fill="#5b6675">{{ chart.subtitle }}</text>
+  {% for line in chart.grid %}
+  <line class="{% if line.is_axis %}pl-growth__chart-axis{% else %}pl-growth__chart-grid{% endif %}" x1="{{ line.x1 }}" y1="{{ line.y }}" x2="{{ line.x2 }}" y2="{{ line.y }}" stroke="{% if line.is_axis %}#cfd5de{% else %}#e2e6ec{% endif %}" stroke-width="1"/>
+  <text x="{{ line.label_x }}" y="{{ line.label_y }}" font-size="11" text-anchor="end" fill="#5b6675">{{ line.label }}</text>
+  {% endfor %}
+  {% if chart.area %}
+  <path class="pl-growth__area" d="{{ chart.area }}" fill="#c98a12" fill-opacity="0.14"/>
+  <path class="pl-growth__line" d="{{ chart.line }}" fill="none" stroke="#c98a12" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  {% endif %}
+  {% for shape in chart.shapes %}
+  {% if shape.d %}<path class="{{ shape.css }}" d="{{ shape.d }}" fill="{{ shape.fill }}"/>{% else %}<rect class="{{ shape.css }}" x="{{ shape.x }}" y="{{ shape.y }}" width="{{ shape.width }}" height="{{ shape.height }}" fill="{{ shape.fill }}"/>{% endif %}
+  {% endfor %}
+  {% if chart.dot %}<circle class="pl-growth__dot" cx="{{ chart.dot.x }}" cy="{{ chart.dot.y }}" r="4.5" fill="#c98a12" stroke="#ffffff" stroke-width="2"/>{% endif %}
+  {% for value in chart.values %}
+  <text class="pl-growth__chart-value" x="{{ value.x }}" y="{{ value.y }}" font-size="12" font-weight="700" text-anchor="{% if chart.dot %}end{% else %}middle{% endif %}" fill="#1D1E1E" data-chart-value>{{ value.text }}</text>
+  {% endfor %}
+  {% for hit in chart.hits %}
+  <rect class="pl-growth__hit" x="{{ hit.x }}" y="{{ hit.y }}" width="{{ hit.width }}" height="{{ hit.height }}" fill="transparent"><title>{{ hit.tip }}</title></rect>{% if hit.dot_x %}<circle class="pl-growth__hover" cx="{{ hit.dot_x }}" cy="{{ hit.dot_y }}" r="4" fill="#1D1E1E" opacity="0"/>{% endif %}
+  {% endfor %}
+  {% for label in chart.x_labels %}
+  <text x="{{ label.x }}" y="{{ label.y }}" font-size="11" text-anchor="middle" fill="#5b6675">{{ label.text }}</text>
+  {% endfor %}
+</svg>

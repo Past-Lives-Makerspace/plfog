@@ -162,6 +162,7 @@ def describe_admin_tools_card_order():
             "Activity",
             "Announcements",
             "Feedback Inbox",
+            "Growth",
             "Instructor Inquiries",
             "Leadership Directory",
             "Locations",

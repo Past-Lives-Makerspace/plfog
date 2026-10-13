@@ -420,6 +420,7 @@ All under `static/css/`. The pattern in use: one stylesheet per surface, linked 
 | `kiln-tickets.css` | `kiln/*.html`, and `hub/guild_detail.html` when it shows the Kiln Tickets tab | Kiln tickets (#691): ticket rows, the tab's crew links, the ticket form, detail (maker and crew) with flags and the reply thread, Load the Kiln's photo tiles, Unload's checklist, the Kiln Log (table on desktop, cards on a phone), a firing's page and the crew's lists, lifted from `mockups/kiln-tickets.html`. |
 | `eventbrite-tab.css` | `classes/teach/class_eventbrite.html` | A live class's Eventbrite tab: Status, Eventbrite's Rules, Fees and Listing Settings split by dividers, the callouts for its notes, the two fee choice cards and the Turn Off row. |
 | `instructor-inquiries.css` | `classes/admin/instructor_inquiries.html` | The Instructor Inquiries page (#690): filter bar, status pills and the Board Report charts. |
+| `growth.css` | `hub/admin/growth.html` | The admin Growth dashboard (#795): the date range bar, stat tiles and sparklines, the Trend chart's controls, the Classes and CMS charts, legend and table, and the series palette (`--pl-growth-*`). Each chart is drawn at a desktop and a phone width; `.pl-growth__svg--wide` and `--narrow` show the one that fits. |
 | `signage.css` | `signage/base.html` | The lobby signage display. |
 | `wiki-stickers.css` | `hub/wiki_sticker_sheet.html` | The QR sticker sheet. |
 | `rich-editor.css` | `_components/rich_editor_assets.html` | Styling around the Quill editor. |
