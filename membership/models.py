@@ -356,6 +356,18 @@ class MemberQuerySet(models.QuerySet):
         }
         return self.filter(conditions[state])
 
+    def free_to_ask_to_teach(self) -> MemberQuerySet:
+        """Members ``apply_to_teach`` would take: active, unable to teach and with no ask pending.
+
+        A member who never asked and one who was declined both qualify, as on the page
+        behind I'm Interested. The admin's Add Inquiry picker lists these (#794).
+        """
+        states = Member.TeachingApplicationState
+        return self.active().filter(
+            Q(pk__in=self.in_teaching_state(states.NONE).values("pk"))
+            | Q(pk__in=self.in_teaching_state(states.DECLINED).values("pk"))
+        )
+
     def awaiting_welcome_email(self) -> MemberQuerySet:
         """Paying (Standard), active members imported from Airtable who have not yet been sent the
         automated welcome email — the candidate set for the ``welcome_new_members`` automation.
@@ -1793,6 +1805,19 @@ class Member(models.Model):
             assert isinstance(field, models.Field)  # every answer is a concrete column
             setattr(self, name, field.get_default())
 
+    def _teaching_contact_method(self, method: str, detail: str, *, may_be_unknown: bool) -> str:
+        """The checked contact method for ``apply_to_teach``; ``detail`` is already stripped.
+
+        Both are required, except that an ask an admin files by hand (``may_be_unknown``)
+        may leave both blank. One without the other is never kept.
+        """
+        if not (may_be_unknown and not method and not detail):
+            if not method:
+                raise ValueError("A teaching application needs to say how the member wants to be reached")
+            if not detail:
+                raise ValueError("A teaching application needs an email address or phone number to reach the member at")
+        return _known_choice_or_blank(self.TeachingContactMethod, method)
+
     def apply_to_teach(
         self,
         note: str,
@@ -1812,6 +1837,8 @@ class Member(models.Model):
         class_size: str = "",
         availability: Sequence[str] = (),
         anything_else: str = "",
+        applied_at: datetime_type | None = None,
+        added_by: User | None = None,
     ) -> None:
         """Record this member's ask to teach and put it in front of the admins.
 
@@ -1848,12 +1875,21 @@ class Member(models.Model):
             class_size: A :class:`TeachingClassSize` value, or blank.
             availability: :class:`TeachingAvailability` values, any number.
             anything_else: Anything else for the admin, as typed.
+            applied_at: When they asked. Defaults to now; never in the future.
+            added_by: The admin who filed this ask by hand for a member who reached out
+                by email or in person (#794, Add Inquiry). The ask is recorded exactly as
+                the member's own, but the activity row is ``TEACHING_INQUIRY_ADDED`` with
+                this admin as its actor, no ``instructor_application_received`` notice
+                goes out (the admin already knows), and the contact answers may both be
+                blank, because the admin may not know how the member wants to be reached.
 
         Raises:
-            ValueError: If the member is not ACTIVE, if ``note``, ``contact_method`` or
-                ``contact_detail`` is blank, if a choice answer is not a known choice, if
-                ``website`` is not an http or https address, or
-                if they already have an application waiting on an admin or can already teach.
+            ValueError: If the member is not ACTIVE, if ``note`` is blank, if
+                ``contact_method`` or ``contact_detail`` is blank (both may be blank for
+                an ``added_by`` ask, never just one), if a choice answer is not a known
+                choice, if ``website`` is not an http or https address, if
+                ``applied_at`` is in the future, or if they already have an application
+                waiting on an admin or can already teach.
         """
         from core.events.emit import emit
         from core.models import SiteActivity
@@ -1863,12 +1899,11 @@ class Member(models.Model):
         note = note.strip()
         if not note:
             raise ValueError("A teaching application needs a note saying what they want to teach")
-        if not contact_method:
-            raise ValueError("A teaching application needs to say how the member wants to be reached")
-        method = self.TeachingContactMethod(contact_method)  # an unknown method raises ValueError
         contact_detail = contact_detail.strip()
-        if not contact_detail:
-            raise ValueError("A teaching application needs an email address or phone number to reach the member at")
+        method = self._teaching_contact_method(contact_method, contact_detail, may_be_unknown=added_by is not None)
+        now = timezone.now()
+        if applied_at is not None and applied_at > now:
+            raise ValueError("A teaching application cannot be dated in the future")
         experience = _known_choice_or_blank(self.TeachingExperience, experience)
         class_format = _known_choice_or_blank(self.TeachingClassFormat, class_format)
         practice_years = _known_choice_or_blank(self.TeachingPracticeYears, practice_years)
@@ -1908,7 +1943,7 @@ class Member(models.Model):
         }
         for field, value in answers.items():
             setattr(self, field, value)
-        self.teaching_applied_at = timezone.now()
+        self.teaching_applied_at = applied_at or now
         self.teaching_decided_at = None
         self.teaching_decline_reason = ""
         self.save(
@@ -1919,6 +1954,17 @@ class Member(models.Model):
                 "teaching_decline_reason",
             ]
         )
+        if added_by is not None:
+            SiteActivity.log(
+                SiteActivity.Kind.TEACHING_INQUIRY_ADDED,
+                actor=added_by,
+                target=self,
+                payload={
+                    "member": self.display_name,
+                    "reached_out_on": timezone.localdate(self.teaching_applied_at).isoformat(),
+                },
+            )
+            return
         SiteActivity.log(SiteActivity.Kind.TEACHING_APPLIED, actor=self.user, target=self)
         review_url = self._teaching_review_url()
         emit(

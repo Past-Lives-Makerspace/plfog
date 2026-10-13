@@ -1,0 +1,37 @@
+{% comment %}
+The Add Inquiry modal body on Instructor Inquiries (#794): an admin files an ask to teach
+for a member who reached out by email or in person. Context: add_form, an
+InstructorInquiryAddForm with the "inquiry" prefix.
+
+The member picker is a text input over a datalist of the members who may ask (the Record
+Orientation picker's pattern); the application's six sections come from the shared
+partial, drawn flat (apply_flat) because a card inside the modal's card reads as a box in
+a box. A failed save renders the page again with this modal open and every answer kept.
+The form is novalidate, as the application page is: the server is the gate, and a browser
+check would block Save on a field the admin cannot see (a broken address left under
+Website No).
+{% endcomment %}
+<form method="post" action="{% url 'classes:admin_instructor_inquiry_add' %}" class="pl-teach-application pl-inquiry-add" data-inquiry-add-form novalidate>
+    {% csrf_token %}
+    {% if add_form.errors %}
+    <p class="pl-teach-application__alert" role="alert" data-inquiry-add-errors>Some answers need another look. They are marked below.</p>
+    {% endif %}
+    {% for error in add_form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+
+    <section class="pl-teach-application__section" data-apply-section="who">
+        <h2 class="pl-teach-section__title">Who and When</h2>
+        <p class="pl-teach-application__intro">Only the member, the day, a working title and what they would teach are needed. Fill in the rest if you know it.</p>
+        {% include "components/form_field.html" with field=add_form.member %}
+        <datalist id="{{ add_form.MEMBER_LIST_ID }}">
+            {% for label in add_form.member_options %}<option value="{{ label }}"></option>{% endfor %}
+        </datalist>
+        {% include "components/form_field.html" with field=add_form.reached_out_on %}
+    </section>
+
+    {% include "classes/teach/partials/apply_form.html" with form=add_form contact_prefill_email="" contact_prefill_phone="" apply_flat=True %}
+
+    <div class="pl-teach-application__actions">
+        <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'inquiry-add')">Cancel</button>
+        <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+    </div>
+</form>

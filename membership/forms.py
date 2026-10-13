@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Iterable
 from typing import Any
 
 from django import forms
@@ -36,6 +38,29 @@ def setup_location_field(form: forms.ModelForm, hint: str = LOCATION_HINT) -> No
         empty_label="No location",
         help_text=hint,
     )
+
+
+def member_picker_labels(members: Iterable[Member]) -> dict[str, Member]:
+    """The labels a text input over a datalist offers for ``members``, each to its member.
+
+    A member is labelled by their display name; two who share one get their member number
+    after it (``"Sam Lee (#42)"``), so every label names exactly one person. The keys keep
+    the members' order; look one up with ``label.strip().casefold()`` against
+    :func:`member_picker_lookup`. The Record Orientation and Give Credit pickers and the
+    Add Inquiry picker (#794) share it.
+    """
+    members = list(members)
+    name_counts = Counter(m.display_name.casefold() for m in members)
+    labels: dict[str, Member] = {}
+    for candidate in members:
+        name = candidate.display_name
+        labels[name if name_counts[name.casefold()] == 1 else f"{name} (#{candidate.pk})"] = candidate
+    return labels
+
+
+def member_picker_lookup(labels: dict[str, Member]) -> dict[str, Member]:
+    """``labels`` keyed by the case folded label, for matching what was typed."""
+    return {label.casefold(): member for label, member in labels.items()}
 
 
 class MemberAdminForm(forms.ModelForm):

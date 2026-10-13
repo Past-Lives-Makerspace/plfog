@@ -1,0 +1,6 @@
+bump = "minor"
+date = "2026-10-13"
+title = "Admins add instructor inquiries by hand"
+changes = [
+  "Admins can add an inquiry on the Instructor Inquiries page for a member who reached out by email or in person, with the date they got in touch, so every would be instructor is tracked in one place.",
+]

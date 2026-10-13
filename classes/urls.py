@@ -183,6 +183,11 @@ urlpatterns = [
         name="admin_instructor_inquiries_export",
     ),
     path(
+        "admin/instructor-inquiries/add/",
+        views.admin_instructor_inquiry_add,
+        name="admin_instructor_inquiry_add",
+    ),
+    path(
         "admin/teaching-applications/<int:pk>/approve/",
         views.admin_teaching_approve,
         name="admin_teaching_approve",

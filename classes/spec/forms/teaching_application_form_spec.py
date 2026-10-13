@@ -158,8 +158,9 @@ def describe_the_inquiry_questions():
         assert not form.is_valid()
         assert form.errors["website"] == ["That does not look like a web address. Check it and try again."]
 
-    @pytest.mark.parametrize("address", ["ftp://files.example.com", "ftps://x.example.com"])
+    @pytest.mark.parametrize("address", ["ftp://files.example.com", "ftps://x.example.com", "javascript:alert(1)"])
     def it_refuses_a_website_the_application_cannot_store(address: str):
+        """apply_to_teach stores only http and https, and Instructor Inquiries renders the address as a link (#794)."""
         form = _form(has_website="yes", website=address)
         assert not form.is_valid()
         assert form.errors["website"] == ["That does not look like a web address. Check it and try again."]

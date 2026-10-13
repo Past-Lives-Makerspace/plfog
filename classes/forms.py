@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from datetime import date, datetime, time
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, TypeGuard, cast
+from typing import TYPE_CHECKING, Any, ClassVar, TypeGuard, cast
 from urllib.parse import urlencode
 
 from django import forms
@@ -49,7 +50,7 @@ from classes.models import (
 )
 from classes.questions import active_questions, collect_answers, inject_fields
 from classes.video_providers import validate_video_url
-from membership.forms import setup_location_field
+from membership.forms import member_picker_labels, member_picker_lookup, setup_location_field
 
 
 def _assign_provisional_slug(offering: ClassOffering) -> None:
@@ -87,8 +88,6 @@ def _video_url_widget() -> forms.TextInput:
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser, User
-
-    from datetime import datetime
 
     from django.utils.safestring import SafeString
 
@@ -1376,7 +1375,13 @@ def _chips(model: str) -> forms.RadioSelect:
 
 
 class _WebAddressField(forms.URLField):
-    """A URLField for the schemes apply_to_teach stores, so an ftp address is a field error, not a lost application."""
+    """A URLField for the schemes apply_to_teach stores, http and https only.
+
+    Django's own also takes ftp and ftps, which apply_to_teach refuses, so such an address
+    is a field error rather than a lost application. The website is rendered as a link on
+    Instructor Inquiries, so nothing else may reach the column (#794). The member's form
+    and the admin's Add Inquiry form both use it.
+    """
 
     default_validators = [URLValidator(schemes=["http", "https"])]
 
@@ -1410,6 +1415,10 @@ class TeachingApplicationForm(forms.Form):
     their pick into the properties the conditional fields read
     (``templates/classes/teach/partials/apply_form.html``).
     """
+
+    #: Whether a teaching level past first time needs where they taught. An admin adding
+    #: an inquiry by hand may know the level and not the places (#794).
+    TAUGHT_WHERE_REQUIRED: ClassVar[bool] = True
 
     # Your Class Idea
     class_title = forms.CharField(
@@ -1597,7 +1606,12 @@ class TeachingApplicationForm(forms.Form):
         if experience == Member.TeachingExperience.FIRST_TIME:
             data["taught_where"] = ""
             self.errors.pop("taught_where", None)
-        elif experience and not data.get("taught_where") and "taught_where" not in self.errors:
+        elif (
+            self.TAUGHT_WHERE_REQUIRED
+            and experience
+            and not data.get("taught_where")
+            and "taught_where" not in self.errors
+        ):
             self.add_error("taught_where", "Tell us where you have taught before.")
         self._clean_yes_no(data, "has_website", "website", "Add your website's address, or pick No.")
         self._clean_yes_no(data, "has_socials", "socials", "Add your handles or links, or pick No.")
@@ -1731,6 +1745,146 @@ class InstructorInquiryFilterForm(forms.Form):
 
         data = self.cleaned_data
         return board_report(self.in_range(), applied_from=data["date_from"], applied_to=data["date_to"], now=now)
+
+
+class InstructorInquiryAddForm(TeachingApplicationForm):
+    """Add Inquiry on Instructor Inquiries (#794): an admin files an ask to teach by hand
+    for a member who reached out by email or in person.
+
+    The application's questions and rules, plus the member and the day they reached out.
+    The admin may know only a little, so only the member, the day, the working title and
+    what they want to teach are required; a pick one question left blank is stored blank.
+    The rules between answers still hold: a website Yes needs the address, socials the
+    same, and the contact method and where to reach them come as a pair or not at all.
+
+    The member is a text input over a datalist (``member_options``): the members
+    ``apply_to_teach`` would take. A name typed by hand for someone who can already teach,
+    or who has an ask waiting, is a field error that says which.
+    """
+
+    MEMBER_LIST_ID = "inquiry-member-options"
+    #: The Member Portal opened on this day; no inquiry it tracks can predate it.
+    EARLIEST_DAY = date(2026, 3, 27)
+    REQUIRED = frozenset({"member", "reached_out_on", "class_title", "note"})
+    TAUGHT_WHERE_REQUIRED = False
+
+    member = forms.CharField(
+        label="Member",
+        max_length=200,
+        help_text="Start typing and pick from the list. Members who can already teach or have an inquiry waiting are left out.",
+        widget=forms.TextInput(
+            attrs={"list": MEMBER_LIST_ID, "autocomplete": "off", "placeholder": "Start typing a name"}
+        ),
+        error_messages={"required": "Pick a member from the list."},
+    )
+    reached_out_on = forms.DateField(
+        label="Date they reached out",
+        widget=forms.DateInput(attrs=_INQUIRY_DATE_ATTRS),
+        error_messages={"required": "Pick the day they reached out.", "invalid": "Pick the day they reached out."},
+    )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        from membership.models import Member
+
+        super().__init__(*args, **kwargs)
+        self.order_fields(["member", "reached_out_on"])
+        today = timezone.localdate()
+        day = self.fields["reached_out_on"]
+        day.initial = today
+        # The browser's picker offers exactly the days the server takes.
+        day.widget.attrs.update({"min": self.EARLIEST_DAY.isoformat(), "max": today.isoformat()})
+        # Under apply_flat the shared partial titles its sections for the admin; these
+        # are the questions it asks in the member's voice (#794 review).
+        for name, label in (
+            ("has_website", "Do they have a website?"),
+            ("has_socials", "Do they share their work on social media?"),
+            ("contact_method", "Best way to reach them"),
+            ("anything_else", "Anything else Lee should know?"),
+        ):
+            self.fields[name].label = label
+        for name, field in self.fields.items():
+            field.required = name in self.REQUIRED
+        self.fields["class_title"].error_messages["required"] = "Add a working title for the class."
+        self.fields["note"].error_messages["required"] = "Say what they want to teach."
+        self.fields["note"].label = "What would they teach?"
+        self.fields["note"].help_text = "What they told you: the subject, what students leave with, how long it runs."
+        labels = member_picker_labels(Member.objects.active().without_hidden().order_by("full_legal_name", "pk"))
+        free = set(Member.objects.free_to_ask_to_teach().values_list("pk", flat=True))
+        self.member_options = [label for label, member in labels.items() if member.pk in free]
+        self._members_by_label = member_picker_lookup(labels)
+
+    def clean_member(self) -> Member:
+        member = self._members_by_label.get(self.cleaned_data["member"].strip().casefold())
+        if member is None:
+            raise forms.ValidationError("Pick a member from the list.")
+        if member.can_create_classes:
+            raise forms.ValidationError(f"{member.display_name} can already teach.")
+        if member.teaching_application_state == member.TeachingApplicationState.PENDING:
+            raise forms.ValidationError(f"{member.display_name} already has an inquiry waiting on an admin.")
+        return member
+
+    def clean_reached_out_on(self) -> date:
+        reached_out_on: date = self.cleaned_data["reached_out_on"]
+        if reached_out_on > timezone.localdate():
+            raise forms.ValidationError("Pick today or a day in the past.")
+        if reached_out_on < self.EARLIEST_DAY:
+            raise forms.ValidationError(
+                f"Pick {self.EARLIEST_DAY:%B} {self.EARLIEST_DAY.day}, {self.EARLIEST_DAY.year} or later, "
+                "when the Member Portal opened."
+            )
+        return reached_out_on
+
+    def clean(self) -> dict:
+        data = super().clean()
+        self._clean_after_last_decision(data)
+        method = data.get("contact_method")
+        detail = data.get("contact_detail")
+        if method and not detail and "contact_detail" not in self.errors:
+            self.add_error("contact_detail", "Add where to reach them, or set the way to reach them back to Pick one.")
+        elif detail and not method and "contact_method" not in self.errors:
+            self.add_error("contact_method", "Pick how they want to be reached, or clear where to reach them.")
+        return data
+
+    def _clean_after_last_decision(self, data: dict) -> None:
+        """A declined member's new inquiry cannot be dated before that decline.
+
+        ``apply_to_teach`` clears the decline, so a backdated inquiry would read as an ask
+        that came first and quietly erase the newer no. The day of the decision itself is
+        allowed; ``applied_at`` then stamps it no earlier than the decision.
+        """
+        member: Member | None = data.get("member")
+        reached_out_on: date | None = data.get("reached_out_on")
+        if member is None or reached_out_on is None or member.teaching_decided_at is None:
+            return
+        decided_on = timezone.localdate(member.teaching_decided_at)
+        if reached_out_on < decided_on:
+            self.add_error(
+                "reached_out_on",
+                f"That is before their last application was decided on {decided_on:%b} {decided_on.day}, "
+                f"{decided_on.year}.",
+            )
+
+    def applied_at(self) -> datetime:
+        """When the inquiry is stamped: now for today, so it sorts with today's asks, and the
+        start of the day in Portland for an earlier day, but never before the member's last
+        decision, so the inquiry always reads as coming after it."""
+        reached_out_on: date = self.cleaned_data["reached_out_on"]
+        if reached_out_on == timezone.localdate():
+            return timezone.now()
+        stamp = timezone.make_aware(datetime.combine(reached_out_on, time.min))
+        decided_at: datetime | None = self.cleaned_data["member"].teaching_decided_at
+        return max(stamp, decided_at) if decided_at is not None else stamp
+
+    def save(self, added_by: User) -> Member:
+        """File the inquiry on the picked member, as the admin ``added_by``. Valid forms only.
+
+        Raises:
+            ValueError: From ``Member.apply_to_teach``, whose guards back up ``clean_member``.
+                Only a change between ``is_valid`` and this call reaches it.
+        """
+        member: Member = self.cleaned_data["member"]
+        member.apply_to_teach(**self.answers(), applied_at=self.applied_at(), added_by=added_by)
+        return member
 
 
 class ClassSessionForm(forms.ModelForm):

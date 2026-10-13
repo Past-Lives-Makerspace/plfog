@@ -589,7 +589,9 @@ def describe_apply_to_teach_application_answers():
         assert member.teaching_availability == ["weekends", "weekday_daytime"]
         assert member.teaching_availability_display == "Weekends, Weekday daytime"
 
-    @pytest.mark.parametrize("website", ["javascript:alert(1)", "ftp://robin.example", "not a site"])
+    @pytest.mark.parametrize(
+        "website", ["javascript:alert(1)", "ftp://robin.example", "data:text/html,hi", "not a site"]
+    )
     def it_refuses_a_website_that_is_not_an_http_address_and_files_nothing(website):
         member = _linked_member("apply-bad-site")
         with pytest.raises(ValueError):
@@ -673,3 +675,105 @@ def describe_in_teaching_state():
         found = set(Member.objects.filter(pk__in=[m.pk for m in members.values()]).in_teaching_state(state))
         assert found == {m for m in members.values() if m.teaching_application_state == state}
         assert found  # every state is represented in the fixture
+
+
+def describe_free_to_ask_to_teach():
+    def it_takes_members_who_never_asked_or_were_declined_and_nobody_else():
+        now = timezone.now()
+        never = MemberFactory()
+        declined = _inquiry("Declined", "2026-09-02T10:00", teaching_decided_at=now, teaching_decline_reason="Not yet.")
+        _inquiry("Pending", "2026-09-03T10:00")
+        _inquiry("Half", "2026-09-04T10:00", teaching_decided_at=now)
+        MemberFactory(instructor_oriented_at=now)
+        MemberFactory(status=Member.Status.FORMER)
+        assert set(Member.objects.free_to_ask_to_teach()) == {never, declined}
+
+
+def describe_apply_to_teach_added_by_an_admin():
+    """#794: an admin files an ask by hand for a member who reached out another way."""
+
+    ANSWERS: dict[str, object] = {
+        "contact_method": "text",
+        "contact_detail": "503 555 0100",
+        "class_title": "Lost Wax Casting",
+    }
+
+    def it_records_the_ask_on_the_day_given_as_pending():
+        admin = _fog_admin("added-admin")
+        member = MemberFactory()
+        stamp = timezone.now() - timezone.timedelta(days=3)
+        member.apply_to_teach("Casting rings.", applied_at=stamp, added_by=admin.user, **ANSWERS)
+        member.refresh_from_db()
+        assert member.teaching_applied_at == stamp
+        assert member.teaching_class_title == "Lost Wax Casting"
+        assert member.teaching_application_note == "Casting rings."
+        assert member.teaching_application_state == Member.TeachingApplicationState.PENDING
+
+    def it_logs_an_inquiry_added_row_naming_the_admin_and_no_applied_row():
+        admin = _fog_admin("added-actor")
+        admin.full_legal_name = "Alex Admin"
+        admin.save(update_fields=["full_legal_name"])
+        member = MemberFactory(full_legal_name="Robin Reachout", preferred_name="")
+        member.apply_to_teach("Casting rings.", added_by=admin.user, **ANSWERS)
+        row = SiteActivity.objects.get(kind=SiteActivity.Kind.TEACHING_INQUIRY_ADDED)
+        assert row.actor == admin.user
+        assert row.who == "Alex Admin"
+        assert row.target == member
+        assert row.payload == {
+            "member": "Robin Reachout",
+            "reached_out_on": timezone.localdate(member.teaching_applied_at).isoformat(),
+        }
+        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_APPLIED).exists()
+
+    def it_sends_no_application_notice():
+        admin = _fog_admin("added-silent")
+        MemberFactory().apply_to_teach("Casting rings.", added_by=admin.user, **ANSWERS)
+        assert Notification.objects.filter(trigger="instructor_application_received").count() == 0
+
+    def it_takes_an_ask_with_no_contact_answers():
+        admin = _fog_admin("added-nocontact")
+        member = MemberFactory()
+        member.apply_to_teach("Casting rings.", contact_method="", contact_detail="  ", added_by=admin.user)
+        member.refresh_from_db()
+        assert member.teaching_contact_method == ""
+        assert member.teaching_contact_detail == ""
+        assert member.teaching_application_state == Member.TeachingApplicationState.PENDING
+
+    @pytest.mark.parametrize(
+        ("method", "detail"), [("text", ""), ("", "503 555 0100")], ids=["method only", "detail only"]
+    )
+    def it_refuses_one_contact_answer_without_the_other(method, detail):
+        admin = _fog_admin("added-half")
+        member = MemberFactory()
+        with pytest.raises(ValueError):
+            member.apply_to_teach("Casting rings.", contact_method=method, contact_detail=detail, added_by=admin.user)
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+
+    def it_refuses_a_day_in_the_future():
+        admin = _fog_admin("added-future")
+        member = MemberFactory()
+        with pytest.raises(ValueError):
+            member.apply_to_teach(
+                "Casting rings.",
+                applied_at=timezone.now() + timezone.timedelta(minutes=5),
+                added_by=admin.user,
+                **ANSWERS,
+            )
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+
+    def it_still_refuses_a_member_with_an_ask_waiting():
+        admin = _fog_admin("added-pending")
+        member = _inquiry("Pending", "2026-09-03T10:00")
+        with pytest.raises(ValueError):
+            member.apply_to_teach("Again.", added_by=admin.user, **ANSWERS)
+
+
+def describe_apply_to_teach_applied_at():
+    def it_stamps_now_when_no_day_is_given():
+        before = timezone.now()
+        member = MemberFactory()
+        member.apply_to_teach("Rings.", contact_method="text", contact_detail="503 555 0100")
+        member.refresh_from_db()
+        assert before <= member.teaching_applied_at <= timezone.now()
