@@ -4,13 +4,19 @@
 {% block title %}Instructor Inquiries{% endblock %}
 
 {% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/teach-application.css' %}">
 <link rel="stylesheet" href="{% static 'css/instructor-inquiries.css' %}">
 {% endblock %}
 
 {% block content %}
 <div class="pl-inquiries">
-<h1 class="hub-page-title">Instructor Inquiries</h1>
-<p class="hub-text-muted pl-inquiries__lead">Every member who asked to teach, pending and decided, newest first.</p>
+<div class="pl-inquiries__header">
+  <div>
+    <h1 class="hub-page-title">Instructor Inquiries</h1>
+    <p class="hub-text-muted pl-inquiries__lead">Every member who asked to teach, pending and decided, newest first.</p>
+  </div>
+  <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-inquiries__add" @click="$dispatch('open-modal', 'inquiry-add')" data-inquiry-add>+ Add Inquiry</button>
+</div>
 
 <div class="hub-card pl-inquiries__card">
   <form method="get" class="pl-inquiries__filters" data-inquiry-filters>
@@ -79,5 +85,13 @@
 </div>
 {% endif %}
 </div>
+{% comment %}
+Add Inquiry (#794). Static: the form is long, so only the X or Cancel closes it, never a
+stray click outside or Escape. A failed save comes back with the modal open.
+{% endcomment %}
+{% include "components/modal.html" with modal_id="inquiry-add" modal_title="Add an Inquiry" modal_size="lg" modal_static=True modal_body_include="classes/admin/partials/inquiry_add_form.html" %}
+{% if add_form.errors %}
+<div x-data x-init="$dispatch('open-modal', 'inquiry-add')"></div>
+{% endif %}
 <script src="{% static 'js/chart_download.js' %}"></script>
 {% endblock %}

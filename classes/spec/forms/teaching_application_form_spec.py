@@ -158,6 +158,13 @@ def describe_the_inquiry_questions():
         assert not form.is_valid()
         assert form.errors["website"] == ["That does not look like a web address. Check it and try again."]
 
+    @pytest.mark.parametrize("website", ["javascript:alert(1)", "ftp://files.example.com"])
+    def it_refuses_any_scheme_but_http_and_https(website):
+        """#794: Instructor Inquiries renders the address as a link."""
+        form = _form(has_website="yes", website=website)
+        assert not form.is_valid()
+        assert form.errors["website"] == ["That does not look like a web address. Check it and try again."]
+
     def it_refuses_socials_over_500_characters():
         form = _form(has_socials="yes", socials="@" * 501)
         assert not form.is_valid()

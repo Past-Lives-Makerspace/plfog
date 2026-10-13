@@ -115,6 +115,7 @@ from classes.forms import (
     FinishRegistrationForm,
     RegistrationForm,
     RegistrationQuestionForm,
+    InstructorInquiryAddForm,
     InstructorInquiryFilterForm,
     TeachingApplicationForm,
     parse_gallery_focus,
@@ -4631,6 +4632,18 @@ def admin_instructor_inquiries(request: HttpRequest) -> HttpResponse:
     filter with an error (To before From) lists nothing, draws no Board Report and
     shows the field error.
     """
+    return _instructor_inquiries_page(request, InstructorInquiryAddForm(prefix=INQUIRY_ADD_PREFIX))
+
+
+#: The Add Inquiry form's field prefix, so its names never meet the filter bar's.
+INQUIRY_ADD_PREFIX = "inquiry"
+
+
+def _instructor_inquiries_page(request: HttpRequest, add_form: InstructorInquiryAddForm) -> HttpResponse:
+    """The Instructor Inquiries page, with the Add Inquiry modal holding ``add_form``.
+
+    A bound ``add_form`` with errors opens the modal on load, every answer kept.
+    """
     form = InstructorInquiryFilterForm(request.GET)
     valid = form.is_valid()
     return render(
@@ -4641,8 +4654,34 @@ def admin_instructor_inquiries(request: HttpRequest) -> HttpResponse:
             "inquiries": list(form.inquiries()) if valid else [],
             "report": form.board_report(timezone.now()) if valid else None,
             "filter_query": request.GET.urlencode(),
+            "add_form": add_form,
         },
     )
+
+
+@classes_admin_access_required
+@require_POST
+def admin_instructor_inquiry_add(request: HttpRequest) -> HttpResponse:
+    """Add Inquiry (#794): file an ask to teach by hand for a member who reached out.
+
+    Recorded exactly as the member's own application on the day picked (status Pending),
+    with a site activity row naming the admin and no notice to the class approvers. An
+    invalid save renders the page again with the modal open, its own line at the top
+    saying to look below (no toast, which would sit over the modal's title), and every
+    answer kept; the model's guard (another admin filed one for the same member a moment earlier) lands
+    on the member field the same way.
+    """
+    form = InstructorInquiryAddForm(request.POST, prefix=INQUIRY_ADD_PREFIX)
+    if form.is_valid():
+        assert request.user.is_authenticated  # classes_admin_access_required guarantees a real User
+        try:
+            member = form.save(added_by=request.user)
+        except ValueError:
+            form.add_error("member", "That member changed since the page loaded. Pick them again.")
+        else:
+            messages.success(request, f"Added an inquiry for {member.display_name}.")
+            return redirect("classes:admin_instructor_inquiries")
+    return _instructor_inquiries_page(request, form)
 
 
 @classes_admin_access_required

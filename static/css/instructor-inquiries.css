@@ -1,6 +1,18 @@
 /* Instructor Inquiries (#690): the admin page listing every teaching application,
    its filter bar, the status pills and the Board Report charts. */
 
+/* The title and lead on the left, + Add Inquiry on the right (#794); the button drops
+   under the lead when the row is too narrow. */
+.pl-inquiries__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  margin-bottom: 1rem;
+}
+.pl-inquiries__header .pl-inquiries__lead { margin: 0.5rem 0 0; }
+.pl-inquiries__add { flex: none; white-space: nowrap; }
 .pl-inquiries__lead { margin: 0 0 1rem; }
 .pl-inquiries__card { padding: 1.5rem; margin-bottom: 1.5rem; }
 
@@ -75,3 +87,15 @@
 .pl-inquiries__chart text { fill: var(--hub-text); }
 .pl-inquiries__chart .pl-inquiries__chart-muted { fill: var(--hub-text-muted); }
 .pl-inquiries__chart .pl-inquiries__chart-axis { stroke: var(--hub-border); }
+
+/* Add Inquiry (#794): the application's sections inside the modal, flat rather than
+   cards, each under a rule with the same 1.5rem rhythm as the page. */
+.pl-inquiry-add .pl-teach-application__alert { margin: 0 0 1.5rem; }
+.pl-inquiry-add .pl-teach-application__section { padding: 0; }
+.pl-inquiry-add .pl-teach-application__fields { margin-top: 1.5rem; }
+.pl-inquiry-add .pl-teach-application__section--flat {
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--hub-border);
+}
+.pl-inquiry-add input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+[data-theme="light"] .pl-inquiry-add input[type="date"]::-webkit-calendar-picker-indicator { filter: none; }

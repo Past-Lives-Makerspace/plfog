@@ -9,7 +9,6 @@ from functools import cached_property
 import json
 import re
 from dataclasses import dataclass
-from collections import Counter
 from collections.abc import Collection
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
@@ -36,7 +35,7 @@ from core.features import DEFAULT_SOON_MESSAGE
 from core.events.scheduling import next_tick
 from core.models import CalendarFeed, FeatureSwitch, FeedbackRequest, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
-from membership.forms import setup_location_field
+from membership.forms import member_picker_labels, member_picker_lookup, setup_location_field
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
 from membership.names import user_display_name, user_label, user_name_or_email
 from membership.models import (
@@ -4286,15 +4285,11 @@ class OrientationRecordForm(forms.Form):
             ),
         )
         self.order_fields(["member"])
-        members = list(
+        labels = member_picker_labels(
             Member.objects.filter(status=Member.Status.ACTIVE).without_hidden().order_by("full_legal_name", "pk")
         )
-        name_counts = Counter(m.display_name.casefold() for m in members)
-        for candidate in members:
-            name = candidate.display_name
-            label = name if name_counts[name.casefold()] == 1 else f"{name} (#{candidate.pk})"
-            self.member_options.append(label)
-            self._members_by_label[label.casefold()] = candidate
+        self.member_options = list(labels)
+        self._members_by_label = member_picker_lookup(labels)
 
     def clean_member(self) -> Member:
         picked = self._members_by_label.get(self.cleaned_data["member"].strip().casefold())
@@ -6942,17 +6937,11 @@ class EquipmentCreditForm(forms.Form):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        members = list(
+        labels = member_picker_labels(
             Member.objects.filter(status=Member.Status.ACTIVE).without_hidden().order_by("full_legal_name", "pk")
         )
-        name_counts = Counter(m.display_name.casefold() for m in members)
-        self.member_options: list[str] = []
-        self._members_by_label: dict[str, Member] = {}
-        for candidate in members:
-            name = candidate.display_name
-            label = name if name_counts[name.casefold()] == 1 else f"{name} (#{candidate.pk})"
-            self.member_options.append(label)
-            self._members_by_label[label.casefold()] = candidate
+        self.member_options: list[str] = list(labels)
+        self._members_by_label: dict[str, Member] = member_picker_lookup(labels)
 
     def clean_member(self) -> Member:
         picked = self._members_by_label.get(self.cleaned_data["member"].strip().casefold())

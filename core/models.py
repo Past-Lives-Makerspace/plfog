@@ -1614,6 +1614,7 @@ class SiteActivity(models.Model):
         TEACHING_APPLICATION_DECLINED = "teaching_application_declined", "Teaching application declined"
         TEACHING_GRANTED = "teaching_granted", "Teaching access granted"
         TEACHING_REVOKED = "teaching_revoked", "Teaching access revoked"
+        TEACHING_INQUIRY_ADDED = "teaching_inquiry_added", "Teaching inquiry added"
         GUILD_JOINED = "guild_joined", "Joined a guild"
         LEASE_ACTIVATED = "lease_activated", "Space agreement activated"
         SPACE_REQUEST = "space_request", "Space request"
