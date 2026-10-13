@@ -1,0 +1,133 @@
+/* Growth (admin, #795): the date range bar, stat tiles, the Trend chart and the Classes and CMS
+   charts. Charts are server side inline svg like the Instructor Inquiries Board Report: the
+   svg's own fill and stroke attributes are the downloaded PNG's colours (dark on white); the
+   rules below theme it on the page. Each chart is drawn at a desktop and a phone width, and
+   only the one that fits shows. */
+
+.pl-growth {
+  /* Series slots, validated as a set (dataviz validator, adjacent pairs) on --hub-card-bg. */
+  --pl-growth-primary: var(--color-tuscan-yellow);
+  --pl-growth-series-1: #3987e5;
+  --pl-growth-series-2: #d95926;
+  --pl-growth-series-3: #199e70;
+  --pl-growth-series-4: #c98500;
+  --pl-growth-series-5: #d55181;
+  --pl-growth-up: var(--color-success);
+  --pl-growth-down: var(--color-error);
+}
+[data-theme="light"] .pl-growth {
+  --pl-growth-primary: #c98a12;
+  --pl-growth-series-1: #2a78d6;
+  --pl-growth-series-2: #eb6834;
+  --pl-growth-series-3: #1baf7a;
+  --pl-growth-series-4: #eda100;
+  --pl-growth-series-5: #e87ba4;
+  --pl-growth-up: #1f7a52;
+  --pl-growth-down: #a12b2b;
+}
+
+.pl-growth__lead { margin: 0.25rem 0 1.5rem; }
+.pl-growth__card { padding: 1.5rem; margin-bottom: 1.5rem; }
+.pl-growth__card-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0.75rem 1rem; }
+.pl-growth__card-sub { margin: 0.25rem 0 0; font-size: 0.875rem; }
+
+/* Date range bar */
+.pl-growth__range { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem 1.5rem; }
+.pl-growth__presets { padding-bottom: 0.4rem; flex-wrap: wrap; overflow: visible; }
+.pl-growth__presets .pl-equip-chip { cursor: pointer; font: inherit; font-size: 0.85rem; }
+.pl-growth__dates { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem; }
+.pl-growth__dates .pl-form-group { margin: 0; }
+/* The picker icon follows the theme through components.css's color-scheme on .pl-form-group. */
+.pl-growth__dates input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
+.pl-growth__range-note { flex: 1 1 100%; margin: 0; font-size: 0.8125rem; color: var(--hub-text-muted); }
+
+/* Stat tiles */
+.pl-growth__tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.pl-growth__tile { padding: 1.25rem; margin: 0; display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.pl-growth__tile-label { font-size: 0.8125rem; color: var(--hub-text-muted); font-weight: 500; }
+.pl-growth__tile-value { font-family: 'Lato', system-ui, sans-serif; font-size: 2rem; font-weight: 900; line-height: 1.15; color: var(--hub-text); font-variant-numeric: tabular-nums; }
+.pl-growth__tile-delta { font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-growth__tile-delta strong { font-weight: 700; }
+.pl-growth__tile-delta--up strong { color: var(--pl-growth-up); }
+.pl-growth__tile-delta--down strong { color: var(--pl-growth-down); }
+.pl-growth__spark { display: block; width: 100%; height: 32px; margin-top: 0.75rem; }
+.pl-growth__spark path { stroke: var(--pl-growth-primary); }
+.pl-growth__spark .pl-growth__spark-fill { fill: var(--pl-growth-primary); stroke: none; opacity: 0.14; }
+
+/* Trend controls */
+.pl-growth__controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem 1rem; margin-top: 1.25rem; }
+.pl-growth__metric { margin: 0; flex: 0 1 18rem; min-width: 0; }
+.pl-growth__metric .pl-form-group { margin: 0; }
+.pl-growth__metric select { width: 100%; }
+/* components.css's light theme sets `background: #fff` on .pl-form-group controls, which also
+   clears its select chevron; put the chevron back on this page's picker. */
+[data-theme="light"] .pl-growth__metric select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235b6675' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1rem;
+}
+.pl-growth__metric select option,
+.pl-growth__metric select optgroup { background: var(--hub-card-bg); color: var(--hub-text); }
+.pl-growth__modes { padding-bottom: 0.4rem; flex-wrap: wrap; overflow: visible; }
+.pl-growth__modes .pl-equip-chip { cursor: pointer; font: inherit; font-size: 0.85rem; }
+
+/* Charts */
+.pl-growth__chart { position: relative; margin: 1.5rem 0 0; min-width: 0; }
+.pl-growth__svg--narrow { display: none; }
+@media (max-width: 768px) {
+  .pl-growth__svg--wide { display: none; }
+  .pl-growth__svg--narrow { display: block; }
+}
+.pl-growth__chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.pl-growth__chart text { fill: var(--hub-text-muted); }
+.pl-growth__chart .pl-growth__chart-value { fill: var(--hub-text); }
+.pl-growth__chart .pl-growth__chart-grid { stroke: var(--hub-border); }
+.pl-growth__chart .pl-growth__chart-axis { stroke: var(--hub-border-strong); }
+.pl-growth__chart .pl-growth__bar { fill: var(--pl-growth-primary); }
+.pl-growth__chart .pl-growth__line { stroke: var(--pl-growth-primary); }
+.pl-growth__chart .pl-growth__area { fill: var(--pl-growth-primary); opacity: 0.14; }
+.pl-growth__chart .pl-growth__dot { fill: var(--pl-growth-primary); stroke: var(--hub-card-bg); }
+.pl-growth__chart .pl-growth__seg--1 { fill: var(--pl-growth-series-1); }
+.pl-growth__chart .pl-growth__seg--2 { fill: var(--pl-growth-series-2); }
+.pl-growth__chart .pl-growth__seg--3 { fill: var(--pl-growth-series-3); }
+.pl-growth__chart .pl-growth__seg--4 { fill: var(--pl-growth-series-4); }
+.pl-growth__chart .pl-growth__seg--5 { fill: var(--pl-growth-series-5); }
+.pl-growth__chart .pl-growth__hit { fill: transparent; cursor: crosshair; }
+.pl-growth__chart .pl-growth__hit:hover + .pl-growth__hover { opacity: 1; }
+.pl-growth__chart .pl-growth__hover { fill: var(--hub-text); opacity: 0; pointer-events: none; }
+.pl-growth__chart-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; margin-top: 1rem; }
+.pl-growth__chart-foot p { margin: 0; font-size: 0.8125rem; color: var(--hub-text-muted); }
+
+/* Legend: identity is never colour alone, so every swatch has its word. */
+.pl-growth__legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; margin: 1.25rem 0 0; padding: 0; list-style: none; font-size: 0.8125rem; color: var(--hub-text); }
+.pl-growth__legend li { display: inline-flex; align-items: center; gap: 0.4rem; }
+.pl-growth__swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.pl-growth__swatch--1 { background: var(--pl-growth-series-1); }
+.pl-growth__swatch--2 { background: var(--pl-growth-series-2); }
+.pl-growth__swatch--3 { background: var(--pl-growth-series-3); }
+.pl-growth__swatch--4 { background: var(--pl-growth-series-4); }
+.pl-growth__swatch--5 { background: var(--pl-growth-series-5); }
+
+/* Classes and CMS */
+.pl-growth__section-title { margin: 2rem 0 0.25rem; }
+.pl-growth__section-lead { margin: 0 0 1.25rem; }
+.pl-growth__pair { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+@media (min-width: 1100px) { .pl-growth__pair { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
+.pl-growth__pair .pl-growth__card { margin-bottom: 0; }
+.pl-growth__table-wrap { margin-top: 1.5rem; overflow-x: auto; }
+.pl-growth__table td, .pl-growth__table th { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pl-growth__table td:first-child, .pl-growth__table th:first-child { text-align: left; }
+.pl-growth__table tfoot td { font-weight: 700; }
+.pl-growth__table-key { display: inline-flex; align-items: center; gap: 0.4rem; }
+
+@media (max-width: 768px) {
+  .pl-growth__card { padding: 1.25rem; }
+  .pl-growth__tiles { grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  .pl-growth__tile { padding: 1rem; }
+  .pl-growth__tile-value { font-size: 1.6rem; }
+  .pl-growth__metric { flex: 1 1 100%; }
+  .pl-growth__dates { flex: 1 1 100%; }
+  .pl-growth__dates .pl-form-group { flex: 1 1 8rem; }
+  .pl-growth__dates .pl-form-group input { width: 100%; }
+}

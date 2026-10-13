@@ -32,6 +32,15 @@
     <span class="pl-tool-card__desc">Bug reports and feature requests members sent. Set where each stands and the sender is told.</span>
   </a>
   {% endif %}
+  {% if tool_growth %}
+  <a class="hub-card pl-tool-card" href="{% url 'hub_admin_growth' %}" data-tool-growth>
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Growth</span>
+    <span class="pl-tool-card__desc">How the Member Portal has grown since launch: new members, class signups, classes, CMS activity and reservations over any date range.</span>
+  </a>
+  {% endif %}
   {% if tool_instructor_inquiries %}
   <a class="hub-card pl-tool-card" href="{% url 'classes:admin_instructor_inquiries' %}">
     <span class="pl-tool-card__icon">

@@ -421,6 +421,7 @@ All under `static/css/`. The pattern in use: one stylesheet per surface, linked 
 | `eventbrite-tab.css` | `classes/teach/class_eventbrite.html` | A live class's Eventbrite tab: Status, Eventbrite's Rules, Fees and Listing Settings split by dividers, the callouts for its notes, the two fee choice cards and the Turn Off row. |
 | `instructor-inquiries.css` | `classes/admin/instructor_inquiries.html` | The Instructor Inquiries page (#690): filter bar, status pills and the Board Report charts; a row's View Application panel with every answer (#793). |
 | `teach-application.css` | `classes/teach/apply.html` | The teaching application page behind I'm Interested (#793): section cards spaced by a column gap, chip groups for pick one and pick any questions, and the fields a Yes opens. |
+| `growth.css` | `hub/admin/growth.html` | The admin Growth dashboard (#795): the date range bar, stat tiles and sparklines, the Trend chart's controls, the Classes and CMS charts, legend and table, and the series palette (`--pl-growth-*`). Each chart is drawn at a desktop and a phone width; `.pl-growth__svg--wide` and `--narrow` show the one that fits. |
 | `signage.css` | `signage/base.html` | The lobby signage display. |
 | `wiki-stickers.css` | `hub/wiki_sticker_sheet.html` | The QR sticker sheet. |
 | `rich-editor.css` | `_components/rich_editor_assets.html` | Styling around the Quill editor. |

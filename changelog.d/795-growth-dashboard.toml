@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-13"
+title = "A Growth page for admins"
+changes = [
+  "Admins have a new Growth page under Admin Tools that charts how the Member Portal has grown since it went live: new members, class signups, classes published, CMS activity, reservations and more.",
+  "Pick a date range and a metric, see each total against the period before, and download any chart as a picture.",
+]

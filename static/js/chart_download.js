@@ -1,5 +1,5 @@
 /*
- * Download a Board Report chart as a PNG (Instructor Inquiries, #690).
+ * Download a chart as a PNG (the Instructor Inquiries Board Report, #690, and Growth, #795).
  *
  * A [data-chart-download="<filename>"] button inside a [data-chart] figure draws that
  * figure's inline svg onto a white canvas at three times its size and saves it. The svg's own
@@ -48,7 +48,9 @@
   document.addEventListener("click", function (event) {
     var button = event.target.closest("[data-chart-download]");
     if (!button) return;
-    var svg = button.closest("[data-chart]").querySelector("svg");
+    // A figure may hold the chart at more than one size (Growth, #795): save the one showing.
+    var svgs = Array.prototype.slice.call(button.closest("[data-chart]").querySelectorAll("svg"));
+    var svg = svgs.filter(function (s) { return s.getClientRects().length > 0; })[0] || svgs[0];
     download(svg, button.dataset.chartDownload);
   });
 })();
