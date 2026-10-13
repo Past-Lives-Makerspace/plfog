@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 
 from django import forms
 from django.core.exceptions import ValidationError
-from django.core.validators import MaxValueValidator, MinValueValidator, validate_email
+from django.core.validators import MaxValueValidator, MinValueValidator, URLValidator, validate_email
 from django.db.models import BLANK_CHOICE_DASH
 from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.forms.formsets import DELETION_FIELD_NAME
@@ -1375,6 +1375,12 @@ def _chips(model: str) -> forms.RadioSelect:
     return forms.RadioSelect(attrs={"x-model": model})
 
 
+class _WebAddressField(forms.URLField):
+    """A URLField for the schemes apply_to_teach stores, so an ftp address is a field error, not a lost application."""
+
+    default_validators = [URLValidator(schemes=["http", "https"])]
+
+
 class TeachingApplicationForm(forms.Form):
     """The application page behind I'm Interested (#793): the class idea, the experience
     behind it, logistics, past work, how to reach the member, and anything else.
@@ -1522,7 +1528,7 @@ class TeachingApplicationForm(forms.Form):
             "invalid_choice": "Tell us whether you have a website.",
         },
     )
-    website = forms.URLField(
+    website = _WebAddressField(
         required=False,
         max_length=200,
         label="Website address",

@@ -158,6 +158,12 @@ def describe_the_inquiry_questions():
         assert not form.is_valid()
         assert form.errors["website"] == ["That does not look like a web address. Check it and try again."]
 
+    @pytest.mark.parametrize("address", ["ftp://files.example.com", "ftps://x.example.com"])
+    def it_refuses_a_website_the_application_cannot_store(address: str):
+        form = _form(has_website="yes", website=address)
+        assert not form.is_valid()
+        assert form.errors["website"] == ["That does not look like a web address. Check it and try again."]
+
     def it_refuses_socials_over_500_characters():
         form = _form(has_socials="yes", socials="@" * 501)
         assert not form.is_valid()
