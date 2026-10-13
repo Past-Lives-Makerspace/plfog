@@ -17,7 +17,7 @@
       <div class="bk-auth-eyebrow">Check your email</div>
       <h1 class="bk-auth-title">Enter your code.</h1>
       <p class="bk-auth-sub">We sent a sign-in code. It expires in 5 minutes.</p>
-      <form method="POST">{% csrf_token %}
+      <form method="POST" data-pl-busy-submit data-pl-busy-label="Signing in...">{% csrf_token %}
         <div class="bk-field">
           <label>Code</label>
           {{ form.code }}
@@ -25,7 +25,7 @@
         </div>
         {{ redirect_field }}
         <div class="bk-auth-actions">
-          <button type="submit" class="bk-btn-primary">Verify &amp; sign in</button>
+          <button type="submit" class="bk-btn-primary" data-pl-busy>Verify &amp; sign in</button>
         </div>
       </form>
       <div class="bk-auth-links" style="margin-top:18px">
@@ -54,11 +54,11 @@
     <h1 class="auth-page__title">Check Your Email</h1>
     <p class="auth-page__subtitle">We sent a sign-in code to your email address. Enter it below to log in.</p>
     <div class="auth-card">
-        <form method="POST">
+        <form method="POST" data-pl-busy-submit data-pl-busy-label="Signing in...">
             {% csrf_token %}
             {{ form.as_p }}
             {{ redirect_field }}
-            <button type="submit" class="btn btn--primary btn--full">Verify Code</button>
+            <button type="submit" class="btn btn--primary btn--full" data-pl-busy>Verify Code</button>
         </form>
         <div class="auth-links">
             <p><a href="{% url 'account_request_login_code' %}">Didn't receive a code? Try again</a></p>
@@ -67,4 +67,5 @@
     </div>
 </div>
 {% endif %}
+{% include "components/busy_submit.html" %}
 {% endblock %}

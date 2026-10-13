@@ -17,14 +17,14 @@
       <div class="bk-auth-eyebrow">Sign in</div>
       <h1 class="bk-auth-title">Welcome back.</h1>
       <p class="bk-auth-sub">We'll email you a sign-in code — no password to remember.</p>
-      <form method="POST" action="{% url 'account_request_login_code' %}">{% csrf_token %}
+      <form method="POST" action="{% url 'account_request_login_code' %}" data-pl-busy-submit data-pl-busy-label="Sending...">{% csrf_token %}
         <div class="bk-field">
           <label>Email address</label>
           <input type="email" name="email" required autofocus placeholder="you@pastlives.space">
         </div>
         {{ redirect_field }}
         <div class="bk-auth-actions">
-          <button type="submit" class="bk-btn-primary">Email me a login code</button>
+          <button type="submit" class="bk-btn-primary" data-pl-busy>Email me a login code</button>
         </div>
       </form>
       <div class="bk-auth-divider">or</div>
@@ -57,7 +57,7 @@
             <p class="pl-biometric-unlock__status" data-biometric-unlock-status role="status"></p>
             <div class="pl-biometric-unlock__divider">or</div>
         </div>
-        <form method="POST" action="{% url 'account_request_login_code' %}">
+        <form method="POST" action="{% url 'account_request_login_code' %}" data-pl-busy-submit data-pl-busy-label="Sending...">
             {% csrf_token %}
             <label for="id_email">Email address</label>
             <input type="email" name="email" id="id_email" required autofocus placeholder="you@pastlives.space">
@@ -66,7 +66,7 @@
                 <input type="text" name="website" id="id_website" tabindex="-1" autocomplete="off">
             </div>
             {{ redirect_field }}
-            <button type="submit" class="btn btn--primary btn--full">Send Login Code</button>
+            <button type="submit" class="btn btn--primary btn--full" data-pl-busy>Send Login Code</button>
         </form>
         <div class="auth-links">
             <p><a href="{% url 'find_account' %}">Don't know which email is on file?</a></p>
@@ -78,4 +78,5 @@
     {% include "includes/app_store_badges.html" %}
 </div>
 {% endif %}
+{% include "components/busy_submit.html" %}
 {% endblock %}

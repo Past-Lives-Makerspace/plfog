@@ -14,7 +14,7 @@
       <div class="bk-auth-eyebrow">Create an account</div>
       <h1 class="bk-auth-title">Join the Makerspace.</h1>
       <p class="bk-auth-sub">Just your name and email. You'll set everything else up after your first class.</p>
-      <form method="POST">{% csrf_token %}
+      <form method="POST" data-pl-busy-submit data-pl-busy-label="Sending...">{% csrf_token %}
         {% if form.non_field_errors %}
         <div class="bk-field-hint" style="color:#f87171">
           {% for error in form.non_field_errors %}{{ error }}{% endfor %}
@@ -52,7 +52,7 @@
         </label>
         {% endif %}
         <div class="bk-auth-actions">
-          <button type="submit" class="bk-btn-primary">Send my code</button>
+          <button type="submit" class="bk-btn-primary" data-pl-busy>Send my code</button>
         </div>
       </form>
       <div class="bk-auth-divider">or</div>
@@ -79,7 +79,7 @@
             {% endfor %}
         </ul>
         {% endif %}
-        <form method="POST">
+        <form method="POST" data-pl-busy-submit data-pl-busy-label="Sending...">
             {% csrf_token %}
             <label for="id_full_name">Full name</label>
             <input type="text" name="full_name" id="id_full_name" required autofocus maxlength="150"
@@ -118,7 +118,7 @@
                 <span>{{ form.wants_newsletter.label }}</span>
             </label>
             {% endif %}
-            <button type="submit" class="btn btn--primary btn--full">Sign Up</button>
+            <button type="submit" class="btn btn--primary btn--full" data-pl-busy>Sign Up</button>
         </form>
         <div class="auth-links">
             <p>Already have an account? <a href="{% url 'account_login' %}">Log in</a></p>
@@ -126,4 +126,5 @@
     </div>
 </div>
 {% endif %}
+{% include "components/busy_submit.html" %}
 {% endblock %}

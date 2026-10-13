@@ -7,13 +7,14 @@
     <h1 class="auth-page__title">Log Out</h1>
     <p class="auth-page__subtitle">Are you sure you want to end your session?</p>
     <div class="auth-card">
-        <form method="POST" action="{% url 'account_logout' %}">
+        <form method="POST" action="{% url 'account_logout' %}" data-pl-busy-submit data-pl-busy-label="Logging out...">
             {% csrf_token %}
-            <button type="submit" class="btn btn--primary btn--full">Log Out</button>
+            <button type="submit" class="btn btn--primary btn--full" data-pl-busy>Log Out</button>
         </form>
         <div class="auth-links">
             <p><a href="{% url 'home' %}">Cancel</a></p>
         </div>
     </div>
 </div>
+{% include "components/busy_submit.html" %}
 {% endblock %}
