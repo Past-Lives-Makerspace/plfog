@@ -72,7 +72,8 @@ def describe_the_eventbrite_row_left_the_overview():
 
         html = client.get(reverse("classes:teach_class_eventbrite", kwargs={"pk": offering.pk})).content.decode()
 
-        assert '<p class="pl-compose-section__note" data-eventbrite-sync>Failed: 503 busy</p>' in html
+        # A failed push is the danger callout under the Status heading.
+        assert '<p class="pl-eb-callout pl-eb-callout--danger" data-eventbrite-sync>Failed: 503 busy</p>' in html
         assert "www.eventbrite.com/e/" not in html
 
 
