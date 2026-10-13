@@ -38,7 +38,7 @@ from django.utils import timezone
 from django.utils.html import escape, strip_tags
 
 from classes.eventbrite_categories import CLASS_FORMAT_ID
-from core.html_sanitize import AllowlistCleaner
+from core.html_sanitize import SPACER_PARAGRAPH_RE, AllowlistCleaner
 from core.linkify import _TLDS as _LINKIFY_TLDS
 
 if TYPE_CHECKING:
@@ -581,8 +581,13 @@ def check_listing(title: str, subtitle: str, description: str, faqs: Sequence[Ma
 
 
 def _listing_html(html: str) -> str:
-    """Author HTML as the listing may carry it: the editor's formatting, links as their text, no addresses."""
-    return _without_addresses(_LISTING_CLEANER.clean(html))
+    """Author HTML as the listing may carry it: the editor's formatting, links as their text, no addresses.
+
+    Blank paragraphs go, as on the class page: Eventbrite gives every paragraph its own margin, so
+    the editor's ``<p><br></p>`` gap became a whole extra blank line. They go after the addresses,
+    so a paragraph that held only a link leaves no gap either.
+    """
+    return SPACER_PARAGRAPH_RE.sub("", _without_addresses(_LISTING_CLEANER.clean(html)))
 
 
 def _listing_text(text: str) -> str:
