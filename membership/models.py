@@ -1782,7 +1782,9 @@ class Member(models.Model):
     @property
     def teaching_availability_display(self) -> str:
         """When the member could usually teach, as words ("Weekday evenings, Weekends"); "" when never asked."""
-        return ", ".join(str(self.TeachingAvailability(value).label) for value in self.teaching_availability)
+        labels = dict(self.TeachingAvailability.choices)
+        # A value no longer in the choices shows as stored rather than taking the page down.
+        return ", ".join(str(labels.get(value, value)) for value in self.teaching_availability)
 
     def clear_teaching_answers(self) -> None:
         """Blank every answer in :attr:`TEACHING_ANSWER_FIELDS`, in memory; the caller saves."""
@@ -1849,7 +1851,8 @@ class Member(models.Model):
 
         Raises:
             ValueError: If the member is not ACTIVE, if ``note``, ``contact_method`` or
-                ``contact_detail`` is blank, if a choice answer is not a known choice, or
+                ``contact_detail`` is blank, if a choice answer is not a known choice, if
+                ``website`` is not an http or https address, or
                 if they already have an application waiting on an admin or can already teach.
         """
         from core.events.emit import emit
@@ -1870,7 +1873,15 @@ class Member(models.Model):
         class_format = _known_choice_or_blank(self.TeachingClassFormat, class_format)
         practice_years = _known_choice_or_blank(self.TeachingPracticeYears, practice_years)
         class_size = _known_choice_or_blank(self.TeachingClassSize, class_size)
-        slots = [str(self.TeachingAvailability(value).value) for value in availability]
+        # Dedupe keeping order, so a repeated pick is stored once.
+        slots = list(dict.fromkeys(str(self.TeachingAvailability(value).value) for value in availability))
+        website = website.strip()
+        if website:
+            # Only http and https, whoever calls this: the address becomes a link on the admin pages.
+            try:
+                URLValidator(schemes=["http", "https"])(website)
+            except ValidationError as error:
+                raise ValueError(f"Not a web address: {website!r}") from error
         if self.teaching_application_state == self.TeachingApplicationState.PENDING:
             raise ValueError(f"Member {self.pk} already has a teaching application waiting on an admin")
         if self.can_create_classes:
@@ -1889,7 +1900,7 @@ class Member(models.Model):
             "teaching_space_needs": space_needs.strip(),
             "teaching_class_size": class_size,
             "teaching_availability": slots,
-            "teaching_website": website.strip(),
+            "teaching_website": website,
             "teaching_socials": socials.strip(),
             "teaching_contact_method": method,
             "teaching_contact_detail": contact_detail,
