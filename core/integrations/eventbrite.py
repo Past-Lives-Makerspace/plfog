@@ -28,7 +28,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import httpx
 from django.conf import settings
@@ -212,6 +212,63 @@ def estimate_fee_cents(price_cents: int) -> int:
     return round(price_cents * percent / 100) + SERVICE_FEE_FIXED_CENTS
 
 
+@dataclass(frozen=True)
+class FeeBreakdown:
+    """Eventbrite's fee on one ticket split into its two parts, for the class's Eventbrite tab.
+
+    ``fee_cents`` is :func:`estimate_fee_cents` itself; processing is what is left of it once the
+    service fee is taken out, so the parts always add up to the estimate.
+    """
+
+    price_cents: int
+    service_cents: int
+    processing_cents: int
+    # The rates, so a page shows the same numbers the estimate uses.
+    service_percent: ClassVar[float] = SERVICE_FEE_PERCENT
+    service_fixed_cents: ClassVar[int] = SERVICE_FEE_FIXED_CENTS
+    processing_percent: ClassVar[float] = PROCESSING_FEE_PERCENT
+
+    @property
+    def service_rate(self) -> str:
+        """The service fee's percentage as a page prints it ("3.7%"); the composer hint and the tab share it."""
+        return f"{self.service_percent:g}%"
+
+    @property
+    def processing_rate(self) -> str:
+        """Processing's percentage as a page prints it ("2.9%")."""
+        return f"{self.processing_percent:g}%"
+
+    @property
+    def fee_cents(self) -> int:
+        return self.service_cents + self.processing_cents
+
+    @property
+    def is_free(self) -> bool:
+        """A free ticket: the listing sends it as free, and Eventbrite charges no fee on it."""
+        return self.price_cents == 0
+
+    @property
+    def fee_exceeds_price(self) -> bool:
+        """The fee is more than the price, so taking it out of the price leaves the class nothing."""
+        return self.fee_cents > self.price_cents
+
+    @property
+    def buyer_pays_on_top_cents(self) -> int:
+        """What the buyer pays when the fee goes on top of the price; the class gets the whole price."""
+        return self.price_cents + self.fee_cents
+
+    @property
+    def class_gets_included_cents(self) -> int:
+        """What the class gets when the fee comes out of the price; never below zero (see ``fee_exceeds_price``)."""
+        return max(0, self.price_cents - self.fee_cents)
+
+
+def fee_breakdown(price_cents: int) -> FeeBreakdown:
+    """The fee on one ticket at ``price_cents``, as the service fee and processing that make up the estimate."""
+    service = round(price_cents * SERVICE_FEE_PERCENT / 100) + SERVICE_FEE_FIXED_CENTS
+    return FeeBreakdown(price_cents, service, estimate_fee_cents(price_cents) - service)
+
+
 class EventbriteClient:
     """Minimal Eventbrite v3 client. Disabled when the toggle is off or any credential is blank."""
 
@@ -370,14 +427,39 @@ def _drop_host(match: re.Match[str]) -> str:
     return "" if match.group(1) in _HOST_TLDS or match.group(2) else match.group(0)
 
 
-# The rules as instructors and admins read them beside the Eventbrite switch (#725).
-EVENTBRITE_RULES = (
-    "Eventbrite takes down listings that send buyers anywhere else. To sell this class on Eventbrite, "
-    "keep the title, description, FAQ and photos free of: payment outside the ticket (cash, Venmo, pay at "
-    "the session); fees not included in the price; discount codes; links, web addresses, QR codes, emails, "
-    "phone numbers or social handles; and booking, refund or cancellation instructions. Eventbrite shows "
-    "its own refund policy. A takedown can suspend the makerspace's whole Eventbrite account."
+@dataclass(frozen=True)
+class EventbriteRules:
+    """Eventbrite's selling rules in parts: the class's Eventbrite tab lists them, the composer reads ``text``."""
+
+    lead: str
+    keep_free: str
+    items: tuple[str, ...]
+    refund_note: str
+    takedown: str
+
+    @property
+    def text(self) -> str:
+        """The rules as one paragraph: the items joined with semicolons, the last after "and"."""
+        *first, last = self.items
+        listed = "; ".join(item[0].lower() + item[1:] for item in first)
+        return f"{self.lead} {self.keep_free} {listed}; and {last[0].lower()}{last[1:]}. {self.refund_note} {self.takedown}"
+
+
+EVENTBRITE_RULE_PARTS = EventbriteRules(
+    lead="Eventbrite takes down listings that send buyers anywhere else.",
+    keep_free="To sell this class on Eventbrite, keep the title, description, FAQ and photos free of:",
+    items=(
+        "Payment outside the ticket (cash, Venmo, pay at the session)",
+        "Fees not included in the price",
+        "Discount codes",
+        "Links, web addresses, QR codes, emails, phone numbers or social handles",
+        "Booking, refund or cancellation instructions",
+    ),
+    refund_note="Eventbrite shows its own refund policy.",
+    takedown="A takedown can suspend the makerspace's whole Eventbrite account.",
 )
+# The rules as instructors and admins read them beside the Eventbrite switch (#725).
+EVENTBRITE_RULES = EVENTBRITE_RULE_PARTS.text
 
 
 class ListingRule(TextChoices):
