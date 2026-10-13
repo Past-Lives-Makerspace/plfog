@@ -16446,7 +16446,8 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
         """Annotate ``credited_minutes_total``: each booking's unused time credited back (#787), 0 when none.
 
         One scalar subquery, so a list shows the "Credited 2h" pill and hides Cancel at no
-        extra query per row.
+        extra query per row; ``has_ended_early`` rides along, since a booking the member ended
+        early offers no Credit Unused Time.
         """
         credited = (
             EquipmentCredit.objects.filter(reservation=OuterRef("pk"), kind__in=EquipmentCredit.UNUSED_KINDS)
@@ -16455,7 +16456,10 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
             .annotate(total=Sum("minutes"))
             .values("total")
         )
-        return self.annotate(credited_minutes_total=Coalesce(Subquery(credited), 0))
+        ended_early = EquipmentCredit.objects.filter(reservation=OuterRef("pk"), kind=EquipmentCredit.Kind.ENDED_EARLY)
+        return self.annotate(
+            credited_minutes_total=Coalesce(Subquery(credited), 0), has_ended_early=Exists(ended_early)
+        )
 
     def active_count_for(self, member: Member, equipment: Equipment) -> int:
         """The per-member anti-hog input: this member's upcoming held count here (#748), blocks excluded."""

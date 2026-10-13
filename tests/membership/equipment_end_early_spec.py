@@ -366,3 +366,59 @@ def describe_the_bookings_tab_menu():
         booking = _in_progress(router, member)
         response = client.post(_end_url(booking), {"next": "/equipment/?view=bookings"})
         assert _messages(response) == ["Ending early isn't turned on for this equipment."]
+
+
+def describe_review_findings():
+    def it_refuses_credit_unused_time_after_end_early_even_with_length_to_spare():
+        router = _router()
+        member = _member()
+        manager = _member("reviewkeeper")
+        EquipmentStaffMembershipFactory(equipment=router, member=manager)
+        starts = timezone.now() - timedelta(hours=6)
+        # Ends 90 minutes after the next mark, so End Early credits 1.5h and leaves 6h plus of shortened length.
+        booking = _booking(
+            router,
+            member,
+            starts_at=starts,
+            ends_at=EquipmentReservation.end_early_mark(timezone.now()) + timedelta(minutes=90),
+        )
+        assert booking.end_early(member) == 90
+        with pytest.raises(
+            EquipmentError, match=r"^The member ended this reservation early, so its unused time is already credited\.$"
+        ):
+            equipment_service.grant_credit(router, member, manager, 30, reservation=booking)
+        assert _balance(member, router) == 90
+
+    def it_hides_credit_unused_time_on_a_row_ended_early(client: Client):
+        router = _router()
+        manager = _login(client, "hidekeeper")
+        EquipmentStaffMembershipFactory(equipment=router, member=manager)
+        member = _member("endedmember")
+        starts = timezone.now() - timedelta(hours=6)
+        booking = _booking(
+            router,
+            member,
+            starts_at=starts,
+            ends_at=EquipmentReservation.end_early_mark(timezone.now()) + timedelta(minutes=90),
+        )
+        booking.end_early(member)
+        content = client.get("/equipment/", {"view": "bookings", "show": "all"}).content.decode()
+        row = content.split(f'data-reservation-row="{booking.pk}"', 1)[1].split("</tr>", 1)[0]
+        assert "data-credit-unused-menu-item" not in row
+
+    def it_offers_end_early_in_the_staff_menu_on_a_managers_own_booking(client: Client):
+        router = _router()
+        manager = _login(client, "ownmanager")
+        EquipmentStaffMembershipFactory(equipment=router, member=manager)
+        own = _in_progress(router, manager)
+        other = _in_progress(_router(name="Other Mossgate"), _member("someoneelse"))
+        EquipmentStaffMembershipFactory(equipment=other.equipment, member=manager)
+        content = client.get("/equipment/", {"view": "bookings"}).content.decode()
+        own_row = content.split(f'data-reservation-row="{own.pk}"', 1)[1].split("</tr>", 1)[0]
+        other_row = content.split(f'data-reservation-row="{other.pk}"', 1)[1].split("</tr>", 1)[0]
+        assert "data-end-early-menu-item" in own_row
+        assert "data-credit-unused-menu-item" in own_row
+        assert "data-end-early-menu-item" not in other_row
+        assert f"reservation-end-early-{own.pk}" in content
+        response = client.post(_end_url(own), {"next": "/equipment/?view=bookings"})
+        assert _messages(response)[-1].startswith("Ended. ")

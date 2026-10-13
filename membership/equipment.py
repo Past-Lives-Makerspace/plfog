@@ -862,6 +862,9 @@ def _ensure_creditable_reservation(reservation: EquipmentReservation, equipment:
         raise EquipmentError("Only a confirmed reservation can have its unused time credited.")
     if reservation.starts_at > timezone.now():
         raise EquipmentError("This reservation hasn't started yet.")
+    # The member already ended it early (#787): its unused time is credited, and its length is now what they used.
+    if EquipmentCredit.objects.filter(reservation=reservation, kind=EquipmentCredit.Kind.ENDED_EARLY).exists():
+        raise EquipmentError("The member ended this reservation early, so its unused time is already credited.")
     left = reservation.duration_minutes - EquipmentCredit.objects.credited_on(reservation)
     if minutes > left:
         if left <= 0:

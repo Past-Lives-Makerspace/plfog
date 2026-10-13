@@ -33,6 +33,10 @@ the member's own in progress row adds End Early while the item allows it.
         @click="closeAndRefocus(); document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">Refund Late Fee</button>
 {% endif %}
 {% endif %}
+{% if row.end_early_hours %}
+<div class="pl-row-menu__divider" role="separator"></div>
+<button type="button" class="pl-row-menu__item" role="menuitem" data-end-early-menu-item @click="closeAndRefocus(); $dispatch('open-confirm', 'reservation-end-early-{{ pk }}')">End Early</button>
+{% endif %}
 {% if row.can_approve %}
 <div class="pl-row-menu__divider" role="separator"></div>
 <form method="post" action="{% url 'hub_equipment_reservation_approve' r.equipment.slug r.pk %}">
