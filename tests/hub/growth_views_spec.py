@@ -17,7 +17,7 @@ from classes.models import CmsActivity
 from hub.growth import LEGACY_SIGNUP_SOURCE
 from tests.membership.factories import GuildFactory, MemberFactory
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("spring_launch")]
 
 URL = reverse("hub_admin_growth")
 PORTLAND = ZoneInfo("America/Los_Angeles")
@@ -102,10 +102,8 @@ def describe_page():
         _seed(3)
         _login_admin(client)
         body = client.get(URL).content.decode()
-        assert re.search(
-            r"data-source-foot>4 signups in this range: 3 in the Member Portal \(0 guests, 3 members\)", body
-        )
-        assert "and 1 on the old class site." in body
+        assert re.search(r"data-source-foot>4 signups in this range: 3 in the new system \(0 guests, 3 members\)", body)
+        assert "and 1 imported from the old system." in body
 
     def it_shows_no_personal_data(client: Client):
         _seed(2)
@@ -125,6 +123,12 @@ def describe_page():
         assert '<input type="hidden" name="date_from" value="2026-05-04">' in body
         assert 'data-preset="custom" aria-current="true"' in body
         assert "growth-cms-actions-2026-05-04-to-2026-05-31.png" in body
+
+    def it_offers_since_launch_and_since_cms_launch(client: Client):
+        _login_admin(client)
+        body = client.get(URL, {"range": "cms"}).content.decode()
+        assert ">Since Launch</a>" in body
+        assert 'data-preset="cms" aria-current="true">Since CMS Launch</a>' in body
 
     def it_keeps_the_metric_and_mode_in_the_preset_links(client: Client):
         _login_admin(client)

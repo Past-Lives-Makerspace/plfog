@@ -75,7 +75,7 @@
     <div class="pl-growth__svg pl-growth__svg--wide">{% include "hub/admin/_growth_chart.html" with chart=main.chart.wide %}</div>
     <div class="pl-growth__svg pl-growth__svg--narrow">{% include "hub/admin/_growth_chart.html" with chart=main.chart.narrow %}</div>
     <div class="pl-growth__chart-foot">
-      <p data-main-foot>{{ main.total }} in this range, {{ main.since_launch }} since launch.{% if main.metric.key == "cms_actions" %} Leaves out the {{ board.class_imports }} class records made when the old site's classes were imported.{% elif main.metric.key == "class_signups" %} Member Portal signups only; the card below adds the old class site.{% endif %}</p>
+      <p data-main-foot>{{ main.total }} in this range, {{ main.since_launch }} since launch.{% if main.metric.key == "cms_actions" %} Leaves out the {{ board.class_imports }} class records made when the old system's classes were imported.{% elif main.metric.key == "class_signups" %} New system signups only; the card below adds the ones imported from the old system.{% endif %}</p>
       <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-chart-download="{{ main.filename }}" data-pl-download>Download PNG</button>
     </div>
   </figure>
@@ -95,7 +95,7 @@
       <div class="pl-growth__svg pl-growth__svg--wide">{% include "hub/admin/_growth_chart.html" with chart=board.cms.chart.wide %}</div>
       <div class="pl-growth__svg pl-growth__svg--narrow">{% include "hub/admin/_growth_chart.html" with chart=board.cms.chart.narrow %}</div>
       <div class="pl-growth__chart-foot">
-        <p data-cms-foot>Leaves out the {{ board.class_imports }} class records written when the old site's classes were imported (June to September).</p>
+        <p data-cms-foot>Leaves out the {{ board.class_imports }} class records written when the old system's classes were imported (June to September).</p>
         <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-chart-download="growth-cms-activity.png" data-pl-download>Download PNG</button>
       </div>
     </figure>
@@ -114,16 +114,16 @@
 
   <div class="hub-card pl-growth__card">
     <h2 class="hub-detail-label">Where Class Signups Came From</h2>
-    <p class="hub-text-muted pl-growth__card-sub">Until September 30 students also booked on the old class site; those signups were imported, so the month they happened is kept.</p>
+    <p class="hub-text-muted pl-growth__card-sub">Until September 30 students booked on the old system, the old class site; those signups were imported and keep the day they happened. Every signup since is the new system, the Member Portal, including signups on classes copied from the old system.</p>
     <ul class="pl-growth__legend" aria-label="Source">
-      <li><span class="pl-growth__swatch pl-growth__swatch--1"></span>Member Portal</li>
-      <li><span class="pl-growth__swatch pl-growth__swatch--2"></span>Old Class Site</li>
+      <li><span class="pl-growth__swatch pl-growth__swatch--1"></span>New System</li>
+      <li><span class="pl-growth__swatch pl-growth__swatch--2"></span>Old System</li>
     </ul>
     <figure class="pl-growth__chart" data-chart data-source-chart>
       <div class="pl-growth__svg pl-growth__svg--wide">{% include "hub/admin/_growth_chart.html" with chart=board.source.chart.wide %}</div>
       <div class="pl-growth__svg pl-growth__svg--narrow">{% include "hub/admin/_growth_chart.html" with chart=board.source.chart.narrow %}</div>
       <div class="pl-growth__chart-foot">
-        <p data-source-foot>{{ board.source.total }} signups in this range: {{ board.source.portal }} in the Member Portal ({{ board.source.guests }} guest{{ board.source.guests|pluralize }}, {{ board.source.members }} member{{ board.source.members|pluralize }}) and {{ board.source.old_site }} on the old class site.</p>
+        <p data-source-foot>{{ board.source.total }} signups in this range: {{ board.source.portal }} in the new system ({{ board.source.guests }} guest{{ board.source.guests|pluralize }}, {{ board.source.members }} member{{ board.source.members|pluralize }}) and {{ board.source.old_site }} imported from the old system.</p>
         <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-chart-download="growth-signup-source.png" data-pl-download>Download PNG</button>
       </div>
     </figure>

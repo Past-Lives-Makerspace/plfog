@@ -2,6 +2,8 @@
 
 Rows are stamped into May 2026 (or around the November clock change), well before any day a
 factory's own ``auto_now_add`` could land, so a row a factory makes along the way never counts.
+The launch is pinned to March 27, 2026 for that (``spring_launch``); ``describe_launch`` checks
+the real days.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from classes.factories import ClassOfferingFactory, RegistrationFactory
 from classes.models import CmsActivity
 from hub.growth import (
     CMS_GROUPS,
+    CMS_LAUNCH,
     LAUNCH,
     LEGACY_SIGNUP_SOURCE,
     METRICS,
@@ -46,7 +49,8 @@ from tests.membership.factories import (
     OrientationBookingFactory,
 )
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("spring_launch")]
+SPRING_LAUNCH = date(2026, 3, 27)
 
 PORTLAND = ZoneInfo("America/Los_Angeles")
 MAY = DateRange(date(2026, 5, 4), date(2026, 5, 31))  # Monday May 4 to Sunday May 31
@@ -236,11 +240,11 @@ def describe_date_range():
         assert MAY.previous == DateRange(date(2026, 4, 6), date(2026, 5, 3))
 
     def it_has_no_previous_period_when_that_would_start_before_launch():
-        assert DateRange(LAUNCH, date(2026, 4, 30)).previous is None
+        assert DateRange(SPRING_LAUNCH, date(2026, 4, 30)).previous is None
 
     def it_has_a_previous_period_that_starts_on_launch_day():
         rng = DateRange(date(2026, 4, 6), date(2026, 4, 15))
-        assert rng.previous == DateRange(LAUNCH, date(2026, 4, 5))
+        assert rng.previous == DateRange(SPRING_LAUNCH, date(2026, 4, 5))
 
     def it_labels_itself_with_both_days():
         assert MAY.label == "May 4, 2026 to May 31, 2026"
@@ -249,10 +253,30 @@ def describe_date_range():
         def it_ends_every_preset_today():
             assert preset_range("30", TODAY) == DateRange(date(2026, 9, 14), TODAY)
             assert preset_range("90", TODAY) == DateRange(date(2026, 7, 16), TODAY)
-            assert preset_range("launch", TODAY) == DateRange(LAUNCH, TODAY)
+            assert preset_range("launch", TODAY) == DateRange(SPRING_LAUNCH, TODAY)
 
         def it_never_starts_before_launch():
-            assert preset_range("90", date(2026, 4, 10)).start == LAUNCH
+            assert preset_range("90", date(2026, 4, 10)).start == SPRING_LAUNCH
+
+        def it_starts_since_cms_launch_on_october_1():
+            assert preset_range("cms", TODAY) == DateRange(date(2026, 10, 1), TODAY)
+            assert preset_range("cms", date(2026, 9, 25)) == DateRange(date(2026, 9, 25), date(2026, 9, 25))
+
+
+def describe_launch():
+    @pytest.fixture(autouse=True)
+    def real_launch(spring_launch: date, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("hub.growth.LAUNCH", LAUNCH)
+
+    def it_counts_from_the_portal_launch_on_september_21():
+        assert (LAUNCH, CMS_LAUNCH) == (date(2026, 9, 21), date(2026, 10, 1))
+        assert preset_range("launch", TODAY) == DateRange(date(2026, 9, 21), TODAY)
+        assert preset_range("90", TODAY).start == date(2026, 9, 21)
+
+    def it_leaves_out_the_portal_s_testing_before_launch():
+        _signup(_at(date(2026, 9, 17)))
+        _signup(_at(date(2026, 9, 21), 0, 0))
+        assert totals(METRICS["class_signups"], {"since": preset_range("launch", TODAY)})["since"] == 1
 
 
 def describe_buckets():
@@ -405,7 +429,7 @@ def describe_dashboard():
             assert [t.label for t in _board().tiles] == [label for _, label in TILES]
 
         def it_says_since_launch_when_there_is_nothing_before_to_compare():
-            tile = _board(DateRange(LAUNCH, date(2026, 4, 30))).tiles[0]
+            tile = _board(DateRange(SPRING_LAUNCH, date(2026, 4, 30))).tiles[0]
             assert (tile.change, tile.previous) == ("since_launch", None)
 
         def it_says_none_in_either_period():
@@ -516,7 +540,7 @@ def describe_growth_form():
         assert _form(date_from="2026-05-04").selection().rng == DateRange(date(2026, 5, 4), TODAY)
 
     def it_reads_a_custom_range_with_no_days_as_since_launch():
-        assert _form(range="custom").selection().rng == DateRange(LAUNCH, TODAY)
+        assert _form(range="custom").selection().rng == DateRange(SPRING_LAUNCH, TODAY)
 
     def it_moves_a_future_day_to_today_and_shows_it():
         form = _form(range="custom", date_from="2026-10-01", date_to="2027-01-01")
@@ -525,7 +549,7 @@ def describe_growth_form():
 
     def it_moves_a_day_before_launch_to_launch():
         assert _form(range="custom", date_from="2025-01-01", date_to="2026-04-01").selection().rng == DateRange(
-            LAUNCH, date(2026, 4, 1)
+            SPRING_LAUNCH, date(2026, 4, 1)
         )
 
     def it_refuses_a_to_before_from_on_to_and_shows_the_default():
