@@ -17,11 +17,15 @@ from classes.factories import ClassFaqFactory, ClassOfferingFactory
 from classes.models import LOCKED_CLASS_FAQS, ClassOffering
 from core.integrations.eventbrite import (
     API_BASE,
+    EVENTBRITE_RULE_PARTS,
+    EVENTBRITE_RULES,
     EventbriteClient,
     EventbriteError,
+    EventbriteRules,
     _listing_html,
     _listing_text,
     estimate_fee_cents,
+    fee_breakdown,
 )
 from core.models import SiteConfiguration
 
@@ -271,6 +275,74 @@ def describe_estimate_fee_cents():
     def it_adds_the_percentages_and_the_per_ticket_fee():
         # 3.7% + 2.9% of $50 is $3.30, plus $1.79.
         assert estimate_fee_cents(5000) == 509
+
+
+def describe_fee_breakdown():
+    def it_splits_the_estimate_into_the_service_fee_and_processing():
+        fees = fee_breakdown(5000)
+
+        # 3.7% of $50 is $1.85, plus $1.79; processing is the rest of the $5.09 estimate.
+        assert (fees.price_cents, fees.service_cents, fees.processing_cents) == (5000, 364, 145)
+        assert fees.fee_cents == estimate_fee_cents(5000)
+
+    @pytest.mark.parametrize("price", [100, 8000, 12345, 99999])
+    def it_always_adds_up_to_the_estimate(price: int):
+        assert fee_breakdown(price).fee_cents == estimate_fee_cents(price)
+
+    def it_works_out_both_fee_choices():
+        fees = fee_breakdown(8000)
+
+        assert (fees.buyer_pays_on_top_cents, fees.class_gets_included_cents) == (8707, 7293)
+
+    def it_prints_the_rates_without_trailing_zeros():
+        fees = fee_breakdown(5000)
+
+        assert (fees.service_rate, fees.processing_rate) == ("3.7%", "2.9%")
+
+    def it_knows_a_free_ticket():
+        assert fee_breakdown(0).is_free is True
+        assert fee_breakdown(100).is_free is False
+
+    def it_never_leaves_the_class_less_than_nothing_when_the_fee_is_more_than_the_price():
+        fees = fee_breakdown(100)
+
+        # $1: a $1.86 fee is more than the ticket.
+        assert fees.fee_cents == 186
+        assert fees.fee_exceeds_price is True
+        assert fees.class_gets_included_cents == 0
+
+    def it_knows_a_fee_below_the_price():
+        fees = fee_breakdown(200)
+
+        # $2: 3.7% and 2.9% are 13 cents, plus $1.79, so $1.92 of the $2.
+        assert fees.fee_exceeds_price is False
+        assert fees.class_gets_included_cents == 8
+
+    def it_carries_the_rates_the_estimate_uses():
+        assert (fees := fee_breakdown(5000)).service_percent == 3.7
+        assert (fees.service_fixed_cents, fees.processing_percent) == (179, 2.9)
+
+
+def describe_the_rules():
+    def it_reads_as_one_paragraph_for_the_composer():
+        assert EVENTBRITE_RULES == (
+            "Eventbrite takes down listings that send buyers anywhere else. To sell this class on Eventbrite, "
+            "keep the title, description, FAQ and photos free of: payment outside the ticket (cash, Venmo, pay at "
+            "the session); fees not included in the price; discount codes; links, web addresses, QR codes, emails, "
+            "phone numbers or social handles; and booking, refund or cancellation instructions. Eventbrite shows "
+            "its own refund policy. A takedown can suspend the makerspace's whole Eventbrite account."
+        )
+
+    def it_joins_any_list_with_the_last_item_after_and():
+        rules = EventbriteRules(
+            lead="L.", keep_free="Free of:", items=("One", "Two", "Three"), refund_note="R.", takedown="T."
+        )
+
+        assert rules.text == "L. Free of: one; two; and three. R. T."
+
+    def it_keeps_each_rule_as_its_own_item_for_the_tab():
+        assert len(EVENTBRITE_RULE_PARTS.items) == 5
+        assert EVENTBRITE_RULE_PARTS.items[2] == "Discount codes"
 
 
 def describe_order_and_ticket_reads():
