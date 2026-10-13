@@ -1,0 +1,8 @@
+bump = "patch"
+date = "2026-10-13"
+title = "The Growth page counts from the real launch"
+changes = [
+  "The Growth page now counts from September 21, 2026, the day the Member Portal went live, so testing before launch no longer shows up as growth.",
+  "A new Since CMS Launch range starts on October 1, 2026, the day classes moved into the portal.",
+  "Class signups are labeled New System or Old System, so the signups imported from the old class site are easy to tell apart.",
+]

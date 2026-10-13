@@ -4,13 +4,15 @@ Every number is an aggregate: a count per window, per week or per month, never a
 start on Monday and every bucket is a Portland day, through ``TruncWeek`` / ``TruncMonth``
 with the current time zone, so a week that crosses a clock change still holds seven local days.
 
-Two imports would inflate the growth numbers, so they are left out of every metric:
+Nothing before ``LAUNCH`` counts: the portal was tested on production before it went live, and
+those demo classes and signups are not growth. Two imports from the old system would inflate the
+numbers too, so they are left out of every metric:
 
 - The legacy classes copied from the old class site (``ClassOffering.legacy_cms_id``) and the
   ``class_created`` activity rows the import wrote for them.
 - The signups imported from the old class site. Each carries one ``CmsActivity`` row whose
   ``payload`` says ``source: classes.pastlives.space``; that row and its registration are left
-  out. They appear only in Class Signups by Source, as the Old Class Site.
+  out. They appear only in Class Signups by Source, as the Old System.
 
 Never exclude on the JSON key itself (``.exclude(payload__source=...)``): SQL compares a missing
 key as NULL, so that exclude also drops every row without the key, which is nearly all of them.
@@ -45,7 +47,10 @@ if TYPE_CHECKING:
     from django.http import QueryDict
 
 #: The day the Member Portal went live; nothing before it is counted.
-LAUNCH = date(2026, 3, 27)
+LAUNCH = date(2026, 9, 21)
+
+#: The day classes moved off the old class site and into the portal's CMS.
+CMS_LAUNCH = date(2026, 10, 1)
 
 #: The ``payload["source"]`` the old class site's signup import stamped on its activity rows.
 LEGACY_SIGNUP_SOURCE = "classes.pastlives.space"
@@ -797,7 +802,7 @@ def _source_card(rng: DateRange, range_name: str, today: date) -> SourceCard:
     def column(name: str) -> list[int]:
         return [by_month[m.key][name] if m.key in by_month else 0 for m in months]
 
-    layers = [Layer("Member Portal", 1, column("portal")), Layer("Old Class Site", 2, column("old"))]
+    layers = [Layer("New System", 1, column("portal")), Layer("Old System", 2, column("old"))]
     chart = Sized(
         stacked_chart(*SOURCE_WIDE, "Class Signups by Source", range_name, months, layers, today),
         stacked_chart(*NARROW, "Class Signups by Source", range_name, months, layers, today),
@@ -826,6 +831,7 @@ PRESETS: tuple[tuple[str, str], ...] = (
     ("30", "Last 30 Days"),
     ("90", "Last 90 Days"),
     ("launch", "Since Launch"),
+    ("cms", "Since CMS Launch"),
     ("custom", "Custom"),
 )
 MODES: tuple[tuple[str, str], ...] = (("week", "Per Week"), ("month", "Per Month"), ("total", "Running Total"))
@@ -854,6 +860,8 @@ def preset_range(preset: str, today: date) -> DateRange:
     """The days a preset covers, ending today."""
     if preset == "launch":
         return DateRange(LAUNCH, today)
+    if preset == "cms":
+        return DateRange(min(CMS_LAUNCH, today), today)
     return DateRange(max(LAUNCH, today - timedelta(days=int(preset) - 1)), today)
 
 
