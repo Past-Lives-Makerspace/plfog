@@ -388,22 +388,22 @@ p:last-child {
     width: 100%;
 }
 
-/* Loading state */
+/* Loading state (components/busy_submit.html): the spinner sits beside the busy label, as
+   .hub-btn and .pl-btn draw it in components.css. */
 .btn[aria-busy="true"] {
-    position: relative;
-    color: transparent;
+    cursor: progress;
+    opacity: 0.85;
     pointer-events: none;
 }
 
-.btn[aria-busy="true"]::after {
+.btn[aria-busy="true"]::before {
     content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 1.25rem;
-    height: 1.25rem;
-    margin: -0.625rem 0 0 -0.625rem;
-    border: 2px solid var(--color-navy);
+    display: inline-block;
+    width: 0.9em;
+    height: 0.9em;
+    margin-right: 0.5em;
+    vertical-align: -0.1em;
+    border: 2px solid currentColor;
     border-right-color: transparent;
     border-radius: 50%;
     animation: btn-spin 0.6s linear infinite;
