@@ -7,7 +7,8 @@ import pytest
 from django.contrib.auth.models import User
 from django.urls import reverse
 
-from core.events import settings_matrix
+from core.events import preferences, settings_matrix
+from core.events.registry import Channel
 from core.models import NotificationPreference
 from membership.models import Member
 from tests.membership.factories import GuildFactory
@@ -56,8 +57,8 @@ def describe_notifications_tab():
             },
         )
         user = User.objects.get(username="m")
-        assert NotificationPreference.objects.get(user=user, event_key="class_reminder", channel="push").enabled is True
-        assert NotificationPreference.objects.get(user=user, event_key="tab_charged", channel="email").enabled is True
+        assert preferences.wants(user, "class_reminder", Channel.PUSH)
+        assert preferences.wants(user, "tab_charged", Channel.EMAIL)
 
     def it_clears_unchecked_toggles(client):
         user = User.objects.create_user(username="m2", email="m2@example.com", password="pw12345!")
@@ -347,8 +348,7 @@ def describe_padlocked_rows_on_every_surface():
                 reverse("hub_user_settings"),
                 {"form_id": "notifications", "pref__class_cancelled__push": "on"},
             )
-            pref = NotificationPreference.objects.get(user=user, event_key="class_cancelled", channel="push")
-            assert pref.enabled is True
+            assert preferences.wants(user, "class_cancelled", Channel.PUSH)
 
         def it_saves_a_discord_cell_on_a_padlocked_row(client):
             # Only a member who has linked Discord sees a live cell — for anyone else it

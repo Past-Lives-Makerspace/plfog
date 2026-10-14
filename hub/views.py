@@ -8023,7 +8023,7 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if form_id == "notifications":
             target = member.user
             if target is not None:
-                settings_matrix.save_matrix(target, request.POST)
+                settings_matrix.save_matrix(target, request.POST, actor=cast(User, request.user))
                 messages.success(request, "Saved notification settings.")
             return redirect(permissions_url)
         form = MemberAdminEditForm(request.POST, instance=member)

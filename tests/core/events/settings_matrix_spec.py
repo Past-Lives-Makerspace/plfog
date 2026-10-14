@@ -5,7 +5,7 @@ render and save as one setting each."""
 import pytest
 from django.contrib.auth.models import User
 
-from core.events import settings_matrix
+from core.events import preferences, settings_matrix
 from core.events.registry import Channel, Recipients, all_events, get_event
 from core.events.settings_matrix import ADMIN_SECTION, PermissionGroup
 from core.models import NotificationPreference
@@ -591,6 +591,8 @@ def describe_row_groups():
     def describe_save_matrix():
         def it_writes_every_member_key_when_a_group_cell_is_on(db):
             user = User.objects.create_user(username="save1", email="save1@example.com")
+            for key in ("event.approved", "event.changes_requested", "event.declined"):
+                NotificationPreference.objects.create(user=user, event_key=key, channel="email", enabled=False)
             settings_matrix.save_matrix(user, {"pref__group.event_decision__email": "on"})
             written = dict(
                 NotificationPreference.objects.filter(
@@ -628,13 +630,19 @@ def describe_row_groups():
             keys = set(NotificationPreference.objects.filter(user=user).values_list("event_key", flat=True))
             assert keys, "the save wrote nothing"
             assert not [key for key in keys if key.startswith("group.")]
-            # And the member keys really did get their rows.
-            assert {key for group in settings_matrix.ROW_GROUPS for key in group.event_keys} <= keys
+            # And every member key reads the box: on for each channel it declares.
+            for group in settings_matrix.ROW_GROUPS:
+                for key in group.event_keys:
+                    for channel in (Channel.EMAIL, Channel.PUSH):
+                        if get_event(key).channel(channel) is not None:
+                            assert preferences.wants(user, key, channel), (key, channel)
 
         def it_keeps_one_preference_row_per_member_key_and_channel(db):
             # Grouping changes no row count in the table: saving twice upserts, and each
             # member key still owns its own row per channel.
             user = User.objects.create_user(username="save4", email="save4@example.com")
+            for key in ("waitlist_promoted", "waitlist_promoted_pay"):
+                NotificationPreference.objects.create(user=user, event_key=key, channel="email", enabled=False)
             posted = {"pref__group.waitlist_promotion__email": "on"}
             settings_matrix.save_matrix(user, posted)
             settings_matrix.save_matrix(user, posted)
@@ -643,6 +651,49 @@ def describe_row_groups():
             )
             assert rows.count() == 2
             assert all(row.enabled for row in rows)
+
+
+def describe_save_matrix_records_who_changed_a_switch():
+    def it_writes_nothing_for_a_box_left_at_its_default(db):
+        # A save that changes nothing stores nothing, so a row is always somebody's choice
+        # and a later default (like #612's instructor emails) still reaches this member.
+        user = User.objects.create_user(username="rec1", email="rec1@example.com")
+        posted = {
+            cell.name: "on"
+            for section in settings_matrix.build_matrix(user)
+            for block in section.blocks
+            for row in block.rows
+            for cell in row.cells
+            if cell.enabled and cell.is_editable
+        }
+        settings_matrix.save_matrix(user, posted)
+        assert not NotificationPreference.objects.filter(user=user).exists()
+
+    def it_stamps_the_member_when_they_turn_a_switch_off(db):
+        user = User.objects.create_user(username="rec2", email="rec2@example.com")
+        settings_matrix.save_matrix(user, {})  # every box unticked
+        row = NotificationPreference.objects.get(user=user, event_key="instructor_new_registration", channel="email")
+        assert row.enabled is False
+        assert row.changed_by == user
+        assert row.changed_at is not None
+
+    def it_stamps_the_acting_admin_when_one_saves_for_the_member(db):
+        user = User.objects.create_user(username="rec3", email="rec3@example.com")
+        admin = User.objects.create_user(username="rec3admin", email="rec3admin@example.com")
+        settings_matrix.save_matrix(user, {}, actor=admin)
+        row = NotificationPreference.objects.get(user=user, event_key="instructor_new_registration", channel="email")
+        assert row.changed_by == admin
+
+    def it_keeps_the_last_change_when_a_later_save_leaves_the_box_alone(db):
+        user = User.objects.create_user(username="rec4", email="rec4@example.com")
+        admin = User.objects.create_user(username="rec4admin", email="rec4admin@example.com")
+        settings_matrix.save_matrix(user, {}, actor=admin)
+        stamped = NotificationPreference.objects.get(
+            user=user, event_key="instructor_new_registration", channel="email"
+        ).changed_at
+        settings_matrix.save_matrix(user, {})  # same boxes, nothing flipped
+        row = NotificationPreference.objects.get(user=user, event_key="instructor_new_registration", channel="email")
+        assert (row.changed_by, row.changed_at) == (admin, stamped)
 
 
 def describe_padlocked_rows():

@@ -211,3 +211,16 @@ def describe_admin_member_edit_permissions():
         assert response.status_code == 302
         assert NotificationPreference.objects.filter(user=target.user).exists()
         assert not NotificationPreference.objects.filter(user__username="boss4").exists()
+
+    def it_records_the_admin_as_who_flipped_the_members_switch(client: Client):
+        # Later, "did they turn it off themselves?" has an answer: the row names the admin.
+        boss = _member_user("boss5", fog_role=Member.FogRole.ADMIN)
+        target = _member_user("target5").member
+        client.login(username="boss5", password="pass")
+        client.post(reverse("hub_admin_member_edit", args=[target.pk]), {"form_id": "notifications"})
+        row = NotificationPreference.objects.get(
+            user=target.user, event_key="instructor_new_registration", channel="email"
+        )
+        assert row.enabled is False
+        assert row.changed_by == boss
+        assert row.changed_at is not None
