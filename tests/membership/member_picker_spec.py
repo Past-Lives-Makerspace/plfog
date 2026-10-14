@@ -1,7 +1,7 @@
 """BDD specs for the member picker helpers in ``membership.forms`` (#805).
 
 Three admin forms pick a member by label: Add Inquiry, Record Orientation and Give Credit.
-36 production members carry a full legal name with a stray space (``'Maria Amelia Randall '``),
+Some members carry a full legal name with a stray space (``'Wren Odalys Pike '``),
 and the pickers refused them: the label kept the space, the lookup keyed on it, and every
 caller stripped what was posted. Labels and lookups now both collapse and trim spaces.
 """
@@ -48,7 +48,7 @@ def _picked(form: Any) -> Member | None:
 
 def describe_member_picker_key():
     def it_collapses_and_trims_spaces_and_folds_case():
-        assert member_picker_key("  Maria \t Amelia  RANDALL ") == "maria amelia randall"
+        assert member_picker_key("  Wren \t Odalys  PIKE ") == "wren odalys pike"
 
     def it_leaves_a_tidy_name_as_its_case_fold():
         assert member_picker_key("Sam Lee (#4)") == "sam lee (#4)"
@@ -56,8 +56,8 @@ def describe_member_picker_key():
 
 def describe_member_picker_labels():
     def it_labels_a_member_by_their_name_with_spaces_tidied():
-        maria = _member(" Maria  Amelia Randall ")
-        assert member_picker_labels([maria]) == {"Maria Amelia Randall": maria}
+        wren = _member(" Wren  Odalys Pike ")
+        assert member_picker_labels([wren]) == {"Wren Odalys Pike": wren}
 
     def it_numbers_two_members_whose_tidied_names_match():
         first = _member("Sam Lee ")
@@ -72,8 +72,8 @@ def describe_member_picker_labels():
 
 def describe_member_picker_lookup():
     def it_keys_each_label_by_its_picker_key():
-        maria = _member("Maria Amelia Randall ")
-        assert member_picker_lookup(member_picker_labels([maria])) == {"maria amelia randall": maria}
+        wren = _member("Wren Odalys Pike ")
+        assert member_picker_lookup(member_picker_labels([wren])) == {"wren odalys pike": wren}
 
 
 @pytest.mark.parametrize("form_name", list(FORMS))
@@ -82,17 +82,17 @@ def describe_the_three_pickers():
     def _plan() -> None:
         MembershipPlanFactory()
 
-    @pytest.mark.parametrize("stored", ["Maria Amelia Randall ", " Maria Amelia Randall", "Maria  Amelia Randall"])
+    @pytest.mark.parametrize("stored", ["Wren Odalys Pike ", " Wren Odalys Pike", "Wren  Odalys Pike"])
     def it_takes_a_member_whose_stored_name_has_a_stray_space(form_name, stored):
-        maria = _member(stored)
-        maria.refresh_from_db()
-        assert maria.full_legal_name == stored  # stored names are left as they are
-        assert "Maria Amelia Randall" in FORMS[form_name]("Maria Amelia Randall").member_options
-        assert _picked(FORMS[form_name]("Maria Amelia Randall")) == maria
+        wren = _member(stored)
+        wren.refresh_from_db()
+        assert wren.full_legal_name == stored  # stored names are left as they are
+        assert "Wren Odalys Pike" in FORMS[form_name]("Wren Odalys Pike").member_options
+        assert _picked(FORMS[form_name]("Wren Odalys Pike")) == wren
 
     def it_takes_a_name_typed_with_doubled_spaces(form_name):
-        maria = _member("Maria Amelia Randall")
-        assert _picked(FORMS[form_name]("  maria   amelia randall ")) == maria
+        wren = _member("Wren Odalys Pike")
+        assert _picked(FORMS[form_name]("  wren   odalys pike ")) == wren
 
     def it_still_tells_two_members_with_one_tidied_name_apart(form_name):
         first = _member("Sam Lee ")
@@ -105,7 +105,7 @@ def describe_the_three_pickers():
         assert FORMS[form_name]("Sam Lee").errors["member"] == ["Pick a member from the list."]
 
     def it_refuses_a_name_not_on_the_list(form_name):
-        _member("Maria Amelia Randall")
-        form = FORMS[form_name]("Maria Randall")
+        _member("Wren Odalys Pike")
+        form = FORMS[form_name]("Wren Pike")
         assert not form.is_valid()
         assert form.errors["member"] == ["Pick a member from the list."]

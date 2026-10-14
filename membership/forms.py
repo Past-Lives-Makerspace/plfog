@@ -40,13 +40,18 @@ def setup_location_field(form: forms.ModelForm, hint: str = LOCATION_HINT) -> No
     )
 
 
+def tidy_name(text: str) -> str:
+    """``text`` with its spaces collapsed and trimmed: how a stored name is shown and matched (#805)."""
+    return " ".join(text.split())
+
+
 def member_picker_key(text: str) -> str:
     """What a member picker matches on: ``text`` with its spaces collapsed and trimmed, case folded.
 
     A label and whatever was posted for it both go through this, so a name stored or typed
     with a leading, trailing or doubled space still finds its member (#805).
     """
-    return " ".join(text.split()).casefold()
+    return tidy_name(text).casefold()
 
 
 def member_picker_labels(members: Iterable[Member]) -> dict[str, Member]:
@@ -59,7 +64,7 @@ def member_picker_labels(members: Iterable[Member]) -> dict[str, Member]:
     :func:`member_picker_lookup`. The Record Orientation and Give Credit pickers and the
     Add Inquiry picker (#794) share it.
     """
-    named = [(" ".join(m.display_name.split()), m) for m in members]
+    named = [(tidy_name(m.display_name), m) for m in members]
     name_counts = Counter(name.casefold() for name, _ in named)
     labels: dict[str, Member] = {}
     for name, candidate in named:

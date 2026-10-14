@@ -210,7 +210,7 @@ def describe_the_member_picker():
         Member.objects.filter(user__username=ADMIN_EMAIL).update(full_legal_name="Ida Admin", preferred_name="")
         for name in PICKER_NAMES:
             MemberFactory(full_legal_name=name, preferred_name="")
-        maria = MemberFactory(full_legal_name="Maria Amelia Randall ", preferred_name="")
+        wren = MemberFactory(full_legal_name="Wren Odalys Pike ", preferred_name="")
 
         page.goto(f"{live_server.url}{reverse('classes:admin_instructor_inquiries')}")
         page.locator("[data-inquiry-add]").click()
@@ -218,7 +218,7 @@ def describe_the_member_picker():
         expect(listbox).to_be_visible()
 
         # Every member who may ask is listed, more than fit, so the list scrolls in place.
-        expect(listbox.locator("[role=option]")).to_have_count(len(PICKER_NAMES) + 2)  # and Maria and the admin
+        expect(listbox.locator("[role=option]")).to_have_count(len(PICKER_NAMES) + 2)  # and Wren and the admin
         assert listbox.evaluate("el => getComputedStyle(el).overflowY") == "auto"
         assert listbox.evaluate("el => el.scrollHeight > el.clientHeight + 40")
         listbox.evaluate("el => { el.scrollTop = el.scrollHeight; }")
@@ -243,25 +243,25 @@ def describe_the_member_picker():
         member.fill("")
 
         # The arrow keys walk the rows still shown, and Enter picks the one walked to.
-        member.press_sequentially("maria  amelia")
-        maria_row = page.locator('[data-member-option="Maria Amelia Randall"]')
+        member.press_sequentially("wren  odalys")
+        wren_row = page.locator('[data-member-option="Wren Odalys Pike"]')
         expect(listbox.locator("[role=option]:visible")).to_have_count(1)
         expect(page.locator("[data-member-picker-none]")).to_be_hidden()
         expect(page.locator("[data-member-picker-list]")).to_be_visible()
         member.press("ArrowDown")
-        expect(member).to_have_attribute("aria-activedescendant", maria_row.get_attribute("id"))
+        expect(member).to_have_attribute("aria-activedescendant", wren_row.get_attribute("id"))
         member.press("Enter")
-        expect(member).to_have_value("Maria Amelia Randall")
-        expect(maria_row).to_have_attribute("aria-selected", "true")
+        expect(member).to_have_value("Wren Odalys Pike")
+        expect(wren_row).to_have_attribute("aria-selected", "true")
         assert page.evaluate("window.plStillHere === true")
 
         page.locator("#id_inquiry-class_title").fill("Enamel Pins")
-        page.locator("#id_inquiry-note").fill("Maria emailed about an enamel class.")
+        page.locator("#id_inquiry-note").fill("Wren emailed about an enamel class.")
         page.locator("[data-inquiry-add-form] button[type=submit]").click()
 
-        row = page.locator(f'[data-inquiry-row="{maria.pk}"]')
+        row = page.locator(f'[data-inquiry-row="{wren.pk}"]')
         expect(row).to_be_visible()
         expect(row).to_contain_text("Pending")
-        maria.refresh_from_db()
-        assert maria.teaching_application_state == Member.TeachingApplicationState.PENDING
-        assert maria.full_legal_name == "Maria Amelia Randall "
+        wren.refresh_from_db()
+        assert wren.teaching_application_state == Member.TeachingApplicationState.PENDING
+        assert wren.full_legal_name == "Wren Odalys Pike "

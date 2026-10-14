@@ -50,7 +50,13 @@ from classes.models import (
 )
 from classes.questions import active_questions, collect_answers, inject_fields
 from classes.video_providers import validate_video_url
-from membership.forms import member_picker_key, member_picker_labels, member_picker_lookup, setup_location_field
+from membership.forms import (
+    member_picker_key,
+    member_picker_labels,
+    member_picker_lookup,
+    setup_location_field,
+    tidy_name,
+)
 
 
 def _assign_provisional_slug(offering: ClassOffering) -> None:
@@ -1828,7 +1834,7 @@ class InstructorInquiryAddForm(TeachingApplicationForm):
         member = self._members_by_label.get(member_picker_key(self.cleaned_data["member"]))
         if member is None:
             raise forms.ValidationError("Pick a member from the list.")
-        name = " ".join(member.display_name.split())
+        name = tidy_name(member.display_name)
         if member.can_create_classes:
             raise forms.ValidationError(f"{name} can already teach.")
         if member.teaching_application_state == member.TeachingApplicationState.PENDING:
