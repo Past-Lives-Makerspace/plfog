@@ -747,7 +747,7 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
 }
 
 .pl-spotlight__quiet-date {
-    font-size: 0.75rem;
+    font-size: 0.6rem;
     color: var(--hub-text-muted);
     white-space: nowrap;
 }

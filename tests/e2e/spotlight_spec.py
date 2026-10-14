@@ -128,6 +128,16 @@ def describe_with_no_poll_and_no_meeting():
         expect(page.locator("[data-spotlight-panel-changelog]")).to_be_visible()
         expect(page.locator(f"#changelog-{slug}")).to_be_visible()
 
+    def it_keeps_the_update_date_clear_of_details(page, live_server, login_via_code):
+        _sign_in(page, login_via_code)
+        _home(page, live_server)
+        expect(page.locator(QUIET)).to_be_visible()
+
+        date = page.locator(f"{QUIET} [data-spotlight-quiet-date]").bounding_box()
+        details = page.locator(f"{QUIET} .pl-spotlight__quiet-details").bounding_box()
+        assert date and details
+        assert date["x"] + date["width"] + 8 <= details["x"]
+
 
 def describe_the_plain_changelog():
     def it_pages_five_at_a_time_on_the_login_page(page, live_server):
