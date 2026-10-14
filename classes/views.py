@@ -4683,7 +4683,10 @@ def admin_instructor_inquiry_add(request: HttpRequest) -> HttpResponse:
     if form.is_valid():
         assert request.user.is_authenticated  # classes_admin_access_required guarantees a real User
         member = form.save(added_by=request.user)
-        messages.success(request, f"Added an inquiry for {member.display_name}.")
+        from membership.forms import tidy_name
+
+        # A stored name can carry stray spaces (#805); the message names them tidily.
+        messages.success(request, f"Added an inquiry for {tidy_name(member.display_name)}.")
         return redirect("classes:admin_instructor_inquiries")
     return _instructor_inquiries_page(request, form)
 

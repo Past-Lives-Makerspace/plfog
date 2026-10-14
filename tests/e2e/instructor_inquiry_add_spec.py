@@ -5,9 +5,13 @@ conditional questions open and close in place inside it (prefixed field names, s
 shared partial must not read a field by name), a failed save reopens the modal on load
 with every answer kept and the website field still open, a broken address left under
 Website No does not block Save (the form is novalidate), and the save lands the row in
-the table as Pending. ``CAPTURE_794_SCREENSHOTS=1`` also saves the PR's pictures
+the table as Pending. The Member picker (#805) is a list the page draws: it scrolls inside
+the modal, typing narrows it, a click or Enter fills the box, and a member whose stored
+name ends in a space saves. ``CAPTURE_794_SCREENSHOTS=1`` also saves the PR's pictures
 under ``mockups/screenshots/``: the page, the empty modal and the modal with errors, in
-both themes at desktop and phone width. Run with ``pytest -m e2e`` on PostgreSQL.
+both themes at desktop and phone width; ``CAPTURE_805_SCREENSHOTS=1`` saves the open member
+list. Run with ``pytest -m e2e`` on PostgreSQL, under ``--browser chromium`` and
+``--browser webkit``.
 """
 
 from __future__ import annotations
@@ -28,9 +32,37 @@ from tests.membership.factories import MemberFactory, MembershipPlanFactory
 ADMIN_EMAIL = "inquiry-admin@example.com"
 SHOTS = Path("mockups/screenshots")
 CAPTURE = bool(os.environ.get("CAPTURE_794_SCREENSHOTS"))
+CAPTURE_805 = bool(os.environ.get("CAPTURE_805_SCREENSHOTS"))
 WEBSITE_ERROR = "Add your website's address, or pick No."
 DESKTOP = {"width": 1280, "height": 900}
 PHONE = {"width": 390, "height": 844}
+#: Members enough that the Member list must scroll (#805).
+PICKER_NAMES = (
+    "Alex Abernathy",
+    "Bea Castillo",
+    "Cam Duarte",
+    "Dee Ellison",
+    "Eli Fontaine",
+    "Fern Garza",
+    "Gus Halvorsen",
+    "Hana Ito",
+    "Jo Kowalski",
+    "Kit Lindqvist",
+    "Lou Moreno",
+    "Max Nakamura",
+    "Nia Okafor",
+    "Oz Petrov",
+    "Pia Quintero",
+    "Rae Sandoval",
+    "Sol Tanaka",
+    "Tess Underwood",
+    "Uma Vargas",
+    "Vic Whitaker",
+    "Wren Xu",
+    "Yara Young",
+    "Zoe Zimmer",
+    "Ash Bellamy",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -95,11 +127,18 @@ def describe_add_inquiry():
         add.click()
         expect(modal).to_be_visible()
         expect(page.locator("#id_inquiry-reached_out_on")).to_have_value(timezone.localdate().isoformat())
-        options = page.locator("#inquiry-member-options option")
+        options = page.locator("[data-member-picker-list] [role=option]")
         expect(options).to_have_count(2)  # Robin and the admin; Avery can already teach
         _capture(page, "modal-empty", size_name)
 
-        page.locator("#id_inquiry-member").fill("Robin Reachout")
+        # Typing narrows the list; a click on the row fills the box and marks the row.
+        member = page.locator("#id_inquiry-member")
+        member.press_sequentially("rob")
+        robin_row = page.locator('[data-member-option="Robin Reachout"]')
+        expect(page.locator("[data-member-picker-list] [role=option]:visible")).to_have_count(1)
+        robin_row.click()
+        expect(member).to_have_value("Robin Reachout")
+        expect(robin_row).to_have_attribute("aria-selected", "true")
         page.locator("#id_inquiry-class_title").fill("Silver Rings")
         page.locator("#id_inquiry-note").fill("Robin asked at the front desk about a ring class.")
 
@@ -131,6 +170,7 @@ def describe_add_inquiry():
         expect(modal).to_be_visible()
         expect(page.locator("#id_inquiry-website")).to_be_visible()
         expect(page.locator("#id_inquiry-member")).to_have_value("Robin Reachout")
+        expect(page.locator('[data-member-option="Robin Reachout"]')).to_have_attribute("aria-selected", "true")
         expect(page.locator("#id_inquiry-class_title")).to_have_value("Silver Rings")
         expect(page.locator('input[name="inquiry-experience"][value="a_few"]')).to_be_checked()
         expect(page.locator("#id_inquiry-taught_where")).to_be_visible()
@@ -161,3 +201,67 @@ def describe_add_inquiry():
         assert robin.teaching_application_state == Member.TeachingApplicationState.PENDING
         assert robin.teaching_website == ""
         assert robin.teaching_contact_detail == "503 555 0199"
+
+
+def describe_the_member_picker():
+    def it_scrolls_filters_and_saves_a_member_whose_stored_name_ends_in_a_space(live_server, page, login_via_code):
+        page.set_viewport_size(DESKTOP)
+        _login_as_admin(login_via_code)
+        Member.objects.filter(user__username=ADMIN_EMAIL).update(full_legal_name="Ida Admin", preferred_name="")
+        for name in PICKER_NAMES:
+            MemberFactory(full_legal_name=name, preferred_name="")
+        wren = MemberFactory(full_legal_name="Wren Odalys Pike ", preferred_name="")
+
+        page.goto(f"{live_server.url}{reverse('classes:admin_instructor_inquiries')}")
+        page.locator("[data-inquiry-add]").click()
+        listbox = page.locator("[data-member-picker-list]")
+        expect(listbox).to_be_visible()
+
+        # Every member who may ask is listed, more than fit, so the list scrolls in place.
+        expect(listbox.locator("[role=option]")).to_have_count(len(PICKER_NAMES) + 2)  # and Wren and the admin
+        assert listbox.evaluate("el => getComputedStyle(el).overflowY") == "auto"
+        assert listbox.evaluate("el => el.scrollHeight > el.clientHeight + 40")
+        listbox.evaluate("el => { el.scrollTop = el.scrollHeight; }")
+        assert listbox.evaluate("el => el.scrollTop > 0")
+        if CAPTURE_805:
+            SHOTS.mkdir(parents=True, exist_ok=True)
+            listbox.evaluate("el => { el.scrollTop = 0; }")
+            page.evaluate("document.documentElement.setAttribute('data-theme', 'light')")
+            page.locator("[data-member-picker]").scroll_into_view_if_needed()
+            page.screenshot(path=str(SHOTS / "805-member-picker-light-desktop.png"))
+            page.evaluate("document.documentElement.setAttribute('data-theme', 'dark')")
+            page.screenshot(path=str(SHOTS / "805-member-picker-dark-desktop.png"))
+
+        # Nothing matches: the list says so. Enter while filtering never submits the form.
+        member = page.locator("#id_inquiry-member")
+        page.evaluate("window.plStillHere = true")  # gone if an Enter ever submits the form
+        member.press_sequentially("zzz")
+        expect(page.locator("[data-member-picker-none]")).to_be_visible()
+        expect(page.locator("[data-member-picker-list]")).to_be_hidden()
+        member.press("Enter")
+        expect(page.locator("[data-inquiry-add-errors]")).to_have_count(0)
+        member.fill("")
+
+        # The arrow keys walk the rows still shown, and Enter picks the one walked to.
+        member.press_sequentially("wren  odalys")
+        wren_row = page.locator('[data-member-option="Wren Odalys Pike"]')
+        expect(listbox.locator("[role=option]:visible")).to_have_count(1)
+        expect(page.locator("[data-member-picker-none]")).to_be_hidden()
+        expect(page.locator("[data-member-picker-list]")).to_be_visible()
+        member.press("ArrowDown")
+        expect(member).to_have_attribute("aria-activedescendant", wren_row.get_attribute("id"))
+        member.press("Enter")
+        expect(member).to_have_value("Wren Odalys Pike")
+        expect(wren_row).to_have_attribute("aria-selected", "true")
+        assert page.evaluate("window.plStillHere === true")
+
+        page.locator("#id_inquiry-class_title").fill("Enamel Pins")
+        page.locator("#id_inquiry-note").fill("Wren emailed about an enamel class.")
+        page.locator("[data-inquiry-add-form] button[type=submit]").click()
+
+        row = page.locator(f'[data-inquiry-row="{wren.pk}"]')
+        expect(row).to_be_visible()
+        expect(row).to_contain_text("Pending")
+        wren.refresh_from_db()
+        assert wren.teaching_application_state == Member.TeachingApplicationState.PENDING
+        assert wren.full_legal_name == "Wren Odalys Pike "

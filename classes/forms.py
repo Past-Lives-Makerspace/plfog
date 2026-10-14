@@ -50,7 +50,13 @@ from classes.models import (
 )
 from classes.questions import active_questions, collect_answers, inject_fields
 from classes.video_providers import validate_video_url
-from membership.forms import member_picker_labels, member_picker_lookup, setup_location_field
+from membership.forms import (
+    member_picker_key,
+    member_picker_labels,
+    member_picker_lookup,
+    setup_location_field,
+    tidy_name,
+)
 
 
 def _assign_provisional_slug(offering: ClassOffering) -> None:
@@ -1757,12 +1763,14 @@ class InstructorInquiryAddForm(TeachingApplicationForm):
     The rules between answers still hold: a website Yes needs the address, socials the
     same, and the contact method and where to reach them come as a pair or not at all.
 
-    The member is a text input over a datalist (``member_options``): the members
-    ``apply_to_teach`` would take. A name typed by hand for someone who can already teach,
-    or who has an ask waiting, is a field error that says which.
+    The member is a search box over a scrolling list the page draws itself (#805,
+    ``member_options``): the members ``apply_to_teach`` would take. Typing narrows the
+    list and picking a name fills the box with its label, which is what posts. A name
+    typed by hand for someone who can already teach, or who has an ask waiting, is a
+    field error that says which.
     """
 
-    MEMBER_LIST_ID = "inquiry-member-options"
+    MEMBER_LIST_ID = "inquiry-member-list"
     #: The Member Portal opened on this day; no inquiry it tracks can predate it.
     EARLIEST_DAY = date(2026, 3, 27)
     REQUIRED = frozenset({"member", "reached_out_on", "class_title", "note"})
@@ -1771,9 +1779,18 @@ class InstructorInquiryAddForm(TeachingApplicationForm):
     member = forms.CharField(
         label="Member",
         max_length=200,
-        help_text="Start typing and pick from the list. Members who can already teach or have an inquiry waiting are left out.",
+        help_text="Type to narrow the list, then pick a name. Members who can already teach or have an inquiry waiting are left out.",
         widget=forms.TextInput(
-            attrs={"list": MEMBER_LIST_ID, "autocomplete": "off", "placeholder": "Start typing a name"}
+            attrs={
+                "role": "combobox",
+                "aria-controls": MEMBER_LIST_ID,
+                "aria-expanded": "true",
+                "aria-autocomplete": "list",
+                "autocomplete": "off",
+                "spellcheck": "false",
+                "placeholder": "Type a name",
+                "data-member-picker-input": "",
+            }
         ),
         error_messages={"required": "Pick a member from the list."},
     )
@@ -1814,13 +1831,14 @@ class InstructorInquiryAddForm(TeachingApplicationForm):
         self._members_by_label = member_picker_lookup(labels)
 
     def clean_member(self) -> Member:
-        member = self._members_by_label.get(self.cleaned_data["member"].strip().casefold())
+        member = self._members_by_label.get(member_picker_key(self.cleaned_data["member"]))
         if member is None:
             raise forms.ValidationError("Pick a member from the list.")
+        name = tidy_name(member.display_name)
         if member.can_create_classes:
-            raise forms.ValidationError(f"{member.display_name} can already teach.")
+            raise forms.ValidationError(f"{name} can already teach.")
         if member.teaching_application_state == member.TeachingApplicationState.PENDING:
-            raise forms.ValidationError(f"{member.display_name} already has an inquiry waiting on an admin.")
+            raise forms.ValidationError(f"{name} already has an inquiry waiting on an admin.")
         return member
 
     def clean_reached_out_on(self) -> date:

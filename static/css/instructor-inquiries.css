@@ -99,3 +99,42 @@
 }
 .pl-inquiry-add input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
 [data-theme="light"] .pl-inquiry-add input[type="date"]::-webkit-calendar-picker-indicator { filter: none; }
+
+/* The Member picker (#805): a search box over a list the page draws, so it scrolls
+   inside the modal in every browser. The list carries its own top margin; the field
+   after the picker carries its own too (FRONTEND rule 26). Theme tokens only, so it
+   follows light and dark. */
+.pl-member-picker__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 15rem;
+  margin: 0.75rem 0 0;
+  padding: 0.375rem;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--hub-input-bg);
+  border: 1px solid var(--hub-border-strong);
+  border-radius: 8px;
+}
+.pl-member-picker__option {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--hub-text);
+  font-size: 0.9375rem;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.pl-member-picker__option[hidden],
+.pl-member-picker__list[hidden] { display: none; }
+.pl-member-picker__option:hover,
+.pl-member-picker__option.is-active { background: var(--hub-elevated); border-color: var(--hub-border-strong); }
+.pl-member-picker__option[aria-selected="true"] {
+  background: var(--hub-elevated);
+  border-color: var(--color-tuscan-yellow);
+  font-weight: 600;
+}
+.pl-member-picker__none { margin: 0.75rem 0 0; font-size: 0.875rem; color: var(--hub-text-muted); }
+.pl-member-picker + .pl-form-group { margin-top: 1.25rem; }

@@ -3,8 +3,10 @@ The Add Inquiry modal body on Instructor Inquiries (#794): an admin files an ask
 for a member who reached out by email or in person. Context: add_form, an
 InstructorInquiryAddForm with the "inquiry" prefix.
 
-The member picker is a text input over a datalist of the members who may ask (the Record
-Orientation picker's pattern); the application's six sections come from the shared
+The member picker is a search box over a scrolling list of the members who may ask (#805),
+drawn by the page rather than a datalist so it scrolls inside the modal in every browser;
+the inquiryMemberPicker component (static/js/inquiry_member_picker.js) narrows the list
+as the admin types and fills the box, which is what posts, with the name picked. The application's six sections come from the shared
 partial, drawn flat (apply_flat) because a card inside the modal's card reads as a box in
 a box. A failed save renders the page again with this modal open and every answer kept.
 The form is novalidate, as the application page is: the server is the gate, and a browser
@@ -21,10 +23,13 @@ Website No).
     <section class="pl-teach-application__section" data-apply-section="who">
         <h2 class="pl-teach-section__title">Who and When</h2>
         <p class="pl-teach-application__intro">Only the member, the day, a working title and what they would teach are needed. Fill in the rest if you know it.</p>
-        {% include "components/form_field.html" with field=add_form.member %}
-        <datalist id="{{ add_form.MEMBER_LIST_ID }}">
-            {% for label in add_form.member_options %}<option value="{{ label }}"></option>{% endfor %}
-        </datalist>
+        <div class="pl-member-picker" x-data="inquiryMemberPicker" @input="filter()" @keydown="onKey($event)" data-member-picker>
+            {% include "components/form_field.html" with field=add_form.member %}
+            <ul id="{{ add_form.MEMBER_LIST_ID }}" class="pl-member-picker__list" role="listbox" aria-label="Members who may ask" @click="pick($event)" data-member-picker-list>
+                {% for label in add_form.member_options %}<li id="{{ add_form.MEMBER_LIST_ID }}-{{ forloop.counter }}" class="pl-member-picker__option" role="option" aria-selected="false" data-member-option="{{ label }}">{{ label }}</li>{% endfor %}
+            </ul>
+            <p class="pl-member-picker__none" data-member-picker-none hidden>No members match.</p>
+        </div>
         {% include "components/form_field.html" with field=add_form.reached_out_on %}
     </section>
 
