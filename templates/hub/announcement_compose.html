@@ -42,6 +42,10 @@
        urgentOn: {{ form.mark_as_urgent.value|yesno:'true,false' }},
        includeWaitlist: {{ form.include_waitlist.value|yesno:'true,false' }},
        siteReach: { loggedIn: {{ site_reach.logged_in|default:0 }}, everyone: {{ site_reach.everyone|default:0 }} },
+       instructorReach: { users: {{ instructor_reach.users|default:0 }}, emailOnly: {{ instructor_reach.email_only|default:0 }} },
+       instructorCount() {
+         return this.instructorReach.users + (this.emailOn ? this.instructorReach.emailOnly : 0);
+       },
        siteCount() {
          const never = document.querySelector('input[name=include_never_logged_in]');
          let n = never && never.checked ? this.siteReach.everyone : this.siteReach.loggedIn;
@@ -66,7 +70,8 @@
          this.phase = 2;
        }
      }"
-     @compose-count.window="recipientCount = audience === 'site' ? siteCount() : $event.detail.count"
+     x-init="$watch('emailOn', () => { if (audience === 'instructor') { recipientCount = instructorCount(); } })"
+     @compose-count.window="recipientCount = audience === 'site' ? siteCount() : audience === 'instructor' ? instructorCount() : $event.detail.count"
      @compose-body.window="hasBody = $event.detail.has">
 
   <div class="pl-phase-tabs" role="tablist" aria-label="Compose steps">
