@@ -10,6 +10,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+from allauth.account.models import EmailAddress
 from django.contrib.auth.models import User
 from django.core import mail
 from django.utils import timezone
@@ -123,13 +124,49 @@ def describe_AnnouncementDraft_instructors_audience():
 
         def it_drops_a_userless_address_an_instructor_account_already_uses():
             oriented = _oriented("shared")
+            User.objects.filter(pk=oriented.pk).update(email="Shared@Example.com")
+            EmailAddress.objects.filter(
+                user=oriented
+            ).delete()  # an account with no allauth row, so only user.email names it
             _userless("shared@example.com")
             assert AnnouncementDraft(audience=_INSTRUCTORS)._instructor_recipients() == ({oriented.pk}, [])
 
-        def it_leaves_out_an_instructor_with_no_address_at_all():
-            _userless("")
+        def it_drops_a_userless_address_an_instructor_chose_as_notification_email():
+            oriented = _oriented("chooser")
+            Member.objects.filter(pk=oriented.member.pk).update(notification_email="Work@Example.com ")
+            _userless("work@example.com")
+            assert AnnouncementDraft(audience=_INSTRUCTORS)._instructor_recipients() == ({oriented.pk}, [])
+
+        def it_drops_a_userless_address_that_is_an_alias_on_an_instructor_account():
+            oriented = _oriented("aliased")
+            EmailAddress.objects.create(user=oriented, email="Alias@Example.com", verified=True, primary=False)
+            _userless("alias@example.com")
+            assert AnnouncementDraft(audience=_INSTRUCTORS)._instructor_recipients() == ({oriented.pk}, [])
+
+        def it_keeps_an_address_that_is_an_alias_on_an_account_outside_the_set():
+            outsider = _user("outsider")
+            EmailAddress.objects.create(user=outsider, email="kept@example.com", verified=True, primary=False)
+            oriented = _oriented("inside")
+            _userless("kept@example.com")
+            assert AnnouncementDraft(audience=_INSTRUCTORS)._instructor_recipients() == (
+                {oriented.pk},
+                ["kept@example.com"],
+            )
+
+        def it_lists_one_address_two_userless_instructors_share_once():
+            _userless("Pair@Example.com")
+            _userless("pair@example.com")
+            assert AnnouncementDraft(audience=_INSTRUCTORS)._instructor_recipients() == (set(), ["pair@example.com"])
+
+        @pytest.mark.parametrize("address", ["", "   "], ids=["blank", "whitespace only"])
+        def it_leaves_out_a_userless_instructor_with_no_address(address: str):
+            _userless(address)
+            assert AnnouncementDraft(audience=_INSTRUCTORS)._instructor_recipients() == (set(), [])
+
+        @pytest.mark.parametrize("address", ["", "   "], ids=["blank", "whitespace only"])
+        def it_leaves_out_an_instructor_account_with_no_email(address: str):
             emailless = _oriented("emailless")
-            User.objects.filter(pk=emailless.pk).update(email="")
+            User.objects.filter(pk=emailless.pk).update(email=address)
             assert AnnouncementDraft(audience=_INSTRUCTORS)._instructor_recipients() == (set(), [])
 
     def describe_recipient_count():
@@ -190,6 +227,28 @@ def describe_AnnouncementDraft_instructors_audience():
             assert count == 3
             assert _reached("email") == set()
             assert mail.outbox == []
+
+        @pytest.mark.parametrize("via", ["notification email", "alias"])
+        def it_emails_an_address_an_instructor_account_already_uses_once(people, via: str):
+            account = people["oriented"]
+            EmailAddress.objects.create(user=account, email="work@example.com", verified=True, primary=False)
+            if via == "notification email":
+                Member.objects.filter(pk=account.member.pk).update(notification_email="work@example.com")
+            _userless("work@example.com")
+            draft = _draft(people["sender"])
+            count = draft.recipient_count()
+            emailed, total = draft.send()
+            outbox = [address for message in mail.outbox for address in message.to]
+            assert len(outbox) == len(set(outbox)) == emailed == total == count == 4
+            assert outbox.count("work@example.com") == (1 if via == "notification email" else 0)
+
+        def it_emails_an_address_two_userless_instructors_share_once(people):
+            _userless("userless-s@example.com")
+            draft = _draft(people["sender"])
+            assert draft.recipient_count() == 4
+            draft.send()
+            outbox = [address for message in mail.outbox for address in message.to]
+            assert outbox.count("userless-s@example.com") == 1
 
         def it_respects_an_instructors_makerspace_announcement_email_opt_out(people):
             NotificationPreference.objects.create(

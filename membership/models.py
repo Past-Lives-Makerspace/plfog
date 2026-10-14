@@ -6378,8 +6378,9 @@ class AnnouncementDraft(models.Model):
         """The addresses with no account this announcement was meant to email.
 
         A class's guests (:meth:`_class_recipients`), a guild's mailing list (the saved selection,
-        else the whole list) and a site announcement's typed addresses. A typed address that turned
-        out to be a member's goes out as that member, whose row already shows its failure.
+        else the whole list), a site announcement's typed addresses and the instructors with no
+        account (:meth:`_instructor_recipients`). A typed address that turned out to be a member's
+        goes out as that member, whose row already shows its failure.
         """
         if self.audience == self.Audience.SITE:
             return {str(addr).strip().lower() for addr in (self.added_recipients or {}).get("custom") or []}
@@ -6388,6 +6389,8 @@ class AnnouncementDraft(models.Model):
         if self.audience == self.Audience.GUILD and self.guild is not None:
             selected = self._selected_custom_emails()
             return set(selected) if selected is not None else set(self.guild.mailing_list_emails_deduped(set()))
+        if self.audience == self.Audience.INSTRUCTORS:
+            return set(self._instructor_recipients()[1])
         return set()
 
     def _email_failures(self) -> dict[str, str]:
@@ -6996,9 +6999,13 @@ class AnnouncementDraft(models.Model):
 
         An instructor with an account that carries an email rides the bell, push and email, signed
         in or not. One with no account rides the email only, at the address on file, unless an
-        account in the set already uses that address, so nobody gets it twice. An instructor with
-        neither is unreachable and left out.
+        account in the set already uses that address (its email, chosen notification email or any
+        alias, as :meth:`_site_recipients` checks), so nobody gets it twice and the count is who
+        the send reaches. An instructor with neither is unreachable and left out.
         """
+        from allauth.account.models import EmailAddress
+        from django.db.models.functions import Lower
+
         user_ids: set[int] = set()
         taken: set[str] = set()
         unlinked: list[str] = []
@@ -7009,8 +7016,17 @@ class AnnouncementDraft(models.Model):
             elif (user.email or "").strip():
                 user_ids.add(user.pk)
                 taken.add(user.email.strip().lower())
-        emails = [addr for addr in dict.fromkeys(unlinked) if addr and addr not in taken]
-        return user_ids, emails
+                taken.add((member.notification_email or "").strip().lower())
+        typed = [addr for addr in dict.fromkeys(unlinked) if addr and addr not in taken]
+        if not typed:
+            return user_ids, []
+        taken |= set(
+            EmailAddress.objects.filter(user_id__in=list(user_ids))
+            .annotate(address=Lower("email"))
+            .filter(address__in=typed)
+            .values_list("address", flat=True)
+        )
+        return user_ids, [addr for addr in typed if addr not in taken]
 
     def _site_delivery_period(self) -> str:
         """The delivery ledger period a site send claims its slots under, the same on every attempt.

@@ -18,7 +18,7 @@ from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory
 from hub.forms import discord_channel_choices, split_audience
-from membership.models import AnnouncementDraft, GuildAnnouncement, Member
+from membership.models import AdminCapability, AnnouncementDraft, GuildAnnouncement, Member
 from tests.membership.factories import GuildFactory, MemberFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
@@ -54,6 +54,27 @@ def _instructor(client: Client) -> User:
     Member.objects.filter(pk=user.member.pk).update(instructor_oriented_at=timezone.now())
     ClassOfferingFactory(instructor=user.member)
     return user
+
+
+def _admin_viewing_as_member(client: Client) -> User:
+    user = _admin(client)
+    session = client.session
+    session["view_as_role"] = "member"
+    session.save()
+    return user
+
+
+def _class_approver(client: Client) -> User:
+    user = _login(client, "approver806")
+    user.member.admin_capabilities.create(capability=AdminCapability.Capability.CLASS_APPROVER)
+    return user
+
+
+def _instructor_draft() -> AnnouncementDraft:
+    sender = User.objects.create_superuser(username="sender806", email="s@example.com", password="p")
+    return AnnouncementDraft.objects.create(
+        author=sender, audience=AnnouncementDraft.Audience.INSTRUCTORS, body="<p>x</p>"
+    )
 
 
 def _instructors() -> None:
@@ -96,7 +117,11 @@ def describe_the_all_instructors_audience():
         assert "<option" not in content[content.index(">", leads) : instructors]
         assert ">All Instructors</option>" in content
 
-    @pytest.mark.parametrize("login", [_lead, _instructor], ids=["guild lead", "instructor"])
+    @pytest.mark.parametrize(
+        "login",
+        [_lead, _instructor, _admin_viewing_as_member, _class_approver],
+        ids=["guild lead", "instructor", "admin viewing as a member", "class approver"],
+    )
     def describe_for_a_member_who_is_not_an_admin():
         def it_is_not_offered(client: Client, login):
             login(client)
@@ -111,6 +136,23 @@ def describe_the_all_instructors_audience():
         def it_refuses_the_count(client: Client, login):
             login(client)
             assert client.get(reverse("hub_compose_count"), {"audience": "instructor"}).status_code == 403
+
+        def it_cannot_resume_an_instructor_draft_by_pk(client: Client, login):
+            draft = _instructor_draft()
+            login(client)
+            assert client.get(reverse("hub_compose_resume", args=[draft.pk])).status_code == 404
+
+        def it_cannot_delete_an_instructor_draft_by_pk(client: Client, login):
+            draft = _instructor_draft()
+            login(client)
+            assert client.post(reverse("hub_compose_delete_draft", args=[draft.pk])).status_code == 404
+            assert AnnouncementDraft.objects.filter(pk=draft.pk).exists()
+
+        def it_does_not_list_an_instructor_draft(client: Client, login):
+            draft = _instructor_draft()
+            login(client)
+            listed = client.get(reverse("hub_announcements")).content.decode()
+            assert reverse("hub_compose_resume", args=[draft.pk]) not in listed
 
     def describe_the_count():
         def it_counts_accounts_and_the_userless_instructor_on_a_fresh_compose(client: Client):
@@ -163,12 +205,3 @@ def describe_the_all_instructors_audience():
             listed = client.get(reverse("hub_announcements")).content.decode()
             assert reverse("hub_compose_resume", args=[draft.pk]) in listed
             assert '<td data-label="Audience">All Instructors</td>' in listed
-
-        def it_is_not_listed_for_a_guild_lead(client: Client):
-            sender = User.objects.create_superuser(username="sender806", email="s@example.com", password="p")
-            draft = AnnouncementDraft.objects.create(
-                author=sender, audience=AnnouncementDraft.Audience.INSTRUCTORS, body="<p>x</p>"
-            )
-            _lead(client)
-            listed = client.get(reverse("hub_announcements")).content.decode()
-            assert reverse("hub_compose_resume", args=[draft.pk]) not in listed
