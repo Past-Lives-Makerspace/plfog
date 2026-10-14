@@ -219,7 +219,7 @@ def describe_admin_member_edit_permissions():
         client.login(username="boss5", password="pass")
         client.post(reverse("hub_admin_member_edit", args=[target.pk]), {"form_id": "notifications"})
         row = NotificationPreference.objects.get(
-            user=target.user, event_key="instructor_new_registration", channel="email"
+            user=target.user, event_key="instructor_class_approved", channel="email"
         )
         assert row.enabled is False
         assert row.changed_by == boss

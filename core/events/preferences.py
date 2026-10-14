@@ -67,3 +67,28 @@ def enabled_channels(user: User, event_key: str) -> list[Channel]:
     """All channels ``user`` should receive ``event_key`` on, in declared order."""
     event = get_event(event_key)
     return [spec.channel for spec in event.channels if wants(user, event_key, spec.channel)]
+
+
+#: The switchable emails on an instructor's Teaching rows: "Updates to your class" and the
+#: discount code decisions. The new registration email is forced, so it has no switch.
+INSTRUCTOR_EMAIL_KEYS = (
+    "instructor_class_approved",
+    "instructor_changes_requested",
+    "discount_code.request_approved",
+    "discount_code.request_declined",
+)
+
+
+def turn_on_instructor_emails(user: User, *, actor: User | None = None) -> int:
+    """Switch every instructor email back on for ``user`` as they become an instructor.
+
+    A member who saved their settings before they taught (or before #612 made these default
+    on) holds explicit off rows for emails about classes they had no reason to want yet.
+    Flipping those rows on, stamped with ``actor``, means a new instructor hears about their
+    own class; a switch they turn off afterwards is theirs. Returns the rows flipped.
+    """
+    from django.utils import timezone
+
+    return NotificationPreference.objects.filter(
+        user=user, event_key__in=INSTRUCTOR_EMAIL_KEYS, channel=Channel.EMAIL.value, enabled=False
+    ).update(enabled=True, changed_at=timezone.now(), changed_by=actor)

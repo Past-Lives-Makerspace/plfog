@@ -79,13 +79,16 @@ TRIGGERS: list[Trigger] = [
         Audience.INSTRUCTORS_ONLY,
         email_default=True,
     ),
+    # Forced: the signup email goes to every instructor's own address no matter what
+    # (classes.emails.emit_instructor_new_registration sends through email_to), so the row
+    # renders padlocked rather than offering a switch that changes nothing.
     Trigger(
         "instructor_new_registration",
         "New registration",
         "Someone registered for your class.",
         "Teaching",
         Audience.INSTRUCTORS_ONLY,
-        email_default=True,
+        force_email=True,
     ),
     Trigger(
         "class_review_requested",

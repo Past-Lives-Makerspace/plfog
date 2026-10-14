@@ -435,9 +435,9 @@ def describe_bulk_controls():
             content = client.get(reverse("hub_user_settings") + "?tab=notifications").content.decode()
             assert "Turn off Discord for everything" in _aria_labels(_notifications_card(content))
 
-        def it_says_nothing_changes_until_save(client):
+        def it_says_changes_save_as_you_make_them(client):
             card = _notifications_card(_own_page(client, "bk_hint"))
-            assert "Every section on this page. Nothing changes until you press Save." in card
+            assert "Every section on this page. Changes save as you make them." in card
 
     def describe_every_grid():
         def it_offers_exactly_the_channels_its_rows_let_you_flip(client):
@@ -491,10 +491,11 @@ def describe_bulk_controls():
         assert all(suffix == channel for suffix, channel in boxes)
         assert len(boxes) == card.count('<input type="checkbox"')
 
-    def it_keeps_the_dirty_guard_on_the_members_own_page(client):
+    def it_drops_the_dirty_guard_now_the_matrix_saves_itself(client):
+        # Nothing is ever left unsaved to warn about on leaving the tab.
         card = _notifications_card(_own_page(client, "bk_dirty"))
-        assert 'data-dirty-key="notifications"' in card
-        assert '@change="dirty.notifications = true"' in card
+        assert 'data-dirty-key="notifications"' not in card
+        assert "data-notif-autosave" in card
 
     def it_renders_the_controls_on_the_token_page_and_the_admin_tab_too(client):
         target = User.objects.create_user(username="bk_t", email="bk_t@example.com")
@@ -504,3 +505,39 @@ def describe_bulk_controls():
         for page in (admin_page, token):
             assert "Turn off Email for everything" in _aria_labels(page)
             assert "Turn off Email for Billing" in _aria_labels(page)
+
+
+def describe_autosave():
+    def it_answers_an_autosave_with_json_and_no_flash_message(client):
+        user = User.objects.create_user(username="as1", email="as1@example.com", password="pw12345!")
+        client.login(username="as1", password="pw12345!")
+        response = client.post(
+            reverse("hub_user_settings"),
+            {"form_id": "notifications"},
+            HTTP_X_AUTOSAVE="1",
+        )
+        assert response.status_code == 200
+        assert response.json()["saved"] is True
+        assert not preferences.wants(user, "class_reminder", Channel.PUSH)
+        page = client.get(f"{reverse('hub_user_settings')}?tab=notifications")
+        assert b"Notification preferences updated." not in page.content
+
+    def it_renders_the_form_as_autosaving_with_no_save_button_outside_noscript(client):
+        User.objects.create_user(username="as2", email="as2@example.com", password="pw12345!")
+        client.login(username="as2", password="pw12345!")
+        page = client.get(f"{reverse('hub_user_settings')}?tab=notifications").content.decode()
+        assert "data-notif-autosave" in page
+        form = page.split("data-notif-autosave", 1)[1].split("</form>", 1)[0]
+        assert re.search(r"<noscript>\s*<div class=\"pl-notif-actions\">", form)
+
+    def it_locks_the_new_registration_email_on(db):
+        user = User.objects.create_user(username="as3", email="as3@example.com")
+        cells = {
+            (row.event_key, cell.channel): cell
+            for section in settings_matrix.build_matrix(user)
+            for block in section.blocks
+            for row in block.rows
+            for cell in row.cells
+        }
+        cell = cells[("instructor_new_registration", Channel.EMAIL)]
+        assert cell.forced and cell.enabled

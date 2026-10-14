@@ -672,7 +672,7 @@ def describe_save_matrix_records_who_changed_a_switch():
     def it_stamps_the_member_when_they_turn_a_switch_off(db):
         user = User.objects.create_user(username="rec2", email="rec2@example.com")
         settings_matrix.save_matrix(user, {})  # every box unticked
-        row = NotificationPreference.objects.get(user=user, event_key="instructor_new_registration", channel="email")
+        row = NotificationPreference.objects.get(user=user, event_key="instructor_class_approved", channel="email")
         assert row.enabled is False
         assert row.changed_by == user
         assert row.changed_at is not None
@@ -681,7 +681,7 @@ def describe_save_matrix_records_who_changed_a_switch():
         user = User.objects.create_user(username="rec3", email="rec3@example.com")
         admin = User.objects.create_user(username="rec3admin", email="rec3admin@example.com")
         settings_matrix.save_matrix(user, {}, actor=admin)
-        row = NotificationPreference.objects.get(user=user, event_key="instructor_new_registration", channel="email")
+        row = NotificationPreference.objects.get(user=user, event_key="instructor_class_approved", channel="email")
         assert row.changed_by == admin
 
     def it_keeps_the_last_change_when_a_later_save_leaves_the_box_alone(db):
@@ -689,10 +689,10 @@ def describe_save_matrix_records_who_changed_a_switch():
         admin = User.objects.create_user(username="rec4admin", email="rec4admin@example.com")
         settings_matrix.save_matrix(user, {}, actor=admin)
         stamped = NotificationPreference.objects.get(
-            user=user, event_key="instructor_new_registration", channel="email"
+            user=user, event_key="instructor_class_approved", channel="email"
         ).changed_at
         settings_matrix.save_matrix(user, {})  # same boxes, nothing flipped
-        row = NotificationPreference.objects.get(user=user, event_key="instructor_new_registration", channel="email")
+        row = NotificationPreference.objects.get(user=user, event_key="instructor_class_approved", channel="email")
         assert (row.changed_by, row.changed_at) == (admin, stamped)
 
 
@@ -718,6 +718,8 @@ def describe_padlocked_rows():
     FORCED_SINCE = {
         "equipment.reservation_requested": "Spaces & Equipment",
         "equipment.reservation_declined": "Spaces & Equipment",
+        # The signup email always went out through email_to; the switch now says so (2026-10-14).
+        "instructor_new_registration": "Teaching",
     }
     # Forced emails routed to staff: padlocked too, but in Admin / Permissions.
     STAFF_FORCED = {
