@@ -1397,7 +1397,8 @@ def describe_a_flexible_class_page():
         assert "data-flexible-section" in html
         assert "cp-detail__sessions" not in html
         assert "cp-detail__h2-sub" not in html
-        assert "h total" not in html
+        # A duration like "703h total"; the page also carries release notes, so a bare "h total" matches prose.
+        assert not re.search(r"\dh(\d+m)? total", html)
         assert 'cp-detail__next-pill">Next session' not in html
         assert 'cp-detail__next-pill cp-detail__next-pill--flex">Flexible scheduling' in html
         assert "<strong>1</strong> session" not in html

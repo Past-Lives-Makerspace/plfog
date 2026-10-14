@@ -416,7 +416,8 @@ def describe_equipment_index():
             )
             EquipmentFactory(name="Woodshop Saw", guild=woodshop)
             EquipmentFactory(name="Dark Room", kind=Equipment.Kind.ROOM)
-            EquipmentHoursFactory(equipment=lathe)
+            # Hours on a weekday other than today, so the Lathe is never open while the spec runs.
+            EquipmentHoursFactory(equipment=lathe, weekday=(timezone.localtime().weekday() + 3) % 7)
 
         def it_renders_the_same_cards(client: Client):
             _grid(client)
