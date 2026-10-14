@@ -14,7 +14,7 @@
             {% endfor %}
         </ul>
         {% endif %}
-        <form method="POST">
+        <form method="POST" data-pl-busy-submit data-pl-busy-label="Sending...">
             {% csrf_token %}
             <label for="id_name">Your name</label>
             <input type="text" name="name" id="id_name" required autofocus placeholder="Full legal or preferred name"
@@ -26,11 +26,12 @@
                 {% endfor %}
             </ul>
             {% endif %}
-            <button type="submit" class="btn btn--primary btn--full">Find My Account</button>
+            <button type="submit" class="btn btn--primary btn--full" data-pl-busy>Find My Account</button>
         </form>
         <div class="auth-links">
             <p><a href="{% url 'account_login' %}">Back to login</a></p>
         </div>
     </div>
 </div>
+{% include "components/busy_submit.html" %}
 {% endblock %}
