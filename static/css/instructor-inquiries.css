@@ -127,7 +127,8 @@
   overflow-wrap: anywhere;
   cursor: pointer;
 }
-.pl-member-picker__option[hidden] { display: none; }
+.pl-member-picker__option[hidden],
+.pl-member-picker__list[hidden] { display: none; }
 .pl-member-picker__option:hover,
 .pl-member-picker__option.is-active { background: var(--hub-elevated); border-color: var(--hub-border-strong); }
 .pl-member-picker__option[aria-selected="true"] {

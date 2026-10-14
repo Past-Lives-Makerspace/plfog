@@ -1828,10 +1828,11 @@ class InstructorInquiryAddForm(TeachingApplicationForm):
         member = self._members_by_label.get(member_picker_key(self.cleaned_data["member"]))
         if member is None:
             raise forms.ValidationError("Pick a member from the list.")
+        name = " ".join(member.display_name.split())
         if member.can_create_classes:
-            raise forms.ValidationError(f"{member.display_name} can already teach.")
+            raise forms.ValidationError(f"{name} can already teach.")
         if member.teaching_application_state == member.TeachingApplicationState.PENDING:
-            raise forms.ValidationError(f"{member.display_name} already has an inquiry waiting on an admin.")
+            raise forms.ValidationError(f"{name} already has an inquiry waiting on an admin.")
         return member
 
     def clean_reached_out_on(self) -> date:

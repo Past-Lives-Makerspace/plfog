@@ -46,7 +46,9 @@
                     option.hidden = query !== "" && !label.includes(query);
                     option.setAttribute("aria-selected", query !== "" && label === query ? "true" : "false");
                 });
-                this.$root.querySelector("[data-member-picker-none]").hidden = this.shown().length > 0;
+                const anyShown = this.shown().length > 0;
+                this.$root.querySelector("[data-member-picker-none]").hidden = anyShown;
+                this.$root.querySelector("[data-member-picker-list]").hidden = !anyShown;
                 this.setActive(null);
             },
 

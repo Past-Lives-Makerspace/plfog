@@ -102,6 +102,7 @@ def describe_the_three_pickers():
         assert f"Sam Lee (#{second.pk})" in options
         assert _picked(FORMS[form_name](f"Sam Lee (#{first.pk})")) == first
         assert _picked(FORMS[form_name](f"sam  lee (#{second.pk})")) == second
+        assert not FORMS[form_name]("Sam Lee").is_valid()
 
     def it_refuses_a_name_not_on_the_list(form_name):
         _member("Maria Amelia Randall")

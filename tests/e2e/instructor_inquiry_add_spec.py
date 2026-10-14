@@ -237,6 +237,7 @@ def describe_the_member_picker():
         page.evaluate("window.plStillHere = true")  # gone if an Enter ever submits the form
         member.press_sequentially("zzz")
         expect(page.locator("[data-member-picker-none]")).to_be_visible()
+        expect(page.locator("[data-member-picker-list]")).to_be_hidden()
         member.press("Enter")
         expect(page.locator("[data-inquiry-add-errors]")).to_have_count(0)
         member.fill("")
@@ -246,6 +247,7 @@ def describe_the_member_picker():
         maria_row = page.locator('[data-member-option="Maria Amelia Randall"]')
         expect(listbox.locator("[role=option]:visible")).to_have_count(1)
         expect(page.locator("[data-member-picker-none]")).to_be_hidden()
+        expect(page.locator("[data-member-picker-list]")).to_be_visible()
         member.press("ArrowDown")
         expect(member).to_have_attribute("aria-activedescendant", maria_row.get_attribute("id"))
         member.press("Enter")
