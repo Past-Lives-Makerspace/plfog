@@ -172,7 +172,7 @@
             {% endif %}
 
             {% comment %}
-            Class Catalog lights up on /classes/ EXCEPT a class-management path (Admin Tools
+            Classes lights up on /classes/ EXCEPT a class-management path (Admin Tools
             claims it) and, for a member who has a Teaching entry, the teaching portal. Every
             active member has a Teaching entry now, so a signed-in visitor on /classes/teach/
             always lights Teaching and never this. The two exclusions are the same two entries,
@@ -183,7 +183,7 @@
             this entry now shares the three-state partial with every other switchable feature.
             {% endcomment %}
             {% url 'classes:public_list' as catalog_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.catalog url=catalog_url label="Class Catalog" icon="hub/partials/nav_icons/_catalog.html" active=classes_catalog_active_class %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.catalog url=catalog_url label="Classes" icon="hub/partials/nav_icons/_catalog.html" active=classes_catalog_active_class %}
 
             {% if teach_nav %}{% if teach_nav.teaches %}
             {# An instructor keeps Teaching and the whole portal in ALL three states (#405): this switch is the recruiting invitation, not the door to somebody's own classes. #}
@@ -206,7 +206,7 @@
                 Calendar
             </a>
 
-            {# active_nav can't reverse the pk'd workspace route, so the whole /meetings/ section matches by path prefix (the Class Catalog idiom). #}
+            {# active_nav can't reverse the pk'd workspace route, so the whole /meetings/ section matches by path prefix (the Classes entry idiom). #}
             {% active_path '/meetings/' as meetings_active %}
             {% url 'hub_meetings' as meetings_url %}
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.meetings url=meetings_url label="Meetings" icon="hub/partials/nav_icons/_meetings.html" active=meetings_active %}
@@ -291,7 +291,7 @@
             {% endif %}
 
             {% comment %}
-            Class Catalog lights up on /classes/ EXCEPT a class-management path (Admin Tools
+            Classes lights up on /classes/ EXCEPT a class-management path (Admin Tools
             claims it) and, for a member who has a Teaching entry, the teaching portal. Every
             active member has a Teaching entry now, so a signed-in visitor on /classes/teach/
             always lights Teaching and never this. The two exclusions are the same two entries,
@@ -302,7 +302,7 @@
             this entry now shares the three-state partial with every other switchable feature.
             {% endcomment %}
             {% url 'classes:public_list' as catalog_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.catalog url=catalog_url label="Class Catalog" icon="hub/partials/nav_icons/_catalog.html" active=classes_catalog_active_class %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.catalog url=catalog_url label="Classes" icon="hub/partials/nav_icons/_catalog.html" active=classes_catalog_active_class %}
 
             {% if teach_nav %}{% if teach_nav.teaches %}
             {# An instructor keeps Teaching and the whole portal in ALL three states (#405): this switch is the recruiting invitation, not the door to somebody's own classes. #}
@@ -331,7 +331,7 @@
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.voting url=voting_url label="Guild Voting" icon="hub/partials/nav_icons/_voting.html" active=voting_active help_key="voting.rank-guilds" %}
             {% endif %}
 
-            {# active_nav can't reverse the pk'd workspace route, so the whole /meetings/ section matches by path prefix (the Class Catalog idiom). #}
+            {# active_nav can't reverse the pk'd workspace route, so the whole /meetings/ section matches by path prefix (the Classes entry idiom). #}
             {% active_path '/meetings/' as meetings_active %}
             {% url 'hub_meetings' as meetings_url %}
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.meetings url=meetings_url label="Meetings" icon="hub/partials/nav_icons/_meetings.html" active=meetings_active %}

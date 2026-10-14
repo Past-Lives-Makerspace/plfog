@@ -86,7 +86,7 @@ guilds, the class catalog, the community calendar, guild voting, and your accoun
 Use the menu on the left to get around:
 
 - Home: your dashboard and recent activity.
-- Class Catalog: every class you can sign up for.
+- Classes: every class you can sign up for.
 - Calendar: everything happening at the space, in one place.
 - Spaces: the floor plan and every studio and shared area.
 - Guild Voting: rank the guilds you want the monthly funding pool to support.
@@ -154,7 +154,7 @@ ARTICLES: list[dict[str, Any]] = [
 Log in and you land on **Home**. It shows:
 
 - **Get started at Past Lives** — a short checklist for new members. Dismiss it once you're settled.
-- Quick links — one tap to the **Calendar**, **Class Catalog**, **Guild Voting**, **Member Directory**, and **Settings**.
+- Quick links — one tap to the **Calendar**, **Classes**, **Guild Voting**, **Member Directory**, and **Settings**.
 - **Your upcoming** — classes and events you're signed up for.
 - **Latest from your guilds** — recent announcements from guilds you follow.
 - **Your guilds** — a chip for each of your guilds, linking straight to its page.
@@ -166,7 +166,7 @@ Log in and you land on **Home**. It shows:
 The left sidebar is the map:
 
 - **Home** — your dashboard.
-- **Class Catalog** — every class you can sign up for.
+- **Classes** — every class you can sign up for.
 - **Calendar** — everything happening at the space, in one place.
 - **Spaces** — the floor map and every studio and shared area.
 - **Guild Voting** — rank the guilds you want the monthly funding pool to support.
@@ -497,7 +497,7 @@ Classes at Past Lives are open to everyone — you don't need to be a member or 
 
 ### Find a Class {#class-find}
 
-1. Open **Class Catalog** in the left menu, or go straight to [/classes/](/classes/).
+1. Open **Classes** in the left menu, or go straight to [/classes/](/classes/).
 2. Narrow things down with the **Class Type** and **When** dropdowns, or open **Filters** for price range, instructor, and upcoming dates.
 3. Click a class to see its description, dates, price, and how many spots are left.
 
@@ -579,7 +579,7 @@ The Calendar puts everything happening at the space in one place: guild meetings
 
 ![The Calendar — Week and Month views, with the Events tab beside them.](/static/help/community-calendar/01-calendar-page.png)
 
-Heads up: some colored events are pulled in from subscribed and guild calendars — not all of them are Past Lives classes, so they won't all appear in the Class Catalog.
+Heads up: some colored events are pulled in from subscribed and guild calendars — not all of them are Past Lives classes, so they won't all appear under Classes.
 
 ### Show or Hide Calendars {#calendar-filter}
 
@@ -883,7 +883,7 @@ Once an admin says yes the teaching portal opens, the menu entry reads **Teachin
 
 Three ways in:
 
-1. Click **Class Catalog** in the left menu, then **Manage My Classes**.
+1. Click **Classes** in the left menu, then **Manage My Classes**.
 2. Go straight to `/classes/teach/`.
 3. On any guild page, click **Teach a Class** in the Get Involved panel. That one jumps straight to the new class form.
 
@@ -1130,7 +1130,7 @@ The **Emails** tab manages every address a person can sign in with. Sign-in work
         "sort_order": 20,
         "related": ["members-and-invites", "become-an-instructor"],
         "body": """\
-The classes admin lives at `/classes/admin/`. Reach it from **Class Catalog** in the left menu, then **Manage classes** (the button admins see where members see Manage My Classes). It requires an actual admin account; instructors and guild leads run their own classes from the teaching portal instead.
+The classes admin lives at `/classes/admin/`. Reach it from **Classes** in the left menu, then **Manage classes** (the button admins see where members see Manage My Classes). It requires an actual admin account; instructors and guild leads run their own classes from the teaching portal instead.
 
 ### The Review Queue {#admin-review-queue}
 

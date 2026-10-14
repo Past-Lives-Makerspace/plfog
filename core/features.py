@@ -73,9 +73,9 @@ class Feature:
 FEATURES: list[Feature] = [
     Feature(
         key="catalog",
-        name="Class Catalog",
+        name="Classes",
         off_description=(
-            "Takes Class Catalog out of the sidebar, and stops the lobby kiosk advertising classes. "
+            "Takes Classes out of the sidebar, and stops the lobby kiosk advertising classes. "
             "Every class page stays reachable by its own link, and the public booking site is untouched."
         ),
     ),
