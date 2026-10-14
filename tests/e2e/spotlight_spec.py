@@ -132,6 +132,7 @@ def describe_with_no_poll_and_no_meeting():
         _sign_in(page, login_via_code)
         _home(page, live_server)
         expect(page.locator(QUIET)).to_be_visible()
+        page.evaluate("document.fonts.ready.then(() => true)")
 
         date = page.locator(f"{QUIET} [data-spotlight-quiet-date]").bounding_box()
         details = page.locator(f"{QUIET} .pl-spotlight__quiet-details").bounding_box()
