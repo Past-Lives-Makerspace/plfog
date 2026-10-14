@@ -351,7 +351,8 @@ def describe_a_flexible_class_in_preview():
         assert "<strong>Nov 2 to Dec 1, 2026</strong>" in body
         assert "cp-detail__sessions" not in body
         assert "cp-detail__h2-sub" not in body
-        assert "h total" not in body
+        # A duration like "703h total"; the page also carries release notes, so a bare "h total" matches prose.
+        assert not re.search(r"\dh(\d+m)? total", body)
         assert 'cp-detail__next-pill">Next session' not in body
         assert 'cp-detail__next-pill--flex">Flexible scheduling' in body
         assert 'data-help-key="class.register"' in body
