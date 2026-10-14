@@ -4320,7 +4320,12 @@ def _compose_audience_forbidden(request: HttpRequest, raw_audience: str) -> Http
     from membership.models import AnnouncementDraft
 
     audience, guild, offering = split_audience(raw_audience)
-    if audience in (AnnouncementDraft.Audience.SITE.value, AnnouncementDraft.Audience.LEADS.value):
+    admin_only = (
+        AnnouncementDraft.Audience.SITE.value,
+        AnnouncementDraft.Audience.LEADS.value,
+        AnnouncementDraft.Audience.INSTRUCTORS.value,
+    )
+    if audience in admin_only:
         return None if _viewing_as_admin(request) else HttpResponse("Forbidden", status=403)
     if audience == AnnouncementDraft.Audience.GUILD.value and guild is not None and _can_edit_guild(request, guild):
         return None
@@ -4561,10 +4566,19 @@ def _render_compose(
         everyone = _compose_count_for(site, None, include_never_logged_in=True)
         site_reach = {"logged_in": logged_in, "never_logged_in": everyone - logged_in, "everyone": everyone}
         form.fields["include_never_logged_in"].widget.attrs["x-on:change"] = "recipientCount = siteCount()"
+    # Who All Instructors reaches, split so the Email switch moves the count in the browser: an
+    # instructor with no account but an address on file gets the email only (#806).
+    instructors = AnnouncementDraft.Audience.INSTRUCTORS.value
+    instructor_reach = None
+    if any(value == instructors for value, _label in form.fields["audience"].choices):
+        instructor_ids, instructor_emails = AnnouncementDraft(audience=instructors)._instructor_recipients()
+        instructor_reach = {"users": len(instructor_ids), "email_only": len(instructor_emails)}
+    email_on = bool(form["send_email"].value())
     if site_reach is not None and form.current_audience == site:
         count = site_reach["everyone"] if form.never_logged_in_included else site_reach["logged_in"]
-        email_on = bool(form["send_email"].value())
         count += sum(1 for _value, _label, email_only in form.site_added_rows if email_on or not email_only)
+    elif instructor_reach is not None and form.current_audience == instructors:
+        count = instructor_reach["users"] + (instructor_reach["email_only"] if email_on else 0)
     else:
         count = _compose_count_for(
             form.current_audience, form.current_guild, form.current_class, include_waitlist=form.waitlist_included
@@ -4588,6 +4602,7 @@ def _render_compose(
             "audience_value": form.audience_value,
             "initial_recipient_count": count,
             "site_reach": site_reach,
+            "instructor_reach": instructor_reach,
             "announcement_category": category_draft.announcement_category,
             "can_open_announcements": _can_open_announcements(request, _get_member(request)),
             "locked": locked,

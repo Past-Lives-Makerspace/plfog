@@ -368,6 +368,18 @@ class MemberQuerySet(models.QuerySet):
             | Q(pk__in=self.in_teaching_state(states.DECLINED).values("pk"))
         )
 
+    def instructors(self) -> MemberQuerySet:
+        """Every active instructor: approved to teach, listed on any class, or holding an instructor page.
+
+        The All Instructors announcement audience (#806), counted and sent from this one set. A
+        former member is never in it, and having signed in is not required.
+        """
+        return (
+            self.active()
+            .filter(Q(instructor_oriented_at__isnull=False) | Q(taught_classes__isnull=False) | ~Q(instructor_slug=""))
+            .distinct()
+        )
+
     def awaiting_welcome_email(self) -> MemberQuerySet:
         """Paying (Standard), active members imported from Airtable who have not yet been sent the
         automated welcome email — the candidate set for the ``welcome_new_members`` automation.
@@ -5891,6 +5903,7 @@ class AnnouncementDraft(models.Model):
         GUILD = "guild", "A specific guild"
         CLASS = "class", "A class you teach"
         LEADS = "leads", "Guild leads"
+        INSTRUCTORS = "instructor", "All Instructors"
 
     class Mention(models.TextChoices):
         NONE = "none", "No ping"
@@ -5923,7 +5936,7 @@ class AnnouncementDraft(models.Model):
         default=Audience.SITE,
         help_text=(
             "Who hears it: everyone site-wide, one guild's joined members, a class's registrants, "
-            "or every guild lead, officer and staffer."
+            "every guild lead, officer and staffer, or every active instructor."
         ),
     )
     guild = models.ForeignKey(
@@ -6127,7 +6140,7 @@ class AnnouncementDraft(models.Model):
 
     @property
     def audience_value(self) -> str:
-        """The composer's combined audience value: ``"site"``, ``"leads"``, ``"guild:<pk>"`` or ``"class:<pk>"``.
+        """The composer's combined audience value: ``"site"``, ``"leads"``, ``"instructor"``, ``"guild:<pk>"`` or ``"class:<pk>"``.
 
         The value the composer's picker posts and :func:`hub.views._compose_audience_forbidden`
         judges, so asking that gate with it asks exactly what the composer would let a request
@@ -6137,19 +6150,19 @@ class AnnouncementDraft(models.Model):
             return f"class:{self.class_offering_id}"
         if self.audience == self.Audience.GUILD:
             return f"guild:{self.guild_id}"
-        if self.audience == self.Audience.LEADS:
-            return self.Audience.LEADS.value
+        if self.audience in (self.Audience.LEADS, self.Audience.INSTRUCTORS):
+            return str(self.audience)
         return self.Audience.SITE.value
 
     @property
     def audience_label(self) -> str:
-        """Who it is for, as the Announcements page shows it: everyone, the guild leads, the guild's name or the class title."""
+        """Who it is for, as the Announcements page shows it: everyone, the guild leads, all instructors, the guild's name or the class title."""
         if self.audience == self.Audience.CLASS:
             return cast("ClassOffering", self.class_offering).title
         if self.audience == self.Audience.GUILD:
             return cast(Guild, self.guild).name
-        if self.audience == self.Audience.LEADS:
-            return self.Audience.LEADS.label
+        if self.audience in (self.Audience.LEADS, self.Audience.INSTRUCTORS):
+            return self.Audience(self.audience).label
         return self.Audience.SITE.label
 
     @property
@@ -6365,8 +6378,9 @@ class AnnouncementDraft(models.Model):
         """The addresses with no account this announcement was meant to email.
 
         A class's guests (:meth:`_class_recipients`), a guild's mailing list (the saved selection,
-        else the whole list) and a site announcement's typed addresses. A typed address that turned
-        out to be a member's goes out as that member, whose row already shows its failure.
+        else the whole list), a site announcement's typed addresses and the instructors with no
+        account (:meth:`_instructor_recipients`). A typed address that turned out to be a member's
+        goes out as that member, whose row already shows its failure.
         """
         if self.audience == self.Audience.SITE:
             return {str(addr).strip().lower() for addr in (self.added_recipients or {}).get("custom") or []}
@@ -6375,6 +6389,8 @@ class AnnouncementDraft(models.Model):
         if self.audience == self.Audience.GUILD and self.guild is not None:
             selected = self._selected_custom_emails()
             return set(selected) if selected is not None else set(self.guild.mailing_list_emails_deduped(set()))
+        if self.audience == self.Audience.INSTRUCTORS:
+            return set(self._instructor_recipients()[1])
         return set()
 
     def _email_failures(self) -> dict[str, str]:
@@ -6477,6 +6493,8 @@ class AnnouncementDraft(models.Model):
             base = f"{self.guild.name} Announcement"
         elif self.audience == self.Audience.LEADS:
             base = "Guild Leads Announcement"
+        elif self.audience == self.Audience.INSTRUCTORS:
+            base = "Instructors Announcement"
         else:
             base = "Makerspace Announcement"
         return f"Urgent: {base}" if self.mark_as_urgent else base
@@ -6674,14 +6692,18 @@ class AnnouncementDraft(models.Model):
         ``SITE`` → the all-active-members audience (widened by :attr:`include_never_logged_in`), plus
         anyone the sender added (:attr:`added_recipients`; a typed address only while Email is on);
         ``GUILD`` → the guild's joined-member audience; ``LEADS`` → every guild lead (the
-        ``all_guild_leads`` resolver) — the exact resolvers the send fans out to, so the count
-        matches delivery.
+        ``all_guild_leads`` resolver); ``INSTRUCTORS`` → every instructor's account, plus each
+        instructor with no account but an address on file while Email is on — the exact sets the
+        send fans out to, so the count matches delivery.
         """
         from core.events import resolvers
         from core.events.registry import Recipients
 
         if self.audience == self.Audience.LEADS:
             return len(self._leads_recipient_ids())
+        if self.audience == self.Audience.INSTRUCTORS:
+            instructor_ids, instructor_emails = self._instructor_recipients()
+            return len(instructor_ids) + (len(instructor_emails) if self.send_email else 0)
         if self.audience == self.Audience.GUILD:
             return len(cast(Guild, self.guild).announcement_member_ids())
         if self.audience == self.Audience.CLASS:
@@ -6853,6 +6875,40 @@ class AnnouncementDraft(models.Model):
             )
             total = result.recipient_count
             counts = (total if self.send_email else 0, total)
+        elif self.audience == self.Audience.INSTRUCTORS:
+            # Every active instructor (``Member.objects.instructors``), signed in or not: the set is
+            # passed explicitly, so the site_announcement key's everyone audience never receives it,
+            # and each instructor's makerspace announcement preferences still apply unless urgent. An
+            # instructor with no account but an address on file gets the email only. Sent in the
+            # request: a few dozen.
+            instructors_url = _absolute_url("/")
+            webhook = resolve_channel_webhook(self.discord_channel, None) if discord_on else ""
+            period = self._site_delivery_period()
+            instructor_ids, instructor_emails = self._instructor_recipients()
+            extra_emails = instructor_emails if self.send_email else []
+            result = emit(
+                "site_announcement",
+                actor=self.author,
+                context={
+                    "member_name": "there",
+                    "announcement_title": self.title,
+                    "announcement_body": rich_html_to_lines(body_html),
+                    "site_url": instructors_url,
+                    "discord_broadcast_webhook": webhook,
+                },
+                url=instructors_url,
+                period=period,
+                messages=self._channel_overrides(instructors_url, identity),
+                suppress_broadcast=(webhook == ""),
+                suppress_email=not self.send_email,
+                suppress_push=suppress_push,
+                recipient_user_ids=instructor_ids,
+                extra_emails=extra_emails or None,
+                discord_mention=mention_str,
+                override_preferences=self.mark_as_urgent,
+            )
+            total = result.recipient_count + len(extra_emails)
+            counts = (total if self.send_email else 0, total)
         elif self.audience == self.Audience.CLASS:
             # Scoped to the class roster: confirmed registrants (and waitlisted ones when the
             # sender opted in). A registrant with a linked account gets the in-app bell + push +
@@ -6937,6 +6993,40 @@ class AnnouncementDraft(models.Model):
         from core.events.registry import Recipients
 
         return {user.pk for user, _reason in resolvers.resolve(Recipients.ALL_GUILD_LEADS, {})}
+
+    def _instructor_recipients(self) -> "tuple[set[int], list[str]]":
+        """An ``INSTRUCTORS`` send's ``(user pks, email-only addresses)`` from ``Member.objects.instructors``.
+
+        An instructor with an account that carries an email rides the bell, push and email, signed
+        in or not. One with no account rides the email only, at the address on file, unless an
+        account in the set already uses that address (its email, chosen notification email or any
+        alias, as :meth:`_site_recipients` checks), so nobody gets it twice and the count is who
+        the send reaches. An instructor with neither is unreachable and left out.
+        """
+        from allauth.account.models import EmailAddress
+        from django.db.models.functions import Lower
+
+        user_ids: set[int] = set()
+        taken: set[str] = set()
+        unlinked: list[str] = []
+        for member in Member.objects.instructors().select_related("user"):
+            user = member.user
+            if user is None:
+                unlinked.append(member.primary_email.strip().lower())
+            elif (user.email or "").strip():
+                user_ids.add(user.pk)
+                taken.add(user.email.strip().lower())
+                taken.add((member.notification_email or "").strip().lower())
+        typed = [addr for addr in dict.fromkeys(unlinked) if addr and addr not in taken]
+        if not typed:
+            return user_ids, []
+        taken |= set(
+            EmailAddress.objects.filter(user_id__in=list(user_ids))
+            .annotate(address=Lower("email"))
+            .filter(address__in=typed)
+            .values_list("address", flat=True)
+        )
+        return user_ids, [addr for addr in typed if addr not in taken]
 
     def _site_delivery_period(self) -> str:
         """The delivery ledger period a site send claims its slots under, the same on every attempt.

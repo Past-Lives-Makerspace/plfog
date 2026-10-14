@@ -4765,7 +4765,8 @@ def split_audience(raw: str) -> "tuple[str, Guild | None, ClassOffering | None]"
     """Split the combined compose audience value into ``(audience, guild, class_offering)``.
 
     The wizard's single ``<select name="audience">`` carries one value per option —
-    ``"site"`` for everyone, ``"leads"`` for every guild lead, ``"guild:<pk>"`` for a guild's members, or ``"class:<pk>"``
+    ``"site"`` for everyone, ``"leads"`` for every guild lead, ``"instructor"`` for every instructor,
+    ``"guild:<pk>"`` for a guild's members, or ``"class:<pk>"``
     for a class's confirmed roster — so the UI stays one control while the model keeps its
     separate ``audience`` / ``guild`` / ``class_offering`` fields. A ``"guild:<pk>"`` or
     ``"class:<pk>"`` whose pk doesn't resolve returns the audience with a ``None`` target
@@ -4776,8 +4777,8 @@ def split_audience(raw: str) -> "tuple[str, Guild | None, ClassOffering | None]"
 
     if raw == AnnouncementDraft.Audience.SITE.value:
         return AnnouncementDraft.Audience.SITE.value, None, None
-    if raw == AnnouncementDraft.Audience.LEADS.value:
-        return AnnouncementDraft.Audience.LEADS.value, None, None
+    if raw in (AnnouncementDraft.Audience.LEADS.value, AnnouncementDraft.Audience.INSTRUCTORS.value):
+        return raw, None, None
     if raw.startswith("guild:"):
         pk = raw.split(":", 1)[1]
         guild = Guild.objects.filter(pk=pk).first() if pk.isdigit() else None
@@ -5201,11 +5202,13 @@ class AnnouncementComposeForm(forms.Form):
         # a crafted or stale POST retargeting it at a guild or class is refused here.
         self._results_announcement = results_announcement
         self._config = config or SiteConfiguration.load()
-        # Audience choices: "site" and "leads" (admins only) + one per editable guild + one per class you teach.
+        # Audience choices: "site", "leads" and "instructor" (admins only) + one per editable guild +
+        # one per class you teach.
         choices: list[tuple[str, str]] = []
         if is_admin:
             choices.append((AnnouncementDraft.Audience.SITE.value, "Everyone (site-wide)"))
             choices.append((AnnouncementDraft.Audience.LEADS.value, AnnouncementDraft.Audience.LEADS.label))
+            choices.append((AnnouncementDraft.Audience.INSTRUCTORS.value, AnnouncementDraft.Audience.INSTRUCTORS.label))
         choices.extend((f"guild:{guild.pk}", guild.name) for guild in (editable_guilds or []))
         choices.extend((f"class:{offering.pk}", f"Class: {offering.title}") for offering in (editable_classes or []))
         cast(forms.ChoiceField, self.fields["audience"]).choices = choices

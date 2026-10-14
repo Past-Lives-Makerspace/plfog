@@ -95,6 +95,7 @@ Helpers on `Member`: `has_admin_capability(cap)` (the authorization gate) and `s
 ## Key QuerySet Methods
 
 - `Member.objects.active()` — status=ACTIVE
+- `Member.objects.instructors()` — active members approved to teach, listed on any class or holding an instructor page, signed in or not; the All Instructors announcement audience (#806)
 - `Member.objects.paying()` — member_type=STANDARD
 - `Member.objects.with_lease_totals()` — annotates active_lease_count, total_monthly_rent
 - `Space.objects.available()` — status=AVAILABLE

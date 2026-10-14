@@ -183,6 +183,20 @@ def describe_recipient_list():
         _failed_email(row, "list@example.com", trigger_kind="guild_announcement")
         assert [r.address for r in row.recipient_list().recipients] == ["list@example.com"]
 
+    def it_lists_an_instructor_with_no_account_whose_email_failed():
+        from tests.membership.factories import MemberFactory
+
+        MemberFactory(_pre_signup_email="NoAccount@Example.com", instructor_oriented_at=timezone.now())
+        row = _sent_row(audience=AnnouncementDraft.Audience.INSTRUCTORS, title="Instructors Announcement")
+        _delivered(row, "broadcast", "discord")
+        _failed_email(row, "noaccount@example.com", error="bounced")
+        _failed_email(row, "stranger@elsewhere.org")
+        listed = row.recipient_list()
+        assert [(r.address, r.email, r.email_error) for r in listed.recipients] == [
+            ("noaccount@example.com", "failed", "bounced")
+        ]
+        assert listed.failed == 1
+
     def it_lists_an_address_typed_into_a_site_send_whose_email_failed():
         row = _sent_row(added_recipients={"users": [], "custom": ["Guest@Example.org"]})
         _delivered(row, "broadcast", "discord")

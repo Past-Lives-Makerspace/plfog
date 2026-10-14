@@ -49,6 +49,8 @@ The Reservations page and the guild page's Reservations tab (#502) build their g
 
 The composer (`hub_compose*`) and the Announcements page share one visibility rule, `_announcement_rows(request, member)` in `hub/views.py`: a row is visible and actionable exactly when `_compose_audience_forbidden(request, draft.audience_value)` is `None` (admins short-circuit to every row). Every composer lookup that takes a `draft_pk` goes through `_handled_draft`, which applies it to resumable rows only. Drafts are shared; `author` is whoever saved last, and the sender once sent.
 
+Guild leads (`leads`) and All Instructors (`instructor`, #806) are admin only audiences sent in the request through `emit("site_announcement")` with an explicit recipient set, so each person's makerspace announcement preferences apply unless the send is urgent. All Instructors is `Member.objects.instructors()`, signed in or not; an instructor with no account is emailed at the address on file only while Email is on, and the composer's count (`instructor_reach`) moves with the Email switch.
+
 On a guild or class announcement the recipient checklist carries "Add people" (#729): a searchable list of members not yet listed with one "Add selected" (`static/js/compose_add_people.js`, the `composeAddPeople` component), and an "Add email addresses" box vetted by `hub_compose_add_addresses` (`classify_announcement_additions`). A guild send saves everyone added to the guild's `GuildMailingListEmail` list (`Guild.remember_announcement_recipients`, in `AnnouncementDraft.send`); a row with a `user` is a saved member, listed by name and reached as a member (`Guild.mailing_list_users`), removed in Guild Settings. A class send saves nothing, and a draft save never does.
 
 ## The Spotlight (#709)

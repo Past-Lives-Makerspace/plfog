@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-13"
+title = "Admins send announcements to All Instructors"
+changes = [
+  "Admins can pick All Instructors as the audience for an announcement, next to Everyone and Guild leads.",
+  "It reaches every active member who is approved to teach, listed as an instructor on a class, or has an instructor page, including instructors who have not signed in to the app yet.",
+]
