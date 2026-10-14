@@ -110,7 +110,7 @@ def describe_hub_nav_help_and_wiki_flags():
 
 # feature key → (a substring unique to its live nav entry, its visible label)
 _NAV_MARKERS: dict[str, tuple[bytes, bytes]] = {
-    "catalog": (b'href="/classes/" class="hub-sidebar__link', b"Class Catalog"),
+    "catalog": (b'href="/classes/" class="hub-sidebar__link', b"Classes"),
     "meetings": (b'href="/meetings/" class="hub-sidebar__link', b"Meetings"),
     "directory": (b'href="/members/" class="hub-sidebar__link', b"Member Directory"),
     "leadership": (b'href="/leadership/" class="hub-sidebar__link', b"Leadership Directory"),

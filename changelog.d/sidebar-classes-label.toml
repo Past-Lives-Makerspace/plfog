@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-13"
+title = "Class Catalog is now called Classes"
+changes = [
+  "The sidebar entry, the home page link and the Help Center now say Classes instead of Class Catalog.",
+  "The class list's heading reads Classes at Past Lives.",
+]

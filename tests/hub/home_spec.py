@@ -583,7 +583,7 @@ def describe_the_class_catalog_quick_link():
     route gate, and these specs deliberately assert on the TILE rather than on the URL.
     """
 
-    CATALOG_TILE = b'<span class="pl-quicklink__label">Class Catalog</span>'
+    CATALOG_TILE = b'<span class="pl-quicklink__label">Classes</span>'
 
     def _home(client: Client) -> bytes:
         return client.get(reverse("hub_home")).content
@@ -622,10 +622,10 @@ def describe_the_class_catalog_quick_link():
         turn_on("catalog")
         body = _home(client)
         assert b"isn't linked to a membership" in body
-        assert b">Class Catalog</a>" in body
+        assert b">Classes</a>" in body
 
         hide("catalog")
         body = _home(client)
         assert b"isn't linked to a membership" in body
-        assert b">Class Catalog</a>" not in body
+        assert b">Classes</a>" not in body
         assert b">Calendar</a>" in body  # the card still offers something

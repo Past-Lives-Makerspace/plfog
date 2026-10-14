@@ -112,7 +112,7 @@ def describe_manage_classes():
         home and the absence assertion would pass against the wrong page.
 
         Match the card's href, not the bare path: base.html carries "/classes/admin/" as a
-        literal in the Class Catalog active-state check.
+        literal in the Classes active-state check.
         """
         member = _unlock(plain_user)
         member.instructor_slug = "sidebar-instructor"
@@ -140,17 +140,19 @@ def describe_active_states():
         nav = html[start : html.index("</nav>", start)]
         teach = nav[nav.index('data-nav="teach"') - 200 : nav.index('data-nav="teach"')]
         assert "active" in teach
-        catalog = nav[nav.index(reverse("classes:public_list")) : nav.index("Class Catalog")]
+        href = nav.index(reverse("classes:public_list"))
+        catalog = nav[href : nav.index("Classes", href)]
         assert "active" not in catalog
 
     def it_does_not_light_class_catalog_on_the_class_admin(admin_user, client):
         # Manage Classes has no sidebar entry to light any more, but the class admin must
-        # still not borrow the Class Catalog's highlight.
+        # still not borrow the Classes entry's highlight.
         client.force_login(admin_user)
         html = client.get(reverse("classes:admin_overview")).content.decode()
         start = html.index('aria-label="Hub navigation"')
         nav = html[start : html.index("</nav>", start)]
-        catalog = nav[nav.index(reverse("classes:public_list")) : nav.index("Class Catalog")]
+        href = nav.index(reverse("classes:public_list"))
+        catalog = nav[href : nav.index("Classes", href)]
         assert "active" not in catalog
 
     def it_lights_teach_not_class_catalog_for_a_locked_member_on_the_marketing_page(plain_user, client):
@@ -162,7 +164,8 @@ def describe_active_states():
         nav = html[start : html.index("</nav>", start)]
         teach = nav[nav.index('data-nav="teach"') - 200 : nav.index('data-nav="teach"')]
         assert "active" in teach
-        catalog = nav[nav.index(reverse("classes:public_list")) : nav.index("Class Catalog")]
+        href = nav.index(reverse("classes:public_list"))
+        catalog = nav[href : nav.index("Classes", href)]
         assert "active" not in catalog
 
     def it_leaves_class_catalog_dark_for_an_instructor_on_the_portal(plain_user, client):
@@ -171,7 +174,8 @@ def describe_active_states():
         html = client.get(reverse("classes:teach_overview")).content.decode()
         start = html.index('aria-label="Hub navigation"')
         nav = html[start : html.index("</nav>", start)]
-        catalog = nav[nav.index(reverse("classes:public_list")) : nav.index("Class Catalog")]
+        href = nav.index(reverse("classes:public_list"))
+        catalog = nav[href : nav.index("Classes", href)]
         assert "active" not in catalog
 
     def it_lights_admin_tools_on_the_class_admin(admin_user, client):
@@ -188,7 +192,8 @@ def describe_active_states():
         html = client.get(reverse("classes:public_list")).content.decode()
         start = html.index('aria-label="Hub navigation"')
         nav = html[start : html.index("</nav>", start)]
-        catalog = nav[nav.index(reverse("classes:public_list")) : nav.index("Class Catalog")]
+        href = nav.index(reverse("classes:public_list"))
+        catalog = nav[href : nav.index("Classes", href)]
         assert "active" in catalog
 
 

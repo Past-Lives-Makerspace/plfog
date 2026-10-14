@@ -115,7 +115,7 @@ def _classes_admin_nav_active(request: HttpRequest) -> bool:
 def _classes_catalog_active_class(
     request: HttpRequest, admin_nav_active: bool, teach_nav: dict[str, Any] | None
 ) -> str:
-    """``"active"`` when the Class Catalog sidebar entry owns the current page, else ``""``.
+    """``"active"`` when the Classes sidebar entry owns the current page, else ``""``.
 
     Catalog lights on every ``/classes/`` path EXCEPT the two other entries carve out of it:
     a class-management path, which belongs to Admin Tools (:func:`_classes_admin_nav_active`),
@@ -149,7 +149,7 @@ def _teach_nav(request: HttpRequest, member: Member | None, admin_nav_active: bo
     Deliberately NOT gated on ``is_instructor`` (the public profile slug): that is the
     Instructor *role*, and someone can hold the portal unlock without a slug, which would
     leave them with access and no way in. Active on every ``/classes/teach/`` path, which
-    the Class Catalog entry excludes — except the one an admin owns instead, which is
+    the Classes entry excludes — except the one an admin owns instead, which is
     ``admin_nav_active`` (see :func:`_classes_admin_nav_active`); the two entries never
     both light.
 
