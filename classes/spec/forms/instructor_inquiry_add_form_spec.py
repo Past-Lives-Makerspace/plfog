@@ -1,6 +1,6 @@
 """BDD specs for InstructorInquiryAddForm, the Add Inquiry modal on Instructor Inquiries (#794).
 
-An admin files an ask to teach by hand: the member (a datalist picker of the members who
+An admin files an ask to teach by hand: the member (a searchable list of the members who
 may ask), the day they reached out, and the application's answers, of which only the
 working title and what they would teach are required. The application's rules between
 answers still hold, websites take only http and https, and ``save`` files the ask

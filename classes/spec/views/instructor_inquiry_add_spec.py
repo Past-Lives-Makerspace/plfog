@@ -60,7 +60,9 @@ def describe_access():
         assert "data-inquiry-add>+ Add Inquiry</button>" in content
         assert f'action="{ADD}"' in content
         assert 'id="inquiry-add-title">Add an Inquiry</h2>' in content
-        assert '<option value="Robin Reachout"></option>' in content
+        assert 'role="option" aria-selected="false" data-member-option="Robin Reachout">Robin Reachout</li>' in content
+        assert 'role="listbox"' in content
+        assert "<datalist" not in content
         assert f'value="{timezone.localdate().isoformat()}"' in content
         assert REOPEN not in content
         assert 'max="' + timezone.localdate().isoformat() + '"' in content
@@ -82,6 +84,13 @@ def describe_access():
         assert "login" in response["Location"]
         robin.refresh_from_db()
         assert robin.teaching_applied_at is None
+
+    def it_names_a_member_stored_with_stray_spaces_tidily(admin_user, client: Client, robin):
+        robin.full_legal_name = " Robin  Reachout "
+        robin.save(update_fields=["full_legal_name"])
+        client.force_login(admin_user)
+        response = client.post(ADD, _post(), follow=True)
+        assert "Added an inquiry for Robin Reachout." in response.content.decode()
 
     def it_takes_only_a_post(admin_user, client: Client):
         client.force_login(admin_user)

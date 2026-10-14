@@ -40,27 +40,36 @@ def setup_location_field(form: forms.ModelForm, hint: str = LOCATION_HINT) -> No
     )
 
 
-def member_picker_labels(members: Iterable[Member]) -> dict[str, Member]:
-    """The labels a text input over a datalist offers for ``members``, each to its member.
+def member_picker_key(text: str) -> str:
+    """What a member picker matches on: ``text`` with its spaces collapsed and trimmed, case folded.
 
-    A member is labelled by their display name; two who share one get their member number
+    A label and whatever was posted for it both go through this, so a name stored or typed
+    with a leading, trailing or doubled space still finds its member (#805).
+    """
+    return " ".join(text.split()).casefold()
+
+
+def member_picker_labels(members: Iterable[Member]) -> dict[str, Member]:
+    """The labels a member picker offers for ``members``, each to its member.
+
+    A member is labelled by their display name with its spaces collapsed and trimmed (#805:
+    36 stored names end in a space); two whose names then match get their member number
     after it (``"Sam Lee (#42)"``), so every label names exactly one person. The keys keep
-    the members' order; look one up with ``label.strip().casefold()`` against
+    the members' order; look a posted value up with :func:`member_picker_key` against
     :func:`member_picker_lookup`. The Record Orientation and Give Credit pickers and the
     Add Inquiry picker (#794) share it.
     """
-    members = list(members)
-    name_counts = Counter(m.display_name.casefold() for m in members)
+    named = [(" ".join(m.display_name.split()), m) for m in members]
+    name_counts = Counter(name.casefold() for name, _ in named)
     labels: dict[str, Member] = {}
-    for candidate in members:
-        name = candidate.display_name
+    for name, candidate in named:
         labels[name if name_counts[name.casefold()] == 1 else f"{name} (#{candidate.pk})"] = candidate
     return labels
 
 
 def member_picker_lookup(labels: dict[str, Member]) -> dict[str, Member]:
-    """``labels`` keyed by the case folded label, for matching what was typed."""
-    return {label.casefold(): member for label, member in labels.items()}
+    """``labels`` keyed by :func:`member_picker_key`, for matching what was posted."""
+    return {member_picker_key(label): member for label, member in labels.items()}
 
 
 class MemberAdminForm(forms.ModelForm):

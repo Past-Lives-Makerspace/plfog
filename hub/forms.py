@@ -35,7 +35,7 @@ from core.features import DEFAULT_SOON_MESSAGE
 from core.events.scheduling import next_tick
 from core.models import CalendarFeed, FeatureSwitch, FeedbackRequest, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
-from membership.forms import member_picker_labels, member_picker_lookup, setup_location_field
+from membership.forms import member_picker_key, member_picker_labels, member_picker_lookup, setup_location_field
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
 from membership.names import user_display_name, user_label, user_name_or_email
 from membership.models import (
@@ -4292,7 +4292,7 @@ class OrientationRecordForm(forms.Form):
         self._members_by_label = member_picker_lookup(labels)
 
     def clean_member(self) -> Member:
-        picked = self._members_by_label.get(self.cleaned_data["member"].strip().casefold())
+        picked = self._members_by_label.get(member_picker_key(self.cleaned_data["member"]))
         if picked is None:
             raise forms.ValidationError("Pick a member from the list.")
         return picked
@@ -6944,7 +6944,7 @@ class EquipmentCreditForm(forms.Form):
         self._members_by_label: dict[str, Member] = member_picker_lookup(labels)
 
     def clean_member(self) -> Member:
-        picked = self._members_by_label.get(self.cleaned_data["member"].strip().casefold())
+        picked = self._members_by_label.get(member_picker_key(self.cleaned_data["member"]))
         if picked is None:
             raise forms.ValidationError("Pick a member from the list.")
         return picked

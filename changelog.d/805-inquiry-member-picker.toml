@@ -1,0 +1,8 @@
+bump = "patch"
+date = "2026-10-13"
+title = "Add Inquiry takes every member it lists"
+changes = [
+  "On Instructor Inquiries, Add Inquiry now saves for every member in its list. Some members were refused with Pick a member from the list even after being picked.",
+  "The member list in Add Inquiry now scrolls inside the window and narrows as you type, in every browser.",
+  "Record Orientation and Give Credit accept those same members too.",
+]
