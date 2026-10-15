@@ -1,95 +1,136 @@
-/* The Door Code tile in Home's quick links (#813, hub/partials/_door_code_tile.html). A
-   .pl-quicklink like its neighbours, so it takes no row of its own; tapping its toggle reveals
-   the code, the Changed line and the Hide (and an admin's Change) buttons inside the tile. */
+/* The Door Code on Home (#813, hub/partials/_door_code.html). Wide screens show a compact box in
+   the page header beside Show me around; narrower screens show a full width card under the quick
+   links instead. Either way the code sits behind Tap to reveal on every load. Loaded by Home alone. */
 
-/* While the tile is open it is taller than its row's links; keep them their own height. Only
-   then: closed, the grid's default stretch keeps a row even where a label wraps. This file is
-   loaded by Home alone, the one page with quick links. */
-.pl-quicklinks:has(.pl-door-tile--open) {
-    align-items: start;
+.pl-home-header-actions {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
 }
 
-.pl-door-tile {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0;
-    padding: 0;
+.pl-door-code {
     min-width: 0;
 }
-/* The tile holds buttons, so the cell itself is not a click target: it neither lifts nor lights
-   up on hover. Hovering the toggle lights it like a link tile, because that is what a tap opens. */
-.pl-door-tile:hover {
-    transform: none;
-    border-color: var(--hub-card-border);
+.pl-door-code--header {
+    display: none;
+    width: 15rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--hub-card-border);
+    border-radius: 10px;
     background: var(--hub-card-bg);
 }
-.pl-door-tile:has(.pl-door-tile__toggle:hover) {
-    border-color: var(--color-tuscan-yellow);
-    background: var(--hub-surface);
-}
-.pl-door-tile.pl-door-tile--open {
-    border-color: var(--color-tuscan-yellow);
+@media (min-width: 1200px) {
+    .pl-door-code--header {
+        display: block;
+    }
+    .pl-door-code--card {
+        display: none;
+    }
+    /* Keep the box beside the title: the greeting and description narrow instead of wrapping. */
+    .hub-page-header:has(.pl-home-header-actions) {
+        flex-wrap: nowrap !important;
+    }
+    .hub-page-header:has(.pl-home-header-actions) > div:first-child {
+        flex: 1 1 0;
+        min-width: 0;
+    }
 }
 
-.pl-door-tile__toggle {
+.pl-door-code__top {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+.pl-door-code__label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+.pl-door-code__label svg {
+    color: var(--color-tuscan-yellow);
+}
+.pl-door-code__change {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-tuscan-yellow);
+    cursor: pointer;
+}
+.pl-door-code__change:hover {
+    text-decoration: underline;
+}
+
+.pl-door-code__reveal {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
     gap: 0.75rem;
     width: 100%;
-    padding: 0.9rem 1rem;
+    margin-top: 0.375rem;
+    padding: 0;
     border: 0;
-    border-radius: 10px;
     background: none;
     color: inherit;
     font: inherit;
     text-align: left;
     cursor: pointer;
 }
-/* Closed, the tile is stretched to its row's height; the toggle fills it and centres the icon and
-   label like the neighbouring link tiles. */
-.pl-door-tile:not(.pl-door-tile--open) .pl-door-tile__toggle {
-    flex: 1;
-}
-.pl-door-tile__toggle:focus-visible {
+.pl-door-code__reveal:focus-visible,
+.pl-door-code__change:focus-visible {
     outline: 2px solid var(--hub-blue);
-    outline-offset: -2px;
+    outline-offset: 2px;
+    border-radius: 4px;
 }
-
-.pl-door-tile__reveal {
-    padding: 0 1rem 0.9rem;
+.pl-door-code__value {
     min-width: 0;
-}
-.pl-door-tile__code {
-    margin: 0;
     font-family: var(--font-heading);
-    font-size: 1.75rem;
+    font-size: 1.5rem;
     font-weight: 900;
-    line-height: 1.15;
-    letter-spacing: 0.04em;
+    line-height: 1.2;
+    letter-spacing: 0.06em;
     color: var(--hub-text);
-    /* A code up to 20 characters wraps inside the tile rather than pushing the grid wider. */
-    overflow-wrap: anywhere;
     font-variant-numeric: tabular-nums;
+    /* A code up to 20 characters wraps rather than pushing the box wider. */
+    overflow-wrap: anywhere;
 }
-.pl-door-tile__changed,
-.pl-door-tile__empty {
-    margin: 0.5rem 0 0;
+.pl-door-code__mask {
+    color: var(--hub-text-muted);
+    letter-spacing: 0.15em;
+}
+.pl-door-code__hint {
+    flex-shrink: 0;
     font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-tuscan-yellow);
+    white-space: nowrap;
+}
+.pl-door-code__reveal:hover .pl-door-code__hint {
+    text-decoration: underline;
+}
+.pl-door-code__changed,
+.pl-door-code__empty {
+    margin: 0.25rem 0 0;
+    font-size: 0.75rem;
     color: var(--hub-text-muted);
 }
-.pl-door-tile__empty {
-    margin-top: 0;
-    font-size: 0.9375rem;
-}
-.pl-door-tile__actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
+.pl-door-code__empty {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
 }
 
-@media (max-width: 480px) {
-    .pl-door-tile__code {
-        font-size: 1.5rem;
-    }
+.pl-door-code--card .pl-door-code__value {
+    font-size: 2rem;
+}
+
+.pl-home-header-actions {
+    flex-shrink: 0;
 }

@@ -12,7 +12,7 @@
 {% if spotlight %}<div class="pl-spotlight-home" data-spotlight-home>{% include "hub/partials/_spotlight.html" with spotlight=spotlight next_url=request.get_full_path %}</div>{% endif %}
 {% if member %}
 {% with greeting="Welcome back, "|add:member.display_name %}
-{% include "components/page_header.html" with title=greeting description="Your home base — what's coming up, the latest from your guilds, and quick ways in." action_url="?tour=member-welcome" action_label="Show me around" %}
+{% include "components/page_header.html" with title=greeting description="Your home base — what's coming up, the latest from your guilds, and quick ways in." action_include="hub/partials/_home_header_actions.html" %}
 {% endwith %}
 
 {# --- Get started onboarding checklist (shows until onboarded or dismissed) --- #}
@@ -60,8 +60,6 @@
         <span class="pl-quicklink__label">Member Directory</span>
     </a>
     {% endif %}
-    {# Door Code (#813): a tap to reveal tile for active members and admins; members see it once a code is set. #}
-    {% include "hub/partials/_door_code_tile.html" %}
     <a href="{% url 'hub_user_settings' %}" class="pl-quicklink">
         <span class="pl-quicklink__icon" aria-hidden="true">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -79,6 +77,8 @@
     {% endif %}
 </div>
 
+{# Door Code (#813): on narrower screens a full width card here; wide screens show it in the header. #}
+{% include "hub/partials/_door_code.html" with variant="card" %}
 {% if door_code.can_change %}
 {% include "components/modal.html" with modal_id="door-code-change" modal_title="Change the Door Code" modal_size="sm" modal_body_include="hub/partials/_door_code_form.html" %}
 {% endif %}
