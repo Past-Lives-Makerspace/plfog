@@ -32,6 +32,7 @@ from django.http import (
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.cache import patch_cache_control
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST, require_http_methods
@@ -7129,7 +7130,7 @@ def home(request: HttpRequest) -> HttpResponse:
     member = _get_member(request)
     ctx = _get_hub_context(request)
     if member is None:
-        return render(request, "hub/home.html", {**ctx, "member": None})
+        return _private_no_store(render(request, "hub/home.html", {**ctx, "member": None}))
     from hub.door_code import DoorCodeCard, DoorCodeForm
     from hub.home import build_home_context
 
@@ -7137,17 +7138,30 @@ def home(request: HttpRequest) -> HttpResponse:
     door_code_form = (
         DoorCodeForm(initial={"door_code": door_code.code}) if door_code is not None and door_code.can_change else None
     )
-    return render(
-        request,
-        "hub/home.html",
-        {
-            **ctx,
-            "member": member,
-            **build_home_context(member),
-            "door_code": door_code,
-            "door_code_form": door_code_form,
-        },
+    return _private_no_store(
+        render(
+            request,
+            "hub/home.html",
+            {
+                **ctx,
+                "member": member,
+                **build_home_context(member),
+                "door_code": door_code,
+                "door_code_form": door_code_form,
+            },
+        )
     )
+
+
+def _private_no_store(response: HttpResponse) -> HttpResponse:
+    """Keep Home out of every cache, the browser's Back and bfcache included (#813).
+
+    Home carries the door code. On a shared computer, Back after signing out would otherwise
+    show the last member's page again. Set on every Home response, not only when the card
+    shows, because the whole page is one person's and the rule then has nothing to drift.
+    """
+    patch_cache_control(response, private=True, no_store=True)
+    return response
 
 
 def community_calendar(request: HttpRequest) -> HttpResponse:

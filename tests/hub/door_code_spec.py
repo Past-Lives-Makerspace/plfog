@@ -206,6 +206,27 @@ def describe_an_admin():
             assert CHANGE in client.get(HOME).content
 
 
+def describe_home_caching():
+    def it_keeps_home_out_of_every_cache_for_a_member(client: Client):
+        _set_code()
+        _login(client, "doorcache")
+
+        response = client.get(HOME)
+
+        directives = {part.strip() for part in response["Cache-Control"].split(",")}
+        assert {"private", "no-store"} <= directives
+
+    def it_keeps_home_out_of_every_cache_for_an_unlinked_account(client: Client):
+        user = User.objects.create_user(username="doorcacheorphan", password="pass")
+        Member.objects.filter(user=user).delete()
+        client.login(username="doorcacheorphan", password="pass")
+
+        response = client.get(HOME)
+
+        directives = {part.strip() for part in response["Cache-Control"].split(",")}
+        assert {"private", "no-store"} <= directives
+
+
 def describe_who_never_sees_the_code():
     def it_hides_it_from_an_unlinked_account(client: Client):
         _set_code()
@@ -282,6 +303,44 @@ def describe_saving_a_new_code():
         client.post(SAVE, {"door_code": "   4242#  "})
 
         assert SiteConfiguration.load().door_code == FAKE_CODE
+
+    def it_keeps_a_pasted_leading_space_from_cutting_a_twenty_character_code(client: Client):
+        _admin(client)
+
+        client.post(SAVE, {"door_code": " " + "A1#" * 6 + "Z9"})
+
+        assert SiteConfiguration.load().door_code == "A1#A1#A1#A1#A1#A1#Z9"
+
+    def it_puts_no_html_maxlength_on_the_input(client: Client):
+        _admin(client)
+
+        content = client.get(HOME).content.decode()
+
+        start = content.index('name="door_code"')
+        tag = content[content.rindex("<input", 0, start) : content.index(">", start)]
+        assert "maxlength" not in tag
+
+    def describe_saving_the_code_already_stored():
+        def it_keeps_the_date_and_name_of_the_real_change(client: Client):
+            setter = _setter()
+            changed = datetime(2026, 10, 3, 18, 0, tzinfo=dt_timezone.utc)
+            _set_code(by=setter, at=changed)
+            _admin(client)
+
+            response = client.post(SAVE, {"door_code": "  4242#  "})
+
+            assert [str(m) for m in get_messages(response.wsgi_request)] == ["Door code saved. Members see it now."]
+            config = SiteConfiguration.load()
+            assert config.door_code == FAKE_CODE
+            assert config.door_code_changed_at == changed
+            assert config.door_code_changed_by == setter
+
+        def it_reports_whether_the_code_changed():
+            config = _set_code()
+            by = _setter()
+
+            assert config.set_door_code(FAKE_CODE, by=by, now=timezone.now()) is False
+            assert config.set_door_code("1111#", by=by, now=timezone.now()) is True
 
     def it_accepts_twenty_characters(client: Client):
         _admin(client)
@@ -394,6 +453,13 @@ def describe_a_crafted_post_from_a_non_admin():
 
 
 def describe_door_code_card():
+    def it_leaves_the_code_out_of_its_repr():
+        # Sentry ships frame locals with send_default_pii on; the repr must not carry the code.
+        card = DoorCodeCard(code=FAKE_CODE, changed_at=None, can_change=True, changed_by="Zorblax Admin")
+
+        assert FAKE_CODE not in repr(card)
+        assert "code=" not in repr(card).replace("changed_", "")
+
     def it_is_shown_to_members_only_once_a_code_is_set():
         assert DoorCodeCard(code="", changed_at=None, can_change=False).is_shown is False
         assert DoorCodeCard(code=FAKE_CODE, changed_at=None, can_change=False).is_shown is True

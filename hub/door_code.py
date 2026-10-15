@@ -8,9 +8,9 @@ Both gates read ``request.view_as``, so an admin previewing as Guest sees what a
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django import forms
 
@@ -33,7 +33,8 @@ class DoorCodeCard:
     admins a prompt to set one. ``changed_by`` is filled for admins only.
     """
 
-    code: str
+    # Kept out of the repr so a Sentry frame dump or a log line never carries the code.
+    code: str = field(repr=False)
     changed_at: datetime | None
     can_change: bool
     changed_by: str = ""
@@ -83,8 +84,15 @@ class DoorCodeForm(forms.Form):
         widget=forms.TextInput(attrs={"autocomplete": "off", "spellcheck": "false"}),
     )
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # No HTML maxlength: the browser counts a pasted leading space before the server trims
+        # it, so " " plus a 20 character code would arrive cut to a wrong 19. The server's
+        # message covers a code that really is too long.
+        self.fields["door_code"].widget.attrs.pop("maxlength", None)
+
     def save(self, *, by: User, now: datetime) -> SiteConfiguration:
-        """Store the code with who saved it and when."""
+        """Store the code; who saved it and when are stamped only when it changed."""
         config = SiteConfiguration.load()
         config.set_door_code(self.cleaned_data["door_code"], by=by, now=now)
         return config

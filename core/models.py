@@ -1137,16 +1137,24 @@ class SiteConfiguration(models.Model):
         obj, _created = cls.objects.get_or_create(pk=1)
         return obj
 
-    def set_door_code(self, code: str, *, by: User, now: datetime) -> None:
-        """Save a new door code, stamping who saved it and when (#813).
+    def set_door_code(self, code: str, *, by: User, now: datetime) -> bool:
+        """Save the door code, stamping who saved it and when only if it changed (#813).
 
+        Saving the code already stored writes nothing, so the card keeps the date and name of
+        the real change, as ``SpotlightTextForm.save_at`` keeps ``spotlight_text_changed_at``.
         Writes only the three door code columns, so a concurrent edit to any other setting
         is never reverted by a whole row save.
+
+        Returns:
+            True when the code changed.
         """
+        if code == self.door_code:
+            return False
         self.door_code = code
         self.door_code_changed_at = now
         self.door_code_changed_by = by
         self.save(update_fields=["door_code", "door_code_changed_at", "door_code_changed_by"])
+        return True
 
     @property
     def instructor_discount_codes_approval_mode(self) -> bool:
