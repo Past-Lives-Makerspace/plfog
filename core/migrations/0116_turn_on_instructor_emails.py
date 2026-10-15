@@ -5,11 +5,15 @@ defaulted off) stored "off" as if the member had chosen it: 20 instructors stopp
 "class approved" and "changes requested" emails that way. This flips those rows on for every
 member who teaches (a public instructor page or teaching access). From here on
 ``Member.grant_teaching`` and ``Member.ensure_instructor_slug`` do the same for new ones.
+
+Every row it flips is stamped ``changed_at=FLIPPED_AT`` with no ``changed_by``, a marker no
+save produces, so the reverse turns exactly those rows back off.
 """
+
+import datetime
 
 from django.db import migrations
 from django.db.models import Q
-from django.utils import timezone
 
 # Frozen copy of core.events.preferences.INSTRUCTOR_EMAIL_KEYS as of this migration.
 INSTRUCTOR_EMAIL_KEYS = (
@@ -18,6 +22,8 @@ INSTRUCTOR_EMAIL_KEYS = (
     "discount_code.request_approved",
     "discount_code.request_declined",
 )
+
+FLIPPED_AT = datetime.datetime(2026, 10, 14, tzinfo=datetime.UTC)
 
 
 def turn_on(apps, schema_editor):
@@ -31,7 +37,14 @@ def turn_on(apps, schema_editor):
         event_key__in=INSTRUCTOR_EMAIL_KEYS,
         channel="email",
         enabled=False,
-    ).update(enabled=True, changed_at=timezone.now(), changed_by=None)
+    ).update(enabled=True, changed_at=FLIPPED_AT, changed_by=None)
+
+
+def turn_back_off(apps, schema_editor):
+    NotificationPreference = apps.get_model("core", "NotificationPreference")
+    NotificationPreference.objects.filter(changed_at=FLIPPED_AT, changed_by__isnull=True, enabled=True).update(
+        enabled=False, changed_at=None
+    )
 
 
 class Migration(migrations.Migration):
@@ -40,4 +53,4 @@ class Migration(migrations.Migration):
         ("membership", "0231_announcementdraft_instructors_audience"),
     ]
 
-    operations = [migrations.RunPython(turn_on, migrations.RunPython.noop)]
+    operations = [migrations.RunPython(turn_on, turn_back_off)]

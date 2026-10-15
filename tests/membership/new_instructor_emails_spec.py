@@ -70,3 +70,15 @@ def describe_the_migration():
         migration.turn_on(apps, None)
         assert _wants(teaching)
         assert not _wants(bystander)
+
+    def it_turns_back_off_only_the_rows_it_flipped_when_reversed():
+        flipped = _member("mig_rev")
+        flipped.instructor_slug = "mig-rev"
+        flipped.save(update_fields=["instructor_slug"])
+        chosen = _member("mig_chosen")
+        NotificationPreference.objects.filter(user=chosen.user).update(enabled=True)  # their own pick
+        migration = importlib.import_module("core.migrations.0116_turn_on_instructor_emails")
+        migration.turn_on(apps, None)
+        migration.turn_back_off(apps, None)
+        assert not _wants(flipped)
+        assert _wants(chosen)

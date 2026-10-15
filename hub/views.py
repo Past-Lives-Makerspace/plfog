@@ -8026,7 +8026,6 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
     matrix (so an admin can edit a member's notification preferences for them). The
     Orientations tab's record and remove actions post to their own views and come back here.
     """
-
     member = get_object_or_404(Member, pk=pk)
     permissions_url = f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions"
 
