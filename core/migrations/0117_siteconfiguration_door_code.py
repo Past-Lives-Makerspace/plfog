@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("core", "0114_siteactivity_teaching_inquiry_added"),
+        ("core", "0116_turn_on_instructor_emails"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
