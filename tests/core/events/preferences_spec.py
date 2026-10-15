@@ -103,3 +103,32 @@ def describe_enabled_channels():
     def it_includes_forced_email_without_a_row():
         # member.invited forces email (and is email-only), so it's included with no row.
         assert preferences.enabled_channels(_user(), "member.invited") == [Channel.EMAIL]
+
+
+def describe_the_new_registration_email():
+    def it_is_always_on_even_over_an_old_off_row():
+        # The signup email goes out regardless, so the switch is locked on (2026-10-14).
+        user = _user()
+        _pref(user, "instructor_new_registration", Channel.EMAIL, False)
+        assert preferences.wants(user, "instructor_new_registration", Channel.EMAIL) is True
+
+
+def describe_turn_on_instructor_emails():
+    def it_flips_every_off_instructor_email_on_and_names_who_did_it():
+        user = _user()
+        admin = User.objects.create_user(username="ti_admin", email="ti_admin@example.com")
+        for key in preferences.INSTRUCTOR_EMAIL_KEYS:
+            _pref(user, key, Channel.EMAIL, False)
+        assert preferences.turn_on_instructor_emails(user, actor=admin) == len(preferences.INSTRUCTOR_EMAIL_KEYS)
+        for key in preferences.INSTRUCTOR_EMAIL_KEYS:
+            row = NotificationPreference.objects.get(user=user, event_key=key, channel="email")
+            assert (row.enabled, row.changed_by) == (True, admin)
+            assert preferences.wants(user, key, Channel.EMAIL) is True
+
+    def it_leaves_other_switches_and_push_alone():
+        user = _user()
+        _pref(user, "instructor_class_approved", Channel.PUSH, False)
+        _pref(user, "registration_confirmed", Channel.EMAIL, False)
+        assert preferences.turn_on_instructor_emails(user) == 0
+        assert preferences.wants(user, "instructor_class_approved", Channel.PUSH) is False
+        assert preferences.wants(user, "registration_confirmed", Channel.EMAIL) is False

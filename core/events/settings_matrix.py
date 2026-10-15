@@ -29,10 +29,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from django.utils import timezone
 from django.utils.text import slugify
 
 from core.events import preferences
-from core.events.registry import Channel, EventType, Recipients, all_events
+from core.events.registry import Channel, ChannelDefault, EventType, Recipients, all_events
 from core.models import NotificationPreference
 
 if TYPE_CHECKING:
@@ -777,12 +778,21 @@ def build_matrix(user: User, *, include_staff_section: bool = True) -> list[Matr
     return sections
 
 
-def save_matrix(user: User, posted: dict[str, str], *, include_staff_section: bool = True) -> None:
+def save_matrix(
+    user: User, posted: dict[str, str], *, actor: User | None = None, include_staff_section: bool = True
+) -> None:
     """Persist the matrix POST for ``user``.
 
-    For each visible (event, opt-out-able channel) cell, upsert a
+    For each visible (event, opt-out-able channel) cell whose box differs from what the
+    member gets today (their row, else the event's default), upsert a
     :class:`core.models.NotificationPreference` row with ``enabled`` reflecting the
-    checkbox. FORCED and IN_APP cells are skipped — they are always-on and have no
+    checkbox, stamped with ``changed_at`` and ``changed_by`` (``actor``: the admin saving
+    on the member's page, else the member). A box left as it was writes nothing, so a new
+    row is always somebody's choice and a later change to a default still reaches everyone
+    who never touched that box. (Writing every box froze 20 instructors' emails off: a save
+    before #612 stored the old off default as if they had chosen it.)
+
+    FORCED and IN_APP cells are skipped — they are always-on and have no
     user-controlled state to store, so we never write a row that pretends otherwise.
     A checked box is ``enabled=True``; an absent box (HTML omits unchecked checkboxes)
     is ``enabled=False``. A channel the user can't use yet (the Discord DM channel
@@ -812,6 +822,13 @@ def save_matrix(user: User, posted: dict[str, str], *, include_staff_section: bo
     availability = {
         channel: channel_availability(user, channel, discord_linked=discord_linked) for channel in USER_CHANNELS
     }
+    saved = {
+        (event_key, channel): enabled
+        for event_key, channel, enabled in NotificationPreference.objects.filter(user=user).values_list(
+            "event_key", "channel", "enabled"
+        )
+    }
+    now = timezone.now()
     for event in _visible_events(_staff_profile(user), include_staff_section=include_staff_section):
         for channel in USER_CHANNELS:
             spec = event.channel(channel)
@@ -819,9 +836,13 @@ def save_matrix(user: User, posted: dict[str, str], *, include_staff_section: bo
                 continue
             if not availability[channel][0]:
                 continue
+            enabled = posted.get(field_name(_post_key_for(event), channel)) == "on"
+            current = saved.get((event.key, channel.value), spec.default is ChannelDefault.ON)
+            if enabled == current:
+                continue
             NotificationPreference.objects.update_or_create(
                 user=user,
                 event_key=event.key,
                 channel=channel.value,
-                defaults={"enabled": posted.get(field_name(_post_key_for(event), channel)) == "on"},
+                defaults={"enabled": enabled, "changed_at": now, "changed_by": actor or user},
             )

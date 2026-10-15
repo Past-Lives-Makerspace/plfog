@@ -4,7 +4,9 @@ The event x channel notification preference grid. Shared by a member's own setti
 page (_notifications_settings.html), the no-login email-preferences page and the admin
 member-edit Permissions tab, so an admin can edit a member's notifications for them. The
 form posts to the current page with form_id=notifications; each host view saves the
-matrix for the right user.
+matrix for the right user. The form saves itself: every change posts it whole with an
+X-Autosave header (the script at the bottom), the view answers JSON, and a floating spinner
+then the "Saved!" toast say it landed. The Save button is for a browser without JavaScript.
 
 Layout (#524): an "Everything" bar, then the sections from build_matrix. Admin /
 Permissions comes first when the viewer has rows in it, framed, with a "Whole section"
@@ -25,7 +27,7 @@ Context:
                      Admin / Permissions note (only shown on one's own page).
   prefs_token    — optional no-login token carried through on the email-link flow.
 {% endcomment %}
-<form method="post" class="hub-form"{% if matrix_self and not prefs_token %} data-dirty-key="notifications" @input="dirty.notifications = true" @change="dirty.notifications = true" @submit="dirty.notifications = false"{% endif %}>
+<form method="post" class="hub-form" data-notif-autosave>
   {% csrf_token %}
   <input type="hidden" name="form_id" value="notifications">
   {% if prefs_token %}<input type="hidden" name="t" value="{{ prefs_token }}">{% endif %}
@@ -33,7 +35,7 @@ Context:
   <div class="pl-notif-scope pl-notif-scope--page" role="group" aria-label="Everything: bulk switches">
     <div class="pl-notif-scope__title">
       <span class="pl-notif-scope__label">Everything</span>
-      <span class="pl-notif-scope__hint">Every section on this page. Nothing changes until you press Save.</span>
+      <span class="pl-notif-scope__hint">Every section on this page. Changes save as you make them.</span>
     </div>
     <div class="pl-notif-scope__controls">
       <span class="pl-notif-scope__ctl"><span class="pl-notif-scope__ctl-label">All</span>
@@ -174,9 +176,11 @@ Context:
     </div>
     {% endif %}
   {% endfor %}
-  <div class="pl-notif-actions">
-    <button type="submit" class="hub-btn hub-btn--primary">Save</button>
-  </div>
+  <noscript>
+    <div class="pl-notif-actions">
+      <button type="submit" class="hub-btn hub-btn--primary">Save</button>
+    </div>
+  </noscript>
 </form>
 <script>
   // Bulk on/off for the notification matrix (#524). ``scope`` is the <form> (Everything),
@@ -196,4 +200,75 @@ Context:
     var form = scope.closest ? (scope.closest('form') || scope) : scope;
     form.dispatchEvent(new Event('change', { bubbles: true }));
   }
+
+  // The matrix saves itself (2026-10-14). Every change, a bulk flip included (one change event
+  // above), posts the whole form with X-Autosave; the view answers {"saved": true}. A short
+  // pause folds a burst of clicks into one save, and saves run one at a time, each reading the
+  // boxes as they are when it starts, so the last one always carries the final state. Re-runs
+  // on every boosted arrival, so each form is bound once through a flag on the element.
+  (function () {
+    var PAUSE_MS = 350;
+    var FAILED = "Couldn't save your notification settings. Check your connection and try again.";
+    var SIGNED_OUT = "You were signed out, so that change was not saved. Reload the page and sign in.";
+
+    function spinner() {
+      var el = document.querySelector('[data-notif-saving]');
+      if (el) return el;
+      el = document.createElement('div');
+      el.className = 'pl-notif-saving';
+      el.setAttribute('data-notif-saving', '');
+      el.setAttribute('role', 'status');
+      el.innerHTML = '<span class="pl-notif-saving__ring" aria-hidden="true"></span><span>Saving…</span>';
+      document.body.appendChild(el);
+      return el;
+    }
+
+    function notify(message, type) {
+      if (window.showToast) window.showToast(message, type);
+    }
+
+    function bind(form) {
+      if (form.plNotifAutosave) return;
+      form.plNotifAutosave = true;
+      var timer = null;
+      var busy = false;
+      var again = false;
+
+      function save() {
+        if (busy) { again = true; return; }
+        busy = true;
+        again = false;
+        var ring = spinner();
+        ring.classList.add('pl-notif-saving--on');
+        fetch(form.getAttribute('action') || window.location.href, {
+          method: 'POST',
+          body: new FormData(form),
+          headers: { 'X-Autosave': '1' },
+          credentials: 'same-origin',
+        }).then(function (response) {
+          if (response.redirected) { notify(SIGNED_OUT, 'error'); return; }
+          if (!response.ok) { notify(FAILED, 'error'); return; }
+          if (!again) notify('Saved!', 'success');
+        }).catch(function () {
+          notify(FAILED, 'error');
+        }).then(function () {
+          busy = false;
+          if (again) { save(); return; }
+          ring.classList.remove('pl-notif-saving--on');
+        });
+      }
+
+      form.addEventListener('change', function () {
+        clearTimeout(timer);
+        timer = setTimeout(save, PAUSE_MS);
+      });
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        clearTimeout(timer);
+        save();
+      });
+    }
+
+    document.querySelectorAll('form[data-notif-autosave]').forEach(bind);
+  })();
 </script>

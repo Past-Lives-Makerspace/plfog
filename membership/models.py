@@ -2088,6 +2088,7 @@ class Member(models.Model):
             actor=granted_by.user if granted_by is not None else None,
             target=self,
         )
+        self._turn_on_instructor_emails(granted_by.user if granted_by is not None else None)
         if not answering_an_application:
             return
         portal_url = self._teaching_portal_url()
@@ -2155,7 +2156,15 @@ class Member(models.Model):
             slug = f"{base}-{n}"
         self.instructor_slug = slug
         self.save(update_fields=["instructor_slug"])
+        self._turn_on_instructor_emails(None)
         return True
+
+    def _turn_on_instructor_emails(self, actor: "User | None") -> None:
+        """A new instructor gets every instructor email on (``preferences.turn_on_instructor_emails``)."""
+        from core.events.preferences import turn_on_instructor_emails
+
+        if self.user is not None:
+            turn_on_instructor_emails(self.user, actor=actor)
 
     #: What the unified Instructor permission does, in one plain sentence — the SINGLE source of
     #: that copy, the twin of :attr:`AdminCapability.DESCRIPTIONS`. The member edit Permissions tab

@@ -3210,6 +3210,29 @@ def _handle_tours_form(
     return form, None
 
 
+def _save_notifications(
+    request: HttpRequest,
+    user: User,
+    redirect_to: str,
+    *,
+    actor: User | None = None,
+    include_staff_section: bool = True,
+) -> HttpResponse:
+    """Save the notification matrix POST for ``user``, then answer the way the page asked.
+
+    The matrix saves itself (``_notification_matrix.html``): its X-Autosave post gets JSON and
+    no flash message, which would otherwise surface as a stale toast on the next page. A
+    browser without the script posts the Save button and gets the redirect and message.
+    """
+    from core.events import settings_matrix
+
+    settings_matrix.save_matrix(user, request.POST, actor=actor, include_staff_section=include_staff_section)
+    if wants_autosave(request):
+        return autosave_saved()
+    messages.success(request, "Notification preferences updated.")
+    return redirect(redirect_to)
+
+
 def _notification_prefs_via_token(request: HttpRequest) -> HttpResponse:
     """Render/save ONLY the notification matrix for a logged-out member via an email token.
 
@@ -3230,9 +3253,7 @@ def _notification_prefs_via_token(request: HttpRequest) -> HttpResponse:
     user = cast(User, resolved)
 
     if request.method == "POST" and request.POST.get("form_id") == "notifications":
-        settings_matrix.save_matrix(user, request.POST)
-        messages.success(request, "Notification preferences updated.")
-        return redirect(f"{reverse('hub_user_settings')}?tab=notifications&t={token}")
+        return _save_notifications(request, user, f"{reverse('hub_user_settings')}?tab=notifications&t={token}")
 
     notif_matrix = settings_matrix.build_matrix(user)
     notif_channels = [
@@ -3426,11 +3447,9 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
     include_staff = _settings_include_staff(request)
     if request.method == "POST" and request.POST.get("form_id") == "notifications":
-        from core.events import settings_matrix
-
-        settings_matrix.save_matrix(user, request.POST, include_staff_section=include_staff)
-        messages.success(request, "Notification preferences updated.")
-        return redirect(f"{request.path}?tab=notifications")
+        return _save_notifications(
+            request, user, f"{request.path}?tab=notifications", include_staff_section=include_staff
+        )
 
     tours_form, tours_response = _handle_tours_form(request, member)
     if tours_response is not None:
@@ -8032,8 +8051,6 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
     matrix (so an admin can edit a member's notification preferences for them). The
     Orientations tab's record and remove actions post to their own views and come back here.
     """
-    from core.events import settings_matrix
-
     member = get_object_or_404(Member, pk=pk)
     permissions_url = f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions"
 
@@ -8048,8 +8065,7 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if form_id == "notifications":
             target = member.user
             if target is not None:
-                settings_matrix.save_matrix(target, request.POST)
-                messages.success(request, "Saved notification settings.")
+                return _save_notifications(request, target, permissions_url, actor=cast(User, request.user))
             return redirect(permissions_url)
         form = MemberAdminEditForm(request.POST, instance=member)
         if form.is_valid():

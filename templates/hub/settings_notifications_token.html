@@ -25,4 +25,6 @@ partial's Discord CTA (which needs a login) is skipped.
   </div>
   {% include "hub/_notifications_settings.html" %}
 </div>
+{# The matrix saves itself and says so with a toast; this page does not extend hub/base.html, which carries it elsewhere. #}
+{% include "components/toast.html" %}
 {% endblock %}

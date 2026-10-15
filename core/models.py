@@ -1820,12 +1820,25 @@ class NotificationPreference(models.Model):
     ``enabled`` records the user's explicit choice. A FORCED channel ignores it (the
     event is always delivered); for a non-forced channel an absent row means the
     event's channel default decides (``ON`` → opt-in, ``OFF`` → opted out).
+
+    ``changed_at`` and ``changed_by`` say who last flipped the switch and when: the member
+    themselves, or the admin who saved it for them on the member's page. Both are empty on
+    rows saved before they existed (2026-10-14), when every save wrote every box.
     """
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notification_prefs")
     event_key = models.CharField(max_length=60, help_text="Event key from core.events.registry.")
     channel = models.CharField(max_length=20, help_text="Channel key from core.events.registry.Channel.")
     enabled = models.BooleanField(default=False, help_text="Whether this user receives this event on this channel.")
+    changed_at = models.DateTimeField(null=True, blank=True, help_text="When the switch was last flipped.")
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who last flipped the switch: the member, or the admin who saved it for them.",
+    )
 
     class Meta:
         constraints = [

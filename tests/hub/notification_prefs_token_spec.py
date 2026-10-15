@@ -15,6 +15,8 @@ from django.contrib.auth.models import User
 from django.urls import reverse
 
 from core.email_prefs import make_prefs_token
+from core.events import preferences
+from core.events.registry import Channel
 from core.models import NotificationPreference
 from tests.membership.factories import MembershipPlanFactory
 
@@ -70,10 +72,7 @@ def describe_user_settings_when_logged_out():
             )
 
             assert response.status_code == 302
-            assert (
-                NotificationPreference.objects.get(user=user, event_key="class_reminder", channel="push").enabled
-                is True
-            )
+            assert preferences.wants(user, "class_reminder", Channel.PUSH)
 
         def it_redirects_back_to_the_token_page_after_saving(client):
             user = _member_user("token_post_redirect", email="token_post_redirect@example.com")

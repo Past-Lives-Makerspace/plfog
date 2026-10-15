@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-14"
+title = "Notification settings save themselves"
+changes = [
+  "Each switch on the Notifications page saves the moment you flip it. A spinner shows while it saves and a green Saved! confirms it, so there is no Save button to miss.",
+  "Instructors: the email for a new signup in your class is always sent, and its switch now shows a padlock to say so.",
+  "Instructors get every instructor email turned on, and so does anyone who becomes an instructor from now on.",
+]
