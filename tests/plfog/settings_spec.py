@@ -93,6 +93,41 @@ def describe_sentry_dsn():
                 call_kwargs = mock_init.call_args[1]
                 assert call_kwargs["send_default_pii"] is True
 
+        def it_scrubs_the_door_code_recursively_on_top_of_the_default_denylist(monkeypatch):
+            # #813: the door code rides in the Change save's POST body and in Home's locals.
+            from sentry_sdk.scrubber import DEFAULT_DENYLIST
+
+            with patch("sentry_sdk.init") as mock_init:
+                _reload_settings(
+                    monkeypatch,
+                    {
+                        "SENTRY_DSN": "https://examplePublicKey@o0.ingest.sentry.io/0",
+                        "DJANGO_DEBUG": "True",
+                    },
+                )
+                scrubber = mock_init.call_args[1]["event_scrubber"]
+                assert "door_code" in scrubber.denylist
+                assert {name.lower() for name in DEFAULT_DENYLIST} <= set(scrubber.denylist)
+                assert scrubber.recursive is True
+
+                event = {
+                    "request": {"data": {"door_code": "4242#", "csrfmiddlewaretoken": "x"}},
+                    "exception": {
+                        "values": [
+                            {
+                                "stacktrace": {
+                                    "frames": [{"vars": {"ctx": {"door_code": "4242#"}, "door_code": "4242#"}}]
+                                }
+                            }
+                        ]
+                    },
+                }
+                scrubber.scrub_event(event)
+                assert event["request"]["data"]["door_code"].value == "[Filtered]"
+                frame_vars = event["exception"]["values"][0]["stacktrace"]["frames"][0]["vars"]
+                assert frame_vars["door_code"].value == "[Filtered]"
+                assert frame_vars["ctx"]["door_code"].value == "[Filtered]"
+
     def describe_when_sentry_dsn_is_unset():
         def it_does_not_call_sentry_init(monkeypatch):
             with patch("sentry_sdk.init") as mock_init:

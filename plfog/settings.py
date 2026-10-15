@@ -6,7 +6,7 @@ from pathlib import Path
 
 import dj_database_url
 import sentry_sdk
-from sentry_sdk.scrubber import EventScrubber
+from sentry_sdk.scrubber import DEFAULT_DENYLIST, EventScrubber
 from django.core.exceptions import ImproperlyConfigured
 from django.templatetags.static import static
 from django.urls import reverse_lazy
@@ -45,7 +45,9 @@ if SENTRY_DSN:
         # and `data["secret"]` is a live bearer token at the moment a 500 is raised (the
         # rotation has not committed yet). Naming the flat locals `secret` is not enough on
         # its own: the nested copy rides along untouched unless the scrubber recurses.
-        event_scrubber=EventScrubber(recursive=True),
+        # "door_code" (#813): the building door code is a POST field of the Change save and a
+        # local on Home, and the default denylist does not know the name.
+        event_scrubber=EventScrubber(denylist=[*DEFAULT_DENYLIST, "door_code"], recursive=True),
     )
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-dev-key-change-in-production")

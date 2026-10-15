@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-14"
+title = "The door code is on your Home page"
+changes = [
+  "Active members see the current door code on Home, with the date it last changed.",
+  "Admins change the code right from that card, and everyone sees the new one on their next visit.",
+]

@@ -1,0 +1,13 @@
+{% comment %}
+The door-code-change modal body (#813). Context: door_code_form (hub.door_code.DoorCodeForm).
+Unboosted on purpose, like the late fee Waive form: the view answers with a redirect to Home and
+a Django message, and a 403 has to render as a page rather than a dead boosted click.
+{% endcomment %}
+<form method="post" action="{% url 'hub_admin_door_code' %}" hx-boost="false" data-door-code-form>
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=door_code_form.door_code %}
+    <div class="pl-modal__actions">
+        <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'door-code-change')">Cancel</button>
+        <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+    </div>
+</form>
