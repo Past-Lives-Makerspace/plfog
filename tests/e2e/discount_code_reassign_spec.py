@@ -57,6 +57,11 @@ def _seed_bat_class() -> ClassOffering:
     return bat
 
 
+def _day(offering: ClassOffering) -> str:
+    """The date a Re-assign class option shows for ``offering``'s first session (#818)."""
+    return timezone.localtime(offering.sessions.first().starts_at).strftime("%a %b %-d")
+
+
 def _capture(page, name: str) -> None:
     if CAPTURE:
         SHOTS.mkdir(parents=True, exist_ok=True)
@@ -110,8 +115,26 @@ def describe_an_admin():
         expect(submit).to_be_disabled()
         expect(sentence).to_have_text("Pick a class to see what will change.")
         # Upcoming classes only: the cancelled one never shows.
-        expect(picker.locator("option")).to_have_text(["Pick a class", "Make a Halloween Bat"])
-        picker.select_option(label="Make a Halloween Bat")
+        # Two runs of one title read apart by their dates and status (#818).
+        rerun = ClassOfferingFactory(title="Make a Halloween Bat", slug="make-a-halloween-bat-draft")
+        ClassSessionFactory(class_offering=rerun, starts_at=timezone.now() + timedelta(days=21))
+        page.reload()
+        _, menu = _open_reassign(page, live_server, "JACQUELINE30")
+        menu.get_by_role("menuitem", name="Re-assign").click()
+        dialog = page.get_by_role("dialog", name="Re-assign Discount Code")
+        form = dialog.locator("[data-reassign-form]")
+        sentence = form.locator("[data-reassign-sentence]")
+        picker = form.get_by_label("Class", exact=True)
+        submit = form.get_by_role("button", name="Re-assign")
+        form.get_by_role("radio", name="One class").check()
+        bat_label = f"Make a Halloween Bat · {_day(bat)}"
+        expect(picker.locator("option")).to_have_text(
+            ["Pick a class", bat_label, f"Make a Halloween Bat · {_day(rerun)} · Draft"]
+        )
+        picker.evaluate("el => { el.size = 3; }")
+        page.screenshot(path=str(SHOTS / "818-reassign-class-picker.png"), full_page=False)
+        picker.evaluate("el => { el.size = 0; }")
+        picker.select_option(label=bat_label)
         expect(sentence).to_have_text("JACQUELINE30 will work only on Make a Halloween Bat.")
         expect(submit).to_be_enabled()
         _capture_both_themes(page, "764-reassign-modal-02")

@@ -2279,6 +2279,31 @@ class DiscountCodeForm(forms.ModelForm):
         return code
 
 
+def _reassign_class_label(offering: ClassOffering, current_pk: int | None) -> str:
+    """One Re-assign class option (#818): title, then dates, then status, so two runs of one title differ.
+
+    Reads the prefetched ``sessions`` (:meth:`ClassOfferingQuerySet.discount_code_targets`), so a
+    long list costs no query per option. Dates are the next session still to come, else the first.
+    """
+    parts = [offering.title]
+    if offering.is_flexible:
+        parts.append("Flexible")
+    else:
+        sessions = sorted(offering.sessions.all(), key=lambda session: session.starts_at)
+        now = timezone.now()
+        upcoming = [session for session in sessions if session.starts_at >= now] or sessions
+        if not upcoming:
+            parts.append("No dates yet")
+        else:
+            first = timezone.localtime(upcoming[0].starts_at).strftime("%a %b %-d")
+            more = len(upcoming) - 1
+            parts.append(f"{first} (and {more} more date{'s' if more != 1 else ''})" if more else first)
+    if offering.status != ClassOffering.Status.PUBLISHED:
+        parts.append(offering.get_status_display())
+    label = " · ".join(parts)
+    return f"{label} (current)" if offering.pk == current_pk else label
+
+
 class DiscountCodeReassignForm(forms.Form):
     """The Re-assign modal (#764): where an existing code works, and nothing else about it.
 
@@ -2320,8 +2345,12 @@ class DiscountCodeReassignForm(forms.Form):
         self.code = code
         classes = cast(forms.ModelChoiceField, self.fields["class_offering"])
         classes.queryset = ClassOffering.objects.discount_code_targets(keep_pk=code.class_offering_id)
+        classes.label_from_instance = lambda offering: _reassign_class_label(offering, code.class_offering_id)
         teachers = cast(forms.ModelChoiceField, self.fields["instructor"])
         teachers.queryset = ClassOffering.objects.teaching_members(keep_pk=code.instructor_id)
+        teachers.label_from_instance = lambda member: (
+            f"{member.display_name} (current)" if member.pk == code.instructor_id else member.display_name
+        )
 
     def clean(self) -> dict[str, Any]:
         data = super().clean() or {}
