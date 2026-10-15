@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-14"
+title = "The door code hides until you tap it"
+changes = [
+  "The door code is now a Door Code tile next to your other shortcuts on Home, so it no longer takes a whole row.",
+  "The code stays hidden until you tap the tile, and Hide covers it again, so it is not on show when your screen is open.",
+]
