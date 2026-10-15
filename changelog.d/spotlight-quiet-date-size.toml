@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-14"
+title = "The update date no longer runs into Details"
+changes = [
+  "With no poll open and no meeting coming up, the date of the last update under the version is smaller, so it stays clear of the Details button.",
+]
