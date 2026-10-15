@@ -4068,14 +4068,15 @@ def _mark_overdue(waiting_on_you: list[ClassOffering], with_guild_leads: list[An
     gets ``waiting_since``: its open admin gate's age, not the class's, falling back to the
     class's creation for a pending class with no row yet.
     """
-    from classes.overdue import overdue_reviews
+    from classes.overdue import overdue_reviews, waiting_since
 
     overdue = {row.offering.pk: row for row in overdue_reviews(now)}
-    open_admin = dict(
-        ClassApproval.objects.filter(
+    open_admin = {
+        gate.class_offering_id: waiting_since(gate)
+        for gate in ClassApproval.objects.filter(
             class_offering__in=waiting_on_you, role=ClassApproval.Role.ADMIN, decision=""
-        ).values_list("class_offering_id", "created_at")
-    )
+        ).prefetch_related("class_offering__approvals")
+    }
     for offering in waiting_on_you:
         offering.overdue = overdue.get(offering.pk)  # type: ignore[attr-defined]
         offering.waiting_since = open_admin.get(offering.pk, offering.created_at)  # type: ignore[attr-defined]

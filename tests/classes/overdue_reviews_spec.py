@@ -77,6 +77,28 @@ def describe_overdue_reviews():
         assert row.gate == lead_gate
         assert row.days_waiting == 15
 
+    def it_ages_an_early_admin_row_from_the_guild_leads_approval(mugs: ClassOffering):
+        # An admin peeked at the review page on day 0; the lead approved one day ago.
+        _gate(mugs, Role.GUILD_LEAD, 20, decision=ClassApproval.Decision.APPROVED)
+        ClassApproval.objects.filter(class_offering=mugs, role=Role.GUILD_LEAD).update(
+            decided_at=timezone.now() - timedelta(days=1)
+        )
+        _gate(mugs, Role.ADMIN, 20)
+        assert overdue_reviews() == []
+        ClassApproval.objects.filter(class_offering=mugs, role=Role.GUILD_LEAD).update(
+            decided_at=timezone.now() - timedelta(days=4, hours=1)
+        )
+        [row] = overdue_reviews()
+        assert row.days_waiting == 4
+        assert row.waiting_on == "admins"
+
+    def it_says_when_a_pending_classs_dates_have_passed():
+        offering = ClassOfferingFactory(status=Status.PENDING)
+        ClassSessionFactory(class_offering=offering, starts_at=timezone.now() - timedelta(days=2))
+        _gate(offering, Role.ADMIN, 5)
+        [row] = overdue_reviews()
+        assert row.marker == "Waiting 5 days · its dates have passed"
+
     @pytest.mark.parametrize("status", [Status.DRAFT, Status.PUBLISHED, Status.CANCELLED])
     def it_skips_a_class_no_longer_pending(mugs: ClassOffering, status: str):
         _gate(mugs, Role.GUILD_LEAD, 10)
@@ -120,6 +142,19 @@ def describe_send_overdue_review_alerts():
         assert "First session in 23 days" in text
         assert reverse("classes:admin_class_review", kwargs={"pk": mugs.pk}) in text
         assert "@" not in text
+
+    def it_fails_loudly_and_spends_nothing_without_an_alerts_route(
+        mugs: ClassOffering, monkeypatch: pytest.MonkeyPatch
+    ):
+        from django.core.management.base import CommandError
+
+        sent: list[object] = []
+        monkeypatch.setattr("core.events.discord.post_embed", lambda url, message: sent.append(message) or True)
+        _gate(mugs, Role.GUILD_LEAD, 15)
+        with pytest.raises(CommandError, match="no enabled Discord route"):
+            call_command("send_overdue_review_alerts")
+        assert sent == []
+        assert not EventDelivery.objects.filter(event_key="class_review_overdue").exists()
 
     def it_posts_nothing_for_a_young_review(mugs: ClassOffering, posts: list):
         _gate(mugs, Role.GUILD_LEAD, 2)
