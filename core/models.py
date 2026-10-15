@@ -1088,6 +1088,28 @@ class SiteConfiguration(models.Model):
         blank=True,
         help_text="When either Spotlight line last changed; members see the Spotlight's dot until they open it.",
     )
+    # #813: the building door code on the member portal home page, changed from its Door Code
+    # card by an admin. The repo is public: the real code lives only in the production row.
+    door_code = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="The building door code active members see on their home page. Blank shows no card.",
+    )
+    door_code_changed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When an admin last saved the door code; members see the date on the card.",
+    )
+    door_code_changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The admin who last saved the door code; admins see the name on the card.",
+    )
 
     class Meta:
         verbose_name = "Site Settings"
@@ -1114,6 +1136,17 @@ class SiteConfiguration(models.Model):
         """Load the singleton instance, creating it with defaults if needed."""
         obj, _created = cls.objects.get_or_create(pk=1)
         return obj
+
+    def set_door_code(self, code: str, *, by: User, now: datetime) -> None:
+        """Save a new door code, stamping who saved it and when (#813).
+
+        Writes only the three door code columns, so a concurrent edit to any other setting
+        is never reverted by a whole row save.
+        """
+        self.door_code = code
+        self.door_code_changed_at = now
+        self.door_code_changed_by = by
+        self.save(update_fields=["door_code", "door_code_changed_at", "door_code_changed_by"])
 
     @property
     def instructor_discount_codes_approval_mode(self) -> bool:

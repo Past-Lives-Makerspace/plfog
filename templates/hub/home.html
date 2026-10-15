@@ -3,6 +3,10 @@
 
 {% block title %}Home{% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/door-code.css' %}">
+{% endblock %}
+
 {% block content %}
 {# On phones the sidebar starts closed, so the Spotlight sits at the top of Home there (#709); hidden on wider screens. #}
 {% if spotlight %}<div class="pl-spotlight-home" data-spotlight-home>{% include "hub/partials/_spotlight.html" with spotlight=spotlight next_url=request.get_full_path %}</div>{% endif %}
@@ -72,6 +76,9 @@
     </a>
     {% endif %}
 </div>
+
+{# --- Door Code (#813): active members and admins; members see it once a code is set --- #}
+{% include "hub/partials/_door_code_card.html" %}
 
 {# --- Teaching (instructors only, omitted when there is nothing to show) --- #}
 {% if teaching %}

@@ -7130,12 +7130,23 @@ def home(request: HttpRequest) -> HttpResponse:
     ctx = _get_hub_context(request)
     if member is None:
         return render(request, "hub/home.html", {**ctx, "member": None})
+    from hub.door_code import DoorCodeCard, DoorCodeForm
     from hub.home import build_home_context
 
+    door_code = DoorCodeCard.for_request(request)
+    door_code_form = (
+        DoorCodeForm(initial={"door_code": door_code.code}) if door_code is not None and door_code.can_change else None
+    )
     return render(
         request,
         "hub/home.html",
-        {**ctx, "member": member, **build_home_context(member)},
+        {
+            **ctx,
+            "member": member,
+            **build_home_context(member),
+            "door_code": door_code,
+            "door_code_form": door_code_form,
+        },
     )
 
 

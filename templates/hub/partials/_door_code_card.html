@@ -1,0 +1,26 @@
+{% comment %}
+The Door Code card on Home (#813). Context: door_code (hub.door_code.DoorCodeCard, or None for
+anyone who may not see the code) and door_code_form (DoorCodeForm, admins only). Members get no
+card until a code is set; admins always get it, with Change opening the door-code-change modal.
+{% endcomment %}
+{% if door_code and door_code.is_shown %}
+<div class="hub-card pl-home-block pl-door-code" data-door-code-card>
+    <div class="pl-door-code__head">
+        <h2 class="pl-home-heading pl-door-code__heading">Door Code</h2>
+        {% if door_code.can_change %}
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" data-door-code-edit @click="$dispatch('open-modal', 'door-code-change')">{% if door_code.code %}Change{% else %}Set Code{% endif %}</button>
+        {% endif %}
+    </div>
+    {% if door_code.code %}
+    <p class="pl-door-code__code" data-door-code>{{ door_code.code }}</p>
+    {% if door_code.changed_at %}
+    <p class="pl-door-code__changed" data-door-code-changed>Changed {{ door_code.changed_at|date:"M j, Y" }}{% if door_code.changed_by %} by {{ door_code.changed_by }}{% endif %}</p>
+    {% endif %}
+    {% else %}
+    <p class="pl-home-empty" data-door-code-empty>No door code is set yet. Set one and every active member sees it here.</p>
+    {% endif %}
+</div>
+{% if door_code.can_change %}
+{% include "components/modal.html" with modal_id="door-code-change" modal_title="Change the Door Code" modal_size="sm" modal_body_include="hub/partials/_door_code_form.html" %}
+{% endif %}
+{% endif %}
