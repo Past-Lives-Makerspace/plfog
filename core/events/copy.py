@@ -1315,6 +1315,36 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    "class_review_overdue": EventCopy(
+        placeholders=(
+            "class_title",
+            "instructor_names",
+            "guild_name",
+            "waiting_on",
+            "days_waiting",
+            "starts_text",
+            "review_url",
+        ),
+        sample_context={
+            "class_title": "Make Two Mugs with Erin",
+            "instructor_names": "Erin Horgan Corrales",
+            "guild_name": "Ceramics Guild",
+            "waiting_on": "Jay Holtman",
+            "days_waiting": "15",
+            "starts_text": "First session in 23 days",
+            "review_url": "https://pastlives.example/classes/admin/666/review/",
+        },
+        channels={
+            Channel.DISCORD: ChannelCopy(
+                subject="Class review waiting {{ days_waiting }} days: {{ class_title }}",
+                body_text=(
+                    "{{ class_title }} by {{ instructor_names }} ({{ guild_name }}) has waited "
+                    "{{ days_waiting }} days for {{ waiting_on }}. {{ starts_text }}.\n\n"
+                    "Review it: {{ review_url }}"
+                ),
+            ),
+        },
+    ),
     "release.published": EventCopy(
         placeholders=("member_name", "version", "release_title", "release_notes", "site_url"),
         sample_context={

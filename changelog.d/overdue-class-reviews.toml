@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-15"
+title = "Classes waiting too long for review now raise an alarm"
+changes = [
+  "When a submitted class has waited 3 days or more for a review decision, it shows in red on the admin class queue and on Home for the people who can review it, with how long it has waited and how soon it starts.",
+  "The member portal alerts channel on Discord gets a post about it, and another every 3 days while it keeps waiting.",
+]

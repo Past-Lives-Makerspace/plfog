@@ -23,6 +23,7 @@ _BRAND_NEW_KEYS = {
     "voting.results_ready",
     "voting.discord_reminder",
     "voting.results_discord",
+    "class_review_overdue",
     "release.published",
     "event.guild_published",
     "event.community_published",
@@ -162,6 +163,8 @@ def describe_event_registry():
                 "classes.eventbrite_finish_registration",
                 "voting.discord_reminder",
                 "voting.results_discord",
+                # A plain post to the portal alerts channel; the admin queue and Home carry the rest (#817).
+                "class_review_overdue",
                 "orientation.completed",
                 # The five #524 staff emails never had a bell; they stay email only.
                 *_STAFF_EMAIL_EVENTS,
