@@ -4,6 +4,7 @@
 
 .pl-home-header-actions {
     display: flex;
+    flex-shrink: 0;
     align-items: flex-start;
     gap: 1rem;
 }
@@ -62,10 +63,11 @@
     font: inherit;
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--color-tuscan-yellow);
+    color: var(--hub-link);
     cursor: pointer;
 }
 .pl-door-code__change:hover {
+    color: var(--hub-link-hover);
     text-decoration: underline;
 }
 
@@ -110,7 +112,7 @@
     flex-shrink: 0;
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--color-tuscan-yellow);
+    color: var(--hub-link);
     white-space: nowrap;
 }
 .pl-door-code__reveal:hover .pl-door-code__hint {
@@ -131,6 +133,3 @@
     font-size: 2rem;
 }
 
-.pl-home-header-actions {
-    flex-shrink: 0;
-}

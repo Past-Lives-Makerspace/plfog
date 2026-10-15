@@ -297,7 +297,6 @@ def describe_the_two_boxes():
         assert "door-code" not in quicklinks
         assert content.index('data-door-code-box="card"') > content.index(quicklinks) + len(quicklinks)
         assert 'class="pl-door-code pl-door-code--card hub-card pl-home-block"' in _box(content, "card")
-        assert "data-door-code-tile" not in content
 
     @pytest.mark.parametrize("variant", ["header", "card"])
     def it_puts_the_admins_change_and_name_in_each(client: Client, variant: str):

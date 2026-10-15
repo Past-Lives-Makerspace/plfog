@@ -9,7 +9,7 @@ always get it, with Change (or Set Code) opening the door-code-change modal that
 {% if door_code and door_code.is_shown %}
 <div class="pl-door-code pl-door-code--{{ variant }}{% if variant == 'card' %} hub-card pl-home-block{% endif %}" x-data="{ open: false }" data-door-code-box="{{ variant }}">
     <div class="pl-door-code__top">
-        <span class="pl-door-code__label">
+        <span class="pl-door-code__label" id="door-code-label-{{ variant }}">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             Door Code
         </span>
@@ -18,7 +18,7 @@ always get it, with Change (or Set Code) opening the door-code-change modal that
         {% endif %}
     </div>
     {% if door_code.code %}
-    <button type="button" class="pl-door-code__reveal" aria-expanded="false" :aria-expanded="open ? 'true' : 'false'" aria-controls="door-code-value-{{ variant }}" @click="open = !open" data-door-code-toggle>
+    <button type="button" class="pl-door-code__reveal" aria-expanded="false" :aria-expanded="open ? 'true' : 'false'" aria-controls="door-code-value-{{ variant }}" aria-describedby="door-code-label-{{ variant }}" @click="open = !open" data-door-code-toggle>
         <span class="pl-door-code__value" id="door-code-value-{{ variant }}">
             <span class="pl-door-code__mask" x-show="!open" aria-hidden="true">&bull;&bull;&bull;&bull;</span>
             <span class="pl-door-code__code" x-show="open" x-cloak data-door-code>{{ door_code.code }}</span>
