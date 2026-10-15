@@ -2,9 +2,10 @@
    .pl-quicklink like its neighbours, so it takes no row of its own; tapping its toggle reveals
    the code, the Changed line and the Hide (and an admin's Change) buttons inside the tile. */
 
-/* While the tile is open it is taller than its row's links; keep them their own height. This
-   file is loaded by Home alone, the one page with quick links. */
-.pl-quicklinks {
+/* While the tile is open it is taller than its row's links; keep them their own height. Only
+   then: closed, the grid's default stretch keeps a row even where a label wraps. This file is
+   loaded by Home alone, the one page with quick links. */
+.pl-quicklinks:has(.pl-door-tile--open) {
     align-items: start;
 }
 
@@ -15,11 +16,18 @@
     padding: 0;
     min-width: 0;
 }
-/* The tile holds buttons, so it does not lift on hover like a link tile. */
+/* The tile holds buttons, so the cell itself is not a click target: it neither lifts nor lights
+   up on hover. Hovering the toggle lights it like a link tile, because that is what a tap opens. */
 .pl-door-tile:hover {
     transform: none;
+    border-color: var(--hub-card-border);
+    background: var(--hub-card-bg);
 }
-.pl-door-tile--open {
+.pl-door-tile:has(.pl-door-tile__toggle:hover) {
+    border-color: var(--color-tuscan-yellow);
+    background: var(--hub-surface);
+}
+.pl-door-tile.pl-door-tile--open {
     border-color: var(--color-tuscan-yellow);
 }
 
@@ -36,6 +44,11 @@
     font: inherit;
     text-align: left;
     cursor: pointer;
+}
+/* Closed, the tile is stretched to its row's height; the toggle fills it and centres the icon and
+   label like the neighbouring link tiles. */
+.pl-door-tile:not(.pl-door-tile--open) .pl-door-tile__toggle {
+    flex: 1;
 }
 .pl-door-tile__toggle:focus-visible {
     outline: 2px solid var(--hub-blue);

@@ -1,6 +1,6 @@
 """The Door Code tile in the member portal home page's quick links (#813).
 
-``DoorCodeCard.for_request`` decides what one viewer gets: the code for an active member, the
+``DoorCodeTile.for_request`` decides what one viewer gets: the code for an active member, the
 code plus the Change control and the changer's name for an admin, and nothing for anyone else.
 Both gates read ``request.view_as``, so an admin previewing as Guest sees what a guest sees.
 ``DoorCodeForm`` is the admin's one field; ``hub.door_code_views`` saves it.
@@ -26,7 +26,7 @@ BLANK_MESSAGE = "Enter a door code."
 
 
 @dataclass(frozen=True)
-class DoorCodeCard:
+class DoorCodeTile:
     """What the home page's Door Code tile shows one viewer, once tapped open.
 
     ``code`` is blank while none is set; the template shows members no tile then and shows
@@ -40,7 +40,7 @@ class DoorCodeCard:
     changed_by: str = ""
 
     @classmethod
-    def for_request(cls, request: HttpRequest) -> DoorCodeCard | None:
+    def for_request(cls, request: HttpRequest) -> DoorCodeTile | None:
         """The tile for this viewer, or None when they may not see the code.
 
         Only a viewer holding the member role sees it, and ``compute_actual_roles`` gives

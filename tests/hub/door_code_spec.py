@@ -1,4 +1,4 @@
-"""BDD specs for #813: the Door Code card on Home and its admin only Change save.
+"""BDD specs for #813: the Door Code tile on Home and its admin only Change save.
 
 Covers who sees the code (active members and admins only; never an unlinked account, a guest,
 an invited, former or suspended member, nor an admin previewing as Guest), the Change control
@@ -21,7 +21,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.models import SiteConfiguration
-from hub.door_code import BLANK_MESSAGE, DoorCodeCard
+from hub.door_code import BLANK_MESSAGE, DoorCodeTile
 from membership.models import Member
 from tests.membership.factories import GuildFactory, MembershipPlanFactory
 
@@ -83,7 +83,7 @@ def _setter() -> User:
 
 
 def describe_an_active_member():
-    def it_sees_the_card_with_the_code_and_when_it_changed(client: Client):
+    def it_sees_the_tile_with_the_code_and_when_it_changed(client: Client):
         _set_code(by=_setter())
         _login(client, "doormember")
 
@@ -104,7 +104,7 @@ def describe_an_active_member():
         assert b"data-door-code-form" not in content
         assert b"Quillon Setter" not in content
 
-    def it_sees_the_card_as_a_guild_officer_too(client: Client):
+    def it_sees_the_tile_as_a_guild_officer_too(client: Client):
         _set_code()
         _login(client, "doorofficer", fog_role=Member.FogRole.GUILD_OFFICER)
 
@@ -113,7 +113,7 @@ def describe_an_active_member():
         assert CODE_MARKUP in content
         assert CHANGE not in content
 
-    def it_sees_no_card_while_no_code_is_set(client: Client):
+    def it_sees_no_tile_while_no_code_is_set(client: Client):
         _login(client, "doormember")
 
         content = client.get(HOME).content
@@ -157,7 +157,7 @@ def describe_an_admin():
 
         assert b"data-door-code-changed>Changed Oct 3, 2026</p>" in content
 
-    def it_sees_the_card_with_a_prompt_while_no_code_is_set(client: Client):
+    def it_sees_the_tile_with_a_prompt_while_no_code_is_set(client: Client):
         _admin(client)
 
         content = client.get(HOME).content
@@ -188,7 +188,7 @@ def describe_an_admin():
             assert CHANGE not in content
             assert b"Quillon Setter" not in content
 
-        def it_sees_no_card_as_a_guest(client: Client):
+        def it_sees_no_tile_as_a_guest(client: Client):
             _set_code()
             _admin(client)
             _preview(client, "guest")
@@ -544,17 +544,17 @@ def describe_a_crafted_post_from_a_non_admin():
         assert SiteConfiguration.load().door_code == FAKE_CODE
 
 
-def describe_door_code_card_read_model():
+def describe_door_code_tile_read_model():
     def it_leaves_the_code_out_of_its_repr():
         # Sentry ships frame locals with send_default_pii on; the repr must not carry the code.
-        card = DoorCodeCard(code=FAKE_CODE, changed_at=None, can_change=True, changed_by="Zorblax Admin")
+        tile = DoorCodeTile(code=FAKE_CODE, changed_at=None, can_change=True, changed_by="Zorblax Admin")
 
-        assert FAKE_CODE not in repr(card)
-        assert "code=" not in repr(card).replace("changed_", "")
+        assert FAKE_CODE not in repr(tile)
+        assert "code=" not in repr(tile).replace("changed_", "")
 
     def it_is_shown_to_members_only_once_a_code_is_set():
-        assert DoorCodeCard(code="", changed_at=None, can_change=False).is_shown is False
-        assert DoorCodeCard(code=FAKE_CODE, changed_at=None, can_change=False).is_shown is True
+        assert DoorCodeTile(code="", changed_at=None, can_change=False).is_shown is False
+        assert DoorCodeTile(code=FAKE_CODE, changed_at=None, can_change=False).is_shown is True
 
     def it_is_always_shown_to_admins():
-        assert DoorCodeCard(code="", changed_at=None, can_change=True).is_shown is True
+        assert DoorCodeTile(code="", changed_at=None, can_change=True).is_shown is True

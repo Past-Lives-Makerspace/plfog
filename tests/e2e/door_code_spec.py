@@ -3,7 +3,8 @@
 The tile sits in the quick links and hides the code on every load: tapping it reveals the code,
 Hide (or tapping the tile again) hides it. An admin with no code set opens the tile, saves one
 through Set Code at phone width and lands back on Home with the toast and the tile hidden again.
-A 20 character code, revealed, pushes nothing sideways at 390px or 1280px. The repo is public, so
+Closed, the tile is as tall as the links on its row; a 20 character code, revealed, pushes
+nothing sideways and leaves those links their height, at 390px and 1280px. The repo is public, so
 every code is an obviously fake value. Run with ``pytest -m e2e`` on PostgreSQL.
 """
 
@@ -50,6 +51,38 @@ def _set_code(code: str) -> None:
 
 def _home(page, live_server) -> None:
     page.goto(f"{live_server.url}{reverse('hub_home')}")
+
+
+def _tile_row(page) -> tuple[dict, list[dict]]:
+    """The door code tile's box and the boxes of the quick links on its row (same top), in order."""
+    return page.evaluate(
+        """() => {
+            const box = (el) => {
+                const r = el.getBoundingClientRect();
+                return { x: r.x, y: r.y, width: r.width, height: r.height };
+            };
+            const tile = document.querySelector("[data-door-code-tile]");
+            const top = tile.getBoundingClientRect().top;
+            const row = [...document.querySelectorAll(".pl-quicklinks > .pl-quicklink")]
+                .filter((el) => el !== tile && Math.abs(el.getBoundingClientRect().top - top) < 1);
+            return [box(tile), row.map(box)];
+        }"""
+    )
+
+
+def _row_heights(page) -> list[list[float]]:
+    """The heights of the quick links, grouped by row (same top)."""
+    return page.evaluate(
+        """() => {
+            const rows = new Map();
+            for (const el of document.querySelectorAll(".pl-quicklinks > .pl-quicklink")) {
+                const r = el.getBoundingClientRect();
+                const key = Math.round(r.top);
+                rows.set(key, [...(rows.get(key) || []), r.height]);
+            }
+            return [...rows.values()];
+        }"""
+    )
 
 
 def _overflow(page) -> int:
@@ -132,26 +165,47 @@ def describe_the_door_code_tile():
         assert SiteConfiguration.load().door_code == "4242#"
 
     @pytest.mark.parametrize("viewport", [PHONE, DESKTOP], ids=["phone", "desktop"])
+    def it_keeps_its_row_even_while_closed(page, live_server, login_via_code, viewport):
+        _set_code(LONG_CODE)
+        _sign_in(login_via_code, f"door-row-{viewport['width']}-e2e@example.com", fog_role=Member.FogRole.ADMIN)
+        page.set_viewport_size(viewport)
+        _home(page, live_server)
+        expect(page.locator(TOGGLE)).to_be_visible()
+
+        tile, neighbours = _tile_row(page)
+
+        assert neighbours, "the door code tile has no neighbour in its row to measure against"
+        for box in neighbours:
+            assert abs(box["height"] - tile["height"]) <= 1
+        # Home's stylesheet touches the whole grid, so every row stays even, not only the tile's.
+        for heights in _row_heights(page):
+            assert max(heights) - min(heights) <= 1, heights
+
+    @pytest.mark.parametrize("viewport", [PHONE, DESKTOP], ids=["phone", "desktop"])
     def it_keeps_a_revealed_twenty_character_code_inside_the_tile(page, live_server, login_via_code, viewport):
         _set_code(LONG_CODE)
         _sign_in(login_via_code, f"door-wide-{viewport['width']}-e2e@example.com", fog_role=Member.FogRole.ADMIN)
         page.set_viewport_size(viewport)
         _home(page, live_server)
-        settings_box = page.locator(".pl-quicklinks .pl-quicklink", has_text="Settings").bounding_box()
-        assert settings_box is not None
+        expect(page.locator(TOGGLE)).to_be_visible()
+        closed_tile, closed_neighbours = _tile_row(page)
+        assert closed_neighbours, "the door code tile has no neighbour in its row to measure against"
 
         page.locator(TOGGLE).click()
 
         code = page.locator(f"{PANEL} [data-door-code]")
+        expect(code).to_be_visible()
         expect(code).to_have_text(LONG_CODE)
         assert _overflow(page) <= 0
-        tile_box = page.locator(TILE).bounding_box()
+        tile, neighbours = _tile_row(page)
         code_box = code.bounding_box()
-        assert tile_box is not None
         assert code_box is not None
-        assert code_box["x"] + code_box["width"] <= tile_box["x"] + tile_box["width"] + 0.5
-        # The tile stays one grid cell: as wide as its neighbour, and the neighbour keeps its height.
-        assert abs(tile_box["width"] - settings_box["width"]) <= 1
-        after = page.locator(".pl-quicklinks .pl-quicklink", has_text="Settings").bounding_box()
-        assert after is not None
-        assert abs(after["height"] - settings_box["height"]) <= 1
+        assert code_box["x"] + code_box["width"] <= tile["x"] + tile["width"] + 0.5
+        # Still one grid cell: as wide as the tiles beside it, and they never stretch to the open
+        # tile's height (they settle at their own height while it is open).
+        assert len(neighbours) == len(closed_neighbours)
+        for before, after in zip(closed_neighbours, neighbours, strict=True):
+            assert abs(after["width"] - tile["width"]) <= 1
+            assert after["height"] <= before["height"] + 1
+            assert after["height"] < tile["height"]
+        assert abs(tile["width"] - closed_tile["width"]) <= 1
