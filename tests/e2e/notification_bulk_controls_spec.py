@@ -1,11 +1,11 @@
 """End to end: the notification page's per-channel bulk switches (#524).
 
-An admin presses the real buttons in a real browser and saves. Proves each control flips
-only the unlocked cells of its own channel and scope (page, one section, one group inside
-Admin / Permissions) and leaves everything else as it was, that nothing is saved until
-Save, that the unsaved-changes guard notices a bulk flip, and that a member without
-Discord linked is offered no Discord control anywhere. Every case reads the saved
-preferences back after Save. Run with ``pytest -m e2e``.
+An admin presses the real buttons in a real browser. Proves each control flips only the
+unlocked cells of its own channel and scope (page, one section, one group inside Admin /
+Permissions) and leaves everything else as it was, that the page saves itself with no
+button (a spinner, then the "Saved!" toast), and that a member without Discord linked is
+offered no Discord control anywhere. Every case reads the saved preferences back once the
+toast says the save landed. Run with ``pytest -m e2e``.
 """
 
 from __future__ import annotations
@@ -97,9 +97,9 @@ def _assert_only(before, after, *, flipped_to, targeted):
 
 
 def _save(page):
-    page.locator('form[data-dirty-key="notifications"] button[type="submit"]').click()
-    page.wait_for_url("**/settings/**tab=notifications")
-    expect(page.locator("body")).to_contain_text("Notification preferences updated.")
+    """Wait for the autosave the last click started: the spinner, then the "Saved!" toast."""
+    expect(page.locator(".plt-toast", has_text="Saved!")).to_be_visible()
+    expect(page.locator("[data-notif-saving]")).not_to_have_class(re.compile(r"pl-notif-saving--on"))
 
 
 def describe_notification_bulk_controls():
@@ -118,16 +118,8 @@ def describe_notification_bulk_controls():
                 expect(box).not_to_be_checked()
             elif cell.enabled:
                 expect(box).to_be_checked()
-        # Nothing is saved until Save.
-        assert NotificationPreference.objects.get(user=user, event_key="tab_charged", channel="email").enabled
-
-        # The unsaved-changes guard noticed the flip: leaving the tab asks first.
-        page.locator("button.vote-tab", has_text="Guilds").click()
-        dialog = page.get_by_role("dialog").filter(has_text="Discard unsaved changes?")
-        expect(dialog).to_be_visible()
-        dialog.get_by_role("button", name="Stay").click()
-        expect(dialog).to_be_hidden()
-
+        # No Save button outside <noscript>: the flip saves itself.
+        expect(page.locator('form[data-notif-autosave] button[type="submit"]')).to_have_count(0)
         _save(page)
 
         # Padlocked Email, the bell, Push and Discord: exactly as they were.

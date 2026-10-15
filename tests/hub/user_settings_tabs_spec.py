@@ -139,13 +139,15 @@ def describe_profile_tab_template():
 
 
 def describe_dirty_guard_markup():
-    def it_marks_exactly_the_three_save_forms(client: Client):
-        # The keyed attribute lands on exactly the three batch-save forms. (The bare token
+    def it_marks_exactly_the_two_save_forms(client: Client):
+        # The keyed attribute lands on exactly the two batch-save forms; the notification
+        # matrix saves each change itself, so it carries none. (The bare token
         # "data-dirty-key" also appears in the guard JS, so assert the keyed HTML form.)
         _login(client)
         content = client.get("/settings/").content.decode()
-        for key in ("profile", "notifications", "tours"):
+        for key in ("profile", "tours"):
             assert content.count(f'data-dirty-key="{key}"') == 1
+        assert 'data-dirty-key="notifications"' not in content
 
     def it_includes_the_discard_modal_with_a_stay_button(client: Client):
         _login(client)

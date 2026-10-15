@@ -847,6 +847,44 @@
     margin-top: 1.5rem;
 }
 
+/* The floating "Saving…" pill while the notification matrix saves itself; the "Saved!"
+   toast (components/toast.html) takes over in the same spot when the save lands. */
+.pl-notif-saving {
+    position: fixed;
+    z-index: 2147482000; /* above the topbar and modals, under the toast */
+    top: calc(var(--topbar-height, 56px) + 0.75rem);
+    left: 50%;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1rem;
+    border-radius: 999px;
+    background: var(--hub-elevated);
+    color: var(--hub-text);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    font-size: 0.875rem;
+    font-weight: 500;
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, -8px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.pl-notif-saving--on {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+.pl-notif-saving__ring {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--hub-text-muted);
+    border-top-color: var(--color-tuscan-yellow);
+    border-radius: 50%;
+    animation: pl-btn-spin 0.7s linear infinite;
+}
+
 /* ========================================
    Form Field
    ======================================== */
