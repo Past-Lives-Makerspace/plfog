@@ -1,6 +1,6 @@
-"""The Door Code tile in the member portal home page's quick links (#813).
+"""The Door Code on the member portal home page (#813): a box in the header on wide screens, a card under the quick links on narrower ones.
 
-``DoorCodeTile.for_request`` decides what one viewer gets: the code for an active member, the
+``DoorCodeView.for_request`` decides what one viewer gets: the code for an active member, the
 code plus the Change control and the changer's name for an admin, and nothing for anyone else.
 Both gates read ``request.view_as``, so an admin previewing as Guest sees what a guest sees.
 ``DoorCodeForm`` is the admin's one field; ``hub.door_code_views`` saves it.
@@ -26,10 +26,10 @@ BLANK_MESSAGE = "Enter a door code."
 
 
 @dataclass(frozen=True)
-class DoorCodeTile:
-    """What the home page's Door Code tile shows one viewer, once tapped open.
+class DoorCodeView:
+    """What the home page's Door Code shows one viewer, once tapped to reveal.
 
-    ``code`` is blank while none is set; the template shows members no tile then and shows
+    ``code`` is blank while none is set; the template shows members nothing then and shows
     admins a prompt to set one. ``changed_by`` is filled for admins only.
     """
 
@@ -40,13 +40,13 @@ class DoorCodeTile:
     changed_by: str = ""
 
     @classmethod
-    def for_request(cls, request: HttpRequest) -> DoorCodeTile | None:
-        """The tile for this viewer, or None when they may not see the code.
+    def for_request(cls, request: HttpRequest) -> DoorCodeView | None:
+        """The door code for this viewer, or None when they may not see the code.
 
         Only a viewer holding the member role sees it, and ``compute_actual_roles`` gives
         that role to an ACTIVE member (or a superuser) alone: an unlinked account, a guest,
         an invited, former or suspended member never does. An admin previewing a role below
-        admin loses the Change control; previewing Guest loses the tile.
+        admin loses the Change control; previewing Guest loses the door code.
         """
         view_as = request.view_as  # type: ignore[attr-defined]  # ViewAsMiddleware sets it
         if not view_as.is_member:
@@ -65,7 +65,7 @@ class DoorCodeTile:
 
     @property
     def is_shown(self) -> bool:
-        """Members see the tile only once a code is set; admins always, to set one."""
+        """Members see the door code only once a code is set; admins always, to set one."""
         return bool(self.code) or self.can_change
 
 

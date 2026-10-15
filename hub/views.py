@@ -7150,10 +7150,10 @@ def home(request: HttpRequest) -> HttpResponse:
     ctx = _get_hub_context(request)
     if member is None:
         return _private_no_store(render(request, "hub/home.html", {**ctx, "member": None}))
-    from hub.door_code import DoorCodeTile, DoorCodeForm
+    from hub.door_code import DoorCodeView, DoorCodeForm
     from hub.home import build_home_context
 
-    door_code = DoorCodeTile.for_request(request)
+    door_code = DoorCodeView.for_request(request)
     door_code_form = (
         DoorCodeForm(initial={"door_code": door_code.code}) if door_code is not None and door_code.can_change else None
     )
