@@ -129,6 +129,16 @@ def describe_remind_lead_for_the_instructor():
         client.post(_url(offering))
         assert not [m for m in mail.outbox if m.to == ["wstaff@example.com"]]
 
+    def it_tells_the_instructor_an_admin_will_review_when_nobody_can_be_reminded(client: Client, shop: _Woodshop):
+        offering = shop.pending_on_lead()
+        shop.lead.user.email = ""
+        shop.lead.user.save(update_fields=["email"])
+        Member.objects.filter(pk=shop.lead.pk).update(user=None)
+        client.force_login(shop.teacher.user)
+        response = client.post(_url(offering))
+        assert "An admin will review your class." in response["HX-Trigger"]
+        assert "Review it yourself" not in response["HX-Trigger"]
+
     def describe_guild_staff_who_do_not_teach_the_class():
         def it_shows_them_no_button(client: Client, shop: _Woodshop):
             offering = shop.pending_on_lead()
