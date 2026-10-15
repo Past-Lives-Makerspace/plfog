@@ -12,7 +12,7 @@
 {% if spotlight %}<div class="pl-spotlight-home" data-spotlight-home>{% include "hub/partials/_spotlight.html" with spotlight=spotlight next_url=request.get_full_path %}</div>{% endif %}
 {% if member %}
 {% with greeting="Welcome back, "|add:member.display_name %}
-{% include "components/page_header.html" with title=greeting description="Your home base — what's coming up, the latest from your guilds, and quick ways in." action_url="?tour=member-welcome" action_label="Show me around" %}
+{% include "components/page_header.html" with title=greeting description="Your home base — what's coming up, the latest from your guilds, and quick ways in." action_include="hub/partials/_home_header_actions.html" %}
 {% endwith %}
 
 {# --- Get started onboarding checklist (shows until onboarded or dismissed) --- #}
@@ -77,8 +77,11 @@
     {% endif %}
 </div>
 
-{# --- Door Code (#813): active members and admins; members see it once a code is set --- #}
-{% include "hub/partials/_door_code_card.html" %}
+{# Door Code (#813): on narrower screens a full width card here; wide screens show it in the header. #}
+{% include "hub/partials/_door_code.html" with variant="card" %}
+{% if door_code.can_change %}
+{% include "components/modal.html" with modal_id="door-code-change" modal_title="Change the Door Code" modal_size="sm" modal_body_include="hub/partials/_door_code_form.html" %}
+{% endif %}
 
 {# --- Teaching (instructors only, omitted when there is nothing to show) --- #}
 {% if teaching %}

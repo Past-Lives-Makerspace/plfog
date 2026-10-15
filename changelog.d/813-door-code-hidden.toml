@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-14"
+title = "The door code stays hidden until you tap it"
+changes = [
+  "On a wide screen, the door code now sits in a small box at the top of Home instead of taking a whole row.",
+  "Everywhere, the code shows as dots until you tap Tap to reveal, and Tap to hide covers it again, so it is not on show when your screen is open.",
+]

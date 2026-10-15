@@ -7150,10 +7150,10 @@ def home(request: HttpRequest) -> HttpResponse:
     ctx = _get_hub_context(request)
     if member is None:
         return _private_no_store(render(request, "hub/home.html", {**ctx, "member": None}))
-    from hub.door_code import DoorCodeCard, DoorCodeForm
+    from hub.door_code import DoorCodeView, DoorCodeForm
     from hub.home import build_home_context
 
-    door_code = DoorCodeCard.for_request(request)
+    door_code = DoorCodeView.for_request(request)
     door_code_form = (
         DoorCodeForm(initial={"door_code": door_code.code}) if door_code is not None and door_code.can_change else None
     )
@@ -7176,7 +7176,7 @@ def _private_no_store(response: HttpResponse) -> HttpResponse:
     """Keep Home out of every cache, the browser's Back and bfcache included (#813).
 
     Home carries the door code. On a shared computer, Back after signing out would otherwise
-    show the last member's page again. Set on every Home response, not only when the card
+    show the last member's page again. Set on every Home response, not only when the tile
     shows, because the whole page is one person's and the rule then has nothing to drift.
     """
     patch_cache_control(response, private=True, no_store=True)

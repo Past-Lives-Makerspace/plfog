@@ -1,9 +1,10 @@
-"""BDD specs for #813: the Door Code card on Home and its admin only Change save.
+"""BDD specs for #813: the Door Code on Home and its admin only Change save.
 
 Covers who sees the code (active members and admins only; never an unlinked account, a guest,
 an invited, former or suspended member, nor an admin previewing as Guest), the Change control
 for admins alone, the save recording who and when, a crafted POST from anyone else, the 1 to 20
-character trimmed validation and the no code state.
+character trimmed validation and the no code state. Home renders the code twice, a compact box in
+the header (wide screens) and a card under the quick links (narrower screens); CSS shows one.
 
 The repo is public: every code here is an obviously fake value.
 """
@@ -21,7 +22,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.models import SiteConfiguration
-from hub.door_code import BLANK_MESSAGE, DoorCodeCard
+from hub.door_code import BLANK_MESSAGE, DoorCodeView
 from membership.models import Member
 from tests.membership.factories import GuildFactory, MembershipPlanFactory
 
@@ -30,9 +31,9 @@ pytestmark = pytest.mark.django_db
 HOME = reverse("hub_home")
 SAVE = reverse("hub_admin_door_code")
 FAKE_CODE = "4242#"
-CARD = b"data-door-code-card"
+BOX = b"data-door-code-box"
 CHANGE = b"data-door-code-edit"
-CODE_MARKUP = b"data-door-code>4242#</p>"
+CODE_MARKUP = b"data-door-code>4242#</span>"
 
 
 def _login(
@@ -83,15 +84,14 @@ def _setter() -> User:
 
 
 def describe_an_active_member():
-    def it_sees_the_card_with_the_code_and_when_it_changed(client: Client):
+    def it_sees_the_code_and_when_it_changed_in_both_boxes(client: Client):
         _set_code(by=_setter())
         _login(client, "doormember")
 
         content = client.get(HOME).content
 
-        assert CARD in content
-        assert CODE_MARKUP in content
-        assert b"data-door-code-changed>Changed Oct 3, 2026</p>" in content
+        assert content.count(CODE_MARKUP) == 2
+        assert content.count(b"data-door-code-changed>Changed Oct 3, 2026</p>") == 2
 
     def it_does_not_see_the_change_control_or_who_changed_it(client: Client):
         _set_code(by=_setter())
@@ -104,21 +104,21 @@ def describe_an_active_member():
         assert b"data-door-code-form" not in content
         assert b"Quillon Setter" not in content
 
-    def it_sees_the_card_as_a_guild_officer_too(client: Client):
+    def it_sees_the_code_as_a_guild_officer_too(client: Client):
         _set_code()
         _login(client, "doorofficer", fog_role=Member.FogRole.GUILD_OFFICER)
 
         content = client.get(HOME).content
 
-        assert CODE_MARKUP in content
+        assert content.count(CODE_MARKUP) == 2
         assert CHANGE not in content
 
-    def it_sees_no_card_while_no_code_is_set(client: Client):
+    def it_sees_no_door_code_while_no_code_is_set(client: Client):
         _login(client, "doormember")
 
         content = client.get(HOME).content
 
-        assert CARD not in content
+        assert BOX not in content
         assert b"data-door-code-empty" not in content
 
     def it_sees_no_changed_line_when_the_code_has_no_date(client: Client):
@@ -144,7 +144,7 @@ def describe_an_admin():
         assert CHANGE in content
         assert b">Change</button>" in content
         assert b'id="door-code-change-title"' in content
-        assert b"Changed Oct 3, 2026 by Quillon Setter</p>" in content
+        assert content.count(b"Changed Oct 3, 2026 by Quillon Setter</p>") == 2
         assert b'value="4242#"' in content
 
     def it_sees_the_date_alone_when_the_changer_account_is_gone(client: Client):
@@ -157,14 +157,14 @@ def describe_an_admin():
 
         assert b"data-door-code-changed>Changed Oct 3, 2026</p>" in content
 
-    def it_sees_the_card_with_a_prompt_while_no_code_is_set(client: Client):
+    def it_sees_both_boxes_with_a_prompt_while_no_code_is_set(client: Client):
         _admin(client)
 
         content = client.get(HOME).content
 
-        assert CARD in content
-        assert b"data-door-code-empty" in content
-        assert b">Set Code</button>" in content
+        assert content.count(BOX) == 2
+        assert content.count(b"data-door-code-empty>No code set yet.</p>") == 2
+        assert content.count(b">Set Code</button>") == 2
         assert b"data-door-code>" not in content
 
     def it_sees_the_change_control_as_a_superuser_with_a_member(client: Client):
@@ -188,14 +188,14 @@ def describe_an_admin():
             assert CHANGE not in content
             assert b"Quillon Setter" not in content
 
-        def it_sees_no_card_as_a_guest(client: Client):
+        def it_sees_no_door_code_as_a_guest(client: Client):
             _set_code()
             _admin(client)
             _preview(client, "guest")
 
             content = client.get(HOME).content
 
-            assert CARD not in content
+            assert BOX not in content
             assert FAKE_CODE.encode() not in content
 
         def it_sees_the_change_control_when_viewing_as_admin(client: Client):
@@ -204,6 +204,129 @@ def describe_an_admin():
             _preview(client, "admin")
 
             assert CHANGE in client.get(HOME).content
+
+
+def _element(content: str, marker: str) -> str:
+    """The whole ``<div>`` or ``<button>`` that carries ``marker``, nested tags of its name balanced."""
+    at = content.index(marker)
+    open_at = content.rindex("<", 0, at)
+    name = content[open_at + 1 : content.index(" ", open_at)]
+    depth, pos = 0, open_at
+    while True:
+        next_open = content.find(f"<{name}", pos)
+        next_close = content.index(f"</{name}>", pos)
+        if next_open != -1 and next_open < next_close:
+            depth, pos = depth + 1, next_open + len(name) + 1
+            continue
+        depth, pos = depth - 1, next_close + len(name) + 3
+        if depth == 0:
+            return content[open_at:pos]
+
+
+def _box(content: str, variant: str) -> str:
+    return _element(content, f'data-door-code-box="{variant}"')
+
+
+def describe_the_two_boxes():
+    @pytest.mark.parametrize("variant", ["header", "card"])
+    def it_hides_the_code_on_every_load_in_each(client: Client, variant: str):
+        _set_code()
+        _login(client, "doorbox")
+
+        box = _box(client.get(HOME).content.decode(), variant)
+
+        assert 'x-data="{ open: false }"' in box.split(">", 1)[0]
+        code = _element(box, "data-door-code>")
+        assert 'x-show="open"' in code
+        assert "x-cloak" in code
+        assert code.endswith(">4242#</span>")
+        mask = _element(box, "pl-door-code__mask")
+        assert 'aria-hidden="true"' in mask
+        assert 'x-show="!open"' in mask
+        assert FAKE_CODE not in mask
+
+    @pytest.mark.parametrize("variant", ["header", "card"])
+    def it_wires_each_toggle_for_assistive_tech(client: Client, variant: str):
+        _set_code()
+        _login(client, "doorbox")
+
+        toggle = _element(_box(client.get(HOME).content.decode(), variant), "data-door-code-toggle")
+
+        assert toggle.startswith("<button")
+        assert 'aria-expanded="false"' in toggle
+        assert ":aria-expanded=\"open ? 'true' : 'false'\"" in toggle
+        assert f'aria-controls="door-code-value-{variant}"' in toggle
+        assert f'id="door-code-value-{variant}"' in toggle
+        assert "x-text=\"open ? 'Tap to hide' : 'Tap to reveal'\">Tap to reveal</span>" in toggle
+
+    def it_gives_each_box_its_own_value_id(client: Client):
+        _set_code()
+        _login(client, "doorbox")
+
+        content = client.get(HOME).content.decode()
+
+        assert content.count('id="door-code-value-header"') == 1
+        assert content.count('id="door-code-value-card"') == 1
+
+    def it_puts_the_header_box_in_the_page_header_before_show_me_around(client: Client):
+        _set_code()
+        _login(client, "doorbox")
+
+        header = _element(client.get(HOME).content.decode(), 'class="hub-page-header"')
+
+        actions = _element(header, 'class="pl-home-header-actions"')
+        assert actions.index('data-door-code-box="header"') < actions.index('href="?tour=member-welcome"')
+        assert ">Show me around</a>" in actions
+        assert 'data-door-code-box="card"' not in header
+
+    def it_keeps_show_me_around_in_the_header_without_a_door_code(client: Client):
+        _login(client, "doorbox")
+
+        header = _element(client.get(HOME).content.decode(), 'class="hub-page-header"')
+
+        assert '<a href="?tour=member-welcome" class="hub-btn hub-btn--sm">Show me around</a>' in header
+        assert "data-door-code" not in header
+
+    def it_puts_the_card_under_the_quick_links_and_none_inside_them(client: Client):
+        _set_code()
+        _login(client, "doorbox")
+
+        content = client.get(HOME).content.decode()
+
+        quicklinks = _element(content, 'class="pl-quicklinks"')
+        assert "door-code" not in quicklinks
+        assert content.index('data-door-code-box="card"') > content.index(quicklinks) + len(quicklinks)
+        assert 'class="pl-door-code pl-door-code--card hub-card pl-home-block"' in _box(content, "card")
+
+    @pytest.mark.parametrize("variant", ["header", "card"])
+    def it_puts_the_admins_change_and_name_in_each(client: Client, variant: str):
+        _set_code(by=_setter())
+        _admin(client)
+
+        box = _box(client.get(HOME).content.decode(), variant)
+
+        assert "data-door-code-edit>Change</button>" in box
+        assert "@click=\"$dispatch('open-modal', 'door-code-change')\"" in box
+        assert "by Quillon Setter</p>" in box
+
+    @pytest.mark.parametrize("variant", ["header", "card"])
+    def it_shows_an_admin_no_code_set_yet_with_set_code_in_each(client: Client, variant: str):
+        _admin(client)
+
+        box = _box(client.get(HOME).content.decode(), variant)
+
+        assert "data-door-code-empty>No code set yet.</p>" in box
+        assert "data-door-code-edit>Set Code</button>" in box
+        assert "data-door-code-toggle" not in box
+
+    def it_includes_the_change_modal_exactly_once(client: Client):
+        _set_code()
+        _admin(client)
+
+        content = client.get(HOME).content.decode()
+
+        assert content.count('id="door-code-change-title"') == 1
+        assert content.count("data-door-code-form") == 1
 
 
 def describe_home_caching():
@@ -238,7 +361,7 @@ def describe_who_never_sees_the_code():
 
         assert response.status_code == 200
         assert FAKE_CODE.encode() not in response.content
-        assert CARD not in response.content
+        assert BOX not in response.content
 
     @pytest.mark.parametrize(
         "status",
@@ -251,7 +374,7 @@ def describe_who_never_sees_the_code():
         response = client.get(HOME, follow=True)
 
         assert FAKE_CODE.encode() not in response.content
-        assert CARD not in response.content
+        assert BOX not in response.content
 
     @pytest.mark.parametrize("status", [Member.Status.SUSPENDED, Member.Status.INVITED])
     def it_hides_it_on_home_itself_when_the_lockout_lets_them_in(client: Client, status: str):
@@ -265,7 +388,7 @@ def describe_who_never_sees_the_code():
         assert response.status_code == 200
         assert b"Welcome back" in response.content
         assert FAKE_CODE.encode() not in response.content
-        assert CARD not in response.content
+        assert BOX not in response.content
 
 
 def describe_saving_a_new_code():
@@ -452,17 +575,17 @@ def describe_a_crafted_post_from_a_non_admin():
         assert SiteConfiguration.load().door_code == FAKE_CODE
 
 
-def describe_door_code_card():
+def describe_door_code_view_read_model():
     def it_leaves_the_code_out_of_its_repr():
         # Sentry ships frame locals with send_default_pii on; the repr must not carry the code.
-        card = DoorCodeCard(code=FAKE_CODE, changed_at=None, can_change=True, changed_by="Zorblax Admin")
+        view = DoorCodeView(code=FAKE_CODE, changed_at=None, can_change=True, changed_by="Zorblax Admin")
 
-        assert FAKE_CODE not in repr(card)
-        assert "code=" not in repr(card).replace("changed_", "")
+        assert FAKE_CODE not in repr(view)
+        assert "code=" not in repr(view).replace("changed_", "")
 
     def it_is_shown_to_members_only_once_a_code_is_set():
-        assert DoorCodeCard(code="", changed_at=None, can_change=False).is_shown is False
-        assert DoorCodeCard(code=FAKE_CODE, changed_at=None, can_change=False).is_shown is True
+        assert DoorCodeView(code="", changed_at=None, can_change=False).is_shown is False
+        assert DoorCodeView(code=FAKE_CODE, changed_at=None, can_change=False).is_shown is True
 
     def it_is_always_shown_to_admins():
-        assert DoorCodeCard(code="", changed_at=None, can_change=True).is_shown is True
+        assert DoorCodeView(code="", changed_at=None, can_change=True).is_shown is True
