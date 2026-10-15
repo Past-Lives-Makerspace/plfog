@@ -30,7 +30,7 @@ pytestmark = pytest.mark.django_db
 HOME = reverse("hub_home")
 SAVE = reverse("hub_admin_door_code")
 FAKE_CODE = "4242#"
-CARD = b"data-door-code-card"
+TILE = b"data-door-code-tile"
 CHANGE = b"data-door-code-edit"
 CODE_MARKUP = b"data-door-code>4242#</p>"
 
@@ -89,7 +89,7 @@ def describe_an_active_member():
 
         content = client.get(HOME).content
 
-        assert CARD in content
+        assert TILE in content
         assert CODE_MARKUP in content
         assert b"data-door-code-changed>Changed Oct 3, 2026</p>" in content
 
@@ -118,7 +118,7 @@ def describe_an_active_member():
 
         content = client.get(HOME).content
 
-        assert CARD not in content
+        assert TILE not in content
         assert b"data-door-code-empty" not in content
 
     def it_sees_no_changed_line_when_the_code_has_no_date(client: Client):
@@ -162,7 +162,7 @@ def describe_an_admin():
 
         content = client.get(HOME).content
 
-        assert CARD in content
+        assert TILE in content
         assert b"data-door-code-empty" in content
         assert b">Set Code</button>" in content
         assert b"data-door-code>" not in content
@@ -195,7 +195,7 @@ def describe_an_admin():
 
             content = client.get(HOME).content
 
-            assert CARD not in content
+            assert TILE not in content
             assert FAKE_CODE.encode() not in content
 
         def it_sees_the_change_control_when_viewing_as_admin(client: Client):
@@ -204,6 +204,98 @@ def describe_an_admin():
             _preview(client, "admin")
 
             assert CHANGE in client.get(HOME).content
+
+
+def _quicklinks(content: str) -> str:
+    """Home from the quick links grid on, past the sidebar's own links."""
+    return content[content.index('<div class="pl-quicklinks">') :]
+
+
+def _tag(content: str, marker: str) -> str:
+    """The element that carries ``marker``, from its opening tag to the first close of that tag name.
+
+    Enough for these specs: the reveal region's first ``</div>`` closes its actions row, after
+    the code, the Changed line and every button.
+    """
+    at = content.index(marker)
+    open_at = content.rindex("<", 0, at)
+    name = content[open_at + 1 : content.index(" ", open_at)]
+    return content[open_at : content.index(f"</{name}>", at) + len(name) + 3]
+
+
+def describe_the_tile():
+    def it_sits_in_the_quick_links_just_before_settings(client: Client):
+        _set_code()
+        _login(client, "doortile")
+
+        links = _quicklinks(client.get(HOME).content.decode())
+
+        tile_at = links.index("data-door-code-tile")
+        settings_at = links.index('pl-quicklink__label">Settings</span>')
+        calendar_at = links.index('pl-quicklink__label">Calendar</span>')
+        assert calendar_at < tile_at < settings_at
+        assert 'class="pl-quicklink pl-door-tile"' in links
+
+    def it_keeps_no_full_width_card(client: Client):
+        _set_code()
+        _login(client, "doortile")
+
+        content = client.get(HOME).content
+
+        assert b"data-door-code-card" not in content
+        assert b"hub-card pl-home-block pl-door-code" not in content
+
+    def it_hides_the_code_on_every_load(client: Client):
+        _set_code()
+        _login(client, "doortile")
+
+        content = client.get(HOME).content.decode()
+
+        assert 'x-data="{ open: false }"' in _tag(content, "data-door-code-tile")
+        reveal = _tag(content, 'id="door-code-reveal"')
+        assert 'x-show="open"' in reveal
+        assert "x-cloak" in reveal.split(">", 1)[0]
+        assert "data-door-code>4242#</p>" in reveal
+
+    def it_wires_the_toggle_for_assistive_tech_without_the_code_in_its_name(client: Client):
+        _set_code()
+        _login(client, "doortile")
+
+        toggle = _tag(client.get(HOME).content.decode(), "data-door-code-reveal")
+
+        assert toggle.startswith("<button")
+        assert 'aria-expanded="false"' in toggle
+        assert ":aria-expanded=\"open ? 'true' : 'false'\"" in toggle
+        assert 'aria-controls="door-code-reveal"' in toggle
+        assert 'pl-quicklink__label">Door Code</span>' in toggle
+        assert FAKE_CODE not in toggle
+
+    def it_offers_hide_inside_the_revealed_tile(client: Client):
+        _set_code()
+        _login(client, "doortile")
+
+        reveal = _tag(client.get(HOME).content.decode(), 'id="door-code-reveal"')
+
+        assert "data-door-code-hide" in reveal
+        assert 'aria-controls="door-code-reveal"' in reveal
+        assert "data-door-code-edit" not in reveal
+
+    def it_puts_the_admins_change_control_inside_the_revealed_tile(client: Client):
+        _set_code(by=_setter())
+        _admin(client)
+
+        reveal = _tag(client.get(HOME).content.decode(), 'id="door-code-reveal"')
+
+        assert ">Change</button>" in reveal
+        assert "by Quillon Setter</p>" in reveal
+
+    def it_shows_an_admin_no_code_set_with_set_code_while_none_is_set(client: Client):
+        _admin(client)
+
+        reveal = _tag(client.get(HOME).content.decode(), 'id="door-code-reveal"')
+
+        assert "data-door-code-empty>No code set</p>" in reveal
+        assert ">Set Code</button>" in reveal
 
 
 def describe_home_caching():
@@ -238,7 +330,7 @@ def describe_who_never_sees_the_code():
 
         assert response.status_code == 200
         assert FAKE_CODE.encode() not in response.content
-        assert CARD not in response.content
+        assert TILE not in response.content
 
     @pytest.mark.parametrize(
         "status",
@@ -251,7 +343,7 @@ def describe_who_never_sees_the_code():
         response = client.get(HOME, follow=True)
 
         assert FAKE_CODE.encode() not in response.content
-        assert CARD not in response.content
+        assert TILE not in response.content
 
     @pytest.mark.parametrize("status", [Member.Status.SUSPENDED, Member.Status.INVITED])
     def it_hides_it_on_home_itself_when_the_lockout_lets_them_in(client: Client, status: str):
@@ -265,7 +357,7 @@ def describe_who_never_sees_the_code():
         assert response.status_code == 200
         assert b"Welcome back" in response.content
         assert FAKE_CODE.encode() not in response.content
-        assert CARD not in response.content
+        assert TILE not in response.content
 
 
 def describe_saving_a_new_code():
@@ -452,7 +544,7 @@ def describe_a_crafted_post_from_a_non_admin():
         assert SiteConfiguration.load().door_code == FAKE_CODE
 
 
-def describe_door_code_card():
+def describe_door_code_card_read_model():
     def it_leaves_the_code_out_of_its_repr():
         # Sentry ships frame locals with send_default_pii on; the repr must not carry the code.
         card = DoorCodeCard(code=FAKE_CODE, changed_at=None, can_change=True, changed_by="Zorblax Admin")

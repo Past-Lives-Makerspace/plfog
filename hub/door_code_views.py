@@ -1,7 +1,7 @@
-"""The Door Code card's Change save at /manage/door-code/ (#813).
+"""The Door Code tile's Change save at /manage/door-code/ (#813).
 
 Admin only (``@fog_admin_required``, the actual role, so a view as preview can neither grant
-nor revoke it). A plain POST from the card's modal that always lands back on Home with a
+nor revoke it). A plain POST from the tile's modal that always lands back on Home with a
 message, shown as a toast: the refusal for a blank code as much as the success.
 """
 

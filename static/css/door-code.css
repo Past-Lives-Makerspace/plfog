@@ -1,36 +1,82 @@
-/* The Door Code card on Home (#813, hub/partials/_door_code_card.html): the heading with the
-   admin's Change button on one line, the code in large type someone can read at the door, and
-   the Changed line under it. The card frame and spacing come from .hub-card.pl-home-block. */
-.pl-door-code__head {
+/* The Door Code tile in Home's quick links (#813, hub/partials/_door_code_tile.html). A
+   .pl-quicklink like its neighbours, so it takes no row of its own; tapping its toggle reveals
+   the code, the Changed line and the Hide (and an admin's Change) buttons inside the tile. */
+
+/* While the tile is open it is taller than its row's links; keep them their own height. This
+   file is loaded by Home alone, the one page with quick links. */
+.pl-quicklinks {
+    align-items: start;
+}
+
+.pl-door-tile {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
+    min-width: 0;
+}
+/* The tile holds buttons, so it does not lift on hover like a link tile. */
+.pl-door-tile:hover {
+    transform: none;
+}
+.pl-door-tile--open {
+    border-color: var(--color-tuscan-yellow);
+}
+
+.pl-door-tile__toggle {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 0.75rem;
-    margin-bottom: 0.75rem;
+    width: 100%;
+    padding: 0.9rem 1rem;
+    border: 0;
+    border-radius: 10px;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
 }
-.pl-door-code__heading {
-    margin: 0;
+.pl-door-tile__toggle:focus-visible {
+    outline: 2px solid var(--hub-blue);
+    outline-offset: -2px;
 }
-.pl-door-code__code {
+
+.pl-door-tile__reveal {
+    padding: 0 1rem 0.9rem;
+    min-width: 0;
+}
+.pl-door-tile__code {
     margin: 0;
     font-family: var(--font-heading);
-    font-size: 2.5rem;
+    font-size: 1.75rem;
     font-weight: 900;
-    line-height: 1.1;
-    letter-spacing: 0.08em;
+    line-height: 1.15;
+    letter-spacing: 0.04em;
     color: var(--hub-text);
-    /* A long code (up to 20 characters) wraps rather than pushing the page sideways on a phone. */
+    /* A code up to 20 characters wraps inside the tile rather than pushing the grid wider. */
     overflow-wrap: anywhere;
     font-variant-numeric: tabular-nums;
 }
-.pl-door-code__changed {
-    margin: 0.75rem 0 0;
-    font-size: 0.875rem;
+.pl-door-tile__changed,
+.pl-door-tile__empty {
+    margin: 0.5rem 0 0;
+    font-size: 0.8125rem;
     color: var(--hub-text-muted);
+}
+.pl-door-tile__empty {
+    margin-top: 0;
+    font-size: 0.9375rem;
+}
+.pl-door-tile__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
 }
 
 @media (max-width: 480px) {
-    .pl-door-code__code {
-        font-size: 2rem;
+    .pl-door-tile__code {
+        font-size: 1.5rem;
     }
 }
