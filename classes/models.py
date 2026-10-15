@@ -565,18 +565,29 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         return self.filter(status=ClassOffering.Status.CANCELLED)
 
     def awaiting_guild_lead(self, member: "Member") -> "ClassOfferingQuerySet":
-        """Pending classes whose undecided guild-lead gate this member can act on.
+        """Pending classes whose undecided guild-lead gate this member reviews (#816).
 
         A class qualifies when it is PENDING, its category's guild is one this member
-        leads or holds a staff role on, and it has an undecided ``GUILD_LEAD`` approval
-        row.
+        leads or is a Class Reviewer of (:attr:`Member.class_reviewed_guilds`; plain staff
+        are not), and it has an undecided ``GUILD_LEAD`` approval row. A Class Reviewer
+        never sees a class they teach, the same audience :meth:`Guild.class_reviewers`
+        asks; a lead who teaches in their own guild still does.
         """
-        return self.filter(
-            status="pending",
-            category__guild__in=member.staffed_guilds,
-            approvals__role="guild_lead",
-            approvals__decision="",
-        ).distinct()
+        taught_not_led = (
+            ClassOffering.objects.filter(Q(instructors=member) | Q(instructor=member))
+            .exclude(category__guild__guild_lead=member)
+            .values("pk")
+        )
+        return (
+            self.filter(
+                status="pending",
+                category__guild__in=member.class_reviewed_guilds,
+                approvals__role="guild_lead",
+                approvals__decision="",
+            )
+            .exclude(pk__in=taught_not_led)
+            .distinct()
+        )
 
     def awaiting_admin_validation(self, member: "Member") -> "ClassOfferingQuerySet":
         """Pending classes whose guild-lead gate this member's guilds already approved.
@@ -3753,17 +3764,26 @@ class ClassOffering(HeroCropMixin, models.Model):
         _save_with_unique_slug(self, base, exclude_pk=self.pk, save=lambda: self.save(update_fields=["slug"]))
 
     def duplicate(self) -> "ClassOffering":
-        """Clone this offering as a fresh draft with a unique slug and title.
+        """Clone this offering as a fresh draft with a unique slug and title, from any status.
 
-        The row's own columns come across with the new pk, the hero included; the gallery
-        and the FAQ rows are copied afterwards (:meth:`_copy_photos_and_faqs_from`), because
-        a fresh pk has no related rows and a copy with an empty gallery cannot be submitted.
+        The row's own columns come across with the new pk, the hero included; the gallery,
+        the FAQ rows and every instructor are copied afterwards
+        (:meth:`_copy_photos_and_faqs_from`), because a fresh pk has no related rows and a copy
+        with an empty gallery cannot be submitted. Copying the instructors is what makes the
+        copy a draft the instructor who clicked Duplicate owns (#816).
+
+        The copy is a different class, so it is neither the source's legacy node (the unique
+        ``legacy_cms_id`` would refuse the row for an imported class) nor already announced
+        on Discord (``channel_announced_at``). An archived or cancelled source copies the
+        same way: :meth:`_reset_lifecycle_for_clone` starts the copy as a plain draft.
         """
         source_pk = self.pk
         base_slug = f"{self.slug}-copy"
         self.pk = None
         self.title = f"{self.title} (copy)"
         self._reset_lifecycle_for_clone()
+        self.legacy_cms_id = ""
+        self.channel_announced_at = None
         _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
         self._copy_photos_and_faqs_from(source_pk)
         return self
@@ -4027,6 +4047,36 @@ class ClassApproval(models.Model):
         if self._state.adding and self.role == self.Role.GUILD_LEAD and self.opened_for_guild_id is None:
             self.opened_for_guild_id = self.class_offering.category.guild_id
         super().save(*args, **kwargs)
+
+    def may_be_decided_by(self, user: "AbstractBaseUser | AnonymousUser | None") -> bool:
+        """Whether ``user`` may record this gate's decision from the tokenized review page (#816).
+
+        Only a ``GUILD_LEAD`` gate is narrowed: a signed-in person must be the lead or a Class
+        Reviewer of the guild the gate was opened for (:meth:`Guild.reviews_classes`, which
+        also leaves out a reviewer who teaches the class), or an admin, a superuser or a CMS
+        Administrator. Nobody signed in is the emailed link working as it always has: the
+        token is the credential, and leads use it from email without logging in. An ``ADMIN``
+        gate is unchanged. A gate whose guild is gone (or a row from before
+        ``opened_for_guild``) is read against the class's current guild, and with no guild at
+        all there is nobody to compare against, so the token alone decides.
+        """
+        if self.role != self.Role.GUILD_LEAD or user is None or not user.is_authenticated:
+            return True
+        if getattr(user, "is_superuser", False):
+            return True
+        from membership.models import AdminCapability, Member
+
+        member = Member.objects.filter(user_id=user.pk).first()
+        if member is None:
+            return False
+        if member.fog_role == Member.FogRole.ADMIN or member.has_admin_capability(
+            AdminCapability.Capability.CLASS_APPROVER
+        ):
+            return True
+        guild = self.opened_for_guild or self.class_offering.category.guild
+        if guild is None:
+            return True
+        return guild.reviews_classes(member, self.class_offering)
 
     def decide(self, decision: str, user=None, notes: str = "") -> None:
         """Record a reviewer decision and trigger the offering's lifecycle hook.

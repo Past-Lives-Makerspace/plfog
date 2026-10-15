@@ -1732,7 +1732,8 @@ class Member(models.Model):
         """True when this member holds a staff role on at least one guild.
 
         Staff (co-leads, secretaries, treasurers, orienters) all carry full
-        guild-lead permissions on the guilds where they hold a role.
+        guild-lead permissions on the guilds where they hold a role, except class
+        review, which only Class Reviewers share (#816).
         """
         return self.guild_staff_roles.exists()
 
@@ -1740,6 +1741,14 @@ class Member(models.Model):
     def staffed_guilds(self) -> models.QuerySet[Guild]:
         """Guilds this member leads or holds any staff role on (i.e. has lead authority)."""
         return Guild.objects.filter(models.Q(guild_lead=self) | models.Q(staff_memberships__member=self)).distinct()
+
+    @property
+    def class_reviewed_guilds(self) -> models.QuerySet[Guild]:
+        """Guilds whose class reviews reach this member (#816): led, or staffed with Class Reviewer on."""
+        return Guild.objects.filter(
+            models.Q(guild_lead=self)
+            | models.Q(staff_memberships__member=self, staff_memberships__can_review_classes=True)
+        ).distinct()
 
     @property
     def joined_guilds(self) -> models.QuerySet[Guild]:
@@ -2835,6 +2844,16 @@ class GuildManager(models.Manager["Guild"]):
         return self.filter(is_active=True).filter(models.Q(name__icontains=query) | models.Q(slug__icontains=query))
 
 
+def _offering_instructor_ids(offering: ClassOffering | None) -> set[int]:
+    """Member pks teaching ``offering`` (every instructor row plus the payee), or none without one."""
+    if offering is None:
+        return set()
+    ids = {member.pk for member in offering.instructor_list}
+    if offering.instructor_id is not None:
+        ids.add(offering.instructor_id)
+    return ids
+
+
 class Guild(HeroCropMixin, models.Model):
     # Queryset annotation (set by GuildAdmin.get_queryset)
     sublet_count: int
@@ -3346,7 +3365,8 @@ class Guild(HeroCropMixin, models.Model):
     def leadership_members(self) -> list[Member]:
         """The guild lead plus every staff member, de-duplicated — all who hold lead authority.
 
-        Fans out the emails and notifications that previously went to the lead alone.
+        Fans out the emails and notifications that previously went to the lead alone. Class
+        review is the exception: it goes to :meth:`class_reviewers` (#816).
         """
         members: list[Member] = []
         seen: set[int] = set()
@@ -3358,6 +3378,51 @@ class Guild(HeroCropMixin, models.Model):
                 members.append(staff.member)
                 seen.add(staff.member_id)
         return members
+
+    def class_reviewer_ids(self) -> set[int]:
+        """Member pks of the staff marked Class Reviewer on this guild (the lead not included), one query."""
+        return set(
+            self.staff_memberships.filter(can_review_classes=True).values_list("member_id", flat=True).distinct()
+        )
+
+    def class_reviewers(self, offering: ClassOffering | None = None) -> list[Member]:
+        """Who reviews this guild's classes (#816): the lead, then the staff marked Class Reviewer.
+
+        De-duplicated, lead first, staff in name order. With ``offering``, its instructors are
+        dropped unless they are the guild lead: nobody is asked to review a class they teach,
+        but a lead who teaches in their own guild still holds its gate.
+        """
+        members: list[Member] = []
+        seen: set[int] = set()
+        if self.guild_lead_id is not None and self.guild_lead is not None:
+            members.append(self.guild_lead)
+            seen.add(self.guild_lead_id)
+        teaching = _offering_instructor_ids(offering)
+        rows = self.staff_memberships.filter(can_review_classes=True).select_related("member__user")
+        for staff in sorted(rows, key=lambda row: (row.member.full_legal_name or "").lower()):
+            if staff.member_id not in seen and staff.member_id not in teaching:
+                members.append(staff.member)
+                seen.add(staff.member_id)
+        return members
+
+    def reviews_classes(self, member: Member, offering: ClassOffering | None = None) -> bool:
+        """Whether ``member`` is in :meth:`class_reviewers` for ``offering``.
+
+        The lead always is; a staff member is when marked Class Reviewer and not teaching ``offering``.
+        """
+        if self.guild_lead_id == member.pk:
+            return True
+        if member.pk in _offering_instructor_ids(offering):
+            return False
+        return self.staff_memberships.filter(member=member, can_review_classes=True).exists()
+
+    def set_class_reviewer(self, member: Member, on: bool) -> int:
+        """Turn Class Reviewer on or off for every staff row ``member`` holds on this guild.
+
+        Sends nothing: flipping the switch is quiet by design. Returns how many rows the member
+        holds here, so a caller can refuse a member who is not on this guild's staff.
+        """
+        return self.staff_memberships.filter(member=member).update(can_review_classes=on)
 
     @property
     def co_leads(self) -> list[Member]:
@@ -3595,11 +3660,18 @@ class Guild(HeroCropMixin, models.Model):
 class GuildStaffMembership(models.Model):
     """A member's leadership role on a guild, beyond the single ``Guild.guild_lead`` FK.
 
-    Every staff role grants the **same** authority as the guild lead: staff may edit
-    the guild page, manage and approve its classes, run its orientations, and receive
-    every email the lead does (class-review and orientation requests). The role is a
-    label for display and organization — it is not a permission tier. The primary
-    ``Guild.guild_lead`` stays an admin-assigned FK and is never managed here.
+    Every staff role grants the same authority as the guild lead, with one exception:
+    staff may edit the guild page, manage its classes, run its orientations, and receive
+    the lead's orientation requests. Class review is the exception (#816): a class review
+    request, Remind lead, the review queues and the guild-lead decision belong to the lead
+    and to the staff marked ``can_review_classes`` (Class Reviewers), see
+    :meth:`Guild.class_reviewers`. The role is a label for display and organization, not a
+    permission tier. The primary ``Guild.guild_lead`` stays an admin-assigned FK and is
+    never managed here.
+
+    A member can hold several rows on one guild (Treasurer and Orienter); they are a Class
+    Reviewer when any of those rows carries the flag, and the Staff tab switch sets every
+    row of theirs at once (:meth:`Guild.set_class_reviewer`).
     """
 
     class Role(models.TextChoices):
@@ -3632,6 +3704,14 @@ class GuildStaffMembership(models.Model):
         blank=True,
         default="",
         help_text="A free-text officer title (e.g. 'Studio Technician') used instead of a preset role.",
+    )
+    can_review_classes = models.BooleanField(
+        default=False,
+        verbose_name="Class Reviewer",
+        help_text=(
+            "Class Reviewer: this staff member gets the guild's class review requests and may record the "
+            "guild lead's decision. Set by the guild lead or an admin on the Staff tab."
+        ),
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When this role was assigned.")
 

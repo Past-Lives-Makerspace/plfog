@@ -1600,6 +1600,45 @@ a:hover { color: var(--hub-link-hover); }
     gap: 0.375rem;
 }
 
+/* A staff row's Class Reviewer switch on the Staff tab (#816): its caption beside a small toggle. */
+.pl-staff-reviewer {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+}
+
+.pl-staff-reviewer__label {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+
+/* "Delete unavailable (has registrations)" beside the class page's and the composer's actions (#816). */
+.pl-delete-unavailable {
+    font-size: 0.8rem;
+    color: var(--hub-text-muted);
+}
+
+/* The class review page's "this review belongs to the guild lead" notice (#816), shown in place of the form. */
+.pl-review-notice {
+    padding: 14px 16px;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    margin-bottom: 1.25rem;
+}
+
+.pl-review-notice__title {
+    font-weight: 700;
+    color: var(--hub-text);
+    margin-bottom: 4px;
+}
+
+.pl-review-notice__body {
+    color: var(--hub-text-muted);
+    font-size: 0.9rem;
+}
+
 .hub-note {
     font-size: 0.8125rem;
     font-style: italic;

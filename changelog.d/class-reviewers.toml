@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-15"
+title = "Guild leads choose who reviews their classes"
+changes = [
+  "On a guild's Staff tab, the guild lead can switch a staff member on as a Class Reviewer. Class review requests and reminders now go only to the guild lead and those reviewers, not to every staff member.",
+  "Nobody is asked to review a class they teach, unless they are the guild lead.",
+  "Instructors can now press Remind lead while their class waits for review, Duplicate their own class at any time, and Delete a draft right from the class editor.",
+]

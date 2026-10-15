@@ -69,6 +69,7 @@ from classes.access import (
 )
 from classes.emails import (
     emit_instructor_new_registration,
+    reminded_names,
     send_admin_registration_notification,
     send_class_review_decision,
     send_class_welcome_email,
@@ -1797,7 +1798,9 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     bounced_rows = list(bounced)
 
     is_guild_lead = teaching_member.is_guild_lead
-    guild_lead_pending = _guild_lead_review_queue(teaching_member) if is_guild_lead else []
+    # Not gated on is_guild_lead: a staff member marked Class Reviewer leads nothing and still
+    # reviews (#816). The queryset itself is the gate, so plain staff and everyone else get none.
+    guild_lead_pending = _guild_lead_review_queue(teaching_member)
     # Classes this lead already approved that now wait on the admin gate — kept
     # visible so a stage-one approval doesn't make the class vanish on them.
     guild_lead_awaiting_admin = (
@@ -1867,6 +1870,8 @@ def _guild_lead_review_queue(member: Member) -> list[dict]:
     Each entry pairs a pending class with the token of its undecided
     ``GUILD_LEAD`` approval so the panel can link straight to the tokenized
     review page — guild leads have no admin access, so the token is their door.
+    Only the guild's lead and Class Reviewers get rows (#816,
+    :meth:`ClassOfferingQuerySet.awaiting_guild_lead`).
     """
     offerings = (
         ClassOffering.objects.awaiting_guild_lead(member)
@@ -2266,6 +2271,8 @@ def _composer_context(
         "is_admin": is_admin,
         "offering": offering,
         "composer_can_edit_instructors": can_edit_instructors,
+        # Delete in the composer's action bar (#816): the class page's own rule, so the two agree.
+        "composer_can_delete": saved is not None and access is not None and _may_delete(access, saved),
         # The genuine CatalogGroup for this class, so the preview frames render exactly
         # the card the catalog would build. None until the class has a pk.
         "card_group": CatalogGroup(saved) if saved is not None else None,
@@ -3181,8 +3188,10 @@ def _administered_class(request: HttpRequest) -> ClassOffering:
     ``class_screen_required`` is admission to the screen and nothing more: a reviewer and a
     guild lead both get through it. Every lifecycle action behind the screen — approve,
     archive, restore, unpublish, remind, duplicate, delete — asserts its own capability as
-    well, and this is where the six that want ``can_administer`` do it (delete asks
-    :func:`_may_delete`, because since #526 the instructor holds it on a draft). Cancelling
+    well, and this is where the ones that want ``can_administer`` do it (delete asks
+    :func:`_may_delete`, because since #526 the instructor holds it on a draft; remind and
+    duplicate ask :func:`_may_remind_or_duplicate`, because since #816 the instructor holds
+    those too). Cancelling
     and deleting are not undone by a revert, so the endpoint carries the same answer the
     button does rather than trusting the button.
     """
@@ -3199,6 +3208,18 @@ def _may_run_again(access: ClassAccess) -> bool:
     pair is exactly the union of the two views this replaces — an admin, or the class's own
     instructor — with no third party let in. A guild lead or a reviewer gets neither the
     button nor the endpoint.
+    """
+    return access.can_administer or access.can_submit
+
+
+def _may_remind_or_duplicate(access: ClassAccess) -> bool:
+    """Whether this viewer may click Remind lead or Duplicate on the class page (#816).
+
+    The same pair as :func:`_may_run_again`: an admin, or the class's own instructor
+    (``can_submit`` is the instructor's row alone). A guild lead or staffer who does not
+    teach the class and is not an admin gets neither the button nor the endpoint. These two
+    are deliberately outside :func:`_administered_class`, which keeps guarding the admin
+    lifecycle actions (approve, archive, restore, unpublish, delete).
     """
     return access.can_administer or access.can_submit
 
@@ -4072,11 +4093,11 @@ class _GuildLeadQueueRow(TypedDict):
 def _with_guild_leads_queue(now: Any) -> list[_GuildLeadQueueRow]:
     """Every PENDING class whose guild-lead gate is open, with who holds it and for how long.
 
-    ``leadless`` marks a guild whose lead and staff have all gone or cannot be reached (nobody to remind), so
-    the row offers "Review it yourself" instead of Remind lead. It asks the same question
-    Remind lead does (:func:`classes.emails.guild_has_reachable_leadership`).
+    ``leadless`` marks a class whose guild lead and Class Reviewers have all gone, cannot be reached, or
+    only teach it (nobody to remind), so the row offers "Review it yourself" instead of Remind lead. It
+    asks the same question Remind lead does (:func:`classes.emails.class_has_reachable_reviewer`).
     """
-    from classes.emails import guild_has_reachable_leadership
+    from classes.emails import class_has_reachable_reviewer
 
     offerings = (
         ClassOffering.objects.awaiting_guild_lead_any()
@@ -4099,7 +4120,7 @@ def _with_guild_leads_queue(now: Any) -> list[_GuildLeadQueueRow]:
                 "row": gate,
                 "lead": guild.guild_lead if guild is not None else None,
                 "days_waiting": max(0, (now - gate.created_at).days),
-                "leadless": not guild_has_reachable_leadership(guild),
+                "leadless": not class_has_reachable_reviewer(offering),
             }
         )
     return queue
@@ -4581,20 +4602,27 @@ def admin_class_unpublish(request: HttpRequest, pk: int) -> HttpResponse:
 @class_screen_required
 @require_POST
 def admin_class_remind_lead(request: HttpRequest, pk: int) -> HttpResponse:
-    """Remind lead (HTMX): re-send the open guild-lead review request, once per day, and toast the outcome."""
-    offering = _administered_class(request)
+    """Remind lead (HTMX): re-send the open guild-lead review request, once per day, and toast the outcome.
+
+    An admin or the class's own instructor (#816, :func:`_may_remind_or_duplicate`); the
+    reminder reaches the same people and dedupes the same way whoever clicks.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not _may_remind_or_duplicate(access):
+        raise Http404("This class action is not this viewer's to take.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     response = HttpResponse(status=204)
     gate = offering.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").order_by("-created_at").first()
     if gate is None or offering.status != ClassOffering.Status.PENDING:
         trigger_toast(response, "This class is not waiting on a guild lead.", "error")
         return response
+    from membership.models import join_names
+
     result = send_guild_lead_review_reminder(gate)
     if result is None:
         trigger_toast(response, "This guild has no lead. Review it yourself.", "error")
     elif result.delivered:
-        guild = offering.category.guild
-        lead = guild.guild_lead if guild is not None else None
-        trigger_toast(response, f"Reminder sent to {lead.display_name if lead is not None else 'the guild leads'}.")
+        trigger_toast(response, f"Reminder sent to {join_names(reminded_names(result))}.")
     else:
         trigger_toast(response, "Already reminded today.", "info")
     return response
@@ -4930,11 +4958,15 @@ def _class_review_view(
     history = list(history_qs)
 
     form = ClassReviewDecisionForm(request.POST or None)
+    # A signed-in person who is not this guild's lead or a Class Reviewer cannot decide a
+    # guild-lead gate (#816); the page shows them why instead of the form.
+    may_decide = approval is None or approval.may_be_decided_by(request.user)
     if (
         request.method == "POST"
         and is_reviewable
         and approval is not None
         and not approval.decision
+        and may_decide
         and form.is_valid()
     ):
         try:
@@ -4969,6 +5001,7 @@ def _class_review_view(
             "form": form,
             "role": role,
             "is_reviewable": is_reviewable,
+            "may_decide": may_decide,
             "upcoming_sessions": upcoming_sessions,
             "is_tokenized": token is not None,
             "active_tab": "classes",
@@ -4998,8 +5031,16 @@ def admin_class_archive(request: HttpRequest, pk: int) -> HttpResponse:
 
 @class_screen_required
 def admin_class_duplicate(request: HttpRequest, pk: int) -> HttpResponse:
-    """Copy a class into a fresh draft, dates and all, and open the copy in the composer."""
-    offering = _administered_class(request)
+    """Copy a class into a fresh draft and open the copy in the composer.
+
+    An admin or the class's own instructor, at every status (#816,
+    :func:`_may_remind_or_duplicate`). The copy keeps every instructor of the class
+    (:meth:`ClassOffering.duplicate`), so it is a draft the instructor who clicked owns.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not _may_remind_or_duplicate(access):
+        raise Http404("This class action is not this viewer's to take.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     if request.method == "POST":
         copy = offering.duplicate()
         messages.success(request, "Class duplicated.")

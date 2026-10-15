@@ -153,6 +153,11 @@ urlpatterns = [
         name="hub_guild_staff_remove",
     ),
     path(
+        "guilds/<int:pk>/staff/<int:member_pk>/class-reviewer/",
+        views.guild_staff_class_reviewer,
+        name="hub_guild_staff_class_reviewer",
+    ),
+    path(
         "guilds/<int:pk>/orientation/slots/add/",
         views.guild_orientation_slot_add,
         name="hub_guild_orientation_slot_add",

@@ -457,10 +457,17 @@ class _StaffProfile:
     capabilities: frozenset[str]
     # The kiln guild's lead or staff (#691, kiln.access.is_crew). Always leadership too.
     is_kiln_crew: bool = False
+    # Holds a guild staff row marked Class Reviewer (#816).
+    is_class_reviewer: bool = False
 
     @property
     def is_leadership(self) -> bool:
         return self.leads_guild or self.staffs_guild
+
+    @property
+    def reviews_classes(self) -> bool:
+        """Whether a guild's class review requests can reach this viewer: a lead or a Class Reviewer (#816)."""
+        return self.leads_guild or self.is_class_reviewer
 
     def holds(self, group: PermissionGroup) -> bool:
         """Whether this viewer holds ``group``, the permission a row can reach them through.
@@ -501,7 +508,8 @@ def _staff_profile(user: User) -> _StaffProfile:
     member = Member.objects.filter(user=user).only("id", "fog_role", "status").first()
     if member is None:
         return _StaffProfile(False, False, False, False, False, False, False, frozenset())
-    staff_roles = set(member.guild_staff_roles.values_list("role", flat=True))
+    staff_rows = list(member.guild_staff_roles.values_list("role", "can_review_classes"))
+    staff_roles = {role for role, _reviews in staff_rows}
     leads_guild = member.led_guilds.exists()
     return _StaffProfile(
         is_admin=member.fog_role == Member.FogRole.ADMIN,
@@ -514,6 +522,7 @@ def _staff_profile(user: User) -> _StaffProfile:
         capabilities=frozenset(member.admin_capabilities.values_list("capability", flat=True)),
         # Kiln crew is a lead or a staff row, so a plain member is never asked about it.
         is_kiln_crew=(leads_guild or bool(staff_roles)) and is_crew(member),
+        is_class_reviewer=any(reviews for _role, reviews in staff_rows),
     )
 
 
@@ -544,7 +553,8 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         # manages falls back to them (#746).
         Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: lead or profile.manages_equipment or cap.EQUIPMENT in caps,
         Recipients.CLASS_APPROVERS: cap.CLASS_APPROVER in caps,
-        Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: lead or cap.CLASS_APPROVER in caps,
+        # A guild's lead and Class Reviewers (#816), not plain staff, or a CMS Administrator.
+        Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: profile.reviews_classes or cap.CLASS_APPROVER in caps,
         Recipients.SPACE_APPROVERS: cap.SPACE_APPROVER in caps,
         Recipients.DISCOUNT_APPROVERS: cap.DISCOUNT_APPROVER in caps,
         Recipients.EVENTS_APPROVERS: cap.EVENTS_APPROVER in caps,

@@ -1,0 +1,10 @@
+{# Delete, drawn wherever _may_delete says this viewer may take it (class page, composer bar, #816); pair with delete_class_modal.html outside any form. #}
+{% load classes_tags %}
+{% if not offering.registrations.exists %}
+    <button type="button"
+            class="hub-btn hub-btn--sm hub-btn--danger"
+            data-delete-class
+            @click="$dispatch('open-confirm', 'delete-class-{{ offering.pk }}')">Delete</button>
+{% else %}
+    <span class="pl-delete-unavailable" title="Classes with registrations must be archived, not deleted.">Delete unavailable (has registrations)</span>
+{% endif %}

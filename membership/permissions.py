@@ -74,6 +74,20 @@ def can_edit_guild(request: HttpRequest, guild: Guild) -> bool:
     return member is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member))
 
 
+def can_set_class_reviewers(request: HttpRequest, guild: Guild) -> bool:
+    """True when this request may flip a staff member's Class Reviewer switch on ``guild`` (#816).
+
+    Narrower than :func:`can_edit_guild`: only an admin (``view_as`` aware) or the guild's own
+    lead. Staff and guild officers see the switch but cannot change it, because choosing who
+    reviews classes for the guild is the lead's call.
+    """
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.is_admin:
+        return True
+    member = _editing_member(request)
+    return member is not None and guild.guild_lead_id == member.pk
+
+
 def manageable_guilds(request: HttpRequest) -> QuerySet[Guild]:
     """The guilds this request may edit, name-ordered, as a queryset (one query when read).
 

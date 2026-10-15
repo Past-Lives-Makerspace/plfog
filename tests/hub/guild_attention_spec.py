@@ -132,11 +132,14 @@ def describe_guild_needs_attention_section():
                 assert "Waiting on Your Review" not in html
 
     def describe_who_sees_it():
-        def it_shows_the_queue_to_a_staffer_with_no_teaching_access(client: Client):
-            # Criterion 30: a secretary is neither the guild_lead FK holder nor a teacher.
+        def it_shows_the_queue_to_a_class_reviewer_with_no_teaching_access(client: Client):
+            # Criterion 30: a secretary is neither the guild_lead FK holder nor a teacher. Since
+            # #816 only a staffer marked Class Reviewer has classes in the review list.
             user = _user("ga_staff")
             guild = GuildFactory(name="Staffed Guild")
-            GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.SECRETARY)
+            GuildStaffMembershipFactory(
+                guild=guild, member=user.member, role=GuildStaffMembership.Role.SECRETARY, can_review_classes=True
+            )
             assert user.member.can_create_classes is False
             _pending_class(guild, "Forging a Chefs Knife")
             html = _get_page(client, "ga_staff", guild)
@@ -168,7 +171,9 @@ def describe_guild_needs_attention_section():
             # membership.permissions.can_edit_class, with no can_create_classes of their own.
             user = _user("ga_rowlink")
             guild = GuildFactory(name="Row Link Guild")
-            GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.SECRETARY)
+            GuildStaffMembershipFactory(
+                guild=guild, member=user.member, role=GuildStaffMembership.Role.SECRETARY, can_review_classes=True
+            )
             offering = _pending_class(guild, "Row Link Class")
             html = _get_page(client, "ga_rowlink", guild)
             edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
@@ -199,7 +204,9 @@ def describe_guild_needs_attention_section():
             def cost(username: str, rows: int) -> int:
                 user = _user(username)
                 guild = GuildFactory(name=f"Budget {username}")
-                GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.SECRETARY)
+                GuildStaffMembershipFactory(
+                    guild=guild, member=user.member, role=GuildStaffMembership.Role.SECRETARY, can_review_classes=True
+                )
                 for index in range(rows):
                     _pending_class(guild, f"{username} class {index}")
                 request = rf.get(reverse("hub_guild_edit", args=[guild.pk]))

@@ -174,18 +174,34 @@ def class_approvers(context: dict[str, Any]) -> list[Recipient]:
     return _capability_recipients(AdminCapability.Capability.CLASS_APPROVER)
 
 
-def guild_leadership_or_class_approvers(context: dict[str, Any]) -> list[Recipient]:
-    """COMPOSITION — a guild's leadership when present, else the CMS Administrators.
+def guild_class_reviewers(context: dict[str, Any]) -> list[Recipient]:
+    """GUILD-SCOPED — who reviews ``context["offering"]`` for ``context["guild"]`` (#816).
 
-    A guild-led class routes to that guild's lead + staff ONLY (via
-    :func:`guild_leadership`); a lead-less category (``context["guild"]`` is ``None``)
+    The guild's lead plus the staff marked Class Reviewer, minus the class's own
+    instructors unless that instructor is the lead (:meth:`Guild.class_reviewers`). Plain
+    staff are not asked. A ``None`` guild resolves to nobody; a missing ``guild`` or
+    ``offering`` key fails loudly (a programming error at the emit site).
+    """
+    guild: Guild | None = _require(context, "guild")
+    if guild is None:
+        return []
+    offering = _require(context, "offering")
+    return _members_to_recipients(guild.class_reviewers(offering), "guild_class_reviewer")
+
+
+def guild_leadership_or_class_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """COMPOSITION — a guild's class reviewers when it has a guild, else the CMS Administrators.
+
+    A guild-led class routes to that guild's lead and Class Reviewers ONLY (via
+    :func:`guild_class_reviewers`, which also needs ``context["offering"]`` to leave out
+    the class's instructors); a lead-less category (``context["guild"]`` is ``None``)
     routes to :func:`class_approvers`. This is composition, not the union
     :func:`guild_leadership_or_admins` performs — a guild-led review never also blasts
     every admin. A missing ``guild`` key still fails loudly (a programming error).
     """
     guild: Guild | None = _require(context, "guild")
     if guild is not None:
-        return guild_leadership(context)
+        return guild_class_reviewers(context)
     return class_approvers(context)
 
 

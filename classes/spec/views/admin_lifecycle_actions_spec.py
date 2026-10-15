@@ -249,15 +249,20 @@ def describe_remind_lead():
         assert "Already reminded today." in second["HX-Trigger"]
         assert len([m for m in mail.outbox if m.to == ["remind-lead@example.com"]]) == 1
 
-    def it_names_the_guild_leads_when_the_guild_has_staff_but_no_lead(admin_user, client, db):
+    def it_names_the_class_reviewer_when_the_guild_has_one_but_no_lead(admin_user, client, db):
         from membership.models import GuildStaffMembership, Member
         from tests.membership.factories import GuildStaffMembershipFactory, MemberFactory
 
         lead = MemberFactory(_pre_signup_email="")
         guild = GuildFactory(name="Staffed", guild_lead=lead)
-        staff_user = UserFactory(username="staff@example.com", email="staff@example.com")
+        staff_user = UserFactory(
+            username="staff@example.com", email="staff@example.com", first_name="Sam", last_name="Staff"
+        )
         GuildStaffMembershipFactory(
-            guild=guild, member=Member.objects.get(user=staff_user), role=GuildStaffMembership.Role.CO_LEAD
+            guild=guild,
+            member=Member.objects.get(user=staff_user),
+            role=GuildStaffMembership.Role.CO_LEAD,
+            can_review_classes=True,
         )
         guild.guild_lead = None
         guild.save(update_fields=["guild_lead"])
@@ -265,7 +270,8 @@ def describe_remind_lead():
         ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
         client.force_login(admin_user)
         resp = client.post(reverse("classes:admin_class_remind_lead", kwargs={"pk": offering.pk}))
-        assert "Reminder sent to the guild leads." in resp["HX-Trigger"]
+        name = Member.objects.get(user=staff_user).display_name
+        assert f"Reminder sent to {name}." in resp["HX-Trigger"]
 
     def it_toasts_an_error_for_a_leadless_guild(admin_user, client, db):
         from tests.membership.factories import MemberFactory

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from classes.factories import CategoryFactory, ClassOfferingFactory
 from core.events import resolvers
 from core.events.registry import Recipients
 from membership.models import AdminCapability, Member
@@ -72,7 +73,9 @@ def describe_guild_leadership_or_class_approvers():
         # A capability holder exists but must NOT be pulled in for a guild-led class.
         approver = linked_member()
         _grant(approver, AdminCapability.Capability.CLASS_APPROVER)
-        pks = {user.pk for user, _ in resolvers.guild_leadership_or_class_approvers({"guild": guild})}
+        offering = ClassOfferingFactory(category=CategoryFactory(guild=guild))
+        context = {"guild": guild, "offering": offering}
+        pks = {user.pk for user, _ in resolvers.guild_leadership_or_class_approvers(context)}
         assert pks == {lead.user.pk}
 
     def it_routes_a_lead_less_category_to_class_approvers(linked_member):

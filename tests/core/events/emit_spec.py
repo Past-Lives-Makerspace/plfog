@@ -9,7 +9,7 @@ from django.contrib.auth.models import User
 
 from core.events.emit import _record_delivery, emit
 from core.events.registry import Channel
-from classes.factories import RegistrationFactory
+from classes.factories import CategoryFactory, ClassOfferingFactory, RegistrationFactory
 from core.models import EventDelivery, Notification, NotificationPreference, SiteActivity, TransactionalEmailLog
 from tests.membership.factories import GuildFactory, GuildMembershipFactory, GuildStaffMembershipFactory
 
@@ -68,13 +68,16 @@ def describe_emit():
             assert result.broadcast_channels == []
 
     def describe_scoped_routing():
-        def it_routes_class_review_to_guild_leadership_only(linked_member):
+        def it_routes_class_review_to_the_lead_and_class_reviewers_only(linked_member):
             lead = linked_member()
             staff = linked_member()
+            plain = linked_member()  # plain staff, not a Class Reviewer: not notified (#816)
             other = linked_member()  # unrelated member, must not be notified
             guild = GuildFactory(guild_lead=lead)
-            GuildStaffMembershipFactory(guild=guild, member=staff)
-            emit("class_review_requested", context={"guild": guild}, title="Review", body="b")
+            GuildStaffMembershipFactory(guild=guild, member=staff, can_review_classes=True)
+            GuildStaffMembershipFactory(guild=guild, member=plain)
+            offering = ClassOfferingFactory(category=CategoryFactory(guild=guild))
+            emit("class_review_requested", context={"guild": guild, "offering": offering}, title="Review", body="b")
             notified = set(Notification.objects.values_list("user_id", flat=True))
             assert notified == {lead.user_id, staff.user_id}
             assert other.user_id not in notified

@@ -488,8 +488,15 @@ Do not merge them.
         {% endif %}
       {% endif %}
       <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ cancel_url }}">Cancel</a>
+      {% if composer_can_delete %}
+        {# Delete (#816): the class page's own control and rule (_may_delete); its modal sits below, outside this form. #}
+        {% include "classes/_components/delete_class_button.html" %}
+      {% endif %}
     </div>
   </form>
+  {% if composer_can_delete %}
+    {% include "classes/_components/delete_class_modal.html" with delete_as_admin=is_admin %}
+  {% endif %}
 
   {% if not offering or offering.status == 'draft' %}
     {% if is_admin %}
