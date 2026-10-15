@@ -22,6 +22,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect
 
 from classes.factories import ClassOfferingFactory, ClassSessionFactory, DiscountCodeFactory, InstructorFactory
+from membership.models import Member
 from classes.models import ClassOffering, DiscountCode
 from tests.membership.factories import MembershipPlanFactory
 
@@ -132,7 +133,7 @@ def describe_an_admin():
             ["Pick a class", bat_label, f"Make a Halloween Bat · {_day(rerun)} · Draft"]
         )
         picker.evaluate("el => { el.size = 3; }")
-        page.screenshot(path=str(SHOTS / "818-reassign-class-picker.png"), full_page=False)
+        _capture(page, "818-reassign-class-picker.png")
         picker.evaluate("el => { el.size = 0; }")
         picker.select_option(label=bat_label)
         expect(sentence).to_have_text("JACQUELINE30 will work only on Make a Halloween Bat.")
@@ -185,6 +186,8 @@ def describe_an_admin():
         )
         ClassSessionFactory(class_offering=bat, starts_at=timezone.now() + timedelta(days=7))
         ClassOfferingFactory(title="Someone Else's Class", status=ClassOffering.Status.PUBLISHED)
+        former = InstructorFactory(full_legal_name="Former Teacher", status=Member.Status.FORMER)
+        ClassOfferingFactory(title="An Old Class", instructor=former)
         code = DiscountCodeFactory(code="JACQUELINE30", class_offering=None, is_approved=True, discount_pct=30)
         _login_as_admin(login_via_code)
         page.set_viewport_size({"width": 1200, "height": 800})
@@ -202,6 +205,12 @@ def describe_an_admin():
         submit = form.get_by_role("button", name="Re-assign")
         expect(submit).to_be_disabled()
         expect(sentence).to_have_text("Pick an instructor to see what will change.")
+        # Only current instructors are offered (#818): a former one never shows.
+        expect(picker.locator("option", has_text="Jacqueline Sowell")).to_have_count(1)
+        expect(picker.locator("option", has_text="Former Teacher")).to_have_count(0)
+        picker.evaluate("el => { el.size = 3; }")
+        _capture(page, "818-reassign-instructor-picker.png")
+        picker.evaluate("el => { el.size = 0; }")
         picker.select_option(label="Jacqueline Sowell")
         expect(sentence).to_have_text("JACQUELINE30 will work on every class Jacqueline Sowell teaches, now and later.")
         expect(submit).to_be_enabled()

@@ -2291,9 +2291,12 @@ def _reassign_class_label(offering: ClassOffering, current_pk: int | None) -> st
     else:
         sessions = sorted(offering.sessions.all(), key=lambda session: session.starts_at)
         now = timezone.now()
-        upcoming = [session for session in sessions if session.starts_at >= now] or sessions
-        if not upcoming:
+        upcoming = [session for session in sessions if session.starts_at >= now]
+        if not sessions:
             parts.append("No dates yet")
+        elif not upcoming:
+            # Only the kept current class can be all in the past; say so rather than show an old date as next.
+            parts.append(f"Ended {timezone.localtime(sessions[-1].starts_at).strftime('%a %b %-d')}")
         else:
             first = timezone.localtime(upcoming[0].starts_at).strftime("%a %b %-d")
             more = len(upcoming) - 1
@@ -2302,6 +2305,25 @@ def _reassign_class_label(offering: ClassOffering, current_pk: int | None) -> st
         parts.append(offering.get_status_display())
     label = " · ".join(parts)
     return f"{label} (current)" if offering.pk == current_pk else label
+
+
+class _NamedOptionSelect(forms.Select):
+    """A picker whose options also carry the bare name in ``data-name`` (#818).
+
+    The visible label adds dates, status and "(current)"; the modal's live sentence reads
+    ``data-name`` so it names the class or instructor alone, whatever the title contains.
+    """
+
+    def create_option(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        from membership.models import Member
+
+        option = super().create_option(*args, **kwargs)
+        instance = getattr(option["value"], "instance", None)
+        if isinstance(instance, ClassOffering):
+            option["attrs"]["data-name"] = instance.title
+        elif isinstance(instance, Member):
+            option["attrs"]["data-name"] = instance.display_name
+        return option
 
 
 class DiscountCodeReassignForm(forms.Form):
@@ -2325,7 +2347,7 @@ class DiscountCodeReassignForm(forms.Form):
         queryset=ClassOffering.objects.none(),
         required=False,
         empty_label="Pick a class",
-        widget=forms.Select(attrs={"x-model": "classPk", "x-ref": "classSelect"}),
+        widget=_NamedOptionSelect(attrs={"x-model": "classPk", "x-ref": "classSelect"}),
     )
     # Annotated because the queryset is only known per code (set in __init__), so the field starts empty.
     instructor: "forms.ModelChoiceField[Member]" = forms.ModelChoiceField(
@@ -2333,7 +2355,7 @@ class DiscountCodeReassignForm(forms.Form):
         queryset=None,
         required=False,
         empty_label="Pick an instructor",
-        widget=forms.Select(attrs={"x-model": "instructorPk", "x-ref": "instructorSelect"}),
+        widget=_NamedOptionSelect(attrs={"x-model": "instructorPk", "x-ref": "instructorSelect"}),
     )
 
     def __init__(self, *args: Any, code: DiscountCode, **kwargs: Any) -> None:
