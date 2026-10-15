@@ -1069,7 +1069,9 @@ def _guild_attention_context(request: HttpRequest, guild: Guild) -> dict[str, An
     every guild the member staffs, and here the guild filter belongs in the query.
 
     ``guild_attention_visible`` is an explicit "does this viewer lead or staff THIS guild"
-    test, not a row count. Both queues are viewer-scoped through ``staffed_guilds``, so an
+    test, not a row count. The review list holds only what this viewer reviews (the lead and
+    Class Reviewers, #816, via ``awaiting_guild_lead``), so plain staff see the section with an
+    empty review list. Both queues are viewer-scoped, so an
     admin or guild officer looking at a guild they do not staff gets two empty lists — and
     telling them "all clear" would be a lie about a guild that really does have reviews
     waiting. They are shown nothing at all instead.
@@ -1357,7 +1359,7 @@ def _guild_edit_context(
         StudioHoursFormSet,
     )
     from membership.models import GuildOrientationSettings
-    from membership.permissions import can_create_equipment, manageable_equipment_ids
+    from membership.permissions import can_create_equipment, can_set_class_reviewers, manageable_equipment_ids
 
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
     ctx = _get_hub_context(request)
@@ -1388,6 +1390,9 @@ def _guild_edit_context(
             )
         ),
         "staff_by_member": guild.staff_by_member(),
+        # The Staff tab's Class Reviewer switches (#816): who is on, and whether this viewer may flip them.
+        "class_reviewer_ids": guild.class_reviewer_ids(),
+        "can_set_class_reviewers": can_set_class_reviewers(request, guild),
         "staff_add_form": GuildStaffAddForm(
             member_queryset=_staff_candidates(guild), guild=guild, allow_co_lead=_viewing_as_admin(request)
         ),
@@ -1996,6 +2001,34 @@ def guild_staff_remove(request: HttpRequest, pk: int, staff_pk: int) -> HttpResp
             )
     messages.success(request, message)
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=staff")
+
+
+@login_required
+@require_POST
+def guild_staff_class_reviewer(request: HttpRequest, pk: int, member_pk: int) -> HttpResponse:
+    """Set a staff member's Class Reviewer switch on this guild (HTMX; 204 + toast) (#816).
+
+    Only the guild lead and admins may (:func:`membership.permissions.can_set_class_reviewers`);
+    anyone else gets a 403, and a member with no staff row on this guild a 404. The checkbox
+    posts ``on`` when checked and omits it when unchecked, so its presence is the new state,
+    and every staff row the member holds here is set together. Nothing is sent to anyone.
+    """
+    from membership.models import Member
+    from membership.permissions import can_set_class_reviewers
+
+    guild = get_object_or_404(Guild, pk=pk)
+    if not can_set_class_reviewers(request, guild):
+        return HttpResponse("Forbidden", status=403)
+    member = get_object_or_404(Member, pk=member_pk)
+    on = "on" in request.POST
+    if guild.set_class_reviewer(member, on) == 0:
+        raise Http404("That member is not on this guild's staff.")
+    response = HttpResponse(status=204)
+    if on:
+        trigger_toast(response, f"{member.display_name} now reviews {guild.name} classes.", "success")
+    else:
+        trigger_toast(response, f"{member.display_name} no longer reviews {guild.name} classes.", "info")
+    return response
 
 
 @login_required

@@ -1433,18 +1433,27 @@ Only leads, staff, and admins see the Guild Settings button. Everything a staff 
         "body": """\
 ### One Rule Before Anything Else {#guild-staff-authority}
 
-**Every staff role grants the full authority of the guild lead.** There are no junior roles. Whether you add someone as a Co-Lead, Secretary, Treasurer, Orienter, or under a custom title you invent, the title is only a label. The moment they're on your staff, they can do everything you can do for this guild.
+**Every staff role grants the full authority of the guild lead, except class review.** There are no junior roles. Whether you add someone as a Co-Lead, Secretary, Treasurer, Orienter, or under a custom title you invent, the title is only a label. The moment they're on your staff, they can do everything you can do for this guild apart from reviewing classes.
 
 Concretely, every staff member can:
 
 - Edit the guild page: the About text, banner, gallery, FAQ, links, meetings, everything.
-- Manage and approve the guild's classes, including reviewing new class submissions.
+- Manage the guild's classes.
 - Run orientations: confirm and decline requests, and mark members oriented.
 - Send announcements to the whole guild and review member-proposed ones.
 - Add and remove other staff members, including you.
-- Receive every email the lead receives: class review requests and orientation requests go to the lead plus all staff.
+- Receive the orientation requests the lead receives.
 
 So add people you trust with the whole guild, not just with one job.
+
+### Class Reviewers {#guild-class-reviewers}
+
+Class review requests go to the guild lead and to the staff you mark as **Class Reviewer**. Everyone starts with it off.
+
+1. Open your guild's page and click **Guild Settings**, then the **Staff** tab.
+2. Turn on **Class Reviewer** next to the staff member.
+
+Only the guild lead and admins can flip the switch. Other staff see it but can't change it. Nothing is sent to anyone when you flip it. A Class Reviewer never gets a review request for a class they teach; the guild lead always does.
 
 ### Add or Remove Staff {#guild-manage-staff}
 
@@ -1846,7 +1855,7 @@ When someone submits a class in a category tied to your guild, you're the first 
 
 ### How a Review Reaches You
 
-The moment a class is submitted, the guild lead and every staff member get a review-request email, plus an in-app notice. The instructor is told their class is in review. Review is a shared duty: any one of your staff can make the call, and the first decision is the guild's decision.
+The moment a class is submitted, the guild lead and the staff marked **Class Reviewer** get a review request email, plus an in-app notice. Other staff don't. Nobody is asked to review a class they teach, unless they're the guild lead. The instructor is told their class is in review. Any one of your reviewers can make the call, and the first decision is the guild's decision.
 
 ### Where to Review {#guild-approve-classes}
 
@@ -1860,7 +1869,7 @@ Two doors lead to the same review page.
 2. **Needs Attention** is the first thing on that page. Find **Waiting on Your Review**.
 3. Click **Review** next to the waiting class.
 
-You do not need teaching access for any of this. One caveat: only the guild's lead, its staff, and admins see the **Guild Settings** button. If you do not see it, ask your lead to add you as staff, or use the email link. That link works without logging in at all.
+You do not need teaching access for any of this. Two caveats: only the guild's lead, its staff, and admins see the **Guild Settings** button, and only the lead and Class Reviewers see classes waiting there. If you do not see them, ask your lead to mark you as a Class Reviewer, or use the email link. That link works without logging in at all. If you open it while signed in as someone who isn't the lead or a Class Reviewer, the page shows the class but won't take a decision.
 
 ![The guild settings page. Classes waiting on your review sit at the top.](/static/help/approving-classes/01-review-panel.png)
 

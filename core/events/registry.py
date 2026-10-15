@@ -320,8 +320,9 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "instructor_class_approved": Recipients.INSTRUCTOR,
     "instructor_changes_requested": Recipients.INSTRUCTOR,
     "instructor_new_registration": Recipients.INSTRUCTOR,
-    # A guild-led class routes to that guild's leadership; a lead-less category (guild
-    # is None in context) routes to the CMS Administrators (composition, not union).
+    # A guild-led class routes to that guild's lead and Class Reviewers, never the class's
+    # own instructors unless one is the lead (#816); a lead-less category (guild is None in
+    # context) routes to the CMS Administrators (composition, not union).
     "class_review_requested": Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS,
     # The admin validation stage always routes to the CMS Administrators.
     "class_validation_requested": Recipients.CLASS_APPROVERS,

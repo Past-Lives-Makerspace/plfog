@@ -262,10 +262,11 @@ def _emit_review_request(
 
     The reviewer email is the preserved ``review_request.{txt,html}`` shell (tokenized
     ``/classes/review/<token>/`` link). Email, bell, push and Discord DM all go to the
-    event's ``GUILD_LEADERSHIP_OR_CLASS_APPROVERS`` resolver against ``guild``: the
-    guild's whole leadership for a guild-led class, the CMS Administrators (capability
-    holders) for a lead-less one. Each person's own switches decide (#524), and the email
-    goes to their notification address; a leader with no login gets nothing.
+    event's ``GUILD_LEADERSHIP_OR_CLASS_APPROVERS`` resolver against ``guild`` and
+    ``offering``: the guild's lead and Class Reviewers for a guild-led class, never the
+    class's own instructors unless one is the lead (#816), and the CMS Administrators
+    (capability holders) for a lead-less one. Each person's own switches decide (#524), and
+    the email goes to their notification address; a reviewer with no login gets nothing.
     """
     from core.events.senders import emit_with_email_shell
 
@@ -281,7 +282,7 @@ def _emit_review_request(
     return emit_with_email_shell(
         "class_review_requested",
         target=offering,
-        context={"guild": guild},
+        context={"guild": guild, "offering": offering},
         subject=f"Review request: {offering.title}",
         text_template="classes/emails/review_request.txt",
         html_template="classes/emails/review_request.html",
@@ -297,18 +298,33 @@ def _emit_review_request(
     )
 
 
-def guild_has_reachable_leadership(guild: "Guild | None") -> bool:
-    """Whether anyone in ``guild``'s leadership can be sent a review request.
+def class_has_reachable_reviewer(offering: "ClassOffering") -> bool:
+    """Whether anyone who reviews ``offering`` for its guild can be sent a review request.
 
     The request goes through the ``class_review_requested`` resolver, which reaches only
-    lead and staff members with a login and an email. A guild whose leadership is empty,
-    or made up only of people the event system cannot reach, has nobody to remind: the
-    admin queue offers "Review it yourself" and Remind lead refuses, instead of claiming
-    a reminder went out.
+    the guild's lead and Class Reviewers (#816) with a login and an email, leaving out the
+    class's own instructors unless one is the lead. A class with nobody there to ask, or
+    only people the event system cannot reach, has nobody to remind: the admin queue
+    offers "Review it yourself" and Remind lead refuses, instead of claiming a reminder
+    went out.
     """
     from core.events import resolvers
 
-    return guild is not None and bool(resolvers.guild_leadership({"guild": guild}))
+    guild = offering.category.guild if offering.category_id else None
+    return guild is not None and bool(resolvers.guild_class_reviewers({"guild": guild, "offering": offering}))
+
+
+def reminded_names(result: "EmitResult") -> list[str]:
+    """The display names of everyone ``result`` actually delivered to, in delivery order.
+
+    Remind lead's toast names each person reminded (#816); a person reached on several
+    channels is named once, and someone skipped as already reminded today is not named.
+    """
+    from membership.models import Member
+
+    user_ids = list(dict.fromkeys(user_id for user_id, _channel in result.delivered))
+    by_user = {member.user_id: member for member in Member.objects.filter(user_id__in=user_ids)}
+    return [by_user[user_id].display_name for user_id in user_ids if user_id in by_user]
 
 
 def send_guild_lead_review_reminder(row: "ClassApproval") -> "EmitResult | None":
@@ -318,13 +334,13 @@ def send_guild_lead_review_reminder(row: "ClassApproval") -> "EmitResult | None"
     the dated period ``approval:{pk}:reminder:{today}`` so a second click the same day
     lands in ``EmitResult.skipped_duplicates`` and tomorrow's click delivers again. The
     instructor explainer is deliberately NOT re-sent (the instructor already knows).
-    Returns ``None`` when the guild has nobody left to remind
-    (:func:`guild_has_reachable_leadership`).
+    Returns ``None`` when the class has nobody left to remind
+    (:func:`class_has_reachable_reviewer`).
     """
     offering = row.class_offering
-    guild = offering.category.guild if offering.category_id else None
-    if not guild_has_reachable_leadership(guild):
+    if not class_has_reachable_reviewer(offering):
         return None
+    guild = offering.category.guild
     instructor_name = offering.instructor_names or "An instructor"
     today = timezone.localdate().isoformat()
     return _emit_review_request(
@@ -378,13 +394,14 @@ def _emit_instructor_review_explainer(offering: "ClassOffering", row: "ClassAppr
 
 
 def send_guild_lead_review_request(offering: "ClassOffering", approval: "ClassApproval") -> None:
-    """Stage one: review request to the guild's lead and staff + the instructor explainer.
+    """Stage one: review request to the guild's lead and Class Reviewers + the instructor explainer.
 
     Fired from ``ClassOffering._notify_first_stage_reviewer`` when the first-stage gate is
     the Guild Lead. One ``class_review_requested`` event sends the dedicated review email
-    and the in-app row to the category's guild leadership (lead plus every staff member,
-    they share review duties), each person's Email switch deciding the email; a second
-    event sends the instructor explainer (email only).
+    and the in-app row to the category's guild lead and the staff marked Class Reviewer
+    (#816; plain staff are not asked, nor the class's own instructors unless one is the
+    lead), each person's Email switch deciding the email; a second event sends the
+    instructor explainer (email only).
     """
     guild = offering.category.guild if offering.category_id else None
     instructor_name = offering.instructor_names or "An instructor"

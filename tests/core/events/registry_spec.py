@@ -342,8 +342,8 @@ def describe_the_class_review_row():
         event = get_event("class_review_requested")
         assert event.label == "Class review request"
         assert event.description == (
-            "An instructor submitted a class for review. Guild leadership reviews their own guild's "
-            "classes; CMS Administrators review classes with no guild lead."
+            "An instructor submitted a class for review. The guild lead and the staff they switched on as "
+            "Class Reviewers review their guild's classes; CMS Administrators review classes with no guild lead."
         )
 
 

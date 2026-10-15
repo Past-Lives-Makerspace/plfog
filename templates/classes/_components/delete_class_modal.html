@@ -1,0 +1,12 @@
+{# Delete's confirm modal: its own form posting to admin_class_delete, so it never sits inside the composer form (#816). #}
+{% load classes_tags %}
+{% if not offering.registrations.exists %}
+    {% url 'classes:admin_class_delete' pk=offering.pk as delete_url %}
+    {% concat "delete-class-" offering.pk as delete_modal_id %}
+    {% if delete_as_admin %}
+        {% concat "This permanently removes the class and its sessions. This cannot be undone. (Classes with any registrations must be archived instead.)" as delete_message %}
+    {% else %}
+        {% concat "This permanently removes your draft and its dates. This cannot be undone." as delete_message %}
+    {% endif %}
+    {% include "components/confirm_modal.html" with confirm_id=delete_modal_id confirm_title="Delete this class?" confirm_message=delete_message confirm_action_url=delete_url confirm_button_text="Delete Class" %}
+{% endif %}

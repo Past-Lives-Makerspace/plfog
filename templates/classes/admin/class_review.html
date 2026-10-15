@@ -88,6 +88,14 @@
         It is currently {{ offering.get_status_display|lower }}. Decisions can only be recorded while a class is pending review.
       </div>
     </div>
+  {% elif not may_decide %}
+    {# A signed in person who is not this guild's lead or a Class Reviewer (#816): no form, a plain reason. #}
+    <div class="pl-review-notice" data-review-not-yours>
+      <div class="pl-review-notice__title">This review belongs to the guild lead.</div>
+      <div class="pl-review-notice__body">
+        Only {% if approval.opened_for_guild %}the {{ approval.opened_for_guild.name }} lead{% else %}the guild lead{% endif %} and the staff they mark as Class Reviewers can approve, request changes or deny this class.
+      </div>
+    </div>
   {% else %}
     {# Readiness: what the class still needs. A red item never disables the form; Approve carries a hint. #}
     <section style="margin-bottom:1.25rem;">

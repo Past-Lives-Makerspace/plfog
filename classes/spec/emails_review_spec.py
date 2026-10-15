@@ -104,18 +104,23 @@ def describe_send_guild_lead_review_request():
         )
         assert len(mail.outbox) == 3
 
-    def it_also_emails_guild_staff_on_the_review_request(db):
-        """The review request fans out to the lead and every staff member."""
+    def it_also_emails_class_reviewers_but_not_plain_staff_on_the_review_request(db):
+        """The review request fans out to the lead and the staff marked Class Reviewer (#816)."""
         lead = _leader("emailguildlead@example.com")
         guild = _guild_led_by(lead)
-        staff_member = _leader("coleadstaff@example.com")
-        GuildStaffMembershipFactory(guild=guild, member=staff_member, role=GuildStaffMembership.Role.CO_LEAD)
+        reviewer = _leader("coleadstaff@example.com")
+        GuildStaffMembershipFactory(
+            guild=guild, member=reviewer, role=GuildStaffMembership.Role.CO_LEAD, can_review_classes=True
+        )
+        plain = _leader("plainstaff@example.com")
+        GuildStaffMembershipFactory(guild=guild, member=plain, role=GuildStaffMembership.Role.TREASURER)
         offering, row = _pending_guild_class(guild)
 
         send_guild_lead_review_request(offering, row)
 
         assert len(_review_emails("emailguildlead@example.com")) == 1
         assert len(_review_emails("coleadstaff@example.com")) == 1
+        assert _review_emails("plainstaff@example.com") == []
 
     def it_skips_a_leader_with_no_login(db):
         """A member with no login has no switches to obey, so the event system skips them."""
@@ -158,7 +163,9 @@ def describe_send_guild_lead_review_request():
             _email_off(lead)
             guild = _guild_led_by(lead)
             staff_member = _leader("loudstaff@example.com")
-            GuildStaffMembershipFactory(guild=guild, member=staff_member, role=GuildStaffMembership.Role.SECRETARY)
+            GuildStaffMembershipFactory(
+                guild=guild, member=staff_member, role=GuildStaffMembership.Role.SECRETARY, can_review_classes=True
+            )
             offering, row = _pending_guild_class(guild)
 
             send_guild_lead_review_request(offering, row)
@@ -253,7 +260,9 @@ def describe_send_guild_lead_review_reminder():
         lead = _leader("remindlead@example.com")
         guild = _guild_led_by(lead, "Remind Guild")
         quiet = _leader("remindquiet@example.com")
-        GuildStaffMembershipFactory(guild=guild, member=quiet, role=GuildStaffMembership.Role.TREASURER)
+        GuildStaffMembershipFactory(
+            guild=guild, member=quiet, role=GuildStaffMembership.Role.TREASURER, can_review_classes=True
+        )
         _email_off(quiet)
         _offering, row = _pending_guild_class(guild)
 

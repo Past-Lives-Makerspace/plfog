@@ -101,7 +101,8 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     ),
     Recipients.CLASS_APPROVERS: "The CMS Administrators (holders only).",
     Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: (
-        "The guild's lead and staff; for a lead-less category, the CMS Administrators (holders only)."
+        "The guild's lead and its Class Reviewers, never the class's own instructor unless they lead; "
+        "for a lead-less category, the CMS Administrators (holders only)."
     ),
     Recipients.SPACE_APPROVERS: "The Space & Cubby Administrators (holders only).",
     Recipients.EQUIPMENT_MANAGERS: (

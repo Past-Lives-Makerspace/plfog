@@ -394,11 +394,12 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
             "Sent when an instructor submits a class for review. Goes to the category's guild lead and "
-            "staff (or to the CMS Administrators when the category has no guild lead), with a tokenized "
+            "the staff marked Class Reviewer, never the class's own instructors unless one is the lead "
+            "(or to the CMS Administrators when the category has no guild lead), with a tokenized "
             "review link. Each reviewer's Email switch for Class review request decides."
         ),
         edit_pointer=_tpl("classes/emails", "review_request"),
-        audience="The guild's lead + staff, or the CMS Administrators for lead-less categories.",
+        audience="The guild's lead + Class Reviewers, or the CMS Administrators for lead-less categories.",
         event_keys=frozenset({"class_review_requested"}),
         text_template="classes/emails/review_request.txt",
         html_template="classes/emails/review_request.html",

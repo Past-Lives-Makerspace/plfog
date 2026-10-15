@@ -96,8 +96,8 @@ TRIGGERS: list[Trigger] = [
         # settings page for the email they got finds this row.
         "Class review request",
         (
-            "An instructor submitted a class for review. Guild leadership reviews their own guild's "
-            "classes; CMS Administrators review classes with no guild lead."
+            "An instructor submitted a class for review. The guild lead and the staff they switched on as "
+            "Class Reviewers review their guild's classes; CMS Administrators review classes with no guild lead."
         ),
         "Teaching",
         email_default=True,
