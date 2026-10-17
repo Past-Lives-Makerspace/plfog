@@ -7,10 +7,14 @@ live single class gets the same split on that save.
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 from typing import Any
 
+import httpx
 import pytest
+import respx
+from django.contrib.messages import get_messages
 from django.urls import reverse
 from django.utils import timezone
 
@@ -24,10 +28,18 @@ from classes.factories import (
     UserFactory,
 )
 from classes.models import ClassOffering, ClassSession, Registration
+from core.models import SiteConfiguration
+from hub import discord_class_posts as dcp
 
 pytestmark = pytest.mark.django_db
 
 DAYS = (10, 31, 45, 59)
+CHANNEL_ID = "946149249178021949"
+_MESSAGES_URL = f"https://discord.com/api/v10/channels/{CHANNEL_ID}/messages"
+
+
+def _messages(response: Any) -> list[str]:
+    return [str(message) for message in get_messages(response.wsgi_request)]
 
 
 def _single(*days: int, price_cents: int = 0, **kwargs: Any) -> ClassOffering:
@@ -147,6 +159,55 @@ def describe_an_admin_saving_several_dates():
         assert [run.sessions.count() for run in runs] == [1, 1]
         assert all(run.status == ClassOffering.Status.PUBLISHED for run in runs)
         assert all(run.approved_by == admin_user for run in runs)
+        assert _messages(response) == [
+            "Class updated. Its 2 later dates are now their own runs of this class, listed under other dates."
+        ]
+
+    def it_names_a_single_later_date_in_the_message(live, admin_user, client):
+        client.force_login(admin_user)
+        response = client.post(reverse("classes:teach_class_edit", kwargs={"pk": live.pk}), _composer_payload(live, 20))
+        assert response.status_code == 302
+        assert _messages(response) == [
+            "Class updated. Its later date is now its own run of this class, listed under other dates."
+        ]
+
+    def it_keeps_the_new_dates_off_the_class_when_the_split_fails(live, admin_user, client, monkeypatch):
+        def broken(self: ClassOffering, actor: Any) -> list[ClassOffering]:
+            raise RuntimeError("split failed")
+
+        monkeypatch.setattr(ClassOffering, "split_dates_into_runs", broken)
+        client.force_login(admin_user)
+        with pytest.raises(RuntimeError):
+            client.post(reverse("classes:teach_class_edit", kwargs={"pk": live.pk}), _composer_payload(live, 20, 30))
+        assert ClassSession.objects.filter(class_offering=live).count() == 1
+        assert _runs(live) == []
+
+    @respx.mock
+    def it_posts_once_for_the_earliest_future_run_when_the_first_date_has_passed(admin_user, client, settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        config = SiteConfiguration.load()
+        config.discord_classes_posts_enabled = True
+        config.discord_classes_channel_id = CHANNEL_ID
+        config.save(update_fields=["discord_classes_posts_enabled", "discord_classes_channel_id"])
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        past = _single(
+            -2,
+            price_cents=5000,
+            category=CategoryFactory(),
+            instructor=InstructorFactory(),
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        client.force_login(admin_user)
+        response = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": past.pk}), _composer_payload(past, 20, 30)
+        )
+        assert response.status_code == 302
+
+        first_run = _runs(past)[0]
+        assert dcp.announce_new_classes() == 1
+        embeds = [embed for call in route.calls for embed in json.loads(call.request.content)["embeds"]]
+        assert [embed["url"] for embed in embeds] == [first_run.public_url]
+        assert dcp.announce_new_classes() == 0
 
     def it_leaves_the_dates_alone_when_someone_holds_a_seat(live, admin_user, client):
         RegistrationFactory(class_offering=live, status=Registration.Status.CONFIRMED)
@@ -157,6 +218,7 @@ def describe_an_admin_saving_several_dates():
         assert response.status_code == 302
         assert ClassSession.objects.filter(class_offering=live).count() == 3
         assert _runs(live) == []
+        assert _messages(response) == ["Class updated."]
 
     def it_leaves_a_draft_to_split_when_it_is_published(admin_user, client):
         draft = _single(10, price_cents=5000, category=CategoryFactory(), instructor=InstructorFactory())

@@ -3903,6 +3903,9 @@ class ClassOffering(HeroCropMixin, models.Model):
         The runs skip review and go live through :meth:`_stamp_published`. They arrive already
         stamped ``channel_announced_at`` (the source's stamp, or now when the source has not been
         posted yet), so #classes hears about the class once, from the source, and never per run.
+        When the source's earliest date has already passed it is no longer bookable and will
+        never be posted, so the earliest future run keeps the source's own stamp instead and
+        carries the one post.
 
         Does nothing for a series, a flexible class, a class with one date or none, or a class
         anyone holds a seat on: moving dates off a class people signed up for would change what
@@ -3919,7 +3922,14 @@ class ClassOffering(HeroCropMixin, models.Model):
         sessions = list(ClassSession.objects.filter(class_offering_id=self.pk).order_by("starts_at", "pk"))
         if len(sessions) < 2 or self.registrations.seat_holding().exists():
             return []
-        announced_at = self.channel_announced_at or timezone.now()
+        now = timezone.now()
+        announced_at = self.channel_announced_at or now
+        # A class whose earliest date has passed is not bookable once it holds that date
+        # alone, so the announcer would never post it. Its earliest future run then keeps the
+        # class's own stamp instead, which leaves it as the one post #classes gets.
+        herald = None
+        if sessions[0].starts_at < now:
+            herald = next((session for session in sessions[1:] if session.starts_at >= now), None)
         runs: list[ClassOffering] = []
         with transaction.atomic():
             for session in sessions[1:]:
@@ -3927,7 +3937,7 @@ class ClassOffering(HeroCropMixin, models.Model):
                 # run is cut from a fresh copy of the source row, never from ``self``.
                 run = type(self)._default_manager.get(pk=self.pk).duplicate_as_new_run()
                 ClassSession.objects.filter(pk=session.pk).update(class_offering=run)
-                run.channel_announced_at = announced_at
+                run.channel_announced_at = self.channel_announced_at if session is herald else announced_at
                 run._stamp_published(actor, also_save=["channel_announced_at"])
                 runs.append(run)
         # A composer that prefetched the sessions would otherwise still hold the moved rows.
@@ -4204,8 +4214,11 @@ class ClassApproval(models.Model):
         ):
             self.approved_schedule_fingerprint = self.class_offering.schedule_fingerprint
             update_fields.append("approved_schedule_fingerprint")
-        self.save(update_fields=update_fields)
-        self.class_offering.on_review_decision_recorded(self)
+        # One transaction: a publish that fails (the date split, #823) leaves this gate
+        # undecided and the class PENDING, never an APPROVED row on an unpublished class.
+        with transaction.atomic():
+            self.save(update_fields=update_fields)
+            self.class_offering.on_review_decision_recorded(self)
 
 
 class ClassImage(models.Model):

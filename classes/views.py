@@ -4458,6 +4458,15 @@ def class_flyer(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, "classes/class_flyer.html", {"offering": offering, "qr_svg": offering.qr_svg()})
 
 
+def _split_save_message(run_count: int) -> str:
+    """The admin composer's saved message, naming the runs a split just made (#823)."""
+    if run_count == 0:
+        return "Class updated."
+    if run_count == 1:
+        return "Class updated. Its later date is now its own run of this class, listed under other dates."
+    return f"Class updated. Its {run_count} later dates are now their own runs of this class, listed under other dates."
+
+
 def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
     """The composer as an admin sees it: every fact editable, and Publish on the last step.
 
@@ -4479,12 +4488,15 @@ def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
         and form.accepts_eventbrite_listing(cast("User", request.user), faq_formset)
     ):
         form.save()
-        session_formset.save()
-        offering.apply_scheduling_model()
-        faq_formset.save()
-        if offering.status == ClassOffering.Status.PUBLISHED:
-            # A live single class given several dates becomes one run per date on this save (#823).
-            offering.split_dates_into_runs(cast("User", request.user))
+        runs: list[ClassOffering] = []
+        # One transaction: a split that fails leaves no new dates on an unsplit live class.
+        with transaction.atomic():
+            session_formset.save()
+            offering.apply_scheduling_model()
+            faq_formset.save()
+            if offering.status == ClassOffering.Status.PUBLISHED:
+                # A live single class given several dates becomes one run per date on this save (#823).
+                runs = offering.split_dates_into_runs(cast("User", request.user))
         offering.mark_eventbrite_edit_saved()
         _mark_composer_saved(request, offering)
         if request.POST.get("action") == "publish":
@@ -4501,7 +4513,7 @@ def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
                 return _unready_redirect("classes:teach_class_edit", offering, exc.items)
             messages.success(request, f"{offering.title} is published.")
             return redirect("classes:teach_class_detail", pk=offering.pk)
-        messages.success(request, "Class updated.")
+        messages.success(request, _split_save_message(len(runs)))
         if request.POST.get("step"):
             return _composer_redirect("classes:teach_class_edit", offering.pk, request)
         return redirect("classes:teach_class_detail", pk=offering.pk)

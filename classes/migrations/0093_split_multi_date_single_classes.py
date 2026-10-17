@@ -14,7 +14,10 @@ holds a seat on is never touched.
 
 Each run gets a ``class_published`` activity row carrying :data:`MARKER` and its source's pk.
 Reverse reads those rows: it moves each run's session back to its source and deletes the run,
-leaving any run somebody has since signed up for where it is.
+leaving any run somebody has since signed up for, or whose source is gone, where it is.
+
+When a source's earliest date has already passed, its earliest future run keeps the source's
+own announcement stamp, so #classes still posts the class once, as the model's split does.
 
 Add only, so the previous release keeps serving while this applies (STANDARDS.md section 10):
 the runs are ordinary published classes it already knows how to show.
@@ -120,10 +123,17 @@ def split_all(apps: Any) -> list[tuple[int, int]]:
     made: list[tuple[int, int]] = []
     for source_pk in classes_to_split(apps):
         source = ClassOffering.objects.get(pk=source_pk)
-        announced_at = source.channel_announced_at or timezone.now()
+        now = timezone.now()
+        announced_at = source.channel_announced_at or now
         sessions = list(ClassSession.objects.filter(class_offering_id=source_pk).order_by("starts_at", "pk"))
+        # As in the model: a source whose earliest date has passed is never posted again, so its
+        # earliest future run keeps the source's own stamp and carries the one post.
+        herald = None
+        if sessions[0].starts_at < now:
+            herald = next((session for session in sessions[1:] if session.starts_at >= now), None)
         for session in sessions[1:]:
-            run = _clone_run(apps, source_pk, announced_at)
+            stamp = source.channel_announced_at if session is herald else announced_at
+            run = _clone_run(apps, source_pk, stamp)
             ClassSession.objects.filter(pk=session.pk).update(class_offering_id=run.pk)
             CmsActivity.objects.create(
                 kind="class_published",
@@ -144,6 +154,9 @@ def merge_all(apps: Any) -> list[int]:
     for row in CmsActivity.objects.filter(payload__marker=MARKER).order_by("pk"):
         run_pk = row.class_offering_id
         if run_pk is None or Registration.objects.filter(class_offering_id=run_pk).exists():
+            continue
+        # A source deleted since has nowhere to take the date back; the run stays a class of its own.
+        if not ClassOffering.objects.filter(pk=row.payload["split_from"]).exists():
             continue
         ClassSession.objects.filter(class_offering_id=run_pk).update(class_offering_id=row.payload["split_from"])
         ClassOffering.objects.filter(pk=run_pk).delete()

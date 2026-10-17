@@ -212,3 +212,55 @@ def describe_the_classes_channel():
         embeds = [embed for call in route.calls for embed in json.loads(call.request.content)["embeds"]]
         assert [embed["url"] for embed in embeds] == [offering.public_url]
         assert dcp.announce_new_classes() == 0
+
+
+def _enable_class_posts(settings: Any) -> respx.Route:
+    settings.DISCORD_BOT_TOKEN = "tok"
+    config = SiteConfiguration.load()
+    config.discord_classes_posts_enabled = True
+    config.discord_classes_channel_id = CHANNEL_ID
+    config.save(update_fields=["discord_classes_posts_enabled", "discord_classes_channel_id"])
+    return respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+
+
+def describe_a_class_whose_first_date_has_passed():
+    @respx.mock
+    def it_posts_once_for_the_earliest_future_run(settings):
+        route = _enable_class_posts(settings)
+        offering = _single(-6, 8, 22)
+        offering.publish(UserFactory())
+        first_run, second_run = _runs(offering)
+
+        assert first_run.channel_announced_at is None
+        assert second_run.channel_announced_at is not None
+        assert dcp.announce_new_classes() == 1
+        embeds = [embed for call in route.calls for embed in json.loads(call.request.content)["embeds"]]
+        assert [embed["url"] for embed in embeds] == [first_run.public_url]
+        assert dcp.announce_new_classes() == 0
+
+    def it_hands_an_announced_class_stamp_to_every_run():
+        offering = _single(-6, 8, 22)
+        announced = timezone.now() - timedelta(days=10)
+        offering.channel_announced_at = announced
+        offering.save(update_fields=["channel_announced_at"])
+        offering.publish(UserFactory())
+        assert [run.channel_announced_at for run in _runs(offering)] == [announced, announced]
+
+
+def describe_an_admin_approval_whose_split_fails():
+    def it_leaves_the_gate_undecided_and_the_class_pending(monkeypatch):
+        offering = _single(*DAYS)
+        (row,) = offering.submit_for_review()
+        assert row.role == row.Role.ADMIN
+
+        def broken(self: ClassOffering, actor: Any) -> list[ClassOffering]:
+            raise RuntimeError("split failed")
+
+        monkeypatch.setattr(ClassOffering, "split_dates_into_runs", broken)
+        with pytest.raises(RuntimeError):
+            row.decide(row.Decision.APPROVED, user=UserFactory())
+        row.refresh_from_db()
+        offering.refresh_from_db()
+        assert row.decision == ""
+        assert offering.status == ClassOffering.Status.PENDING
+        assert offering.published_at is None

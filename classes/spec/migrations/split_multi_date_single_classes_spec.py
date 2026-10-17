@@ -174,3 +174,33 @@ def describe_merge_all():
             assert ClassOffering.objects.count() == 1
         finally:
             _migrate(_HEAD)
+
+
+def describe_split_all_when_the_first_date_has_passed():
+    def it_leaves_the_earliest_future_run_unannounced_to_carry_the_post():
+        _published("Cup", -6, 8, 22)
+        try:
+            apps = _migrate(_BEFORE)
+            made = _migration.split_all(apps)
+        finally:
+            _migrate(_HEAD)
+        first_run, second_run = (ClassOffering.objects.get(pk=run_pk) for _, run_pk in made)
+        assert first_run.channel_announced_at is None
+        assert second_run.channel_announced_at is not None
+
+
+def describe_merge_all_without_a_source():
+    def it_leaves_the_run_where_it_is():
+        cup = _published("Cup", 10, 20)
+        try:
+            apps = _migrate(_BEFORE)
+            made = _migration.split_all(apps)
+            run_pk = made[0][1]
+            Offering = apps.get_model(_APP, "ClassOffering")
+            Offering.objects.filter(pk=cup.pk).delete()
+            removed = _migration.merge_all(apps)
+            assert removed == []
+            assert Offering.objects.filter(pk=run_pk).exists()
+            assert len(_starts(run_pk)) == 1
+        finally:
+            _migrate(_HEAD)
