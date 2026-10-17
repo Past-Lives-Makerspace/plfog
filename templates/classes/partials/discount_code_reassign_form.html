@@ -16,7 +16,8 @@ as DiscountCode.scope_sentence, and Re-assign stays disabled until the chosen sc
         code: '{{ code.code|escapejs }}',
         picked(select, value) {
           var option = Array.from(select.options).find((o) => o.value === String(value));
-          return option && option.value ? option.text : '';
+          // The label carries dates, status and (current) (#818); data-name is the bare name the sentence wants.
+          return option && option.value ? (option.dataset.name || option.text) : '';
         },
         sentence() {
           if (this.scope === 'class') {

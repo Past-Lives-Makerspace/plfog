@@ -2279,6 +2279,53 @@ class DiscountCodeForm(forms.ModelForm):
         return code
 
 
+def _reassign_class_label(offering: ClassOffering, current_pk: int | None) -> str:
+    """One Re-assign class option (#818): title, then dates, then status, so two runs of one title differ.
+
+    Reads the prefetched ``sessions`` (:meth:`ClassOfferingQuerySet.discount_code_targets`), so a
+    long list costs no query per option. Dates are the next session still to come, else the first.
+    """
+    parts = [offering.title]
+    if offering.is_flexible:
+        parts.append("Flexible")
+    else:
+        sessions = sorted(offering.sessions.all(), key=lambda session: session.starts_at)
+        now = timezone.now()
+        upcoming = [session for session in sessions if session.starts_at >= now]
+        if not sessions:
+            parts.append("No dates yet")
+        elif not upcoming:
+            # Only the kept current class can be all in the past; say so rather than show an old date as next.
+            parts.append(f"Ended {timezone.localtime(sessions[-1].starts_at).strftime('%a %b %-d')}")
+        else:
+            first = timezone.localtime(upcoming[0].starts_at).strftime("%a %b %-d")
+            more = len(upcoming) - 1
+            parts.append(f"{first} (and {more} more date{'s' if more != 1 else ''})" if more else first)
+    if offering.status != ClassOffering.Status.PUBLISHED:
+        parts.append(offering.get_status_display())
+    label = " · ".join(parts)
+    return f"{label} (current)" if offering.pk == current_pk else label
+
+
+class _NamedOptionSelect(forms.Select):
+    """A picker whose options also carry the bare name in ``data-name`` (#818).
+
+    The visible label adds dates, status and "(current)"; the modal's live sentence reads
+    ``data-name`` so it names the class or instructor alone, whatever the title contains.
+    """
+
+    def create_option(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        from membership.models import Member
+
+        option = super().create_option(*args, **kwargs)
+        instance = getattr(option["value"], "instance", None)
+        if isinstance(instance, ClassOffering):
+            option["attrs"]["data-name"] = instance.title
+        elif isinstance(instance, Member):
+            option["attrs"]["data-name"] = instance.display_name
+        return option
+
+
 class DiscountCodeReassignForm(forms.Form):
     """The Re-assign modal (#764): where an existing code works, and nothing else about it.
 
@@ -2300,7 +2347,7 @@ class DiscountCodeReassignForm(forms.Form):
         queryset=ClassOffering.objects.none(),
         required=False,
         empty_label="Pick a class",
-        widget=forms.Select(attrs={"x-model": "classPk", "x-ref": "classSelect"}),
+        widget=_NamedOptionSelect(attrs={"x-model": "classPk", "x-ref": "classSelect"}),
     )
     # Annotated because the queryset is only known per code (set in __init__), so the field starts empty.
     instructor: "forms.ModelChoiceField[Member]" = forms.ModelChoiceField(
@@ -2308,7 +2355,7 @@ class DiscountCodeReassignForm(forms.Form):
         queryset=None,
         required=False,
         empty_label="Pick an instructor",
-        widget=forms.Select(attrs={"x-model": "instructorPk", "x-ref": "instructorSelect"}),
+        widget=_NamedOptionSelect(attrs={"x-model": "instructorPk", "x-ref": "instructorSelect"}),
     )
 
     def __init__(self, *args: Any, code: DiscountCode, **kwargs: Any) -> None:
@@ -2320,8 +2367,12 @@ class DiscountCodeReassignForm(forms.Form):
         self.code = code
         classes = cast(forms.ModelChoiceField, self.fields["class_offering"])
         classes.queryset = ClassOffering.objects.discount_code_targets(keep_pk=code.class_offering_id)
+        classes.label_from_instance = lambda offering: _reassign_class_label(offering, code.class_offering_id)
         teachers = cast(forms.ModelChoiceField, self.fields["instructor"])
         teachers.queryset = ClassOffering.objects.teaching_members(keep_pk=code.instructor_id)
+        teachers.label_from_instance = lambda member: (
+            f"{member.display_name} (current)" if member.pk == code.instructor_id else member.display_name
+        )
 
     def clean(self) -> dict[str, Any]:
         data = super().clean() or {}

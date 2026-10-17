@@ -434,19 +434,24 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         chosen = Q(pk__in=upcoming.values("pk"))
         if keep_pk is not None:
             chosen |= Q(pk=keep_pk)
-        return self.filter(chosen).order_by("title")
+        return self.filter(chosen).prefetch_related("sessions").order_by("title")
 
     def teaching_members(self, *, keep_pk: int | None = None) -> "models.QuerySet[Member]":
         """The members who teach at least one of these classes, by name: the Re-assign modal's
         instructor picker (#764).
 
-        Every listed instructor counts, not only the payee (#686). ``keep_pk`` is the code's
-        current instructor, kept even once no class of theirs is left, so the modal opens on
-        what the code is scoped to today instead of a blank pick.
+        Every listed instructor counts, not only the payee (#686), but only an active member who
+        still holds instructor access (#818): former members and "Deleted Member" rows left by
+        account deletion never show. ``keep_pk`` is the code's current instructor, kept even once
+        they no longer qualify, so the modal opens on what the code is scoped to today instead of
+        a blank pick.
         """
         from membership.models import Member
 
-        chosen = Q(pk__in=ClassInstructor.objects.filter(class_offering__in=self).values("member_id"))
+        chosen = Q(
+            pk__in=ClassInstructor.objects.filter(class_offering__in=self).values("member_id"),
+            status=Member.Status.ACTIVE,
+        ) & ~Q(instructor_slug="")
         if keep_pk is not None:
             chosen |= Q(pk=keep_pk)
         by_name = Coalesce(NullIf("preferred_name", Value("")), "full_legal_name")

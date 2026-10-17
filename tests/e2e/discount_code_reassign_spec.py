@@ -22,6 +22,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect
 
 from classes.factories import ClassOfferingFactory, ClassSessionFactory, DiscountCodeFactory, InstructorFactory
+from membership.models import Member
 from classes.models import ClassOffering, DiscountCode
 from tests.membership.factories import MembershipPlanFactory
 
@@ -55,6 +56,11 @@ def _seed_bat_class() -> ClassOffering:
     ClassSessionFactory(class_offering=bat, starts_at=timezone.now() + timedelta(days=7))
     ClassOfferingFactory(title="Gone Already", status=ClassOffering.Status.CANCELLED)
     return bat
+
+
+def _day(offering: ClassOffering) -> str:
+    """The date a Re-assign class option shows for ``offering``'s first session (#818)."""
+    return timezone.localtime(offering.sessions.first().starts_at).strftime("%a %b %-d")
 
 
 def _capture(page, name: str) -> None:
@@ -110,8 +116,26 @@ def describe_an_admin():
         expect(submit).to_be_disabled()
         expect(sentence).to_have_text("Pick a class to see what will change.")
         # Upcoming classes only: the cancelled one never shows.
-        expect(picker.locator("option")).to_have_text(["Pick a class", "Make a Halloween Bat"])
-        picker.select_option(label="Make a Halloween Bat")
+        # Two runs of one title read apart by their dates and status (#818).
+        rerun = ClassOfferingFactory(title="Make a Halloween Bat", slug="make-a-halloween-bat-draft")
+        ClassSessionFactory(class_offering=rerun, starts_at=timezone.now() + timedelta(days=21))
+        page.reload()
+        _, menu = _open_reassign(page, live_server, "JACQUELINE30")
+        menu.get_by_role("menuitem", name="Re-assign").click()
+        dialog = page.get_by_role("dialog", name="Re-assign Discount Code")
+        form = dialog.locator("[data-reassign-form]")
+        sentence = form.locator("[data-reassign-sentence]")
+        picker = form.get_by_label("Class", exact=True)
+        submit = form.get_by_role("button", name="Re-assign")
+        form.get_by_role("radio", name="One class").check()
+        bat_label = f"Make a Halloween Bat · {_day(bat)}"
+        expect(picker.locator("option")).to_have_text(
+            ["Pick a class", bat_label, f"Make a Halloween Bat · {_day(rerun)} · Draft"]
+        )
+        picker.evaluate("el => { el.size = 3; }")
+        _capture(page, "818-reassign-class-picker.png")
+        picker.evaluate("el => { el.size = 0; }")
+        picker.select_option(label=bat_label)
         expect(sentence).to_have_text("JACQUELINE30 will work only on Make a Halloween Bat.")
         expect(submit).to_be_enabled()
         _capture_both_themes(page, "764-reassign-modal-02")
@@ -162,6 +186,8 @@ def describe_an_admin():
         )
         ClassSessionFactory(class_offering=bat, starts_at=timezone.now() + timedelta(days=7))
         ClassOfferingFactory(title="Someone Else's Class", status=ClassOffering.Status.PUBLISHED)
+        former = InstructorFactory(full_legal_name="Former Teacher", status=Member.Status.FORMER)
+        ClassOfferingFactory(title="An Old Class", instructor=former)
         code = DiscountCodeFactory(code="JACQUELINE30", class_offering=None, is_approved=True, discount_pct=30)
         _login_as_admin(login_via_code)
         page.set_viewport_size({"width": 1200, "height": 800})
@@ -179,6 +205,12 @@ def describe_an_admin():
         submit = form.get_by_role("button", name="Re-assign")
         expect(submit).to_be_disabled()
         expect(sentence).to_have_text("Pick an instructor to see what will change.")
+        # Only current instructors are offered (#818): a former one never shows.
+        expect(picker.locator("option", has_text="Jacqueline Sowell")).to_have_count(1)
+        expect(picker.locator("option", has_text="Former Teacher")).to_have_count(0)
+        picker.evaluate("el => { el.size = 3; }")
+        _capture(page, "818-reassign-instructor-picker.png")
+        picker.evaluate("el => { el.size = 0; }")
         picker.select_option(label="Jacqueline Sowell")
         expect(sentence).to_have_text("JACQUELINE30 will work on every class Jacqueline Sowell teaches, now and later.")
         expect(submit).to_be_enabled()

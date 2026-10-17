@@ -139,7 +139,10 @@ def describe_admin_discount_code_reassign():
             assert "data-reassign-form" in html
             assert f'hx-post="{_url(code)}"' in html
             assert re.search(r'<input[^>]*value="class"[^>]*checked', html)
-            assert f'<option value="{offering.pk}" selected>Bat Carving</option>' in html
+            assert (
+                f'<option value="{offering.pk}" selected data-name="Bat Carving">Bat Carving · No dates yet · Draft (current)</option>'
+                in html
+            )
             assert "BAT30 will work only on Bat Carving." in html
 
         def it_sends_a_plain_get_back_to_the_list(admin_client):
@@ -275,7 +278,10 @@ def describe_admin_discount_code_reassign_to_an_instructor():
         code = DiscountCodeFactory(code="JACQUELINE30", class_offering=None, instructor=teacher)
         html = client.get(_url(code), **HX).content.decode()
         assert re.search(r'<input[^>]*value="instructor"[^>]*checked', html)
-        assert f'<option value="{teacher.pk}" selected>Jacqueline Sowell</option>' in html
+        assert (
+            f'<option value="{teacher.pk}" selected data-name="Jacqueline Sowell">Jacqueline Sowell (current)</option>'
+            in html
+        )
         assert "JACQUELINE30 will work on every class Jacqueline Sowell teaches, now and later." in html
 
 
@@ -300,3 +306,88 @@ def describe_the_class_discount_codes_tab():
             assert '<span class="hub-pill hub-pill--neutral" data-scope-instructor>Jacqueline Sowell</span>' in html
         for offering in (someone_elses, legacy):
             assert "JACQUELINE30" not in _tab(client, offering)
+
+
+def _choice_labels(form: DiscountCodeReassignForm, field: str) -> list[str]:
+    return [str(label) for value, label in form.fields[field].choices if value != ""]
+
+
+def describe_the_pickers_labels():
+    """#818: an admin can tell look-alike runs apart, and only current instructors are offered."""
+
+    def it_labels_each_class_with_its_dates_and_any_unpublished_status():
+        first = ClassOfferingFactory(
+            title="Picture Framing", slug="picture-framing-a", status=ClassOffering.Status.PUBLISHED
+        )
+        when = timezone.now() + timedelta(days=10)
+        ClassSessionFactory(class_offering=first, starts_at=when)
+        ClassSessionFactory(class_offering=first, starts_at=when + timedelta(days=7))
+        ClassSessionFactory(class_offering=first, starts_at=when + timedelta(days=14))
+        second = ClassOfferingFactory(
+            title="Picture Framing", slug="picture-framing-b", status=ClassOffering.Status.DRAFT
+        )
+        ClassSessionFactory(class_offering=second, starts_at=when + timedelta(days=30))
+        ClassOfferingFactory(title="Undated", status=ClassOffering.Status.PENDING)
+        ClassOfferingFactory(
+            title="Anytime",
+            status=ClassOffering.Status.PUBLISHED,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+        )
+        labels = _choice_labels(
+            DiscountCodeReassignForm(code=DiscountCodeFactory(class_offering=None)), "class_offering"
+        )
+        day = timezone.localtime(when).strftime("%a %b %-d")
+        later = timezone.localtime(when + timedelta(days=30)).strftime("%a %b %-d")
+        assert f"Picture Framing · {day} (and 2 more dates)" in labels
+        assert f"Picture Framing · {later} · Draft" in labels
+        assert "Undated · No dates yet · Pending Review" in labels
+        assert "Anytime · Flexible" in labels
+
+    def it_marks_the_codes_current_class():
+        offering = ClassOfferingFactory(title="Kept", status=ClassOffering.Status.PUBLISHED)
+        labels = _choice_labels(
+            DiscountCodeReassignForm(code=DiscountCodeFactory(class_offering=offering)), "class_offering"
+        )
+        assert "Kept · No dates yet (current)" in labels
+
+    def it_builds_the_class_labels_without_a_query_per_class(django_assert_max_num_queries):
+        for n in range(6):
+            offering = ClassOfferingFactory(title=f"Run {n}")
+            ClassSessionFactory(class_offering=offering, starts_at=timezone.now() + timedelta(days=n + 1))
+        form = DiscountCodeReassignForm(code=DiscountCodeFactory(class_offering=None))
+        with django_assert_max_num_queries(2):
+            _choice_labels(form, "class_offering")
+
+    def it_offers_only_active_instructors_who_still_hold_instructor_access():
+        current = InstructorFactory(full_legal_name="Current Teacher")
+        former = InstructorFactory(full_legal_name="Former Teacher", status=Member.Status.FORMER)
+        no_access = InstructorFactory(full_legal_name="Lapsed Teacher", instructor_slug="")
+        deleted = InstructorFactory(full_legal_name="Deleted Member", instructor_slug="", status=Member.Status.FORMER)
+        for teacher in (current, former, no_access, deleted):
+            ClassOfferingFactory(instructor=teacher)
+        labels = _choice_labels(DiscountCodeReassignForm(code=DiscountCodeFactory(class_offering=None)), "instructor")
+        assert labels == ["Current Teacher"]
+
+    def it_keeps_and_marks_the_codes_current_instructor_even_once_they_no_longer_qualify():
+        former = InstructorFactory(full_legal_name="Former Teacher", status=Member.Status.FORMER)
+        ClassOfferingFactory(instructor=former)
+        code = DiscountCodeFactory(class_offering=None, instructor=former)
+        assert _choice_labels(DiscountCodeReassignForm(code=code), "instructor") == ["Former Teacher (current)"]
+
+    def it_says_a_kept_class_has_ended_instead_of_showing_an_old_date_as_next():
+        offering = ClassOfferingFactory(title="Glen 101", status=ClassOffering.Status.PUBLISHED)
+        last = timezone.now() - timedelta(days=3)
+        ClassSessionFactory(class_offering=offering, starts_at=last - timedelta(days=7))
+        ClassSessionFactory(class_offering=offering, starts_at=last)
+        labels = _choice_labels(
+            DiscountCodeReassignForm(code=DiscountCodeFactory(class_offering=offering)), "class_offering"
+        )
+        assert f"Glen 101 · Ended {timezone.localtime(last).strftime('%a %b %-d')} (current)" in labels
+
+    def it_gives_every_option_its_bare_name_for_the_live_sentence():
+        offering = ClassOfferingFactory(title="Clay · Wheel Intro")
+        teacher = InstructorFactory(full_legal_name="Jacqueline Sowell")
+        ClassOfferingFactory(instructor=teacher)
+        html = str(DiscountCodeReassignForm(code=DiscountCodeFactory(class_offering=offering)))
+        assert 'data-name="Clay · Wheel Intro"' in html
+        assert 'data-name="Jacqueline Sowell"' in html
