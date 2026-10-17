@@ -4482,6 +4482,9 @@ def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
         session_formset.save()
         offering.apply_scheduling_model()
         faq_formset.save()
+        if offering.status == ClassOffering.Status.PUBLISHED:
+            # A live single class given several dates becomes one run per date on this save (#823).
+            offering.split_dates_into_runs(cast("User", request.user))
         offering.mark_eventbrite_edit_saved()
         _mark_composer_saved(request, offering)
         if request.POST.get("action") == "publish":

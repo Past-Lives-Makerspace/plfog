@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-16"
+title = "Each date of a single class can be booked on its own"
+changes = [
+  "When a single class was given several dates, one sign up covered every date, and the later dates could not be booked once the first one passed. Each date now goes live as its own run of the class, so you pick the date that works for you from the other dates on the class page.",
+  "The Make a Sushi Set and Make a Cup classes with Anjali are split this way, one date each.",
+]
