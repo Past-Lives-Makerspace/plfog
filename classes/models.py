@@ -2140,6 +2140,9 @@ class ClassOffering(HeroCropMixin, models.Model):
         no real description, no capacity) so the catalog never shows a class nobody can
         book.
 
+        A single class carrying several dates is split in the same transaction: it keeps its
+        earliest date and each later one goes live as its own run (:meth:`split_dates_into_runs`).
+
         Publishing notifies nobody site-wide. The instructor's "Your class was approved"
         bell row + the rich "live!" email fan out from the ``instructor_class_approved``
         event emitted by ``classes.emails.send_class_review_decision`` (called by the view
@@ -2159,12 +2162,28 @@ class ClassOffering(HeroCropMixin, models.Model):
         items = self.readiness()
         if not all(item.ok for item in items):
             raise ClassNotReadyError(items, "publish")
+        # One transaction: a split that fails leaves the class unsplit and unpublished (#823).
+        with transaction.atomic():
+            self._stamp_published(actor)
+            self.split_dates_into_runs(actor)
+        self.sync_eventbrite_listing()
+
+    def _stamp_published(self, actor: "User | None", *, also_save: Sequence[str] = ()) -> None:
+        """Mark this row live: the status, ``published_at`` and ``approved_by`` columns, the log, the instructor page.
+
+        Everything :meth:`publish` writes once readiness has passed, shared with the runs
+        :meth:`split_dates_into_runs` makes, which go live without a readiness check of their own.
+
+        Args:
+            actor: Who published, stamped as ``approved_by`` and on the activity row.
+            also_save: Further columns the caller set in memory, written in the same save.
+        """
         from classes import activity
 
         self.status = self.Status.PUBLISHED
         self.approved_by = actor
         self.published_at = timezone.now()
-        self.save(update_fields=["status", "approved_by", "published_at", "updated_at"])
+        self.save(update_fields=["status", "approved_by", "published_at", "updated_at", *also_save])
         activity.log(CmsActivity.Kind.CLASS_PUBLISHED, class_offering=self, actor=actor)
         # The public instructor page goes live with the first published class, for every
         # listed instructor (#686), but only while the member still holds teaching access: a
@@ -2173,7 +2192,6 @@ class ClassOffering(HeroCropMixin, models.Model):
         for member in self.instructor_list:
             if member.can_create_classes:
                 member.ensure_instructor_slug()
-        self.sync_eventbrite_listing()
 
     def cancel(self, actor: "User | None", reason: str) -> None:
         """Cancel a live class: the member-facing event. Everyone registered is told why.
@@ -3877,6 +3895,60 @@ class ClassOffering(HeroCropMixin, models.Model):
         self._copy_photos_and_faqs_from(source_pk)
         return self
 
+    def split_dates_into_runs(self, actor: "User | None") -> list["ClassOffering"]:
+        """Turn every later date of a single class into its own published run (#823).
+
+        Sign up belongs to the class, never to a date, so a single class carrying several dates
+        sells one seat for all of them and leaves the catalog once its first date starts. This
+        keeps the earliest session here and moves each later one onto a run cloned with
+        :meth:`duplicate_as_new_run`, exactly what Run it again builds: the same title and
+        ``grouping_key``, instructors, photos, FAQs, price and capacity. The session row itself
+        moves; it is never recreated.
+
+        The runs skip review and go live through :meth:`_stamp_published`. They arrive already
+        stamped ``channel_announced_at`` (the source's stamp, or now when the source has not been
+        posted yet), so #classes hears about the class once, from the source, and never per run.
+        When the source's earliest date has already passed it is no longer bookable and will
+        never be posted, so the earliest future run keeps the source's own stamp instead and
+        carries the one post.
+
+        Does nothing for a series, a flexible class, a class with one date or none, or a class
+        anyone holds a seat on: moving dates off a class people signed up for would change what
+        they bought.
+
+        Args:
+            actor: Who published, stamped on each run as on the source.
+
+        Returns:
+            The runs made, earliest date first; empty when nothing was split.
+        """
+        if not self.is_single or self.is_flexible:
+            return []
+        sessions = list(ClassSession.objects.filter(class_offering_id=self.pk).order_by("starts_at", "pk"))
+        if len(sessions) < 2 or self.registrations.seat_holding().exists():
+            return []
+        now = timezone.now()
+        announced_at = self.channel_announced_at or now
+        # A class whose earliest date has passed is not bookable once it holds that date
+        # alone, so the announcer would never post it. Its earliest future run then keeps the
+        # class's own stamp instead, which leaves it as the one post #classes gets.
+        herald = None
+        if sessions[0].starts_at < now:
+            herald = next((session for session in sessions[1:] if session.starts_at >= now), None)
+        runs: list[ClassOffering] = []
+        with transaction.atomic():
+            for session in sessions[1:]:
+                # ``duplicate_as_new_run`` turns the instance it runs on into the clone, so each
+                # run is cut from a fresh copy of the source row, never from ``self``.
+                run = type(self)._default_manager.get(pk=self.pk).duplicate_as_new_run()
+                ClassSession.objects.filter(pk=session.pk).update(class_offering=run)
+                run.channel_announced_at = self.channel_announced_at if session is herald else announced_at
+                run._stamp_published(actor, also_save=["channel_announced_at"])
+                runs.append(run)
+        # A composer that prefetched the sessions would otherwise still hold the moved rows.
+        getattr(self, "_prefetched_objects_cache", {}).pop("sessions", None)
+        return runs
+
 
 class ClassInstructorManager(models.Manager["ClassInstructor"]):
     """Every read of a row brings its member in the same query.
@@ -4147,8 +4219,11 @@ class ClassApproval(models.Model):
         ):
             self.approved_schedule_fingerprint = self.class_offering.schedule_fingerprint
             update_fields.append("approved_schedule_fingerprint")
-        self.save(update_fields=update_fields)
-        self.class_offering.on_review_decision_recorded(self)
+        # One transaction: a publish that fails (the date split, #823) leaves this gate
+        # undecided and the class PENDING, never an APPROVED row on an unpublished class.
+        with transaction.atomic():
+            self.save(update_fields=update_fields)
+            self.class_offering.on_review_decision_recorded(self)
 
 
 class ClassImage(models.Model):
