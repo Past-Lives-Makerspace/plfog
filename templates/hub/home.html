@@ -83,6 +83,26 @@
 {% include "components/modal.html" with modal_id="door-code-change" modal_title="Change the Door Code" modal_size="sm" modal_body_include="hub/partials/_door_code_form.html" %}
 {% endif %}
 
+{# --- Overdue reviews (#817): admins and CMS Administrators, omitted when none have waited 3 days --- #}
+{% if overdue_reviews %}
+<div class="hub-card pl-home-block" data-block="overdue-reviews">
+    <h2 class="pl-home-heading">Overdue Reviews</h2>
+    <ul class="pl-teaching">
+        {% for row in overdue_reviews %}
+        <li class="pl-teaching__row">
+            <span class="pl-teaching__body">
+                <span class="pl-teaching__title">{{ row.offering.title }}</span>
+                <span class="pl-teaching__note hub-text-muted">Waiting on {{ row.waiting_on }}</span>
+                <span class="pl-overdue-marker">{{ row.marker }}</span>
+            </span>
+            <a href="{% url 'classes:admin_class_review' pk=row.offering.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost">Review</a>
+        </li>
+        {% endfor %}
+    </ul>
+    <a href="{% url 'classes:admin_overview' %}" class="pl-home-block__more">Open the class queue →</a>
+</div>
+{% endif %}
+
 {# --- Teaching (instructors only, omitted when there is nothing to show) --- #}
 {% if teaching %}
 <div class="hub-card pl-home-block" data-block="teaching">

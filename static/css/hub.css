@@ -10325,6 +10325,15 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text-muted);
 }
 
+/* A review waiting 3 days or more (#817): the red "Waiting N days · starts in M days" line on the
+   admin queue and the Home card. */
+.pl-overdue-marker {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--hub-danger-text);
+}
+
 /* "Contact them at 503 555 0100 (text message)" on an Interested in Teaching row: the one
    line the admin acts on, so it keeps the full text colour between the two muted lines. */
 .pl-queue-contact {

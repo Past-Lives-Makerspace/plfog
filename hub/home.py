@@ -87,7 +87,23 @@ def build_home_context(member: Member) -> dict[str, Any]:
         "onboarding": member.onboarding,
         "show_onboarding": member.show_onboarding,
         "teaching": _teaching(member),
+        "overdue_reviews": _overdue_reviews(member),
     }
+
+
+def _overdue_reviews(member: Member) -> list[Any]:
+    """Class reviews waiting 3 days or more (#817), for the people who can review them.
+
+    Admins and CMS Administrators only; everyone else gets an empty list, so the card is
+    omitted. The same list as the Discord alert and the admin queue marker.
+    """
+    from membership.models import AdminCapability
+
+    if not (member.is_fog_admin or member.has_admin_capability(AdminCapability.Capability.CLASS_APPROVER)):
+        return []
+    from classes.overdue import overdue_reviews
+
+    return overdue_reviews()
 
 
 def _teaching(member: Member) -> list[TeachingRow]:

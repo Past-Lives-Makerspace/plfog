@@ -326,6 +326,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.DAILY,
     ),
     ScheduledJob(
+        key="send_overdue_review_alerts",
+        name="Overdue class reviews",
+        description=(
+            "Posts each class review that has waited 3 days or more to the member portal alerts "
+            "channel on Discord, again every 3 days while it waits."
+        ),
+        command="send_overdue_review_alerts",
+        schedule_label="Nightly ~6 AM",
+        cadence=Cadence.DAILY,
+    ),
+    ScheduledJob(
         key="announce_live_requests",
         name="Requests gone live",
         description=(

@@ -972,6 +972,18 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_DISCORD_ON,),
         activity_kind=None,
     ),
+    # 27b. class_review_overdue — a class review has waited 3 days or more (#817). One plain
+    #      Discord post (no mention, no email, no bell) per 3 days of waiting, routed by a
+    #      DiscordWebhookRoute row to the member portal alerts channel.
+    EventType(
+        key="class_review_overdue",
+        label="Overdue class review to the portal alerts channel",
+        description="A Discord post when a submitted class has waited 3 days or more for a review decision.",
+        category="Teaching",
+        recipient=Recipients.CLASS_APPROVERS,
+        channels=(_DISCORD_ON,),
+        activity_kind=None,
+    ),
     # 28. meeting.item_proposed — a member proposed an agenda item for an upcoming meeting;
     #     it lands on the workspace's review strip. Goes to the guild's leadership plus
     #     admins (mirrors guild_announcement.submitted). For a council meeting ``guild`` is

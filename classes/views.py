@@ -7,7 +7,7 @@ import logging
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Callable, NotRequired, TypedDict, cast
 
 from django.conf import settings
 from django.contrib import messages
@@ -3970,6 +3970,7 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
         .order_by("created_at")
     )
     with_guild_leads = _with_guild_leads_queue(now)
+    _mark_overdue(waiting_on_you, with_guild_leads, now)
     teaching_applications = _teaching_application_queue(now)
 
     week_end = now + timedelta(days=7)
@@ -4080,6 +4081,32 @@ def _teaching_application_queue(now: Any) -> list[_TeachingApplicationRow]:
     ]
 
 
+def _mark_overdue(waiting_on_you: list[ClassOffering], with_guild_leads: list[Any], now: Any) -> None:
+    """Stamp the overdue marker on both admin queue groups and sort overdue rows first (#817).
+
+    Each row gets ``overdue`` (a :class:`classes.overdue.OverdueReview` or ``None``) from the one
+    list the Discord alert and Home read, so the three never disagree. "Waiting on You" also
+    gets ``waiting_since``: its open admin gate's age, not the class's, falling back to the
+    class's creation for a pending class with no row yet.
+    """
+    from classes.overdue import overdue_reviews, waiting_since
+
+    overdue = {row.offering.pk: row for row in overdue_reviews(now)}
+    open_admin = {
+        gate.class_offering_id: waiting_since(gate)
+        for gate in ClassApproval.objects.filter(
+            class_offering__in=waiting_on_you, role=ClassApproval.Role.ADMIN, decision=""
+        ).prefetch_related("class_offering__approvals")
+    }
+    for offering in waiting_on_you:
+        offering.overdue = overdue.get(offering.pk)  # type: ignore[attr-defined]
+        offering.waiting_since = open_admin.get(offering.pk, offering.created_at)  # type: ignore[attr-defined]
+    waiting_on_you.sort(key=lambda offering: offering.overdue is None)  # type: ignore[attr-defined]
+    for item in with_guild_leads:
+        item["overdue"] = overdue.get(item["offering"].pk)
+    with_guild_leads.sort(key=lambda item: item["overdue"] is None)
+
+
 class _GuildLeadQueueRow(TypedDict):
     """One "With Guild Leads" row on the admin overview."""
 
@@ -4088,6 +4115,7 @@ class _GuildLeadQueueRow(TypedDict):
     lead: Any
     days_waiting: int
     leadless: bool
+    overdue: NotRequired[Any]
 
 
 def _with_guild_leads_queue(now: Any) -> list[_GuildLeadQueueRow]:

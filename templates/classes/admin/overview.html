@@ -32,7 +32,8 @@
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
           <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
             <a href="{% url 'classes:teach_class_detail' pk=c.pk %}">{{ c.title }}</a>
-            <span style="color:var(--hub-text-muted);font-size:0.85rem;">{{ c.instructor_names }} · {{ c.category.name }} · waiting {{ c.created_at|timesince }}</span>
+            <span style="color:var(--hub-text-muted);font-size:0.85rem;">{{ c.instructor_names }} · {{ c.category.name }} · waiting {{ c.waiting_since|timesince }}</span>
+            {% if c.overdue %}<span class="pl-overdue-marker">{{ c.overdue.marker }}</span>{% endif %}
           </span>
           <span class="pl-row-actions">
             <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_review' pk=c.pk %}">Review</a>
@@ -56,6 +57,7 @@
               {% if item.lead %}<a href="{% url 'hub_member_directory' %}?q={{ item.lead.display_name|urlencode }}">{{ item.lead.display_name }}</a>{% else %}No lead{% endif %}
               · waiting {{ item.days_waiting }} day{{ item.days_waiting|pluralize }}
             </span>
+            {% if item.overdue %}<span class="pl-overdue-marker">{{ item.overdue.marker }}</span>{% endif %}
           </span>
           <span class="pl-row-actions">
             {% if item.leadless %}
