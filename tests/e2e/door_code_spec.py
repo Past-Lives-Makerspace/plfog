@@ -20,7 +20,7 @@ from django.urls import reverse
 from django.utils import timezone
 from playwright.sync_api import expect
 
-from core.models import SiteConfiguration
+from core.models import SiteConfiguration, TourState
 from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
 
@@ -42,6 +42,8 @@ def _sign_in(login_via_code, email: str, *, fog_role: str = Member.FogRole.MEMBE
     member.welcome_dismissed_at = timezone.now()
     member.save(update_fields=["fog_role", "welcome_dismissed_at"])
     member.sync_user_permissions()
+    # The tour is behind them, so Home shows Show me around rather than the Take the tour banner (#824).
+    TourState.objects.mark_completed(user, "member-welcome")
 
 
 def _set_code(code: str) -> None:

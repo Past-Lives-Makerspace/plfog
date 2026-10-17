@@ -5,6 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/door-code.css' %}">
+<link rel="stylesheet" href="{% static 'css/tour-banner.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -14,6 +15,11 @@
 {% with greeting="Welcome back, "|add:member.display_name %}
 {% include "components/page_header.html" with title=greeting description="Your home base — what's coming up, the latest from your guilds, and quick ways in." action_include="hub/partials/_home_header_actions.html" %}
 {% endwith %}
+
+{# --- Take the tour banner (#824): while the member tour is on offer, in place of the floating card --- #}
+{% if show_tour_offer and tour.offer_banner %}
+{% include "hub/partials/_home_tour_banner.html" %}
+{% endif %}
 
 {# --- Get started onboarding checklist (shows until onboarded or dismissed) --- #}
 {% if show_onboarding %}

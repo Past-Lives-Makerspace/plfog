@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import pytest
+from django.contrib.auth.models import User
 from django.test.utils import CaptureQueriesContext
 from django.db import connection
 from django.urls import reverse
 
+from core.models import TourState
 from membership.models import Member
 from tests.membership.factories import (
     GuildFactory,
@@ -37,6 +39,12 @@ def _profile_ready_member_unlinked_discord() -> Member:
         discord_handle="@maker",
         discord_user_id="",
     )
+
+
+def _member_with_user(username: str) -> Member:
+    """A member linked to a login (the tour step reads that user's TourState row)."""
+    user = User.objects.create_user(username=username, email=f"{username}@example.com", password="pw")
+    return Member.objects.get(user=user)
 
 
 def describe_member_is_onboarded():
@@ -87,14 +95,14 @@ def describe_member_is_onboarded():
 
 
 def describe_member_onboarding():
-    def it_builds_four_steps_in_order():
+    def it_builds_five_steps_in_order_with_the_tour_first():
         checklist = MemberFactory().onboarding
-        assert [step.key for step in checklist.steps] == ["profile", "guilds", "discord", "voting"]
+        assert [step.key for step in checklist.steps] == ["tour", "profile", "guilds", "discord", "voting"]
 
-    def it_marks_discord_and_voting_optional():
+    def it_marks_the_tour_discord_and_voting_optional():
         checklist = MemberFactory().onboarding
         optional = {step.key: step.optional for step in checklist.steps}
-        assert optional == {"profile": False, "guilds": False, "discord": True, "voting": True}
+        assert optional == {"tour": True, "profile": False, "guilds": False, "discord": True, "voting": True}
 
     def it_labels_the_guilds_step_choose_your_guild_updates():
         step = next(s for s in MemberFactory().onboarding.steps if s.key == "guilds")
@@ -109,6 +117,7 @@ def describe_member_onboarding():
     def it_links_each_step_to_its_page():
         checklist = MemberFactory().onboarding
         urls = {step.key: step.url for step in checklist.steps}
+        assert urls["tour"] == f"{reverse('hub_home')}?tour=member-welcome"
         assert urls["profile"] == f"{reverse('hub_user_settings')}?tab=profile"
         assert urls["guilds"] == f"{reverse('hub_user_settings')}?tab=guilds"
         assert urls["discord"] == reverse("hub_discord_connect")
@@ -156,7 +165,51 @@ def describe_member_onboarding():
         GuildMembershipFactory(member=member)
         VotePreferenceFactory(member=member)
         done = {step.key: step.done for step in member.onboarding.steps}
-        assert done == {"profile": True, "guilds": True, "discord": True, "voting": True}
+        assert done == {"tour": False, "profile": True, "guilds": True, "discord": True, "voting": True}
+
+    def describe_tour_step():
+        def _tour_step(member: Member):
+            return next(s for s in member.onboarding.steps if s.key == "tour")
+
+        def it_is_labelled_take_the_tour():
+            assert _tour_step(MemberFactory()).label == "Take the tour"
+
+        def it_is_not_done_before_the_tour_is_offered():
+            step = _tour_step(_member_with_user("tour-none"))
+            assert step.done is False
+            assert step.hint != ""
+
+        def it_is_not_done_while_the_tour_is_only_offered():
+            member = _member_with_user("tour-offered")
+            TourState.objects.mark_offered(member.user, "member-welcome")
+            assert _tour_step(member).done is False
+
+        def it_is_done_once_the_tour_is_completed():
+            member = _member_with_user("tour-completed")
+            TourState.objects.mark_completed(member.user, "member-welcome")
+            step = _tour_step(member)
+            assert step.done is True
+            assert step.hint == ""
+
+        def it_is_done_once_the_tour_is_dismissed():
+            member = _member_with_user("tour-dismissed")
+            TourState.objects.mark_dismissed(member.user, "member-welcome")
+            assert _tour_step(member).done is True
+
+        def it_ignores_another_tours_state():
+            member = _member_with_user("tour-other")
+            TourState.objects.mark_completed(member.user, "guild-lead")
+            assert _tour_step(member).done is False
+
+        def it_is_not_done_for_a_member_with_no_login():
+            assert _tour_step(MemberFactory()).done is False
+
+        def it_changes_neither_required_progress_nor_is_onboarded():
+            member = _member_with_user("tour-progress")
+            before = (member.onboarding.required_done, member.onboarding.required_total, member.is_onboarded)
+            TourState.objects.mark_completed(member.user, "member-welcome")
+            after = (member.onboarding.required_done, member.onboarding.required_total, member.is_onboarded)
+            assert before == after == (0, 2, False)
 
     def describe_required_progress():
         def it_counts_only_profile_and_guilds():

@@ -1162,6 +1162,17 @@ class Member(models.Model):
             return False
         return TourState.objects.status_for(user, key) == TourState.Status.COMPLETED
 
+    @property
+    def _has_finished_member_tour(self) -> bool:
+        """Whether the member tour is behind them: completed or dismissed (#824). Absent or offered is not."""
+        from core.models import TourState
+
+        user = self.user
+        if user is None:
+            return False
+        status = TourState.objects.status_for(user, "member-welcome")
+        return status in (TourState.Status.COMPLETED, TourState.Status.DISMISSED)
+
     # --- Home onboarding ("Get started" checklist) ---
 
     @cached_property
@@ -1317,18 +1328,29 @@ class Member(models.Model):
 
     @property
     def onboarding(self) -> OnboardingChecklist:
-        """The three-step home "Get started" checklist for this member.
+        """The home "Get started" checklist for this member.
 
-        Each step is a derived status row linking to the page that completes it — the
-        profile editor, the My Guilds settings tab, and the voting page. ``required_done`` /
-        ``required_total`` count only profile + guilds (voting is optional); ``complete``
-        equals :attr:`is_onboarded`.
+        Each step is a derived status row linking to the page that completes it — the member
+        tour, the profile editor, the My Guilds settings tab, Discord and the voting page.
+        ``required_done`` / ``required_total`` count only profile + guilds (the tour, Discord and
+        voting are optional); ``complete`` equals :attr:`is_onboarded`.
         """
         from django.urls import reverse
 
         profile = self.profile_completeness
         profile_done = profile.essentials_complete
+        from core.tours import TOURS, entry_url_for
+
+        tour_done = self._has_finished_member_tour
         steps = [
+            OnboardingStep(
+                key="tour",
+                label="Take the tour",
+                done=tour_done,
+                url=entry_url_for(TOURS["member-welcome"], self),
+                optional=True,
+                hint="" if tour_done else "Two minutes around the portal",
+            ),
             OnboardingStep(
                 key="profile",
                 label="Set up your profile",

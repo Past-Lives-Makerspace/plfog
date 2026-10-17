@@ -14,6 +14,9 @@ from tests.membership.factories import GuildFactory
 pytestmark = pytest.mark.django_db
 
 PASSWORD = "pw12345!"
+BANNER = "data-tour-banner"
+FLOATING_CARD = 'class="pl-tour-offer"'
+HEADER_LINK = '<a href="?tour=member-welcome" class="hub-btn hub-btn--sm">Show me around</a>'
 
 
 def _login_member(client, name: str, **member_fields) -> Member:
@@ -117,11 +120,11 @@ def describe_home_tour_offer():
         TourState.objects.mark_completed(member.user, "member-welcome")
         assert "pl-tour-offer" not in client.get(reverse("hub_home")).content.decode()
 
-    def it_renders_the_show_me_around_header_button(client):
-        _login_member(client, "home-btn")
+    def it_renders_the_show_me_around_header_button_once_the_tour_is_behind_them(client):
+        member = _login_member(client, "home-btn")
+        TourState.objects.mark_completed(member.user, "member-welcome")
         content = client.get(reverse("hub_home")).content.decode()
-        assert "?tour=member-welcome" in content
-        assert "Show me around" in content
+        assert HEADER_LINK in content
 
     def describe_manual_start():
         def it_autostarts_without_writing_a_row_even_when_dismissed(client):
@@ -139,13 +142,123 @@ def describe_home_tour_offer():
             assert '"autostart": true' not in response.content.decode()
 
 
+def describe_home_tour_banner():
+    def it_shows_the_banner_with_take_the_tour_while_the_tour_is_on_offer(client):
+        _login_member(client, "banner-new")
+        content = client.get(reverse("hub_home")).content.decode()
+        start = content.rindex("<div", 0, content.index(BANNER))
+        banner = content[start : content.index("</div>\n", content.index("data-tour-accept"))]
+        assert 'class="hub-card pl-tour-banner"' in banner
+        assert "New here? Take a 2 minute tour" in banner
+        assert "data-pl-tour-offer" in banner  # the hooks pl_tour.js binds: accept starts, decline dismisses
+        assert "data-tour-accept>Take the tour</button>" in banner
+        assert 'class="pl-btn pl-btn--primary' in banner
+        assert 'aria-label="Dismiss the tour" data-tour-decline' in banner
+        assert "tour-banner.css" in content
+
+    def it_puts_the_banner_above_the_get_started_card(client):
+        _login_member(client, "banner-order")
+        content = client.get(reverse("hub_home")).content.decode()
+        assert content.index(BANNER) < content.index('data-help-key="home.get-started"')
+        assert content.index('class="hub-page-header"') < content.index(BANNER)
+
+    def it_never_renders_the_floating_card_beside_the_banner(client):
+        _login_member(client, "banner-alone")
+        content = client.get(reverse("hub_home")).content.decode()
+        assert BANNER in content
+        assert FLOATING_CARD not in content
+        assert content.count("data-pl-tour-offer") == 1
+
+    def it_drops_show_me_around_from_the_header_while_the_banner_shows(client):
+        _login_member(client, "banner-header")
+        content = client.get(reverse("hub_home")).content.decode()
+        assert BANNER in content
+        assert HEADER_LINK not in content
+
+    def it_keeps_offering_the_banner_while_the_offer_is_ignored(client):
+        member = _login_member(client, "banner-ignored")
+        client.get(reverse("hub_home"))
+        assert TourState.objects.status_for(member.user, "member-welcome") == TourState.Status.OFFERED
+        assert BANNER in client.get(reverse("hub_home")).content.decode()
+
+    def it_is_gone_for_good_after_the_close_button_records_dismissed(client):
+        member = _login_member(client, "banner-dismiss")
+        client.get(reverse("hub_home"))
+        response = client.post(
+            reverse("hub_tour_state", kwargs={"tour_key": "member-welcome"}), {"status": "dismissed"}
+        )
+        assert response.status_code == 204
+        assert TourState.objects.status_for(member.user, "member-welcome") == TourState.Status.DISMISSED
+        content = client.get(reverse("hub_home")).content.decode()
+        assert BANNER not in content
+        assert FLOATING_CARD not in content
+        assert HEADER_LINK in content
+
+    def it_is_gone_once_the_tour_is_completed_and_the_header_link_returns(client):
+        member = _login_member(client, "banner-done")
+        TourState.objects.mark_completed(member.user, "member-welcome")
+        content = client.get(reverse("hub_home")).content.decode()
+        assert BANNER not in content
+        assert HEADER_LINK in content
+
+    def it_stays_away_while_the_welcome_modal_shows(client):
+        _login_member(client, "banner-welcome", welcome_dismissed_at=None)
+        content = client.get(reverse("hub_home")).content.decode()
+        assert BANNER not in content
+        assert HEADER_LINK in content
+
+    def it_stays_away_when_the_member_turned_tours_off(client):
+        _login_member(client, "banner-off", guided_tours_enabled=False)
+        content = client.get(reverse("hub_home")).content.decode()
+        assert BANNER not in content
+        assert HEADER_LINK in content
+
+    def it_stays_away_when_the_site_switch_is_off(client):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.guided_tours_enabled = False
+        config.save()
+        _login_member(client, "banner-site-off")
+        content = client.get(reverse("hub_home")).content.decode()
+        assert BANNER not in content
+        assert HEADER_LINK in content
+
+    def it_stays_away_during_a_manual_start(client):
+        _login_member(client, "banner-manual")
+        content = client.get(f"{reverse('hub_home')}?tour=member-welcome").content.decode()
+        assert '"autostart": true' in content
+        assert BANNER not in content
+
+    def it_lists_take_the_tour_first_in_get_started_tagged_optional(client):
+        _login_member(client, "banner-checklist")
+        content = client.get(reverse("hub_home")).content.decode()
+        steps = content[content.index('class="pl-onboarding__steps"') :]
+        first = steps[steps.index("<a ") : steps.index("</a>")]
+        assert f'href="{reverse("hub_home")}?tour=member-welcome"' in first
+        assert "Take the tour" in first
+        assert 'class="pl-onboarding-step__tag">Optional<' in first
+        assert "pl-onboarding-step--done" not in first
+        assert "0 of 2 done" in content
+
+    def it_checks_the_take_the_tour_row_once_dismissed(client):
+        member = _login_member(client, "banner-check")
+        TourState.objects.mark_dismissed(member.user, "member-welcome")
+        content = client.get(reverse("hub_home")).content.decode()
+        steps = content[content.index('class="pl-onboarding__steps"') :]
+        first = steps[steps.index("<a ") : steps.index("</a>")]
+        assert "Take the tour" in first
+        assert "pl-onboarding-step--done" in first
+        assert "0 of 2 done" in content
+
+
 def describe_guild_edit_tour_offer():
     def it_offers_the_guild_lead_tour_to_a_lead(client):
         member = _login_member(client, "ge-lead")
         guild = GuildFactory(name="Lead Offer Guild", guild_lead=member)
         response = client.get(reverse("hub_guild_edit", kwargs={"pk": guild.pk}))
         content = response.content.decode()
-        assert "pl-tour-offer" in content
+        assert FLOATING_CARD in content
         assert "?tour=guild-lead" in content  # the manual entry link
         assert TourState.objects.status_for(member.user, "guild-lead") == TourState.Status.OFFERED
 
@@ -164,7 +277,7 @@ def describe_teach_overview_tour_offer():
         member = _login_member(client, "teach-offer", instructor_oriented_at=timezone.now())
         response = client.get(reverse("classes:teach_overview"))
         content = response.content.decode()
-        assert "pl-tour-offer" in content
+        assert FLOATING_CARD in content
         assert "?tour=instructor" in content
         assert TourState.objects.status_for(member.user, "instructor") == TourState.Status.OFFERED
 

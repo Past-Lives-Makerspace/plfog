@@ -307,7 +307,7 @@ def describe_hub_home_view():
 
             content = client.get(reverse("hub_home")).content
 
-            assert content.count(b'hx-boost="false" class="pl-onboarding-step') == 4
+            assert content.count(b'hx-boost="false" class="pl-onboarding-step') == 5
 
         def it_replaces_the_old_profile_nudge(client: Client):
             _member_user("nonudge")
@@ -404,7 +404,7 @@ def describe_build_home_context():
 
         ctx = build_home_context(member)
 
-        assert [step.key for step in ctx["onboarding"].steps] == ["profile", "guilds", "discord", "voting"]
+        assert [step.key for step in ctx["onboarding"].steps] == ["tour", "profile", "guilds", "discord", "voting"]
         assert ctx["show_onboarding"] is True
 
     def it_hides_the_gate_for_an_onboarded_member():
