@@ -69,6 +69,8 @@ class Tour:
     steps: tuple[TourStep, ...]
     opens_sidebar: bool = False  # member tour: open the (mobile/collapsed) sidebar before starting
     entry_url_kwargs: Callable[[Member], dict[str, Any]] | None = None  # e.g. guild pk for guild-lead
+    # The entry page shows the offer as its own banner (Home's, #824) instead of the floating card.
+    offer_banner: bool = False
 
 
 def _any_member(member: Member) -> bool:
@@ -172,6 +174,7 @@ TOURS: dict[str, Tour] = {
         entry_url_name="hub_home",
         audience=_any_member,
         opens_sidebar=True,
+        offer_banner=True,
         steps=(
             TourStep(
                 target='[data-help-key="nav.sidebar"]',

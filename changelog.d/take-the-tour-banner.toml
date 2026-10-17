@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-16"
+title = "New members get an easier way to take the tour"
+changes = [
+  "If you haven't taken the member tour yet, Home now opens with a Take the tour banner. Close it if you'd rather skip it.",
+  "Take the tour is now an optional step in the Get Started checklist.",
+]

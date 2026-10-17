@@ -80,6 +80,10 @@ def describe_TOURS():
     def it_registers_the_four_role_tours():
         assert set(TOURS) == {"member-welcome", "guild-lead", "instructor", "admin"}
 
+    def it_offers_only_the_member_tour_as_a_banner():
+        # Home draws its own banner (#824); every other tour keeps the floating offer card.
+        assert {key for key, tour in TOURS.items() if tour.offer_banner} == {"member-welcome"}
+
     def it_keys_match_their_tour_and_the_slug_format():
         for key, tour in TOURS.items():
             assert tour.key == key

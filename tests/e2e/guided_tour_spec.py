@@ -45,11 +45,15 @@ def _seed_member_world() -> None:
 
 
 def _open_home_with_offer(live_server, page, login_via_code, email: str):
-    """Log in (welcome modal pre-dismissed by the fixture) and land on hub home."""
+    """Log in (welcome modal pre-dismissed by the fixture) and land on hub home.
+
+    Home offers the member tour as its Take the tour banner (#824), which carries the
+    offer hooks pl_tour.js binds; the floating card is for every other tour.
+    """
     _seed_member_world()
     login_via_code(email)
     page.goto(f"{live_server.url}{reverse('hub_home')}")
-    offer = page.locator("[data-pl-tour-offer]")
+    offer = page.locator("[data-tour-banner]")
     expect(offer).to_be_visible()
     return offer
 
@@ -87,9 +91,9 @@ def describe_member_welcome_tour():
         email = "tour-complete@example.com"
         offer = _open_home_with_offer(live_server, page, login_via_code, email)
 
-        # Accept the offer — the card goes away and the restyled popover appears
+        # Accept the offer — the banner goes away and the restyled popover appears
         # (Driver.js is injected lazily right here, never on the plain pageview).
-        offer.get_by_text("Show me around").click()
+        offer.get_by_role("button", name="Take the tour").click()
         expect(offer).not_to_be_visible()
         popover = page.locator(".driver-popover.pl-tour")
         expect(popover).to_be_visible()
@@ -104,6 +108,7 @@ def describe_member_welcome_tour():
         assert "tour=" not in page.url
         page.goto(f"{live_server.url}{reverse('hub_home')}")
         expect(page.locator("[data-pl-tour-offer]")).not_to_be_visible()
+        expect(page.locator(".hub-page-header").get_by_role("link", name="Show me around")).to_be_visible()
 
     def it_resumes_mid_tour_from_the_url_param(live_server, page, login_via_code):
         email = "tour-resume@example.com"
@@ -120,7 +125,7 @@ def describe_member_welcome_tour():
         email = "tour-escape@example.com"
         offer = _open_home_with_offer(live_server, page, login_via_code, email)
 
-        offer.get_by_text("Show me around").click()
+        offer.get_by_role("button", name="Take the tour").click()
         popover = page.locator(".driver-popover.pl-tour")
         expect(popover).to_be_visible()
 

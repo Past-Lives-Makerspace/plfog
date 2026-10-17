@@ -1,0 +1,14 @@
+{# Home's member tour offer as a banner (#824). The data-pl-tour-offer hooks are the floating card's, so pl_tour.js starts the tour from Take the tour and posts dismissed from the close button. #}
+<div class="hub-card pl-tour-banner" role="region" aria-labelledby="pl-tour-banner-title" data-pl-tour-offer data-tour-banner>
+    <button type="button" class="pl-onboarding__close" aria-label="Dismiss the tour" data-tour-decline>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    </button>
+    <span class="pl-tour-banner__icon" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+    </span>
+    <div class="pl-tour-banner__body">
+        <p class="pl-tour-banner__title" id="pl-tour-banner-title">New here? Take a 2 minute tour</p>
+        <p class="hub-text-muted pl-tour-banner__lead">See the sidebar, classes, the calendar, guild voting, the spaces map and how to book an orientation.</p>
+    </div>
+    <button type="button" class="pl-btn pl-btn--primary pl-tour-banner__go" data-tour-accept>Take the tour</button>
+</div>
