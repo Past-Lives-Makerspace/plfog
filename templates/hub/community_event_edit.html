@@ -56,7 +56,7 @@
       {% include "hub/partials/_event_hero_field.html" with field=form.photo crop_field=form.hero_crop event=event %}
       <div class="pl-form-group" data-event-gallery>
         <span class="pl-form-label">Gallery</span>
-        {% include "classes/_components/image_formset.html" with offering=event page_noun="event page" %}
+        {% include "classes/_components/image_formset.html" with offering=event page_noun="event page" help_key=False %}
       </div>
       {% include "components/form_field.html" with field=form.promo_video_url field_hint="A YouTube, Instagram or Facebook video for the event page. Optional." %}
       {% include "components/form_field.html" with field=form.recurrence field_hint="A weekly event repeats on the same weekday; a monthly event repeats on the same weekday-of-month as the start (e.g. the 2nd Saturday)." %}
