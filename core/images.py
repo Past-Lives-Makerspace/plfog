@@ -14,6 +14,8 @@ from pathlib import Path
 
 import logging
 
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
@@ -125,6 +127,73 @@ def normalize_field_if_uploaded(instance, field_name: str, max_long_edge: int) -
         return 1.0
     setattr(instance, field_name, new)
     return scale
+
+
+def cut_hero_crop(source_bytes: bytes, box: tuple[int, int, int, int], *, stem: str) -> ContentFile | None:
+    """Cut ``box`` (``x, y, w, h`` in source pixels) out of an image's bytes, ready to store.
+
+    The composer stores the box as pixels on the uploaded file, so this cuts exactly that
+    rectangle (clamped to the image's edges) after applying the EXIF orientation, keeps the
+    source format (JPEG at quality 88, PNG as is, anything else as JPEG) and names the result
+    ``<stem>-crop.<ext>``. Shared by every model with a cropped hero copy so the cut can never
+    drift between them; the model decides what to do with the file.
+
+    Args:
+        source_bytes: The whole source image.
+        box: The crop box's left, top, width and height in source pixels.
+        stem: The file name without its extension (the source's stem).
+
+    Returns:
+        The cut copy, or None when the box lies off the image (nothing to cut).
+
+    Raises:
+        UnidentifiedImageError, OSError, ValueError: Pillow could not read ``source_bytes``.
+    """
+    opened = Image.open(io.BytesIO(source_bytes))
+    source_format = opened.format
+    img: Image.Image = ImageOps.exif_transpose(opened) or opened
+    src_w, src_h = img.size
+    x, y, w, h = box
+    left = min(x, src_w)
+    top = min(y, src_h)
+    right = min(left + w, src_w)
+    bottom = min(top + h, src_h)
+    if right <= left or bottom <= top:
+        return None
+    cropped = img.crop((left, top, right, bottom))
+    buffer = io.BytesIO()
+    if source_format == "PNG":
+        cropped.save(buffer, format="PNG")
+        ext = "png"
+    else:
+        if cropped.mode != "RGB":
+            cropped = cropped.convert("RGB")
+        cropped.save(buffer, format="JPEG", quality=88, optimize=True)
+        ext = "jpg"
+    return ContentFile(buffer.getvalue(), name=f"{stem}-crop.{ext}")
+
+
+def image_upload_refusal(file: UploadedFile) -> str | None:
+    """Why an upload to a photo route is refused, or None when it may be stored.
+
+    The byte cap first (``MAX_UPLOAD_IMAGE_BYTES``), then whether Pillow can open the bytes.
+    One answer for every hero and gallery route, because none of them builds a form: the
+    model field's ``validate_image_size`` runs only under ``full_clean()``, which a hero save
+    never reaches, and the field never reads the bytes, so without this a text file would be
+    stored as a photo.
+    """
+    # Lazy: core.validators imports this module at load time to register the HEIC opener.
+    from core.validators import validate_image_content
+
+    assert file.size is not None  # an uploaded file always reports its size
+    if file.size > settings.MAX_UPLOAD_IMAGE_BYTES:
+        limit_mb = settings.MAX_UPLOAD_IMAGE_BYTES / (1024 * 1024)
+        return f"Image must be {limit_mb:.0f} MB or smaller."
+    try:
+        validate_image_content(file)
+    except ValidationError as exc:
+        return exc.messages[0]
+    return None
 
 
 _CONTENT_ADDRESSED_RE = re.compile(r"^[0-9a-f]{64}\.[A-Za-z0-9]+$")
