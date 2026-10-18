@@ -776,6 +776,7 @@ urlpatterns = [
     # won't match the literal events/add/ nor any deeper events/<int>/<segment>/ path).
     path("events/<int:pk>/", views.event_detail, name="hub_event_detail"),
     path("events/<int:pk>/rsvp/", views.event_rsvp, name="hub_event_rsvp"),
+    path("events/<int:pk>/rsvp/guest/", views.event_rsvp_guest, name="hub_event_rsvp_guest"),
     path("events/<int:pk>/event.ics", views.event_ics, name="hub_event_ics"),
     path("events/<int:pk>/qr.<str:fmt>/", views.event_qr, name="hub_event_qr"),
     path("view-as/set/", views.view_as_set, name="hub_view_as_set"),
@@ -902,9 +903,30 @@ urlpatterns = [
     path("manage/locations/", location_views.hub_admin_locations, name="hub_admin_locations"),
     path("manage/locations/<int:pk>/", location_views.hub_admin_location_edit, name="hub_admin_location_edit"),
     # Manage Events (#831): the list, one screen per event, and its Duplicate and Unpublish actions.
-    # Reserved beside them: manage/events/<pk>/guests/ (the Guest list tab) and .../eventbrite/.
+    # Reserved beside them: manage/events/<pk>/eventbrite/ (track B).
     path("manage/events/", event_admin_views.hub_admin_events, name="hub_admin_events"),
     path("manage/events/<int:pk>/", event_admin_views.hub_admin_event, name="hub_admin_event"),
+    path("manage/events/<int:pk>/guests/", event_admin_views.hub_admin_event_guests, name="hub_admin_event_guests"),
+    path(
+        "manage/events/<int:pk>/guests.csv",
+        event_admin_views.hub_admin_event_guests_csv,
+        name="hub_admin_event_guests_csv",
+    ),
+    path(
+        "manage/events/<int:pk>/guests/add/",
+        event_admin_views.hub_admin_event_guest_add,
+        name="hub_admin_event_guest_add",
+    ),
+    path(
+        "manage/events/<int:pk>/guests/<int:rsvp_pk>/checkin/",
+        event_admin_views.hub_admin_event_guest_checkin,
+        name="hub_admin_event_guest_checkin",
+    ),
+    path(
+        "manage/events/<int:pk>/guests/<int:rsvp_pk>/remove/",
+        event_admin_views.hub_admin_event_guest_remove,
+        name="hub_admin_event_guest_remove",
+    ),
     path(
         "manage/events/<int:pk>/duplicate/",
         event_admin_views.hub_admin_event_duplicate,

@@ -45,6 +45,7 @@ from membership.models import (
     Equipment,
     EquipmentError,
     EquipmentHours,
+    EventRSVP,
     Floorplan,
     Guild,
     GuildAnnouncement,
@@ -83,6 +84,7 @@ from membership.models import (
     SpaceRequest,
     SlideshowSlide,
     SlideshowZone,
+    MAX_RSVP_PARTY_SIZE,
     RESERVED_WIKI_SLUGS,
     VotingSettings,
     WikiArticle,
@@ -4166,6 +4168,94 @@ class EventDateForm(forms.Form):
         """The start of the date the link names, or of the event's next date."""
         on = self.cleaned_data["date"] if self.is_valid() else None
         return event.occurrence_start(on)
+
+
+#: The party size select on the event page and the Guest list: 1 to MAX_RSVP_PARTY_SIZE.
+PARTY_SIZE_CHOICES = [(n, str(n)) for n in range(1, MAX_RSVP_PARTY_SIZE + 1)]
+
+
+def _party_size_field(label: str, *, required: bool = True) -> forms.TypedChoiceField:
+    """A party size select, 1 to MAX_RSVP_PARTY_SIZE, coerced to an int."""
+    return forms.TypedChoiceField(choices=PARTY_SIZE_CHOICES, coerce=int, initial=1, required=required, label=label)
+
+
+class EventGuestRSVPForm(forms.Form):
+    """Count me in on the public event page for someone with no account (#831, part 4).
+
+    Name, email, an optional phone, a party size and the updates opt-in; the view hands the
+    clean values to :meth:`CommunityEvent.rsvp_guest`, where the email is the dedupe.
+    ``website`` is a honeypot: a visually hidden field a person never sees and a bot that
+    fills every field does. The view answers a tripped one exactly like a success and writes
+    nothing, so the bot learns nothing; :attr:`honeypot_tripped` reads the raw POST so the
+    answer is the same whether or not the rest validates.
+    """
+
+    name = forms.CharField(max_length=120, label="Your name")
+    email = forms.EmailField(label="Email")
+    phone = forms.CharField(max_length=40, required=False, label="Phone (optional)")
+    party_size = _party_size_field("How many people, you included")
+    wants_updates = forms.BooleanField(required=False, label="Email me updates about this event")
+    website = forms.CharField(
+        required=False,
+        label="Leave this field empty",
+        widget=forms.TextInput(attrs={"autocomplete": "off", "tabindex": "-1", "aria-hidden": "true"}),
+    )
+
+    @property
+    def honeypot_tripped(self) -> bool:
+        """Whether the hidden field came back filled: a bot, answered like a success."""
+        return bool(str(self.data.get("website", "")).strip())
+
+    def save(self, event: CommunityEvent) -> EventRSVP:
+        """Write or update the guest's RSVP on ``event`` from the clean values."""
+        data = self.cleaned_data
+        return event.rsvp_guest(
+            name=data["name"],
+            email=data["email"],
+            phone=data["phone"],
+            party_size=data["party_size"],
+            wants_updates=data["wants_updates"],
+        )
+
+
+class EventMemberRSVPForm(forms.Form):
+    """The signed-in member's RSVP on the event page: one tap, with a party size beside it.
+
+    A bare POST (no fields) is the one-tap toggle bringing one person, so the Discord-style
+    button keeps working; ``party_size`` sizes a new RSVP, and ``update`` changes the size of
+    one the member already has.
+    """
+
+    party_size = _party_size_field("How many people, you included", required=False)
+    update = forms.BooleanField(required=False)
+
+    def clean_party_size(self) -> int:
+        """A one-tap POST carries no party size: the member brings one person, themselves."""
+        return cast(int, self.cleaned_data["party_size"] or 1)
+
+
+class EventStaffGuestForm(forms.Form):
+    """Add a guest on the Guest list tab (#831, part 4): name, email, people and a staff note.
+
+    The same upsert as the public page, stamped ``Added by staff``: a repeat email updates the
+    row (the note included) rather than adding a second person.
+    """
+
+    name = forms.CharField(max_length=120, label="Name")
+    email = forms.EmailField(label="Email")
+    party_size = _party_size_field("People")
+    note = forms.CharField(max_length=200, required=False, label="Note (staff only)")
+
+    def save(self, event: CommunityEvent) -> EventRSVP:
+        """Write or update the guest's RSVP on ``event`` as a staff addition."""
+        data = self.cleaned_data
+        return event.rsvp_guest(
+            name=data["name"],
+            email=data["email"],
+            party_size=data["party_size"],
+            source=EventRSVP.Source.STAFF,
+            note=data["note"],
+        )
 
 
 class OrientationCustomRequestForm(forms.Form):

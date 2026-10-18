@@ -1,0 +1,18 @@
+{% comment %}
+The Add a guest modal body (#831, part 4): four fields, so a modal plus a toast per the
+interaction table. It posts over htmx into its own modal body, so a form that did not
+validate comes back here with its errors and the modal stays open; a saved one answers
+HX-Redirect and the tab reloads with the new row (hub.event_admin_views.hub_admin_event_guest_add).
+A repeat email updates that guest's row rather than adding a second person.
+{% endcomment %}
+<form method="post" action="{% url 'hub_admin_event_guest_add' event.pk %}" hx-post="{% url 'hub_admin_event_guest_add' event.pk %}" hx-target="#add-guest-body" hx-swap="innerHTML" data-add-guest-form>
+  {% csrf_token %}
+  {% include "components/form_field.html" with field=staff_form.name %}
+  {% include "components/form_field.html" with field=staff_form.email field_hint="A repeat email updates that guest's RSVP instead of adding another." %}
+  {% include "components/form_field.html" with field=staff_form.party_size %}
+  {% include "components/form_field.html" with field=staff_form.note field_hint="Shown on the Guest list and in the CSV, never to the guest." %}
+  <div class="pl-modal__actions">
+    <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this">Add</button>
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'add-guest')">Cancel</button>
+  </div>
+</form>

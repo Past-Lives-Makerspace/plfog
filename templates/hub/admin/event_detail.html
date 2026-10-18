@@ -1,46 +1,14 @@
-{% extends "hub/base.html" %}
+{% extends "hub/admin/event_screen_base.html" %}
 {% load rich_text %}
-{% block title %}{{ event.title }} · Manage Events{% endblock %}
-{% block content %}
 {% comment %}
-One event's admin screen (#831, part 2), built by hub.event_admin_views.hub_admin_event after
-the per-class screen (classes/_components/class_screen_base.html): the header with the status
-pill and the facts line, the tab strip, then the Overview. Every action posts to the endpoint
-that already owns it (the review decisions, Retry sync, Delete) with `next` set to this page,
-so the admin lands back here; Duplicate opens the copy in the composer and Unpublish returns
-here with the row a draft. The Guest list tab arrives with guest RSVPs (A3b) and the
-Eventbrite tab with the Eventbrite listing (track B), which is why the strip has one tab today.
+The Overview tab of one event's admin screen (#831, part 2), built by
+hub.event_admin_views.hub_admin_event on the shared screen base: the facts table, the
+details and the actions its state allows. Every action posts to the endpoint that already
+owns it (the review decisions, Retry sync, Delete) with `next` set to this page, so the admin
+lands back here; Duplicate opens the copy in the composer and Unpublish returns here with the
+row a draft.
 {% endcomment %}
-<div class="hub-card" data-event-admin="{{ event.pk }}">
-  <div class="pl-class-header">
-    <div class="pl-class-header__main">
-      <h1 class="pl-class-header__title">{{ event.title }}</h1>
-      <div class="pl-class-header__badges">
-        <span class="hub-pill hub-pill--{{ event.status_tone }}" data-event-status="{{ event.moderation_state }}">{{ event.status_label }}</span>
-        {% if event.moderation_state == "scheduled" %}<span class="hub-badge">Announces {{ event.publish_at_display }}</span>{% endif %}
-        {% if event.recurrence != "none" %}<span class="hub-pill hub-pill--neutral" data-recurrence-pill>{{ event.get_recurrence_display }}</span>{% endif %}
-      </div>
-      <div class="pl-class-meta">
-        <span class="pl-class-meta__item">{{ event.badge_label }}</span>
-        {% if event.guild %}<span class="pl-class-meta__item">{{ event.guild.name }}</span>{% endif %}
-        <span class="pl-class-meta__item">{{ when }}</span>
-        <span class="pl-class-meta__item" data-rsvp-count>{{ event.rsvp_count }} going</span>
-        <span class="pl-class-meta__item">Created by {{ event.creator_name }}</span>
-      </div>
-    </div>
-    <div class="pl-class-header__actions">
-      {% if can_edit %}<a class="hub-btn hub-btn--sm hub-btn--primary" href="{% url 'hub_event_edit' event.pk %}" data-event-edit>Edit</a>{% endif %}
-      {% if event.moderation_state == "published" %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'hub_event_detail' event.pk %}" data-event-view>View page ↗</a>{% endif %}
-      <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ list_url }}">Back to Manage Events</a>
-    </div>
-  </div>
-
-  <nav class="pl-tabs" aria-label="This event">
-    <a href="{{ detail_url }}" class="vote-tab vote-tab--active" aria-current="page">Overview</a>
-    {# Guest list tab: guest RSVPs (A3b) add it here, at manage/events/<pk>/guests/. #}
-    {% if event.eventbrite_listed %}<a href="{{ detail_url }}" class="vote-tab" data-eventbrite-tab>Eventbrite</a>{% endif %}
-  </nav>
-
+{% block event_tab %}
   <div class="admin-table-wrap" data-event-facts>
     <table>
       <tbody>
@@ -99,8 +67,9 @@ Eventbrite tab with the Eventbrite listing (track B), which is why the strip has
   {% endif %}
   {% url 'hub_event_delete' event.pk as delete_url %}
   {% include "components/confirm_modal.html" with confirm_id="delete-event" confirm_title="Delete this event?" confirm_message=delete_confirm_message confirm_action_url=delete_url confirm_next=list_url confirm_button_text="Delete event" %}
-</div>
+{% endblock %}
 
+{% block event_after_card %}
 {% if event.moderation_state == "published" %}
 {% url 'hub_event_qr' event.pk 'svg' as event_qr_svg_url %}
 {% url 'hub_event_qr' event.pk 'png' as event_qr_png_url %}

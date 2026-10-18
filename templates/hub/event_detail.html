@@ -84,32 +84,70 @@ rest via templates/404.html). Add-to-calendar works logged-out.
     {% endwith %}
 
     {% comment %}
-    Who's coming: the count shows for everyone, names only for a signed-in member (an
-    anonymous QR scan sees the count, not the roster). The RSVP toggle posts to
-    hub_event_rsvp and is hidden once a non-recurring event has ended (same show_past_note gate).
+    Who's coming (#831, part 4): the people count (party sizes summed) shows for everyone.
+    A signed-in member sees the member names with everyone else folded into "and N guests"
+    (a guest's name never reaches other members) and RSVPs with one tap plus a party size,
+    posting to hub_event_rsvp. An anonymous visitor gets the guest form, posting to
+    hub_event_rsvp_guest with no account, and the "You're on the list" state once the
+    redirect carries ?going=1. Both forms hide once a non-recurring event has ended (the
+    show_past_note gate); ?date= rides on each action so a series' page keeps its date.
     {% endcomment %}
-    <div class="pl-event-detail__attendees">
-      <h2 class="pl-event-detail__attendees-heading">Who's coming ({{ rsvp_count }})</h2>
+    <div class="pl-event-detail__attendees" data-event-rsvps>
+      <h2 class="pl-event-detail__attendees-heading" data-people-count="{{ people_count }}">Who's coming ({{ people_count }})</h2>
       {% if user.is_authenticated %}
         {% if rsvps %}
         <ul class="pl-event-detail__attendee-list">
-          {% for rsvp in rsvps %}
-          <li class="pl-event-detail__attendee">{{ rsvp.member.display_name }}</li>
+          {% for rsvp in member_rsvps %}
+          <li class="pl-event-detail__attendee">{{ rsvp.display_name }}</li>
           {% endfor %}
+          {% if unnamed_count %}
+          <li class="pl-event-detail__attendee pl-event-detail__attendee--guests" data-guest-count="{{ unnamed_count }}">and {{ unnamed_count }} guest{{ unnamed_count|pluralize }}</li>
+          {% endif %}
         </ul>
         {% else %}
         <p class="pl-event-detail__attendees-empty">No RSVPs yet.</p>
         {% endif %}
         {% if not show_past_note %}
-        <form method="post" action="{% url 'hub_event_rsvp' event.pk %}{{ date_query }}" class="pl-event-detail__rsvp-form">
+        <form method="post" action="{% url 'hub_event_rsvp' event.pk %}{{ date_query }}" class="pl-event-detail__rsvp-form" data-member-rsvp-form>
           {% csrf_token %}
-          {% if viewer_rsvped %}
-          <button type="submit" class="hub-btn hub-btn--ghost hub-btn--sm">I'm not going</button>
+          {% if viewer_rsvp %}
+          <p class="pl-event-detail__rsvp-state" data-rsvp-state="going">You're on the list{% if is_recurring %} for the whole series{% endif %}.</p>
+          <div class="pl-event-detail__rsvp-controls">
+            {% include "components/form_field.html" with field=member_form.party_size %}
+            <button type="submit" name="update" value="1" class="hub-btn hub-btn--ghost hub-btn--sm" data-rsvp-update>Update</button>
+            <button type="submit" class="hub-btn hub-btn--ghost hub-btn--sm" data-rsvp-leave>I'm not going</button>
+          </div>
           {% else %}
-          <button type="submit" class="hub-btn hub-btn--primary hub-btn--sm">I'm going</button>
+          {% if is_recurring %}<p class="pl-event-detail__rsvp-state" data-rsvp-series-note>One RSVP is for the whole series.</p>{% endif %}
+          <div class="pl-event-detail__rsvp-controls">
+            {% include "components/form_field.html" with field=member_form.party_size %}
+            <button type="submit" class="hub-btn hub-btn--primary hub-btn--sm" data-rsvp-join>I'm going</button>
+          </div>
           {% endif %}
         </form>
         {% endif %}
+      {% elif guest_going %}
+        <div class="pl-event-detail__going" data-rsvp-going>
+          <p class="pl-event-detail__going-title">You're on the list. See you there.</p>
+          <p class="pl-event-detail__going-note">{% if is_recurring %}One RSVP covers the whole series. {% endif %}Changed plans? <a href="{% url 'hub_event_detail' event.pk %}{{ date_query }}">Fill the form again</a> with the same email and it updates your RSVP.</p>
+        </div>
+      {% elif not show_past_note %}
+        <form method="post" action="{% url 'hub_event_rsvp_guest' event.pk %}{{ date_query }}" class="pl-event-detail__guest-form" data-guest-rsvp-form>
+          {% csrf_token %}
+          <h3 class="pl-event-detail__guest-title">Count Me In</h3>
+          <p class="pl-event-detail__guest-hint">No account needed.{% if is_recurring %} One RSVP covers the whole series.{% endif %} A Past Lives member can <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" hx-boost="false">log in</a> to RSVP with one tap.</p>
+          {% include "components/form_field.html" with field=guest_form.name %}
+          {% include "components/form_field.html" with field=guest_form.email %}
+          {% include "components/form_field.html" with field=guest_form.phone %}
+          {% include "components/form_field.html" with field=guest_form.party_size %}
+          {% include "components/form_field.html" with field=guest_form.wants_updates %}
+          {# The honeypot: off screen for people, filled by bots that fill every field; a filled one writes nothing. #}
+          <div class="pl-honeypot" aria-hidden="true">
+            <label for="{{ guest_form.website.id_for_label }}">Leave this field empty</label>
+            {{ guest_form.website }}
+          </div>
+          <button type="submit" class="hub-btn hub-btn--primary pl-btn--spaced" data-rsvp-count-me-in>Count me in</button>
+        </form>
       {% endif %}
     </div>
 

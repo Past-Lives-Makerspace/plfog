@@ -390,13 +390,21 @@ class EventImageFactory(factory.django.DjangoModelFactory):
 
 
 class EventRSVPFactory(factory.django.DjangoModelFactory):
-    """One member's RSVP to a community event."""
+    """One member's RSVP to a community event; the ``guest`` trait makes it someone with no account (#831)."""
 
     class Meta:
         model = EventRSVP
 
     event = factory.SubFactory(CommunityEventFactory)
     member = factory.SubFactory(MemberFactory)
+
+    class Params:
+        guest = factory.Trait(
+            member=None,
+            name=factory.Sequence(lambda n: f"Guest {n}"),
+            email=factory.Sequence(lambda n: f"guest{n}@example.com"),
+            source=EventRSVP.Source.SITE,
+        )
 
 
 class MeetingFactory(factory.django.DjangoModelFactory):

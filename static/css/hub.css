@@ -4973,6 +4973,89 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin: 0;
 }
 
+/* The member's RSVP (#831, part 4): the party size select beside the button on one line, the
+   state line above it. The select keeps form_field.html's wrapper, so it takes the theme's
+   input tokens; only the gap and the alignment live here. */
+.pl-event-detail__rsvp-state {
+    margin: 0 0 0.75rem;
+    color: var(--hub-text-muted);
+    font-size: 0.9rem;
+}
+
+.pl-event-detail__rsvp-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+}
+
+.pl-event-detail__rsvp-controls .pl-form-group {
+    flex: 0 1 14rem;
+    margin: 0;
+}
+
+/* Count Me In: the guest form an anonymous visitor fills, and the state it lands on. The
+   button clears the actions row below through pl-btn--spaced and the row's own margin. */
+.pl-event-detail__guest-form {
+    margin-top: 0.5rem;
+}
+
+.pl-event-detail__guest-title {
+    margin: 0 0 0.25rem;
+    font-size: 1rem;
+    color: var(--hub-text);
+}
+
+.pl-event-detail__guest-hint {
+    margin: 0 0 1rem;
+    color: var(--hub-text-muted);
+    font-size: 0.9rem;
+}
+
+.pl-event-detail__going {
+    padding: 1rem 1.25rem;
+    border-radius: 8px;
+    background: var(--hub-surface);
+}
+
+.pl-event-detail__going-title {
+    margin: 0 0 0.5rem;
+    font-weight: 700;
+    color: var(--hub-text);
+}
+
+.pl-event-detail__going-note {
+    margin: 0;
+    color: var(--hub-text-muted);
+    font-size: 0.9rem;
+}
+
+/* A honeypot field: in the form for a bot that fills every field, off screen and out of the
+   tab order for a person (the login form's pattern, as a class rather than a style attribute). */
+.pl-honeypot {
+    position: absolute;
+    left: -9999px;
+    top: auto;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+}
+
+/* Manage Events > Guest list (#831, part 4): the stat chips above the toolbar, the actions
+   beside the search box, and a checked-in row dimmed so the door sees who is still to come.
+   Colours come from the theme tokens the chips and pills already use. */
+.pl-guest-list__stats {
+    margin-bottom: 1rem;
+}
+
+.pl-guest-list__actions {
+    margin: 0;
+}
+
+.pl-guest-row--checked-in td:first-child {
+    color: var(--hub-text-muted);
+}
+
 /* ========================================
    My Guilds settings tab — per-guild join/leave toggle list.
    Layout only; every color comes from theme tokens (hub-card wrapper, --hub-text,
