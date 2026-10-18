@@ -9699,7 +9699,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
             parts.append(f"and {len(members) - _DISCORD_ATTENDEE_CAP} more")
         guests = people - len(members)
         if guests:
-            parts.append(f"and {guests} guest{'s' if guests != 1 else ''}")
+            parts.append(f"{'and ' if parts else ''}{guests} guest{'s' if guests != 1 else ''}")
         value = ", ".join(parts)
         if len(value) > _DISCORD_FIELD_VALUE_MAX:
             value = value[: _DISCORD_FIELD_VALUE_MAX - 1].rstrip() + "…"

@@ -1,6 +1,8 @@
 """BDD specs for the public event pages: the detail page (public, published-only, states),
 the per-event .ics (public add-to-calendar), the editor-gated QR download, and the themed
-404 that an anonymous scanner hits on a stale/withdrawn/pending pk."""
+404 that an anonymous scanner hits on a stale/withdrawn/pending pk. Then #831 part 4: the
+guest form and its POST (the honeypot, the rate limit, the repeat email, the ended event, the
+date), a member's party size, and the page folding guests into a count."""
 
 from __future__ import annotations
 
@@ -14,6 +16,8 @@ import httpx
 import pytest
 import respx
 from django.contrib.auth.models import User
+from django.contrib.messages import get_messages
+from django.core.cache import cache
 from django.db.models.signals import post_save
 from django.test import Client, RequestFactory, override_settings
 from django.urls import reverse
@@ -703,3 +707,249 @@ def describe_the_composer_content_fields():
         assert 'data-rte-for="id_description"' in html
         assert "data-hero-image-field" in html
         assert 'name="promo_video_url"' in html
+
+
+# --- Guest RSVPs and party sizes (#831, part 4) ---------------------------------------------
+
+
+_GUEST_FORM = "data-guest-rsvp-form"
+_MEMBER_FORM = "data-member-rsvp-form"
+_GOING = "data-rsvp-going"
+_LOCMEM = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "guest-rsvp-limit-spec",
+    }
+}
+
+
+def _guest_post(client: Client, event: CommunityEvent, query: str = "", **overrides: str):
+    """One Count me in POST with a good form, the Discord refresh stubbed; ``overrides`` edit the fields."""
+    data = {"name": "Lee Organiser", "email": "Lee@Example.com", "phone": "", "party_size": "2", "website": ""}
+    data.update(overrides)
+    with patch.object(CommunityEvent, "refresh_discord_announcement"):
+        return client.post(reverse("hub_event_rsvp_guest", args=[event.pk]) + query, data)
+
+
+def _page_url(event: CommunityEvent, query: str = "") -> str:
+    return reverse("hub_event_detail", args=[event.pk]) + query
+
+
+def describe_the_guest_form():
+    @pytest.fixture(autouse=True)
+    def _fresh_counters():
+        # The guest POST counts every attempt from the test client's one address against the
+        # shared test cache, so each scenario starts with an empty allowance.
+        cache.clear()
+
+    def it_renders_for_an_anonymous_visitor_with_the_honeypot(client: Client):
+        event = CommunityEventFactory(community=True)
+        body = client.get(_page_url(event)).content.decode()
+        assert _GUEST_FORM in body
+        assert f'action="{reverse("hub_event_rsvp_guest", args=[event.pk])}"' in body
+        assert 'name="name"' in body and 'name="email"' in body and 'name="phone"' in body
+        assert 'name="party_size"' in body and 'name="wants_updates"' in body
+        assert '<div class="pl-honeypot" aria-hidden="true">' in body
+        assert 'name="website"' in body and 'tabindex="-1"' in body
+        assert "data-rsvp-count-me-in" in body
+        assert _MEMBER_FORM not in body and _GOING not in body
+
+    def it_is_not_offered_to_a_signed_in_member(client: Client):
+        _user_with_role("guest_form_member")
+        client.login(username="guest_form_member", password="pass")
+        body = client.get(_page_url(CommunityEventFactory(community=True))).content.decode()
+        assert _GUEST_FORM not in body and _MEMBER_FORM in body
+
+    def it_hides_once_the_event_has_ended(client: Client):
+        past = timezone.now() - timedelta(days=2)
+        event = CommunityEventFactory(community=True, starts_at=past, ends_at=past + timedelta(hours=1))
+        body = client.get(_page_url(event)).content.decode()
+        assert _GUEST_FORM not in body and _GOING not in body
+
+    def it_says_one_rsvp_covers_a_series(client: Client):
+        event = CommunityEventFactory(community=True, recurrence=CommunityEvent.Recurrence.WEEKLY)
+        body = client.get(_page_url(event)).content.decode()
+        assert 'class="pl-event-detail__guest-hint">No account needed. One RSVP covers the whole series.' in body
+        oneoff = client.get(_page_url(CommunityEventFactory(community=True))).content.decode()
+        assert "One RSVP covers the whole series" not in oneoff
+
+    def it_creates_a_site_row_and_lands_on_the_going_state(client: Client):
+        event = CommunityEventFactory(community=True)
+        with patch.object(CommunityEvent, "refresh_discord_announcement") as refresh:
+            resp = client.post(
+                reverse("hub_event_rsvp_guest", args=[event.pk]),
+                {"name": "Lee Organiser", "email": "Lee@Example.com", "phone": "503", "party_size": "2", "website": ""},
+            )
+        assert resp.status_code == 302
+        assert resp["Location"] == _page_url(event, "?going=1")
+        assert refresh.called
+        rsvp = event.rsvps.get()
+        assert rsvp.is_guest and rsvp.member is None
+        assert (rsvp.name, rsvp.email, rsvp.phone, rsvp.party_size) == ("Lee Organiser", "lee@example.com", "503", 2)
+        assert rsvp.source == EventRSVP.Source.SITE
+        body = client.get(resp["Location"]).content.decode()
+        assert _GOING in body and _GUEST_FORM not in body
+        assert 'data-people-count="2"' in body
+        assert f'href="{_page_url(event)}"' in body  # fill the form again
+
+    def it_answers_a_filled_honeypot_like_a_success_and_writes_nothing(client: Client):
+        event = CommunityEventFactory(community=True)
+        resp = _guest_post(client, event, website="http://spam.example")
+        assert resp.status_code == 302
+        assert resp["Location"] == _page_url(event, "?going=1")
+        assert not event.rsvps.exists()
+
+    def it_re_renders_the_form_with_errors_and_writes_nothing(client: Client):
+        event = CommunityEventFactory(community=True)
+        resp = _guest_post(client, event, email="not-an-email")
+        assert resp.status_code == 200
+        body = resp.content.decode()
+        assert _GUEST_FORM in body and "pl-field-error" in body
+        assert 'value="Lee Organiser"' in body
+        assert not event.rsvps.exists()
+
+    def it_updates_the_row_on_a_repeat_email(client: Client):
+        event = CommunityEventFactory(community=True)
+        _guest_post(client, event, party_size="2")
+        _guest_post(client, event, email="LEE@example.com", name="Lee P", party_size="5", wants_updates="on")
+        rsvp = event.rsvps.get()
+        assert (rsvp.name, rsvp.party_size, rsvp.wants_updates) == ("Lee P", 5, True)
+        assert 'data-people-count="5"' in client.get(_page_url(event)).content.decode()
+
+    def it_refuses_an_ended_event(client: Client):
+        past = timezone.now() - timedelta(days=2)
+        event = CommunityEventFactory(community=True, starts_at=past, ends_at=past + timedelta(hours=1))
+        resp = _guest_post(client, event)
+        assert resp.status_code == 302
+        assert resp["Location"] == _page_url(event)
+        assert not event.rsvps.exists()
+
+    def it_404s_an_unpublished_event(client: Client):
+        assert _guest_post(client, CommunityEventFactory(pending=True)).status_code == 404
+
+    def it_keeps_the_date_on_the_action_and_the_redirect(client: Client):
+        anchor = timezone.localtime().replace(hour=18, minute=0, second=0, microsecond=0) - timedelta(weeks=5)
+        event = CommunityEventFactory(
+            community=True,
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+            starts_at=anchor,
+            ends_at=anchor + timedelta(hours=2),
+        )
+        today = timezone.localdate()
+        later = event.occurrences_in(today + timedelta(days=14), today + timedelta(days=20))[0]
+        query = f"?date={timezone.localdate(later).isoformat()}"
+        assert f'action="{reverse("hub_event_rsvp_guest", args=[event.pk])}{query}"' in _page_url_body(
+            client, event, query
+        )
+        resp = _guest_post(client, event, query)
+        assert resp["Location"] == _page_url(event, query) + "&going=1"
+        assert _GOING in client.get(resp["Location"]).content.decode()
+
+    @override_settings(CACHES=_LOCMEM)
+    def it_refuses_the_eleventh_attempt_from_one_address_in_an_hour(client: Client):
+        event = CommunityEventFactory(community=True)
+        for i in range(10):
+            assert _guest_post(client, event, email=f"g{i}@example.com")["Location"].endswith("?going=1")
+        resp = _guest_post(client, event, email="g10@example.com")
+        assert resp.status_code == 302
+        assert resp["Location"] == _page_url(event)
+        assert not event.rsvps.filter(email="g10@example.com").exists()
+        assert event.rsvps.count() == 10
+        assert any("Too many" in m.message for m in get_messages(resp.wsgi_request))
+
+
+def _page_url_body(client: Client, event: CommunityEvent, query: str = "") -> str:
+    return client.get(_page_url(event, query)).content.decode()
+
+
+def describe_a_members_party_size():
+    def _member(client: Client, username: str) -> User:
+        user = _user_with_role(username)
+        client.login(username=username, password="pass")
+        return user
+
+    def _rsvp(client: Client, event: CommunityEvent, data: dict[str, str]):
+        with patch.object(CommunityEvent, "refresh_discord_announcement"):
+            return client.post(reverse("hub_event_rsvp", args=[event.pk]), data)
+
+    def it_offers_the_select_beside_the_one_tap(client: Client):
+        _member(client, "party_select")
+        event = CommunityEventFactory(community=True, recurrence=CommunityEvent.Recurrence.WEEKLY)
+        body = _page_url_body(client, event)
+        assert _MEMBER_FORM in body and 'name="party_size"' in body and "data-rsvp-join" in body
+        assert "data-rsvp-series-note" in body
+        assert "data-rsvp-update" not in body
+
+    def it_sizes_the_rsvp_from_the_select(client: Client):
+        user = _member(client, "party_three")
+        event = CommunityEventFactory(community=True)
+        assert _rsvp(client, event, {"party_size": "3"}).status_code == 302
+        assert event.rsvps.get(member=user.member).party_size == 3
+        body = _page_url_body(client, event)
+        assert 'data-people-count="3"' in body
+        assert 'data-rsvp-state="going"' in body and "data-rsvp-update" in body and "data-rsvp-leave" in body
+        assert 'data-guest-count="2"' in body
+
+    def it_updates_the_size_of_an_rsvp_the_member_already_has(client: Client):
+        user = _member(client, "party_update")
+        event = CommunityEventFactory(community=True)
+        _rsvp(client, event, {"party_size": "3"})
+        resp = _rsvp(client, event, {"party_size": "2", "update": "1"})
+        assert any("Updated: 2 people" in m.message for m in get_messages(resp.wsgi_request))
+        assert event.rsvps.get(member=user.member).party_size == 2
+        resp = _rsvp(client, event, {"party_size": "1", "update": "1"})
+        assert any("Updated: 1 person" in m.message for m in get_messages(resp.wsgi_request))
+
+    def it_rsvps_again_when_update_finds_no_row(client: Client):
+        user = _member(client, "party_update_gone")
+        event = CommunityEventFactory(community=True)
+        _rsvp(client, event, {"party_size": "2", "update": "1"})
+        assert event.rsvps.get(member=user.member).party_size == 2
+
+    def it_keeps_the_one_tap_at_one_person(client: Client):
+        user = _member(client, "party_one_tap")
+        event = CommunityEventFactory(community=True)
+        _rsvp(client, event, {})
+        assert event.rsvps.get(member=user.member).party_size == 1
+
+    def it_refuses_a_party_size_off_the_select(client: Client):
+        _member(client, "party_nine")
+        event = CommunityEventFactory(community=True)
+        resp = _rsvp(client, event, {"party_size": "9"})
+        assert resp.status_code == 302
+        assert not event.rsvps.exists()
+        assert any("1 to 6" in m.message for m in get_messages(resp.wsgi_request))
+
+
+def describe_guests_on_the_page():
+    def it_folds_guests_and_extra_people_into_a_count_for_a_member(client: Client):
+        _user_with_role("sees_guests")
+        client.login(username="sees_guests", password="pass")
+        event = CommunityEventFactory(community=True)
+        EventRSVPFactory(event=event, member=MemberFactory(full_legal_name="Zzytrix Quon"), party_size=2)
+        EventRSVPFactory(event=event, guest=True, name="Zzorp Guest", party_size=3)
+        body = _page_url_body(client, event)
+        assert "Who's coming (5)" in body
+        assert "Zzytrix Quon" in body
+        assert "Zzorp Guest" not in body
+        assert 'data-guest-count="4">and 4 guests<' in body
+
+    def it_says_one_guest_in_the_singular(client: Client):
+        _user_with_role("sees_one_guest")
+        client.login(username="sees_one_guest", password="pass")
+        event = CommunityEventFactory(community=True)
+        EventRSVPFactory(event=event, guest=True)
+        assert 'data-guest-count="1">and 1 guest<' in _page_url_body(client, event)
+
+    def it_shows_an_anonymous_visitor_the_people_count_only(client: Client):
+        event = CommunityEventFactory(community=True)
+        EventRSVPFactory(event=event, guest=True, name="Zzorp Guest", party_size=3)
+        body = _page_url_body(client, event)
+        assert "Who's coming (3)" in body
+        assert "Zzorp Guest" not in body
+
+    def it_keeps_the_guests_when_a_hidden_member_is_left_out(client: Client):
+        event = CommunityEventFactory(community=True)
+        EventRSVPFactory(event=event, member=MemberFactory(hide_from_directory=True), party_size=2)
+        EventRSVPFactory(event=event, guest=True)
+        assert "Who's coming (1)" in _page_url_body(client, event)
