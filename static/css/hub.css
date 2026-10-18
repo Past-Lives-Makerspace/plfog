@@ -10461,6 +10461,19 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-wp-home__empty { margin: 0 0 1rem; }
 .pl-wp-section__title { margin-top: 0; margin-bottom: 0.5rem; }
 .pl-wp-machinegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: 0.75rem; }
+/* Pages Waiting For You: dashed rows, the house shape for "empty, and yours to fill". */
+.pl-wp-waiting__intro { margin: 0 0 0.75rem; font-size: 0.9rem; }
+.pl-wp-waiting__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.pl-wp-waiting__item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px dashed var(--hub-border-strong);
+    border-radius: 8px;
+}
+.pl-wp-waiting__link { font-weight: 600; }
+.pl-wp-waiting__meta { font-size: 0.8rem; }
 .pl-wp-starterlist { list-style: none; margin: 0 0 0.75rem; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
 
 /* The one card. Home rows, search results, spec B's tab rows and spec E's policies all use
@@ -10517,13 +10530,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-wp-attrs,
 .pl-wp-accessline { margin: 0.25rem 0 0; font-size: 0.85rem; }
 .pl-wp-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-/* Archive is the one action that takes a page away from every member at once, and it lands
-   mid-row because .pl-wp-mod__actions is a flex item with Report and Print after it. Its
-   own escalation order is right; what it lacked was separation from the routine buttons
-   either side, which is what made a destructive control read as the next button along.
-   Scoped to the moderation cluster on purpose: .pl-wp-actions also holds Withdraw, which is
-   --danger red but only withdraws your own report and wants no such distance. */
-.pl-wp-actions .pl-wp-mod__actions .pl-btn--danger { margin-inline: 0.75rem; }
 .pl-wp-checked { font-size: 0.85rem; }
 
 /* Neutral, not amber: nothing is wrong, we are only asking. */
@@ -10801,6 +10807,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-header { flex-direction: column; }
     .pl-wp-actions { width: 100%; }
     .pl-wp-actions .pl-btn, .pl-wp-actions .hub-btn { min-height: 48px; }
+    .pl-wp-actions__more { display: none; }
 }
 
 /* The editor. */
@@ -10976,11 +10983,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text-muted);
 }
 
-/* No margin-bottom: this renders as a flex ITEM inside A's .pl-wp-actions, which centres
-   on align-items:center, so a bottom margin lifts these three controls ~12px above Edit /
-   Still accurate / Report / Print in the same row and grows the row by 24px. Rule 18's
-   clearance is A's row's job; nothing follows this inside it. */
-.pl-wp-mod__actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .pl-wp-mod__report { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .pl-wp-mod__reported { font-size: 0.85rem; }
 /* .pl-btn is already nowrap, so the risk is spilling past the border, not wrapping. At
@@ -11080,11 +11082,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-mod__tabs .vote-tab { min-height: 48px; display: inline-flex; align-items: center; }
 }
 
-/* The desktop header row is desktop-only: on a phone these actions live inside spec A's
-   single overflow menu, because two kebabs both containing Edit reads as a bug. */
-@media (max-width: 768px) {
-    .pl-wp-mod__actions { display: none; }
-}
 
 /* ── Member wiki: the guild Wiki tab (spec B) ───────────────────────────────
    Namespace: pl-wp-tab__* and nothing else. Spec A owns bare pl-wp-*, spec D owns

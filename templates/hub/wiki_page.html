@@ -9,7 +9,7 @@ as on a desktop: title and status, Quick Answers, the locked Official block, the
 files, related pages, then the byline.
 
 Three gates the build must hold. Everything except "Still accurate", spec D's Report, and
-Print sits inside ONE can_edit branch — an Official page shows a member no edit affordance
+the More menu (Print, History, and staff actions behind their own gate) sits inside ONE can_edit branch — an Official page shows a member no edit affordance
 at all, not a disabled one. On an archived page the whole action row and the phone bar are
 gone, including "Still accurate", because there is nothing to keep accurate. And the phone
 bar carries the same actions under the same gate as the desktop row, so the two widths
@@ -49,7 +49,7 @@ cannot drift apart.
     {% if not is_archived %}
     <div class="pl-wp-actions">
         {% if can_edit %}
-        <a href="{% url 'hub_wiki_edit' page.slug %}" class="pl-btn pl-btn--secondary pl-btn--sm">Edit</a>
+        <a href="{% url 'hub_wiki_edit' page.slug %}" class="pl-btn pl-btn--primary pl-btn--sm">Edit</a>
         <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="$dispatch('open-modal', 'wiki-photo')">+ Add A Photo</button>
         <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="$dispatch('open-modal', 'wiki-tip')">+ Add A Tip</button>
         {% endif %}
@@ -60,9 +60,10 @@ cannot drift apart.
         <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="$dispatch('open-confirm', 'wiki-confirm')">Still accurate</button>
         {% endif %}
         {% endif %}
-        {% if can_moderate %}{% include "hub/partials/_wiki_moderation_actions.html" %}{% endif %}
         {% include "hub/partials/_wiki_report_control.html" with control_id="wiki-report-control" %}
-        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" onclick="window.print()">Print / Save PDF</button>
+        {% comment %}Desktop only: on a phone the action bar's menu carries the same items, and two More menus on one screen read as a bug.{% endcomment %}
+        <div class="pl-wp-actions__more">{% include "components/row_actions.html" with menu_include="hub/partials/_wiki_page_more_menu.html" menu_label="More actions for this page" menu_trigger_text="More" menu_trigger_class="pl-btn pl-btn--sm pl-btn--ghost" %}</div>
+        {% if can_moderate %}{% include "hub/partials/_wiki_moderation_actions.html" %}{% endif %}
     </div>
     {% endif %}
 </div>
