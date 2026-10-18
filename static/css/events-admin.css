@@ -1,0 +1,44 @@
+/* Manage Events (#831): the list's columns and the per event screen's sections, on top of the
+   Manage Classes table styles in hub.css. Loaded by hub/admin/events_list.html and
+   hub/admin/event_detail.html, both wrapped in .pl-events-admin. */
+
+/* The list: Kind stays on one line with the guild under it, Date(s) never wraps, and the
+   Created by column steps aside below 1100px so the title keeps its room. */
+.pl-events-admin .admin-table-wrap td {
+    vertical-align: top;
+}
+.pl-events-admin__kind {
+    white-space: nowrap;
+}
+.pl-events-admin__guild {
+    display: block;
+    max-width: 14rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+.pl-events-admin .admin-table-wrap td.pl-events-admin__dates {
+    white-space: nowrap;
+}
+.pl-events-admin__dates .hub-pill {
+    margin-left: 0.4rem;
+}
+@media (max-width: 1100px) {
+    .pl-events-admin__creator {
+        display: none;
+    }
+}
+
+/* Light theme (Slate) contrast for the status pills, matching the Bookings tab (FRONTEND rule 7). */
+[data-theme="light"] .pl-events-admin .hub-pill--ok { color: #1f7a52; }
+[data-theme="light"] .pl-events-admin .hub-pill--neutral { color: #5b6675; }
+[data-theme="light"] .pl-events-admin .hub-pill--danger { color: #b03030; }
+[data-theme="light"] .pl-events-admin .hub-pill--warn { color: #9a6a00; }
+
+/* The per event screen: a section label clears the facts table or the description above it
+   (FRONTEND rules 18 and 26). */
+.pl-events-admin__section {
+    margin-top: 1.5rem;
+}

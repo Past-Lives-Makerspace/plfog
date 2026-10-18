@@ -3664,6 +3664,14 @@ class CommunityEventForm(forms.ModelForm):
             CommunityEvent.ModerationState.SCHEDULED,
             CommunityEvent.ModerationState.DRAFT,
         )
+        # A draft taken down after its announcement went out: saving puts it back on the
+        # calendars, and the Unpublish modal promised no second announcement, so the button
+        # says "Save and publish" and the note says why (#831).
+        self.republishes: bool = (
+            self.instance.pk is not None
+            and self.instance.moderation_state == CommunityEvent.ModerationState.DRAFT
+            and self.instance.channel_announced_at is not None
+        )
         self.in_review: bool = not (self.saves_announce or self.announced)
         self.review_first: bool = review_first
         self.submits_for_review: bool = review_first

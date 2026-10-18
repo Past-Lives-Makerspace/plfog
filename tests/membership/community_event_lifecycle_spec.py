@@ -15,8 +15,11 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.utils import timezone
 
+from core.integrations import discord_events as de
+from core.integrations.discord_events import DiscordEventsError
+from core.integrations.google_calendar import GoogleCalendarClient, GoogleCalendarError
 from core.models import EventDelivery
-from membership.models import CommunityEvent, InvalidEventTransition
+from membership.models import CommunityEvent, EventUnpublishError, InvalidEventTransition
 from tests.membership.factories import CommunityEventFactory, GuildFactory, MembershipPlanFactory, tiny_png_bytes
 
 pytestmark = pytest.mark.django_db
@@ -276,13 +279,13 @@ def describe_schedule_or_go_live_from_a_draft():
         """The announcement's idempotency key is the event's, so the ledger refuses a second one."""
         user = _member_user("republisher")
         event = _live_and_synced()
-        with (
-            patch.object(CommunityEvent, "remove_from_google"),
-            patch.object(CommunityEvent, "remove_from_discord"),
-            patch.object(CommunityEvent, "strip_discord_announcement_buttons"),
-        ):
+        # Sync is off in tests, so there is nothing to remove and the unpublish goes through.
+        with patch.object(CommunityEvent, "strip_discord_announcement_buttons"):
             event.unpublish(actor=user)
-        with patch("core.events.emit.emit") as emit:
+        with (
+            patch("core.events.emit.emit") as emit,
+            patch("core.integrations.discord_channel.edit_channel_message") as edit_message,
+        ):
             event.schedule_or_go_live(actor=user)
         event.refresh_from_db()
         assert event.moderation_state == States.PUBLISHED
@@ -291,6 +294,19 @@ def describe_schedule_or_go_live_from_a_draft():
         # IDLE after the unpublish, so push_live marks it for a fresh push.
         assert event.sync_state == Sync.PENDING
         assert event.google_event_id == ""
+        # The announcement message gets its RSVP and Manage buttons back (unpublish stripped them).
+        assert edit_message.call_args.args[:2] == ("chan-1", "msg-1")
+        assert edit_message.call_args.kwargs["components"] == event.discord_announcement_components()
+
+    def it_restores_no_buttons_on_a_first_publish():
+        draft = _draft()
+        with (
+            patch("core.events.emit.emit"),
+            patch.object(CommunityEvent, "refresh_discord_announcement") as refresh,
+        ):
+            draft.schedule_or_go_live(actor=None)
+        refresh.assert_not_called()
+        assert draft.moderation_state == States.PUBLISHED
 
 
 def describe_duplicate():
@@ -383,19 +399,18 @@ def describe_duplicate():
 
 
 def describe_unpublish():
-    def it_takes_a_live_event_down_to_a_draft_and_keeps_the_announcement():
-        event = _live_and_synced()
-        user = _member_user("unpublisher")
-        with (
-            patch.object(CommunityEvent, "remove_from_google") as google,
-            patch.object(CommunityEvent, "remove_from_discord") as discord,
-            patch.object(CommunityEvent, "strip_discord_announcement_buttons") as strip,
-        ):
-            event.unpublish(actor=user)
-        google.assert_called_once()
-        discord.assert_called_once()
-        strip.assert_called_once()
-        event.refresh_from_db()
+    def _clients(
+        *, google_error: Exception | None = None, discord_error: Exception | None = None
+    ) -> tuple[MagicMock, MagicMock]:
+        """Enabled Google and Discord clients whose delete succeeds, or raises the given error."""
+        google = MagicMock(spec=GoogleCalendarClient)
+        google.enabled = True
+        google.delete_event = MagicMock(side_effect=google_error)
+        discord = MagicMock(enabled=True, server_id="srv")
+        discord.delete_event = MagicMock(side_effect=discord_error)
+        return google, discord
+
+    def _assert_draft_with_nothing_remote(event: CommunityEvent) -> None:
         assert event.moderation_state == States.DRAFT
         assert (event.google_event_id, event.google_calendar_id, event.google_ical_uid) == ("", "", "")
         assert (event.sync_state, event.sync_error, event.synced_at) == (Sync.IDLE, "", None)
@@ -408,13 +423,106 @@ def describe_unpublish():
         assert event.channel_announced_at is not None
         assert (event.discord_announce_channel_id, event.discord_announce_message_id) == ("chan-1", "msg-1")
 
+    def it_takes_a_live_event_down_to_a_draft_once_both_copies_are_gone():
+        event = _live_and_synced()
+        google_event_id = event.google_event_id  # blanked on the instance once the copy is gone
+        google, discord = _clients()
+        with (
+            patch.object(GoogleCalendarClient, "from_settings", return_value=google),
+            patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=discord),
+            patch.object(CommunityEvent, "strip_discord_announcement_buttons") as strip,
+        ):
+            event.unpublish(actor=_member_user("unpublisher"))
+        google.delete_event.assert_called_once_with("cal@group.calendar.google.com", google_event_id)
+        discord.delete_event.assert_called_once_with("srv", "disc-1")
+        strip.assert_called_once()
+        event.refresh_from_db()
+        _assert_draft_with_nothing_remote(event)
+
+    def it_has_nothing_to_remove_while_sync_is_off():
+        # from_settings answers a disabled client when nothing is configured (the test default).
+        event = _live_and_synced()
+        with patch.object(CommunityEvent, "strip_discord_announcement_buttons"):
+            event.unpublish(actor=_member_user("unpublisher_off"))
+        event.refresh_from_db()
+        _assert_draft_with_nothing_remote(event)
+
+    def it_treats_a_copy_already_deleted_by_hand_as_removed():
+        event = _live_and_synced()
+        google, discord = _clients(
+            google_error=GoogleCalendarError(
+                "<HttpError 410 when requesting ... returned 'Resource has been deleted'>"
+            ),
+            discord_error=DiscordEventsError('Discord API 404: {"message": "Unknown Guild Scheduled Event"}'),
+        )
+        with (
+            patch.object(GoogleCalendarClient, "from_settings", return_value=google),
+            patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=discord),
+            patch.object(CommunityEvent, "strip_discord_announcement_buttons"),
+        ):
+            event.unpublish(actor=_member_user("unpublisher_gone"))
+        event.refresh_from_db()
+        _assert_draft_with_nothing_remote(event)
+
+    def it_stays_published_when_google_refuses():
+        event = _live_and_synced()
+        google, discord = _clients(google_error=GoogleCalendarError("403 forbidden"))
+        with (
+            patch.object(GoogleCalendarClient, "from_settings", return_value=google),
+            patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=discord),
+            patch.object(CommunityEvent, "strip_discord_announcement_buttons") as strip,
+            pytest.raises(EventUnpublishError, match="could not be removed from Google Calendar\\."),
+        ):
+            event.unpublish(actor=_member_user("unpublisher_g"))
+        strip.assert_not_called()
+        event.refresh_from_db()
+        assert event.moderation_state == States.PUBLISHED
+        assert event.google_event_id != ""
+        assert event.sync_state == Sync.FAILED
+        assert event.sync_error == "Could not remove it from Google Calendar: 403 forbidden"
+        # Discord's copy did go: blank, and PENDING so the retry cron puts it back on the live event.
+        assert (event.discord_event_id, event.discord_sync_state, event.discord_sync_error) == ("", Sync.PENDING, "")
+
+    def it_stays_published_when_discord_refuses():
+        event = _live_and_synced()
+        google, discord = _clients(discord_error=DiscordEventsError("Discord API 500: down"))
+        with (
+            patch.object(GoogleCalendarClient, "from_settings", return_value=google),
+            patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=discord),
+            patch.object(CommunityEvent, "strip_discord_announcement_buttons"),
+            pytest.raises(EventUnpublishError, match="could not be removed from Discord\\."),
+        ):
+            event.unpublish(actor=_member_user("unpublisher_d"))
+        event.refresh_from_db()
+        assert event.moderation_state == States.PUBLISHED
+        assert (event.google_event_id, event.sync_state, event.sync_error) == ("", Sync.PENDING, "")
+        assert event.discord_event_id == "disc-1"
+        assert event.discord_sync_state == Sync.FAILED
+        assert event.discord_sync_error == "Could not remove it from Discord: Discord API 500: down"
+
+    def it_names_both_when_both_refuse():
+        event = _live_and_synced()
+        google, discord = _clients(
+            google_error=GoogleCalendarError("boom"), discord_error=DiscordEventsError("Discord API 502: bad")
+        )
+        with (
+            patch.object(GoogleCalendarClient, "from_settings", return_value=google),
+            patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=discord),
+            pytest.raises(EventUnpublishError, match="from Google Calendar and Discord\\."),
+        ):
+            event.unpublish(actor=_member_user("unpublisher_both"))
+        event.refresh_from_db()
+        assert event.moderation_state == States.PUBLISHED
+        assert (event.sync_state, event.discord_sync_state) == (Sync.FAILED, Sync.FAILED)
+        assert (event.google_event_id != "", event.discord_event_id) == (True, "disc-1")
+
     @pytest.mark.parametrize(
         "state", [States.SCHEDULED, States.PENDING, States.CHANGES_REQUESTED, States.DECLINED, States.DRAFT]
     )
     def it_refuses_anything_but_a_published_event(state: str):
         event = CommunityEventFactory(community=True, moderation_state=state, pushed=True)
         with (
-            patch.object(CommunityEvent, "remove_from_google") as google,
+            patch.object(GoogleCalendarClient, "from_settings") as google,
             pytest.raises(InvalidEventTransition, match=f"'{state}'"),
         ):
             event.unpublish(actor=_member_user(f"refused_{state}"))

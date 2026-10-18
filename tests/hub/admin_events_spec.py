@@ -214,20 +214,23 @@ def describe_the_columns():
         EventRSVPFactory(event=event)
         body = client.get(LIST_URL).content.decode()
         assert f'href="{reverse("hub_admin_event", args=[event.pk])}">Spin In</a>' in body
-        assert "Public event · Fiber Arts" in body
+        assert (
+            '<td class="pl-events-admin__kind">Public event<span class="pl-events-admin__guild" data-event-guild>Fiber Arts</span></td>'
+            in body
+        )
         assert "data-recurrence-pill" in body
         assert 'data-event-status="published"' in body
         assert "<td data-rsvp-count>2</td>" in body
         assert "<td data-eventbrite-cell>" in body
-        assert "<td>Lee</td>" in body
+        assert '<td class="pl-events-admin__creator">Lee</td>' in body
 
-    def it_sorts_by_start_and_falls_back_on_a_bogus_key(client: Client):
+    def it_sorts_newest_first_and_falls_back_on_a_bogus_key(client: Client):
         _admin(client)
         later = CommunityEventFactory(community=True, starts_at=timezone.now() + timedelta(days=30))
         sooner = CommunityEventFactory(community=True, starts_at=timezone.now() + timedelta(days=1))
-        assert _rows(client.get(LIST_URL)) == [sooner.pk, later.pk]
-        assert _rows(client.get(f"{LIST_URL}?sort=starts_at&dir=desc")) == [later.pk, sooner.pk]
-        assert _rows(client.get(f"{LIST_URL}?sort=bogus")) == [sooner.pk, later.pk]
+        assert _rows(client.get(LIST_URL)) == [later.pk, sooner.pk]
+        assert _rows(client.get(f"{LIST_URL}?sort=starts_at&dir=asc")) == [sooner.pk, later.pk]
+        assert _rows(client.get(f"{LIST_URL}?sort=bogus")) == [later.pk, sooner.pk]
 
     def it_links_add_event_to_the_composer(client: Client):
         _admin(client)

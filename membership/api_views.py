@@ -72,7 +72,13 @@ class GuildViewSet(viewsets.ReadOnlyModelViewSet):
 class CommunityEventViewSet(viewsets.ModelViewSet):
     permission_classes: ClassVar = [IsFogAdminOrReadOnly]
     serializer_class = CommunityEventSerializer
-    queryset = CommunityEvent.objects.select_related("guild", "created_by").order_by("-starts_at")
+    # A draft (a copy, or an event taken down on Manage Events, #831) is nobody's to read here;
+    # the other unpublished states keep the behaviour this API always had.
+    queryset = (
+        CommunityEvent.objects.exclude(moderation_state=CommunityEvent.ModerationState.DRAFT)
+        .select_related("guild", "created_by")
+        .order_by("-starts_at")
+    )
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         event = serializer.save(created_by=self.request.user)

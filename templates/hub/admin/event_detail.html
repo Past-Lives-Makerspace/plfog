@@ -1,5 +1,9 @@
 {% extends "hub/base.html" %}
+{% load static %}
 {% block title %}{{ event.title }} · Manage Events{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/events-admin.css' %}">
+{% endblock %}
 {% block content %}
 {% comment %}
 One event's admin screen (#831, part 2), built by hub.event_admin_views.hub_admin_event after
@@ -10,7 +14,7 @@ so the admin lands back here; Duplicate opens the copy in the composer and Unpub
 here with the row a draft. The Guest list tab arrives with guest RSVPs (A3b) and the
 Eventbrite tab with the Eventbrite listing (track B), which is why the strip has one tab today.
 {% endcomment %}
-<div class="hub-card" data-event-admin="{{ event.pk }}">
+<div class="hub-card pl-events-admin" data-event-admin="{{ event.pk }}">
   <div class="pl-class-header">
     <div class="pl-class-header__main">
       <h1 class="pl-class-header__title">{{ event.title }}</h1>
@@ -59,11 +63,11 @@ Eventbrite tab with the Eventbrite listing (track B), which is why the strip has
   </div>
 
   {% if event.description %}
-  <h2 class="hub-detail-label">Details</h2>
+  <h2 class="hub-detail-label pl-events-admin__section">Details</h2>
   <div data-event-description>{{ event.description|linebreaks }}</div>
   {% endif %}
 
-  <h2 class="hub-detail-label">Actions</h2>
+  <h2 class="hub-detail-label pl-events-admin__section">Actions</h2>
   <div class="pl-btn-row" data-event-actions>
     {% if can_decide %}
     {# Approve is spaced apart from the destructive controls so it isn't fat-fingered next to Decline. #}

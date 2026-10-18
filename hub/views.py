@@ -6435,11 +6435,20 @@ def _event_edit_url(request: HttpRequest, event: CommunityEvent) -> str | None:
 
 
 def _event_delete_confirm_message(event: CommunityEvent) -> str:
-    """Consequence copy for the edit page's delete confirm modal, varying by publish state."""
+    """Consequence copy for the delete confirm modal, varying by publish state.
+
+    A draft taken down after its announcement went out (#831) was announced; the
+    announcement stays where it was posted, so the copy must not promise otherwise.
+    """
     if event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
         message = (
             "Members will no longer see it on the calendar, and it will be removed from "
             "Google Calendar and Discord. This can't be undone."
+        )
+    elif event.channel_announced_at is not None:
+        message = (
+            "It was announced before it was unpublished; the announcement stays where it was "
+            "posted, but the event itself is gone for good. This can't be undone."
         )
     else:
         message = "It'll be removed before it's ever announced. This can't be undone."
@@ -6885,9 +6894,16 @@ def propose_event(request: HttpRequest) -> HttpResponse:
         form = CommunityEventForm(instance=event, **form_kwargs)
 
     ctx = _get_hub_context(request)
+    # The same cut as the Calendar's Events tab: a published proposal is on the Calendar and a
+    # draft (#831) is Manage Events' row, so neither is still in flight here.
     my_proposals = (
         CommunityEvent.objects.filter(submitted_by=user)
-        .exclude(moderation_state=CommunityEvent.ModerationState.PUBLISHED)
+        .exclude(
+            moderation_state__in=[
+                CommunityEvent.ModerationState.PUBLISHED,
+                CommunityEvent.ModerationState.DRAFT,
+            ]
+        )
         .select_related("guild")
         .order_by("-updated_at")
     )

@@ -24,7 +24,7 @@ from classes.table import prepare_table
 from hub.event_lifecycle import EVENT_FACETS
 from hub.view_as import events_admin_access_required
 from hub.views import _event_delete_confirm_message, _event_edit_url, _get_hub_context, _google_sync_enabled
-from membership.models import CommunityEvent, InvalidEventTransition
+from membership.models import CommunityEvent, EventUnpublishError, InvalidEventTransition
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -95,11 +95,13 @@ def hub_admin_events(request: HttpRequest) -> HttpResponse:
     search_preserved = normalized.copy()
     for key in ("q", "page"):
         search_preserved.pop(key, None)
+    # Newest first, so All opens on what is coming up rather than on the oldest past event.
     table = prepare_table(
         request,
         rows,
         search_fields=["title", "guild__name", "location"],
         default_sort="starts_at",
+        default_dir="desc",
         sortable=_SORTABLE,
     )
     return render(
@@ -171,13 +173,16 @@ def hub_admin_event_duplicate(request: HttpRequest, pk: int) -> HttpResponse:
 @events_admin_access_required
 @require_POST
 def hub_admin_event_unpublish(request: HttpRequest, pk: int) -> HttpResponse:
-    """Take a published event down to a draft; the model refuses any other state."""
+    """Take a published event down to a draft; the model refuses any other state, and says
+    which service still holds a copy when a removal failed (the event stays published)."""
     user: User = request.user  # type: ignore[assignment]  # the gate wraps @login_required
     event = get_object_or_404(_managed_events(), pk=pk)
     try:
         event.unpublish(actor=user)
     except InvalidEventTransition:
         messages.info(request, "Only a published event can be unpublished.")
+    except EventUnpublishError as exc:
+        messages.error(request, str(exc))
     else:
         messages.success(request, "Event unpublished. It is a draft now, and members no longer see it.")
     return redirect(reverse("hub_admin_event", args=[event.pk]))
