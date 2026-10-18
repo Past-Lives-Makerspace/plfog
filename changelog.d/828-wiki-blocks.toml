@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-18"
+title = "Wiki pages get panels, checklists and settings boxes"
+changes = [
+  "The wiki editor has a Panel menu: Info, Tip, Warning and Danger boxes, so a safety rule stands out instead of hiding in a paragraph.",
+  "New buttons for a checklist, a settings box for machine settings or recipes, and a divider line.",
+  "New pages start with a Danger, Tip or checklist line where it helps, with a hint inside. Anything you leave empty stays off the page.",
+  "The filter buttons on the wiki home no longer sit on top of a line.",
+]
