@@ -80,6 +80,22 @@
         icons.divider = '<svg viewBox="0 0 18 18"><line class="ql-stroke" x1="2" x2="16" y1="9" y2="9"></line></svg>';
     }
 
+    /* A panel goes on a plain line or a heading, the only blocks the wiki sanitizer lets a
+       panel class stay on. Quill would happily draw one on a list item, a quote or a code
+       line, and the save would then drop it without a word, so the picker says so instead. */
+    function panelHandler(quill) {
+        return function (value) {
+            var formats = quill.getFormat();
+            if (value && (formats.list || formats.blockquote || formats["code-block"])) {
+                window.dispatchEvent(new CustomEvent("show-toast", {
+                    detail: { message: "Panels go on plain lines. Take this line out of its list, quote or code box first.", type: "info" }
+                }));
+                return;
+            }
+            quill.format("panel", value, "user");
+        };
+    }
+
     function dividerHandler(quill) {
         return function () {
             // A block embed splits the line it lands in, so no newline bookkeeping here.
@@ -181,6 +197,7 @@
                 var toolbarModule = quill.getModule("toolbar");
                 toolbarModule.addHandler("image", wikiImageHandler(quill, mount.dataset.rteUploadUrl || ""));
                 toolbarModule.addHandler("divider", dividerHandler(quill));
+                toolbarModule.addHandler("panel", panelHandler(quill));
             }
             mount.plQuill = quill;
             sync(ta, quill);

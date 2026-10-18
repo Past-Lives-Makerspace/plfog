@@ -52,6 +52,9 @@ def describe_wiki_editor_blocks():
         page.locator(".ql-toolbar .ql-panel .ql-picker-item:not([data-value])").click()
         page.locator('.ql-toolbar button.ql-list[value="check"]').click()
         page.keyboard.type("Turn on the extractor")
+        # A panel on a list line would vanish on save, so the picker refuses it.
+        _pick_panel(page, "info")
+        expect(editor.locator("li.pl-panel-info")).to_have_count(0)
         page.keyboard.press("Enter")
         page.keyboard.press("Enter")
         page.locator(".ql-toolbar button.ql-code-block").click()

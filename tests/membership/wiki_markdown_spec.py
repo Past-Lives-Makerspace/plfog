@@ -270,6 +270,31 @@ def describe_wiki_blocks():
                 f'<ul class="pl-checklist"><li data-list="{value}">A</li></ul>'
             )
 
+        def it_splits_touching_lists_of_different_types_so_none_loses_its_kind():
+            quill = (
+                '<ol><li data-list="ordered">One</li><li data-list="ordered">Two</li>'
+                '<li data-list="unchecked">Check</li><li data-list="bullet">Dot</li></ol>'
+            )
+            assert sanitize_wiki_html(quill) == (
+                "<ol><li>One</li><li>Two</li></ol>"
+                '<ul class="pl-checklist"><li data-list="unchecked">Check</li></ul>'
+                "<ul><li>Dot</li></ul>"
+            )
+
+        def it_keeps_a_stored_numbered_list_numbered():
+            assert sanitize_wiki_html("<ol><li>A</li><li>B</li></ol>") == "<ol><li>A</li><li>B</li></ol>"
+
+        def it_keeps_text_before_the_first_item_inside_the_list():
+            assert sanitize_wiki_html('<ol>x<li data-list="bullet">A</li></ol>') == "<ul>x<li>A</li></ul>"
+
+        def it_keeps_a_list_with_no_items():
+            assert sanitize_wiki_html("<ol>Loose</ol>") == "<ol>Loose</ol>"
+
+        def it_rewrites_a_list_with_no_closing_tag():
+            assert sanitize_wiki_html('<ol><li data-list="checked">A') == (
+                '<ul class="pl-checklist"><li data-list="checked">A</li></ul>'
+            )
+
         def it_drops_an_empty_unticked_item_and_then_the_empty_list_on_the_reading_page():
             html = render_wiki_content(
                 '<h2>Before</h2><ul class="pl-checklist"><li data-list="unchecked"><br></li></ul>'
@@ -302,6 +327,27 @@ def describe_wiki_blocks():
         def it_is_stable_on_a_second_pass():
             once = sanitize_wiki_html(QUILL)
             assert sanitize_wiki_html(once) == once
+
+        @pytest.mark.parametrize(
+            "source",
+            [
+                # Text between lines, a list inside, a line that never closes, no closing tag.
+                '<div class="ql-code-block-container">x<div>a</div></div>',
+                '<div class="ql-code-block-container"><ol><li>a</li></ol></div>',
+                '<div class="ql-code-block-container"><div>a<div>b</div></div>',
+                '<div class="ql-code-block-container"><div>a</div>',
+                '<div class="ql-code-block-container"><div>a',
+            ],
+        )
+        def it_leaves_anything_not_shaped_like_a_quill_code_block_to_the_sanitizer(source):
+            assert "<pre>" not in sanitize_wiki_html(source)
+            assert "<div" not in sanitize_wiki_html(source)
+
+        def it_rewrites_a_code_block_after_one_it_could_not_read():
+            source = (
+                '<div class="ql-code-block-container">x</div><div class="ql-code-block-container"><div>ok</div></div>'
+            )
+            assert sanitize_wiki_html(source).endswith("<pre>ok</pre>")
 
         def it_leaves_a_stray_div_to_the_sanitizer():
             assert sanitize_wiki_html('<div class="ql-code-block">x</div>') == "x"

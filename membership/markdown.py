@@ -457,19 +457,20 @@ _WIKI_HTML_CLEANER = AllowlistCleaner(
     },
 )
 
-# Quill 2 writes a code block as divs, one per line, inside a container div, and the wiki
-# allowlist has no div, so without this rewrite the lines ran together into one paragraph.
-# A line holds text and <br> only; the line pattern refuses any div tag inside it, which
-# keeps the match linear on hostile input (tests/core/rich_text_speed_spec.py).
-_QL_CODE_LINE = r"<div\b[^>]*>((?:[^<]|<(?!/?div\b))*)</div>"
-_QL_CODE_CONTAINER_RE = re.compile(
-    r"<div\b[^>]*\bql-code-block-container\b[^>]*>((?:\s*" + _QL_CODE_LINE + r")*)\s*</div>",
-    re.IGNORECASE,
-)
-_QL_CODE_LINE_RE = re.compile(_QL_CODE_LINE, re.IGNORECASE)
+# Quill 2 writes a code block as divs, one per line, inside a container div, and writes every
+# list as an <ol> whose items say their own type in data-list, mixing types when two lists
+# touch. The wiki allowlist has no div and keeps no data-list but the checklist's, so both
+# are rewritten first. This runs on hostile input before the sanitizer, so it is one linear
+# scan over div and ol tags rather than patterns that span them: a tag with no closing ">"
+# runs to the end of the input and ends the scan (tests/core/rich_text_speed_spec.py).
+_BLOCK_TAG_RE = re.compile(r"<(/?)(div|ol)\b([^>]*)(?:>|\Z)", re.IGNORECASE)
+_LIST_ITEM_SPLIT_RE = re.compile(r"(?=<li\b)", re.IGNORECASE)
+_LIST_ITEM_OPEN_RE = re.compile(r"<li\b[^>]*(?:>|\Z)", re.IGNORECASE)
+_DATA_LIST_RE = re.compile(r"""data-list\s*=\s*["']?([a-z]+)""", re.IGNORECASE)
 _BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
-_CHECK_ITEM_RE = re.compile(r"""data-list\s*=\s*["'](?:un)?checked["']""", re.IGNORECASE)
-_OL_RE = re.compile(r"<ol(\s[^>]*)?>(.*?)(?:</ol>|\Z)", re.IGNORECASE | re.DOTALL)
+# The list each Quill item type belongs in. Anything else, a plain stored <li> included, is
+# a numbered item, which is what Quill reads an unmarked <ol> item back as.
+_LIST_OPENERS = {"checked": '<ul class="pl-checklist">', "unchecked": '<ul class="pl-checklist">', "bullet": "<ul>"}
 # A panel line or checklist item nobody wrote in. The starters ship these as prompts (the
 # editor shows a hint in an empty panel), and the reading page drops them so a prompt left
 # alone never prints an empty box. Matched on sanitized output, so the attribute shapes are
@@ -485,25 +486,95 @@ def _drop_unwritten_prompts(html: str) -> str:
     return _EMPTY_CHECKLIST_RE.sub("", html)
 
 
+def _code_block(raw: str, tokens: list[re.Match[str]], start: int) -> tuple[int, str | None]:
+    """Read the Quill code block whose container opens at ``tokens[start]``.
+
+    Returns the index of its closing tag and the ``<pre>`` it becomes, or, for anything that
+    is not exactly container, line divs and a close, the index where reading stopped and
+    None. The caller resumes from that index, so no tag is read twice.
+    """
+    lines: list[str] = []
+    index = start + 1
+    previous_end = tokens[start].end()
+    while index < len(tokens):
+        tag = tokens[index]
+        if tag.group(2).lower() != "div" or raw[previous_end : tag.start()].strip():
+            return index, None
+        if tag.group(1):
+            return index, "<pre>" + "\n".join(lines) + "</pre>"
+        close = tokens[index + 1] if index + 1 < len(tokens) else None
+        if close is None or close.group(2).lower() != "div" or not close.group(1):
+            return index + 1, None
+        lines.append(_BR_RE.sub("", raw[tag.end() : close.start()]))
+        previous_end = close.end()
+        index += 2
+    return index, None
+
+
+def _split_list_runs(inner: str) -> str:
+    """One list per run of same-type items: numbered, bulleted, or a checklist.
+
+    Quill puts touching lists of different types in one ``<ol>``; left whole, a numbered
+    "Steps" list followed by a checklist line came out as one checklist with its numbers gone
+    for good.
+    """
+    parts = _LIST_ITEM_SPLIT_RE.split(inner)
+    lead, items = ("", parts) if parts[0].lower().startswith("<li") else (parts[0], parts[1:])
+    runs: list[tuple[str, list[str]]] = []
+    for item in items:
+        opener = _LIST_ITEM_OPEN_RE.match(item)
+        marker = _DATA_LIST_RE.search(opener.group(0)) if opener is not None else None
+        tag = _LIST_OPENERS.get(marker.group(1).lower() if marker is not None else "", "<ol>")
+        if runs and runs[-1][0] == tag:
+            runs[-1][1].append(item)
+        else:
+            runs.append((tag, [item]))
+    if not runs:
+        return f"<ol>{lead}</ol>"
+    html = []
+    for index, (tag, run) in enumerate(runs):
+        body = (lead if index == 0 else "") + "".join(run)
+        html.append(f"{tag}{body}</{'ol' if tag == '<ol>' else 'ul'}>")
+    return "".join(html)
+
+
 def _normalize_wiki_blocks(raw: str) -> str:
-    """Rewrite Quill's code blocks to ``<pre>`` and its checklists to ``<ul class="pl-checklist">``.
+    """Rewrite Quill's code blocks to ``<pre>`` and split its lists into one list per type.
 
     Runs before the shared list normalizer and the sanitizer, while Quill's markers still
-    exist. Both shapes are what Quill itself reads back when the editor reopens (``pre``
-    becomes a code block, ``li[data-list]`` keeps its tick), and both are stable under a
-    second pass, because the render path sanitizes stored bodies again.
+    exist. A checklist becomes ``<ul class="pl-checklist">`` with its items' ``data-list``
+    kept, and a bullet run becomes ``<ul>``. Each shape is what Quill reads back when the
+    editor reopens (``pre`` becomes a code block, ``li[data-list]`` keeps its tick), and each
+    is stable under a second pass, because the render path sanitizes stored bodies again.
     """
-
-    def code(match: re.Match[str]) -> str:
-        lines = [_BR_RE.sub("", line) for line in _QL_CODE_LINE_RE.findall(match.group(1))]
-        return "<pre>" + "\n".join(lines) + "</pre>"
-
-    def checklist(match: re.Match[str]) -> str:
-        if _CHECK_ITEM_RE.search(match.group(2)):
-            return f'<ul class="pl-checklist">{match.group(2)}</ul>'
-        return match.group(0)
-
-    return _OL_RE.sub(checklist, _QL_CODE_CONTAINER_RE.sub(code, raw))
+    tokens = list(_BLOCK_TAG_RE.finditer(raw))
+    out: list[str] = []
+    position = 0
+    index = 0
+    while index < len(tokens):
+        tag = tokens[index]
+        is_open = not tag.group(1)
+        name = tag.group(2).lower()
+        if is_open and name == "div" and "ql-code-block-container" in tag.group(3):
+            stop, pre = _code_block(raw, tokens, index)
+            if pre is not None:
+                out.append(raw[position : tag.start()] + pre)
+                position = tokens[stop].end()
+                stop += 1
+            index = stop
+            continue
+        if is_open and name == "ol":
+            close = index + 1
+            while close < len(tokens) and not (tokens[close].group(1) and tokens[close].group(2).lower() == "ol"):
+                close += 1
+            inner_end = tokens[close].start() if close < len(tokens) else len(raw)
+            out.append(raw[position : tag.start()] + _split_list_runs(raw[tag.end() : inner_end]))
+            position = tokens[close].end() if close < len(tokens) else len(raw)
+            index = close + 1
+            continue
+        index += 1
+    out.append(raw[position:])
+    return "".join(out)
 
 
 # One pass over rendered wiki HTML: an h2/h3 with no id (or an invalid one) gets a

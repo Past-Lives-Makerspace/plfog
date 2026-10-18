@@ -38,12 +38,23 @@ INPUTS = {
     # one ends a link's path; a scan that cut back from the end of the run went quadratic.
     "nbsp_in_paths": _fill("<p>", "a.co/\u00a0"),
     "nbsp_entity_in_paths": _fill("<p>", "a.co/&nbsp;"),
-    # The wiki's code-block rewrite: an unclosed container followed by line after line, and
-    # lines that never close, are the shapes a backtracking pattern would go quadratic on.
+}
+
+# The wiki's block rewrite (``membership.markdown._normalize_wiki_blocks``) runs on hostile
+# editor HTML before the sanitizer, so these run against the wiki's HTML entry points.
+# Tags that never close are the shape that sank the first version: a pattern spanning from
+# each opener to a ">" rescanned the rest of the input from every one (100 seconds).
+WIKI_HTML_INPUTS = {
     "code_block_lines": _fill('<div class="ql-code-block-container">', '<div class="ql-code-block">x</div>'),
     "code_block_unclosed": _fill('<div class="ql-code-block-container">', "<div>x<b>"),
     "checklist_items": _fill("<ol>", '<li data-list="unchecked"><br>'),
+    "unclosed_code_containers": _fill("<p>", "<div ql-code-block-container "),
+    "unclosed_divs": _fill("<p>", "<div "),
+    "unclosed_ols": _fill("<p>", "<ol "),
+    "container_then_unclosed_divs": _fill("<div class=ql-code-block-container>", "<div x"),
+    "chained_unfinished_code_blocks": _fill("", "<div class=ql-code-block-container><div>x</div>"),
 }
+WIKI_HTML_ENTRY_POINTS = ("sanitize_wiki_html", "sanitize_wiki_submission", "render_wiki_content")
 
 ENTRY_POINTS: dict[str, Callable[[str], object]] = {
     "sanitize_rich_html": html_sanitize.sanitize_rich_html,
@@ -77,4 +88,12 @@ def describe_rich_text_entry_points():
     def it_finishes_well_inside_a_request(entry_point: str, shape: str):
         started = time.perf_counter()
         ENTRY_POINTS[entry_point](INPUTS[shape])
+        assert time.perf_counter() - started < LIMIT_SECONDS
+
+    @pytest.mark.parametrize("shape", sorted(WIKI_HTML_INPUTS))
+    @pytest.mark.parametrize("entry_point", WIKI_HTML_ENTRY_POINTS)
+    def it_rewrites_hostile_wiki_html_well_inside_a_request(entry_point: str, shape: str):
+        assert RICH_TEXT_MAX_CHARS - 64 < len(WIKI_HTML_INPUTS[shape]) <= RICH_TEXT_MAX_CHARS
+        started = time.perf_counter()
+        ENTRY_POINTS[entry_point](WIKI_HTML_INPUTS[shape])
         assert time.perf_counter() - started < LIMIT_SECONDS
