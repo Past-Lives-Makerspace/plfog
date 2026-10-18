@@ -8852,10 +8852,10 @@ class CommunityEvent(models.Model):
     #: Both together: nothing on Google or Discord belongs to the row any more.
     _SYNC_RESET: dict[str, Any] = {**_GOOGLE_SYNC_RESET, **_DISCORD_SYNC_RESET}
 
-    #: The HTTP statuses that mean the remote copy is already gone, so a removal has nothing
-    #: left to do: Google answers 404 or 410 ("Resource has been deleted") and Discord 404
-    #: ("Unknown Guild Scheduled Event") for an event someone deleted by hand.
-    _REMOTE_COPY_GONE = re.compile(r"\b(404|410)\b")
+    #: Discord's error carries only its message ("Discord API 404: ..."), so a Scheduled Event
+    #: someone deleted by hand is recognised there; Google's wraps the HTTP status, which
+    #: ``core.integrations.google_calendar._is_gone`` reads.
+    _DISCORD_COPY_GONE = re.compile(r"^Discord API 404\b")
 
     def duplicate(self, *, by: User) -> CommunityEvent:
         """Copy this event as a fresh DRAFT the way :meth:`ClassOffering.duplicate` copies a class.
@@ -8910,21 +8910,22 @@ class CommunityEvent(models.Model):
         Unlike the best-effort :meth:`remove_from_google` a delete uses (the FOG row is about
         to go either way), an unpublish needs the truth: a copy left on Google would reappear
         on the member calendar through the feed echo once ``pushed()`` stopped de-duping its
-        uid, with nothing left to retry. A copy already gone (:attr:`_REMOTE_COPY_GONE`)
-        counts as removed. Nothing to remove (sync off, or never pushed) is also success.
+        uid, with nothing left to retry. A copy already gone (a 404 or 410, read off the
+        wrapped status the way the push service does) counts as removed. Nothing to remove
+        (sync off, or never pushed) is also success.
 
         Returns:
             True when nothing of this event is on Google any more; False after recording
             ``FAILED`` and the reason on the Google sync fields.
         """
-        from core.integrations.google_calendar import GoogleCalendarClient, GoogleCalendarError
+        from core.integrations.google_calendar import GoogleCalendarClient, GoogleCalendarError, _is_gone
 
         client = GoogleCalendarClient.from_settings()
         if client.enabled and self.google_event_id and self.google_calendar_id:
             try:
                 client.delete_event(self.google_calendar_id, self.google_event_id)
             except GoogleCalendarError as exc:
-                if not self._REMOTE_COPY_GONE.search(str(exc)):
+                if not _is_gone(exc):
                     self.sync_state = self.SyncState.FAILED
                     self.sync_error = f"Could not remove it from Google Calendar: {exc}"
                     return False
@@ -8939,7 +8940,7 @@ class CommunityEvent(models.Model):
             try:
                 client.delete_event(client.server_id, self.discord_event_id)
             except DiscordEventsError as exc:
-                if not self._REMOTE_COPY_GONE.search(str(exc)):
+                if not self._DISCORD_COPY_GONE.search(str(exc)):
                     self.discord_sync_state = self.SyncState.FAILED
                     self.discord_sync_error = f"Could not remove it from Discord: {exc}"
                     return False
@@ -8951,7 +8952,9 @@ class CommunityEvent(models.Model):
         Both remote copies are removed first, and only when both are gone does the row move:
         the RSVP and Manage buttons come off the announcement message (the way a delete does,
         so a dead event stops inviting clicks), both syncs reset to IDLE with their ids blank
-        so publishing it again pushes it afresh, and the state becomes DRAFT. When either
+        so publishing it again pushes it afresh, ``publish_at`` is cleared (the draft goes
+        back out on save, never on a schedule that already passed, which the composer would
+        refuse) and the state becomes DRAFT. When either
         removal fails the event stays PUBLISHED: the failing side keeps its ids with its sync
         state FAILED (so Retry sync and a second Unpublish both still work), a side that did
         succeed is left blank and PENDING (it is still a live event, so the retry cron puts
@@ -8989,8 +8992,9 @@ class CommunityEvent(models.Model):
         self.strip_discord_announcement_buttons()
         for field, blank in self._SYNC_RESET.items():
             setattr(self, field, blank)
+        self.publish_at = None
         self.moderation_state = self.ModerationState.DRAFT
-        self.save(update_fields=[*self._SYNC_RESET, "moderation_state", "updated_at"])
+        self.save(update_fields=[*self._SYNC_RESET, "publish_at", "moderation_state", "updated_at"])
         logger.info("Event %s unpublished by user %s", self.pk, actor.pk)
 
     def _reset_sync_side(self, reset: dict[str, Any], state_field: str) -> None:

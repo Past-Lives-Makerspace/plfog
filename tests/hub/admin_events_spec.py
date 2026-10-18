@@ -221,8 +221,21 @@ def describe_the_columns():
         assert "data-recurrence-pill" in body
         assert 'data-event-status="published"' in body
         assert "<td data-rsvp-count>2</td>" in body
-        assert "<td data-eventbrite-cell>" in body
+        assert '<td class="pl-events-admin__eventbrite" data-eventbrite-cell>' in body
         assert '<td class="pl-events-admin__creator">Lee</td>' in body
+
+    def it_keeps_the_seven_columns_inside_the_content_column(client: Client):
+        # The widths live in events-admin.css: the Eventbrite header is an icon with its name for
+        # screen readers, and Created by carries the class the stylesheet hides on narrow viewports.
+        _admin(client)
+        CommunityEventFactory(community=True, recurrence=CommunityEvent.Recurrence.WEEKLY)
+        body = client.get(LIST_URL).content.decode()
+        assert "css/events-admin.css" in body
+        assert '<th class="pl-events-admin__eventbrite">' in body
+        assert '<span class="sr-only">Eventbrite</span></th>' in body
+        assert '<th class="pl-events-admin__creator">Created by</th>' in body
+        assert 'class="pl-events-admin__dates">' in body
+        assert '<td class="pl-events-admin__status">' in body
 
     def it_sorts_newest_first_and_falls_back_on_a_bogus_key(client: Client):
         _admin(client)

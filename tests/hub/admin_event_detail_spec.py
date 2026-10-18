@@ -445,3 +445,42 @@ def describe_an_announced_draft():
         }
         assert len(set(messages_by_state.values())) == 3
         assert "announced" in messages_by_state["announced"]
+
+
+def describe_an_unpublished_scheduled_event():
+    """An event that went out on a schedule and was then unpublished opens in the composer with
+    no announce time (the composer refuses a past one), and a plain save publishes it."""
+
+    def _payload(event: CommunityEvent) -> dict[str, str]:
+        start = timezone.localtime(event.starts_at)
+        return {
+            "title": event.title,
+            "starts_at": start.strftime("%Y-%m-%dT%H:%M"),
+            "ends_at": (start + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
+            "location": "Main Studio",
+            "description": "Come forge.",
+            "recurrence": "none",
+        }
+
+    def it_reopens_with_the_schedule_cleared_and_saves(client: Client):
+        _admin(client)
+        event = CommunityEventFactory(
+            community=True, publish_at=timezone.now() - timedelta(days=3), channel_announced_at=timezone.now()
+        )
+        with patch.object(CommunityEvent, "strip_discord_announcement_buttons"):
+            assert client.post(reverse("hub_admin_event_unpublish", args=[event.pk])).status_code == 302
+        event.refresh_from_db()
+        assert (event.moderation_state, event.publish_at) == (States.DRAFT, None)
+        resp = client.get(reverse("hub_event_edit", args=[event.pk]))
+        assert resp.status_code == 200
+        assert "scheduleLater: false" in resp.content.decode()
+        assert resp.context["form"]["publish_at"].value() is None
+        with (
+            patch("core.events.emit.emit"),
+            patch("core.integrations.discord_channel.edit_channel_message"),
+        ):
+            saved = client.post(reverse("hub_event_edit", args=[event.pk]), data=_payload(event))
+        assert saved.status_code == 302
+        event.refresh_from_db()
+        assert event.moderation_state == States.PUBLISHED
+        assert event.publish_at is None

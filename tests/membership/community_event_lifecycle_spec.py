@@ -7,6 +7,7 @@ Status pill and ``creator_name``."""
 from __future__ import annotations
 
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -410,8 +411,17 @@ def describe_unpublish():
         discord.delete_event = MagicMock(side_effect=discord_error)
         return google, discord
 
+    def _gone_on_google() -> GoogleCalendarError:
+        """The error the client raises for a copy someone deleted by hand: a 410 on the wrapped cause."""
+        cause = RuntimeError("Resource has been deleted")
+        cause.resp = SimpleNamespace(status=410)  # type: ignore[attr-defined]
+        error = GoogleCalendarError("<HttpError 410>")
+        error.__cause__ = cause
+        return error
+
     def _assert_draft_with_nothing_remote(event: CommunityEvent) -> None:
         assert event.moderation_state == States.DRAFT
+        assert event.publish_at is None
         assert (event.google_event_id, event.google_calendar_id, event.google_ical_uid) == ("", "", "")
         assert (event.sync_state, event.sync_error, event.synced_at) == (Sync.IDLE, "", None)
         assert (event.discord_event_id, event.discord_sync_state, event.discord_sync_error) == ("", Sync.IDLE, "")
@@ -441,7 +451,8 @@ def describe_unpublish():
 
     def it_has_nothing_to_remove_while_sync_is_off():
         # from_settings answers a disabled client when nothing is configured (the test default).
-        event = _live_and_synced()
+        # The schedule it once went out on is cleared too: the composer would refuse a past one.
+        event = _live_and_synced(publish_at=timezone.now() - timedelta(days=3))
         with patch.object(CommunityEvent, "strip_discord_announcement_buttons"):
             event.unpublish(actor=_member_user("unpublisher_off"))
         event.refresh_from_db()
@@ -450,9 +461,7 @@ def describe_unpublish():
     def it_treats_a_copy_already_deleted_by_hand_as_removed():
         event = _live_and_synced()
         google, discord = _clients(
-            google_error=GoogleCalendarError(
-                "<HttpError 410 when requesting ... returned 'Resource has been deleted'>"
-            ),
+            google_error=_gone_on_google(),
             discord_error=DiscordEventsError('Discord API 404: {"message": "Unknown Guild Scheduled Event"}'),
         )
         with (

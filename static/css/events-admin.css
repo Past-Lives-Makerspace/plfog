@@ -2,17 +2,23 @@
    Manage Classes table styles in hub.css. Loaded by hub/admin/events_list.html and
    hub/admin/event_detail.html, both wrapped in .pl-events-admin. */
 
-/* The list: Kind stays on one line with the guild under it, Date(s) never wraps, and the
-   Created by column steps aside below 1100px so the title keeps its room. */
+/* The list has to fit seven columns into the content column beside the sidebar, about
+   910px at a 1280px viewport: the title keeps a smaller floor than Manage Classes, Kind
+   stays on one line with the guild ellipsised under it, the date stays on one line with
+   its recurrence pill on a second, the Eventbrite slot is an icon-width column, and
+   Created by steps aside until the viewport gives the content column room (about 1440px). */
 .pl-events-admin .admin-table-wrap td {
     vertical-align: top;
+}
+.pl-events-admin .admin-table-wrap td.pl-class-list__title {
+    min-width: 12rem;
 }
 .pl-events-admin__kind {
     white-space: nowrap;
 }
 .pl-events-admin__guild {
     display: block;
-    max-width: 14rem;
+    max-width: 9rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -23,9 +29,27 @@
     white-space: nowrap;
 }
 .pl-events-admin__dates .hub-pill {
-    margin-left: 0.4rem;
+    display: inline-block;
+    margin-top: 0.25rem;
 }
-@media (max-width: 1100px) {
+.pl-events-admin__dates .hub-pill::before {
+    /* Puts the pill on its own line under the date without a wrapper element. */
+    content: "";
+    display: block;
+}
+.pl-events-admin .admin-table-wrap th.pl-events-admin__status,
+.pl-events-admin .admin-table-wrap td.pl-events-admin__status {
+    white-space: nowrap;
+}
+.pl-events-admin__eventbrite {
+    width: 1rem;
+    text-align: center;
+}
+.pl-events-admin__eventbrite svg {
+    display: inline-block;
+    vertical-align: middle;
+}
+@media (max-width: 1439px) {
     .pl-events-admin__creator {
         display: none;
     }
