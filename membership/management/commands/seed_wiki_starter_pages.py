@@ -30,7 +30,6 @@ from __future__ import annotations
 from typing import Any, NamedTuple
 
 from django.core.management.base import BaseCommand
-from django.db import IntegrityError, transaction
 
 CREATION_NOTE = "Created as a starter page"
 
@@ -123,7 +122,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        from membership.models import WikiError, WikiPage
+        from membership.models import WikiPage
 
         dry_run = bool(options["dry_run"])
         added: list[str] = []
@@ -135,16 +134,12 @@ class Command(BaseCommand):
             if dry_run:
                 added.append(entry.title)
                 continue
-            try:
-                # A savepoint per page, so losing a race to a member creating the same title
-                # skips that one page instead of ending the run.
-                with transaction.atomic():
-                    WikiPage.objects.create_page(
-                        title=entry.title, kind=entry.kind, author=None, body=entry.body, note=CREATION_NOTE
-                    )
-            except (WikiError, IntegrityError):
-                skipped.append(entry.title)
-                continue
+            # create_page asks the same clash question as the check above, so it raises only if
+            # a member created this exact title in the moments since. The run then stops and
+            # says so, rather than counting it as a page that already existed.
+            WikiPage.objects.create_page(
+                title=entry.title, kind=entry.kind, author=None, body=entry.body, note=CREATION_NOTE
+            )
             added.append(entry.title)
 
         prefix = "Would add" if dry_run else "Added"

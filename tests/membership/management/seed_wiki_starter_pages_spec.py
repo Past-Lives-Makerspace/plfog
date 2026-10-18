@@ -12,11 +12,10 @@ from io import StringIO
 
 import pytest
 from django.core.management import call_command
-from django.db import IntegrityError
 
 from membership.management.commands.seed_wiki_starter_pages import CREATION_NOTE, PAGES
 from membership.markdown import render_wiki_content, sanitize_wiki_html
-from membership.models import WikiError, WikiPage, WikiRevision
+from membership.models import WikiPage, WikiRevision
 from tests.membership.factories import GuildFactory, WikiPageFactory
 
 pytestmark = pytest.mark.django_db
@@ -73,20 +72,6 @@ def describe_seed_wiki_starter_pages():
         assert WikiPage.objects.count() == 0
         assert f"Would add {len(PAGES)} starter pages" in output
         assert f"  + {PAGES[0].title}" in output
-
-    @pytest.mark.parametrize("error", [WikiError("taken"), IntegrityError("slug")])
-    def it_skips_a_page_it_loses_to_a_concurrent_writer_and_carries_on(monkeypatch, error):
-        real = WikiPage.objects.create_page
-
-        def flaky(**kwargs: object) -> WikiPage:
-            if kwargs["title"] == PAGES[0].title:
-                raise error
-            return real(**kwargs)
-
-        monkeypatch.setattr(WikiPage.objects, "create_page", flaky)
-        output = _run()
-        assert WikiPage.objects.count() == len(PAGES) - 1
-        assert f"Added {len(PAGES) - 1} starter pages; 1 already existed" in output
 
     def describe_the_page_bodies():
         @pytest.mark.parametrize("entry", PAGES, ids=lambda entry: entry.title)
