@@ -6572,9 +6572,10 @@ def _event_edit_mode(request: HttpRequest, event: CommunityEvent) -> EventCreate
     """Which composer an existing event opens in, or None when the request may not edit it.
 
     The author of their own open proposal resubmits it (``REVIEW``) unless they also
-    administer events; everyone else :func:`can_edit_event` admits (an administrator, a
-    guild's own leadership on its event) gets the full composer (``DIRECT``), which is what
-    an admin editing a pending row has always had.
+    administer events; everyone else :func:`can_edit_event` admits gets the full composer
+    (``DIRECT``), which is what an admin editing a pending row has always had. A guild's
+    own leadership is ``DIRECT`` too, and :func:`event_edit` sends them on to the guild
+    composer.
     """
     if not can_edit_event(request, event):
         return None
@@ -6634,7 +6635,9 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
     In ``DIRECT`` mode (an admin or a Calendar Administrator) a save announces, schedules or
     re-pushes exactly as before. In ``REVIEW`` mode (a "Can create events" holder adding an
     event, or the author of their own open proposal) the form is review-first and a save
-    enters the review queue, so a reviewer's approval is what announces it.
+    enters the review queue, so a reviewer's approval is what announces it. A guild's own
+    leadership edits its event in the guild composer instead: this one's guild picker would
+    let a lead move the event out of their own reach.
     """
     from membership.models import CommunityEvent
 
@@ -6645,6 +6648,8 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
     else:
         event = get_object_or_404(CommunityEvent, pk=event_pk)
         mode = _event_edit_mode(request, event)
+        if mode == EventCreateMode.DIRECT and event.guild_id is not None and not can_administer_events(request):
+            return redirect(reverse("hub_guild_event_edit", args=[event.guild_id, event.pk]))
     if mode is None:
         return HttpResponse("Forbidden", status=403)
     is_new = event.pk is None
@@ -7470,12 +7475,18 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     """
     from hub.calendar_entries import google_calendar_event_url
     from membership.models import CommunityEvent
-    from membership.permissions import can_edit_event
 
     event = get_object_or_404(CommunityEvent.objects.published().select_related("guild", "area"), pk=pk)
     ctx = _get_hub_context(request)
     on_member_surface = getattr(request, "surface", "members") == "members"
     can_edit = on_member_surface and can_edit_event(request, event)
+    # The composer the viewer can actually open: the guild's own for its leadership (and
+    # admins), the Calendar's for everyone else can_edit_event admits, such as a Calendar
+    # Administrator on a guild event, whom the guild composer would refuse.
+    if event.guild is not None and _can_edit_guild(request, event.guild):
+        edit_url = reverse("hub_guild_event_edit", args=[event.guild.pk, event.pk])
+    else:
+        edit_url = reverse("hub_event_edit", args=[event.pk])
     is_recurring = event.recurrence != CommunityEvent.Recurrence.NONE
     # "Who's coming": names for signed-in viewers, count only for an anonymous QR scan.
     # A hidden member (#614) is left out of the names and the count, except to themselves.
@@ -7499,6 +7510,7 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
             **ctx,
             "event": event,
             "can_edit": can_edit,
+            "edit_url": edit_url,
             "is_recurring": is_recurring,
             "when": event.when_display_for(start),
             "google_event_url": google_event_url,

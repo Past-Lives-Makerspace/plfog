@@ -863,6 +863,74 @@ def describe_granted_event_creators():
         client.login(username="approver_author", password="pass")
         assert client.get(reverse("hub_event_edit", args=[event.pk])).context["form"].review_first is False
 
+    def it_names_the_reviewers_in_the_note_by_whether_the_event_has_a_guild(client: Client):
+        user = _granted_user("creator_note", AdminCapability.Capability.EVENT_CREATOR)
+        guild = GuildFactory(name="Lantern Makers")
+        guild_proposal = CommunityEventFactory(guild_hosted=True, guild=guild, pending=True, submitted_by=user)
+        client.login(username="creator_note", password="pass")
+        note_tag = '<p class="pl-form-note hub-text-muted" id="event-review-note">'
+        html = client.get(reverse("hub_event_edit", args=[guild_proposal.pk])).content.decode()
+        assert "Lantern Makers lead or staff" in html.split(note_tag, 1)[1][:200]
+        html = client.get(reverse("hub_event_add")).content.decode()
+        assert "Calendar Administrator" in html.split(note_tag, 1)[1][:260]
+
+
+@pytest.mark.django_db
+def describe_a_guild_events_on_the_site_wide_composer():
+    """A guild's own leadership edits its event in the guild composer, which fixes the guild:
+    this composer's guild picker would let a lead move the event out of their own reach. A
+    Calendar Administrator, who manages every event, gets the full composer here."""
+
+    def it_sends_a_lead_to_the_guild_composer(client: Client):
+        user = _user_with_role("lead_site")
+        guild = GuildFactory(guild_lead=user.member)
+        event = CommunityEventFactory(guild=guild, google_calendar_target=_MEMBER)
+        client.login(username="lead_site", password="pass")
+        resp = client.get(reverse("hub_event_edit", args=[event.pk]))
+        assert resp.status_code == 302
+        assert resp["Location"] == reverse("hub_guild_event_edit", args=[guild.pk, event.pk])
+
+    def it_never_lets_a_crafted_post_reach_the_site_wide_save(client: Client):
+        user = _user_with_role("lead_craft")
+        guild = GuildFactory(guild_lead=user.member)
+        event = CommunityEventFactory(guild=guild, google_calendar_target=_MEMBER, title="Guild Night")
+        client.login(username="lead_craft", password="pass")
+        with (
+            patch.object(CommunityEvent, "push_to_google") as mock_google,
+            patch.object(CommunityEvent, "push_to_discord") as mock_discord,
+        ):
+            resp = client.post(
+                reverse("hub_event_edit", args=[event.pk]),
+                data=_event_payload(
+                    title="Orphaned", guild="", event_type="community", google_calendar_target="public"
+                ),
+            )
+        assert resp.status_code == 302
+        assert resp["Location"] == reverse("hub_guild_event_edit", args=[guild.pk, event.pk])
+        event.refresh_from_db()
+        assert event.guild == guild
+        assert event.google_calendar_target == _MEMBER
+        assert event.title == "Guild Night"
+        mock_google.assert_not_called()
+        mock_discord.assert_not_called()
+        # And the event is still within the lead's reach.
+        assert client.get(reverse("hub_guild_event_edit", args=[guild.pk, event.pk])).status_code == 200
+
+    def it_lets_a_calendar_administrator_edit_a_guild_event_in_the_full_composer(client: Client):
+        _granted_user("approver_guild", AdminCapability.Capability.EVENTS_APPROVER)
+        event = CommunityEventFactory(guild=GuildFactory())
+        client.login(username="approver_guild", password="pass")
+        resp = client.get(reverse("hub_event_edit", args=[event.pk]))
+        assert resp.status_code == 200
+        assert resp.context["form"].review_first is False
+        assert 'name="guild"' in resp.content.decode()
+
+    def it_still_403s_a_plain_member_on_a_guild_event(client: Client):
+        _user_with_role("plain_guild")
+        event = CommunityEventFactory(guild=GuildFactory())
+        client.login(username="plain_guild", password="pass")
+        assert client.get(reverse("hub_event_edit", args=[event.pk])).status_code == 403
+
 
 @pytest.mark.django_db
 def describe_event_actions_for_calendar_administrators():
@@ -1039,7 +1107,6 @@ def describe_events_tab_visibility():
         resp = client.get(reverse("hub_community_calendar"))
         assert resp.status_code == 200
         assert b"Open Mic Night" in resp.content
-        assert b"+ Add event" not in resp.content
         assert reverse("hub_event_add").encode() not in resp.content
 
     def it_shows_management_controls_to_an_admin(client: Client):

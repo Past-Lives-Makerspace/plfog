@@ -638,17 +638,15 @@ def can_edit_event(request: HttpRequest, event: CommunityEvent) -> bool:
     The one answer the composer (``event_edit``), the "Edit event" affordance, the QR
     download and the photo delete endpoint share, so none of them can drift from who may
     actually save it. The author of their own open proposal always may
-    (:func:`is_own_open_proposal`). Otherwise a site-wide event (no guild) takes
-    :func:`can_administer_events` (admin or Calendar Administrator) and a guild event
-    defers to :func:`can_edit_guild` (lead / staff / admin / officer). Honors ``view_as``
-    preview like the other helpers.
+    (:func:`is_own_open_proposal`), and so may whoever :func:`can_administer_events` (an
+    admin or a Calendar Administrator manages every event, guild ones included). Otherwise
+    a guild event defers to :func:`can_edit_guild` (lead / staff / officer) and a site-wide
+    one is closed. Honors ``view_as`` preview like the other helpers.
     """
-    if is_own_open_proposal(request, event):
+    if is_own_open_proposal(request, event) or can_administer_events(request):
         return True
     guild = event.guild
-    if guild is None:
-        return can_administer_events(request)
-    return can_edit_guild(request, guild)
+    return guild is not None and can_edit_guild(request, guild)
 
 
 def can_edit_meeting(request: HttpRequest, meeting: Meeting) -> bool:

@@ -207,6 +207,20 @@ def describe_event_detail():
         assert b"Edit event" in resp.content
         assert reverse("hub_event_edit", args=[event.pk]).encode() in resp.content
 
+    def it_links_a_calendar_administrator_to_the_calendars_composer_for_a_guild_event(client: Client):
+        # They may edit every event, but the guild's own composer admits only its lead or staff.
+        from membership.models import AdminCapability
+
+        user = _user_with_role("evt_cal_admin")
+        user.member.admin_capabilities.create(capability=AdminCapability.Capability.EVENTS_APPROVER)
+        guild = GuildFactory()
+        event = CommunityEventFactory(guild=guild)
+        client.login(username="evt_cal_admin", password="pass")
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]))
+        assert b"Edit event" in resp.content
+        assert reverse("hub_event_edit", args=[event.pk]).encode() in resp.content
+        assert reverse("hub_guild_event_edit", args=[guild.pk, event.pk]).encode() not in resp.content
+
     def it_hides_the_edit_button_from_a_non_editor(client: Client):
         _user_with_role("evt_viewer")
         event = CommunityEventFactory(community=True)
