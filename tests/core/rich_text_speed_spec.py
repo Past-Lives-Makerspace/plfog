@@ -62,6 +62,19 @@ ENTRY_POINTS: dict[str, Callable[[str], object]] = {
 }
 
 
+# Plain text a crafted request can save as a wiki body. Python-Markdown is quadratic on each
+# of these (unclosed "[" alone ran for minutes at the size limit), so a wiki save must never
+# store them as Markdown; this is the save-then-view path a reader pays for.
+WIKI_TEXT_INPUTS = {
+    "open_brackets": _fill("", "[ "),
+    "open_images": _fill("", "![ "),
+    "open_link_targets": _fill("", "[a]( "),
+    "open_footnotes": _fill("", "[^ "),
+    "unclosed_tags": _fill("x ", "<ol "),
+    "open_cdata": _fill("x ", "<![CDATA[ "),
+}
+
+
 def describe_rich_text_entry_points():
     def it_generates_every_input_at_the_size_limit():
         for value in INPUTS.values():
@@ -72,4 +85,11 @@ def describe_rich_text_entry_points():
     def it_finishes_well_inside_a_request(entry_point: str, shape: str):
         started = time.perf_counter()
         ENTRY_POINTS[entry_point](INPUTS[shape])
+        assert time.perf_counter() - started < LIMIT_SECONDS
+
+    @pytest.mark.parametrize("shape", sorted(WIKI_TEXT_INPUTS))
+    def it_saves_and_renders_hostile_wiki_text_well_inside_a_request(shape: str):
+        assert RICH_TEXT_MAX_CHARS - 64 < len(WIKI_TEXT_INPUTS[shape]) <= RICH_TEXT_MAX_CHARS
+        started = time.perf_counter()
+        markdown.render_wiki_content(markdown.sanitize_wiki_submission(WIKI_TEXT_INPUTS[shape]))
         assert time.perf_counter() - started < LIMIT_SECONDS
