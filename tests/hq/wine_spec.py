@@ -357,11 +357,29 @@ def describe_deleting():
 
         assert bottle.can_be_deleted_by(member, email="", is_organizer=False) is True
         assert bottle.can_be_deleted_by(make_member(), email="", is_organizer=False) is False
-        assert bottle.can_be_deleted_by(None, email=" LEE@example.com ", is_organizer=False) is True
+        assert bottle.can_be_deleted_by(None, email=" LEE@example.com ", is_organizer=False) is False
+        assert bottle.can_be_deleted_by(make_member(), email="lee@example.com", is_organizer=False) is False
         assert bottle.can_be_deleted_by(None, email="", is_organizer=True) is True
         assert guests.can_be_deleted_by(member, email="other@example.com", is_organizer=False) is False
-        assert guests.can_be_deleted_by(None, email="pat@example.com", is_organizer=False) is True
+        assert guests.can_be_deleted_by(None, email=" PAT@example.com ", is_organizer=False) is True
         assert nobodys.can_be_deleted_by(None, email="", is_organizer=False) is False
+
+    def it_never_hands_a_members_bottle_to_a_visitor_who_typed_their_email(card, member):
+        """A member's bottle is theirs or an organiser's; the email match is for guests' bottles only."""
+        signed_in(member).post(_wall(card.hub), BOTTLE)
+        members_bottle = WineBottle.objects.get()
+        impostor = _guest_with_info(card.hub, email=member.primary_email, name="Not Them")
+        impostor.post(_wall(card.hub), {**BOTTLE, "name": "Own bottle"})
+        own = WineBottle.objects.get(name="Own bottle")
+
+        assert members_bottle.logged_by_email == own.logged_by_email == member.primary_email
+        assert f"delete-bottle-{members_bottle.pk}" not in impostor.get(_wall(card.hub)).content.decode()
+        assert impostor.post(_delete_url(members_bottle)).status_code == 403
+        assert WineBottle.objects.filter(pk=members_bottle.pk).exists()
+        assert impostor.post(_delete_url(own)).status_code == 302
+        assert not WineBottle.objects.filter(pk=own.pk).exists()
+        assert signed_in(member).post(_delete_url(members_bottle)).status_code == 302
+        assert not WineBottle.objects.exists()
 
     def it_removes_a_winerys_logo_with_its_last_bottle(card):
         first = WineBottleFactory(hub=card.hub, winery="Abacela")

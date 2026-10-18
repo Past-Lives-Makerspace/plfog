@@ -683,10 +683,16 @@ class WineBottle(models.Model):
         return format_money(self.value_cents)
 
     def can_be_deleted_by(self, member: Member | None, *, email: str, is_organizer: bool) -> bool:
-        """Whether this person may take the bottle off the wall: an organiser, the member who logged it, or
-        whoever holds the email it was logged under (a guest's identity, as on the volunteer sheet)."""
+        """Whether this person may take the bottle off the wall: an organiser, the member who logged it, or,
+        for a guest's bottle only, whoever holds the email it was logged under (the volunteer sheet's identity).
+
+        A member's bottle never falls to the email match: typing that member's address into Your Info
+        is not being them.
+        """
         if is_organizer or (member is not None and self.logged_by_id == member.pk):
             return True
+        if self.logged_by_id is not None:
+            return False
         key = email.strip().lower()
         return bool(key) and key == self.logged_by_email
 
