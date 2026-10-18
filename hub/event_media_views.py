@@ -20,8 +20,7 @@ from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from classes.forms import parse_gallery_focus
-from core.images import image_upload_refusal
+from core.images import image_upload_refusal, parse_gallery_focus
 from membership.models import MAX_EVENT_GALLERY_IMAGES, CommunityEvent, EventImage
 from membership.permissions import can_edit_event
 

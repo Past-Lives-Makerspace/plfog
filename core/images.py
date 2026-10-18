@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import re
 from pathlib import Path
+from typing import TypeGuard
 
 import logging
 
@@ -194,6 +196,46 @@ def image_upload_refusal(file: UploadedFile) -> str | None:
     except ValidationError as exc:
         return exc.messages[0]
     return None
+
+
+GALLERY_FOCUS_INVALID = 'Send {"x": 0 to 100, "y": 0 to 100}, or both as null to reset.'
+
+
+def _is_percent(value: object) -> TypeGuard[int]:
+    """A whole number from 0 to 100. ``True`` is an int to Python and is refused here on purpose."""
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 100
+
+
+def parse_gallery_focus(body: bytes) -> tuple[int, int] | None:
+    """The gallery Set focus tool's JSON body, checked: a point, or None for Reset.
+
+    Stricter than the class composer's ``_CardFocusMixin.clean_card_focus`` on purpose: that
+    field rides a form the composer itself fills, while this body arrives on its own route
+    (a class or an event gallery image's), so a string, a
+    float, a bool, a missing or extra key, or one null beside a number is refused rather
+    than coerced.
+
+    Args:
+        body: The raw request body.
+
+    Returns:
+        ``(x, y)`` percentages, or None when both are null.
+
+    Raises:
+        ValidationError: Anything other than ``{"x": int, "y": int}`` in range or ``{"x": null, "y": null}``.
+    """
+    try:
+        data = json.loads(body)
+    except ValueError:
+        raise ValidationError(GALLERY_FOCUS_INVALID) from None
+    if not isinstance(data, dict) or set(data) != {"x", "y"}:
+        raise ValidationError(GALLERY_FOCUS_INVALID)
+    x, y = data["x"], data["y"]
+    if x is None and y is None:
+        return None
+    if not (_is_percent(x) and _is_percent(y)):
+        raise ValidationError(GALLERY_FOCUS_INVALID)
+    return (x, y)
 
 
 _CONTENT_ADDRESSED_RE = re.compile(r"^[0-9a-f]{64}\.[A-Za-z0-9]+$")
