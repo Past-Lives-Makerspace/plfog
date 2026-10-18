@@ -817,6 +817,51 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": None,
         "anchor": None,
     },
+    # ── Holiday Bizarre HQ (the hq app) ──────────────────────────────────────
+    "hq.door-cards": {
+        "title": "The doors",
+        "short_text": (
+            "Each card opens one part of the event. You see the doors open to you; a greyed card is not shared yet."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-door-cards",
+    },
+    "hq.goal-tracker": {
+        "title": "Goal tracker",
+        "short_text": (
+            "Where the event stands against its goals. People going, volunteer spots and bottles count "
+            "themselves from the pages behind the doors; a money goal is typed in by an admin."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-goal-tracker",
+    },
+    "hq.volunteer-shifts": {
+        "title": "Pick your shifts",
+        "short_text": (
+            "Save your info once, then Sign Me Up on any shift with a spot open. Remove Me takes you off again. "
+            "No account needed."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-volunteer-shifts",
+    },
+    "hq.wine-wall": {
+        "title": "Log a bottle",
+        "short_text": (
+            "Log each bottle as it comes in, with who gave it and a photo. The wall counts bottles, value and "
+            "supporters as you go."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-wine-wall",
+    },
+    "hq.edit-card": {
+        "title": "Who may open a card",
+        "short_text": (
+            "Admins only until you open it to Members or to Everyone, or name the people who run it. "
+            "Named members always get in."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-edit",
+    },
 }
 
 # THE key regex — Specs B/C import this instead of restating their own.
