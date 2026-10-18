@@ -580,3 +580,126 @@ def describe_event_page_on_one_date():
         ics_url = reverse("hub_event_ics", args=[event.pk]) + query
         assert f'href="{ics_url}"' in _page(client, event, query)
         assert client.get(ics_url).content.decode() == event.ics_document(later)
+
+
+# --- Formatted text, the gallery and the promo video (#831, part 3) ---------------------------
+
+
+def describe_the_description():
+    def it_renders_editor_html_sanitised(client: Client):
+        event = CommunityEventFactory(
+            community=True, description="<p>Bring <strong>paper</strong>.</p><script>alert(1)</script><p>Second</p>"
+        )
+        html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert (
+            '<div class="pl-event-detail__description pl-rich-body"><p>Bring <strong>paper</strong>.</p><p>Second</p></div>'
+            in html
+        )
+        assert "<script>alert(1)</script>" not in html
+
+    def it_renders_legacy_plain_text_as_paragraphs(client: Client):
+        event = CommunityEventFactory(community=True, description="Line one\nLine two\n\nPara two <b>not bold</b>")
+        html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert "<p>Line one<br>Line two</p><p>Para two &lt;b&gt;not bold&lt;/b&gt;</p>" in html
+
+
+def describe_the_gallery():
+    def it_renders_the_class_gallery_component_over_the_events_rows(client: Client):
+        from tests.membership.factories import EventImageFactory
+
+        event = CommunityEventFactory(community=True, title="Zine Night")
+        cover = EventImageFactory(event=event, sort_order=0, alt_text="Loom")
+        EventImageFactory(event=event, sort_order=1, focus_x=20, focus_y=80)
+        html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert "data-event-gallery" in html
+        assert 'x-data="clsGallery(2)"' in html
+        assert f'data-slide-src="{cover.image.url}"' in html
+        assert 'aria-label="Event photos"' in html
+        assert 'alt="Zine Night" style="object-position: 20% 80%"' in html
+
+    def it_renders_nothing_without_a_gallery(client: Client):
+        event = CommunityEventFactory(community=True)
+        html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert "data-event-gallery" not in html
+        assert "cls-gallery" not in html
+
+
+def describe_the_promo_video():
+    def it_embeds_a_youtube_link(client: Client):
+        event = CommunityEventFactory(community=True, promo_video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert "data-event-video" in html
+        assert 'src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"' in html
+        assert 'class="pl-guild-video"' in html
+
+    def it_links_an_instagram_post_as_a_card(client: Client):
+        event = CommunityEventFactory(community=True, promo_video_url="https://www.instagram.com/reel/C1a2b3c4d5e/")
+        html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert "data-event-video" in html
+        assert 'class="pl-video-card" href="https://www.instagram.com/reel/C1a2b3c4d5e/"' in html
+
+    def it_renders_nothing_without_one(client: Client):
+        event = CommunityEventFactory(community=True, promo_video_url="")
+        html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert "data-event-video" not in html
+
+    def it_keeps_join_online_for_the_video_link(client: Client):
+        event = CommunityEventFactory(community=True, video_url="https://meet.google.com/abc-defg-hij")
+        html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert 'href="https://meet.google.com/abc-defg-hij"' in html
+        assert "data-event-video" not in html
+
+
+def describe_the_composer_content_fields():
+    def _admin(client: Client, username: str) -> None:
+        _user_with_role(username, fog_role=Member.FogRole.ADMIN)
+        client.login(username=username, password="pass")
+
+    def it_renders_the_rich_editor_the_hero_field_and_the_promo_video(client: Client):
+        _admin(client, "composer_admin1")
+        html = client.get(reverse("hub_event_add")).content.decode()
+        assert "rich-editor-init.js" in html
+        assert 'data-rte-for="id_description"' in html
+        assert 'class="pl-rte-source"' in html
+        assert "data-hero-image-field" in html
+        assert "data-hero-crop-shape" in html
+        assert 'name="hero_crop"' in html
+        assert "hero_cropper.js" in html
+        assert 'name="promo_video_url"' in html
+        assert 'name="photo"' in html
+
+    def it_opens_a_saved_events_photo_in_the_cropper_with_delete(client: Client):
+        from django.core.files.base import ContentFile
+
+        from tests.membership.factories import tiny_png_bytes
+
+        _admin(client, "composer_admin2")
+        event = CommunityEventFactory(community=True)
+        event.photo.save("stored.png", ContentFile(tiny_png_bytes()), save=True)
+        html = client.get(reverse("hub_event_edit", args=[event.pk])).content.decode()
+        assert f'src="{event.photo.url}"' in html
+        assert "data-hero-cropper-preview" in html
+        assert f'data-upload-url="{reverse("hub_event_hero_upload", args=[event.pk])}"' in html
+        assert "data-hero-delete" in html
+        assert f'action="{reverse("hub_event_photo_delete", args=[event.pk])}"' in html
+        # A saved event uploads straight to the route, so the form carries no photo input.
+        assert 'name="photo"' not in html
+
+    def it_hides_the_shape_picker_until_there_is_a_photo(client: Client):
+        _admin(client, "composer_admin3")
+        event = CommunityEventFactory(community=True)
+        html = client.get(reverse("hub_event_edit", args=[event.pk])).content.decode()
+        assert "data-hero-crop-shape" in html
+        assert 'data-hero-crop-shape aria-describedby="hero-crop-shape-hint" hidden' in html
+        assert "data-hero-delete" not in html
+
+    def it_renders_the_editor_on_the_propose_page(client: Client):
+        config = SiteConfiguration.load()
+        config.member_event_policy = SiteConfiguration.MemberEventPolicy.APPROVAL
+        config.save()
+        _user_with_role("composer_member")
+        client.login(username="composer_member", password="pass")
+        html = client.get(reverse("hub_propose_event")).content.decode()
+        assert 'data-rte-for="id_description"' in html
+        assert "data-hero-image-field" in html
+        assert 'name="promo_video_url"' in html

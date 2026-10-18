@@ -3907,8 +3907,9 @@ class CommunityEventForm(_HeroCropMixin, forms.ModelForm):
         # the view saves anything, because a save can already have announced the event.
         self.gallery_files = list(self.files.getlist("gallery_images")) if self.files else []
         if self.gallery_files:
+            already = self.instance.gallery_images.count() if self.instance.pk else 0
             try:
-                CommunityEvent.check_gallery_files(self.gallery_files)
+                CommunityEvent.check_gallery_files(self.gallery_files, already=already)
             except forms.ValidationError as exc:
                 self.add_error(None, exc.messages[0])
         return cleaned

@@ -8474,6 +8474,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
         if copy is None:
             self.photo_cropped = ""
             return
+        assert copy.name  # cut_hero_crop names its file
         self.photo_cropped.save(copy.name, copy, save=False)
 
     def _sync_hero_crop_copy(self, old: CommunityEvent | None, photo_changed: bool) -> bool:

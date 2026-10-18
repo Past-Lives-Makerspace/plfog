@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -720,3 +721,96 @@ def describe_public_url_on():
     def it_is_the_plain_page_for_a_one_off(db):
         event = CommunityEventFactory(community=True)
         assert event.public_url_on(event.starts_at) == event.public_url
+
+
+def describe_description_text():
+    def it_flattens_editor_html_to_lines(db):
+        event = CommunityEventFactory(
+            community=True, description="<p>Bring <strong>paper</strong>.</p><p>Second line</p>"
+        )
+        assert event.description_text == "Bring paper.\n\nSecond line"
+
+    def it_keeps_plain_text_as_typed(db):
+        event = CommunityEventFactory(community=True, description="Line one\nLine two <3")
+        assert event.description_text == "Line one\nLine two <3"
+
+    def it_is_blank_for_a_blank_description(db):
+        assert CommunityEventFactory(community=True, description="").description_text == ""
+
+    def it_keeps_every_tag_out_of_the_ics(db):
+        event = CommunityEventFactory(community=True, description="<p>Bring paper.</p><p>Second line</p>")
+        doc = event.ics_document(event.starts_at)
+        assert "DESCRIPTION:Bring paper.\\n\\nSecond line" in doc
+        assert "<p>" not in doc
+
+
+def describe_gallery_files():
+    def _png(name: str = "shot.png"):
+        from io import BytesIO
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, "PNG")
+        return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
+
+    def it_refuses_a_batch_over_the_cap(db):
+        with pytest.raises(ValidationError, match="at most 10 photos"):
+            CommunityEvent.check_gallery_files([_png() for _ in range(3)], already=8)
+
+    def it_refuses_a_file_that_is_not_an_image(db):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        notes = SimpleUploadedFile("notes.txt", b"not a picture", content_type="text/plain")
+        with pytest.raises(ValidationError, match="not a photo"):
+            CommunityEvent.check_gallery_files([_png(), notes])
+
+    def it_appends_the_rows_after_the_existing_ones(db):
+        from tests.membership.factories import EventImageFactory
+
+        event = CommunityEventFactory(community=True)
+        EventImageFactory(event=event, sort_order=0)
+        event.add_gallery_images([_png("a.png"), _png("b.png")])
+        assert list(event.gallery_images.values_list("sort_order", flat=True)) == [0, 1, 2]
+
+    def it_adds_nothing_from_a_refused_batch(db):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        event = CommunityEventFactory(community=True)
+        notes = SimpleUploadedFile("notes.txt", b"not a picture", content_type="text/plain")
+        with pytest.raises(ValidationError):
+            event.add_gallery_images([_png(), notes])
+        assert event.gallery_images.count() == 0
+
+    def it_holds_the_cap_on_a_single_upload(db):
+        from tests.membership.factories import EventImageFactory
+
+        event = CommunityEventFactory(community=True)
+        for order in range(10):
+            EventImageFactory(event=event, sort_order=order)
+        with pytest.raises(ValidationError, match="at most 10 photos"):
+            event.add_gallery_image(_png())
+
+
+def describe_replace_photo():
+    def it_stores_the_photo_and_drops_the_box(db):
+        from io import BytesIO
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.new("RGB", (800, 500), "teal").save(buf, format="PNG")
+        upload = SimpleUploadedFile("flyer.png", buf.getvalue(), content_type="image/png")
+        event = CommunityEventFactory(
+            community=True, photo=upload, hero_crop_x=0, hero_crop_y=0, hero_crop_w=400, hero_crop_h=225
+        )
+        assert event.photo_cropped
+        buf2 = BytesIO()
+        Image.new("RGB", (300, 300), "red").save(buf2, format="PNG")
+        event.replace_photo(SimpleUploadedFile("next.png", buf2.getvalue(), content_type="image/png"))
+        event.refresh_from_db()
+        assert event.photo.name.startswith("events/photos/")
+        assert event.hero_crop_box == (None, None, None, None)
+        assert not event.photo_cropped

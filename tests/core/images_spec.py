@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import io
 
+import pytest
+
 from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 
-from core.images import normalize_field_if_uploaded, normalize_image
+from core.images import cut_hero_crop, image_upload_refusal, normalize_field_if_uploaded, normalize_image
 
 
 def _png_bytes(size: tuple[int, int], mode: str = "RGB", color=(255, 0, 0)) -> bytes:
@@ -225,3 +227,64 @@ def describe_content_addressed_storage():
         assert default_storage.exists(first)
 
         default_storage.delete(first)  # cleanup
+
+
+def describe_cut_hero_crop():
+    def _decoded(copy) -> Image.Image:
+        img = Image.open(io.BytesIO(copy.read()))
+        img.load()
+        return img
+
+    def it_cuts_the_box_and_keeps_a_png_source_as_png():
+        copy = cut_hero_crop(_png_bytes((800, 500)), (100, 50, 400, 225), stem="flyer")
+        assert copy is not None
+        assert copy.name == "flyer-crop.png"
+        img = _decoded(copy)
+        assert (img.size, img.format) == ((400, 225), "PNG")
+
+    def it_cuts_any_other_source_as_an_rgb_jpeg():
+        gif = Image.new("P", (800, 500))
+        buf = io.BytesIO()
+        gif.save(buf, format="GIF")
+        copy = cut_hero_crop(buf.getvalue(), (0, 0, 300, 200), stem="flyer")
+        assert copy is not None
+        assert copy.name == "flyer-crop.jpg"
+        img = _decoded(copy)
+        assert (img.size, img.format, img.mode) == ((300, 200), "JPEG", "RGB")
+
+    def it_clamps_a_box_that_runs_past_the_edge():
+        copy = cut_hero_crop(_png_bytes((800, 500)), (700, 400, 400, 400), stem="flyer")
+        assert copy is not None
+        assert _decoded(copy).size == (100, 100)
+
+    def it_cuts_nothing_for_a_box_off_the_image():
+        assert cut_hero_crop(_png_bytes((800, 500)), (900, 0, 100, 100), stem="flyer") is None
+
+    def it_applies_the_exif_orientation_before_cutting():
+        # Stored 600 wide by 1000 tall with orientation 6, shown 1000 by 600: a full width box fits.
+        copy = cut_hero_crop(_jpg_with_exif_orientation((600, 1000)), (0, 0, 1000, 600), stem="phone")
+        assert copy is not None
+        assert _decoded(copy).size == (1000, 600)
+
+    def it_raises_when_pillow_cannot_read_the_bytes():
+        from PIL import UnidentifiedImageError
+
+        with pytest.raises(UnidentifiedImageError):
+            cut_hero_crop(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64, (0, 0, 10, 10), stem="stub")
+
+
+def describe_image_upload_refusal():
+    def it_accepts_an_image_under_the_cap():
+        src = SimpleUploadedFile("ok.png", _png_bytes((4, 4)), content_type="image/png")
+        assert image_upload_refusal(src) is None
+
+    def it_refuses_a_file_over_the_byte_cap(settings):
+        settings.MAX_UPLOAD_IMAGE_BYTES = 10
+        src = SimpleUploadedFile("big.png", _png_bytes((40, 40)), content_type="image/png")
+        assert image_upload_refusal(src) == "Image must be 0 MB or smaller."
+
+    def it_refuses_bytes_that_are_not_an_image():
+        src = SimpleUploadedFile("notes.txt", b"not a picture", content_type="text/plain")
+        refusal = image_upload_refusal(src)
+        assert refusal is not None
+        assert "not a photo" in refusal

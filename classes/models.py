@@ -1300,6 +1300,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         if copy is None:
             self.hero_cropped = ""
             return
+        assert copy.name  # cut_hero_crop names its file
         self.hero_cropped.save(copy.name, copy, save=False)
 
     def _sync_hero_crop_copy(self, old: ClassOffering | None, image_changed: bool) -> bool:
