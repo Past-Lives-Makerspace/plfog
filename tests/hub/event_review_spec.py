@@ -46,13 +46,15 @@ def describe_queue_gating():
         client.login(username="pm1", password="pass")
         assert client.get(reverse("hub_event_review_queue")).status_code == 403
 
-    def it_lets_an_admin_see_every_pending_proposal(client: Client):
+    def it_sends_an_admin_to_manage_events_needs_review(client: Client):
+        """Site-wide review lives on Manage Events (#831); the queue stays the guild leads'."""
         _user_with_role("adm1", fog_role=Member.FogRole.ADMIN)
-        CommunityEventFactory(community=True, pending=True, title="Site Proposal")
+        event = CommunityEventFactory(community=True, pending=True, title="Site Proposal")
         client.login(username="adm1", password="pass")
         resp = client.get(reverse("hub_event_review_queue"))
-        assert resp.status_code == 200
-        assert b"Site Proposal" in resp.content
+        assert resp.status_code == 302
+        assert resp["Location"] == f"{reverse('hub_admin_events')}?status=needs_review"
+        assert [row.pk for row in client.get(resp["Location"]).context["page"]] == [event.pk]
 
     def it_scopes_a_lead_to_their_own_guilds(client: Client):
         user = _user_with_role("lead1")
@@ -167,10 +169,10 @@ def describe_a_granted_members_event_in_the_queue():
         event = _granted_event(client)
         _user_with_role("queue_admin", fog_role=Member.FogRole.ADMIN)
         client.login(username="queue_admin", password="pass")
-        resp = client.get(reverse("hub_event_review_queue"))
+        resp = client.get(reverse("hub_event_review_queue"), follow=True)
         assert resp.status_code == 200
-        assert f'id="event-{event.pk}"'.encode() in resp.content
-        assert list(resp.context["pending_events"]) == [event]
+        assert f'data-event-row="{event.pk}"'.encode() in resp.content
+        assert [row.pk for row in resp.context["page"]] == [event.pk]
 
     def it_publishes_and_announces_once_approved(client: Client):
         event = _granted_event(client)

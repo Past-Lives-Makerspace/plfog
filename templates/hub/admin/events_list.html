@@ -1,0 +1,72 @@
+{% extends "hub/base.html" %}
+{% load classes_tags %}
+{% block title %}Manage Events{% endblock %}
+{% block content %}
+{% comment %}
+Manage Events (#831, part 2), built by hub.event_admin_views.hub_admin_events with the Manage
+Classes chrome: the search box, the lifecycle chips (hub.event_lifecycle.EVENT_FACETS), the
+My Events toggle, the sortable table and the pager. Every row opens its own admin screen.
+The Eventbrite cell is a reserved slot: track B fills it once an event can be listed.
+{% endcomment %}
+{% include "components/page_header.html" with title="Manage Events" description="Every event on the Calendar: proposals waiting for a review, what is scheduled, what is live and what has passed." action_url=add_url action_label="+ Add event" action_class="hub-btn hub-btn--primary hub-btn--sm" %}
+
+<div class="hub-card" data-events-admin>
+  <div class="admin-toolbar">
+    {% include "components/table_search.html" with q=q placeholder="Search events…" preserved_fields=search_preserved_fields clear_url=search_clear_url %}
+  </div>
+  <div class="admin-filters pl-facets">
+    {% for row in facets %}
+    <a class="hub-btn hub-btn--sm {% if row.is_selected %}hub-btn--primary{% else %}hub-btn--ghost{% endif %}" href="{{ row.url }}" data-facet="{{ row.key }}">
+      {{ row.label }} <span class="pl-facets__count">{{ row.count }}</span>
+    </a>
+    {% endfor %}
+    <span class="pl-filter-divider"></span>
+    <a class="hub-btn hub-btn--sm {% if mine_active %}hub-btn--primary{% else %}hub-btn--ghost{% endif %}" href="?{{ mine_toggle_url }}" data-facet-mine>
+      My Events <span class="pl-facets__count">{{ mine_count }}</span>
+    </a>
+    <span class="pl-help">
+      <span class="pl-help__icon" tabindex="0" role="img" aria-label="My Events: shows only the events you created or proposed.">?</span>
+      <span class="pl-help__bubble">Shows only the events you created or proposed.</span>
+    </span>
+  </div>
+  <div class="admin-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          {% sort_header "Title" "title" sort sort_dir base_params %}
+          {% sort_header "Kind" "guild__name" sort sort_dir base_params %}
+          {% sort_header "Date(s)" "starts_at" sort sort_dir base_params %}
+          {% sort_header "Status" "moderation_state" sort sort_dir base_params %}
+          {% sort_header "RSVPs" "rsvp_count" sort sort_dir base_params %}
+          <th>Eventbrite</th>
+          <th>Created by</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for event in page %}
+        <tr data-event-row="{{ event.pk }}">
+          {# The whole title, wrapped, never clipped, as on Manage Classes (#543). #}
+          <td class="pl-class-list__title"><a href="{% url 'hub_admin_event' event.pk %}">{{ event.title }}</a></td>
+          <td>{{ event.badge_label }}{% if event.guild %} · {{ event.guild.name }}{% endif %}</td>
+          <td class="pl-class-list__dates">
+            {{ event.next_occurrence_start|date:"M j, Y · g:i A" }}
+            {% if event.recurrence != "none" %}<span class="hub-pill hub-pill--neutral" data-recurrence-pill>{{ event.get_recurrence_display }}</span>{% endif %}
+          </td>
+          <td><span class="hub-pill hub-pill--{{ event.status_tone }}" data-event-status="{{ event.moderation_state }}">{{ event.status_label }}</span></td>
+          <td data-rsvp-count>{{ event.rsvp_count }}</td>
+          <td data-eventbrite-cell>—</td>
+          <td>{{ event.creator_name }}</td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="7">
+            <p class="hub-text-muted" data-events-empty>{% if mine_active %}No events match. You have not created or proposed any that match the current filters. <a href="?{{ mine_clear_url }}">Show all events</a>{% elif q %}No events matching "{{ q }}".{% elif selected_status %}No events here yet. <a href="{% url 'hub_admin_events' %}">Show all events</a>{% else %}No events yet.{% endif %}</p>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% include "components/table_pagination.html" with page=page base_params=base_params %}
+</div>
+{% endblock %}

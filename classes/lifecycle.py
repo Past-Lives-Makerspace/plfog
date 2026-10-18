@@ -1,29 +1,33 @@
-"""Lifecycle facets: the chip rows on the admin and instructor class lists.
+"""Lifecycle facets: the chip rows on the admin and instructor class lists, and on Manage Events.
 
-Each facet names one :class:`ClassOfferingQuerySet` method, so the chips, their
-counts, and the filtered table all read from the same fat-model queryset
-definitions and can never disagree with the badge.
+Each facet names one queryset method, so the chips, their counts, and the filtered table all
+read from the same fat-model queryset definitions and can never disagree with the badge.
+:class:`Facet` is generic over the queryset it scopes: the class lists hand it a
+:class:`ClassOfferingQuerySet`, Manage Events (``hub.event_lifecycle``) a
+``CommunityEventQuerySet``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
+
+from django.db.models import QuerySet
 
 if TYPE_CHECKING:
     from classes.models import ClassOfferingQuerySet
 
-    _Filter = Callable[[ClassOfferingQuerySet], ClassOfferingQuerySet]
+QS = TypeVar("QS", bound=QuerySet)
 
 
 @dataclass(frozen=True)
-class Facet:
+class Facet(Generic[QS]):
     """One chip: its query key, its label, and the queryset method that scopes the list."""
 
     key: str
     label: str
-    apply: "_Filter"
+    apply: Callable[[QS], QS]
 
 
 @dataclass(frozen=True)
@@ -37,10 +41,10 @@ class FacetRow:
     key: str
 
 
-ALL_FACET = Facet("", "All", lambda qs: qs)
+ALL_FACET: Facet[Any] = Facet("", "All", lambda qs: qs)
 
 # Admin Classes list: every lifecycle state plus the two-stage review rollup.
-ADMIN_FACETS: tuple[Facet, ...] = (
+ADMIN_FACETS: tuple[Facet[ClassOfferingQuerySet], ...] = (
     ALL_FACET,
     Facet("needs_review", "Needs review", lambda qs: qs.pending_review()),
     Facet("awaiting_guild_lead", "With guild lead", lambda qs: qs.awaiting_guild_lead_any()),
@@ -54,7 +58,7 @@ ADMIN_FACETS: tuple[Facet, ...] = (
 )
 
 # Instructor Classes list: what needs them, what is in review, and where live classes stand.
-INSTRUCTOR_FACETS: tuple[Facet, ...] = (
+INSTRUCTOR_FACETS: tuple[Facet[ClassOfferingQuerySet], ...] = (
     ALL_FACET,
     Facet("needs_attention", "Needs attention", lambda qs: qs.filter(status="draft")),
     Facet("in_review", "In review", lambda qs: qs.pending_review()),
@@ -64,7 +68,7 @@ INSTRUCTOR_FACETS: tuple[Facet, ...] = (
 )
 
 
-def resolve_facet(facets: tuple[Facet, ...], key: str) -> Facet:
+def resolve_facet(facets: tuple[Facet[QS], ...], key: str) -> Facet[QS]:
     """The facet for ``key``; an unknown or blank key falls back to All (junk is never echoed)."""
     for facet in facets:
         if facet.key == key:
@@ -73,11 +77,11 @@ def resolve_facet(facets: tuple[Facet, ...], key: str) -> Facet:
 
 
 def facet_rows(
-    facets: tuple[Facet, ...],
-    base: "ClassOfferingQuerySet",
-    selected: Facet,
+    facets: tuple[Facet[QS], ...],
+    base: QS,
+    selected: Facet[QS],
     url_for: Callable[[str], str],
-    count: "Callable[[ClassOfferingQuerySet], int] | None" = None,
+    count: Callable[[QS], int] | None = None,
 ) -> list[FacetRow]:
     """Render every chip with its count against ``base`` (one count query per chip).
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import secrets
 from collections import Counter
@@ -7807,6 +7808,18 @@ class CommunityEventQuerySet(models.QuerySet):
         """Parked-but-not-yet-announced events (the admin management list, §6)."""
         return self.filter(moderation_state=CommunityEvent.ModerationState.SCHEDULED)
 
+    def declined(self) -> CommunityEventQuerySet:
+        """Proposals a reviewer turned down (the Manage Events Declined chip)."""
+        return self.filter(moderation_state=CommunityEvent.ModerationState.DECLINED)
+
+    def past(self) -> CommunityEventQuerySet:
+        """Published one-offs that have ended (the Manage Events Past chip).
+
+        The complement of ``published().upcoming()``: a repeating series keeps recurring, so
+        it is never past, and a draft, proposal or declined row never happened at all.
+        """
+        return self.published().filter(recurrence=CommunityEvent.Recurrence.NONE, ends_at__lt=timezone.now())
+
     def due_to_publish(self, now: datetime_type) -> CommunityEventQuerySet:
         """SCHEDULED events whose publish_at has arrived (the deferred-publish set).
 
@@ -7910,6 +7923,19 @@ class CommunityEvent(models.Model):
         PENDING = "pending", "Pending review"  # member proposal awaiting a decision; FOG-only
         CHANGES_REQUESTED = "changes_requested", "Changes requested"  # sent back to the proposer to edit + resubmit
         DECLINED = "declined", "Declined"  # rejected; never pushes (removed from Google if it was)
+        # A copy, or a published event taken down: seen only on Manage Events and in the
+        # composer, where saving it publishes it (every live surface keys on published()).
+        DRAFT = "draft", "Draft"
+
+    #: The tone of the status pill on Manage Events, one per state (``status_tone``).
+    STATUS_TONES: dict[str, str] = {
+        ModerationState.PUBLISHED.value: "ok",
+        ModerationState.SCHEDULED.value: "primary",
+        ModerationState.PENDING.value: "warn",
+        ModerationState.CHANGES_REQUESTED.value: "warn",
+        ModerationState.DECLINED.value: "danger",
+        ModerationState.DRAFT.value: "neutral",
+    }
 
     class SyncState(models.TextChoices):
         IDLE = "idle", "Not synced"  # nothing to push yet (unpublished, or a pre-existing/unmanaged row)
@@ -7943,7 +7969,12 @@ class CommunityEvent(models.Model):
     # an offset later; drives ``enabled_reminder_offsets`` and the reminder source.
     REMINDER_OFFSETS: list[tuple[str, int]] = [("remind_7d", 7), ("remind_3d", 3), ("remind_1d", 1)]
 
-    title = models.CharField(max_length=200, help_text="Event name shown on the calendar — e.g. 'Monthly Potluck'.")
+    #: The title column's cap, shared with ``duplicate`` so " (copy)" never overflows it.
+    TITLE_MAX_LENGTH = 200
+
+    title = models.CharField(
+        max_length=TITLE_MAX_LENGTH, help_text="Event name shown on the calendar — e.g. 'Monthly Potluck'."
+    )
     event_type = models.CharField(
         max_length=20,
         choices=EventType.choices,
@@ -8401,6 +8432,47 @@ class CommunityEvent(models.Model):
         return "Public event"
 
     @property
+    def has_ended(self) -> bool:
+        """True for a one-off whose end has passed; a repeating series is never over."""
+        return self.recurrence == self.Recurrence.NONE and self.ends_at < timezone.now()
+
+    @property
+    def status_label(self) -> str:
+        """The Status pill on Manage Events: the moderation state, or "Past" once a live event is over."""
+        if self.moderation_state == self.ModerationState.PUBLISHED and self.has_ended:
+            return "Past"
+        return str(self.get_moderation_state_display())
+
+    @property
+    def status_tone(self) -> str:
+        """The ``hub-pill--<tone>`` modifier beside :attr:`status_label`; a past event reads muted."""
+        if self.status_label == "Past":
+            return "neutral"
+        return self.STATUS_TONES[self.moderation_state]
+
+    @property
+    def creator_name(self) -> str:
+        """Who made this event, by display name: the creator, else the proposer, else "Past Lives".
+
+        Read on the Discord announcement's footer and on Manage Events, so both say the same
+        thing. Goes through the user's ``member`` accessor rather than a fresh query, so a list
+        that ``select_related("created_by__member", "submitted_by__member")`` pays nothing per row;
+        a user with no member (or an imported row with no user) falls back to the makerspace.
+        """
+        user = self.created_by or self.submitted_by
+        member: Member | None = getattr(user, "member", None)
+        return member.display_name if member is not None else "Past Lives"
+
+    @property
+    def eventbrite_listed(self) -> bool:
+        """Whether this event is listed on Eventbrite.
+
+        Always False until track B (Eventbrite for events) adds the listing fields and the
+        sync; Manage Events already reserves the Eventbrite column and tab on it.
+        """
+        return False
+
+    @property
     def when_display(self) -> str:
         """'Sat, Jul 12 · 6:00 PM – 8:00 PM' style, for notification copy and tooltips.
 
@@ -8739,6 +8811,100 @@ class CommunityEvent(models.Model):
         self.moderation_state = self.ModerationState.PUBLISHED
         self.save(update_fields=["moderation_state", "updated_at"])
         self.publish(actor=actor)
+
+    # --- Manage Events: duplicate and unpublish --------------------------------
+
+    #: The sync bookkeeping a copy starts without and an unpublish clears: nothing on Google
+    #: or Discord belongs to the row any more.
+    _SYNC_RESET: dict[str, Any] = {
+        "google_event_id": "",
+        "google_calendar_id": "",
+        "google_ical_uid": "",
+        "sync_state": SyncState.IDLE,
+        "sync_error": "",
+        "synced_at": None,
+        "discord_event_id": "",
+        "discord_sync_state": SyncState.IDLE,
+        "discord_sync_error": "",
+        "discord_synced_at": None,
+        "discord_pushed_occurrence": None,
+        "discord_pushed_start": None,
+    }
+
+    def duplicate(self, *, by: User) -> CommunityEvent:
+        """Copy this event as a fresh DRAFT the way :meth:`ClassOffering.duplicate` copies a class.
+
+        The columns come across (kind, guild, times, place, text, reminders); the title gains
+        " (copy)"; ``by`` is the creator. Nothing of the source's life rides along: the copy is
+        unreviewed (no proposer, reviewer or note), unscheduled, unsynced (every Google and
+        Discord id, state and stamp blank), unannounced (``channel_announced_at`` and the
+        announcement message cleared) and never imported (``import_source_uid``), so saving it
+        from the composer announces and pushes it as the new event it is.
+
+        The photo's bytes are written to a **new** file: ``save`` runs
+        ``delete_orphan_on_replace``, so a shared storage key would be deleted from under the
+        source the first time either row changed its picture.
+
+        Args:
+            by: The user clicking Duplicate, recorded as the copy's creator.
+
+        Returns:
+            The saved copy.
+        """
+        from django.core.files.base import ContentFile
+
+        copy = CommunityEvent.objects.get(pk=self.pk)
+        copy.pk = None
+        copy._state.adding = True
+        suffix = " (copy)"
+        copy.title = f"{self.title[: self.TITLE_MAX_LENGTH - len(suffix)]}{suffix}"
+        copy.created_by = by
+        copy.moderation_state = self.ModerationState.DRAFT
+        copy.submitted_by = None
+        copy.reviewed_by = None
+        copy.reviewed_at = None
+        copy.review_notes = ""
+        copy.publish_at = None
+        for field, blank in self._SYNC_RESET.items():
+            setattr(copy, field, blank)
+        copy.channel_announced_at = None
+        copy.discord_announce_channel_id = ""
+        copy.discord_announce_message_id = ""
+        copy.import_source_uid = ""
+        if self.photo:
+            photo_name = os.path.basename(self.photo.name or "")
+            with self.photo.open("rb") as source:
+                copy.photo.save(photo_name, ContentFile(source.read()), save=False)
+        copy.save()
+        return copy
+
+    def unpublish(self, *, actor: User) -> None:
+        """Take a live event down to a DRAFT: off the Calendar, Google and Discord, kept for later.
+
+        Removes the Google and Discord events, strips the RSVP and Manage buttons off the
+        announcement message (the way a delete does, so a dead event stops inviting clicks)
+        and resets both syncs to IDLE with their ids blank, so publishing it again pushes it
+        afresh. ``channel_announced_at`` and the announcement message ids are kept on purpose:
+        the launch announcement already went out, and the ``period`` on :meth:`announce` plus
+        the announcer's stamp are what stop a second one, so re-publishing re-syncs but never
+        re-announces.
+
+        Args:
+            actor: Who unpublished it, for the log.
+
+        Raises:
+            InvalidEventTransition: Unless the event is PUBLISHED.
+        """
+        if self.moderation_state != self.ModerationState.PUBLISHED:
+            raise InvalidEventTransition(f"Cannot unpublish an event in state '{self.moderation_state}'.")
+        self.remove_from_google()
+        self.remove_from_discord()
+        self.strip_discord_announcement_buttons()
+        for field, blank in self._SYNC_RESET.items():
+            setattr(self, field, blank)
+        self.moderation_state = self.ModerationState.DRAFT
+        self.save(update_fields=[*self._SYNC_RESET, "moderation_state", "updated_at"])
+        logger.info("Event %s unpublished by user %s", self.pk, actor.pk)
 
     # --- Google Calendar sync (delegates to core.integrations) ----------------
 
@@ -9081,7 +9247,7 @@ class CommunityEvent(models.Model):
         A recurring series keeps accepting RSVPs (the row represents the ongoing series),
         mirroring the public page's ``show_past_note`` rule (``hub.views.event_detail``).
         """
-        return self.recurrence == self.Recurrence.NONE and self.ends_at < timezone.now()
+        return self.has_ended
 
     def _discord_time_value(self, start: datetime_type, end: datetime_type) -> str:
         """The **Time** field value, e.g. ``'Fri, Aug 29 · 6:00 PM to 8:00 PM'`` (local, no dash)."""
@@ -9102,14 +9268,6 @@ class CommunityEvent(models.Model):
         if minutes or not hours:
             parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
         return " ".join(parts)
-
-    def _discord_creator_name(self) -> str:
-        """The creator's display name for the embed footer, or ``'Past Lives'`` for imported rows."""
-        user = self.created_by or self.submitted_by
-        if user is None:
-            return "Past Lives"
-        member = Member.objects.filter(user=user).first()
-        return member.display_name if member is not None else "Past Lives"
 
     def attendees_field(self) -> dict[str, str]:
         """The **Attendees (N)** embed field: the first names in RSVP order, then 'and N more'.
@@ -9152,7 +9310,7 @@ class CommunityEvent(models.Model):
             "url": self.public_url,
             "color": _DISCORD_ANNOUNCE_COLOR,
             "fields": fields,
-            "footer": {"text": f"RSVP below · Created by {self._discord_creator_name()}"},
+            "footer": {"text": f"RSVP below · Created by {self.creator_name}"},
         }
         if self.description:
             description = self.description.strip()

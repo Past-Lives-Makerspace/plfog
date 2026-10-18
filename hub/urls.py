@@ -6,6 +6,7 @@ from . import (
     discord_views,
     door_code_views,
     equipment_views,
+    event_admin_views,
     feedback_views,
     growth_views,
     leadership_views,
@@ -891,6 +892,20 @@ urlpatterns = [
     # The Locations admin (#616): the list with its add form, and one edit page per location.
     path("manage/locations/", location_views.hub_admin_locations, name="hub_admin_locations"),
     path("manage/locations/<int:pk>/", location_views.hub_admin_location_edit, name="hub_admin_location_edit"),
+    # Manage Events (#831): the list, one screen per event, and its Duplicate and Unpublish actions.
+    # Reserved beside them: manage/events/<pk>/guests/ (the Guest list tab) and .../eventbrite/.
+    path("manage/events/", event_admin_views.hub_admin_events, name="hub_admin_events"),
+    path("manage/events/<int:pk>/", event_admin_views.hub_admin_event, name="hub_admin_event"),
+    path(
+        "manage/events/<int:pk>/duplicate/",
+        event_admin_views.hub_admin_event_duplicate,
+        name="hub_admin_event_duplicate",
+    ),
+    path(
+        "manage/events/<int:pk>/unpublish/",
+        event_admin_views.hub_admin_event_unpublish,
+        name="hub_admin_event_unpublish",
+    ),
     # The admin Feedback inbox (#693): every request from the Feedback page, and one page per request.
     path("manage/feedback/", feedback_views.hub_admin_feedback_inbox, name="hub_admin_feedback_inbox"),
     # The admin Growth dashboard (#795): counts since launch for a date range, a GET page.

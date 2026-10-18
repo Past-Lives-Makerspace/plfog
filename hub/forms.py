@@ -3656,11 +3656,13 @@ class CommunityEventForm(forms.ModelForm):
         publish_at = self.instance.publish_at
         self.went_out_on_schedule: bool = self.announced and publish_at is not None and publish_at <= timezone.now()
         # What a save does, read by the edit views to decide and by the page to say so, so the
-        # Save button and the note can never promise something the view will not do. A new or
-        # still-scheduled event announces (now, or parks for its time); a live one sends
-        # nothing; anything else is waiting on a reviewer, and approving it is what announces.
-        self.saves_announce: bool = (
-            self.instance.pk is None or self.instance.moderation_state == CommunityEvent.ModerationState.SCHEDULED
+        # Save button and the note can never promise something the view will not do. A new,
+        # still-scheduled or draft event announces (now, or parks for its time; a draft that was
+        # once live re-syncs but its announcement is deduped, #831); a live one sends nothing;
+        # anything else is waiting on a reviewer, and approving it is what announces.
+        self.saves_announce: bool = self.instance.pk is None or self.instance.moderation_state in (
+            CommunityEvent.ModerationState.SCHEDULED,
+            CommunityEvent.ModerationState.DRAFT,
         )
         self.in_review: bool = not (self.saves_announce or self.announced)
         self.review_first: bool = review_first

@@ -77,7 +77,7 @@ Beyond the single `guild_lead` FK, a guild has `GuildStaffMembership` rows (`rol
 | `CLASS_APPROVER` (CMS Administrator) | `class_review_requested` (lead-less categories), `class_validation_requested` | approve/validate classes |
 | `SPACE_APPROVER` (Space & Cubby Administrator) | `space.lease_requested`, `space.cubby_requested` | review space requests (`hub._map_reviewer_scope` grants admin-level review) |
 | `DISCOUNT_APPROVER` (Discount Code Administrator) | `discount_code.requested` | approve any discount code (`DiscountCode.approver_for` → `approves_any`) |
-| `EVENTS_APPROVER` (Calendar Administrator) | `event.submitted`, `meeting.item_proposed` (site-wide/council) | review calendar proposals (`hub._reviewer_guild_scope` grants admin-level review) |
+| `EVENTS_APPROVER` (Calendar Administrator) | `event.submitted`, `meeting.item_proposed` (site-wide/council) | review calendar proposals (`hub._reviewer_guild_scope` grants admin-level review); open Manage Events (`events_admin_access_required`, #831) with its Duplicate and Unpublish; edit, delete and retry sync on site-wide events (`can_administer_events`) |
 | `BILLING_APPROVER` (Billing Administrator) | `billing.charge_failed_admin`, `refund_failed`, `billing.late_fee_orphan_payment`, `membership.orientation_orphan_payment` | sees the admin Payments dashboard (`billing_admin_access_required`) |
 | `REFUNDS` (Refunds) | (action-only — routes nothing) | issue/retry Stripe refunds (`refund_authority_required`); opens no new pages on its own |
 | `EQUIPMENT` (Equipment Administrator) | only the fallback of `orientation_requested`, `equipment.reservation_made` and `equipment.reservation_needs_approval` (#748) for equipment with no managers and no guild leadership (#746); a holder hears nothing about equipment someone else runs | create equipment of every kind and manage all of it site-wide (`can_create_equipment` / `can_manage_equipment` site tier) |
@@ -96,6 +96,7 @@ Helpers on `Member`: `has_admin_capability(cap)` (the authorization gate) and `s
 ## Key QuerySet Methods
 
 - `Member.objects.active()` — status=ACTIVE
+- `CommunityEvent.objects.published()` / `scheduled()` / `awaiting_review()` / `past()` / `declined()` — one moderation state each (`past()` is the published one-offs that have ended). Every live surface (the Calendar, Home, the public event page, the Google and Discord pushes, the reminders, the Interested sync) keys on one of them, so a `DRAFT` row (#831: a copy from `CommunityEvent.duplicate`, or a live event taken down by `CommunityEvent.unpublish`) is invisible by construction and shows only on Manage Events, the guild page's Events tab (with a Draft pill) and in the composer, where saving it runs `schedule_or_go_live` (`CommunityEventForm.saves_announce`).
 - `Member.objects.instructors()` — active members approved to teach, listed on any class or holding an instructor page, signed in or not; the All Instructors announcement audience (#806)
 - `Member.objects.paying()` — member_type=STANDARD
 - `Member.objects.with_lease_totals()` — annotates active_lease_count, total_monthly_rent

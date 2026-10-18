@@ -1,0 +1,107 @@
+{% extends "hub/base.html" %}
+{% block title %}{{ event.title }} · Manage Events{% endblock %}
+{% block content %}
+{% comment %}
+One event's admin screen (#831, part 2), built by hub.event_admin_views.hub_admin_event after
+the per-class screen (classes/_components/class_screen_base.html): the header with the status
+pill and the facts line, the tab strip, then the Overview. Every action posts to the endpoint
+that already owns it (the review decisions, Retry sync, Delete) with `next` set to this page,
+so the admin lands back here; Duplicate opens the copy in the composer and Unpublish returns
+here with the row a draft. The Guest list tab arrives with guest RSVPs (A3b) and the
+Eventbrite tab with the Eventbrite listing (track B), which is why the strip has one tab today.
+{% endcomment %}
+<div class="hub-card" data-event-admin="{{ event.pk }}">
+  <div class="pl-class-header">
+    <div class="pl-class-header__main">
+      <h1 class="pl-class-header__title">{{ event.title }}</h1>
+      <div class="pl-class-header__badges">
+        <span class="hub-pill hub-pill--{{ event.status_tone }}" data-event-status="{{ event.moderation_state }}">{{ event.status_label }}</span>
+        {% if event.moderation_state == "scheduled" %}<span class="hub-badge">Announces {{ event.publish_at_display }}</span>{% endif %}
+        {% if event.recurrence != "none" %}<span class="hub-pill hub-pill--neutral" data-recurrence-pill>{{ event.get_recurrence_display }}</span>{% endif %}
+      </div>
+      <div class="pl-class-meta">
+        <span class="pl-class-meta__item">{{ event.badge_label }}</span>
+        {% if event.guild %}<span class="pl-class-meta__item">{{ event.guild.name }}</span>{% endif %}
+        <span class="pl-class-meta__item">{{ when }}</span>
+        <span class="pl-class-meta__item" data-rsvp-count>{{ event.rsvp_count }} going</span>
+        <span class="pl-class-meta__item">Created by {{ event.creator_name }}</span>
+      </div>
+    </div>
+    <div class="pl-class-header__actions">
+      {% if can_edit %}<a class="hub-btn hub-btn--sm hub-btn--primary" href="{% url 'hub_event_edit' event.pk %}" data-event-edit>Edit</a>{% endif %}
+      {% if event.moderation_state == "published" %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'hub_event_detail' event.pk %}" data-event-view>View page ↗</a>{% endif %}
+      <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ list_url }}">Back to Manage Events</a>
+    </div>
+  </div>
+
+  <nav class="pl-tabs" aria-label="This event">
+    <a href="{{ detail_url }}" class="vote-tab vote-tab--active" aria-current="page">Overview</a>
+    {# Guest list tab: guest RSVPs (A3b) add it here, at manage/events/<pk>/guests/. #}
+    {% if event.eventbrite_listed %}<a href="{{ detail_url }}" class="vote-tab" data-eventbrite-tab>Eventbrite</a>{% endif %}
+  </nav>
+
+  <div class="admin-table-wrap" data-event-facts>
+    <table>
+      <tbody>
+        <tr><th scope="row">When</th><td>{{ when }}{% if event.recurrence != "none" %} · {{ event.get_recurrence_display }}{% endif %}</td></tr>
+        <tr><th scope="row">Where</th><td>{% if event.area %}{{ event.area.name }}{% if event.location %} · {% endif %}{% endif %}{{ event.location }}{% if event.video_url %}{% if event.area or event.location %} · {% endif %}<a href="{{ event.video_url }}" target="_blank" rel="noopener">Join online ↗</a>{% endif %}{% if not event.area and not event.location and not event.video_url %}<span class="hub-text-muted">Not set</span>{% endif %}</td></tr>
+        <tr><th scope="row">Calendar</th><td>{{ event.get_google_calendar_target_display }}</td></tr>
+        {% if event.submitted_by %}<tr><th scope="row">Proposed by</th><td>{{ event.submitted_by.get_full_name|default:event.submitted_by.username }}</td></tr>{% endif %}
+        {% if event.reviewed_by %}<tr><th scope="row">Reviewed by</th><td>{{ event.reviewed_by.get_full_name|default:event.reviewed_by.username }}{% if event.reviewed_at %} · {{ event.reviewed_at|date:"M j, Y" }}{% endif %}</td></tr>{% endif %}
+        {% if event.review_notes %}<tr><th scope="row">Reviewer's note</th><td data-review-note>{{ event.review_notes }}</td></tr>{% endif %}
+        {% if google_sync_enabled %}
+        <tr><th scope="row">Google Calendar</th><td>{% include "hub/partials/_sync_badge.html" with event=event can_retry=False %}{% if event.sync_state == "idle" %}<span class="hub-text-muted">Not synced</span>{% endif %}</td></tr>
+        {% endif %}
+        <tr><th scope="row">Discord</th><td>{{ event.get_discord_sync_state_display }}{% if event.discord_sync_error %} · {{ event.discord_sync_error }}{% endif %}{% if event.channel_announced_at %} · Announced {{ event.channel_announced_at|date:"M j, Y" }}{% endif %}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  {% if event.description %}
+  <h2 class="hub-detail-label">Details</h2>
+  <div data-event-description>{{ event.description|linebreaks }}</div>
+  {% endif %}
+
+  <h2 class="hub-detail-label">Actions</h2>
+  <div class="pl-btn-row" data-event-actions>
+    {% if can_decide %}
+    {# Approve is spaced apart from the destructive controls so it isn't fat-fingered next to Decline. #}
+    <button type="button" class="pl-btn pl-btn--success pl-btn--sm" data-action="approve" @click="$dispatch('open-confirm', 'approve-event')">Approve</button>
+    {% if can_request_changes %}<button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" data-action="changes" @click="$dispatch('open-modal', 'changes-modal')">Request changes</button>{% endif %}
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" data-action="decline" @click="$dispatch('open-modal', 'decline-modal')">Decline</button>
+    {% endif %}
+    {% if can_retry_sync %}
+    <form method="post" action="{% url 'hub_event_retry_sync' event.pk %}" data-action="retry-sync">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ detail_url }}">
+      <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Retry sync now</button>
+    </form>
+    {% endif %}
+    <form method="post" action="{% url 'hub_admin_event_duplicate' event.pk %}" data-action="duplicate">
+      {% csrf_token %}
+      <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Duplicate</button>
+    </form>
+    {% if can_unpublish %}<button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" data-action="unpublish" @click="$dispatch('open-confirm', 'unpublish-event')">Unpublish</button>{% endif %}
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" data-action="delete" @click="$dispatch('open-confirm', 'delete-event')">Delete</button>
+  </div>
+
+  {% if can_decide %}
+  {% url 'hub_event_review_decision' event.pk as decision_url %}
+  {% include "components/confirm_modal.html" with confirm_id="approve-event" confirm_title="Approve & publish this event?" confirm_message="It goes live on the calendar and posts to Discord." confirm_action_url=decision_url|add:"?decision=approve" confirm_next=detail_url confirm_button_text="Approve & publish" confirm_button_style="success" %}
+  {% if can_request_changes %}{% include "hub/partials/_event_decision_modal.html" with event=event modal_id="changes-modal" modal_title="Request changes" decision_value="changes" submit_text="Send back for changes" submit_style="primary" intro="The proposer can edit and resubmit — tell them what to change." decision_next=detail_url %}{% endif %}
+  {% include "hub/partials/_event_decision_modal.html" with event=event modal_id="decline-modal" modal_title="Decline event" decision_value="decline" submit_text="Decline event" submit_style="danger" intro="This removes the proposal; the proposer will be notified." decision_next=detail_url %}
+  {% endif %}
+  {% if can_unpublish %}
+  {% url 'hub_admin_event_unpublish' event.pk as unpublish_url %}
+  {% include "components/confirm_modal.html" with confirm_id="unpublish-event" confirm_title="Unpublish this event?" confirm_message="Members stop seeing it on the Calendar, and it comes off Google Calendar and Discord. It stays here as a draft. The announcement already sent is not taken back, and publishing it again puts it back on the calendars without announcing it a second time." confirm_action_url=unpublish_url confirm_button_text="Unpublish" confirm_button_style="primary" %}
+  {% endif %}
+  {% url 'hub_event_delete' event.pk as delete_url %}
+  {% include "components/confirm_modal.html" with confirm_id="delete-event" confirm_title="Delete this event?" confirm_message=delete_confirm_message confirm_action_url=delete_url confirm_next=list_url confirm_button_text="Delete event" %}
+</div>
+
+{% if event.moderation_state == "published" %}
+{% url 'hub_event_qr' event.pk 'svg' as event_qr_svg_url %}
+{% url 'hub_event_qr' event.pk 'png' as event_qr_png_url %}
+{% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the event's public page — print it on signage, add it to a flyer, or hand it out." qr_svg=event.qr_svg share_url=event.public_url svg_url=event_qr_svg_url png_url=event_qr_png_url %}
+{% endif %}
+{% endblock %}
