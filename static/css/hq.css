@@ -389,3 +389,424 @@
   font-size: 0.8125rem;
   color: var(--hub-text-muted);
 }
+
+/* ---- Volunteer Sign-up (part 2) ----
+   Lee's sheet on the portal: the page wrap, the navy band, the two steps and the roster. Every
+   rule sits under .pl-hq-vol with its own palette as custom properties, so the HQ restyle and
+   this page merge without touching each other. The portal's :root is dark, so the dark values
+   are the defaults and the light ones follow [data-theme="light"]. */
+.pl-hq-vol {
+  --pl-hq-vol-bg: #121B2F;
+  --pl-hq-vol-surface: #1A2644;
+  --pl-hq-vol-ink: #E7ECF3;
+  --pl-hq-vol-muted: #9DAEBF;
+  --pl-hq-vol-rule: #2D3A5C;
+  --pl-hq-vol-field: #152038;
+  --pl-hq-vol-navy: #1E2D4E;
+  --pl-hq-vol-gold: #D4B15E;
+  --pl-hq-vol-gold-hi: #C9A44A;
+  --pl-hq-vol-cream: #F6F3EA;
+  --pl-hq-vol-ok: #7FD0A8;
+  --pl-hq-vol-ok-bg: #173A2D;
+  --pl-hq-vol-chip: #24305A;
+  --pl-hq-vol-btn-bg: var(--pl-hq-vol-gold-hi);
+  --pl-hq-vol-btn-ink: var(--pl-hq-vol-navy);
+  display: grid;
+  gap: 20px;
+  max-width: 860px;
+  margin: 0 auto;
+  color: var(--pl-hq-vol-ink);
+  font-family: 'Lato', 'Inter', sans-serif;
+}
+[data-theme="light"] .pl-hq-vol {
+  --pl-hq-vol-bg: #ECEFF4;
+  --pl-hq-vol-surface: #FFFFFF;
+  --pl-hq-vol-ink: #1E2D4E;
+  --pl-hq-vol-muted: #56627A;
+  --pl-hq-vol-rule: #D3D9E3;
+  --pl-hq-vol-field: #F5F7FA;
+  --pl-hq-vol-gold: #8F7029;
+  --pl-hq-vol-ok: #2C7A57;
+  --pl-hq-vol-ok-bg: #E3F2EA;
+  --pl-hq-vol-chip: #EEF1F5;
+  --pl-hq-vol-btn-bg: var(--pl-hq-vol-navy);
+  --pl-hq-vol-btn-ink: #FFFFFF;
+}
+
+/* Header: the Playfair title, the muted subline and the navy pill back to the HQ. */
+.pl-hq-vol__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.pl-hq-vol__heading {
+  min-width: 0;
+}
+.pl-hq-vol__title {
+  margin: 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vol__subline {
+  margin: 0.5rem 0 0;
+  font-weight: 700;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vol__back {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: var(--pl-hq-vol-navy);
+  color: #FFFFFF;
+  font-size: 0.88rem;
+  font-weight: 900;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.pl-hq-vol__back:hover {
+  color: #FFFFFF;
+  text-decoration: underline;
+}
+
+/* The band: the same navy gradient as the hero, the big gold figure and the spots meter. */
+.pl-hq-vol__band {
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+  border-radius: 16px;
+  background: radial-gradient(120% 140% at 10% 0%, #2A3C63 0%, #1E2D4E 55%, #17233F 100%);
+  color: var(--pl-hq-vol-cream);
+}
+.pl-hq-vol__band-top {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.pl-hq-vol__big {
+  margin: 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(2.8rem, 9vw, 4rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: #E3C677;
+}
+.pl-hq-vol__band-label {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+.pl-hq-vol__band-sub {
+  font-size: 0.88rem;
+  font-weight: 400;
+  color: #B8C2D4;
+}
+.pl-hq-vol__band-spots {
+  display: grid;
+  gap: 8px;
+}
+.pl-hq-vol__band-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+.pl-hq-vol__meter {
+  display: block;
+  width: 100%;
+  height: 10px;
+  border: none;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.14);
+  appearance: none;
+  overflow: hidden;
+}
+.pl-hq-vol__meter::-webkit-progress-bar {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+.pl-hq-vol__meter::-webkit-progress-value {
+  background-color: #C9A44A;
+  border-radius: 999px;
+}
+.pl-hq-vol__meter::-moz-progress-bar {
+  background-color: #C9A44A;
+  border-radius: 999px;
+}
+.pl-hq-vol__band-need {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #B8C2D4;
+}
+
+/* Sections and cards. */
+.pl-hq-vol__section {
+  display: grid;
+  gap: 12px;
+}
+.pl-hq-vol__h2 {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vol__h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 900;
+  text-transform: capitalize;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vol__card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 14px;
+  background: var(--pl-hq-vol-surface);
+}
+.pl-hq-vol__hint {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vol__ok {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--pl-hq-vol-ok-bg);
+  color: var(--pl-hq-vol-ok);
+  font-weight: 700;
+}
+
+/* Fields: the portal's form_field markup in Lee's field colours. */
+.pl-hq-vol__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.pl-hq-vol .pl-form-group {
+  margin-bottom: 0;
+}
+.pl-hq-vol .pl-form-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vol .pl-form-group input,
+.pl-hq-vol .pl-form-group select,
+.pl-hq-vol .pl-form-group textarea {
+  padding: 9px 11px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 8px;
+  background: var(--pl-hq-vol-field);
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vol .pl-toggle-label {
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vol .pl-field-hint,
+.pl-hq-vol .pl-toggle-desc {
+  color: var(--pl-hq-vol-muted);
+}
+/* The honeypot: off screen for people, still in the form for a bot. */
+.pl-hq-vol__trap {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.pl-hq-vol__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Buttons: primary is navy on white (gold on navy in the dark theme), ghost is the rule as a border. */
+.pl-hq-vol__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 16px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 900;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pl-hq-vol__btn--primary {
+  background: var(--pl-hq-vol-btn-bg);
+  border-color: var(--pl-hq-vol-btn-bg);
+  color: var(--pl-hq-vol-btn-ink);
+}
+.pl-hq-vol__btn--primary:hover {
+  filter: brightness(1.08);
+  color: var(--pl-hq-vol-btn-ink);
+}
+.pl-hq-vol__btn--ghost {
+  background: transparent;
+  border-color: var(--pl-hq-vol-rule);
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vol__btn--ghost:hover {
+  background: var(--pl-hq-vol-chip);
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vol__btn:disabled,
+.pl-hq-vol__btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: none;
+}
+
+/* Shift rows: one card line each, grouped under a phase heading. */
+.pl-hq-vol__phase + .pl-hq-vol__phase {
+  margin-top: 8px;
+}
+.pl-hq-vol__shifts {
+  display: grid;
+  gap: 10px;
+}
+.pl-hq-vol__shift {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 14px;
+  background: var(--pl-hq-vol-surface);
+}
+.pl-hq-vol__shift--mine {
+  border-color: var(--pl-hq-vol-ok);
+}
+.pl-hq-vol__shift-text {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.pl-hq-vol__shift-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pl-hq-vol__role {
+  font-weight: 700;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vol__chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--pl-hq-vol-chip);
+  color: var(--pl-hq-vol-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.pl-hq-vol__chip--olcc {
+  color: var(--pl-hq-vol-gold);
+}
+.pl-hq-vol__chip--full {
+  background: var(--pl-hq-vol-ok-bg);
+  color: var(--pl-hq-vol-ok);
+}
+.pl-hq-vol__when {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vol__desc {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vol__shift-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.pl-hq-vol__shift-hint {
+  max-width: 11rem;
+  font-size: 0.78rem;
+  text-align: right;
+  color: var(--pl-hq-vol-muted);
+}
+@media (max-width: 560px) {
+  .pl-hq-vol__shift {
+    flex-direction: column;
+  }
+  .pl-hq-vol__shift-action {
+    align-items: flex-start;
+  }
+  .pl-hq-vol__shift-hint {
+    text-align: left;
+  }
+}
+
+/* The Wine Wall link card. */
+.pl-hq-vol__link-card {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+.pl-hq-vol__link-text {
+  margin: 0;
+  color: var(--pl-hq-vol-muted);
+}
+@media (max-width: 560px) {
+  .pl-hq-vol__link-card {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The organisers' roster. */
+.pl-hq-vol__roster-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pl-hq-vol__roster-count {
+  flex: 1 1 auto;
+  margin: 0;
+  font-weight: 700;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vol__table th {
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vol__table td {
+  font-size: 0.92rem;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vol__table td:first-child {
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vol__table tr {
+  border-bottom: 1px solid var(--pl-hq-vol-rule);
+}

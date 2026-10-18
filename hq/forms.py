@@ -1,4 +1,4 @@
-"""The HQ edit pages' forms: the hub with its goals, and one card."""
+"""The HQ forms: the hub with its goals, one card with its shifts, and a volunteer's Your Info step."""
 
 from __future__ import annotations
 
@@ -13,7 +13,8 @@ from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.utils import timezone
 
 from core.validators import validate_image_content, validate_image_size
-from hq.models import EventHub, HubCard, HubGoal
+from hq.models import EventHub, HubCard, HubGoal, VolunteerShift
+from hq.services import VolunteerInfo
 from membership.models import CommunityEvent, Member
 
 # Path segments under /hq/ that are routes, not hubs.
@@ -188,3 +189,90 @@ def _primary_emails() -> Prefetch:
         queryset=EmailAddress.objects.filter(primary=True),
         to_attr="_primary_emailaddresses",
     )
+
+
+class VolunteerInfoForm(forms.Form):
+    """The Your Info step on the volunteer page: who is signing up.
+
+    ``website`` is a honeypot: it is hidden from people and labelled to be left blank, so a
+    bot that fills every field gives itself away and the view reports success while saving
+    nothing.
+    """
+
+    name = forms.CharField(max_length=120, label="Name")
+    email = forms.EmailField(label="Email", help_text="How the organisers reach you. One sign-up per email on a shift.")
+    phone = forms.CharField(max_length=40, required=False, label="Phone", help_text="Optional, for the night of.")
+    has_olcc = forms.BooleanField(
+        required=False,
+        label="I have an Oregon OLCC service permit (needed to bartend)",
+    )
+    note = forms.CharField(
+        required=False,
+        label="Anything we should know?",
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Hours you can do, a skill, a friend you are coming with.",
+    )
+    website = forms.CharField(
+        required=False,
+        label="Leave this blank",
+        widget=forms.TextInput(attrs={"autocomplete": "off", "tabindex": "-1"}),
+    )
+
+    @property
+    def is_honeypot_hit(self) -> bool:
+        """Whether the hidden field was filled, which only a bot does."""
+        return bool(self.cleaned_data["website"])
+
+    def to_info(self) -> VolunteerInfo:
+        data = self.cleaned_data
+        return VolunteerInfo(
+            name=data["name"].strip(),
+            email=data["email"].strip().lower(),
+            phone=data["phone"].strip(),
+            has_olcc=data["has_olcc"],
+            note=data["note"].strip(),
+        )
+
+
+class VolunteerShiftForm(forms.ModelForm):
+    class Meta:
+        model = VolunteerShift
+        fields = ["phase", "role", "when_text", "need", "description", "requires_olcc", "sort_order"]
+        labels = {
+            "when_text": "When",
+            "need": "People needed",
+            "requires_olcc": "Needs an OLCC permit",
+            "sort_order": "Sort order",
+        }
+        widgets = {"description": forms.Textarea(attrs={"rows": 2})}
+
+
+class VolunteerShiftBaseFormSet(BaseInlineFormSet):
+    """The shifts on the volunteers card's edit page.
+
+    Deleting a shift people have signed up for is refused by name, so a sign-up is never
+    dropped by a tidy up; the row's Delete button is not even offered while the shift has
+    sign-ups, and this guards a page that went stale.
+    """
+
+    def clean(self) -> None:
+        super().clean()
+        refused = []
+        for form in self.deleted_forms:
+            count = form.instance.signups.count()
+            if count:
+                people = "1 person" if count == 1 else f"{count} people"
+                # The role as saved: the posted row may have renamed it (or blanked it) on the same Save.
+                refused.append(f"{form.initial['role']} has {people} signed up")
+        if refused:
+            raise ValidationError(f"A shift with sign-ups cannot be deleted: {'; '.join(refused)}.")
+
+
+VolunteerShiftFormSet = inlineformset_factory(
+    EventHub,
+    VolunteerShift,
+    form=VolunteerShiftForm,
+    formset=VolunteerShiftBaseFormSet,
+    extra=0,
+    can_delete=True,
+)

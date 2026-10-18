@@ -1,0 +1,24 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+The volunteer roster on its own page, for the organisers (admins and the card's named
+members, by organizer_required): the same table, Copy emails and Download CSV the sign-up
+page shows them at its foot, with a way back to that page.
+{% endcomment %}
+{% block title %}Volunteer Roster{% endblock %}
+{% block extra_head %}
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq-vol" data-hq-roster-page>
+  <header class="pl-hq-vol__header">
+    <div class="pl-hq-vol__heading">
+      <h1 class="pl-hq-vol__title">Volunteer Roster</h1>
+      <p class="pl-hq-vol__subline">{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %}</p>
+    </div>
+    <a href="{% url 'hq:volunteers' hub.slug %}" class="pl-hq-vol__back" data-hq-vol-back>&larr; {{ card.title }}</a>
+  </header>
+  {% include "hq/partials/_roster.html" with hub=hub roster=roster roster_emails=roster_emails %}
+</div>
+{% endblock %}

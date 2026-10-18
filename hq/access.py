@@ -28,7 +28,7 @@ from hq.models import EventHub, HubCard
 from membership.models import Member
 
 if TYPE_CHECKING:
-    from django.http import HttpRequest, HttpResponse
+    from django.http import HttpRequest, HttpResponseBase
 
 
 class SignInRequired(Exception):
@@ -84,7 +84,7 @@ def card_or_404(hub: EventHub, kind: str, request: HttpRequest) -> HubCard:
     return card
 
 
-def card_view(kind: str) -> Callable[[Callable[..., HttpResponse]], Callable[..., HttpResponse]]:
+def card_view(kind: str) -> Callable[[Callable[..., HttpResponseBase]], Callable[..., HttpResponseBase]]:
     """Resolve the hub at ``slug`` and its ``kind`` card for the viewer, and hand both to the view.
 
     The view is called as ``view(request, hub=hub, card=card, **rest)``; a ``members`` card hit
@@ -92,9 +92,9 @@ def card_view(kind: str) -> Callable[[Callable[..., HttpResponse]], Callable[...
     pages in this.
     """
 
-    def decorator(view: Callable[..., HttpResponse]) -> Callable[..., HttpResponse]:
+    def decorator(view: Callable[..., HttpResponseBase]) -> Callable[..., HttpResponseBase]:
         @wraps(view)
-        def wrapped(request: HttpRequest, *args: Any, slug: str, **kwargs: Any) -> HttpResponse:
+        def wrapped(request: HttpRequest, *args: Any, slug: str, **kwargs: Any) -> HttpResponseBase:
             hub = hub_or_404(slug, request)
             try:
                 card = card_or_404(hub, kind, request)
@@ -107,16 +107,16 @@ def card_view(kind: str) -> Callable[[Callable[..., HttpResponse]], Callable[...
     return decorator
 
 
-def organizer_required(kind: str) -> Callable[[Callable[..., HttpResponse]], Callable[..., HttpResponse]]:
+def organizer_required(kind: str) -> Callable[[Callable[..., HttpResponseBase]], Callable[..., HttpResponseBase]]:
     """Admit admins and the ``kind`` card's named members, by their actual roles, on the hub at ``slug``.
 
     The view is called as ``view(request, hub=hub, card=card, **rest)``. Anyone else gets a 403,
     and a card the hub does not have is a 404.
     """
 
-    def decorator(view: Callable[..., HttpResponse]) -> Callable[..., HttpResponse]:
+    def decorator(view: Callable[..., HttpResponseBase]) -> Callable[..., HttpResponseBase]:
         @wraps(view)
-        def wrapped(request: HttpRequest, *args: Any, slug: str, **kwargs: Any) -> HttpResponse:
+        def wrapped(request: HttpRequest, *args: Any, slug: str, **kwargs: Any) -> HttpResponseBase:
             hub = hub_or_404(slug, request)
             card = hub.cards.prefetch_related("named_members").filter(kind=kind).first()
             if card is None:

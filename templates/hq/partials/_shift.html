@@ -1,0 +1,41 @@
+{% comment %}
+One shift row on the volunteer page.
+
+  shift  — required, a VolunteerShift from with_counts()
+  hub    — required, its EventHub
+  person — the viewer's VolunteerInfo, or None while a guest has saved nothing
+  mine   — the set of shift pks this person is on
+
+Remove Me when the person is on it; Full with no button when every spot is taken; Sign Me Up
+otherwise, disabled with a hint while there is nobody to sign up. Both forms post over htmx
+and swap this row (the answer carries the band out of band); the plain action is the same URL.
+{% endcomment %}
+<div class="pl-hq-vol__shift{% if shift.pk in mine %} pl-hq-vol__shift--mine{% endif %}" data-hq-shift="{{ shift.pk }}">
+  <div class="pl-hq-vol__shift-text">
+    <div class="pl-hq-vol__shift-head">
+      <span class="pl-hq-vol__role">{{ shift.role }}</span>
+      <span class="pl-hq-vol__chip" data-hq-shift-filled>{{ shift.filled_count }} of {{ shift.need }} filled</span>
+      {% if shift.requires_olcc %}<span class="pl-hq-vol__chip pl-hq-vol__chip--olcc" data-hq-shift-olcc>OLCC permit</span>{% endif %}
+    </div>
+    {% if shift.when_text %}<p class="pl-hq-vol__when">{{ shift.when_text }}</p>{% endif %}
+    {% if shift.description %}<p class="pl-hq-vol__desc">{{ shift.description }}</p>{% endif %}
+  </div>
+  <div class="pl-hq-vol__shift-action">
+    {% if shift.pk in mine %}
+    <form method="post" action="{% url 'hq:shift_remove' hub.slug shift.pk %}" hx-post="{% url 'hq:shift_remove' hub.slug shift.pk %}" hx-target="closest [data-hq-shift]" hx-swap="outerHTML">
+      {% csrf_token %}
+      <button type="submit" class="pl-hq-vol__btn pl-hq-vol__btn--ghost" data-hq-shift-remove>Remove Me</button>
+    </form>
+    {% elif shift.is_full %}
+    <span class="pl-hq-vol__chip pl-hq-vol__chip--full" data-hq-shift-full>Full</span>
+    {% elif person %}
+    <form method="post" action="{% url 'hq:shift_signup' hub.slug shift.pk %}" hx-post="{% url 'hq:shift_signup' hub.slug shift.pk %}" hx-target="closest [data-hq-shift]" hx-swap="outerHTML">
+      {% csrf_token %}
+      <button type="submit" class="pl-hq-vol__btn pl-hq-vol__btn--primary" data-hq-shift-signup>Sign Me Up</button>
+    </form>
+    {% else %}
+    <button type="button" class="pl-hq-vol__btn pl-hq-vol__btn--primary" disabled data-hq-shift-signup>Sign Me Up</button>
+    <span class="pl-hq-vol__shift-hint" data-hq-shift-hint>Save your info in step 1 first.</span>
+    {% endif %}
+  </div>
+</div>
