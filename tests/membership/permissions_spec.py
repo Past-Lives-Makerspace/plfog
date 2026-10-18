@@ -15,8 +15,11 @@ from django.test import RequestFactory
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, UserFactory
 from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER, ViewAs
-from membership.models import GuildStaffMembership, Member
+from membership.models import AdminCapability, CommunityEvent, GuildStaffMembership, Member
 from membership.permissions import (
+    EventCreateMode,
+    can_administer_events,
+    can_create_events,
     can_edit_category,
     can_edit_class,
     can_edit_event,
@@ -24,6 +27,7 @@ from membership.permissions import (
     can_manage_orientations,
     can_print_class_marketing,
     editable_meeting_scopes,
+    event_create_mode,
     is_effective_staff,
 )
 from tests.membership.factories import (
@@ -184,28 +188,173 @@ def describe_request_helpers_via_views():
         assert response.status_code == 200
 
 
+def _granted_user(capability: str):
+    """A plain member's user holding one admin capability."""
+    MembershipPlanFactory()
+    user = UserFactory()
+    user.member.admin_capabilities.create(capability=capability)
+    return user
+
+
+def _request_as(user, *, roles: set[str] | None = None, picked: str | None = None):
+    """A request whose effective role is ``roles`` narrowed to ``picked``; no view_as when roles is None."""
+    request = RequestFactory().get("/")
+    request.user = user
+    if roles is not None:
+        request.view_as = ViewAs(actual=frozenset(roles), picked=picked)
+    return request
+
+
+def describe_can_administer_events():
+    """Who runs the Calendar's events site-wide: an admin (view_as-aware) or a Calendar
+    Administrator (read off the actual member, so a preview neither grants nor hides it)."""
+
+    def it_allows_an_admin():
+        assert can_administer_events(_request_as(UserFactory(), roles={ROLE_ADMIN, ROLE_MEMBER})) is True
+
+    def it_denies_an_admin_previewing_as_a_member():
+        request = _request_as(UserFactory(), roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER)
+        assert can_administer_events(request) is False
+
+    def it_allows_a_calendar_administrator():
+        user = _granted_user(AdminCapability.Capability.EVENTS_APPROVER)
+        assert can_administer_events(_request_as(user, roles={ROLE_MEMBER})) is True
+
+    def it_keeps_a_calendar_administrators_grant_through_a_preview():
+        # The capability leg is preview-independent, like the house capability gates.
+        user = _granted_user(AdminCapability.Capability.EVENTS_APPROVER)
+        user.member.fog_role = Member.FogRole.ADMIN
+        user.member.save(update_fields=["fog_role"])
+        request = _request_as(user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER)
+        assert can_administer_events(request) is True
+
+    def it_denies_a_can_create_events_holder():
+        user = _granted_user(AdminCapability.Capability.EVENT_CREATOR)
+        assert can_administer_events(_request_as(user, roles={ROLE_MEMBER})) is False
+
+    def it_denies_a_plain_member_and_a_guild_officer():
+        MembershipPlanFactory()
+        assert can_administer_events(_request_as(UserFactory(), roles={ROLE_MEMBER})) is False
+        assert can_administer_events(_request_as(UserFactory(), roles={ROLE_GUILD_OFFICER, ROLE_MEMBER})) is False
+
+    def it_denies_a_user_with_no_member_and_an_anonymous_request():
+        user = UserFactory(username="no-member-events@example.com")
+        user.member.delete()
+        user.refresh_from_db()
+        assert can_administer_events(_request_as(user, roles={ROLE_MEMBER})) is False
+        assert can_administer_events(_request_as(AnonymousUser())) is False
+
+
+def describe_event_create_mode():
+    """What saving a new Calendar event does: DIRECT for an administrator, REVIEW for a
+    "Can create events" holder, None for everyone else; ``can_create_events`` is its bool."""
+
+    def it_publishes_directly_for_an_admin():
+        request = _request_as(UserFactory(), roles={ROLE_ADMIN, ROLE_MEMBER})
+        assert event_create_mode(request) == EventCreateMode.DIRECT
+        assert can_create_events(request) is True
+
+    def it_publishes_directly_for_a_calendar_administrator():
+        user = _granted_user(AdminCapability.Capability.EVENTS_APPROVER)
+        assert event_create_mode(_request_as(user, roles={ROLE_MEMBER})) == EventCreateMode.DIRECT
+
+    def it_reviews_first_for_a_can_create_events_holder():
+        user = _granted_user(AdminCapability.Capability.EVENT_CREATOR)
+        request = _request_as(user, roles={ROLE_MEMBER})
+        assert event_create_mode(request) == EventCreateMode.REVIEW
+        assert can_create_events(request) is True
+
+    def it_gives_a_holder_who_also_administers_the_direct_mode():
+        user = _granted_user(AdminCapability.Capability.EVENT_CREATOR)
+        user.member.admin_capabilities.create(capability=AdminCapability.Capability.EVENTS_APPROVER)
+        assert event_create_mode(_request_as(user, roles={ROLE_MEMBER})) == EventCreateMode.DIRECT
+
+    def it_gives_a_plain_member_nothing():
+        MembershipPlanFactory()
+        request = _request_as(UserFactory(), roles={ROLE_MEMBER})
+        assert event_create_mode(request) is None
+        assert can_create_events(request) is False
+
+    def it_gives_an_admin_previewing_as_a_member_nothing():
+        request = _request_as(UserFactory(), roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER)
+        assert event_create_mode(request) is None
+
+    def it_gives_a_user_with_no_member_nothing():
+        user = UserFactory(username="no-member-create@example.com")
+        user.member.delete()
+        user.refresh_from_db()
+        assert event_create_mode(_request_as(user, roles={ROLE_MEMBER})) is None
+
+
 def describe_can_edit_event():
-    """The request-level ``can_edit_event`` (view_as-aware): site-wide events require
-    admin; guild events defer to ``can_edit_guild`` (lead / staff / admin / officer)."""
+    """The request-level ``can_edit_event`` (view_as-aware): the author of their own open
+    proposal always may; otherwise site-wide events take ``can_administer_events`` and guild
+    events defer to ``can_edit_guild`` (lead / staff / admin / officer)."""
 
     def _member_user() -> Member:
         MembershipPlanFactory()
         return UserFactory().member
 
     def _request(user, *, roles: set[str], picked: str | None = None):
-        request = RequestFactory().get("/")
-        request.user = user
-        request.view_as = ViewAs(actual=frozenset(roles), picked=picked)
-        return request
+        return _request_as(user, roles=roles, picked=picked)
 
     def it_lets_an_admin_edit_a_site_wide_event(db):
         event = CommunityEventFactory(community=True)  # guild is None
         request = _request(UserFactory(), roles={ROLE_ADMIN, ROLE_MEMBER})
         assert can_edit_event(request, event) is True
 
+    def it_lets_a_calendar_administrator_edit_a_site_wide_event(db):
+        event = CommunityEventFactory(community=True)
+        user = _granted_user(AdminCapability.Capability.EVENTS_APPROVER)
+        assert can_edit_event(_request(user, roles={ROLE_MEMBER}), event) is True
+
+    def it_denies_a_calendar_administrator_on_a_guild_event_they_do_not_staff(db):
+        event = CommunityEventFactory(guild=GuildFactory())
+        user = _granted_user(AdminCapability.Capability.EVENTS_APPROVER)
+        assert can_edit_event(_request(user, roles={ROLE_MEMBER}), event) is False
+
+    def it_denies_a_can_create_events_holder_on_someone_elses_site_wide_event(db):
+        event = CommunityEventFactory(community=True)
+        user = _granted_user(AdminCapability.Capability.EVENT_CREATOR)
+        assert can_edit_event(_request(user, roles={ROLE_MEMBER}), event) is False
+
+    def it_lets_the_author_edit_their_own_open_proposal(db):
+        MembershipPlanFactory()
+        author = UserFactory()
+        pending = CommunityEventFactory(community=True, pending=True, submitted_by=author)
+        sent_back = CommunityEventFactory(
+            community=True, submitted_by=author, moderation_state=CommunityEvent.ModerationState.CHANGES_REQUESTED
+        )
+        request = _request(author, roles={ROLE_MEMBER})
+        assert can_edit_event(request, pending) is True
+        assert can_edit_event(request, sent_back) is True
+
+    def it_denies_the_author_once_their_proposal_is_published_or_declined(db):
+        MembershipPlanFactory()
+        author = UserFactory()
+        published = CommunityEventFactory(community=True, submitted_by=author)  # PUBLISHED
+        declined = CommunityEventFactory(community=True, declined=True, submitted_by=author)
+        request = _request(author, roles={ROLE_MEMBER})
+        assert can_edit_event(request, published) is False
+        assert can_edit_event(request, declined) is False
+
+    def it_denies_another_members_open_proposal(db):
+        MembershipPlanFactory()
+        event = CommunityEventFactory(community=True, pending=True)
+        assert can_edit_event(_request(UserFactory(), roles={ROLE_MEMBER}), event) is False
+
+    def it_never_treats_an_unsubmitted_row_as_an_anonymous_visitors_own(db):
+        # submitted_by is NULL on an admin-authored row and an anonymous user has no pk, so a
+        # naive "submitted_by_id == user.pk" would read None == None as the author's own.
+        event = CommunityEventFactory(community=True, moderation_state=CommunityEvent.ModerationState.PENDING)
+        request = RequestFactory().get("/")
+        request.user = AnonymousUser()
+        assert event.submitted_by_id is None
+        assert can_edit_event(request, event) is False
+
     def it_denies_a_guild_officer_on_a_site_wide_event(db):
-        # Site-wide authoring is admin-only (mirrors event_edit's _require_admin), so an
-        # officer — who CAN edit guild content — cannot edit a site-wide event.
+        # Site-wide authoring belongs to admins and Calendar Administrators, so an officer,
+        # who CAN edit guild content, cannot edit a site-wide event.
         event = CommunityEventFactory(community=True)
         request = _request(UserFactory(), roles={ROLE_GUILD_OFFICER, ROLE_MEMBER})
         assert can_edit_event(request, event) is False

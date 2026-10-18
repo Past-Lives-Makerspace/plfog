@@ -209,6 +209,26 @@ def describe_replacing_and_clearing():
         client.login(username="proposer2", password="pass")
         assert client.post(reverse("hub_event_photo_delete", args=[event.pk])).status_code == 403
 
+    def it_lets_a_calendar_administrator_clear_it(client: Client):
+        # The gate is can_edit_event, which now admits a Calendar Administrator on a site-wide event.
+        from membership.models import AdminCapability
+
+        user = _user_with_role("cal_admin_photo")
+        user.member.admin_capabilities.create(capability=AdminCapability.Capability.EVENTS_APPROVER)
+        event = _with_photo(guild=None, event_type=CommunityEvent.EventType.COMMUNITY)
+        client.login(username="cal_admin_photo", password="pass")
+        assert client.post(reverse("hub_event_photo_delete", args=[event.pk])).status_code == 302
+        event.refresh_from_db()
+        assert not event.photo
+
+    def it_still_lands_on_next_when_there_was_no_photo_to_clear(client: Client):
+        _user_with_role("admin_nophoto", fog_role=Member.FogRole.ADMIN)
+        event = CommunityEventFactory(community=True)
+        client.login(username="admin_nophoto", password="pass")
+        resp = client.post(reverse("hub_event_photo_delete", args=[event.pk]), {"next": "/calendar/?tab=events"})
+        assert resp.status_code == 302
+        assert resp["Location"] == "/calendar/?tab=events"
+
     def it_needs_a_post(client: Client):
         _user_with_role("admin2", fog_role=Member.FogRole.ADMIN)
         event = _with_photo(guild=GuildFactory())

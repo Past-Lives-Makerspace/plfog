@@ -1398,9 +1398,10 @@ class MemberCapabilitiesForm(forms.Form):
     Each field renders as a labeled toggle (``components/toggle.html``) on the member
     edit Permissions tab. A capability is the master switch: holding it usually both
     routes the matching approval/alert emails to this member AND lets them act on that
-    object type, without granting full admin. Exceptions: Refunds is action-only
-    (routes nothing), Billing Administrator additionally gates the admin Payments
-    dashboard, and Webmaster is alert-only (a failed automation alert, no action).
+    object type, without granting full admin. Exceptions: Refunds and Can create events
+    are action-only (they route nothing), Billing Administrator additionally gates the
+    admin Payments dashboard, and Webmaster is alert-only (a failed automation alert, no
+    action).
     These are SITE-WIDE — per-guild lead/staff authority is managed on the guild's own
     Staff tab, not here.
 
@@ -1453,6 +1454,11 @@ class MemberCapabilitiesForm(forms.Form):
         label=AdminCapability.Capability.SPACE_MANAGER.label,
         help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.SPACE_MANAGER],
     )
+    cap_event_creator = forms.BooleanField(
+        required=False,
+        label=AdminCapability.Capability.EVENT_CREATOR.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.EVENT_CREATOR],
+    )
     cap_webmaster = forms.BooleanField(
         required=False,
         label=AdminCapability.Capability.WEBMASTER.label,
@@ -1470,6 +1476,7 @@ class MemberCapabilitiesForm(forms.Form):
         "cap_refunds": AdminCapability.Capability.REFUNDS,
         "cap_equipment": AdminCapability.Capability.EQUIPMENT,
         "cap_space_manager": AdminCapability.Capability.SPACE_MANAGER,
+        "cap_event_creator": AdminCapability.Capability.EVENT_CREATOR,
         "cap_webmaster": AdminCapability.Capability.WEBMASTER,
     }
 
@@ -3559,6 +3566,13 @@ class CommunityEventForm(forms.ModelForm):
     removed because the page *is* the guild; leave it out (the admin Events tab, Propose an
     event) and the picker appears, listing ``guild_choices``. The datetime widgets are copied
     from :class:`OrientationSlotForm`.
+
+    ``review_first`` is the composer for someone whose event is reviewed before it goes out
+    (a "Can create events" holder, or the author of a proposal still in the review loop):
+    the announce time, the reminders and the happening-now ping are the reviewer's call at
+    approval, so the fields are dropped, and the page reads ``saves_announce`` (False),
+    ``in_review`` (True) and ``submits_for_review`` (True) so the Save button promises a
+    submit, never an announcement.
     """
 
     #: The only two kinds anyone picks here. Studio hours keep their own editor on the guild
@@ -3622,6 +3636,7 @@ class CommunityEventForm(forms.ModelForm):
         guild: Guild | None = None,
         can_choose_audience: bool = False,
         guild_choices: QuerySet[Guild] | None = None,
+        review_first: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -3648,6 +3663,16 @@ class CommunityEventForm(forms.ModelForm):
             self.instance.pk is None or self.instance.moderation_state == CommunityEvent.ModerationState.SCHEDULED
         )
         self.in_review: bool = not (self.saves_announce or self.announced)
+        self.review_first: bool = review_first
+        self.submits_for_review: bool = review_first
+        if review_first:
+            # Approving is what announces, so the author is shown nothing about when: a new
+            # event would otherwise read as "Save and announce" (saves_announce is true for
+            # any unsaved row), and the send times would promise something the view will not do.
+            for name in ("publish_at", *(toggle for toggle, _days in EVENT_SEND_TOGGLES)):
+                del self.fields[name]
+            self.saves_announce = False
+            self.in_review = True
         self.fields["video_url"].label = "Video link"
         setup_location_field(self)
         # The free text keeps its own job beside the picker (#616): room details, an address or a link.

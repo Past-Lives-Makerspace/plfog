@@ -33,7 +33,7 @@ top of the propose page. Expects `my_proposals` in context. Absent when empty.
             </div>
             {% if p.moderation_state == "pending" or p.moderation_state == "changes_requested" %}
             <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
-                <a href="{% url 'hub_propose_event_edit' p.pk %}" class="hub-btn hub-btn--sm">Edit</a>
+                <a href="{% url 'hub_event_edit' p.pk %}" class="hub-btn hub-btn--sm">Edit</a>
                 <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                         @click="$dispatch('open-confirm', '{{ confirm_id }}')">Withdraw</button>
                 {% url 'hub_event_withdraw' p.pk as withdraw_url %}
