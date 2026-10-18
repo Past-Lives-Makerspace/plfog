@@ -488,6 +488,9 @@ class ShiftSignup(models.Model):
     an address once (``uq_shiftsignup_shift_email``).
     """
 
+    # The longest note Your Info accepts; the column is sized to it.
+    MAX_NOTE_LENGTH = 500
+
     shift = models.ForeignKey(
         VolunteerShift, on_delete=models.CASCADE, related_name="signups", help_text="The shift signed up for."
     )
@@ -503,7 +506,11 @@ class ShiftSignup(models.Model):
     email = models.EmailField(help_text="The person's email, lowercased; one address per shift.")
     phone = models.CharField(max_length=40, blank=True, help_text="A phone number, optional.")
     has_olcc = models.BooleanField(default=False, help_text="Whether they hold an Oregon OLCC service permit.")
-    note = models.TextField(blank=True, help_text="Anything they wanted the organisers to know.")
+    note = models.CharField(
+        max_length=MAX_NOTE_LENGTH,
+        blank=True,
+        help_text="Anything they wanted the organisers to know, up to 500 characters.",
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When they signed up.")
 
     class Meta:

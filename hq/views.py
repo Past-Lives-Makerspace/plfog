@@ -209,7 +209,9 @@ def _volunteers_page(
     if form is None:
         form = VolunteerInfoForm(initial=asdict(person) if person is not None else None)
     shifts = list(hub.shifts.with_counts())
-    can_organize = card.can_organize(member, is_admin=is_actual_admin(request))
+    # Rendering reads the effective role: an admin previewing as a guest sees no roster. The
+    # roster page and the CSV keep the actual role through organizer_required.
+    can_organize = card.can_organize(member, is_admin=is_admin)
     roster = services.roster_rows(hub) if can_organize else []
     return render(
         request,

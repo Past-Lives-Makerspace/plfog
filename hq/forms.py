@@ -15,7 +15,7 @@ from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.utils import timezone
 
 from core.validators import validate_image_content, validate_image_size
-from hq.models import EventHub, HubCard, HubGoal, VolunteerShift, WineBottle
+from hq.models import EventHub, HubCard, HubGoal, ShiftSignup, VolunteerShift, WineBottle
 from hq.services import VolunteerInfo
 from membership.models import CommunityEvent, Member
 
@@ -210,6 +210,7 @@ class VolunteerInfoForm(forms.Form):
     )
     note = forms.CharField(
         required=False,
+        max_length=ShiftSignup.MAX_NOTE_LENGTH,
         label="Anything we should know?",
         widget=forms.Textarea(attrs={"rows": 3}),
         help_text="Hours you can do, a skill, a friend you are coming with.",
@@ -261,6 +262,10 @@ class VolunteerShiftBaseFormSet(BaseInlineFormSet):
         super().clean()
         refused = []
         for form in self.deleted_forms:
+            if form.instance.pk is None:
+                # A Delete for a shift this hub no longer has (a stale page) or never had (a
+                # foreign pk): there is no row to guard, and save() skips it rather than deleting.
+                continue
             count = form.instance.signups.count()
             if count:
                 people = "1 person" if count == 1 else f"{count} people"
