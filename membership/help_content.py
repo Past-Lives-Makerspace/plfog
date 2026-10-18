@@ -629,6 +629,94 @@ Each guild also has its own calendar, on the **Guild Calendar** tab of its guild
         ],
     },
     # ------------------------------------------------------------------
+    # events-community / holiday-bizarre-hq (sort 15: right after the Calendar)
+    # ------------------------------------------------------------------
+    {
+        "slug": "holiday-bizarre-hq",
+        "category": "events-community",
+        "title": "Holiday Bizarre HQ",
+        "sort_order": 15,
+        "related": ["community-calendar"],
+        "body": """\
+The Holiday Bizarre HQ is the home page for the makerspace's December party. It gathers the parts of the event in one place: the guest list, the volunteer shifts, the wine wall, and the pages the organisers are still building.
+
+### Where It Lives {#hq-where}
+
+Click **Holiday Bizarre** in the left menu. The entry is there once an admin turns it on in Site Settings; while it reads **Coming soon**, hover it for a note. Once an HQ is open, the address `/hq/` takes anyone there, signed in or not.
+
+The top of the page shows the event's date and place, with a countdown to the night.
+
+### The Doors {#hq-door-cards}
+
+Each card on the page is a door into one part of the event. A card says who it is for, what is behind it, and has a button at the foot.
+
+- **Going to the Bizarre?** opens the event's page on the Calendar, where you RSVP.
+- **Volunteer Sign-up** opens the shifts.
+- **Log a wine bottle** opens the wine wall.
+- A greyed card reading **Not shared yet** is a page the organisers have not opened. It links nowhere.
+
+You only see the doors that are open to you. Every card starts as admins only; an admin opens it to members, to everyone, or to the people who run that part (see Editing the HQ below). If a door you expect is missing, sign in, or ask an admin.
+
+### The Goal Tracker {#hq-goal-tracker}
+
+Under the top band sits a row of goals, each with a meter. Goals that count people going, volunteer spots or bottles update themselves from the pages behind the doors. A money goal is typed in by an admin.
+
+### RSVP on the Event Page {#hq-rsvp}
+
+The **Going to the Bizarre?** door opens the event's page. Signed-in members click **I'm going** there; your name joins **Who's coming** and the count feeds the goal tracker. **I'm not going** takes it back.
+
+### Sign Up for a Shift {#hq-volunteer-shifts}
+
+Open the **Volunteer Sign-up** door. You do not need an account.
+
+1. Under **1. Your Info**, give your name and email. Phone and a note are optional. Tick the OLCC box if you hold an Oregon service permit (the bartending shifts need one). Click **Save my info**. As a guest, your info is remembered in this browser.
+2. Under **2. Pick Your Shifts**, find a shift and click **Sign Me Up**. The band at the top moves. A shift marked **Full** has no spots left; a bartending shift shows an **OLCC permit** chip.
+3. To take yourself off a shift, click **Remove Me** on it.
+
+Members: your name and email are filled in from your membership, so you can go straight to the shifts. Save step 1 only to add a phone, a note or your permit.
+
+One email holds one spot on a shift. Coming back on another device as a guest? Save your info with the same email and your sign-ups show again.
+
+### Log a Bottle {#hq-wine-wall}
+
+Open the **Log a wine bottle** door. It opens for the collectors an admin names, and for anyone else an admin opens it to. The band at the top shows the bottles so far against the goal, the value on the wall, and how many supporters have given.
+
+1. Click **Log a Bottle**.
+2. Fill in the bottle: what it is (red, white, champagne, cider or beer), the name on the label, the winery, what one bottle is worth in dollars, and how many came in.
+3. Under **Who Gave It**, add the giver's name and what kind of giver they are. Their email and whether they want a sponsor listing are optional, and stay with the organisers.
+4. Under **For the Wall**, the credited volunteer starts as your name. Add a photo if you have one (a phone photo is fine) and a note. The note shows to you and the organisers only.
+5. Click **Add bottle**.
+
+Your bottle joins **All Bottles**, and its winery joins **Wineries, Cideries and Breweries**. **Delete** on a bottle takes off one you logged; organisers can delete any bottle. As a guest, save your info on the volunteer page first so the wall knows a bottle is yours.
+
+### Organiser Tools {#hq-organiser-tools}
+
+Admins and the people named on a card run what is behind it.
+
+- **Roster**: at the foot of the volunteer page, and on its own page, everyone signed up with their shifts, email, phone, permit and note. **Copy emails** puts every address on your clipboard. **Download CSV** gives one row per person per shift.
+- **Wine Donors to Thank**: at the foot of the wine wall, and on its own page, every giver with their type, email, sponsor listing, bottles and who logged them. **Copy donor emails** and **Download CSV** work the same way, one row per giver.
+- **Add a Logo**: on the wine wall, organisers upload a logo for any winery named on a bottle. A new logo replaces the one under the same name.
+
+### Editing the HQ (Admins) {#hq-edit}
+
+Admins see an **Edit HQ** button at the top of the page and an **Edit** link under each card.
+
+**Edit HQ** sets the page: the title, the address, the eyebrow line, the calendar event (its date and place fill the top band), the hero image, the intro, the footer note, and the goals. The **Open** switch is what puts the HQ behind the sidebar entry and `/hq/`; only one HQ can be open at a time. A closed HQ is reachable by admins only, so you can build it before anyone sees it.
+
+**Edit** on a card sets the words on it, who may open it, and its place in the order:
+
+- **Who May Open It**: **Admins only** (the default), **Members** (signed-in active members), or **Everyone, signed in or not**.
+- **Named members**: people who may open the card whatever its audience, and who get the organiser tools behind it. Click **Edit** on the row, tick names, then **Done**.
+- **Hidden** keeps the card to admins, with a Hidden chip.
+- **Move up** and **Move down** change the order on the page.
+
+The **Volunteer Sign-up** card's page also carries the shifts: add one, change what it says or how many people it needs, or delete one nobody has signed up for.
+
+The sidebar entry's switch is at **Site Settings > Features**.
+""",
+        "screenshots": [],
+    },
+    # ------------------------------------------------------------------
     # events-community / propose-an-event (sort 20)
     # ------------------------------------------------------------------
     {

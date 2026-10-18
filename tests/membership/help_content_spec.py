@@ -105,6 +105,7 @@ def describe_help_content():
                 "guild-voting": "guilds",
                 "taking-a-class": "classes",
                 "community-calendar": "events-community",
+                "holiday-bizarre-hq": "events-community",
                 "propose-an-event": "events-community",
                 "announcements": "events-community",
                 "member-directory": "events-community",
