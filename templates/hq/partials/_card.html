@@ -1,0 +1,46 @@
+{% comment %}
+One door on the HQ page.
+
+  card     — required, a HubCard (named_members prefetched by the view)
+  hub      — required, its EventHub
+  can_edit — True renders the admin line under the card: the audience, a Hidden chip and Edit
+
+A card with somewhere to go is one <a>, the whole tile. A placeholder, and a live kind whose
+page has not shipped yet (card.url is ""), is a <div> that reads Not shared yet and links
+nowhere, so a visitor never lands on a broken link. The admin line sits outside the tile,
+because an anchor cannot hold another anchor.
+{% endcomment %}
+{% with url=card.url %}
+<div class="pl-hq-door{% if card.is_hidden %} pl-hq-door--hidden{% endif %}" data-hq-card="{{ card.kind }}" data-hq-card-pk="{{ card.pk }}">
+  {% if url %}
+  <a href="{{ url }}" class="hub-card pl-tool-card pl-hq-card" data-hq-card-link>
+    {% if card.who_for %}<span class="pl-hq-card__who">{{ card.who_for }}</span>{% endif %}
+    <span class="pl-tool-card__title pl-hq-card__title">{{ card.title }}</span>
+    {% if card.bullet_lines %}
+    <ul class="pl-hq-card__bullets">
+      {% for line in card.bullet_lines %}<li>{{ line }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    <span class="pl-hq-card__button">{{ card.button_text }}</span>
+  </a>
+  {% else %}
+  <div class="hub-card pl-tool-card pl-hq-card pl-hq-card--placeholder" data-hq-card-placeholder>
+    {% if card.who_for %}<span class="pl-hq-card__who">{{ card.who_for }}</span>{% endif %}
+    <span class="pl-tool-card__title pl-hq-card__title">{{ card.title }}</span>
+    {% if card.bullet_lines %}
+    <ul class="pl-hq-card__bullets">
+      {% for line in card.bullet_lines %}<li>{{ line }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    <span class="pl-hq-card__soon">Not shared yet</span>
+  </div>
+  {% endif %}
+  {% if can_edit %}
+  <div class="pl-hq-door__admin">
+    <span class="pl-hq-door__audience">{{ card.get_audience_display }}{% if card.named_members.all %} · {{ card.named_members.all|length }} named{% endif %}</span>
+    {% if card.is_hidden %}<span class="hub-badge pl-hq-chip--hidden" data-hq-hidden-chip>Hidden</span>{% endif %}
+    <a href="{% url 'hq:card_edit' hub.slug card.pk %}" class="pl-hq-door__edit" data-hq-card-edit>Edit</a>
+  </div>
+  {% endif %}
+</div>
+{% endwith %}

@@ -1,0 +1,391 @@
+/* The Holiday Bizarre HQ (Track C): the HQ page and its two edit pages. Loaded from each
+   page's extra_head on top of hub.css and components.css. Every color is a hub token, so the
+   page follows the theme; the hero band is the brand navy in both themes on purpose, with the
+   cream and gold the brand already pairs with it. */
+
+/* ---- Page ---- */
+.pl-hq {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.pl-hq-adminbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 1rem;
+  border: 1px dashed var(--hub-border-strong);
+  border-radius: 10px;
+  color: var(--hub-text-muted);
+  font-size: 0.875rem;
+}
+
+/* ---- Hero band ---- */
+.pl-hq-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 2.5rem 2rem;
+  border-radius: 14px;
+  background: radial-gradient(120% 140% at 10% 0%, #164a73 0%, var(--color-navy) 55%, #061f33 100%);
+  box-shadow: inset 0 0 0 1px rgba(238, 180, 75, 0.55);
+  color: var(--color-cream);
+}
+.pl-hq-hero__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.35;
+}
+.pl-hq-hero--photo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(9, 46, 76, 0.92) 0%, rgba(9, 46, 76, 0.55) 60%, rgba(9, 46, 76, 0.25) 100%);
+}
+.pl-hq-hero__text,
+.pl-hq-hero__countdown {
+  position: relative;
+  z-index: 1;
+}
+.pl-hq-hero__text {
+  flex: 1 1 24rem;
+  min-width: 0;
+}
+.pl-hq-hero__eyebrow {
+  margin: 0 0 0.5rem;
+  color: var(--color-tuscan-yellow);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.pl-hq-hero__title {
+  margin: 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 800;
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1.1;
+  color: var(--color-cream);
+}
+.pl-hq-hero__date {
+  margin: 0.75rem 0 0;
+  font-size: 1.0625rem;
+  color: rgba(244, 239, 221, 0.85);
+}
+.pl-hq-hero__countdown {
+  margin: 0;
+  flex: 0 0 auto;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 700;
+  font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--color-tuscan-yellow);
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .pl-hq-hero {
+    padding: 2rem 1.25rem;
+  }
+}
+
+.pl-hq-intro {
+  max-width: 68ch;
+  color: var(--hub-text);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+}
+.pl-hq-intro p + p {
+  margin-top: 0.75rem;
+}
+
+/* ---- Sections ---- */
+.pl-hq-section__title {
+  margin: 0 0 1rem;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-tuscan-yellow);
+  text-transform: capitalize;
+}
+.pl-hq-empty {
+  margin: 0;
+  color: var(--hub-text-muted);
+  font-size: 0.9375rem;
+}
+
+/* ---- Goal band ---- */
+.pl-hq-goals__chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 1rem;
+}
+.pl-hq-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--hub-card-border);
+  border-radius: 12px;
+  background: var(--hub-card-bg);
+}
+.pl-hq-goal__label {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hub-text-muted);
+}
+.pl-hq-goal__figure {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-variant-numeric: tabular-nums;
+}
+.pl-hq-goal__current {
+  font-size: 1.75rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--hub-text);
+}
+.pl-hq-goal__of {
+  font-size: 0.9375rem;
+  color: var(--hub-text-muted);
+}
+.pl-hq-meter {
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin-top: 0.25rem;
+  border: none;
+  border-radius: 999px;
+  background-color: var(--hub-surface);
+  appearance: none;
+  overflow: hidden;
+}
+.pl-hq-meter::-webkit-progress-bar {
+  background-color: var(--hub-surface);
+}
+.pl-hq-meter::-webkit-progress-value {
+  background-color: var(--color-tuscan-yellow);
+  border-radius: 999px;
+}
+.pl-hq-meter::-moz-progress-bar {
+  background-color: var(--color-tuscan-yellow);
+  border-radius: 999px;
+}
+
+/* ---- Door cards ---- */
+.pl-hq-grid {
+  margin-top: 0;
+}
+.pl-hq-door {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.pl-hq-card {
+  height: 100%;
+  gap: 0.5rem;
+}
+.pl-hq-card__who {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-tuscan-yellow);
+}
+.pl-hq-card__title {
+  font-size: 1.15rem;
+}
+.pl-hq-card__bullets {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--hub-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.pl-hq-card__bullets li + li {
+  margin-top: 0.2rem;
+}
+.pl-hq-card__button,
+.pl-hq-card__soon {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  font-weight: 700;
+  font-size: 0.9375rem;
+}
+.pl-hq-card__button {
+  color: var(--color-tuscan-yellow);
+}
+.pl-hq-card__button::after {
+  content: " \2192";
+}
+.pl-hq-card__soon {
+  color: var(--hub-text-muted);
+}
+/* A placeholder is a tile, not a door: greyed, dashed, and nothing lifts on hover. */
+.pl-hq-card--placeholder {
+  border-style: dashed;
+  border-color: var(--hub-border-strong);
+  background: var(--hub-surface);
+  opacity: 0.75;
+  cursor: default;
+}
+.pl-hq-card--placeholder:hover {
+  border-color: var(--hub-border-strong);
+  transform: none;
+  box-shadow: none;
+}
+.pl-hq-card--placeholder .pl-hq-card__who,
+.pl-hq-card--placeholder .pl-hq-card__title {
+  color: var(--hub-text-muted);
+}
+.pl-hq-door--hidden .pl-hq-card {
+  opacity: 0.55;
+}
+.pl-hq-door__admin {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--hub-text-muted);
+}
+.pl-hq-door__audience {
+  flex: 1 1 auto;
+}
+.pl-hq-chip--hidden {
+  background-color: rgba(139, 151, 168, 0.18);
+  color: var(--hub-text-muted);
+}
+.pl-hq-door__edit {
+  font-weight: 700;
+  color: var(--color-tuscan-yellow);
+}
+
+.pl-hq-footnote {
+  margin: 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--hub-border);
+  color: var(--hub-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+/* ---- Edit pages ---- */
+.pl-hq-edit {
+  display: flex;
+  flex-direction: column;
+}
+.pl-hq-edit__card {
+  margin-bottom: 1.5rem;
+  padding: 1.5rem;
+}
+.pl-hq-edit__title {
+  margin: 0 0 1rem;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--color-tuscan-yellow);
+  text-transform: capitalize;
+}
+.pl-hq-edit__lead {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+}
+.pl-hq-edit__add {
+  margin-top: 1rem;
+}
+.pl-hq-edit__toggle-errors {
+  margin-top: 0.75rem;
+}
+.pl-hq-edit__actions {
+  margin-top: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.pl-hq-goal-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.pl-hq-goal-rows__empty {
+  margin: 0;
+}
+.pl-hq-goal-row {
+  padding: 1rem;
+  border: 1px solid var(--hub-border);
+  border-radius: 10px;
+  background: var(--hub-surface);
+}
+.pl-hq-goal-row__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0 1rem;
+}
+
+.pl-hq-move {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* The named members row: collapsed to pills and an Edit button, expanding to the checklist. */
+.pl-hq-named {
+  margin-top: 1.5rem;
+}
+.pl-hq-named__summary {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.pl-hq-named__label {
+  margin: 0;
+}
+.pl-hq-named__pills {
+  display: flex;
+  flex: 1 1 12rem;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.pl-hq-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.65rem;
+  border: 1px solid var(--hub-border);
+  border-radius: 999px;
+  background: var(--hub-elevated);
+  font-size: 0.8125rem;
+  color: var(--hub-text);
+}
+.pl-hq-named__none {
+  font-size: 0.875rem;
+  color: var(--hub-text-muted);
+}
+.pl-hq-named__body {
+  margin-top: 0.75rem;
+}
+.pl-hq-named__hint {
+  margin: 0 0 0.75rem;
+}
+.pl-hq-named__search {
+  margin-bottom: 0.75rem;
+}
+.pl-hq-named__email {
+  margin-left: 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--hub-text-muted);
+}
