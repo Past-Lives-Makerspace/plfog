@@ -61,8 +61,8 @@ cannot drift apart.
         {% endif %}
         {% endif %}
         {% include "hub/partials/_wiki_report_control.html" with control_id="wiki-report-control" %}
-        {% comment %}Desktop only: on a phone the action bar's menu carries the same items, and two More menus on one screen read as a bug.{% endcomment %}
-        <div class="pl-wp-actions__more">{% include "components/row_actions.html" with menu_include="hub/partials/_wiki_page_more_menu.html" menu_label="More actions for this page" menu_trigger_text="More" menu_trigger_class="pl-btn pl-btn--sm pl-btn--ghost" %}</div>
+        {% comment %}Desktop only when the phone action bar renders: its menu carries the same items, and two More menus on one screen read as a bug. A reader with no bar keeps this one, or Print would be gone on a phone.{% endcomment %}
+        <div class="pl-wp-actions__more{% if show_actionbar %} pl-wp-actions__more--bar{% endif %}">{% include "components/row_actions.html" with menu_include="hub/partials/_wiki_page_more_menu.html" menu_label="More actions for this page" menu_trigger_text="More" menu_trigger_class="pl-btn pl-btn--sm pl-btn--ghost" %}</div>
         {% if can_moderate %}{% include "hub/partials/_wiki_moderation_actions.html" %}{% endif %}
     </div>
     {% endif %}

@@ -23,12 +23,16 @@ def _wiki_on(db):
     turn_on("wiki")
 
 
-def _login(client: Client, username: str, *, status: str = Member.Status.ACTIVE) -> User:
+def _login(
+    client: Client, username: str, *, status: str = Member.Status.ACTIVE, fog_role: str = Member.FogRole.MEMBER
+) -> User:
     MembershipPlanFactory()
     user = User.objects.create_user(username=username, password="pass")
     member = user.member
     member.status = status
+    member.fog_role = fog_role
     member.save()
+    member.sync_user_permissions()
     client.login(username=username, password="pass")
     return user
 
@@ -81,6 +85,16 @@ def describe_the_wiki_home():
     def it_leaves_out_an_unpublished_stub(client: Client):
         _login(client, "waiting_unpublished")
         WikiPageFactory(title="Held For A Read", seeded=True, is_published=False)
+        assert _home(client).context["waiting_pages"] == []
+
+    def it_leaves_out_an_archived_stub_even_for_staff_who_can_see_it(client: Client):
+        _login(client, "waiting_archived", fog_role=Member.FogRole.ADMIN)
+        WikiPageFactory(title="Unwanted Starter", seeded=True, archived=True)
+        assert _home(client).context["waiting_pages"] == []
+
+    def it_leaves_out_machine_stubs_which_the_machines_card_lists(client: Client):
+        _login(client, "waiting_machine")
+        WikiPageFactory(title="Table Saw", kind=WikiPage.Kind.MACHINE, seeded=True)
         assert _home(client).context["waiting_pages"] == []
 
     def it_follows_the_filters(client: Client):

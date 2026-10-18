@@ -17899,9 +17899,9 @@ class WikiPageQuerySet(models.QuerySet["WikiPage"]):
     def written(self) -> Self:
         """Pages a person has edited (``body_edited_at`` is set), so the seeders' stubs drop out.
 
-        ``has_written_body`` also needs a non-empty body; a person who saved an empty page
-        still counts here, because the list is about who has been editing, not what is in it. Listing them under Recently Updated told members a
-        page had news on the day a command created it, and nobody had written a word.
+        Listing stubs under Recently Updated told members a page had news on the day a command
+        created it. ``has_written_body`` also needs a non-empty body; this does not, because
+        the list is about who has been editing, not what is in the page.
         """
         return self.filter(body_edited_at__isnull=False)
 

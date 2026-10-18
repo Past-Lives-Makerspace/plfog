@@ -40,7 +40,7 @@ def _header(client: Client, page) -> str:
 
 
 def _more_menu(header: str) -> str:
-    return header.split('class="pl-wp-actions__more"', 1)[1]
+    return header.split('class="pl-wp-actions__more', 1)[1]
 
 
 def describe_the_reading_page_header():
@@ -74,3 +74,17 @@ def describe_the_reading_page_header():
         page = WikiPageFactory(title="Ripping Boards")
         html = client.get(page.get_absolute_url()).content.decode()
         assert "Type ARCHIVE to confirm" in html
+
+    def it_hides_the_desktop_more_menu_on_a_phone_only_when_the_action_bar_carries_it(client: Client):
+        _login(client, "actions_bar")
+        page = WikiPageFactory(title="Ripping Boards")
+        assert 'class="pl-wp-actions__more pl-wp-actions__more--bar"' in _header(client, page)
+
+    def it_keeps_the_more_menu_for_a_phone_reader_with_no_action_bar(client: Client):
+        user = _login(client, "actions_nobar")
+        user.member.status = Member.Status.INVITED
+        user.member.save()
+        page = WikiPageFactory(title="Ripping Boards")
+        header = _header(client, page)
+        assert 'class="pl-wp-actions__more">' in header
+        assert "Print / Save PDF" in _more_menu(header)

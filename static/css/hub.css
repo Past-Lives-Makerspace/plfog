@@ -10807,7 +10807,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-header { flex-direction: column; }
     .pl-wp-actions { width: 100%; }
     .pl-wp-actions .pl-btn, .pl-wp-actions .hub-btn { min-height: 48px; }
-    .pl-wp-actions__more { display: none; }
+    .pl-wp-actions__more--bar { display: none; }
 }
 
 /* The editor. */

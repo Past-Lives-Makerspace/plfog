@@ -265,12 +265,15 @@ def hub_wiki_home(request: HttpRequest) -> HttpResponse:
     can_write = _active_member(request) is not None
     waiting_pages = (
         # Space-wide pages first (nulls_first, because Postgres and SQLite sort a null guild
-        # at opposite ends), then each guild's: machines already have the card below.
+        # at opposite ends), then each guild's.
         # Official pages are left out: every link here opens the editor, and a member has none
-        # on an Official page.
+        # on an Official page. Archived pages are left out because staff see them in `cards`,
+        # and machines because the Machines card below already lists every one.
         list(
             cards.unwritten()
             .published()
+            .not_archived()
+            .exclude(kind=WikiPage.Kind.MACHINE)
             .exclude(status=WikiPage.Status.OFFICIAL)
             .order_by(F("guild__name").asc(nulls_first=True), "title")[:_HOME_WAITING_LIMIT]
         )
