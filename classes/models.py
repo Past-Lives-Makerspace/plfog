@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import logging
 import re
 import secrets
@@ -19,7 +18,6 @@ from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.core.files.base import ContentFile
 from django.core.validators import MaxValueValidator
 from django.db import IntegrityError, models, transaction
 from django.db.models import (
@@ -43,13 +41,13 @@ from django.utils.formats import date_format
 from django.utils.html import strip_tags
 from django.utils.safestring import SafeString, mark_safe
 from django.utils.timezone import localtime
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import UnidentifiedImageError
 
 from classes.eventbrite_categories import EventbriteCategory, EventbriteSubcategory
 from core.files import delete_orphan_on_replace
 from core.html_sanitize import is_editor_html, rich_body_to_text, rich_html_to_text
-from core.images import normalize_field_if_uploaded
-from core.models import HeroCropMixin
+from core.images import cut_hero_crop, normalize_field_if_uploaded
+from core.models import HERO_CROP_FIELDS, HeroCropMixin
 from core.validators import validate_image_content, validate_image_size
 from membership.names import user_name_or_email
 
@@ -246,9 +244,8 @@ CLASS_IMAGE_PREFIX = "classes/images/"
 # same post (and clones, which carry the key across) share one object.
 VIDEO_THUMBNAIL_PREFIX = "classes/video-thumbnails/"
 
-# The four columns the composer's crop box (or the Adjust tool's focal point) lives in.
-# ``ClassOffering.save()`` reads them from the stored row to tell whether the box moved.
-HERO_CROP_FIELDS = ("hero_crop_x", "hero_crop_y", "hero_crop_w", "hero_crop_h")
+# ``HERO_CROP_FIELDS`` (the four crop columns ``save()`` compares against the stored row) now
+# lives in ``core.models`` beside the mixin, shared with the event hero; imported above.
 
 # Ceiling on how much of the live legacy catalog a single sync run may archive. Above
 # this, ``ClassOfferingQuerySet.archive_missing_from_legacy_feed`` refuses to act and logs
@@ -1189,11 +1186,6 @@ class ClassOffering(HeroCropMixin, models.Model):
         return "image"
 
     @property
-    def hero_crop_box(self) -> tuple[int | None, int | None, int | None, int | None]:
-        """The four crop columns as one value, so a row can be compared with its stored state."""
-        return (self.hero_crop_x, self.hero_crop_y, self.hero_crop_w, self.hero_crop_h)
-
-    @property
     def hero_object_position(self) -> str:
         """CSS ``object-position`` for the photo :attr:`hero_image_url` returns.
 
@@ -1286,46 +1278,30 @@ class ClassOffering(HeroCropMixin, models.Model):
         """Cut ``hero_cropped``, the hero image inside the crop box, or clear it.
 
         The composer stores the box as pixels on the uploaded file, so this cuts exactly
-        that rectangle (clamped to the image's edges) with Pillow, keeps the source
-        format (JPEG at quality 88, PNG as is, anything else as JPEG) and stores the
-        result through the field's storage under ``classes/hero-crops/``, so the same
-        code serves the local filesystem and R2. With no uploaded image, no real box (the
-        Adjust tool's focal point has width and height 0), a box that lies off the image
-        or a file Pillow cannot read, the copy is cleared instead: every surface then
-        shows the original again. Writes storage only; the caller saves the row.
+        that rectangle (:func:`core.images.cut_hero_crop`, shared with the event hero:
+        clamped to the image's edges, the source format kept) and stores the result
+        through the field's storage under ``classes/hero-crops/``, so the same code serves
+        the local filesystem and R2. With no uploaded image, no real box (the Adjust
+        tool's focal point has width and height 0), a box that lies off the image or a
+        file Pillow cannot read, the copy is cleared instead: every surface then shows
+        the original again. Writes storage only; the caller saves the row.
         """
         if not (self.image and self.hero_crop_w and self.hero_crop_h):
             self.hero_cropped = ""
             return
+        assert self.image.name  # a truthy FieldFile is one with a name, checked above
+        box = (self.hero_crop_x or 0, self.hero_crop_y or 0, self.hero_crop_w, self.hero_crop_h)
         try:
-            opened = Image.open(io.BytesIO(self._hero_source_bytes()))
-            source_format = opened.format
-            img: Image.Image = ImageOps.exif_transpose(opened) or opened
+            copy = cut_hero_crop(self._hero_source_bytes(), box, stem=Path(self.image.name).stem)
         except (UnidentifiedImageError, OSError, ValueError) as exc:
             logger.warning("hero crop skipped for ClassOffering %s: %s", self.pk, exc)
             self.hero_cropped = ""
             return
-        src_w, src_h = img.size
-        left = min(self.hero_crop_x or 0, src_w)
-        top = min(self.hero_crop_y or 0, src_h)
-        right = min(left + self.hero_crop_w, src_w)
-        bottom = min(top + self.hero_crop_h, src_h)
-        if right <= left or bottom <= top:
+        if copy is None:
             self.hero_cropped = ""
             return
-        cropped = img.crop((left, top, right, bottom))
-        buffer = io.BytesIO()
-        if source_format == "PNG":
-            cropped.save(buffer, format="PNG")
-            ext = "png"
-        else:
-            if cropped.mode != "RGB":
-                cropped = cropped.convert("RGB")
-            cropped.save(buffer, format="JPEG", quality=88, optimize=True)
-            ext = "jpg"
-        assert self.image.name  # a truthy FieldFile is one with a name, checked above
-        name = f"{Path(self.image.name).stem}-crop.{ext}"
-        self.hero_cropped.save(name, ContentFile(buffer.getvalue()), save=False)
+        assert copy.name  # cut_hero_crop names its file
+        self.hero_cropped.save(copy.name, copy, save=False)
 
     def _sync_hero_crop_copy(self, old: ClassOffering | None, image_changed: bool) -> bool:
         """Cut or drop the cropped copy when the box or the image changed; True when it did.

@@ -7,6 +7,7 @@ from . import (
     door_code_views,
     equipment_views,
     event_admin_views,
+    event_media_views,
     feedback_views,
     growth_views,
     leadership_views,
@@ -756,6 +757,14 @@ urlpatterns = [
     path("events/send-toggles/", views.event_send_toggles, name="hub_event_send_toggles"),
     # Shared by all three composers — the photo field's own delete endpoint.
     path("events/<int:event_pk>/photo/delete/", views.event_photo_delete, name="hub_event_photo_delete"),
+    # The hero upload and the gallery routes the composers' photo tools post to (#831 part 3),
+    # the shapes of their class twins; gated by can_edit_event on the event.
+    path("events/<int:pk>/hero/upload/", event_media_views.event_hero_upload, name="hub_event_hero_upload"),
+    path("events/<int:pk>/images/upload/", event_media_views.event_image_upload, name="hub_event_image_upload"),
+    path("events/<int:pk>/images/reorder/", event_media_views.event_image_reorder, name="hub_event_image_reorder"),
+    path("events/images/<int:pk>/delete/", event_media_views.event_image_delete, name="hub_event_image_delete"),
+    path("events/images/<int:pk>/alt/", event_media_views.event_image_alt, name="hub_event_image_alt"),
+    path("events/images/<int:pk>/focus/", event_media_views.event_image_focus, name="hub_event_image_focus"),
     # Member event proposals + reviewer queue.
     path("events/propose/", views.propose_event, name="hub_propose_event"),
     path("events/propose/<int:pk>/edit/", views.propose_event_edit, name="hub_propose_event_edit"),

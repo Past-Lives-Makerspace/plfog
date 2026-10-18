@@ -1,4 +1,5 @@
 {% extends "hub/base.html" %}
+{% load rich_text classes_tags %}
 {% comment %}
 Public event detail page — the canonical link a QR/flyer/signage resolves to. Extends
 hub/base.html, which auto-degrades for an anonymous visitor (public topbar, no sidebar) and
@@ -18,7 +19,8 @@ rest via templates/404.html). Add-to-calendar works logged-out.
     {% endcomment %}
     <div class="pl-event-detail__hero{% if event.photo %} pl-event-detail__hero--photo{% endif %}">
       {% if event.photo %}
-      <img class="pl-event-detail__hero-img" src="{{ event.photo.url }}" alt="">
+      {# The copy cut to the composer's crop box when there is one (CommunityEvent.hero_image_url), centred on it. #}
+      <img class="pl-event-detail__hero-img" src="{{ event.hero_image_url }}" alt="" style="object-position: {{ event.hero_object_position }}">
       <span class="pl-event-detail__hero-shade" aria-hidden="true"></span>
       {% endif %}
       <div class="pl-event-detail__hero-text">
@@ -58,8 +60,28 @@ rest via templates/404.html). Add-to-calendar works logged-out.
     {% endif %}
 
     {% if event.description %}
-    <div class="pl-event-detail__description">{{ event.description|linebreaks }}</div>
+    {# Editor HTML sanitized, or a description from before the editor as escaped paragraphs (core.html_sanitize.render_rich_body). #}
+    <div class="pl-event-detail__description pl-rich-body">{{ event.description|rich_body }}</div>
     {% endif %}
+
+    {# The gallery, the class page's component over the event's rows; nothing at all without any. #}
+    {% with gallery=event.gallery_display_images %}
+    {% if gallery %}
+    <div class="pl-event-detail__gallery" data-event-gallery>
+      {% include "classes/_components/gallery.html" with offering=event images=gallery aria_label="Event photos" %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    {# The promo video: a YouTube embed, or a card that opens an Instagram or Facebook post. Unrecognised renders nothing. #}
+    {% with video=event.promo_video_url|video_link %}
+    {% if video %}
+    <div class="pl-event-detail__video" data-event-video>
+      <h2 class="pl-event-detail__attendees-heading">Watch</h2>
+      {% include "components/video_embed.html" with video=video title=event.title|add:" promo video" frame_class="pl-guild-video" %}
+    </div>
+    {% endif %}
+    {% endwith %}
 
     {% comment %}
     Who's coming: the count shows for everyone, names only for a signed-in member (an

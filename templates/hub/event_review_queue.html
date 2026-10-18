@@ -1,4 +1,5 @@
 {% extends "hub/base.html" %}
+{% load rich_text %}
 {% block title %}Events awaiting review — Past Lives Makerspace{% endblock %}
 {% block content %}
 <div x-data="{}"
@@ -23,7 +24,8 @@
             Proposed by {{ event.submitted_by.get_full_name|default:event.submitted_by.username }} · {{ event.guild.name|default:"Site-wide" }} · {{ event.starts_at|date:"D, M j · g:i A" }}
           </div>
           {% if event.description %}
-          <p style="margin:0.5rem 0 0; font-size:0.875rem;">{{ event.description }}</p>
+          {# Editor HTML sanitized, or a plain description as paragraphs (core.html_sanitize.render_rich_body). #}
+          <div class="pl-rich-body pl-rich-body--compact" data-event-description>{{ event.description|rich_body }}</div>
           {% endif %}
         </div>
 
