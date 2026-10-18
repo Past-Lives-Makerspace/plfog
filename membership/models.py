@@ -8006,6 +8006,15 @@ class InvalidEventTransition(ValueError):
     that does not permit it (e.g. approving an already-declined proposal)."""
 
 
+class EventUnpublishError(Exception):
+    """Raised by :meth:`CommunityEvent.unpublish` when a remote copy could not be removed.
+
+    The event stays PUBLISHED with the failing side's ids kept and its sync state FAILED,
+    so Retry sync and a second Unpublish both still have something to work on; the message
+    names the service that refused.
+    """
+
+
 class CommunityEvent(HeroCropMixin, models.Model):
     """A FOG-native event on the Calendar (a guild meeting/event, a site-wide
     community event, or the cross-guild Guild Lead Meeting).
@@ -9112,9 +9121,15 @@ class CommunityEvent(HeroCropMixin, models.Model):
 
         Fires the one-shot announcement (idempotent via its ``period``), then
         :meth:`push_live`. Called by :meth:`approve` and by the direct-create views.
+
+        A draft that was published before still carries its announcement message, whose
+        RSVP and Manage buttons :meth:`unpublish` stripped; the announcer skips it on the
+        kept stamp, so the buttons come back here, through the refresh path.
         """
         self.announce(actor=actor)
         self.push_live(actor=actor)
+        if self.discord_announce_message_id:
+            self.refresh_discord_announcement(restore_buttons=True)
 
     def push_live(self, *, actor: User | None = None) -> None:
         """Push a live event to Google Calendar and Discord Events, without announcing it.
@@ -9167,15 +9182,18 @@ class CommunityEvent(HeroCropMixin, models.Model):
 
     # --- Manage Events: duplicate and unpublish --------------------------------
 
-    #: The sync bookkeeping a copy starts without and an unpublish clears: nothing on Google
-    #: or Discord belongs to the row any more.
-    _SYNC_RESET: dict[str, Any] = {
+    #: The Google sync bookkeeping a copy starts without and a successful removal clears.
+    _GOOGLE_SYNC_RESET: dict[str, Any] = {
         "google_event_id": "",
         "google_calendar_id": "",
         "google_ical_uid": "",
         "sync_state": SyncState.IDLE,
         "sync_error": "",
         "synced_at": None,
+    }
+
+    #: The Discord sync bookkeeping, likewise.
+    _DISCORD_SYNC_RESET: dict[str, Any] = {
         "discord_event_id": "",
         "discord_sync_state": SyncState.IDLE,
         "discord_sync_error": "",
@@ -9183,6 +9201,14 @@ class CommunityEvent(HeroCropMixin, models.Model):
         "discord_pushed_occurrence": None,
         "discord_pushed_start": None,
     }
+
+    #: Both together: nothing on Google or Discord belongs to the row any more.
+    _SYNC_RESET: dict[str, Any] = {**_GOOGLE_SYNC_RESET, **_DISCORD_SYNC_RESET}
+
+    #: Discord's error carries only its message ("Discord API 404: ..."), so a Scheduled Event
+    #: someone deleted by hand is recognised there; Google's wraps the HTTP status, which
+    #: ``core.integrations.google_calendar._is_gone`` reads.
+    _DISCORD_COPY_GONE = re.compile(r"^Discord API 404\b")
 
     def duplicate(self, *, by: User) -> CommunityEvent:
         """Copy this event as a fresh DRAFT the way :meth:`ClassOffering.duplicate` copies a class.
@@ -9246,15 +9272,65 @@ class CommunityEvent(HeroCropMixin, models.Model):
         )
         return copy
 
+    def _remove_google_copy_strictly(self) -> bool:
+        """Delete this event's Google copy, or record why not.
+
+        Unlike the best-effort :meth:`remove_from_google` a delete uses (the FOG row is about
+        to go either way), an unpublish needs the truth: a copy left on Google would reappear
+        on the member calendar through the feed echo once ``pushed()`` stopped de-duping its
+        uid, with nothing left to retry. A copy already gone (a 404 or 410, read off the
+        wrapped status the way the push service does) counts as removed. Nothing to remove
+        (sync off, or never pushed) is also success.
+
+        Returns:
+            True when nothing of this event is on Google any more; False after recording
+            ``FAILED`` and the reason on the Google sync fields.
+        """
+        from core.integrations.google_calendar import GoogleCalendarClient, GoogleCalendarError, _is_gone
+
+        client = GoogleCalendarClient.from_settings()
+        if client.enabled and self.google_event_id and self.google_calendar_id:
+            try:
+                client.delete_event(self.google_calendar_id, self.google_event_id)
+            except GoogleCalendarError as exc:
+                if not _is_gone(exc):
+                    self.sync_state = self.SyncState.FAILED
+                    self.sync_error = f"Could not remove it from Google Calendar: {exc}"
+                    return False
+        return True
+
+    def _remove_discord_copy_strictly(self) -> bool:
+        """Delete this event's Discord Scheduled Event, or record why not (see the Google twin)."""
+        from core.integrations.discord_events import DiscordEventsError, DiscordScheduledEventsClient
+
+        client = DiscordScheduledEventsClient.from_settings()
+        if client.enabled and self.discord_event_id:
+            try:
+                client.delete_event(client.server_id, self.discord_event_id)
+            except DiscordEventsError as exc:
+                if not self._DISCORD_COPY_GONE.search(str(exc)):
+                    self.discord_sync_state = self.SyncState.FAILED
+                    self.discord_sync_error = f"Could not remove it from Discord: {exc}"
+                    return False
+        return True
+
     def unpublish(self, *, actor: User) -> None:
         """Take a live event down to a DRAFT: off the Calendar, Google and Discord, kept for later.
 
-        Removes the Google and Discord events, strips the RSVP and Manage buttons off the
-        announcement message (the way a delete does, so a dead event stops inviting clicks)
-        and resets both syncs to IDLE with their ids blank, so publishing it again pushes it
-        afresh. ``channel_announced_at`` and the announcement message ids are kept on purpose:
-        the launch announcement already went out, and the ``period`` on :meth:`announce` plus
-        the announcer's stamp are what stop a second one, so re-publishing re-syncs but never
+        Both remote copies are removed first, and only when both are gone does the row move:
+        the RSVP and Manage buttons come off the announcement message (the way a delete does,
+        so a dead event stops inviting clicks), both syncs reset to IDLE with their ids blank
+        so publishing it again pushes it afresh, ``publish_at`` is cleared (the draft goes
+        back out on save, never on a schedule that already passed, which the composer would
+        refuse) and the state becomes DRAFT. When either
+        removal fails the event stays PUBLISHED: the failing side keeps its ids with its sync
+        state FAILED (so Retry sync and a second Unpublish both still work), a side that did
+        succeed is left blank and PENDING (it is still a live event, so the retry cron puts
+        it back), and :class:`EventUnpublishError` says which service refused.
+
+        ``channel_announced_at`` and the announcement message ids are kept on purpose: the
+        launch announcement already went out, and the ``period`` on :meth:`announce` plus the
+        announcer's stamp are what stop a second one, so re-publishing re-syncs but never
         re-announces.
 
         Args:
@@ -9262,17 +9338,39 @@ class CommunityEvent(HeroCropMixin, models.Model):
 
         Raises:
             InvalidEventTransition: Unless the event is PUBLISHED.
+            EventUnpublishError: When Google or Discord still holds a copy.
         """
         if self.moderation_state != self.ModerationState.PUBLISHED:
             raise InvalidEventTransition(f"Cannot unpublish an event in state '{self.moderation_state}'.")
-        self.remove_from_google()
-        self.remove_from_discord()
+        google_gone = self._remove_google_copy_strictly()
+        discord_gone = self._remove_discord_copy_strictly()
+        if not (google_gone and discord_gone):
+            if google_gone:
+                self._reset_sync_side(self._GOOGLE_SYNC_RESET, "sync_state")
+            if discord_gone:
+                self._reset_sync_side(self._DISCORD_SYNC_RESET, "discord_sync_state")
+            self.save(update_fields=[*self._SYNC_RESET, "updated_at"])
+            refused = " and ".join(
+                name for name, gone in (("Google Calendar", google_gone), ("Discord", discord_gone)) if not gone
+            )
+            raise EventUnpublishError(
+                f"The event is still published: it could not be removed from {refused}. "
+                "Fix the connection and try again, or use Retry sync."
+            )
         self.strip_discord_announcement_buttons()
         for field, blank in self._SYNC_RESET.items():
             setattr(self, field, blank)
+        self.publish_at = None
         self.moderation_state = self.ModerationState.DRAFT
-        self.save(update_fields=[*self._SYNC_RESET, "moderation_state", "updated_at"])
+        self.save(update_fields=[*self._SYNC_RESET, "publish_at", "moderation_state", "updated_at"])
         logger.info("Event %s unpublished by user %s", self.pk, actor.pk)
+
+    def _reset_sync_side(self, reset: dict[str, Any], state_field: str) -> None:
+        """Blank one side's ids after its copy was removed from under a still-live event, and
+        mark it PENDING so the retry cron puts the copy back."""
+        for field, blank in reset.items():
+            setattr(self, field, blank)
+        setattr(self, state_field, self.SyncState.PENDING)
 
     # --- Google Calendar sync (delegates to core.integrations) ----------------
 
@@ -9775,21 +9873,25 @@ class CommunityEvent(HeroCropMixin, models.Model):
         user_pk = getattr(member.user, "pk", None)
         return user_pk is not None and user_pk in (self.created_by_id, self.submitted_by_id)
 
-    def refresh_discord_announcement(self) -> None:
+    def refresh_discord_announcement(self, *, restore_buttons: bool = False) -> None:
         """Best-effort: rebuild the announcement embed's Attendees field in place (buttons kept).
 
         No-ops silently when the message ids are unset (pre-RSVP-embed or unannounced events).
         A Discord hiccup is logged and swallowed — a hub RSVP must never 500 on it (PATCHing
-        only ``embeds`` leaves the existing buttons untouched)."""
+        only ``embeds`` leaves the existing buttons untouched). ``restore_buttons`` sends the
+        RSVP and Manage row again, for an event re-published after an unpublish stripped it."""
         if not (self.discord_announce_channel_id and self.discord_announce_message_id):
             return
         from core.integrations.discord_channel import DiscordChannelError, edit_channel_message
 
+        # components is sent only when restoring: omitted, Discord keeps whatever buttons are there.
+        buttons = {"components": self.discord_announcement_components()} if restore_buttons else {}
         try:
             edit_channel_message(
                 self.discord_announce_channel_id,
                 self.discord_announce_message_id,
                 [self.discord_announcement_embed()],
+                **buttons,
             )
         except DiscordChannelError:
             logger.warning("refresh_discord_announcement failed for event %s", self.pk, exc_info=True)

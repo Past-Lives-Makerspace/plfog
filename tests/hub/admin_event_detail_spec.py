@@ -4,6 +4,7 @@ Unpublish, Delete with `next`, and the places a draft must never show."""
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 from unittest.mock import MagicMock, PropertyMock, patch
 
@@ -16,7 +17,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.integrations import discord_events as de
-from core.integrations.google_calendar import GoogleCalendarClient
+from core.integrations.google_calendar import GoogleCalendarClient, GoogleCalendarError
 from core.models import SiteConfiguration
 from membership.models import AdminCapability, CommunityEvent, Member
 from tests.membership.factories import CommunityEventFactory, GuildFactory, MembershipPlanFactory, tiny_png_bytes
@@ -96,10 +97,33 @@ def describe_the_header():
         assert 'aria-label="This event"' in body
         assert "data-eventbrite-tab" not in body
 
-    def it_hides_edit_from_a_calendar_administrator_on_a_guild_event(client: Client):
+    def it_links_a_calendar_administrator_to_the_calendars_composer_on_a_guild_event(client: Client):
+        # They may edit every event, but the guild's own composer admits only its leadership.
         _approver(client)
-        body = client.get(_url(CommunityEventFactory(guild=GuildFactory()))).content.decode()
-        assert "data-event-edit" not in body
+        guild = GuildFactory()
+        event = CommunityEventFactory(guild=guild)
+        body = client.get(_url(event)).content.decode()
+        assert f'href="{reverse("hub_event_edit", args=[event.pk])}" data-event-edit' in body
+        assert reverse("hub_guild_event_edit", args=[guild.pk, event.pk]) not in body
+
+    def it_links_an_admin_to_the_guilds_own_composer_on_a_guild_event(client: Client):
+        # The same rule the public event page applies: whoever passes can_edit_guild gets the guild's composer.
+        _admin(client)
+        guild = GuildFactory()
+        event = CommunityEventFactory(guild=guild)
+        body = client.get(_url(event)).content.decode()
+        assert f'href="{reverse("hub_guild_event_edit", args=[guild.pk, event.pk])}" data-event-edit' in body
+
+    def it_offers_no_edit_to_the_lead_of_another_guild(client: Client):
+        # The screen itself refuses them, and the one edit rule shows them no Edit on the event page either.
+        user = _user_with_role("other_lead")
+        GuildFactory(guild_lead=user.member)
+        client.login(username="other_lead", password="pass")
+        event = CommunityEventFactory(guild=GuildFactory())
+        assert client.get(_url(event)).status_code == 403
+        page = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert reverse("hub_event_edit", args=[event.pk]) not in page
+        assert reverse("hub_guild_event_edit", args=[event.guild.pk, event.pk]) not in page
 
     def it_hides_view_page_and_the_qr_card_until_published(client: Client):
         _admin(client)
@@ -281,6 +305,37 @@ def describe_unpublish():
         assert client.get(reverse("hub_admin_event_unpublish", args=[event.pk])).status_code == 405
 
 
+def describe_unpublish_when_a_removal_fails():
+    def it_keeps_the_event_published_and_says_which_service_refused(client: Client):
+        _admin(client)
+        event = CommunityEventFactory(community=True, pushed=True, discord_event_id="disc-7")
+        google = MagicMock(spec=GoogleCalendarClient)
+        google.enabled = True
+        google.delete_event = MagicMock(side_effect=GoogleCalendarError("403 forbidden"))
+        discord = MagicMock(enabled=True, server_id="srv")
+        with (
+            patch.object(GoogleCalendarClient, "from_settings", return_value=google),
+            patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=discord),
+            patch("core.integrations.discord_channel.edit_channel_message") as edit_message,
+        ):
+            resp = client.post(reverse("hub_admin_event_unpublish", args=[event.pk]))
+        assert resp["Location"] == _url(event)
+        texts = [m.message for m in get_messages(resp.wsgi_request)]
+        assert texts == [
+            "The event is still published: it could not be removed from Google Calendar. "
+            "Fix the connection and try again, or use Retry sync."
+        ]
+        edit_message.assert_not_called()
+        event.refresh_from_db()
+        assert event.moderation_state == States.PUBLISHED
+        assert event.google_event_id != ""
+        assert event.sync_state == Sync.FAILED
+        assert "403 forbidden" in event.sync_error
+        # Discord's copy did go, and the still-live event is marked for its re-push.
+        assert (event.discord_event_id, event.discord_sync_state) == ("", Sync.PENDING)
+        assert "unpublish" not in client.get(_url(event)).content.decode().split("data-event-actions")[0]
+
+
 def describe_delete_with_next():
     def it_lands_on_the_list_once_the_row_is_gone(client: Client):
         _admin(client)
@@ -322,3 +377,110 @@ def describe_a_draft_is_invisible():
         assert form.saves_announce is True
         assert form.in_review is False
         assert form.review_first is False
+
+
+def describe_the_composers_save_button():
+    """The label is the promise (FRONTEND rule 21): a draft that was announced before it was
+    unpublished goes back on the calendars without a second announcement, so it never reads
+    "Save and announce" right after the Unpublish modal promised otherwise."""
+
+    def _save_button(client: Client, event: CommunityEvent | None) -> tuple[str, str]:
+        url = reverse("hub_event_add") if event is None else reverse("hub_event_edit", args=[event.pk])
+        body = client.get(url).content.decode()
+        match = re.search(r'id="event-save"([^>]*)>(.*?)</button>', body, re.S)
+        assert match is not None
+        return match.group(2).strip(), match.group(1)
+
+    def it_announces_a_new_event_and_a_fresh_draft(client: Client):
+        _admin(client)
+        assert _save_button(client, None)[0] == "Save and announce"
+        fresh = CommunityEventFactory(community=True, moderation_state=States.DRAFT)
+        label, attrs = _save_button(client, fresh)
+        assert label == "Save and announce"
+        assert "'Save and announce'" in attrs
+
+    def it_publishes_an_announced_draft_without_announcing_it_again(client: Client):
+        _admin(client)
+        announced = CommunityEventFactory(
+            community=True, moderation_state=States.DRAFT, channel_announced_at=timezone.now() - timedelta(days=2)
+        )
+        label, attrs = _save_button(client, announced)
+        assert label == "Save and publish"
+        assert "'Save and publish'" in attrs
+        assert "'Save and announce'" not in attrs
+        assert 'id="event-save-note"' in client.get(reverse("hub_event_edit", args=[announced.pk])).content.decode()
+
+    def it_schedules_a_parked_event_and_just_saves_a_live_one(client: Client):
+        _admin(client)
+        parked = CommunityEventFactory(
+            community=True, moderation_state=States.SCHEDULED, publish_at=timezone.now() + timedelta(days=3)
+        )
+        assert _save_button(client, parked)[0] == "Save and schedule"
+        live = CommunityEventFactory(community=True, channel_announced_at=timezone.now())
+        label, attrs = _save_button(client, live)
+        assert label == "Save"
+        assert "x-text" not in attrs
+
+
+def describe_an_announced_draft():
+    def it_is_off_the_propose_pages_own_list(client: Client):
+        user = _admin(client)
+        config = SiteConfiguration.load()
+        config.member_event_policy = SiteConfiguration.MemberEventPolicy.APPROVAL
+        config.save(update_fields=["member_event_policy"])
+        CommunityEventFactory(community=True, moderation_state=States.DRAFT, submitted_by=user)
+        pending = CommunityEventFactory(community=True, pending=True, submitted_by=user)
+        assert list(client.get(reverse("hub_propose_event")).context["my_proposals"]) == [pending]
+
+    def it_gets_a_delete_warning_that_knows_it_was_announced(client: Client):
+        _admin(client)
+        fresh = CommunityEventFactory(community=True, moderation_state=States.DRAFT)
+        announced = CommunityEventFactory(
+            community=True, moderation_state=States.DRAFT, channel_announced_at=timezone.now()
+        )
+        live = CommunityEventFactory(community=True, channel_announced_at=timezone.now())
+        messages_by_state = {
+            key: client.get(_url(event)).context["delete_confirm_message"]
+            for key, event in (("fresh", fresh), ("announced", announced), ("live", live))
+        }
+        assert len(set(messages_by_state.values())) == 3
+        assert "announced" in messages_by_state["announced"]
+
+
+def describe_an_unpublished_scheduled_event():
+    """An event that went out on a schedule and was then unpublished opens in the composer with
+    no announce time (the composer refuses a past one), and a plain save publishes it."""
+
+    def _payload(event: CommunityEvent) -> dict[str, str]:
+        start = timezone.localtime(event.starts_at)
+        return {
+            "title": event.title,
+            "starts_at": start.strftime("%Y-%m-%dT%H:%M"),
+            "ends_at": (start + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
+            "location": "Main Studio",
+            "description": "Come forge.",
+            "recurrence": "none",
+        }
+
+    def it_reopens_with_the_schedule_cleared_and_saves(client: Client):
+        _admin(client)
+        event = CommunityEventFactory(
+            community=True, publish_at=timezone.now() - timedelta(days=3), channel_announced_at=timezone.now()
+        )
+        with patch.object(CommunityEvent, "strip_discord_announcement_buttons"):
+            assert client.post(reverse("hub_admin_event_unpublish", args=[event.pk])).status_code == 302
+        event.refresh_from_db()
+        assert (event.moderation_state, event.publish_at) == (States.DRAFT, None)
+        resp = client.get(reverse("hub_event_edit", args=[event.pk]))
+        assert resp.status_code == 200
+        assert "scheduleLater: false" in resp.content.decode()
+        assert resp.context["form"]["publish_at"].value() is None
+        with (
+            patch("core.events.emit.emit"),
+            patch("core.integrations.discord_channel.edit_channel_message"),
+        ):
+            saved = client.post(reverse("hub_event_edit", args=[event.pk]), data=_payload(event))
+        assert saved.status_code == 302
+        event.refresh_from_db()
+        assert event.moderation_state == States.PUBLISHED
+        assert event.publish_at is None

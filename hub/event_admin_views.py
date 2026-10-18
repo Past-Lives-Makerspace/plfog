@@ -23,9 +23,8 @@ from classes.lifecycle import facet_rows, resolve_facet
 from classes.table import prepare_table
 from hub.event_lifecycle import EVENT_FACETS
 from hub.view_as import events_admin_access_required
-from hub.views import _event_delete_confirm_message, _get_hub_context, _google_sync_enabled
-from membership.models import CommunityEvent, InvalidEventTransition
-from membership.permissions import can_edit_event
+from hub.views import _event_delete_confirm_message, _event_edit_url, _get_hub_context, _google_sync_enabled
+from membership.models import CommunityEvent, EventUnpublishError, InvalidEventTransition
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -96,11 +95,13 @@ def hub_admin_events(request: HttpRequest) -> HttpResponse:
     search_preserved = normalized.copy()
     for key in ("q", "page"):
         search_preserved.pop(key, None)
+    # Newest first, so All opens on what is coming up rather than on the oldest past event.
     table = prepare_table(
         request,
         rows,
         search_fields=["title", "guild__name", "location"],
         default_sort="starts_at",
+        default_dir="desc",
         sortable=_SORTABLE,
     )
     return render(
@@ -128,9 +129,10 @@ def hub_admin_event(request: HttpRequest, pk: int) -> HttpResponse:
 
     The decisions post to ``hub_event_review_decision``, Retry sync to ``hub_event_retry_sync``
     and Delete to ``hub_event_delete``, each with ``next`` so the admin lands back here (or on
-    the list, once the row is gone). Edit shows only to a request :func:`can_edit_event` admits:
-    a Calendar Administrator runs site-wide events but not a guild's own. Studio hours 404,
-    as they are not on the list.
+    the list, once the row is gone). Edit opens the composer the public event page would
+    (``_event_edit_url``, the one rule): the guild's own for its leadership and admins, the
+    Calendar's for a Calendar Administrator on a guild event. Studio hours 404, as they are
+    not on the list.
     """
     event = get_object_or_404(_managed_events().select_related("area", "reviewed_by"), pk=pk)
     states = CommunityEvent.ModerationState
@@ -145,7 +147,7 @@ def hub_admin_event(request: HttpRequest, pk: int) -> HttpResponse:
             "detail_url": detail_url,
             "list_url": reverse("hub_admin_events"),
             "when": event.when_display_for(event.next_occurrence_start()),
-            "can_edit": can_edit_event(request, event),
+            "edit_url": _event_edit_url(request, event),
             "can_decide": event.moderation_state in (states.PENDING, states.CHANGES_REQUESTED),
             "can_request_changes": event.moderation_state == states.PENDING,
             "can_unpublish": event.moderation_state == states.PUBLISHED,
@@ -171,13 +173,16 @@ def hub_admin_event_duplicate(request: HttpRequest, pk: int) -> HttpResponse:
 @events_admin_access_required
 @require_POST
 def hub_admin_event_unpublish(request: HttpRequest, pk: int) -> HttpResponse:
-    """Take a published event down to a draft; the model refuses any other state."""
+    """Take a published event down to a draft; the model refuses any other state, and says
+    which service still holds a copy when a removal failed (the event stays published)."""
     user: User = request.user  # type: ignore[assignment]  # the gate wraps @login_required
     event = get_object_or_404(_managed_events(), pk=pk)
     try:
         event.unpublish(actor=user)
     except InvalidEventTransition:
         messages.info(request, "Only a published event can be unpublished.")
+    except EventUnpublishError as exc:
+        messages.error(request, str(exc))
     else:
         messages.success(request, "Event unpublished. It is a draft now, and members no longer see it.")
     return redirect(reverse("hub_admin_event", args=[event.pk]))

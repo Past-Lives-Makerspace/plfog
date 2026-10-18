@@ -6420,12 +6420,36 @@ def guild_events(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
 
 
+def _event_edit_url(request: HttpRequest, event: CommunityEvent) -> str | None:
+    """The composer this viewer can open for ``event``, or None when they may not edit it.
+
+    The one rule the public event page and Manage Events share: nobody :func:`can_edit_event`
+    refuses gets a link; the guild's own composer for whoever passes ``can_edit_guild`` on
+    its guild (its leadership, admins), the Calendar's for everyone else it admits, such as a
+    Calendar Administrator on a guild event, whom the guild composer would refuse.
+    """
+    if not can_edit_event(request, event):
+        return None
+    if event.guild is not None and _can_edit_guild(request, event.guild):
+        return reverse("hub_guild_event_edit", args=[event.guild.pk, event.pk])
+    return reverse("hub_event_edit", args=[event.pk])
+
+
 def _event_delete_confirm_message(event: CommunityEvent) -> str:
-    """Consequence copy for the edit page's delete confirm modal, varying by publish state."""
+    """Consequence copy for the delete confirm modal, varying by publish state.
+
+    A draft taken down after its announcement went out (#831) was announced; the
+    announcement stays where it was posted, so the copy must not promise otherwise.
+    """
     if event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
         message = (
             "Members will no longer see it on the calendar, and it will be removed from "
             "Google Calendar and Discord. This can't be undone."
+        )
+    elif event.channel_announced_at is not None:
+        message = (
+            "It was announced before it was unpublished; the announcement stays where it was "
+            "posted, but the event itself is gone for good. This can't be undone."
         )
     else:
         message = "It'll be removed before it's ever announced. This can't be undone."
@@ -6885,9 +6909,16 @@ def propose_event(request: HttpRequest) -> HttpResponse:
         form = CommunityEventForm(instance=event, **form_kwargs)
 
     ctx = _get_hub_context(request)
+    # The same cut as the Calendar's Events tab: a published proposal is on the Calendar and a
+    # draft (#831) is Manage Events' row, so neither is still in flight here.
     my_proposals = (
         CommunityEvent.objects.filter(submitted_by=user)
-        .exclude(moderation_state=CommunityEvent.ModerationState.PUBLISHED)
+        .exclude(
+            moderation_state__in=[
+                CommunityEvent.ModerationState.PUBLISHED,
+                CommunityEvent.ModerationState.DRAFT,
+            ]
+        )
         .select_related("guild")
         .order_by("-updated_at")
     )
@@ -7532,14 +7563,8 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     event = get_object_or_404(CommunityEvent.objects.published().select_related("guild", "area"), pk=pk)
     ctx = _get_hub_context(request)
     on_member_surface = getattr(request, "surface", "members") == "members"
-    can_edit = on_member_surface and can_edit_event(request, event)
-    # The composer the viewer can actually open: the guild's own for its leadership (and
-    # admins), the Calendar's for everyone else can_edit_event admits, such as a Calendar
-    # Administrator on a guild event, whom the guild composer would refuse.
-    if event.guild is not None and _can_edit_guild(request, event.guild):
-        edit_url = reverse("hub_guild_event_edit", args=[event.guild.pk, event.pk])
-    else:
-        edit_url = reverse("hub_event_edit", args=[event.pk])
+    edit_url = _event_edit_url(request, event)
+    can_edit = on_member_surface and edit_url is not None
     is_recurring = event.recurrence != CommunityEvent.Recurrence.NONE
     # "Who's coming": names for signed-in viewers, count only for an anonymous QR scan.
     # A hidden member (#614) is left out of the names and the count, except to themselves.

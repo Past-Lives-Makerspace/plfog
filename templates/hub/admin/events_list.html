@@ -1,6 +1,9 @@
 {% extends "hub/base.html" %}
-{% load classes_tags %}
+{% load static classes_tags %}
 {% block title %}Manage Events{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/events-admin.css' %}">
+{% endblock %}
 {% block content %}
 {% comment %}
 Manage Events (#831, part 2), built by hub.event_admin_views.hub_admin_events with the Manage
@@ -10,7 +13,7 @@ The Eventbrite cell is a reserved slot: track B fills it once an event can be li
 {% endcomment %}
 {% include "components/page_header.html" with title="Manage Events" description="Every event on the Calendar: proposals waiting for a review, what is scheduled, what is live and what has passed." action_url=add_url action_label="+ Add event" action_class="hub-btn hub-btn--primary hub-btn--sm" %}
 
-<div class="hub-card" data-events-admin>
+<div class="hub-card pl-events-admin" data-events-admin>
   <div class="admin-toolbar">
     {% include "components/table_search.html" with q=q placeholder="Search events…" preserved_fields=search_preserved_fields clear_url=search_clear_url %}
   </div>
@@ -38,8 +41,9 @@ The Eventbrite cell is a reserved slot: track B fills it once an event can be li
           {% sort_header "Date(s)" "starts_at" sort sort_dir base_params %}
           {% sort_header "Status" "moderation_state" sort sort_dir base_params %}
           {% sort_header "RSVPs" "rsvp_count" sort sort_dir base_params %}
-          <th>Eventbrite</th>
-          <th>Created by</th>
+          {# An icon-width slot for track B's listing state; the name is there for screen readers. #}
+          <th class="pl-events-admin__eventbrite"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9a2 2 0 0 0 2-2V5h14v2a2 2 0 0 0 2 2v6a2 2 0 0 0-2 2v2H5v-2a2 2 0 0 0-2-2z"/><path d="M13 5v14"/></svg><span class="sr-only">Eventbrite</span></th>
+          <th class="pl-events-admin__creator">Created by</th>
         </tr>
       </thead>
       <tbody>
@@ -47,15 +51,12 @@ The Eventbrite cell is a reserved slot: track B fills it once an event can be li
         <tr data-event-row="{{ event.pk }}">
           {# The whole title, wrapped, never clipped, as on Manage Classes (#543). #}
           <td class="pl-class-list__title"><a href="{% url 'hub_admin_event' event.pk %}">{{ event.title }}</a></td>
-          <td>{{ event.badge_label }}{% if event.guild %} · {{ event.guild.name }}{% endif %}</td>
-          <td class="pl-class-list__dates">
-            {{ event.next_occurrence_start|date:"M j, Y · g:i A" }}
-            {% if event.recurrence != "none" %}<span class="hub-pill hub-pill--neutral" data-recurrence-pill>{{ event.get_recurrence_display }}</span>{% endif %}
-          </td>
-          <td><span class="hub-pill hub-pill--{{ event.status_tone }}" data-event-status="{{ event.moderation_state }}">{{ event.status_label }}</span></td>
+          <td class="pl-events-admin__kind">{{ event.badge_label }}{% if event.guild %}<span class="pl-events-admin__guild" data-event-guild>{{ event.guild.name }}</span>{% endif %}</td>
+          <td class="pl-events-admin__dates">{{ event.next_occurrence_start|date:"M j, Y · g:i A" }}{% if event.recurrence != "none" %}<span class="hub-pill hub-pill--neutral" data-recurrence-pill>{{ event.get_recurrence_display }}</span>{% endif %}</td>
+          <td class="pl-events-admin__status"><span class="hub-pill hub-pill--{{ event.status_tone }}" data-event-status="{{ event.moderation_state }}">{{ event.status_label }}</span></td>
           <td data-rsvp-count>{{ event.rsvp_count }}</td>
-          <td data-eventbrite-cell>—</td>
-          <td>{{ event.creator_name }}</td>
+          <td class="pl-events-admin__eventbrite" data-eventbrite-cell>—</td>
+          <td class="pl-events-admin__creator">{{ event.creator_name }}</td>
         </tr>
       {% empty %}
         <tr>
