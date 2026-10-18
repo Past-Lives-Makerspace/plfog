@@ -76,7 +76,9 @@ jobs:
         run: python manage.py migrate --run-syncdb
 
       - name: Run mutation tests
-        run: pytest --leela --target core --target hub --target membership --target plfog
+        # pyproject's addopts carry the 98% coverage gate, which a leela run cannot meet (it
+        # measures about 26%), so the gate is switched off here: this job reports mutants, not coverage.
+        run: pytest --leela --target core --target hub --target membership --target plfog --cov-fail-under=0
 
   lint:
     if: github.event.action != 'closed'
