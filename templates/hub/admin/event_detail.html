@@ -28,7 +28,8 @@ Eventbrite tab with the Eventbrite listing (track B), which is why the strip has
       </div>
     </div>
     <div class="pl-class-header__actions">
-      {% if can_edit %}<a class="hub-btn hub-btn--sm hub-btn--primary" href="{% url 'hub_event_edit' event.pk %}" data-event-edit>Edit</a>{% endif %}
+      {# The view picks the composer this viewer can open (edit_url), the same way the event page does. #}
+      {% if edit_url %}<a class="hub-btn hub-btn--sm hub-btn--primary" href="{{ edit_url }}" data-event-edit>Edit</a>{% endif %}
       {% if event.moderation_state == "published" %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'hub_event_detail' event.pk %}" data-event-view>View page ↗</a>{% endif %}
       <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ list_url }}">Back to Manage Events</a>
     </div>

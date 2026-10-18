@@ -96,10 +96,33 @@ def describe_the_header():
         assert 'aria-label="This event"' in body
         assert "data-eventbrite-tab" not in body
 
-    def it_hides_edit_from_a_calendar_administrator_on_a_guild_event(client: Client):
+    def it_links_a_calendar_administrator_to_the_calendars_composer_on_a_guild_event(client: Client):
+        # They may edit every event, but the guild's own composer admits only its leadership.
         _approver(client)
-        body = client.get(_url(CommunityEventFactory(guild=GuildFactory()))).content.decode()
-        assert "data-event-edit" not in body
+        guild = GuildFactory()
+        event = CommunityEventFactory(guild=guild)
+        body = client.get(_url(event)).content.decode()
+        assert f'href="{reverse("hub_event_edit", args=[event.pk])}" data-event-edit' in body
+        assert reverse("hub_guild_event_edit", args=[guild.pk, event.pk]) not in body
+
+    def it_links_an_admin_to_the_guilds_own_composer_on_a_guild_event(client: Client):
+        # The same rule the public event page applies: whoever passes can_edit_guild gets the guild's composer.
+        _admin(client)
+        guild = GuildFactory()
+        event = CommunityEventFactory(guild=guild)
+        body = client.get(_url(event)).content.decode()
+        assert f'href="{reverse("hub_guild_event_edit", args=[guild.pk, event.pk])}" data-event-edit' in body
+
+    def it_offers_no_edit_to_the_lead_of_another_guild(client: Client):
+        # The screen itself refuses them, and the one edit rule shows them no Edit on the event page either.
+        user = _user_with_role("other_lead")
+        GuildFactory(guild_lead=user.member)
+        client.login(username="other_lead", password="pass")
+        event = CommunityEventFactory(guild=GuildFactory())
+        assert client.get(_url(event)).status_code == 403
+        page = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert reverse("hub_event_edit", args=[event.pk]) not in page
+        assert reverse("hub_guild_event_edit", args=[event.guild.pk, event.pk]) not in page
 
     def it_hides_view_page_and_the_qr_card_until_published(client: Client):
         _admin(client)
