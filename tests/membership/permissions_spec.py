@@ -308,10 +308,11 @@ def describe_can_edit_event():
         user = _granted_user(AdminCapability.Capability.EVENTS_APPROVER)
         assert can_edit_event(_request(user, roles={ROLE_MEMBER}), event) is True
 
-    def it_denies_a_calendar_administrator_on_a_guild_event_they_do_not_staff(db):
+    def it_lets_a_calendar_administrator_edit_a_guild_event_they_do_not_staff(db):
+        # A Calendar Administrator manages every event, so the guild leg admits them too.
         event = CommunityEventFactory(guild=GuildFactory())
         user = _granted_user(AdminCapability.Capability.EVENTS_APPROVER)
-        assert can_edit_event(_request(user, roles={ROLE_MEMBER}), event) is False
+        assert can_edit_event(_request(user, roles={ROLE_MEMBER}), event) is True
 
     def it_denies_a_can_create_events_holder_on_someone_elses_site_wide_event(db):
         event = CommunityEventFactory(community=True)

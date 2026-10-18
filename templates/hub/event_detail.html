@@ -109,11 +109,8 @@ rest via templates/404.html). Add-to-calendar works logged-out.
         <a class="hub-btn hub-btn--ghost" href="{% url 'classes:public_list' %}">Browse Past Lives classes</a>
       {% endif %}
       {% if can_edit %}
-        {% if event.guild %}
-          <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'hub_guild_event_edit' event.guild.pk event.pk %}">Edit event</a>
-        {% else %}
-          <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'hub_event_edit' event.pk %}">Edit event</a>
-        {% endif %}
+        {# The view picks the composer this viewer can open (edit_url). #}
+        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ edit_url }}">Edit event</a>
       {% endif %}
     </div>
   </div>

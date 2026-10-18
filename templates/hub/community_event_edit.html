@@ -116,8 +116,9 @@
     {% endif %}
 
     {% if form.review_first %}
-    <p class="hub-text-muted" id="event-review-note" style="font-size:0.8125rem; margin-bottom:1rem;">
-      Your event goes to your guild's leads (or an admin) for a quick review before it appears on the calendar.
+    {# Who reviews it follows the guild: its lead or staff, or the admins and Calendar Administrators for a makerspace wide one. #}
+    <p class="pl-form-note hub-text-muted" id="event-review-note">
+      {% if event.guild %}Your event goes to the {{ event.guild.name }} lead or staff for a quick review before it appears on the calendar.{% else %}Your event goes to a reviewer before it appears on the calendar: the guild's lead or staff if you pick a guild, otherwise an admin or a Calendar Administrator.{% endif %}
     </p>
     {% else %}
     <p class="hub-text-muted" id="event-save-note" style="font-size:0.8125rem; margin-bottom:1rem;">

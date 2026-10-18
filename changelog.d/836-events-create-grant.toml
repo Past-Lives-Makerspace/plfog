@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-18"
+title = "Members can be given permission to add Calendar events"
+changes = [
+  "Admins can turn on Can create events for a member on their Permissions tab. That member then sees + Add event on the Calendar.",
+  "An event added this way waits for a Calendar Administrator to look it over before it is announced.",
+  "Calendar Administrators can now edit, delete and retry the calendar sync on events for the whole makerspace.",
+]
