@@ -17,7 +17,7 @@ from django.views.decorators.http import require_POST
 from core.abuse_limits import record_keyed_attempt
 from core.htmx import wants_fragment
 from hq import services
-from hq.access import card_view, hub_or_404, is_actual_admin, organizer_required, renders_as_admin, viewer_member
+from hq.access import card_view, hub_or_404, organizer_required, renders_as_admin, viewer_member
 from hq.exports import stream_roster_csv
 from hq.forms import HubCardForm, HubForm, HubGoalFormSet, VolunteerInfoForm, VolunteerShiftForm, VolunteerShiftFormSet
 from hq.models import EventHub, HubCard, ShiftSignup, VolunteerShift
@@ -191,7 +191,9 @@ def _volunteers_page(
     if form is None:
         form = VolunteerInfoForm(initial=asdict(person) if person is not None else None)
     shifts = list(hub.shifts.with_counts())
-    can_organize = card.can_organize(member, is_admin=is_actual_admin(request))
+    # Rendering reads the effective role: an admin previewing as a guest sees no roster. The
+    # roster page and the CSV keep the actual role through organizer_required.
+    can_organize = card.can_organize(member, is_admin=is_admin)
     roster = services.roster_rows(hub) if can_organize else []
     return render(
         request,

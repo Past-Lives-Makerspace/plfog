@@ -150,6 +150,18 @@ def describe_your_info():
         assert response["Location"] == _page(card.hub)
         assert services.SESSION_KEY not in client.session
 
+    def it_caps_the_note_at_500_characters(card):
+        client = Client()
+
+        refused = client.post(_info_url(card.hub), {**GUEST, "note": "x" * 501})
+        accepted = client.post(_info_url(card.hub), {**GUEST, "note": "x" * 500})
+
+        assert refused.status_code == 200
+        assert "pl-field-error" in refused.content.decode()
+        assert accepted.status_code == 302
+        assert len(client.session[services.SESSION_KEY]["note"]) == 500
+        assert ShiftSignup._meta.get_field("note").max_length == ShiftSignup.MAX_NOTE_LENGTH == 500
+
     def it_renders_the_honeypot_for_guests_only(card, member_client):
         assert 'name="website"' in Client().get(_page(card.hub)).content.decode()
         assert 'name="website"' not in member_client.get(_page(card.hub)).content.decode()
@@ -285,6 +297,31 @@ def describe_signing_up():
 
         assert client.get(_signup_url(shift)).status_code == 405
         assert client.post(reverse("hq:shift_signup", args=[card.hub.slug, other.pk])).status_code == 404
+
+    def it_acts_on_whatever_email_was_saved_even_someone_elses(card, shift):
+        """Identity on the sheet is the email in Your Info: that address's sign-ups are this visitor's."""
+        ShiftSignupFactory(shift=shift, name="Someone Else", email="pat@example.com")
+        client = _guest_with_info(card.hub)
+
+        body = client.get(_page(card.hub)).content.decode()
+        response = client.post(_remove_url(shift))
+
+        assert f'action="{_remove_url(shift)}"' in body
+        assert response.status_code == 302
+        assert not shift.signups.exists()
+
+    def it_matches_a_member_by_the_email_they_typed_not_their_record(card, shift, member):
+        client = signed_in(member)
+        client.post(_signup_url(shift))
+        client.post(_info_url(card.hub), {**GUEST, "email": "other@example.com"})
+
+        body = client.get(_page(card.hub)).content.decode()
+        response = client.post(_signup_url(shift))
+
+        assert f'action="{_signup_url(shift)}"' in body
+        assert response.status_code == 302
+        assert sorted(shift.signups.values_list("email", flat=True)) == [member.primary_email, "other@example.com"]
+        assert {signup.member for signup in shift.signups.all()} == {member}
 
     def it_lowercases_the_email_on_the_row(shift):
         signup = ShiftSignup.objects.create(shift=shift, name="Pat", email="  PAT@Example.com ")
@@ -524,12 +561,15 @@ def describe_the_roster():
         assert "data-hq-vol-organizers" not in member_body
         assert "data-hq-roster-csv" not in member_body
 
-    def it_stays_with_the_actual_role_while_an_admin_previews(card, people, admin_client):
+    def it_hides_the_on_page_roster_while_an_admin_previews_but_keeps_the_roster_page(card, people, admin_client):
+        """Rendering reads the effective role; the roster page and the CSV read the actual one."""
         session = admin_client.session
         session["view_as_role"] = ROLE_GUEST
         session.save()
 
-        assert "data-hq-vol-organizers" in admin_client.get(_page(card.hub)).content.decode()
+        assert "data-hq-vol-organizers" not in admin_client.get(_page(card.hub)).content.decode()
+        assert admin_client.get(_roster_url(card.hub)).status_code == 200
+        assert admin_client.get(_csv_url(card.hub)).status_code == 200
 
     def it_has_its_own_page_for_organisers_and_refuses_everyone_else(
         card, people, admin_client, member_client, make_member
@@ -678,6 +718,28 @@ def describe_the_shifts_editor():
         response = admin_client.post(_edit(card), _post([{"id": str(shift.pk), "DELETE": "on"}], initial=1))
 
         assert "Flyer runner has 1 person signed up." in response.content.decode()
+
+    def it_drops_a_delete_for_a_shift_already_gone_and_saves_the_rest(card, shift, admin_client):
+        """A stale page: the row another admin removed is skipped, never a 500, and the Save lands."""
+        gone = shift.pk
+        shift.delete()
+        other = VolunteerShiftFactory(hub=card.hub)
+
+        response = admin_client.post(_edit(card), _post([{"id": str(gone), "DELETE": "on"}], initial=1))
+
+        assert response.status_code == 302
+        assert list(card.hub.shifts.all()) == [other]
+
+    def it_ignores_a_delete_for_another_hubs_shift(card, admin_client):
+        foreign = VolunteerShiftFactory(role="Not ours")
+        ShiftSignupFactory(shift=foreign)
+
+        response = admin_client.post(_edit(card), _post([{"id": str(foreign.pk), "DELETE": "on"}], initial=1))
+
+        assert response.status_code == 302
+        assert VolunteerShift.objects.filter(pk=foreign.pk).exists()
+        assert foreign.signups.count() == 1
+        assert not card.hub.shifts.exists()
 
     def it_skips_a_row_added_and_left_as_it_rendered(card, admin_client):
         rows = [{"role": "", "phase": VolunteerShift.Phase.DURING, "need": "1", "sort_order": "0"}]
