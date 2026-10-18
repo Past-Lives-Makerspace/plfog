@@ -21,18 +21,17 @@ CLASS_FORMAT_ID = "9"
 class EventbriteFormat(models.TextChoices):
     """Eventbrite's event formats (``GET /formats/``) a listing goes out as, by ID.
 
-    Only CLASS is confirmed against the API: every class has gone out as 9 since #652. The
-    others are the IDs Eventbrite documents; check each against ``GET /formats/`` before the
-    first listing goes out under it.
+    Every ID here was read back from ``GET /formats/`` on 2026-10-18; CLASS is also the one
+    every class has gone out as since #652.
     """
 
     CLASS = CLASS_FORMAT_ID, "Class, Training, or Workshop"
-    FESTIVAL_FAIR = "5", "Festival or Fair"  # verify against the API before use
-    CONCERT_PERFORMANCE = "6", "Concert or Performance"  # verify against the API before use
-    DINNER_GALA = "8", "Dinner or Gala"  # verify against the API before use
-    MEETING_NETWORKING = "10", "Meeting or Networking Event"  # verify against the API before use
-    PARTY_SOCIAL = "11", "Party or Social Gathering"  # verify against the API before use
-    OTHER = "100", "Other"  # verify against the API before use
+    FESTIVAL_FAIR = "5", "Festival or Fair"
+    CONCERT_PERFORMANCE = "6", "Concert or Performance"
+    DINNER_GALA = "8", "Dinner or Gala"
+    MEETING_NETWORKING = "10", "Meeting or Networking Event"
+    PARTY_SOCIAL = "11", "Party or Social Gathering"
+    OTHER = "100", "Other"
 
 
 class EventbriteCategory(models.TextChoices):
