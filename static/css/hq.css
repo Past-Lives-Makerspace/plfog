@@ -1,13 +1,49 @@
-/* The Holiday Bizarre HQ (Track C): the HQ page and its two edit pages. Loaded from each
-   page's extra_head on top of hub.css and components.css. Every color is a hub token, so the
-   page follows the theme; the hero band is the brand navy in both themes on purpose, with the
-   cream and gold the brand already pairs with it. */
+/* The Holiday Bizarre HQ (Track C): the HQ page in the look of Lee's organising hub, and
+   its two edit pages in portal style. Loaded from each page's extra_head on top of hub.css
+   and components.css.
+
+   The palette is declared once here, on the page wrappers, so nothing leaks into the hub
+   chrome around it. Where the portal already has a token it is reused (the brand navy, the
+   tuscan yellow as the gold highlight); the rest are Lee's values. hub.css keys dark on the
+   absence of data-theme and light on data-theme="light", so the dark block below does too. */
+
+.pl-hq,
+.pl-hq-edit {
+  --pl-hq-bg: #ECEFF4;
+  --pl-hq-surface: #FFFFFF;
+  --pl-hq-ink: #1E2D4E;
+  --pl-hq-muted: #56627A;
+  --pl-hq-rule: #D3D9E3;
+  --pl-hq-navy: var(--color-navy);
+  --pl-hq-navy-hover: #2A3C63;
+  --pl-hq-gold: #8F7029;
+  --pl-hq-gold-hi: var(--color-tuscan-yellow);
+  --pl-hq-cream: #F6F3EA;
+  --pl-hq-button-bg: var(--pl-hq-navy);
+  --pl-hq-button-ink: #FFFFFF;
+  --pl-hq-button-hover: var(--pl-hq-navy-hover);
+  --pl-hq-display: 'Playfair Display', Georgia, serif;
+}
+:root:not([data-theme="light"]) .pl-hq,
+:root:not([data-theme="light"]) .pl-hq-edit {
+  --pl-hq-bg: #121B2F;
+  --pl-hq-surface: #1A2644;
+  --pl-hq-ink: #E7ECF3;
+  --pl-hq-muted: #9DAEBF;
+  --pl-hq-rule: #2D3A5C;
+  --pl-hq-gold: #D4B15E;
+  --pl-hq-button-bg: var(--pl-hq-gold-hi);
+  --pl-hq-button-ink: var(--pl-hq-navy);
+  --pl-hq-button-hover: var(--pl-hq-gold);
+}
 
 /* ---- Page ---- */
 .pl-hq {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
+  display: grid;
+  gap: 22px;
+  max-width: 980px;
+  margin: 0 auto;
+  color: var(--pl-hq-ink);
 }
 
 .pl-hq-adminbar {
@@ -33,10 +69,19 @@
   justify-content: space-between;
   gap: 1.5rem;
   padding: 2.5rem 2rem;
-  border-radius: 14px;
-  background: radial-gradient(120% 140% at 10% 0%, #164a73 0%, var(--color-navy) 55%, #061f33 100%);
-  box-shadow: inset 0 0 0 1px rgba(238, 180, 75, 0.55);
-  color: var(--color-cream);
+  border-radius: 16px;
+  background: radial-gradient(120% 140% at 10% 0%, #164a73 0%, var(--pl-hq-navy) 55%, #061f33 100%);
+  color: var(--pl-hq-cream);
+}
+/* The thin gold inset line, drawn 9px inside the band. */
+.pl-hq-hero::before {
+  content: "";
+  position: absolute;
+  inset: 9px;
+  border: 1px solid rgba(201, 164, 74, 0.4);
+  border-radius: 12px;
+  pointer-events: none;
+  z-index: 1;
 }
 .pl-hq-hero__img {
   position: absolute;
@@ -55,7 +100,7 @@
 .pl-hq-hero__text,
 .pl-hq-hero__countdown {
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 .pl-hq-hero__text {
   flex: 1 1 24rem;
@@ -63,45 +108,61 @@
 }
 .pl-hq-hero__eyebrow {
   margin: 0 0 0.5rem;
-  color: var(--color-tuscan-yellow);
-  font-size: 0.8125rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  color: var(--pl-hq-gold-hi);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 .pl-hq-hero__title {
   margin: 0;
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--pl-hq-display);
   font-weight: 800;
-  font-size: clamp(2rem, 4vw, 3rem);
-  line-height: 1.1;
-  color: var(--color-cream);
+  font-size: clamp(2rem, 6vw, 3.1rem);
+  line-height: 1.05;
+  color: var(--pl-hq-cream);
 }
 .pl-hq-hero__date {
   margin: 0.75rem 0 0;
   font-size: 1.0625rem;
-  color: rgba(244, 239, 221, 0.85);
+  color: #D6DCE7;
 }
 .pl-hq-hero__countdown {
-  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   flex: 0 0 auto;
-  font-family: 'Playfair Display', Georgia, serif;
-  font-weight: 700;
-  font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+  margin: 0;
+  text-align: right;
+}
+.pl-hq-hero__figure {
+  font-family: var(--pl-hq-display);
+  font-weight: 800;
+  font-size: clamp(2.6rem, 7vw, 3.6rem);
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  color: var(--color-tuscan-yellow);
-  white-space: nowrap;
+  color: var(--pl-hq-gold-hi);
 }
-@media (max-width: 640px) {
+.pl-hq-hero__cd-label {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #B8C2D4;
+}
+@media (max-width: 820px) {
   .pl-hq-hero {
     padding: 2rem 1.25rem;
+  }
+  .pl-hq-hero__countdown {
+    align-items: flex-start;
+    text-align: left;
   }
 }
 
 .pl-hq-intro {
   max-width: 68ch;
-  color: var(--hub-text);
   font-size: 1.0625rem;
   line-height: 1.6;
 }
@@ -109,84 +170,111 @@
   margin-top: 0.75rem;
 }
 
-/* ---- Sections ---- */
-.pl-hq-section__title {
-  margin: 0 0 1rem;
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: var(--color-tuscan-yellow);
-  text-transform: capitalize;
-}
 .pl-hq-empty {
   margin: 0;
-  color: var(--hub-text-muted);
+  color: var(--pl-hq-muted);
   font-size: 0.9375rem;
 }
 
-/* ---- Goal band ---- */
-.pl-hq-goals__chips {
+/* ---- Goal tracker ---- */
+.pl-hq-goals {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
-  gap: 1rem;
+  gap: 14px;
+  padding: 20px 22px;
+  background: var(--pl-hq-surface);
+  border: 1px solid var(--pl-hq-rule);
+  border-radius: 16px;
+}
+.pl-hq-goals__title {
+  margin: 0;
+  font-family: var(--pl-hq-display);
+  font-weight: 800;
+  font-size: 1.45rem;
+  line-height: 1.2;
+  text-transform: capitalize;
+}
+.pl-hq-goals__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 22px;
+}
+@media (max-width: 820px) {
+  .pl-hq-goals__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .pl-hq-goal {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 1rem 1.25rem;
-  border: 1px solid var(--hub-card-border);
-  border-radius: 12px;
-  background: var(--hub-card-bg);
+  min-width: 0;
 }
 .pl-hq-goal__label {
-  font-size: 0.8125rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--hub-text-muted);
+  color: var(--pl-hq-gold);
 }
-.pl-hq-goal__figure {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
+.pl-hq-goal__value {
+  margin-top: 0.25rem;
+  font-family: var(--pl-hq-display);
+  font-weight: 800;
+  font-size: 1.5rem;
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
 }
-.pl-hq-goal__current {
-  font-size: 1.75rem;
-  font-weight: 800;
-  line-height: 1;
-  color: var(--hub-text);
-}
-.pl-hq-goal__of {
-  font-size: 0.9375rem;
-  color: var(--hub-text-muted);
+.pl-hq-goal__value small {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--pl-hq-muted);
+  white-space: nowrap;
 }
 .pl-hq-meter {
   display: block;
   width: 100%;
   height: 8px;
-  margin-top: 0.25rem;
+  margin-top: 6px;
   border: none;
-  border-radius: 999px;
-  background-color: var(--hub-surface);
+  border-radius: 4px;
+  background-color: var(--pl-hq-rule);
   appearance: none;
   overflow: hidden;
 }
 .pl-hq-meter::-webkit-progress-bar {
-  background-color: var(--hub-surface);
+  background-color: var(--pl-hq-rule);
 }
 .pl-hq-meter::-webkit-progress-value {
-  background-color: var(--color-tuscan-yellow);
-  border-radius: 999px;
+  background-color: var(--pl-hq-gold-hi);
+  border-radius: 4px;
 }
 .pl-hq-meter::-moz-progress-bar {
-  background-color: var(--color-tuscan-yellow);
-  border-radius: 999px;
+  background-color: var(--pl-hq-gold-hi);
+  border-radius: 4px;
 }
 
 /* ---- Door cards ---- */
+.pl-hq-doors {
+  display: grid;
+  gap: 16px;
+}
+.pl-hq-section__title {
+  margin: 0;
+  font-family: var(--pl-hq-display);
+  font-weight: 800;
+  font-size: 1.45rem;
+  line-height: 1.2;
+  text-transform: capitalize;
+}
 .pl-hq-grid {
-  margin-top: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 820px) {
+  .pl-hq-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .pl-hq-door {
   display: flex;
@@ -195,65 +283,103 @@
   min-width: 0;
 }
 .pl-hq-card {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 12px;
   height: 100%;
-  gap: 0.5rem;
+  padding: 22px;
+  background: var(--pl-hq-surface);
+  border: 1px solid var(--pl-hq-rule);
+  border-radius: 16px;
+  color: var(--pl-hq-ink);
+  text-decoration: none;
+}
+a.pl-hq-card:hover {
+  text-decoration: none;
+}
+.pl-hq-card__tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  background: var(--pl-hq-navy);
+  color: var(--pl-hq-gold-hi);
+}
+.pl-hq-card__icon {
+  width: 24px;
+  height: 24px;
+}
+.pl-hq-card__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 .pl-hq-card__who {
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-tuscan-yellow);
+  color: var(--pl-hq-gold);
 }
 .pl-hq-card__title {
-  font-size: 1.15rem;
+  font-family: var(--pl-hq-display);
+  font-weight: 800;
+  font-size: 1.45rem;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 .pl-hq-card__bullets {
-  margin: 0.25rem 0 0;
-  padding-left: 1.1rem;
-  color: var(--hub-text-muted);
-  font-size: 0.875rem;
-  line-height: 1.5;
-}
-.pl-hq-card__bullets li + li {
-  margin-top: 0.2rem;
-}
-.pl-hq-card__button,
-.pl-hq-card__soon {
-  margin-top: auto;
-  padding-top: 0.75rem;
-  font-weight: 700;
-  font-size: 0.9375rem;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--pl-hq-muted);
+  font-size: 0.95rem;
+  line-height: 1.45;
 }
 .pl-hq-card__button {
-  color: var(--color-tuscan-yellow);
+  display: block;
+  padding: 12px 16px;
+  border: 1px solid var(--pl-hq-button-bg);
+  border-radius: 10px;
+  background: var(--pl-hq-button-bg);
+  color: var(--pl-hq-button-ink);
+  font-weight: 900;
+  font-size: 0.95rem;
+  text-align: center;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
-.pl-hq-card__button::after {
-  content: " \2192";
+a.pl-hq-card:hover .pl-hq-card__button {
+  background: var(--pl-hq-button-hover);
+  border-color: var(--pl-hq-button-hover);
 }
-.pl-hq-card__soon {
-  color: var(--hub-text-muted);
+a.pl-hq-card:focus-visible {
+  outline: 2px solid var(--pl-hq-gold-hi);
+  outline-offset: 2px;
 }
-/* A placeholder is a tile, not a door: greyed, dashed, and nothing lifts on hover. */
+/* A placeholder is a tile, not a door: dashed, a grey tile, and a disabled looking block that links nowhere. */
 .pl-hq-card--placeholder {
   border-style: dashed;
-  border-color: var(--hub-border-strong);
-  background: var(--hub-surface);
-  opacity: 0.75;
+}
+.pl-hq-card--placeholder .pl-hq-card__tile {
+  background: var(--pl-hq-rule);
+  color: var(--pl-hq-muted);
+}
+.pl-hq-card__button--off {
+  background: var(--pl-hq-rule);
+  border-color: var(--pl-hq-rule);
+  color: var(--pl-hq-muted);
   cursor: default;
-}
-.pl-hq-card--placeholder:hover {
-  border-color: var(--hub-border-strong);
-  transform: none;
-  box-shadow: none;
-}
-.pl-hq-card--placeholder .pl-hq-card__who,
-.pl-hq-card--placeholder .pl-hq-card__title {
-  color: var(--hub-text-muted);
 }
 .pl-hq-door--hidden .pl-hq-card {
   opacity: 0.55;
 }
+
+/* The admin line under a card stays in portal style. */
 .pl-hq-door__admin {
   display: flex;
   align-items: center;
@@ -278,13 +404,14 @@
 .pl-hq-footnote {
   margin: 0;
   padding-top: 1rem;
-  border-top: 1px solid var(--hub-border);
-  color: var(--hub-text-muted);
-  font-size: 0.8125rem;
+  border-top: 1px solid var(--pl-hq-rule);
+  color: var(--pl-hq-muted);
+  font-size: 0.88rem;
   line-height: 1.5;
+  text-align: center;
 }
 
-/* ---- Edit pages ---- */
+/* ---- Edit pages (portal style) ---- */
 .pl-hq-edit {
   display: flex;
   flex-direction: column;

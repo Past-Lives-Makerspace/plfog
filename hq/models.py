@@ -14,6 +14,7 @@ those cards render with their own title and no link (:attr:`HubCard.url`).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -26,6 +27,18 @@ from django.utils import timezone
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
 from membership.models import CommunityEvent, Member
+
+
+@dataclass(frozen=True)
+class Countdown:
+    """The hero band's figure: ``big`` is the number (or the word when there is none), ``small`` its label."""
+
+    big: str
+    small: str
+
+    @property
+    def label(self) -> str:
+        return f"{self.big} {self.small}".strip()
 
 
 class EventHubManager(models.Manager["EventHub"]):
@@ -101,22 +114,27 @@ class EventHub(models.Model):
         self.hero_image = ""  # type: ignore[assignment]  # a FieldFile accepts the empty name
         self.save(update_fields=["hero_image"])
 
-    def countdown_label(self, now: datetime) -> str:
-        """The big figure in the hero band, by Portland days until the event starts.
+    def countdown_parts(self, now: datetime) -> Countdown:
+        """The hero band's figure, by Portland days until the event starts, as the number and its label.
 
-        "N days to go" and "1 day to go" before, "Today" on the day, "Thank you" after. Blank
-        while the hub has no event, so the band renders without the figure.
+        ``("N", "days to go")`` and ``("1", "day to go")`` before, ``("Today", "")`` on the day,
+        ``("Thank you", "")`` after. Both blank while the hub has no event, so the band renders
+        without the figure.
         """
         if self.event is None:
-            return ""
+            return Countdown("", "")
         days = (timezone.localdate(self.event.starts_at) - timezone.localdate(now)).days
         if days > 1:
-            return f"{days} days to go"
+            return Countdown(str(days), "days to go")
         if days == 1:
-            return "1 day to go"
+            return Countdown("1", "day to go")
         if days == 0:
-            return "Today"
-        return "Thank you"
+            return Countdown("Today", "")
+        return Countdown("Thank you", "")
+
+    def countdown_label(self, now: datetime) -> str:
+        """:meth:`countdown_parts` as one line: "N days to go", "1 day to go", "Today", "Thank you", or blank."""
+        return self.countdown_parts(now).label
 
     @property
     def date_line(self) -> str:
@@ -127,10 +145,20 @@ class EventHub(models.Model):
         return f"{when} · {self.event.location}" if self.event.location else when
 
     def seed_default_cards(self) -> list[HubCard]:
-        """Make the nine door cards a new hub starts with (:data:`DEFAULT_CARDS`), all admins only."""
-        return [
-            HubCard.objects.create(hub=self, sort_order=position, **spec) for position, spec in enumerate(DEFAULT_CARDS)
-        ]
+        """The nine door cards a hub starts with (:data:`DEFAULT_CARDS`), all admins only.
+
+        Idempotent: a live kind the hub already has, or a placeholder with that title, is left
+        as the admin edited it, so a second call adds nothing.
+        """
+        cards: list[HubCard] = []
+        for position, spec in enumerate(DEFAULT_CARDS):
+            lookup = {"kind": spec["kind"]}
+            if spec["kind"] == HubCard.Kind.PLACEHOLDER:
+                lookup["title"] = spec["title"]
+            defaults = {key: value for key, value in spec.items() if key not in lookup}
+            card, _ = HubCard.objects.get_or_create(hub=self, **lookup, defaults={**defaults, "sort_order": position})
+            cards.append(card)
+        return cards
 
 
 class HubCard(models.Model):

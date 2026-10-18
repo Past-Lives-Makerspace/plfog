@@ -1,0 +1,24 @@
+{% comment %}
+The door tile's icon, by card kind, in Lee's HQ's set: a ticket with a check for RSVP, two
+people for volunteers, a bottle for the wine wall, a clipboard for a placeholder. Stroked in
+currentColor, which the tile sets to the gold highlight (grey on a placeholder).
+
+  kind — required, a HubCard.Kind value
+{% endcomment %}
+<svg class="pl-hq-card__icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+{% if kind == "rsvp" %}
+  <path d="M4 8a2 2 0 0 0 2-2h12a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H6a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4z"/>
+  <path d="M9.5 12l1.8 1.8 3.4-3.6"/>
+{% elif kind == "volunteers" %}
+  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+  <circle cx="9" cy="7" r="4"/>
+  <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+  <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+{% elif kind == "wine_wall" %}
+  <path d="M10 2h4v4l1.5 3a3 3 0 0 1 .5 1.6V20a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-9.4a3 3 0 0 1 .5-1.6L10 6z"/>
+  <path d="M8 14h8"/>
+{% else %}
+  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+  <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+{% endif %}
+</svg>

@@ -76,6 +76,18 @@ def describe_making_a_hub():
         assert cards[1].button_text == "Sign up to volunteer"
         assert [card.kind for card in cards].count(HubCard.Kind.PLACEHOLDER) == 6
 
+    def it_adds_nothing_when_the_doors_are_seeded_again(open_hub):
+        first = open_hub.seed_default_cards()
+        rsvp = open_hub.cards.get(kind=HubCard.Kind.RSVP)
+        rsvp.title = "Renamed by Lee"
+        rsvp.save(update_fields=["title"])
+
+        again = open_hub.seed_default_cards()
+
+        assert open_hub.cards.count() == 9
+        assert [card.pk for card in again] == [card.pk for card in first]
+        assert open_hub.cards.get(kind=HubCard.Kind.RSVP).title == "Renamed by Lee"
+
     def it_refuses_the_new_address(admin_client):
         response = admin_client.post(CREATE, _hub_post(slug="new"))
 
