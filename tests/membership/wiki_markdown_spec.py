@@ -281,6 +281,11 @@ def describe_wiki_blocks():
                 "<ul><li>Dot</li></ul>"
             )
 
+        def it_finds_the_end_of_a_list_past_other_block_tags_inside_it():
+            assert sanitize_wiki_html('<ol><li data-list="checked">a<div>x</div></li></ol><p>after</p>') == (
+                '<ul class="pl-checklist"><li data-list="checked">a\nx</li></ul><p>after</p>'
+            )
+
         def it_keeps_a_stored_numbered_list_numbered():
             assert sanitize_wiki_html("<ol><li>A</li><li>B</li></ol>") == "<ol><li>A</li><li>B</li></ol>"
 

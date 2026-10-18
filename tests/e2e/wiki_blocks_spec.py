@@ -55,6 +55,11 @@ def describe_wiki_editor_blocks():
         # A panel on a list line would vanish on save, so the picker refuses it.
         _pick_panel(page, "info")
         expect(editor.locator("li.pl-panel-info")).to_have_count(0)
+        # Nor across a plain line and the list line together, where Quill reports no shared list.
+        page.keyboard.press("Shift+ArrowUp")
+        _pick_panel(page, "info")
+        expect(editor.locator(".pl-panel-info")).to_have_count(0)
+        page.keyboard.press("End")
         page.keyboard.press("Enter")
         page.keyboard.press("Enter")
         page.locator(".ql-toolbar button.ql-code-block").click()

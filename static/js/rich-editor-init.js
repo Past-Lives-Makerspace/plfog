@@ -85,11 +85,21 @@
        line, and the save would then drop it without a word, so the picker says so instead. */
     function panelHandler(quill) {
         return function (value) {
-            var formats = quill.getFormat();
-            if (value && (formats.list || formats.blockquote || formats["code-block"])) {
+            // Each selected line, not getFormat(): a selection across a plain line and a list
+            // item reports no shared list format, and the panel would still land on both.
+            var range = quill.getSelection(true);
+            // getLines() returns nothing for a bare cursor, so that case asks for its one line.
+            var lines = range.length ? quill.getLines(range.index, range.length) : [quill.getLine(range.index)[0]];
+            var blocked = value && lines.some(function (line) {
+                var formats = line.formats();
+                return formats.list || formats.blockquote || formats["code-block"];
+            });
+            if (blocked) {
                 window.dispatchEvent(new CustomEvent("show-toast", {
                     detail: { message: "Panels go on plain lines. Take this line out of its list, quote or code box first.", type: "info" }
                 }));
+                // The picker already shows the refused kind; put it back to what the line has.
+                quill.getModule("toolbar").update(range);
                 return;
             }
             quill.format("panel", value, "user");
