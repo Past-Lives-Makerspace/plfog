@@ -31,8 +31,11 @@ included, with Edit links and the Edit HQ action; everyone else gets only the do
       <h1 class="pl-hq-hero__title">{{ hub.title }}</h1>
       {% if hub.date_line %}<p class="pl-hq-hero__date" data-hq-date>{{ hub.date_line }}</p>{% endif %}
     </div>
-    {% if countdown %}
-    <p class="pl-hq-hero__countdown" data-hq-countdown>{{ countdown }}</p>
+    {% if countdown.big %}
+    <p class="pl-hq-hero__countdown" data-hq-countdown="{{ countdown.big }}{% if countdown.small %} {{ countdown.small }}{% endif %}">
+      <span class="pl-hq-hero__figure">{{ countdown.big }}</span>
+      {% if countdown.small %}<span class="pl-hq-hero__cd-label">{{ countdown.small }}</span>{% endif %}
+    </p>
     {% endif %}
   </section>
 
@@ -42,13 +45,13 @@ included, with Edit links and the Edit HQ action; everyone else gets only the do
 
   {% if goals or can_edit %}
   <section class="pl-hq-goals" aria-labelledby="hq-goals-title">
-    <h2 class="pl-hq-section__title" id="hq-goals-title">Where We Stand</h2>
+    <h2 class="pl-hq-goals__title" id="hq-goals-title">Goal Tracker</h2>
     {% if goals %}
-    <div class="pl-hq-goals__chips">
+    <div class="pl-hq-goals__grid">
       {% for goal in goals %}
       <div class="pl-hq-goal" data-hq-goal>
         <span class="pl-hq-goal__label">{{ goal.label }}</span>
-        <span class="pl-hq-goal__figure"><strong class="pl-hq-goal__current">{{ goal.current_display }}</strong> <span class="pl-hq-goal__of">of {{ goal.target_display }}</span></span>
+        <strong class="pl-hq-goal__value">{{ goal.current_display }} <small>of {{ goal.target_display }}</small></strong>
         <progress class="pl-hq-meter" max="100" value="{{ goal.percent }}" aria-label="{{ goal.label }}: {{ goal.percent }} percent of the goal">{{ goal.percent }}%</progress>
       </div>
       {% endfor %}
@@ -62,7 +65,7 @@ included, with Edit links and the Edit HQ action; everyone else gets only the do
 
   <section class="pl-hq-doors" aria-labelledby="hq-doors-title">
     <h2 class="pl-hq-section__title" id="hq-doors-title">Pick a Door</h2>
-    <div class="pl-tools-grid pl-hq-grid">
+    <div class="pl-hq-grid">
       {% for card in cards %}
       {% include "hq/partials/_card.html" with card=card hub=hub can_edit=can_edit %}
       {% empty %}

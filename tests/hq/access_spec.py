@@ -271,6 +271,23 @@ def describe_organizer_required():
 
         assert wrapped(_request(admin.user, picked=ROLE_MEMBER), slug=open_hub.slug).status_code == 200
 
+    def it_admits_an_actual_admin_to_a_closed_hub_while_previewing_as_a_member(admin):
+        """Actions read the actual role, so a preview never hides an HQ an admin is still building."""
+        closed = EventHubFactory(is_open=False)
+        HubCardFactory(hub=closed, kind=HubCard.Kind.WINE_WALL)
+        wrapped = organizer_required(HubCard.Kind.WINE_WALL)(_view)
+
+        assert wrapped(_request(admin.user, picked=ROLE_MEMBER), slug=closed.slug).status_code == 200
+
+    def it_keeps_a_closed_hub_from_a_named_member(make_member):
+        named = make_member()
+        closed = EventHubFactory(is_open=False)
+        HubCardFactory(hub=closed, kind=HubCard.Kind.WINE_WALL, named=[named])
+        wrapped = organizer_required(HubCard.Kind.WINE_WALL)(_view)
+
+        with pytest.raises(Http404):
+            wrapped(_request(named.user), slug=closed.slug)
+
     def it_admits_a_named_member(open_hub, make_member):
         named = make_member()
         HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL, named=[named])

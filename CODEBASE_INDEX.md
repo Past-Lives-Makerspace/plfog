@@ -15,7 +15,7 @@
 | `hq/` | The Holiday Bizarre HQ (Track C): one hub page per event with a hero band, goal chips and nine door cards an admin opens to the public, to members or to named people; behind the `holiday_bizarre` switch; see `hq/AGENTS.md` |
 | `plfog/` | Django project: settings, urls, wsgi, auto_admin, adapters |
 
-Those seven plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
+Those nine plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
 
 | Directory | What it is |
 |-----------|-----------|

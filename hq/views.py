@@ -58,7 +58,7 @@ def hub_page(request: HttpRequest, slug: str) -> HttpResponse:
             "hub": hub,
             "cards": cards,
             "goals": goal_rows(hub),
-            "countdown": hub.countdown_label(timezone.now()),
+            "countdown": hub.countdown_parts(timezone.now()),
             "can_edit": is_admin,
         },
     )

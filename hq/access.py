@@ -57,9 +57,19 @@ def is_actual_admin(request: HttpRequest) -> bool:
 
 
 def hub_or_404(slug: str, request: HttpRequest) -> EventHub:
-    """The hub at ``slug``: an open hub for everyone, a closed one for admins only."""
+    """The hub at ``slug`` for rendering: an open hub for everyone, a closed one for admins only (effective role)."""
+    return _hub(slug, admin=renders_as_admin(request))
+
+
+def hub_for_action(slug: str, request: HttpRequest) -> EventHub:
+    """The hub at ``slug`` for an action: as :func:`hub_or_404`, but a closed hub admits the ACTUAL admin,
+    so an admin previewing as a member can still act on an HQ that is not open yet."""
+    return _hub(slug, admin=is_actual_admin(request))
+
+
+def _hub(slug: str, *, admin: bool) -> EventHub:
     hub = EventHub.objects.filter(slug=slug).select_related("event").first()
-    if hub is None or (not hub.is_open and not renders_as_admin(request)):
+    if hub is None or (not hub.is_open and not admin):
         raise Http404("No such HQ.")
     return hub
 
@@ -117,7 +127,7 @@ def organizer_required(kind: str) -> Callable[[Callable[..., HttpResponseBase]],
     def decorator(view: Callable[..., HttpResponseBase]) -> Callable[..., HttpResponseBase]:
         @wraps(view)
         def wrapped(request: HttpRequest, *args: Any, slug: str, **kwargs: Any) -> HttpResponseBase:
-            hub = hub_or_404(slug, request)
+            hub = hub_for_action(slug, request)
             card = hub.cards.prefetch_related("named_members").filter(kind=kind).first()
             if card is None:
                 raise Http404("No such card.")

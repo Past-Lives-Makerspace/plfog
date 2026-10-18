@@ -12,7 +12,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from hq.models import EventHub, HubCard, HubGoal
+from hq.models import Countdown, EventHub, HubCard, HubGoal
 from hq.services import GoalRow, goal_rows, rsvp_count
 from tests.hq.factories import HubCardFactory, HubGoalFactory
 from tests.membership.factories import CommunityEventFactory, EventRSVPFactory
@@ -95,6 +95,29 @@ def describe_the_countdown():
 
     def it_is_blank_without_an_event(open_hub):
         assert open_hub.countdown_label(timezone.now()) == ""
+        assert open_hub.countdown_parts(timezone.now()) == Countdown("", "")
+
+    @pytest.mark.parametrize(
+        ("days_ahead", "big", "small"),
+        [(12, "12", "days to go"), (1, "1", "day to go"), (0, "Today", ""), (-3, "Thank you", "")],
+    )
+    def it_splits_the_number_from_its_label_for_the_band(open_hub, days_ahead, big, small):
+        now = _noon()
+        open_hub.event = CommunityEventFactory(community=True, starts_at=now + timedelta(days=days_ahead))
+
+        assert open_hub.countdown_parts(now) == Countdown(big, small)
+
+    def it_renders_a_word_alone_in_the_big_slot(open_hub):
+        now = _noon()
+        open_hub.event = CommunityEventFactory(community=True, starts_at=now)
+        open_hub.save()
+
+        with patch("hq.views.timezone.now", return_value=now):
+            body = Client().get(_page(open_hub)).content.decode()
+
+        assert 'data-hq-countdown="Today"' in body
+        assert '<span class="pl-hq-hero__figure">Today</span>' in body
+        assert "pl-hq-hero__cd-label" not in body
 
     def it_renders_as_the_big_figure_on_the_page(open_hub):
         now = _noon()
@@ -104,7 +127,9 @@ def describe_the_countdown():
         with patch("hq.views.timezone.now", return_value=now):
             body = Client().get(_page(open_hub)).content.decode()
 
-        assert "data-hq-countdown>3 days to go</p>" in body
+        assert 'data-hq-countdown="3 days to go"' in body
+        assert '<span class="pl-hq-hero__figure">3</span>' in body
+        assert '<span class="pl-hq-hero__cd-label">days to go</span>' in body
 
 
 def describe_goal_rows():
@@ -172,12 +197,14 @@ def describe_goal_rows():
 
 
 def describe_the_goal_band():
-    def it_renders_a_chip_with_a_meter_per_goal(open_hub):
+    def it_renders_a_goal_with_a_meter_under_the_goal_tracker_heading(open_hub):
         HubGoalFactory(hub=open_hub, label="Bottles", target=100, current_value=40)
 
         body = Client().get(_page(open_hub)).content.decode()
 
         assert body.count("data-hq-goal>") == 1
+        assert '<h2 class="pl-hq-goals__title" id="hq-goals-title">' in body
+        assert '<strong class="pl-hq-goal__value">40 <small>of 100</small></strong>' in body
         assert '<progress class="pl-hq-meter" max="100" value="40"' in body
         assert "Bottles" in body
 
@@ -186,6 +213,24 @@ def describe_the_goal_band():
         member_body = member_client.get(_page(open_hub)).content.decode()
         assert "data-hq-goals-empty" not in member_body
         assert 'id="hq-goals-title"' not in member_body
+
+
+def describe_the_tile_icons():
+    @pytest.mark.parametrize(
+        ("kind", "mark"),
+        [
+            (HubCard.Kind.VOLUNTEERS, '<circle cx="9" cy="7" r="4"/>'),
+            (HubCard.Kind.WINE_WALL, '<path d="M8 14h8"/>'),
+        ],
+    )
+    def it_gives_each_kind_its_own_tile_icon(open_hub, kind, mark):
+        card = HubCardFactory(hub=open_hub, kind=kind, audience=HubCard.Audience.PUBLIC)
+
+        body = Client().get(_page(open_hub)).content.decode()
+        door = body.split(f'data-hq-card-pk="{card.pk}"')[1].split("</div>")[0]
+
+        assert 'class="pl-hq-card__tile"' in door
+        assert mark in door
 
 
 def describe_the_doors():
@@ -207,7 +252,8 @@ def describe_the_doors():
         door = body.split(f'data-hq-card-pk="{card.pk}"')[1].split("</a>")[0]
 
         assert card.url == reverse("hub_event_detail", args=[event.pk])
-        assert f'<a href="{card.url}" class="hub-card pl-tool-card pl-hq-card" data-hq-card-link>' in door
+        assert f'<a href="{card.url}" class="pl-hq-card" data-hq-card-link>' in door
+        assert "M9.5 12l1.8 1.8 3.4-3.6" in door  # the ticket with a check, the RSVP door's icon
         assert "Members and guests" in door
         assert "<li>Tell us you&#x27;re coming</li>" in door
         assert "<li>Get email updates</li>" in door
@@ -222,8 +268,9 @@ def describe_the_doors():
 
         assert card.url == ""
         assert "data-hq-card-placeholder" in door
-        assert "Not shared yet" in door
+        assert 'class="pl-hq-card__button pl-hq-card__button--off" aria-disabled="true">Not shared yet' in door
         assert "<a " not in door
+        assert '<rect x="8" y="2" width="8" height="4"' in door  # the clipboard icon
 
     def it_renders_a_card_whose_page_has_not_shipped_as_a_tile_with_its_own_title(open_hub):
         """C3 adds hq:wine; until then the wine wall card is a tile, never a broken link."""
