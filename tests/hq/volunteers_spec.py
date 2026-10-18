@@ -702,7 +702,7 @@ def describe_the_card_url():
     def it_links_the_volunteers_card_to_its_page(card):
         assert card.url == _page(card.hub)
         body = Client().get(reverse("hq:page", args=[card.hub.slug])).content.decode()
-        assert f'<a href="{_page(card.hub)}" class="hub-card pl-tool-card pl-hq-card" data-hq-card-link>' in body
+        assert f'<a href="{_page(card.hub)}" class="pl-hq-card" data-hq-card-link>' in body
 
 
 def describe_access():
