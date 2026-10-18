@@ -411,8 +411,100 @@ def sanitize_page_submission(value: str) -> str:
 # sheet from a supplier's page should keep it), inline code, and a rule. Still no
 # iframe, no div — those stay the admin-authored help profile's privilege.
 _WIKI_TAGS_HTML = [*_PAGE_TAGS, "img", "h4", "table", "thead", "tbody", "tr", "th", "td", "code", "pre", "hr"]
-_WIKI_ATTRS_HTML = {"a": {"href"}, "img": _IMG_ATTRS, "th": {"align"}, "td": {"align"}}
-_WIKI_HTML_CLEANER = AllowlistCleaner(_WIKI_TAGS_HTML, _WIKI_ATTRS_HTML, {"img": _allow_wiki_img_attr})
+
+# The editor's Confluence-style blocks (static/js/rich-editor-init.js). A panel is a class on
+# the line itself, so these four exact values are the only class a block may carry; a
+# checklist is a <ul class="pl-checklist"> whose items keep Quill's data-list, so the editor
+# reopens them ticked or not. Every other class and data- value is dropped, as before.
+WIKI_PANEL_KINDS = ("info", "tip", "warning", "danger")
+_WIKI_PANEL_CLASSES = frozenset(f"pl-panel-{kind}" for kind in WIKI_PANEL_KINDS)
+_WIKI_PANEL_TAGS = ("p", "h2", "h3", "h4")
+_WIKI_CHECK_VALUES = frozenset({"checked", "unchecked"})
+
+
+def _allow_wiki_panel_attr(tag: str, name: str, value: str) -> bool:
+    """A block's only attribute is one of the four panel classes."""
+    return name == "class" and value in _WIKI_PANEL_CLASSES
+
+
+def _allow_wiki_checklist_attr(tag: str, name: str, value: str) -> bool:
+    """A list's only attribute is the checklist marker."""
+    return name == "class" and value == "pl-checklist"
+
+
+def _allow_wiki_check_item_attr(tag: str, name: str, value: str) -> bool:
+    """A list item's only attribute is whether its box is ticked."""
+    return name == "data-list" and value in _WIKI_CHECK_VALUES
+
+
+_WIKI_ATTRS_HTML = {
+    "a": {"href"},
+    "img": _IMG_ATTRS,
+    "th": {"align"},
+    "td": {"align"},
+    **{tag: {"class"} for tag in _WIKI_PANEL_TAGS},
+    "ul": {"class"},
+    "li": {"data-list"},
+}
+_WIKI_HTML_CLEANER = AllowlistCleaner(
+    _WIKI_TAGS_HTML,
+    _WIKI_ATTRS_HTML,
+    {
+        "img": _allow_wiki_img_attr,
+        **dict.fromkeys(_WIKI_PANEL_TAGS, _allow_wiki_panel_attr),
+        "ul": _allow_wiki_checklist_attr,
+        "li": _allow_wiki_check_item_attr,
+    },
+)
+
+# Quill 2 writes a code block as divs, one per line, inside a container div, and the wiki
+# allowlist has no div, so without this rewrite the lines ran together into one paragraph.
+# A line holds text and <br> only; the line pattern refuses any div tag inside it, which
+# keeps the match linear on hostile input (tests/core/rich_text_speed_spec.py).
+_QL_CODE_LINE = r"<div\b[^>]*>((?:[^<]|<(?!/?div\b))*)</div>"
+_QL_CODE_CONTAINER_RE = re.compile(
+    r"<div\b[^>]*\bql-code-block-container\b[^>]*>((?:\s*" + _QL_CODE_LINE + r")*)\s*</div>",
+    re.IGNORECASE,
+)
+_QL_CODE_LINE_RE = re.compile(_QL_CODE_LINE, re.IGNORECASE)
+_BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_CHECK_ITEM_RE = re.compile(r"""data-list\s*=\s*["'](?:un)?checked["']""", re.IGNORECASE)
+_OL_RE = re.compile(r"<ol(\s[^>]*)?>(.*?)(?:</ol>|\Z)", re.IGNORECASE | re.DOTALL)
+# A panel line or checklist item nobody wrote in. The starters ship these as prompts (the
+# editor shows a hint in an empty panel), and the reading page drops them so a prompt left
+# alone never prints an empty box. Matched on sanitized output, so the attribute shapes are
+# exactly what the cleaner writes.
+_EMPTY_PANEL_RE = re.compile(r'<(p|h[2-4]) class="pl-panel-[a-z]+">(?:\s|<br\s*/?>)*</\1>')
+_EMPTY_CHECK_ITEM_RE = re.compile(r'<li data-list="unchecked">(?:\s|<br\s*/?>)*</li>')
+_EMPTY_CHECKLIST_RE = re.compile(r'<ul class="pl-checklist">\s*</ul>')
+
+
+def _drop_unwritten_prompts(html: str) -> str:
+    """Remove empty panel lines, empty unticked checklist items, and checklists left empty."""
+    html = _EMPTY_CHECK_ITEM_RE.sub("", _EMPTY_PANEL_RE.sub("", html))
+    return _EMPTY_CHECKLIST_RE.sub("", html)
+
+
+def _normalize_wiki_blocks(raw: str) -> str:
+    """Rewrite Quill's code blocks to ``<pre>`` and its checklists to ``<ul class="pl-checklist">``.
+
+    Runs before the shared list normalizer and the sanitizer, while Quill's markers still
+    exist. Both shapes are what Quill itself reads back when the editor reopens (``pre``
+    becomes a code block, ``li[data-list]`` keeps its tick), and both are stable under a
+    second pass, because the render path sanitizes stored bodies again.
+    """
+
+    def code(match: re.Match[str]) -> str:
+        lines = [_BR_RE.sub("", line) for line in _QL_CODE_LINE_RE.findall(match.group(1))]
+        return "<pre>" + "\n".join(lines) + "</pre>"
+
+    def checklist(match: re.Match[str]) -> str:
+        if _CHECK_ITEM_RE.search(match.group(2)):
+            return f'<ul class="pl-checklist">{match.group(2)}</ul>'
+        return match.group(0)
+
+    return _OL_RE.sub(checklist, _QL_CODE_CONTAINER_RE.sub(code, raw))
+
 
 # One pass over rendered wiki HTML: an h2/h3 with no id (or an invalid one) gets a
 # slugified id computed from its own text, deduped -2/-3 within the same body.
@@ -431,7 +523,7 @@ def sanitize_wiki_html(raw: str) -> str:
     """
     if not raw or not raw.strip():
         return ""
-    cleaned = _SRCLESS_IMG_RE.sub("", _WIKI_HTML_CLEANER.clean(_normalize_quill_lists(raw)))
+    cleaned = _SRCLESS_IMG_RE.sub("", _WIKI_HTML_CLEANER.clean(_normalize_quill_lists(_normalize_wiki_blocks(raw))))
     hardened = linkify(cleaned, _harden_link_help)
     # An image counts as content here, unlike the help-page sanitizer this is modelled on
     # (which strips img outright, so its text-only emptiness test can never be wrong). On a
@@ -475,7 +567,7 @@ def _inject_heading_ids(html: str) -> str:
     return _WIKI_HEADING_RE.sub(_replace, html)
 
 
-def render_wiki_content(source: str) -> str:
+def render_wiki_content(source: str, *, for_editor: bool = False) -> str:
     """Render a stored :class:`~membership.models.WikiPage` body to safe, anchored HTML.
 
     The dual-mode entry point for wiki pages: content that :func:`looks_like_html` (a
@@ -484,11 +576,20 @@ def render_wiki_content(source: str) -> str:
     runs over the result last, so ``WikiPage.toc()`` — one regex pass over this same output
     — and the on-page anchors can never disagree, and running this twice on the same body
     yields the same ids (deterministic anchors).
+
+    Args:
+        source: The stored body.
+        for_editor: True when seeding the editor, which keeps empty panel lines: they are
+            the starters' prompts, and the next person to edit should still see them. The
+            reading page drops them (and empty checklist items), so an unanswered prompt
+            never prints an empty box.
     """
     if not source:
         return ""
     if looks_like_html(source):
         html = sanitize_wiki_html(source)
+        if not for_editor:
+            html = _drop_unwritten_prompts(html)
     else:
         html = render_markdown(source, profile="wiki")
     return _inject_heading_ids(html)

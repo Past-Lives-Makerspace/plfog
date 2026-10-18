@@ -13,6 +13,7 @@ import pytest
 from django.test import override_settings
 
 from membership.markdown import (
+    WIKI_PANEL_KINDS,
     _inject_heading_ids,
     render_markdown,
     render_wiki_content,
@@ -206,3 +207,105 @@ def describe_render_wiki_content():
         def it_is_deterministic_across_renders():
             source = "<h2>Setup</h2><h3>Setup</h3><h2>Cleanup</h2>"
             assert render_wiki_content(source) == render_wiki_content(source)
+
+
+def describe_wiki_blocks():
+    """The editor's Confluence-style blocks: panels, checklist, settings block, divider."""
+
+    def describe_panels():
+        @pytest.mark.parametrize("kind", WIKI_PANEL_KINDS)
+        def it_keeps_each_panel_class_on_a_line(kind):
+            html = sanitize_wiki_html(f'<p class="pl-panel-{kind}">Wear eye protection.</p>')
+            assert html == f'<p class="pl-panel-{kind}">Wear eye protection.</p>'
+
+        @pytest.mark.parametrize("tag", ["h2", "h3", "h4"])
+        def it_keeps_a_panel_class_on_a_heading(tag):
+            assert f'<{tag} class="pl-panel-tip">' in sanitize_wiki_html(f'<{tag} class="pl-panel-tip">Tip</{tag}>')
+
+        @pytest.mark.parametrize(
+            "value", ["pl-panel-evil", "ql-align-center", "pl-panel-info ql-align-center", "pl-checklist"]
+        )
+        def it_drops_any_other_class(value):
+            assert sanitize_wiki_html(f'<p class="{value}">Text</p>') == "<p>Text</p>"
+
+        def it_drops_other_attributes_on_a_panel_line():
+            assert sanitize_wiki_html('<p class="pl-panel-info" onclick="x()">Text</p>') == (
+                '<p class="pl-panel-info">Text</p>'
+            )
+
+        def it_drops_an_empty_panel_line_on_the_reading_page():
+            source = '<h2>Danger</h2><p class="pl-panel-danger"><br></p><p class="pl-panel-tip">Kept</p>'
+            html = render_wiki_content(source)
+            assert "pl-panel-danger" not in html
+            assert '<p class="pl-panel-tip">Kept</p>' in html
+
+        def it_keeps_an_empty_panel_line_for_the_editor():
+            html = render_wiki_content('<h2>Danger</h2><p class="pl-panel-danger"><br></p>', for_editor=True)
+            assert '<p class="pl-panel-danger"><br></p>' in html
+
+        def it_keeps_an_empty_paragraph_that_is_not_a_panel():
+            assert "<p><br></p>" in render_wiki_content("<h2>A</h2><p><br></p>")
+
+    def describe_checklists():
+        QUILL = (
+            '<ol><li data-list="checked">Sweep<span class="ql-ui"></span></li><li data-list="unchecked">Lock</li></ol>'
+        )
+
+        def it_turns_a_quill_checklist_into_a_marked_list():
+            assert sanitize_wiki_html(QUILL) == (
+                '<ul class="pl-checklist"><li data-list="checked">Sweep</li><li data-list="unchecked">Lock</li></ul>'
+            )
+
+        def it_is_stable_on_a_second_pass():
+            once = sanitize_wiki_html(QUILL)
+            assert sanitize_wiki_html(once) == once
+
+        def it_leaves_bullet_and_numbered_lists_as_they_were():
+            assert sanitize_wiki_html('<ol><li data-list="bullet">A</li></ol>') == "<ul><li>A</li></ul>"
+            assert sanitize_wiki_html('<ol><li data-list="ordered">A</li></ol>') == "<ol><li>A</li></ol>"
+
+        @pytest.mark.parametrize("value", ["bullet", "ordered", "evil"])
+        def it_drops_any_other_data_list_value(value):
+            assert "data-list" not in sanitize_wiki_html(
+                f'<ul class="pl-checklist"><li data-list="{value}">A</li></ul>'
+            )
+
+        def it_drops_an_empty_unticked_item_and_then_the_empty_list_on_the_reading_page():
+            html = render_wiki_content(
+                '<h2>Before</h2><ul class="pl-checklist"><li data-list="unchecked"><br></li></ul>'
+            )
+            assert "pl-checklist" not in html
+            assert "<li" not in html
+
+        def it_keeps_written_items_beside_an_empty_one():
+            source = (
+                '<ul class="pl-checklist"><li data-list="unchecked">Sweep</li><li data-list="unchecked"><br></li></ul>'
+            )
+            assert render_wiki_content(source) == '<ul class="pl-checklist"><li data-list="unchecked">Sweep</li></ul>'
+
+        def it_keeps_empty_items_for_the_editor():
+            source = '<h2>A</h2><ul class="pl-checklist"><li data-list="unchecked"><br></li></ul>'
+            assert '<li data-list="unchecked"><br></li>' in render_wiki_content(source, for_editor=True)
+
+    def describe_settings_blocks():
+        QUILL = (
+            '<div class="ql-code-block-container" spellcheck="false">'
+            '<div class="ql-code-block" data-language="plain">Power 80%</div>'
+            '<div class="ql-code-block" data-language="plain"><br></div>'
+            '<div class="ql-code-block" data-language="plain">Speed &lt;20&gt;</div>'
+            "</div>"
+        )
+
+        def it_turns_quills_line_divs_into_one_pre_with_a_line_each():
+            assert sanitize_wiki_html(QUILL) == "<pre>Power 80%\n\nSpeed &lt;20&gt;</pre>"
+
+        def it_is_stable_on_a_second_pass():
+            once = sanitize_wiki_html(QUILL)
+            assert sanitize_wiki_html(once) == once
+
+        def it_leaves_a_stray_div_to_the_sanitizer():
+            assert sanitize_wiki_html('<div class="ql-code-block">x</div>') == "x"
+
+    def describe_dividers():
+        def it_keeps_a_divider():
+            assert sanitize_wiki_html("<p>A</p><hr><p>B</p>") == "<p>A</p><hr><p>B</p>"

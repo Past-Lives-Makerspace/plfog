@@ -41,14 +41,54 @@
         ],
         // The member wiki: the page set plus an image button. A member writing about a
         // machine has a photo, and a photo of the right blade beats three paragraphs.
+        // Then the Confluence-style blocks: a panel picker (Info, Tip, Warning, Danger), a
+        // checklist, a settings block (Quill's code block) and a divider.
         wiki: [
             ["bold", "italic", "underline", "strike"],
             [{ header: 2 }, { header: 3 }],
-            [{ list: "bullet" }, { list: "ordered" }],
-            ["link", "blockquote", "image"],
+            [{ list: "bullet" }, { list: "ordered" }, { list: "check" }],
+            [{ panel: [false, "info", "tip", "warning", "danger"] }],
+            ["link", "blockquote", "code-block", "divider", "image"],
             ["clean"]
         ]
     };
+
+    /* The wiki's block formats, registered before any editor is built.
+
+       A panel is a block-scope class format, the same mechanism as Quill's own ql-align: the
+       line keeps its tag and gains class="pl-panel-<kind>", which is the one shape the wiki
+       sanitizer lets through (membership/markdown.py). Consecutive panel lines of one kind
+       read as a single box through CSS. A real multi-paragraph container is not something
+       Quill 2.0.3 can round-trip, which is why it is a class and not a wrapper.
+
+       The divider is an <hr> embed. Both are registered globally, but only the wiki toolbar
+       offers them, and every other editor's sanitizer drops the markup anyway. This file
+       re-runs on every boosted arrival, so the registrations pass overwrite=true. */
+    function registerWikiFormats() {
+        if (!window.Quill) return;
+        var Parchment = window.Quill.import("parchment");
+        var Panel = new Parchment.ClassAttributor("panel", "pl-panel", {
+            scope: Parchment.Scope.BLOCK,
+            whitelist: ["info", "tip", "warning", "danger"]
+        });
+        var BlockEmbed = window.Quill.import("blots/block/embed");
+        class Divider extends BlockEmbed {}
+        Divider.blotName = "divider";
+        Divider.tagName = "HR";
+        window.Quill.register({ "formats/panel": Panel, "formats/divider": Divider }, true);
+        var icons = window.Quill.import("ui/icons");
+        icons.divider = '<svg viewBox="0 0 18 18"><line class="ql-stroke" x1="2" x2="16" y1="9" y2="9"></line></svg>';
+    }
+
+    function dividerHandler(quill) {
+        return function () {
+            // A block embed splits the line it lands in, so no newline bookkeeping here.
+            // ES class syntax above, not a prototype chain: Quill 2's blots are ES classes.
+            var range = quill.getSelection(true);
+            quill.insertEmbed(range.index, "divider", true, "user");
+            quill.setSelection(range.index + 1, 0, "silent");
+        };
+    }
 
     /* Custom toolbar handlers, keyed by the same data-rte-toolbar name.
 
@@ -120,6 +160,8 @@
         return true;
     }
 
+    registerWikiFormats();
+
     window.plRteInitAll = function () {
         if (!window.Quill) return;
         document.querySelectorAll(".pl-rte[data-rte-for]").forEach(function (mount) {
@@ -138,6 +180,7 @@
             if (mount.dataset.rteToolbar === "wiki") {
                 var toolbarModule = quill.getModule("toolbar");
                 toolbarModule.addHandler("image", wikiImageHandler(quill, mount.dataset.rteUploadUrl || ""));
+                toolbarModule.addHandler("divider", dividerHandler(quill));
             }
             mount.plQuill = quill;
             sync(ta, quill);

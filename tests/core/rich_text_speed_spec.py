@@ -38,6 +38,11 @@ INPUTS = {
     # one ends a link's path; a scan that cut back from the end of the run went quadratic.
     "nbsp_in_paths": _fill("<p>", "a.co/\u00a0"),
     "nbsp_entity_in_paths": _fill("<p>", "a.co/&nbsp;"),
+    # The wiki's code-block rewrite: an unclosed container followed by line after line, and
+    # lines that never close, are the shapes a backtracking pattern would go quadratic on.
+    "code_block_lines": _fill('<div class="ql-code-block-container">', '<div class="ql-code-block">x</div>'),
+    "code_block_unclosed": _fill('<div class="ql-code-block-container">', "<div>x<b>"),
+    "checklist_items": _fill("<ol>", '<li data-list="unchecked"><br>'),
 }
 
 ENTRY_POINTS: dict[str, Callable[[str], object]] = {
