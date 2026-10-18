@@ -66,7 +66,7 @@ def stream_roster_csv(signups: QuerySet[ShiftSignup], *, filename_stem: str) -> 
     return response
 
 
-DONORS_CSV_HEADERS = ["Giver", "Type", "Email", "Sponsor listing", "Bottles", "Value", "Logged by"]
+DONORS_CSV_HEADERS = ["Giver", "Type", "Email", "Sponsor listing", "Bottles", "Value", "Logged by", "Notes"]
 
 
 def stream_donors_csv(donors: Sequence[DonorRow], *, filename_stem: str) -> StreamingHttpResponse:
@@ -85,6 +85,7 @@ def stream_donors_csv(donors: Sequence[DonorRow], *, filename_stem: str) -> Stre
                 str(donor.bottles),
                 f"{donor.value_cents / 100:.2f}",
                 "; ".join(donor.logged_by),
+                "; ".join(donor.notes),
             ]
             yield writer.writerow([_neutralise_formula(cell) for cell in row])
 

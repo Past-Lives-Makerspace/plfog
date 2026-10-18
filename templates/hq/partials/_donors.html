@@ -21,7 +21,7 @@ opts out of hx-boost and is marked for the native shells (FRONTEND rule 24).
   {% if donors %}
   <table class="pl-members-table pl-hq-wine__table">
     <thead>
-      <tr><th>Giver</th><th>Type</th><th>Email</th><th>Sponsor listing</th><th>Bottles</th><th>Logged by</th></tr>
+      <tr><th>Giver</th><th>Type</th><th>Email</th><th>Sponsor listing</th><th>Bottles</th><th>Logged by</th><th>Notes</th></tr>
     </thead>
     <tbody>
       {% for row in donors %}
@@ -32,11 +32,12 @@ opts out of hx-boost and is marked for the native shells (FRONTEND rule 24).
         <td data-label="Sponsor listing">{{ row.listing }}</td>
         <td data-label="Bottles">{{ row.bottles }} ({{ row.value_display }})</td>
         <td data-label="Logged by">{{ row.logged_by|join:", " }}</td>
+        <td data-label="Notes" data-hq-donor-notes>{{ row.notes|join:" · " }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-  <p class="pl-hq-wine__hint" data-hq-donors-private>Emails stay here with the organisers. The wall shows names only.</p>
+  <p class="pl-hq-wine__hint" data-hq-donors-private>Emails and notes stay here with the organisers. The wall shows names only.</p>
   {% else %}
   <p class="pl-hq-wine__hint" data-hq-donors-empty>No donors yet.</p>
   {% endif %}

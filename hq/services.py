@@ -339,8 +339,13 @@ def roster_emails(rows: Sequence[RosterRow]) -> str:
 # ---- Wine wall (part 3) ----
 
 
+# Guests' bottles are counted under their own scope, so a collector logging a case of ten
+# never spends the shift sign-up budget (the caps are the sign-up sheet's).
+RATE_SCOPE_BOTTLE = "hq_bottle"
+
+
 class NotYourBottle(Exception):
-    """Only the member who logged a bottle, or an organiser, may take it off the wall."""
+    """Only whoever logged a bottle (by member, or by the email it was logged under) or an organiser may take it off the wall."""
 
 
 @dataclass(frozen=True)
@@ -443,6 +448,7 @@ class DonorRow:
     bottles: int
     value_cents: int
     logged_by: list[str]
+    notes: list[str]
 
     @property
     def value_display(self) -> str:
@@ -454,7 +460,8 @@ def donor_rows(hub: EventHub) -> list[DonorRow]:
 
     Type and listing are read from the giver's newest bottle, as is the email unless the
     newest left it blank, so what a collector last typed is what the organisers see. Logged
-    by lists everyone who logged one of their bottles, a guest as "Guest".
+    by lists everyone who logged one of their bottles, a guest as "Guest"; notes are every
+    bottle's note, oldest first, since the wall itself keeps them to the logger and organisers.
     """
     by_key: dict[str, DonorRow] = {}
     for bottle in hub.bottles.order_by("created_at", "pk"):
@@ -464,6 +471,9 @@ def donor_rows(hub: EventHub) -> list[DonorRow]:
         logger = bottle.logged_by_name or "Guest"
         if logger not in logged_by:
             logged_by.append(logger)
+        notes = earlier.notes if earlier is not None else []
+        if bottle.note:
+            notes.append(bottle.note)
         by_key[key] = DonorRow(
             name=bottle.giver_name,
             giver_type=bottle.get_giver_type_display(),
@@ -472,6 +482,7 @@ def donor_rows(hub: EventHub) -> list[DonorRow]:
             bottles=(earlier.bottles if earlier is not None else 0) + bottle.qty,
             value_cents=(earlier.value_cents if earlier is not None else 0) + bottle.value_total_cents,
             logged_by=logged_by,
+            notes=notes,
         )
     return sorted(by_key.values(), key=lambda row: (row.name.lower(), row.email))
 
@@ -481,18 +492,31 @@ def donor_emails(rows: Sequence[DonorRow]) -> str:
     return ", ".join(dict.fromkeys(row.email for row in rows if row.email))
 
 
-def log_bottle(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None, logger_name: str) -> WineBottle:
-    """Put a bottle on ``hub``'s wall from the form's cleaned fields, stamped with who logged it."""
-    return WineBottle.objects.create(hub=hub, logged_by=member, logged_by_name=logger_name, **fields)
+def log_bottle(
+    hub: EventHub,
+    fields: Mapping[str, Any],
+    *,
+    member: Member | None,
+    logger_name: str,
+    logger_email: str,
+) -> WineBottle:
+    """Put a bottle on ``hub``'s wall from the form's cleaned fields, stamped with who logged it.
+
+    ``logger_email`` is the identity a guest keeps (the Your Info address), so they can delete
+    their own bottle later; a member is also recorded as ``logged_by``.
+    """
+    return WineBottle.objects.create(
+        hub=hub, logged_by=member, logged_by_name=logger_name, logged_by_email=logger_email, **fields
+    )
 
 
-def delete_bottle(bottle: WineBottle, *, member: Member | None, is_organizer: bool) -> None:
-    """Take ``bottle`` off the wall, with its photo.
+def delete_bottle(bottle: WineBottle, *, member: Member | None, email: str, is_organizer: bool) -> None:
+    """Take ``bottle`` off the wall, with its photo (and the winery's logo when it was the last bottle).
 
     Raises:
-        NotYourBottle: ``member`` did not log it and is not an organiser.
+        NotYourBottle: neither ``member`` nor ``email`` logged it, and the caller is not an organiser.
     """
-    if not bottle.can_be_deleted_by(member, is_organizer=is_organizer):
+    if not bottle.can_be_deleted_by(member, email=email, is_organizer=is_organizer):
         raise NotYourBottle(f"Only the organisers or whoever logged {bottle.name} can delete it.")
     bottle.delete()
 

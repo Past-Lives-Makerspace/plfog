@@ -299,6 +299,9 @@ class WineBottleForm(forms.ModelForm):
         label="Value per bottle ($)",
         help_text="What one bottle is worth, in dollars.",
     )
+    qty = forms.IntegerField(
+        min_value=1, initial=1, label="How many", help_text="How many of this bottle came in, at least 1."
+    )
     website = forms.CharField(
         required=False,
         label="Leave this blank",
@@ -324,7 +327,6 @@ class WineBottleForm(forms.ModelForm):
             "kind": "Type",
             "name": "Bottle",
             "winery": "Winery, cidery or brewery",
-            "qty": "How many",
             "giver_name": "Given by",
             "giver_type": "Giver type",
             "giver_email": "Giver's email",

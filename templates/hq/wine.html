@@ -70,7 +70,7 @@ its own: card_view decides who may open the page.
     <h2 class="pl-hq-wine__h2" id="hq-wine-bottles-title">All Bottles</h2>
     <div class="pl-hq-wine__list">
       {% for bottle in bottles %}
-      {% include "hq/partials/_bottle.html" with bottle=bottle hub=hub deletable=deletable %}
+      {% include "hq/partials/_bottle.html" with bottle=bottle hub=hub manageable=manageable %}
       {% empty %}
       <p class="pl-hq-wine__hint" data-hq-wine-no-bottles>No bottles yet. The first one logged starts the wall.</p>
       {% endfor %}

@@ -22,6 +22,7 @@ from datetime import datetime
 from typing import Any
 
 from django.conf import settings
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.db.models.functions import Lower
@@ -594,7 +595,12 @@ class WineBottle(models.Model):
         help_text="The winery, cidery or brewery. Bottles group under it, whatever the capitalisation.",
     )
     value_cents = models.PositiveIntegerField(help_text="What one bottle is worth, in cents.")
-    qty = models.PositiveSmallIntegerField(default=1, db_default=1, help_text="How many of this bottle came in.")
+    qty = models.PositiveSmallIntegerField(
+        default=1,
+        db_default=1,
+        validators=[MinValueValidator(1)],
+        help_text="How many of this bottle came in, at least 1.",
+    )
     giver_name = models.CharField(max_length=120, help_text="Who gave it: a person or a business.")
     giver_type = models.CharField(
         max_length=12,
@@ -632,6 +638,13 @@ class WineBottle(models.Model):
     logged_by_name = models.CharField(
         max_length=120, blank=True, help_text="The logger's name as it stood when the bottle was logged."
     )
+    logged_by_email = models.EmailField(
+        blank=True,
+        help_text=(
+            "The logger's email, lowercased: the Your Info address for a guest, the primary email for a "
+            "member. Who may delete the bottle is keyed on it, as the volunteer sheet keys on its email."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When it was logged.")
 
     class Meta:
@@ -642,15 +655,21 @@ class WineBottle(models.Model):
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         self.giver_email = self.giver_email.strip().lower()
+        self.logged_by_email = self.logged_by_email.strip().lower()
         normalize_field_if_uploaded(self, "photo", settings.IMAGE_MAX_LONG_EDGE_GALLERY)
         delete_orphan_on_replace(self, "photo")
         super().save(*args, **kwargs)
 
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
-        """Delete the row, then its photo once no other bottle points at the file."""
+        """Delete the row, then its photo once no other bottle points at the file, and the winery's logo
+        (row and file) once no bottle on the hub names that winery, whatever the capitalisation."""
         photo = self.photo.name or ""
+        hub_id, winery = self.hub_id, self.winery
         result = super().delete(*args, **kwargs)
         delete_if_unreferenced(WineBottle, "photo", photo)
+        if not WineBottle.objects.filter(hub_id=hub_id, winery__iexact=winery).exists():
+            for logo in WineryLogo.objects.filter(hub_id=hub_id, name__iexact=winery):
+                logo.delete()
         return result
 
     @property
@@ -663,12 +682,13 @@ class WineBottle(models.Model):
         """One bottle's value as dollars, e.g. "$25"."""
         return format_money(self.value_cents)
 
-    def can_be_deleted_by(self, member: Member | None, *, is_organizer: bool) -> bool:
-        """Whether this person may take the bottle off the wall: an organiser, or the member who logged it.
-
-        A guest's bottle has no ``logged_by``, so only an organiser can remove it.
-        """
-        return is_organizer or (member is not None and self.logged_by_id == member.pk)
+    def can_be_deleted_by(self, member: Member | None, *, email: str, is_organizer: bool) -> bool:
+        """Whether this person may take the bottle off the wall: an organiser, the member who logged it, or
+        whoever holds the email it was logged under (a guest's identity, as on the volunteer sheet)."""
+        if is_organizer or (member is not None and self.logged_by_id == member.pk):
+            return True
+        key = email.strip().lower()
+        return bool(key) and key == self.logged_by_email
 
 
 class WineryLogo(models.Model):
@@ -698,3 +718,10 @@ class WineryLogo(models.Model):
         normalize_field_if_uploaded(self, "logo", settings.IMAGE_MAX_LONG_EDGE_PROFILE)
         delete_orphan_on_replace(self, "logo")
         super().save(*args, **kwargs)
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        """Delete the row, then its file once no other logo points at it."""
+        logo = self.logo.name or ""
+        result = super().delete(*args, **kwargs)
+        delete_if_unreferenced(WineryLogo, "logo", logo)
+        return result

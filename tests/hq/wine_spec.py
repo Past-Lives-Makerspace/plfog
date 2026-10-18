@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, connection
 from django.test import Client
@@ -19,6 +20,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from PIL import Image
 
+from core.abuse_limits import keyed_within_limits
 from hq import services
 from hq.forms import WineBottleForm
 from hq.models import HubCard, HubGoal, WineBottle, WineryLogo, format_money
@@ -70,6 +72,16 @@ def card(open_hub):
     return HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL, audience=PUBLIC, title="Log a wine bottle")
 
 
+def _guest_with_info(hub: Any, email: str = "pat@example.com", name: str = "Pat Guest") -> Client:
+    """A signed out browser that saved the Your Info step on the volunteer page (made public if needed)."""
+    if not hub.cards.filter(kind=HubCard.Kind.VOLUNTEERS).exists():
+        HubCardFactory(hub=hub, kind=HubCard.Kind.VOLUNTEERS, audience=PUBLIC)
+    client = Client()
+    response = client.post(reverse("hq:volunteer_info", args=[hub.slug]), {"name": name, "email": email})
+    assert response.status_code == 302
+    return client
+
+
 def describe_logging_a_bottle():
     def it_logs_a_members_bottle_with_a_photo_resized_under_the_media_root(card, member, settings):
         client = signed_in(member)
@@ -85,6 +97,7 @@ def describe_logging_a_bottle():
         assert (bottle.listing, bottle.credited_name, bottle.note) == ("yes", "Lee", "")
         assert bottle.logged_by == member
         assert bottle.logged_by_name == member.display_name
+        assert bottle.logged_by_email == member.primary_email
         assert bottle.photo.name.startswith("hq/bottles/")
         assert bottle.photo.path.startswith(settings.MEDIA_ROOT)
         with Image.open(bottle.photo.path) as image:
@@ -103,7 +116,7 @@ def describe_logging_a_bottle():
         bottle = WineBottle.objects.get()
         assert not bottle.photo
         assert bottle.logged_by is None
-        assert bottle.logged_by_name == ""
+        assert (bottle.logged_by_name, bottle.logged_by_email) == ("", "")
         body = client.get(_wall(card.hub)).content.decode()
         assert "data-hq-bottle-no-photo" in body
         assert "data-hq-bottle-photo" not in body
@@ -117,19 +130,30 @@ def describe_logging_a_bottle():
         assert 'name="credited_name" value="Lee"' in body
         assert 'name="website"' not in body
 
-    def it_prefills_a_guest_from_their_saved_your_info_step(card, open_hub):
-        HubCardFactory(hub=open_hub, kind=HubCard.Kind.VOLUNTEERS, audience=PUBLIC)
-        client = Client()
-        client.post(
-            reverse("hq:volunteer_info", args=[open_hub.slug]), {"name": "Pat Guest", "email": "pat@example.com"}
-        )
+    def it_prefills_a_guest_from_their_saved_your_info_step_and_keys_the_bottle_on_its_email(card):
+        client = _guest_with_info(card.hub)
 
         body = client.get(_wall(card.hub)).content.decode()
         client.post(_wall(card.hub), {**BOTTLE, "credited_name": ""})
 
         assert 'name="credited_name" value="Pat Guest"' in body
         assert 'name="website"' in body
-        assert WineBottle.objects.get().logged_by_name == "Pat Guest"
+        bottle = WineBottle.objects.get()
+        assert (bottle.logged_by, bottle.logged_by_name, bottle.logged_by_email) == (
+            None,
+            "Pat Guest",
+            "pat@example.com",
+        )
+
+    def it_refuses_a_quantity_below_one(card):
+        response = Client().post(_wall(card.hub), {**BOTTLE, "qty": "0"})
+
+        assert response.status_code == 200
+        assert "pl-field-error" in response.content.decode()
+        assert not WineBottle.objects.exists()
+        assert 'name="qty" value="1" min="1"' in Client().get(_wall(card.hub)).content.decode()
+        with pytest.raises(ValidationError, match="qty"):
+            WineBottleFactory.build(hub=card.hub, qty=0).full_clean()
 
     def it_turns_dollars_and_cents_into_cents_and_trims_the_words(card):
         form = WineBottleForm({**BOTTLE, "value": "12.50", "name": "  Rosé ", "winery": " Abacela "})
@@ -184,7 +208,7 @@ def describe_logging_a_bottle():
         assert response["Location"] == _wall(card.hub)
         assert not WineBottle.objects.exists()
 
-    def it_counts_guest_bottles_against_the_address_and_refuses_past_the_cap(card):
+    def it_counts_guest_bottles_under_their_own_scope_and_refuses_past_the_cap(card):
         cache.clear()
         client = Client()
 
@@ -198,6 +222,9 @@ def describe_logging_a_bottle():
         assert "data-hq-wine-error" in refused
         assert "Too many bottles from this connection" in refused
         assert WineBottle.objects.count() == 2
+        assert services.RATE_SCOPE_BOTTLE == "hq_bottle"
+        assert not keyed_within_limits(services.RATE_SCOPE_BOTTLE, "127.0.0.1", hourly_limit=2, daily_limit=100)
+        assert keyed_within_limits(services.RATE_SCOPE, "127.0.0.1", hourly_limit=2, daily_limit=100)
 
     def it_never_counts_a_member(card, member):
         cache.clear()
@@ -208,12 +235,14 @@ def describe_logging_a_bottle():
         assert response.status_code == 302
         assert WineBottle.objects.count() == 1
 
-    def it_lowercases_the_giver_email_on_save(card):
-        bottle = WineBottleFactory(hub=card.hub, giver_email="  PAT@Example.com ")
+    def it_lowercases_the_emails_on_save(card):
+        bottle = WineBottleFactory(hub=card.hub, giver_email="  PAT@Example.com ", logged_by_email=" LEE@Example.com ")
 
-        assert bottle.giver_email == "pat@example.com"
+        assert (bottle.giver_email, bottle.logged_by_email) == ("pat@example.com", "lee@example.com")
 
-    def it_is_a_guest_for_an_admin_previewing_as_guest_but_keeps_the_organiser_panel(card, admin_client):
+    def it_renders_what_a_guest_sees_for_an_admin_previewing_as_guest(card, admin_client):
+        """Rendering reads the effective role; the donors page and the CSV keep the actual one."""
+        WineBottleFactory(hub=card.hub)
         session = admin_client.session
         session["view_as_role"] = ROLE_GUEST
         session.save()
@@ -221,7 +250,28 @@ def describe_logging_a_bottle():
         body = admin_client.get(_wall(card.hub)).content.decode()
 
         assert 'name="website"' in body
-        assert "data-hq-wine-organizers" in body
+        assert "data-hq-wine-organizers" not in body
+        assert "data-hq-logo-form" not in body
+        assert "data-hq-bottle-delete" not in body
+        assert admin_client.get(_donors_url(card.hub)).status_code == 200
+        assert admin_client.get(_csv_url(card.hub)).status_code == 200
+
+    def it_shows_a_bottles_note_to_organisers_and_the_logger_only(card, admin_client, member_client, make_member):
+        logger = make_member()
+        WineBottleFactory(hub=card.hub, logged_by=logger, note="Knows the giver personally")
+        named = make_member()
+        card.named_members.add(named)
+
+        for client in (signed_in(logger), admin_client, signed_in(named)):
+            assert "data-hq-bottle-note" in client.get(_wall(card.hub)).content.decode()
+        for client in (Client(), member_client):
+            body = client.get(_wall(card.hub)).content.decode()
+            assert "data-hq-bottle-note" not in body
+            assert "Knows the giver personally" not in body
+        assert (
+            "data-hq-donor-notes>Knows the giver personally<"
+            in admin_client.get(_donors_url(card.hub)).content.decode()
+        )
 
 
 def describe_deleting():
@@ -255,7 +305,21 @@ def describe_deleting():
         assert Client().post(_delete_url(by_guest)).status_code == 403
         assert WineBottle.objects.count() == 2
         with pytest.raises(services.NotYourBottle):
-            services.delete_bottle(bottle, member=None, is_organizer=False)
+            services.delete_bottle(bottle, member=None, email="", is_organizer=False)
+
+    def it_lets_a_guest_delete_their_own_bottle_by_the_email_they_saved_and_nobody_elses(card):
+        pat = _guest_with_info(card.hub)
+        pat.post(_wall(card.hub), BOTTLE)
+        bottle = WineBottle.objects.get()
+        other = _guest_with_info(card.hub, email="other@example.com", name="Other Guest")
+
+        assert f"delete-bottle-{bottle.pk}" in pat.get(_wall(card.hub)).content.decode()
+        assert f"delete-bottle-{bottle.pk}" not in other.get(_wall(card.hub)).content.decode()
+        assert other.post(_delete_url(bottle)).status_code == 403
+        assert Client().post(_delete_url(bottle)).status_code == 403
+        assert WineBottle.objects.filter(pk=bottle.pk).exists()
+        assert pat.post(_delete_url(bottle)).status_code == 302
+        assert not WineBottle.objects.exists()
 
     def it_offers_delete_to_the_logger_and_organisers_only(card, member, admin_client, make_member):
         mine = WineBottleFactory(hub=card.hub, logged_by=member)
@@ -286,14 +350,35 @@ def describe_deleting():
         assert admin_client.get(_delete_url(bottle)).status_code == 405
         assert admin_client.post(reverse("hq:bottle_delete", args=[card.hub.slug, elsewhere.pk])).status_code == 404
 
-    def it_can_be_deleted_by_the_logger_or_an_organiser(member, make_member):
-        bottle = WineBottleFactory(logged_by=member)
-        guests = WineBottleFactory()
+    def it_can_be_deleted_by_the_logger_by_member_or_email_or_an_organiser(member, make_member):
+        bottle = WineBottleFactory(logged_by=member, logged_by_email="lee@example.com")
+        guests = WineBottleFactory(logged_by_email="pat@example.com")
+        nobodys = WineBottleFactory()
 
-        assert bottle.can_be_deleted_by(member, is_organizer=False) is True
-        assert bottle.can_be_deleted_by(make_member(), is_organizer=False) is False
-        assert bottle.can_be_deleted_by(None, is_organizer=True) is True
-        assert guests.can_be_deleted_by(member, is_organizer=False) is False
+        assert bottle.can_be_deleted_by(member, email="", is_organizer=False) is True
+        assert bottle.can_be_deleted_by(make_member(), email="", is_organizer=False) is False
+        assert bottle.can_be_deleted_by(None, email=" LEE@example.com ", is_organizer=False) is True
+        assert bottle.can_be_deleted_by(None, email="", is_organizer=True) is True
+        assert guests.can_be_deleted_by(member, email="other@example.com", is_organizer=False) is False
+        assert guests.can_be_deleted_by(None, email="pat@example.com", is_organizer=False) is True
+        assert nobodys.can_be_deleted_by(None, email="", is_organizer=False) is False
+
+    def it_removes_a_winerys_logo_with_its_last_bottle(card):
+        first = WineBottleFactory(hub=card.hub, winery="Abacela")
+        last = WineBottleFactory(hub=card.hub, winery="abacela")
+        other_hub = WineBottleFactory(winery="Abacela")
+        logo = WineryLogoFactory(hub=card.hub, name="ABACELA")
+        elsewhere = WineryLogoFactory(hub=other_hub.hub, name="Abacela")
+        path = logo.logo.path
+
+        first.delete()
+        assert WineryLogo.objects.filter(pk=logo.pk).exists()
+        last.delete()
+
+        assert not WineryLogo.objects.filter(pk=logo.pk).exists()
+        assert not os.path.exists(path)
+        assert WineryLogo.objects.filter(pk=elsewhere.pk).exists()
+        assert os.path.exists(elsewhere.logo.path)
 
 
 def describe_the_band():
@@ -504,7 +589,9 @@ def describe_the_donors():
             logged_by=member,
             logged_by_name=member.display_name,
         )
-        WineBottleFactory(hub=card.hub, giver_name="Amy", giver_email="amy@example.com", logged_by_name="Lee")
+        WineBottleFactory(
+            hub=card.hub, giver_name="Amy", giver_email="amy@example.com", logged_by_name="Lee", note="Drop off Friday"
+        )
 
     def it_groups_a_giver_across_bottles_with_their_newest_details(card, givers, member):
         amy, zed = services.donor_rows(card.hub)
@@ -525,6 +612,7 @@ def describe_the_donors():
         assert (zed.bottles, zed.value_cents, zed.value_display) == (3, 2500, "$25")
         assert zed.logged_by == ["Lee", member.display_name]
         assert amy.logged_by == ["Lee"]
+        assert (amy.notes, zed.notes) == (["Drop off Friday"], [])
         assert services.donor_emails([amy, zed, amy]) == "amy@example.com, zed@example.com"
 
     def it_names_a_guest_logger_once(card):
@@ -573,9 +661,9 @@ def describe_the_donors():
         assert response.status_code == 200
         assert response["Content-Disposition"].startswith(f'attachment; filename="{card.hub.slug}-wine-donors-')
         rows = b"".join(response.streaming_content).decode().splitlines()
-        assert rows[0] == "Giver,Type,Email,Sponsor listing,Bottles,Value,Logged by"
-        assert rows[1] == "Amy,Person,amy@example.com,Not asked,1,25.00,Lee"
-        assert rows[2] == f"zed shop,Restaurant,zed@example.com,Yes,3,25.00,Lee; {member.display_name}"
+        assert rows[0] == "Giver,Type,Email,Sponsor listing,Bottles,Value,Logged by,Notes"
+        assert rows[1] == "Amy,Person,amy@example.com,Not asked,1,25.00,Lee,Drop off Friday"
+        assert rows[2] == f"zed shop,Restaurant,zed@example.com,Yes,3,25.00,Lee; {member.display_name},"
         assert member_client.get(_csv_url(card.hub)).status_code == 403
         assert Client().get(_csv_url(card.hub)).status_code == 403
 

@@ -1,12 +1,13 @@
 {% comment %}
 One bottle on the wall: its photo as a thumbnail (the stored file, fitted by CSS; a bottle
 tile when there is none), the kind chip and name, the winery and the value times how many,
-who gave it and who collected it, the note, and Delete for the logger or an organiser
-through the confirm modal.
+who gave it and who collected it, and, for the logger or an organiser only, the note and a
+Delete through the confirm modal. The note can say things about the giver, so the public
+list never shows it; organisers also read it on the donors table.
 
-  bottle    — required, a WineBottle
-  hub       — required, its EventHub
-  deletable — required, the set of bottle pks this viewer may delete
+  bottle     — required, a WineBottle
+  hub        — required, its EventHub
+  manageable — required, the set of bottle pks this viewer logged or organises
 {% endcomment %}
 <article class="pl-hq-wine__bottle" data-hq-bottle="{{ bottle.pk }}">
   {% if bottle.photo %}
@@ -21,9 +22,9 @@ through the confirm modal.
     </div>
     <p class="pl-hq-wine__bottle-line"><span data-hq-bottle-winery>{{ bottle.winery }}</span> · <span data-hq-bottle-value>{{ bottle.value_display }}{% if bottle.qty > 1 %} × {{ bottle.qty }}{% endif %}</span></p>
     <p class="pl-hq-wine__bottle-line">Given by <span data-hq-bottle-giver>{{ bottle.giver_name }}</span>{% if bottle.credited_name %} · Collected by <span data-hq-bottle-credited>{{ bottle.credited_name }}</span>{% endif %}</p>
-    {% if bottle.note %}<p class="pl-hq-wine__bottle-note">{{ bottle.note }}</p>{% endif %}
+    {% if bottle.note and bottle.pk in manageable %}<p class="pl-hq-wine__bottle-note" data-hq-bottle-note>{{ bottle.note }}</p>{% endif %}
   </div>
-  {% if bottle.pk in deletable %}
+  {% if bottle.pk in manageable %}
   <div class="pl-hq-wine__bottle-action">
     <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'delete-bottle-{{ bottle.pk }}')" data-hq-bottle-delete>Delete</button>
     {% url 'hq:bottle_delete' hub.slug bottle.pk as delete_url %}

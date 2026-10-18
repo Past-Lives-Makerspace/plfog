@@ -194,4 +194,5 @@ def describe_the_wine_wall():
             "wine_shop",
         )
         assert (bottle.logged_by_id, bottle.credited_name) == (member.pk, "Lee Organiser")
+        assert bottle.logged_by_email == MEMBER_EMAIL
         assert bottle.photo.name.startswith("hq/bottles/")
