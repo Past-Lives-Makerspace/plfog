@@ -3547,7 +3547,67 @@ class OrientationDayOffForm(forms.ModelForm):
         return super().save(commit=commit)
 
 
-class CommunityEventForm(forms.ModelForm):
+class _HeroCropMixin:
+    """Adds a hidden ``hero_crop`` JSON field bound to the event's four ``hero_crop_*`` ints.
+
+    The class composer's mixin (``classes.forms._HeroCropMixin``), copied rather than imported
+    so the hub never depends on the class forms. ``static/js/hero_cropper.js`` writes the crop
+    box to this field as ``{"x": int, "y": int, "w": int, "h": int}`` in source pixels, or an
+    empty string when nobody cropped; :meth:`apply_hero_crop_to_instance` lands the four ints
+    on the event after ``save(commit=False)``. A saved box is pre-filled so an untouched
+    cropper posts the box the event already has.
+    """
+
+    fields: dict[str, forms.Field]
+    cleaned_data: dict[str, Any]
+    instance: CommunityEvent
+
+    def add_hero_crop_field(self) -> None:
+        instance = self.instance
+        initial = ""
+        if instance.pk and instance.hero_crop_w and instance.hero_crop_h:
+            initial = json.dumps(
+                {
+                    "x": instance.hero_crop_x or 0,
+                    "y": instance.hero_crop_y or 0,
+                    "w": instance.hero_crop_w,
+                    "h": instance.hero_crop_h,
+                }
+            )
+        self.fields["hero_crop"] = forms.CharField(
+            required=False,
+            initial=initial,
+            widget=forms.HiddenInput(attrs={"data-hero-crop-input": ""}),
+        )
+
+    def clean_hero_crop(self) -> dict[str, int] | None:
+        raw = (self.cleaned_data.get("hero_crop") or "").strip()
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+            x = int(data["x"])
+            y = int(data["y"])
+            w = int(data["w"])
+            h = int(data["h"])
+        except (ValueError, KeyError, TypeError):
+            raise forms.ValidationError("Crop box is malformed; clear it and try again.") from None
+        if w <= 0 or h <= 0 or x < 0 or y < 0:
+            raise forms.ValidationError("Crop box must be a positive rectangle.")
+        return {"x": x, "y": y, "w": w, "h": h}
+
+    def apply_hero_crop_to_instance(self, event: CommunityEvent) -> None:
+        """Land the posted box on ``event``; an empty post leaves the stored box alone."""
+        crop = self.cleaned_data.get("hero_crop")
+        if crop is None:
+            return
+        event.hero_crop_x = crop["x"]
+        event.hero_crop_y = crop["y"]
+        event.hero_crop_w = crop["w"]
+        event.hero_crop_h = crop["h"]
+
+
+class CommunityEventForm(_HeroCropMixin, forms.ModelForm):
     """Add/edit a FOG-native community event.
 
     Both of the form's opening questions are a **permission**, not a universal prompt
@@ -3573,6 +3633,13 @@ class CommunityEventForm(forms.ModelForm):
     approval, so the fields are dropped, and the page reads ``saves_announce`` (False),
     ``in_review`` (True) and ``submits_for_review`` (True) so the Save button promises a
     submit, never an announcement.
+
+    The description is written in the rich-text editor and stored as its sanitized HTML
+    (:func:`core.html_sanitize.clean_rich_body` keeps plain text as typed, so a description
+    from before the editor, or a client without it, still saves). The photo carries the
+    class composer's crop box (``_HeroCropMixin``), and an unsaved event's gallery files
+    (``gallery_images`` in the multipart post) are checked here, before any save, and read
+    back by the view from ``gallery_files``.
     """
 
     #: The only two kinds anyone picks here. Studio hours keep their own editor on the guild
@@ -3609,6 +3676,7 @@ class CommunityEventForm(forms.ModelForm):
             "video_url",
             "description",
             "photo",
+            "promo_video_url",
             "recurrence",
             "google_calendar_target",
             "publish_at",
@@ -3627,7 +3695,7 @@ class CommunityEventForm(forms.ModelForm):
             "publish_at": forms.DateTimeInput(
                 attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
             ),
-            "description": forms.Textarea(attrs={"rows": 4}),
+            "description": RichBodyEditorWidget(),
         }
 
     def __init__(
@@ -3676,6 +3744,10 @@ class CommunityEventForm(forms.ModelForm):
             self.saves_announce = False
             self.in_review = True
         self.fields["video_url"].label = "Video link"
+        self.fields["promo_video_url"].label = "Promo video"
+        self.add_hero_crop_field()
+        #: The create-mode gallery uploads, checked in ``clean`` and added by the view after the save.
+        self.gallery_files: list[UploadedFile] = []
         setup_location_field(self)
         # The free text keeps its own job beside the picker (#616): room details, an address or a link.
         self.fields["location"].label = "Address or room details"
@@ -3755,6 +3827,15 @@ class CommunityEventForm(forms.ModelForm):
         """Coerce a blank/omitted picker value to the default PUBLIC calendar."""
         return self.cleaned_data.get("google_calendar_target") or CommunityEvent.GoogleCalendarTarget.PUBLIC
 
+    def clean_description(self) -> str:
+        return clean_rich_body(self.cleaned_data["description"])
+
+    def clean_promo_video_url(self) -> str:
+        """A link one of the video providers recognises, or blank; the field is optional."""
+        from classes.video_providers import validate_video_url
+
+        return validate_video_url(self.cleaned_data["promo_video_url"])
+
     def clean_publish_at(self) -> Any:
         """Blank ⇒ announce now (valid). A set time must be in the future and strictly
         before the event starts (announcing after it started is a mistake)."""
@@ -3822,6 +3903,14 @@ class CommunityEventForm(forms.ModelForm):
                 self.add_error("guild", message)
             if event_type == CommunityEvent.EventType.LEAD_MEETING and guild is not None:
                 self.add_error("guild", "A Guild Lead Meeting is makerspace wide. Choose No guild.")
+        # The gallery files an unsaved event's composer posts with the form. Refused here, before
+        # the view saves anything, because a save can already have announced the event.
+        self.gallery_files = list(self.files.getlist("gallery_images")) if self.files else []
+        if self.gallery_files:
+            try:
+                CommunityEvent.check_gallery_files(self.gallery_files)
+            except forms.ValidationError as exc:
+                self.add_error(None, exc.messages[0])
         return cleaned
 
     def send_rows(self) -> list[tuple[forms.BoundField, str]]:

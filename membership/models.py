@@ -14,6 +14,7 @@ from datetime import datetime as datetime_type
 from datetime import time as time_type
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 from html import unescape
 from typing import Any, ClassVar, NamedTuple, Self, TYPE_CHECKING, cast
 
@@ -47,10 +48,11 @@ from django.utils import timezone
 from django.utils.functional import cached_property
 from django.utils.html import escape, format_html, strip_tags
 from django.utils.safestring import SafeString
+from PIL import UnidentifiedImageError
 
 from core.files import delete_orphan_on_replace
-from core.images import normalize_field_if_uploaded
-from core.models import EventDelivery, HeroCropMixin
+from core.images import cut_hero_crop, image_upload_refusal, normalize_field_if_uploaded
+from core.models import HERO_CROP_FIELDS, EventDelivery, HeroCropMixin
 from core.phone import phone_tel_number
 from core.validators import (
     ALLOWED_WIKI_IMAGE_EXTENSIONS,
@@ -65,6 +67,7 @@ from membership.names import user_display_name, user_name_or_email
 if TYPE_CHECKING:
     from django import forms
     from django.contrib.auth.models import User
+    from django.core.files.uploadedfile import UploadedFile
     from django.http import HttpRequest
 
     from billing.models import LateCancellationFee, PaymentRefund
@@ -3900,6 +3903,123 @@ class GuildImage(models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         from django.conf import settings
 
+        delete_orphan_on_replace(self, "image")
+        normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_GALLERY)
+        super().save(*args, **kwargs)
+
+
+#: The most gallery photos a Calendar event may carry: the class gallery's cap
+#: (``classes.models.MAX_GALLERY_IMAGES``), restated here because membership never imports classes.
+MAX_EVENT_GALLERY_IMAGES = 10
+
+
+class EventImage(models.Model):
+    """A gallery photo on a Calendar event (#831), modelled on ``classes.models.ClassImage``.
+
+    ``CommunityEvent.photo`` stays the one hero; rows here are the extra shots the event page
+    shows under it, in ``sort_order`` then ``created_at`` so a drag reorders them without
+    rewriting timestamps. The first row is the cover. A copied event
+    (``CommunityEvent.duplicate``) carries the same storage keys as its source, which is why
+    :meth:`remove` deletes the file only once no row points at it.
+    """
+
+    event = models.ForeignKey(
+        "CommunityEvent",
+        on_delete=models.CASCADE,
+        related_name="gallery_images",
+        help_text="The event this photo belongs to.",
+    )
+    image = models.ImageField(
+        upload_to="events/images/", validators=[validate_image_size], help_text="A gallery photo of the event."
+    )
+    alt_text = models.CharField(
+        max_length=255, blank=True, default="", help_text="Short description of the photo for accessibility."
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0, help_text="Ascending; lower shows first. The first photo is the cover."
+    )
+    # Where the 16:9 gallery frame and its thumbnail crop this photo. Null on both is the centre.
+    focus_x = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MaxValueValidator(100)],
+        help_text="Horizontal focal point for the gallery frame, 0 to 100. Null is the centre.",
+    )
+    focus_y = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MaxValueValidator(100)],
+        help_text="Vertical focal point for the gallery frame, 0 to 100. Null is the centre.",
+    )
+    eventbrite_image_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text=(
+            "The Eventbrite media ID of this photo once it was uploaded for the event's Eventbrite listing. "
+            "Blank until then; later syncs reuse it instead of uploading again."
+        ),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the photo was added.")
+
+    class Meta:
+        ordering = ["sort_order", "created_at"]
+
+    def __str__(self) -> str:
+        return f"Image #{self.pk} for {self.event.title}"
+
+    @property
+    def object_position(self) -> str:
+        """CSS ``object-position`` for the gallery frame and its thumbnail: the focal point, or the centre."""
+        if self.focus_x is None or self.focus_y is None:
+            return "50% 50%"
+        return f"{self.focus_x}% {self.focus_y}%"
+
+    def set_focus(self, point: tuple[int, int] | None) -> None:
+        """Store the focal point the gallery manager's Set focus tool chose, or clear it back to the centre.
+
+        Args:
+            point: ``(x, y)`` percentages, already checked to lie in 0 to 100, or None to reset.
+        """
+        self.focus_x, self.focus_y = point if point is not None else (None, None)
+        self.save(update_fields=["focus_x", "focus_y"])
+
+    def set_alt_text(self, text: str) -> None:
+        """Store the alt text typed under the photo, cut to the column."""
+        self.alt_text = text[:255]
+        self.save(update_fields=["alt_text"])
+
+    def remember_eventbrite_image(self, media_id: str) -> None:
+        """Store the Eventbrite media ID this photo was uploaded as, so no later sync uploads it again.
+
+        A bare UPDATE: :meth:`save` would re-run the image normalising and orphan sweep for a
+        column that has nothing to do with the file.
+        """
+        self.eventbrite_image_id = media_id
+        type(self).objects.filter(pk=self.pk).update(eventbrite_image_id=media_id)
+
+    def remove(self) -> None:
+        """Drop the row, then the file only if no other gallery row still shows it.
+
+        A copied event carries the same storage keys as its source, so a bare
+        ``FieldFile.delete`` here would blank the picture on the other event too.
+        """
+        from core.files import delete_if_unreferenced
+
+        name = self.image.name or ""
+        self.delete()
+        delete_if_unreferenced(EventImage, "image", name)
+
+    def clean(self) -> None:
+        super().clean()
+        existing = EventImage.objects.filter(event=self.event)
+        if self.pk:
+            existing = existing.exclude(pk=self.pk)
+        if existing.count() >= MAX_EVENT_GALLERY_IMAGES:
+            raise ValidationError(f"An event can have at most {MAX_EVENT_GALLERY_IMAGES} photos.")
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
         delete_orphan_on_replace(self, "image")
         normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_GALLERY)
         super().save(*args, **kwargs)
@@ -7886,7 +8006,7 @@ class InvalidEventTransition(ValueError):
     that does not permit it (e.g. approving an already-declined proposal)."""
 
 
-class CommunityEvent(models.Model):
+class CommunityEvent(HeroCropMixin, models.Model):
     """A FOG-native event on the Calendar (a guild meeting/event, a site-wide
     community event, or the cross-guild Guild Lead Meeting).
 
@@ -8017,7 +8137,14 @@ class CommunityEvent(models.Model):
             "carries your own video-call features."
         ),
     )
-    description = models.TextField(blank=True, default="", help_text="Optional details for members.")
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Optional details for members: the composer's editor HTML, or plain text from before the "
+            "editor. Read it through description_text wherever HTML cannot go."
+        ),
+    )
     photo = models.ImageField(
         upload_to="events/photos/",
         blank=True,
@@ -8025,6 +8152,26 @@ class CommunityEvent(models.Model):
         help_text=(
             "Optional photo. It fronts the event page, rides along on the Discord announcement, "
             "and becomes the cover image in Discord's own Events tab."
+        ),
+    )
+    photo_cropped = models.ImageField(
+        upload_to="events/hero-crops/",
+        blank=True,
+        db_default="",
+        help_text=(
+            "The photo cut to the composer's crop box. Rendered by save() whenever the box or the photo "
+            "changes and shown in place of the photo on the event page; empty when there is no box. "
+            "Discord and the announcement keep the original."
+        ),
+    )
+    promo_video_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        db_default="",
+        help_text=(
+            "Optional YouTube, Instagram or Facebook video shown on the event page. A YouTube link plays "
+            "there; the others show a card that opens the video on their site. Not the link to join online."
         ),
     )
     recurrence = models.CharField(
@@ -8247,19 +8394,118 @@ class CommunityEvent(models.Model):
         where = self.guild.name if self.guild is not None else "Site-wide"
         return f"{self.title} — {where} ({self.starts_at:%Y-%m-%d %H:%M})"
 
+    def get_hero_image_field_name(self) -> str:
+        return "photo"
+
     def save(self, *args: Any, **kwargs: Any) -> None:
-        """Normalize a freshly uploaded photo and clean up the one it replaced.
+        """Normalize a freshly uploaded photo, keep its cropped copy in step and clean up what it replaced.
 
         The photo work is skipped for a targeted ``update_fields`` save that does not name
         it, which is most of this model's saves: the sync bookkeeping rewrites a handful of
-        columns after every Google and Discord push, and ``delete_orphan_on_replace`` costs a
-        query per call. An ordinary full save (a form, a new row) still checks both.
+        columns after every Google and Discord push, and each storage check costs a query.
+        A full save (a form, a new row) and a save naming ``photo`` (the delete endpoint)
+        run all of it: the stored row's photo name and crop box are read, a new photo clears
+        the box, a fresh upload is downsized to the hero cap and the box scaled with it, the
+        cropped copy is cut or dropped (:meth:`_sync_hero_crop_copy`) and a replaced file
+        leaves storage. A save naming ``photo`` writes the box and the copy with it, so a
+        cleared photo never leaves a stale copy behind.
         """
         update_fields = kwargs.get("update_fields")
-        if update_fields is None or "photo" in update_fields:
-            delete_orphan_on_replace(self, "photo")
-            normalize_field_if_uploaded(self, "photo", settings.IMAGE_MAX_LONG_EDGE_HERO)
+        if update_fields is not None and "photo" not in update_fields:
+            super().save(*args, **kwargs)
+            return
+        delete_orphan_on_replace(self, "photo")
+        old = self._stored_photo_state()
+        photo_changed = old is not None and (old.photo.name or "") != (self.photo.name or "")
+        if photo_changed:
+            # The box was drawn on the old photo; a new one starts uncropped.
+            self.hero_crop_x = self.hero_crop_y = self.hero_crop_w = self.hero_crop_h = None
+        scale = normalize_field_if_uploaded(self, "photo", settings.IMAGE_MAX_LONG_EDGE_HERO)
+        # The composer crops the photo the browser showed, the original file; once that
+        # upload is downsized to the cap, the box shrinks with it.
+        self.scale_hero_crop(scale)
+        self._sync_hero_crop_copy(old, photo_changed)
+        if update_fields is not None:
+            kwargs["update_fields"] = [*update_fields, *HERO_CROP_FIELDS, "photo_cropped"]
         super().save(*args, **kwargs)
+
+    def _stored_photo_state(self) -> CommunityEvent | None:
+        """The stored row's photo name and crop box, or None for a row not yet saved."""
+        if self.pk is None:
+            return None
+        return type(self)._default_manager.filter(pk=self.pk).only("photo", *HERO_CROP_FIELDS).first()
+
+    def _hero_source_bytes(self) -> bytes:
+        """The photo's bytes, whether it is a fresh upload or already in storage.
+
+        Opens and closes the way ``ImageField.width`` does: a file that was closed (one
+        loaded from storage) is closed again afterwards, and one that was open (an upload
+        on its way to storage) is left open for the write that follows.
+        """
+        was_closed = self.photo.closed
+        self.photo.open("rb")
+        try:
+            return self.photo.read()
+        finally:
+            if was_closed:
+                self.photo.close()
+
+    def render_hero_crop(self) -> None:
+        """Cut ``photo_cropped``, the photo inside the crop box, or clear it.
+
+        The same cut as a class hero (:func:`core.images.cut_hero_crop`): the box is pixels
+        on the uploaded file, clamped to its edges, the source format kept, stored through
+        the field's storage under ``events/hero-crops/``. With no photo, no real box (a
+        focal point has width and height 0), a box that lies off the photo or a file Pillow
+        cannot read, the copy is cleared instead and the page shows the original again.
+        Writes storage only; the caller saves the row.
+        """
+        if not (self.photo and self.hero_crop_w and self.hero_crop_h):
+            self.photo_cropped = ""
+            return
+        assert self.photo.name  # a truthy FieldFile is one with a name, checked above
+        box = (self.hero_crop_x or 0, self.hero_crop_y or 0, self.hero_crop_w, self.hero_crop_h)
+        try:
+            copy = cut_hero_crop(self._hero_source_bytes(), box, stem=Path(self.photo.name).stem)
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
+            logger.warning("hero crop skipped for CommunityEvent %s: %s", self.pk, exc)
+            self.photo_cropped = ""
+            return
+        if copy is None:
+            self.photo_cropped = ""
+            return
+        self.photo_cropped.save(copy.name, copy, save=False)
+
+    def _sync_hero_crop_copy(self, old: CommunityEvent | None, photo_changed: bool) -> bool:
+        """Cut or drop the cropped copy when the box or the photo changed; True when it did.
+
+        Called from ``save()`` once the box has followed any downsize. The copy follows the
+        box and the photo, and only them, so an ordinary save never touches storage. A new
+        photo clears the box, so the copy goes with it; a box that moved is cut again; a
+        focal point (no box) drops the copy. The old copy's file is removed the way a
+        replaced upload's is. A new row renders when it arrives with a box.
+        """
+        if old is None:
+            box_changed = bool(self.hero_crop_w and self.hero_crop_h)
+        else:
+            box_changed = self.hero_crop_box != old.hero_crop_box
+        if not (photo_changed or box_changed):
+            return False
+        self.render_hero_crop()
+        delete_orphan_on_replace(self, "photo_cropped")
+        return True
+
+    def replace_photo(self, file: UploadedFile) -> None:
+        """Store a photo uploaded from the composer's hero field, dropping the crop box.
+
+        ``save()`` clears the box when the stored name changes, but a same named upload can
+        get the old key back once the replaced file is deleted, so it is cleared here too,
+        as the class hero route does. The event page shows the new photo whole until the
+        composer's next save brings a box.
+        """
+        self.photo = file
+        self.hero_crop_x = self.hero_crop_y = self.hero_crop_w = self.hero_crop_h = None
+        self.save()
 
     # --- Recurrence (virtual expansion, reusing _nth_weekday) -----------------
 
@@ -8376,8 +8622,9 @@ class CommunityEvent(models.Model):
         rrule = self.ical_rrule()
         if rrule:
             lines.append(f"RRULE:{rrule}")
-        if self.description:
-            lines.append(f"DESCRIPTION:{ical_escape(self.description[:250])}")
+        description = self.description_text
+        if description:
+            lines.append(f"DESCRIPTION:{ical_escape(description[:250])}")
         if self.location:
             lines.append(f"LOCATION:{ical_escape(self.location)}")
         if self.video_url:
@@ -8591,6 +8838,111 @@ class CommunityEvent(models.Model):
         if url.startswith(("http://", "https://")):
             return url
         return f"{settings.MEMBER_BASE_URL}{url}"
+
+    @property
+    def hero_image_url(self) -> str:
+        """The photo as the event page shows it: the copy cut to the crop box, else the original, else ``""``.
+
+        Discord keeps the original (:attr:`photo_url`): the box frames the page's banner, and
+        an embed or an Events-tab cover has its own frame.
+        """
+        if self.photo_cropped:
+            return self.photo_cropped.url
+        if self.photo:
+            return self.photo.url
+        return ""
+
+    @property
+    def hero_object_position(self) -> str:
+        """CSS ``object-position`` for the photo :attr:`hero_image_url` returns.
+
+        With a cropped copy the copy IS the box, so it sits at its centre; without one the
+        mixin's answer stands (the box centre on the original, a focal point, or the default).
+        """
+        if self.photo_cropped:
+            return "50% 50%"
+        return super().hero_object_position
+
+    @property
+    def description_text(self) -> str:
+        """The description as plain text, for anywhere HTML cannot go.
+
+        The composer stores editor HTML (``CommunityEventForm``), and a description typed
+        before the editor existed, or through Discord's ``/create``, is plain text. Discord,
+        Google, the ``.ics`` and the Calendar's list read this, never ``description``, so no
+        tag ever reaches them: editor HTML is sanitized then flattened, plain text comes back
+        as typed.
+        """
+        from core.html_sanitize import rich_body_to_text
+
+        return rich_body_to_text(self.description or "")
+
+    @property
+    def gallery_display_images(self) -> list[dict[str, str]]:
+        """The gallery rows the event page's gallery component renders, cover first.
+
+        The dicts ``classes/_components/gallery.html`` expects (``url``, ``alt``, ``position``),
+        the event's title standing in for a photo with no alt text. Empty when the event has
+        no gallery, so the page renders nothing (the hero already leads it).
+        """
+        return [
+            {"url": image.image.url, "alt": image.alt_text or self.title, "position": image.object_position}
+            for image in self.gallery_images.all()
+        ]
+
+    @staticmethod
+    def check_gallery_files(files: Sequence[UploadedFile], *, already: int = 0) -> None:
+        """Refuse a batch of gallery uploads that cannot all be stored.
+
+        Args:
+            files: The uploads, in the order they would be added.
+            already: How many gallery photos the event holds before them.
+
+        Raises:
+            ValidationError: Adding ``files`` would pass ``MAX_EVENT_GALLERY_IMAGES``, or a
+                file is over the byte cap or not an image. The batch is refused whole, so the
+                caller can surface one clear message before anything is saved.
+        """
+        if already + len(files) > MAX_EVENT_GALLERY_IMAGES:
+            raise ValidationError(f"An event can have at most {MAX_EVENT_GALLERY_IMAGES} photos.")
+        for file in files:
+            refusal = image_upload_refusal(file)
+            if refusal is not None:
+                raise ValidationError(refusal)
+
+    def add_gallery_images(self, files: Sequence[UploadedFile]) -> None:
+        """Create ``EventImage`` rows from the composer's create-mode uploads, after any existing ones.
+
+        Raises:
+            ValidationError: As :meth:`check_gallery_files`; no row is created.
+        """
+        current = self.gallery_images.count()
+        self.check_gallery_files(files, already=current)
+        for offset, file in enumerate(files):
+            EventImage.objects.create(event=self, image=file, sort_order=current + offset)
+
+    def add_gallery_image(self, file: UploadedFile) -> EventImage:
+        """One photo from the gallery manager's upload, appended after the existing ones.
+
+        ``full_clean`` holds the cap (``EventImage.clean``) and the byte cap; the route has
+        already refused a file that is not an image.
+        """
+        last = self.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0
+        image = EventImage(event=self, image=file, sort_order=last + 1)
+        image.full_clean()
+        image.save()
+        return image
+
+    def reorder_gallery(self, order: list[object]) -> None:
+        """Rewrite ``sort_order`` from a list of image ids; the first id becomes the cover.
+
+        Ids that are not whole numbers, or are not this event's, are skipped.
+        """
+        images = {image.pk: image for image in self.gallery_images.all()}
+        for index, image_id in enumerate(order):
+            if isinstance(image_id, int) and not isinstance(image_id, bool) and image_id in images:
+                images[image_id].sort_order = index
+                images[image_id].save(update_fields=["sort_order"])
 
     @property
     def qr_url(self) -> str:
@@ -8843,7 +9195,11 @@ class CommunityEvent(models.Model):
 
         The photo's bytes are written to a **new** file: ``save`` runs
         ``delete_orphan_on_replace``, so a shared storage key would be deleted from under the
-        source the first time either row changed its picture.
+        source the first time either row changed its picture. The crop box comes across and
+        the save cuts the copy its own cropped file from it. The gallery rows are copied
+        afterwards with the SAME storage keys, as ``ClassOffering._copy_photos_and_faqs_from``
+        does: nothing is read or written, and every gallery delete goes through
+        ``EventImage.remove``, which leaves a file in storage while any row still points at it.
 
         Args:
             by: The user clicking Duplicate, recorded as the copy's creator.
@@ -8876,6 +9232,17 @@ class CommunityEvent(models.Model):
             with self.photo.open("rb") as source:
                 copy.photo.save(photo_name, ContentFile(source.read()), save=False)
         copy.save()
+        EventImage.objects.bulk_create(
+            EventImage(
+                event=copy,
+                image=image.image.name,
+                alt_text=image.alt_text,
+                sort_order=image.sort_order,
+                focus_x=image.focus_x,
+                focus_y=image.focus_y,
+            )
+            for image in EventImage.objects.filter(event_id=self.pk).order_by("sort_order", "created_at")
+        )
         return copy
 
     def unpublish(self, *, actor: User) -> None:
@@ -9312,8 +9679,8 @@ class CommunityEvent(models.Model):
             "fields": fields,
             "footer": {"text": f"RSVP below · Created by {self.creator_name}"},
         }
-        if self.description:
-            description = self.description.strip()
+        description = self.description_text.strip()
+        if description:
             if len(description) > _DISCORD_DESCRIPTION_MAX:
                 description = description[:_DISCORD_DESCRIPTION_MAX].rstrip() + "… more on the event page"
             embed["description"] = description

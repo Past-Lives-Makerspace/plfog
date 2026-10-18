@@ -1,4 +1,5 @@
 {% extends "hub/base.html" %}
+{% load rich_text %}
 {% block title %}{{ event.title }} · Manage Events{% endblock %}
 {% block content %}
 {% comment %}
@@ -59,7 +60,8 @@ Eventbrite tab with the Eventbrite listing (track B), which is why the strip has
 
   {% if event.description %}
   <h2 class="hub-detail-label">Details</h2>
-  <div data-event-description>{{ event.description|linebreaks }}</div>
+  {# Editor HTML sanitized, or a plain description as paragraphs (core.html_sanitize.render_rich_body). #}
+  <div class="pl-rich-body" data-event-description>{{ event.description|rich_body }}</div>
   {% endif %}
 
   <h2 class="hub-detail-label">Actions</h2>

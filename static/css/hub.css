@@ -4915,6 +4915,17 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     line-height: 1.6;
 }
 
+/* The gallery and the promo video under the description (#831 part 3); the full page redesign is part 5. */
+.pl-event-detail__gallery {
+    margin-top: 1.25rem;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.pl-event-detail__video {
+    margin-top: 1.25rem;
+}
+
 .pl-event-detail__actions {
     display: flex;
     flex-wrap: wrap;

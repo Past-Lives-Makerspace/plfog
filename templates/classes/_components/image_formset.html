@@ -5,6 +5,7 @@ a Cover badge on the first card (the cover IS sort_order first; CSS :first-child
 badge on whichever card leads after any reorder, upload or delete), a Make cover button on
 every other card, and a Set focus panel that posts the point the class page frame crops around.
 On create (no pk): multi-file input that submits with the form, with local previews.
+Pass page_noun ("event page") for a page that is not a class page; the three strings naming it default to "class page".
 {% endcomment %}
 
 <style>
@@ -222,7 +223,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
      data-image-url-base="{{ gallery_image_url_base }}"
      data-csrf="{{ csrf_token }}">
 
-    <p class="cls-image-hint" id="gallery-cover-hint">The cover leads the gallery on your class page. Drag to reorder, or use Make cover.</p>
+    <p class="cls-image-hint" id="gallery-cover-hint">The cover leads the gallery on your {{ page_noun|default:"class page" }}. Drag to reorder, or use Make cover.</p>
     {# addImageCard() below builds the same card for an upload; change one, change both. #}
     <div id="gallery-grid" class="cls-image-grid" aria-describedby="gallery-cover-hint">
         {% for img in offering.gallery_images.all %}
@@ -261,7 +262,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
                 <button type="button" class="pl-modal__close" data-focus-cancel aria-label="Close">&times;</button>
             </div>
             <div class="cls-focus__body">
-                <p class="cls-focus__hint" id="gallery-focus-hint">Tap the part of the photo that matters most. The frame on your class page keeps that part in view. Arrow keys move the point too.</p>
+                <p class="cls-focus__hint" id="gallery-focus-hint">Tap the part of the photo that matters most. The frame on your {{ page_noun|default:"class page" }} keeps that part in view. Arrow keys move the point too.</p>
                 <div class="cls-focus__layout">
                     <div class="cls-focus__stage">
                         <div class="cls-focus__picker" id="gallery-focus-picker" tabindex="0" role="group" aria-label="Photo" aria-describedby="gallery-focus-hint gallery-focus-readout">
@@ -270,7 +271,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
                         </div>
                     </div>
                     <div>
-                        <span class="cls-focus__preview-label">On your class page</span>
+                        <span class="cls-focus__preview-label">On your {{ page_noun|default:"class page" }}</span>
                         <div class="cls-focus__preview"><img id="gallery-focus-preview" src="" alt=""></div>
                         <p class="cls-focus__readout" id="gallery-focus-readout" aria-live="polite"></p>
                     </div>

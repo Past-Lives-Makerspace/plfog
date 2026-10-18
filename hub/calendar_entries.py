@@ -383,7 +383,7 @@ def community_event_entries(fetch_from: date, fetch_to: date, guild: Guild | Non
                     source="community",
                     url=ev.public_url_on(occ_start),
                     location=ev.location,
-                    description=ev.description,
+                    description=ev.description_text,
                     video_url=ev.video_url,
                     all_day=False,
                     guild=ev.guild,
@@ -438,7 +438,7 @@ def upcoming_calendar_events() -> list[Any]:
                 source="community",
                 url=ev.public_url_on(start),
                 location=ev.location,
-                description=ev.description,
+                description=ev.description_text,
                 video_url=ev.video_url,
                 guild=ev.guild,
                 community_event=ev,
@@ -533,7 +533,7 @@ def google_calendar_event_url(event: CommunityEvent, start: datetime, page_url: 
     ``RRULE``'s weekday is the local one: in UTC an evening series would land a day late for
     anyone whose own calendar is not on Pacific time.
     """
-    details = _trim_to_encoded_length(event.description, _GOOGLE_EVENT_DETAILS_LIMIT)
+    details = _trim_to_encoded_length(event.description_text, _GOOGLE_EVENT_DETAILS_LIMIT)
     for link in (event.video_url, page_url):
         if link:
             details = f"{details}\n\n{link}" if details else link
