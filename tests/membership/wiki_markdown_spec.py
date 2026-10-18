@@ -144,9 +144,23 @@ def describe_sanitize_wiki_submission():
     def it_sanitizes_editor_html():
         assert "<script" not in sanitize_wiki_submission("<p>Hi<script>alert(1)</script></p>")
 
-    def it_passes_markdown_through_unchanged():
-        source = "## Setup\n\nUse a **sharp** blade."
-        assert sanitize_wiki_submission(source) == source
+    def it_stores_text_that_is_not_html_as_escaped_paragraphs_never_markdown():
+        # Only a crafted request sends text (the editor's textarea is hidden), and stored
+        # Markdown is rendered again on every view, where hostile text is quadratic.
+        source = "## Setup\n\nUse a **sharp** blade.\nThen <b>clamp</b> it."
+        assert sanitize_wiki_submission(source) == (
+            "<p>## Setup</p><p>Use a **sharp** blade.<br>Then &lt;b&gt;clamp&lt;/b&gt; it.</p>"
+        )
+
+    def it_drops_blank_paragraphs_and_stores_nothing_for_blank_text():
+        assert sanitize_wiki_submission("A\n \n\n\t\nB") == "<p>A</p><p>B</p>"
+        assert sanitize_wiki_submission("  \n ") == ""
+        assert sanitize_wiki_submission("") == ""
+
+    def it_stores_text_that_renders_without_markdown():
+        stored = sanitize_wiki_submission("[ " * 2000)
+        assert stored.startswith("<p>[ [")
+        assert render_wiki_content(stored).startswith("<p>[ [")
 
     def it_leaves_the_page_submission_sanitizer_alone():
         # The two profiles must stay independently editable, in both directions: the

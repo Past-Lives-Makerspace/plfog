@@ -34,7 +34,7 @@ import re
 
 import markdown as md
 from django.conf import settings
-from django.utils.html import strip_tags
+from django.utils.html import escape, strip_tags
 from django.utils.text import slugify
 
 # Reused, not re-invented: the email rich-editor's Quill bullet-list normalizer, its
@@ -666,18 +666,30 @@ def render_wiki_content(source: str, *, for_editor: bool = False) -> str:
     return _inject_heading_ids(html)
 
 
-def sanitize_wiki_submission(value: str) -> str:
-    """Form-save seam for a wiki page body: sanitize editor HTML, pass Markdown through.
+_BLANK_LINE_RE = re.compile(r"\n\s*\n")
 
-    Mirrors :func:`sanitize_page_submission` exactly and does **not** call it — the two
-    profiles must stay independently editable. A normal wiki save carries Quill HTML and
-    gets sanitized before storage; a value that doesn't sniff as HTML (a no-JS fallback,
-    or a legacy Markdown value) is stored unchanged so it keeps rendering through the
-    Markdown path. Either way the size limit applies first.
+
+def _plain_text_to_wiki_html(value: str) -> str:
+    """Escaped paragraphs from plain text: a blank line starts a paragraph, a newline is a break."""
+    paragraphs = [part.strip() for part in _BLANK_LINE_RE.split(value) if part.strip()]
+    return "".join("<p>" + escape(part).replace("\n", "<br>") + "</p>" for part in paragraphs)
+
+
+def sanitize_wiki_submission(value: str) -> str:
+    """Form-save seam for a wiki page body: sanitize editor HTML, store anything else as plain text.
+
+    Mirrors :func:`sanitize_page_submission`'s shape and does **not** call it, because the two
+    profiles must stay independently editable. A wiki save carries Quill HTML, which is
+    sanitized before storage. A value that does not sniff as HTML is stored as escaped plain
+    text paragraphs, never as Markdown: the editor's textarea is hidden, so no member types
+    Markdown, and only a crafted request sends text. Python-Markdown is quadratic on several
+    shapes of hostile text (unclosed ``[`` alone took minutes at the size limit), and a stored
+    Markdown body is rendered again on every view. Bodies stored as Markdown before this
+    change keep rendering through the Markdown path. The size limit applies first.
 
     Raises:
         RichTextTooLongError: ``value`` is longer than ``RICH_TEXT_MAX_CHARS``.
     """
     if looks_like_html(limit_rich_text(value)):
         return sanitize_wiki_html(value)
-    return value
+    return _plain_text_to_wiki_html(value)
