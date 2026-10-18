@@ -456,29 +456,24 @@ def describe_the_shifts():
 
 
 def describe_the_wine_wall_link():
-    def _reverse(name: str, *args: Any, **kwargs: Any) -> str:
-        return "/hq/x/wine/" if name == "hq:wine" else reverse(name, *args, **kwargs)
-
     def it_shows_when_the_wine_wall_card_is_open_to_the_viewer(card):
         HubCardFactory(hub=card.hub, kind=HubCard.Kind.WINE_WALL, audience=PUBLIC)
 
-        with patch("hq.models.reverse", side_effect=_reverse):
-            body = Client().get(_page(card.hub)).content.decode()
+        body = Client().get(_page(card.hub)).content.decode()
 
-        assert 'href="/hq/x/wine/"' in body
+        assert f'href="{reverse("hq:wine", args=[card.hub.slug])}"' in body
         assert "data-hq-vol-wine" in body
 
-    def it_is_absent_for_a_closed_or_hidden_card_and_before_the_route_exists(card, member_client, admin_client):
+    def it_is_absent_for_a_closed_or_hidden_card(card, member_client, admin_client):
         wine = HubCardFactory(hub=card.hub, kind=HubCard.Kind.WINE_WALL, audience=HubCard.Audience.ADMINS)
 
         assert "data-hq-vol-wine" not in member_client.get(_page(card.hub)).content.decode()
-        assert "data-hq-vol-wine" not in admin_client.get(_page(card.hub)).content.decode()  # no hq:wine yet
+        assert "data-hq-vol-wine" in admin_client.get(_page(card.hub)).content.decode()
         wine.audience = PUBLIC
         wine.is_hidden = True
         wine.save()
-        with patch("hq.models.reverse", side_effect=_reverse):
-            assert "data-hq-vol-wine" not in member_client.get(_page(card.hub)).content.decode()
-            assert "data-hq-vol-wine" in admin_client.get(_page(card.hub)).content.decode()
+        assert "data-hq-vol-wine" not in member_client.get(_page(card.hub)).content.decode()
+        assert "data-hq-vol-wine" in admin_client.get(_page(card.hub)).content.decode()
 
     def it_is_absent_without_a_wine_wall_card(card):
         assert "data-hq-vol-wine" not in Client().get(_page(card.hub)).content.decode()

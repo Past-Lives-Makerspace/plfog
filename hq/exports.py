@@ -1,9 +1,9 @@
-"""The volunteer roster as CSV, in the streaming shape of ``classes/exports.py``."""
+"""The volunteer roster and the wine donors as CSV, in the streaming shape of ``classes/exports.py``."""
 
 from __future__ import annotations
 
 import csv
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import TYPE_CHECKING
 
 from django.http import StreamingHttpResponse
@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
 
     from hq.models import ShiftSignup
+    from hq.services import DonorRow
 
 ROSTER_CSV_HEADERS = ["Name", "Email", "Phone", "OLCC permit", "Shift", "Phase", "When", "Note", "Signed up"]
 
@@ -62,4 +63,32 @@ def stream_roster_csv(signups: QuerySet[ShiftSignup], *, filename_stem: str) -> 
     response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
     stamp = timezone.now().strftime("%Y%m%d")
     response["Content-Disposition"] = f'attachment; filename="{filename_stem}-volunteers-{stamp}.csv"'
+    return response
+
+
+DONORS_CSV_HEADERS = ["Giver", "Type", "Email", "Sponsor listing", "Bottles", "Value", "Logged by"]
+
+
+def stream_donors_csv(donors: Sequence[DonorRow], *, filename_stem: str) -> StreamingHttpResponse:
+    """Stream the Wine Donors to Thank table as CSV, one row per giver, the value in dollars."""
+    pseudo = _Echo()
+    writer = csv.writer(pseudo)
+
+    def iter_rows() -> Iterator[str]:
+        yield writer.writerow(DONORS_CSV_HEADERS)
+        for donor in donors:
+            row = [
+                donor.name,
+                donor.giver_type,
+                donor.email,
+                donor.listing,
+                str(donor.bottles),
+                f"{donor.value_cents / 100:.2f}",
+                "; ".join(donor.logged_by),
+            ]
+            yield writer.writerow([_neutralise_formula(cell) for cell in row])
+
+    response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
+    stamp = timezone.now().strftime("%Y%m%d")
+    response["Content-Disposition"] = f'attachment; filename="{filename_stem}-wine-donors-{stamp}.csv"'
     return response

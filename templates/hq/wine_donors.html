@@ -1,0 +1,24 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+The wine donors on their own page, for the organisers (admins and the card's named members,
+by organizer_required): the same table, Copy donor emails and Download CSV the wall shows
+them at its foot, with a way back to the wall.
+{% endcomment %}
+{% block title %}Wine Donors to Thank{% endblock %}
+{% block extra_head %}
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq-wine" data-hq-donors-page>
+  <header class="pl-hq-wine__header">
+    <div class="pl-hq-wine__heading">
+      <h1 class="pl-hq-wine__title">Wine Donors to Thank</h1>
+      <p class="pl-hq-wine__subline">{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %}</p>
+    </div>
+    <a href="{% url 'hq:wine' hub.slug %}" class="pl-hq-wine__back" data-hq-wine-back>&larr; {{ card.title }}</a>
+  </header>
+  {% include "hq/partials/_donors.html" with hub=hub donors=donors donor_emails=donor_emails %}
+</div>
+{% endblock %}

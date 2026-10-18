@@ -1,0 +1,35 @@
+{% comment %}
+One bottle on the wall: its photo as a thumbnail (the stored file, fitted by CSS; a bottle
+tile when there is none), the kind chip and name, the winery and the value times how many,
+who gave it and who collected it, the note, and Delete for the logger or an organiser
+through the confirm modal.
+
+  bottle    — required, a WineBottle
+  hub       — required, its EventHub
+  deletable — required, the set of bottle pks this viewer may delete
+{% endcomment %}
+<article class="pl-hq-wine__bottle" data-hq-bottle="{{ bottle.pk }}">
+  {% if bottle.photo %}
+  <img class="pl-hq-wine__thumb" src="{{ bottle.photo.url }}" alt="" loading="lazy" data-hq-bottle-photo>
+  {% else %}
+  <span class="pl-hq-wine__thumb pl-hq-wine__thumb--empty" aria-hidden="true" data-hq-bottle-no-photo>{% include "hq/partials/_card_icon.html" with kind="wine_wall" %}</span>
+  {% endif %}
+  <div class="pl-hq-wine__bottle-text">
+    <div class="pl-hq-wine__bottle-head">
+      <span class="pl-hq-wine__chip pl-hq-wine__chip--{{ bottle.kind }}" data-hq-bottle-kind="{{ bottle.kind }}">{{ bottle.get_kind_display }}</span>
+      <span class="pl-hq-wine__bottle-name">{{ bottle.name }}</span>
+    </div>
+    <p class="pl-hq-wine__bottle-line"><span data-hq-bottle-winery>{{ bottle.winery }}</span> · <span data-hq-bottle-value>{{ bottle.value_display }}{% if bottle.qty > 1 %} × {{ bottle.qty }}{% endif %}</span></p>
+    <p class="pl-hq-wine__bottle-line">Given by <span data-hq-bottle-giver>{{ bottle.giver_name }}</span>{% if bottle.credited_name %} · Collected by <span data-hq-bottle-credited>{{ bottle.credited_name }}</span>{% endif %}</p>
+    {% if bottle.note %}<p class="pl-hq-wine__bottle-note">{{ bottle.note }}</p>{% endif %}
+  </div>
+  {% if bottle.pk in deletable %}
+  <div class="pl-hq-wine__bottle-action">
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'delete-bottle-{{ bottle.pk }}')" data-hq-bottle-delete>Delete</button>
+    {% url 'hq:bottle_delete' hub.slug bottle.pk as delete_url %}
+    {% with pk_text=bottle.pk|stringformat:"s" %}
+    {% include "components/confirm_modal.html" with confirm_id="delete-bottle-"|add:pk_text confirm_title="Take this bottle off the wall?" confirm_message="The bottle and its photo are removed and the counts go down. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" %}
+    {% endwith %}
+  </div>
+  {% endif %}
+</article>

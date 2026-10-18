@@ -5,7 +5,7 @@ from __future__ import annotations
 import factory
 from factory.django import DjangoModelFactory
 
-from hq.models import EventHub, HubCard, HubGoal, ShiftSignup, VolunteerShift
+from hq.models import EventHub, HubCard, HubGoal, ShiftSignup, VolunteerShift, WineBottle, WineryLogo
 
 
 class EventHubFactory(DjangoModelFactory):
@@ -80,3 +80,35 @@ class ShiftSignupFactory(DjangoModelFactory):
     phone = ""
     has_olcc = False
     note = ""
+
+
+class WineBottleFactory(DjangoModelFactory):
+    """One $25 red from Abacela given by a person, logged by a guest (no member, no photo)."""
+
+    class Meta:
+        model = WineBottle
+
+    hub = factory.SubFactory(EventHubFactory)
+    kind = WineBottle.Kind.RED
+    name = factory.Sequence(lambda n: f"Bottle {n}")
+    winery = "Abacela"
+    value_cents = 2500
+    qty = 1
+    giver_name = factory.Sequence(lambda n: f"Giver {n}")
+    giver_type = WineBottle.GiverType.PERSON
+    giver_email = ""
+    listing = WineBottle.Listing.NOT_ASKED
+    credited_name = ""
+    logged_by = None
+    logged_by_name = ""
+
+
+class WineryLogoFactory(DjangoModelFactory):
+    """A logo for Abacela: a small generated PNG, resized to a JPEG on save."""
+
+    class Meta:
+        model = WineryLogo
+
+    hub = factory.SubFactory(EventHubFactory)
+    name = "Abacela"
+    logo = factory.django.ImageField(filename="logo.png", width=64, height=64, color="white")

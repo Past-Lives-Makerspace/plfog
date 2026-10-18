@@ -10,8 +10,9 @@ members, or to named people from the card's edit page. The event itself stays a
 Part 1 of Track C builds the hub, the cards and the goals. Part 2 adds the volunteer shifts
 behind the ``volunteers`` card: a :class:`VolunteerShift` is one job on Lee's sign-up sheet
 (a role, when, how many are needed) and a :class:`ShiftSignup` is one person on it, with or
-without an account. The wine wall (C3) hangs off the ``wine_wall`` card; until it ships that
-card renders with its own title and no link (:attr:`HubCard.url`).
+without an account. Part 3 adds the wine wall behind the ``wine_wall`` card: a
+:class:`WineBottle` is one bottle (or a few of the same) logged with who gave it and a photo,
+and a :class:`WineryLogo` is the logo an organiser uploads for a winery named on those bottles.
 """
 
 from __future__ import annotations
@@ -23,10 +24,11 @@ from typing import Any
 from django.conf import settings
 from django.db import models
 from django.db.models import Case, Count, IntegerField, Q, Value, When
-from django.urls import NoReverseMatch, reverse
+from django.db.models.functions import Lower
+from django.urls import reverse
 from django.utils import timezone
 
-from core.files import delete_orphan_on_replace
+from core.files import delete_if_unreferenced, delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
 from membership.models import CommunityEvent, Member
 
@@ -260,12 +262,7 @@ class HubCard(models.Model):
         if self.kind == self.Kind.VOLUNTEERS:
             return reverse("hq:volunteers", args=[self.hub.slug])
         if self.kind == self.Kind.WINE_WALL:
-            # C3 adds hq:wine. Until it lands the card has no page to open, so it renders like a
-            # placeholder with its own title rather than a broken link.
-            try:
-                return reverse("hq:wine", args=[self.hub.slug])
-            except NoReverseMatch:
-                return ""
+            return reverse("hq:wine", args=[self.hub.slug])
         return ""
 
     def move(self, direction: str) -> None:
@@ -520,4 +517,177 @@ class ShiftSignup(models.Model):
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         self.email = self.email.strip().lower()
+        super().save(*args, **kwargs)
+
+
+# ---- Wine wall (part 3) ----
+
+
+def format_money(cents: int) -> str:
+    """``cents`` as dollars for the wall: "$25" when whole, "$25.50" otherwise, thousands separated."""
+    dollars, rest = divmod(cents, 100)
+    return f"${dollars:,}" if rest == 0 else f"${dollars:,}.{rest:02d}"
+
+
+class WineKind(models.TextChoices):
+    """What is in the bottle, in the order the band's chip row shows. ``WineBottle.Kind`` is this."""
+
+    RED = "red", "Red"
+    WHITE = "white", "White"
+    CHAMPAGNE = "champagne", "Champagne"
+    CIDER = "cider", "Cider"
+    BEER = "beer", "Beer"
+
+
+class GiverType(models.TextChoices):
+    """Who gave a bottle, for the thank you list. ``WineBottle.GiverType`` is this."""
+
+    PERSON = "person", "Person"
+    WINE_SHOP = "wine_shop", "Wine shop"
+    RESTAURANT = "restaurant", "Restaurant"
+    WINERY = "winery", "Winery"
+    DISTRIBUTOR = "distributor", "Distributor"
+    OTHER = "other", "Other"
+
+
+class SponsorListing(models.TextChoices):
+    """Whether the giver wants to be listed on the sponsor page. ``WineBottle.Listing`` is this."""
+
+    YES = "yes", "Yes"
+    NO = "no", "No"
+    NOT_ASKED = "not_asked", "Not asked"
+
+
+class WineBottle(models.Model):
+    """One bottle on the wine wall (``qty`` of the same bottle), with who gave it and who logged it.
+
+    ``winery`` is free text: the Wineries section groups bottles under it whatever the
+    capitalisation, and shows the :class:`WineryLogo` an organiser uploaded under that name.
+    ``logged_by`` is the member who logged it (a guest has none) and ``credited_name`` the
+    volunteer who collected it, which starts as the logger's own name.
+    """
+
+    Kind = WineKind
+    GiverType = GiverType
+    Listing = SponsorListing
+
+    hub = models.ForeignKey(
+        EventHub, on_delete=models.CASCADE, related_name="bottles", help_text="The HQ whose wall this bottle is on."
+    )
+    kind = models.CharField(
+        max_length=12,
+        choices=WineKind.choices,
+        default=WineKind.RED,
+        db_default=WineKind.RED,
+        help_text="What is in the bottle: red, white, champagne, cider or beer.",
+    )
+    name = models.CharField(max_length=120, help_text="The bottle as on the label, e.g. 2021 Pinot Noir.")
+    winery = models.CharField(
+        max_length=120,
+        help_text="The winery, cidery or brewery. Bottles group under it, whatever the capitalisation.",
+    )
+    value_cents = models.PositiveIntegerField(help_text="What one bottle is worth, in cents.")
+    qty = models.PositiveSmallIntegerField(default=1, db_default=1, help_text="How many of this bottle came in.")
+    giver_name = models.CharField(max_length=120, help_text="Who gave it: a person or a business.")
+    giver_type = models.CharField(
+        max_length=12,
+        choices=GiverType.choices,
+        default=GiverType.PERSON,
+        db_default=GiverType.PERSON,
+        help_text="What kind of giver, for the thank you list.",
+    )
+    giver_email = models.EmailField(
+        blank=True,
+        help_text="The giver's email, lowercased. Private to the organisers, for the thank you note.",
+    )
+    listing = models.CharField(
+        max_length=10,
+        choices=SponsorListing.choices,
+        default=SponsorListing.NOT_ASKED,
+        db_default=SponsorListing.NOT_ASKED,
+        help_text="Whether the giver wants to be listed on the sponsor page.",
+    )
+    credited_name = models.CharField(
+        max_length=120, blank=True, help_text="The volunteer who collected it; starts as the logger's name."
+    )
+    photo = models.ImageField(
+        upload_to="hq/bottles/", blank=True, help_text="A photo of the bottle, resized on upload. Optional."
+    )
+    note = models.TextField(blank=True, help_text="Anything else about the bottle or the giver.")
+    logged_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="wine_bottles",
+        help_text="The member who logged it. Blank for a guest.",
+    )
+    logged_by_name = models.CharField(
+        max_length=120, blank=True, help_text="The logger's name as it stood when the bottle was logged."
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was logged.")
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.winery})"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.giver_email = self.giver_email.strip().lower()
+        normalize_field_if_uploaded(self, "photo", settings.IMAGE_MAX_LONG_EDGE_GALLERY)
+        delete_orphan_on_replace(self, "photo")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        """Delete the row, then its photo once no other bottle points at the file."""
+        photo = self.photo.name or ""
+        result = super().delete(*args, **kwargs)
+        delete_if_unreferenced(WineBottle, "photo", photo)
+        return result
+
+    @property
+    def value_total_cents(self) -> int:
+        """What this row puts on the wall: the bottle's value times how many came in."""
+        return self.value_cents * self.qty
+
+    @property
+    def value_display(self) -> str:
+        """One bottle's value as dollars, e.g. "$25"."""
+        return format_money(self.value_cents)
+
+    def can_be_deleted_by(self, member: Member | None, *, is_organizer: bool) -> bool:
+        """Whether this person may take the bottle off the wall: an organiser, or the member who logged it.
+
+        A guest's bottle has no ``logged_by``, so only an organiser can remove it.
+        """
+        return is_organizer or (member is not None and self.logged_by_id == member.pk)
+
+
+class WineryLogo(models.Model):
+    """The logo for one winery, cidery or brewery on the wall, keyed by name (one per hub, any capitalisation)."""
+
+    hub = models.ForeignKey(
+        EventHub, on_delete=models.CASCADE, related_name="winery_logos", help_text="The HQ whose wall this logo is on."
+    )
+    name = models.CharField(
+        max_length=120,
+        help_text="The winery as the bottles name it. One logo per name on a hub, whatever the capitalisation.",
+    )
+    logo = models.ImageField(
+        upload_to="hq/wineries/", help_text="The logo, resized on upload. The page shows it on a white tile."
+    )
+
+    class Meta:
+        ordering = ["name", "pk"]
+        constraints = [
+            models.UniqueConstraint(Lower("name"), "hub", name="uq_winerylogo_hub_name"),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        normalize_field_if_uploaded(self, "logo", settings.IMAGE_MAX_LONG_EDGE_PROFILE)
+        delete_orphan_on_replace(self, "logo")
         super().save(*args, **kwargs)

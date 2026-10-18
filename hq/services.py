@@ -1,22 +1,38 @@
-"""What the HQ pages compute across models: the goal band's rows, and the volunteer sheet.
+"""What the HQ pages compute across models: the goal band's rows, the volunteer sheet and the wine wall.
 
-Each live goal kind is counted by one function here, so a later part of Track C swaps a
-stub for a real count without touching the page or the model. The volunteer half holds the
-Your Info step (:class:`VolunteerInfo`, kept in the session), the two writes
-(:func:`sign_up`, :func:`remove`) with their named refusals, the band over the shifts
-(:func:`volunteer_band`), the organisers' roster (:func:`roster_rows`) and the rate key a
-guest's sign-ups are counted under.
+Each live goal kind is counted here, so the page and the model never learn where a figure
+comes from. The volunteer half holds the Your Info step (:class:`VolunteerInfo`, kept in the
+session), the two writes (:func:`sign_up`, :func:`remove`) with their named refusals, the
+band over the shifts (:func:`volunteer_band`), the organisers' roster (:func:`roster_rows`)
+and the rate key a guest's sign-ups are counted under. The wine wall half holds the band
+over the wall (:func:`wine_band`), the wineries grid (:func:`wineries`), the organisers'
+donors table (:func:`donor_rows`) and the three writes (:func:`log_bottle`,
+:func:`delete_bottle`, :func:`set_winery_logo`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
+from typing import Any
 
+from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
+from django.db.models import F, IntegerField, Sum
+from django.db.models.functions import Lower
 from django.http import HttpRequest
 
-from hq.models import EventHub, HubGoal, ShiftPhase, ShiftSignup, VolunteerShift
+from hq.models import (
+    EventHub,
+    HubGoal,
+    ShiftPhase,
+    ShiftSignup,
+    VolunteerShift,
+    WineBottle,
+    WineKind,
+    WineryLogo,
+    format_money,
+)
 from membership.models import CommunityEvent, Member
 
 
@@ -64,22 +80,21 @@ def volunteer_spots_filled(hub: EventHub) -> int:
     return volunteer_band(hub).filled
 
 
-def bottles_logged(hub: EventHub) -> int:
-    """Bottles on the wine wall. Always 0 until C3 adds the wall."""
-    return 0
-
-
-def bottle_value(hub: EventHub) -> int:
-    """The wine wall's value in whole dollars. Always 0 until C3 adds the wall."""
-    return 0
-
-
 _LIVE_COUNTS: dict[str, Callable[[EventHub], int]] = {
     HubGoal.Kind.RSVPS: lambda hub: rsvp_count(hub.event),
     HubGoal.Kind.VOLUNTEER_SPOTS: volunteer_spots_filled,
-    HubGoal.Kind.BOTTLES: bottles_logged,
-    HubGoal.Kind.BOTTLE_VALUE: bottle_value,
 }
+
+# The two wine wall kinds are read off one band, so a hub showing both pays for it once.
+_WINE_KINDS: frozenset[str] = frozenset({HubGoal.Kind.BOTTLES, HubGoal.Kind.BOTTLE_VALUE})
+
+
+def _live_counts(hub: EventHub, kind: str) -> dict[str, int]:
+    """The live figure for ``kind``, with any sibling kind the same queries answer."""
+    if kind in _WINE_KINDS:
+        band = wine_band(hub)
+        return {HubGoal.Kind.BOTTLES: band.bottles, HubGoal.Kind.BOTTLE_VALUE: band.value_cents // 100}
+    return {kind: _LIVE_COUNTS[kind](hub)}
 
 
 def goal_rows(hub: EventHub) -> list[GoalRow]:
@@ -95,7 +110,7 @@ def goal_rows(hub: EventHub) -> list[GoalRow]:
             current = goal.current_value
         else:
             if goal.kind not in counts:
-                counts[goal.kind] = _LIVE_COUNTS[goal.kind](hub)
+                counts.update(_live_counts(hub, goal.kind))
             current = counts[goal.kind]
         rows.append(GoalRow(label=goal.label, current=current, target=goal.target, is_money=goal.is_money))
     return rows
@@ -319,3 +334,175 @@ def rate_key(request: HttpRequest) -> str:
 def roster_emails(rows: Sequence[RosterRow]) -> str:
     """The roster's addresses as one comma separated line, for Copy emails."""
     return ", ".join(row.email for row in rows)
+
+
+# ---- Wine wall (part 3) ----
+
+
+class NotYourBottle(Exception):
+    """Only the member who logged a bottle, or an organiser, may take it off the wall."""
+
+
+@dataclass(frozen=True)
+class KindCount:
+    """One chip in the band's row: how many bottles of a kind are on the wall."""
+
+    key: str
+    label: str
+    bottles: int
+
+
+@dataclass(frozen=True)
+class WineBand:
+    """The strip over the wall: bottles of the goal, the value on the wall, the supporters and the kinds."""
+
+    bottles: int
+    goal: int
+    value_cents: int
+    supporters: int
+    by_kind: list[KindCount]
+
+    @property
+    def percent(self) -> int:
+        """How full the meter is, 0 to 100; with no goal it reads empty."""
+        if self.goal == 0:
+            return 0
+        return min(100, round(self.bottles * 100 / self.goal))
+
+    @property
+    def value_display(self) -> str:
+        return format_money(self.value_cents)
+
+
+def bottles_goal(hub: EventHub) -> int:
+    """The target of the hub's first ``bottles`` goal in band order, or 0 while it has none."""
+    target = hub.goals.filter(kind=HubGoal.Kind.BOTTLES).values_list("target", flat=True).first()
+    return 0 if target is None else target
+
+
+def wine_supporters(hub: EventHub) -> int:
+    """How many different givers are on the wall, by name whatever the capitalisation."""
+    return hub.bottles.annotate(giver=Lower("giver_name")).values("giver").distinct().count()
+
+
+def wine_band(hub: EventHub) -> WineBand:
+    """The band for ``hub`` in three queries: the bottles by kind with their value, the supporters, the goal."""
+    by_kind = {
+        row["kind"]: (row["bottles"], row["value"])
+        for row in hub.bottles.values("kind")
+        .annotate(bottles=Sum("qty"), value=Sum(F("value_cents") * F("qty"), output_field=IntegerField()))
+        .order_by()
+    }
+    return WineBand(
+        bottles=sum(bottles for bottles, _ in by_kind.values()),
+        goal=bottles_goal(hub),
+        value_cents=sum(value for _, value in by_kind.values()),
+        supporters=wine_supporters(hub),
+        by_kind=[
+            KindCount(key=kind.value, label=str(kind.label), bottles=by_kind[kind.value][0])
+            for kind in WineKind
+            if kind.value in by_kind
+        ],
+    )
+
+
+@dataclass(frozen=True)
+class WineryRow:
+    """One tile in the Wineries, Cideries and Breweries grid."""
+
+    name: str
+    bottles: int
+    logo: WineryLogo | None
+
+
+def wineries(hub: EventHub) -> list[WineryRow]:
+    """The wineries on the wall with their bottle totals and logos, alphabetically, in two queries.
+
+    Bottles group by the winery as typed, lowercased; the tile shows the spelling of the
+    first bottle logged under it. A logo joins by the same lowercased name, so "Abacela" and
+    "abacela" share one.
+    """
+    names: dict[str, str] = {}
+    totals: dict[str, int] = {}
+    for winery, qty in hub.bottles.order_by("created_at", "pk").values_list("winery", "qty"):
+        key = winery.lower()
+        names.setdefault(key, winery)
+        totals[key] = totals.get(key, 0) + qty
+    logos = {logo.name.lower(): logo for logo in hub.winery_logos.all()}
+    return [WineryRow(name=names[key], bottles=totals[key], logo=logos.get(key)) for key in sorted(totals)]
+
+
+@dataclass(frozen=True)
+class DonorRow:
+    """One giver on the organisers' Wine Donors to Thank table, across every bottle they gave."""
+
+    name: str
+    giver_type: str
+    email: str
+    listing: str
+    bottles: int
+    value_cents: int
+    logged_by: list[str]
+
+    @property
+    def value_display(self) -> str:
+        return format_money(self.value_cents)
+
+
+def donor_rows(hub: EventHub) -> list[DonorRow]:
+    """Every giver on ``hub``'s wall, one row per name (whatever the capitalisation), by name.
+
+    Type and listing are read from the giver's newest bottle, as is the email unless the
+    newest left it blank, so what a collector last typed is what the organisers see. Logged
+    by lists everyone who logged one of their bottles, a guest as "Guest".
+    """
+    by_key: dict[str, DonorRow] = {}
+    for bottle in hub.bottles.order_by("created_at", "pk"):
+        key = bottle.giver_name.strip().lower()
+        earlier = by_key.get(key)
+        logged_by = earlier.logged_by if earlier is not None else []
+        logger = bottle.logged_by_name or "Guest"
+        if logger not in logged_by:
+            logged_by.append(logger)
+        by_key[key] = DonorRow(
+            name=bottle.giver_name,
+            giver_type=bottle.get_giver_type_display(),
+            email=bottle.giver_email or (earlier.email if earlier is not None else ""),
+            listing=bottle.get_listing_display(),
+            bottles=(earlier.bottles if earlier is not None else 0) + bottle.qty,
+            value_cents=(earlier.value_cents if earlier is not None else 0) + bottle.value_total_cents,
+            logged_by=logged_by,
+        )
+    return sorted(by_key.values(), key=lambda row: (row.name.lower(), row.email))
+
+
+def donor_emails(rows: Sequence[DonorRow]) -> str:
+    """The donors' addresses as one comma separated line, each once, for Copy donor emails."""
+    return ", ".join(dict.fromkeys(row.email for row in rows if row.email))
+
+
+def log_bottle(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None, logger_name: str) -> WineBottle:
+    """Put a bottle on ``hub``'s wall from the form's cleaned fields, stamped with who logged it."""
+    return WineBottle.objects.create(hub=hub, logged_by=member, logged_by_name=logger_name, **fields)
+
+
+def delete_bottle(bottle: WineBottle, *, member: Member | None, is_organizer: bool) -> None:
+    """Take ``bottle`` off the wall, with its photo.
+
+    Raises:
+        NotYourBottle: ``member`` did not log it and is not an organiser.
+    """
+    if not bottle.can_be_deleted_by(member, is_organizer=is_organizer):
+        raise NotYourBottle(f"Only the organisers or whoever logged {bottle.name} can delete it.")
+    bottle.delete()
+
+
+def set_winery_logo(hub: EventHub, name: str, logo: UploadedFile) -> WineryLogo:
+    """Store ``logo`` for ``name`` on ``hub``, replacing the one under that name whatever its capitalisation."""
+    existing = hub.winery_logos.filter(name__iexact=name).first()
+    if existing is None:
+        return WineryLogo.objects.create(hub=hub, name=name, logo=logo)
+    existing.name = name
+    existing.logo = logo
+    existing.save()
+    return existing

@@ -1,8 +1,10 @@
-"""The HQ forms: the hub with its goals, one card with its shifts, and a volunteer's Your Info step."""
+"""The HQ forms: the hub with its goals, one card with its shifts, a volunteer's Your Info step, and the wine wall's Log a Bottle and winery logo."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 
 from django import forms
@@ -13,7 +15,7 @@ from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.utils import timezone
 
 from core.validators import validate_image_content, validate_image_size
-from hq.models import EventHub, HubCard, HubGoal, VolunteerShift
+from hq.models import EventHub, HubCard, HubGoal, VolunteerShift, WineBottle
 from hq.services import VolunteerInfo
 from membership.models import CommunityEvent, Member
 
@@ -276,3 +278,103 @@ VolunteerShiftFormSet = inlineformset_factory(
     extra=0,
     can_delete=True,
 )
+
+
+class WineBottleForm(forms.ModelForm):
+    """Log a Bottle on the wine wall: Lee's twelve fields, with the value typed in dollars.
+
+    ``website`` is the same honeypot as :class:`VolunteerInfoForm`'s: hidden from people and
+    labelled to be left blank, so a bot that fills every field gives itself away.
+    """
+
+    value = forms.DecimalField(
+        min_value=Decimal(0),
+        max_digits=8,
+        decimal_places=2,
+        label="Value per bottle ($)",
+        help_text="What one bottle is worth, in dollars.",
+    )
+    website = forms.CharField(
+        required=False,
+        label="Leave this blank",
+        widget=forms.TextInput(attrs={"autocomplete": "off", "tabindex": "-1"}),
+    )
+
+    class Meta:
+        model = WineBottle
+        fields = [
+            "kind",
+            "name",
+            "winery",
+            "qty",
+            "giver_name",
+            "giver_type",
+            "giver_email",
+            "listing",
+            "credited_name",
+            "photo",
+            "note",
+        ]
+        labels = {
+            "kind": "Type",
+            "name": "Bottle",
+            "winery": "Winery, cidery or brewery",
+            "qty": "How many",
+            "giver_name": "Given by",
+            "giver_type": "Giver type",
+            "giver_email": "Giver's email",
+            "listing": "List them on the sponsor page?",
+            "credited_name": "Credited volunteer",
+            "photo": "Photo",
+            "note": "Note",
+        }
+        help_texts = {
+            "winery": "As on the label. Bottles group under it on the wall.",
+            "giver_email": "Optional. Stays private to the organisers, for the thank you note.",
+            "credited_name": "Who collected it. Starts as your name.",
+            "note": "Optional.",
+        }
+        widgets = {
+            "giver_email": forms.EmailInput(attrs={"autocomplete": "email"}),
+            "note": forms.Textarea(attrs={"rows": 2}),
+        }
+
+    def clean_photo(self) -> Any:
+        """A fresh upload must be an image we can open, under the size cap; none is fine."""
+        photo = self.cleaned_data["photo"]
+        if isinstance(photo, UploadedFile):
+            validate_image_size(photo)
+            validate_image_content(photo)
+        return photo
+
+    @property
+    def is_honeypot_hit(self) -> bool:
+        """Whether the hidden field was filled, which only a bot does."""
+        return bool(self.cleaned_data["website"])
+
+    def to_fields(self) -> dict[str, Any]:
+        """The bottle's fields for ``hq.services.log_bottle``: the cleaned data less the honeypot, the value in cents."""
+        fields = dict(self.cleaned_data)
+        del fields["website"]
+        value: Decimal = fields.pop("value")
+        fields["value_cents"] = int((value * 100).to_integral_value())
+        for key in ("name", "winery", "giver_name", "credited_name", "note"):
+            fields[key] = fields[key].strip()
+        return fields
+
+
+class WineryLogoForm(forms.Form):
+    """The organisers' logo upload: a winery already named on the wall, and its logo."""
+
+    name = forms.ChoiceField(label="Winery", help_text="A winery, cidery or brewery with a bottle on the wall.")
+    logo = forms.ImageField(label="Logo")
+
+    def __init__(self, *args: Any, names: Sequence[str], **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["name"].choices = [(name, name) for name in names]  # type: ignore[attr-defined]  # a ChoiceField
+
+    def clean_logo(self) -> UploadedFile:
+        """The form's ImageField has opened it; this holds it under the size cap too."""
+        logo: UploadedFile = self.cleaned_data["logo"]
+        validate_image_size(logo)
+        return logo
