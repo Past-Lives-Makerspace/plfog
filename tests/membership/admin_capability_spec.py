@@ -45,6 +45,24 @@ def describe_AdminCapability():
                 AdminCapability.objects.create(member=member, capability=AdminCapability.Capability.SPACE_APPROVER)
 
 
+def describe_the_event_creator_capability():
+    def it_is_the_can_create_events_grant():
+        assert AdminCapability.Capability.EVENT_CREATOR == "event_creator"
+        assert AdminCapability.Capability.EVENT_CREATOR.label == "Can create events"
+
+    def it_describes_itself_without_a_subject_like_every_other_duty():
+        description = AdminCapability.DESCRIPTIONS[AdminCapability.Capability.EVENT_CREATOR]
+        assert description == (
+            "Adds events to the Calendar. Each one goes to an admin or a Calendar Administrator for a quick "
+            "review before it is announced."
+        )
+
+    def it_can_be_granted_and_read_back():
+        member = _member("creator")
+        member.set_admin_capability(AdminCapability.Capability.EVENT_CREATOR, True)
+        assert member.has_admin_capability(AdminCapability.Capability.EVENT_CREATOR) is True
+
+
 def describe_has_admin_capability():
     def it_is_true_when_the_member_holds_the_grant():
         member = _member("holder")

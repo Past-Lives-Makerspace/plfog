@@ -48,6 +48,7 @@ from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_
 from hub.forms import (
     BetaFeedbackForm,
     CalendarFeedFormSet,
+    CommunityEventForm,
     DeleteAccountConfirmForm,
     DiscordGuildEmojiFormSet,
     EventDateForm,
@@ -109,6 +110,14 @@ from membership.models import (
     WikiArticle,
 )
 from membership.ical import ical_escape, ical_timezone_lines
+from membership.permissions import (
+    EventCreateMode,
+    can_administer_events,
+    can_create_events,
+    can_edit_event,
+    event_create_mode,
+    is_own_open_proposal,
+)
 from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
@@ -6540,45 +6549,140 @@ def guild_event_delete(request: HttpRequest, pk: int, event_pk: int) -> HttpResp
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
 
 
-@login_required
-def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpResponse:
-    """Admin site-wide event authoring (reached from the Community Calendar Events tab)."""
-    from hub.forms import CommunityEventForm
+#: The one line both review paths say on submit, so a "Can create events" holder and a member
+#: proposing under the approval policy hear the same promise.
+_PROPOSAL_SUBMITTED_MESSAGE = (
+    "Thanks — your event was submitted for review. You'll get a note when a lead or admin responds."
+)
+
+
+def _events_tab_or_next(request: HttpRequest) -> HttpResponse:
+    """Land on the calendar's Events tab, or on the same-host ``next`` the form posted.
+
+    The event actions (delete, retry sync, photo delete) are posted from several pages (the
+    Events tab, the composer, the event page), so each form says where to come back to.
+    """
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect(next_url)
+    return redirect(reverse("hub_community_calendar") + "?tab=events")
+
+
+def _event_edit_mode(request: HttpRequest, event: CommunityEvent) -> EventCreateMode | None:
+    """Which composer an existing event opens in, or None when the request may not edit it.
+
+    The author of their own open proposal resubmits it (``REVIEW``) unless they also
+    administer events; everyone else :func:`can_edit_event` admits gets the full composer
+    (``DIRECT``), which is what an admin editing a pending row has always had. A guild's
+    own leadership is ``DIRECT`` too, and :func:`event_edit` sends them on to the guild
+    composer.
+    """
+    if not can_edit_event(request, event):
+        return None
+    if is_own_open_proposal(request, event) and not can_administer_events(request):
+        return EventCreateMode.REVIEW
+    return EventCreateMode.DIRECT
+
+
+def _event_composer_kwargs(request: HttpRequest, event: CommunityEvent, *, review_first: bool) -> dict[str, Any]:
+    """The :class:`CommunityEventForm` kwargs for this request's composer mode.
+
+    The full composer asks both opening questions; the review-first one asks them the way
+    the propose page does, only of a request with lead or staff authority somewhere (#505).
+    """
+    if review_first:
+        _, can_choose_audience = editable_meeting_scopes(request)
+    else:
+        can_choose_audience = True
+    return {
+        "can_choose_audience": can_choose_audience,
+        "guild_choices": _event_guild_choices(request, event),
+        "review_first": review_first,
+    }
+
+
+def _save_as_the_page_promised(
+    request: HttpRequest, event: CommunityEvent, form: CommunityEventForm, *, is_new: bool
+) -> None:
+    """The full composer's save: persist, then do what the Save button said (see guild_event_edit).
+
+    A new or still-SCHEDULED event routes through ``schedule_or_go_live`` (a future
+    ``publish_at`` parks it, a cleared or back-dated one publishes now); a live event only
+    re-pushes to Google and Discord, never re-announces; a pending one just saves.
+    """
     from membership.models import CommunityEvent
 
-    forbidden = _require_admin(request)
-    if forbidden is not None:
-        return forbidden
-    event = get_object_or_404(CommunityEvent, pk=event_pk) if event_pk is not None else CommunityEvent()
-    is_new = event.pk is None
-    cancel_url = reverse("hub_community_calendar") + "?tab=events"
+    user: User = request.user  # type: ignore[assignment]  # callers are @login_required
+    if is_new:
+        event.created_by = user
+    event.save()
+    if form.saves_announce:
+        event.schedule_or_go_live(actor=user)
+    elif form.announced:
+        event.push_to_google(actor=user)
+        event.push_to_discord(actor=user)
+    if event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
+        messages.success(request, f"Event scheduled for {event.publish_at_display}.")
+    else:
+        messages.success(request, "Event saved.")
 
-    guild_choices = _event_guild_choices(request, event)
+
+@login_required
+def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpResponse:
+    """The Calendar's event composer: ``/events/add/`` and ``/events/<pk>/edit/``.
+
+    Adding needs :func:`can_create_events`, editing :func:`can_edit_event`; 403 otherwise.
+    In ``DIRECT`` mode (an admin or a Calendar Administrator) a save announces, schedules or
+    re-pushes exactly as before. In ``REVIEW`` mode (a "Can create events" holder adding an
+    event, or the author of their own open proposal) the form is review-first and a save
+    enters the review queue, so a reviewer's approval is what announces it. A guild's own
+    leadership edits its event in the guild composer instead: this one's guild picker would
+    let a lead move the event out of their own reach.
+    """
+    from membership.models import CommunityEvent
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    if event_pk is None:
+        event = CommunityEvent()
+        mode = event_create_mode(request)
+    else:
+        event = get_object_or_404(CommunityEvent, pk=event_pk)
+        mode = _event_edit_mode(request, event)
+        if mode == EventCreateMode.DIRECT and event.guild_id is not None and not can_administer_events(request):
+            return redirect(reverse("hub_guild_event_edit", args=[event.guild_id, event.pk]))
+    if mode is None:
+        return HttpResponse("Forbidden", status=403)
+    is_new = event.pk is None
+    review_first = mode == EventCreateMode.REVIEW
+    cancel_url = reverse("hub_community_calendar") + "?tab=events"
+    form_kwargs = _event_composer_kwargs(request, event, review_first=review_first)
 
     if request.method == "POST":
-        form = CommunityEventForm(
-            request.POST, request.FILES, instance=event, can_choose_audience=True, guild_choices=guild_choices
-        )
+        form = CommunityEventForm(request.POST, request.FILES, instance=event, **form_kwargs)
         if form.is_valid():
             event = form.save(commit=False)
-            if is_new:
-                event.created_by = request.user
-            event.save()
-            # The same flags the page reads (see guild_event_edit).
-            if form.saves_announce:
-                event.schedule_or_go_live(actor=request.user)
-            elif form.announced:
-                event.push_to_google(actor=request.user)
-                event.push_to_discord(actor=request.user)
-            if event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
-                messages.success(request, f"Event scheduled for {event.publish_at_display}.")
+            if review_first:
+                # Always the approval path, whatever SiteConfiguration.member_event_policy
+                # says: the policy governs members without the grant (the propose page and
+                # Discord /create), while the grant promises a review, so an OPEN policy must
+                # not let a holder's event publish itself.
+                event.propose(
+                    by=user,
+                    guild=form.cleaned_data["guild"],
+                    policy=SiteConfiguration.MemberEventPolicy.APPROVAL,
+                    editing=not is_new,
+                    event_type=form.resolved_event_type(),
+                )
+                messages.success(request, _PROPOSAL_SUBMITTED_MESSAGE)
             else:
-                messages.success(request, "Event saved.")
+                _save_as_the_page_promised(request, event, form, is_new=is_new)
             return redirect(cancel_url)
     else:
-        form = CommunityEventForm(instance=event, can_choose_audience=True, guild_choices=guild_choices)
+        form = CommunityEventForm(instance=event, **form_kwargs)
 
     ctx = _get_hub_context(request)
+    # Deleting is an administrator's action (event_delete); an author withdraws from the Calendar.
+    can_delete = event.pk is not None and can_administer_events(request)
     return render(
         request,
         "hub/community_event_edit.html",
@@ -6588,8 +6692,8 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
             "form": form,
             "cancel_url": cancel_url,
             "google_sync_enabled": _google_sync_enabled(),
-            "delete_url": reverse("hub_event_delete", args=[event.pk]) if event.pk else None,
-            "delete_confirm_message": _event_delete_confirm_message(event) if event.pk else None,
+            "delete_url": reverse("hub_event_delete", args=[event.pk]) if can_delete else None,
+            "delete_confirm_message": _event_delete_confirm_message(event) if can_delete else None,
             **_event_photo_context(),
         },
     )
@@ -6616,18 +6720,17 @@ def event_send_toggles(request: HttpRequest) -> HttpResponse:
 @login_required
 @require_POST
 def event_delete(request: HttpRequest, event_pk: int) -> HttpResponse:
-    """Delete a site-wide event. POST only, admin only."""
+    """Delete an event. POST only, for an admin or a Calendar Administrator; honours ``next``."""
     from membership.models import CommunityEvent
 
-    forbidden = _require_admin(request)
-    if forbidden is not None:
-        return forbidden
+    if not can_administer_events(request):
+        return HttpResponse("Forbidden", status=403)
     event = get_object_or_404(CommunityEvent, pk=event_pk)
     event.remove_from_google()  # best-effort; must run before the FOG row is gone
     event.remove_from_discord()  # best-effort; must run before the FOG row is gone
     event.delete()
     messages.success(request, "Event deleted.")
-    return redirect(reverse("hub_community_calendar") + "?tab=events")
+    return _events_tab_or_next(request)
 
 
 @login_required
@@ -6636,33 +6739,24 @@ def event_photo_delete(request: HttpRequest, event_pk: int) -> HttpResponse:
     """POST only — clear an event's photo (the ``image_field`` component's delete endpoint).
 
     One endpoint for all three composers rather than one each, because who may clear the
-    photo is simply who may edit the event: :func:`can_edit_event` for the admin and guild
-    surfaces, which is the same helper the Edit affordance and the QR download already ask,
-    plus the proposer of a proposal still in the review loop — exactly the row
-    :func:`propose_event` lets them open.
+    photo is simply who may edit the event: :func:`can_edit_event`, the same helper the
+    composer, the Edit affordance and the QR download ask, which admits the admin and guild
+    surfaces plus the author of a proposal still in the review loop.
 
     Clearing the field and saving it (rather than ``photo.delete()``) leaves the storage
     sweep to the model's own save, so a removed photo and a replaced one are cleaned up by
     the same line of code.
     """
     from membership.models import CommunityEvent
-    from membership.permissions import can_edit_event
 
     event = get_object_or_404(CommunityEvent, pk=event_pk)
-    own_proposal = event.submitted_by_id == request.user.pk and event.moderation_state in (
-        CommunityEvent.ModerationState.PENDING,
-        CommunityEvent.ModerationState.CHANGES_REQUESTED,
-    )
-    if not can_edit_event(request, event) and not own_proposal:
+    if not can_edit_event(request, event):
         return HttpResponse("Forbidden", status=403)
     if event.photo:
         event.photo = ""
         event.save(update_fields=["photo"])
         messages.success(request, "Photo removed.")
-    next_url = request.POST.get("next", "")
-    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
-        return redirect(next_url)
-    return redirect(reverse("hub_community_calendar") + "?tab=events")
+    return _events_tab_or_next(request)
 
 
 # --- Member event proposals + reviewer queue --------------------------------
@@ -6710,35 +6804,33 @@ def _reviewer_guild_scope(request: HttpRequest) -> _ReviewScope:
     return _ReviewScope(can_review=False)
 
 
-@login_required
-def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
-    """Member "Propose an event" page — create a new proposal, or edit/resubmit an
-    owned Pending/Changes-requested one.
+def propose_event_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    """The old proposal edit URL: the Calendar's composer now opens an author's own open proposal.
 
-    On create the member-event policy decides the outcome: ``DISABLED`` → off to Host a
-    Class, where a member's own session belongs; ``OPEN`` → publish immediately;
-    ``APPROVAL`` → submit to the review queue. Editing always re-submits for review (a
-    changes-requested proposal returns to Pending), whatever the policy.
+    Kept as a redirect because every changes-requested email already sent links here;
+    :func:`event_edit` decides who may open the row.
+    """
+    return redirect(reverse("hub_event_edit", args=[pk]))
+
+
+@login_required
+def propose_event(request: HttpRequest) -> HttpResponse:
+    """Member "Propose an event" page: a new proposal under the member-event policy.
+
+    The policy decides the outcome: ``DISABLED`` → off to Host a Class, where a member's
+    own session belongs; ``OPEN`` → publish immediately; ``APPROVAL`` → submit to the
+    review queue. Editing a proposal happens in the Calendar's composer
+    (:func:`event_edit`), which opens an author's own open proposal review-first.
     """
     from hub.forms import CommunityEventForm
     from membership.models import CommunityEvent
 
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
     policy = SiteConfiguration.load().member_event_policy
-    Policy = SiteConfiguration.MemberEventPolicy
-    editable_states = [
-        CommunityEvent.ModerationState.PENDING,
-        CommunityEvent.ModerationState.CHANGES_REQUESTED,
-    ]
-    if pk is None:
-        if policy == Policy.DISABLED:
-            messages.info(request, "Members now run their own sessions as classes. Host a Class to get yours started.")
-            return redirect("classes:teach_overview")
-        event = CommunityEvent()
-        editing = False
-    else:
-        event = get_object_or_404(CommunityEvent, pk=pk, submitted_by=user, moderation_state__in=editable_states)
-        editing = True
+    if policy == SiteConfiguration.MemberEventPolicy.DISABLED:
+        messages.info(request, "Members now run their own sessions as classes. Host a Class to get yours started.")
+        return redirect("classes:teach_overview")
+    event = CommunityEvent()
 
     cancel_url = reverse("hub_community_calendar") + "?tab=events"
 
@@ -6757,16 +6849,13 @@ def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
                 by=user,
                 guild=form.cleaned_data.get("guild"),
                 policy=policy,
-                editing=editing,
+                editing=False,
                 event_type=form.resolved_event_type(),
             )
             if published:
                 messages.success(request, "Your event is live on the Calendar.")
             else:
-                messages.success(
-                    request,
-                    "Thanks — your event was submitted for review. You'll get a note when a lead or admin responds.",
-                )
+                messages.success(request, _PROPOSAL_SUBMITTED_MESSAGE)
             return redirect(cancel_url)
     else:
         form = CommunityEventForm(instance=event, **form_kwargs)
@@ -6785,7 +6874,6 @@ def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
             **ctx,
             "event": event,
             "form": form,
-            "editing": editing,
             "policy": policy,
             "cancel_url": cancel_url,
             "my_proposals": my_proposals,
@@ -6897,14 +6985,14 @@ def event_review_decision(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def event_retry_sync(request: HttpRequest, pk: int) -> HttpResponse:
     """Re-push a single event to Google now (the "Retry sync now" button on a FAILED sync
-    badge). Admin-only; best-effort — records the outcome and reports the new sync state so
-    an admin who just fixed the Calendar ID / sharing doesn't wait up to 15 min for the cron.
+    badge). For an admin or a Calendar Administrator; best-effort — records the outcome and
+    reports the new sync state so someone who just fixed the Calendar ID / sharing doesn't
+    wait up to 15 min for the cron. Honours ``next``.
     """
     from membership.models import CommunityEvent
 
-    forbidden = _require_admin(request)
-    if forbidden is not None:
-        return forbidden
+    if not can_administer_events(request):
+        return HttpResponse("Forbidden", status=403)
     event = get_object_or_404(CommunityEvent, pk=pk)
     event.push_to_google()
     event.push_to_discord()  # self-gates off / no-op for studio hours
@@ -6914,10 +7002,7 @@ def event_retry_sync(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, f"Sync failed: {event.sync_error}")
     else:
         messages.info(request, event.sync_error or "Sync is still pending.")
-    next_url = request.POST.get("next", "")
-    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
-        return redirect(next_url)
-    return redirect(reverse("hub_community_calendar") + "?tab=events")
+    return _events_tab_or_next(request)
 
 
 @login_required
@@ -7255,6 +7340,9 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
     site_config = SiteConfiguration.load()
     policy = site_config.member_event_policy
     cal_ctx["member_can_propose"] = policy != SiteConfiguration.MemberEventPolicy.DISABLED
+    # A Calendar Administrator or a "Can create events" holder gets the same "+ Add event"
+    # button as an admin, whatever the policy says; the composer decides what a save does.
+    cal_ctx["can_create_events"] = can_create_events(request)
     cal_ctx["google_sync_enabled"] = _google_sync_enabled()
     # The Subscribe menu: the makerspace's Member/Public Google Calendars in both link forms
     # (webcal for Apple Calendar, Google's add link), one row per configured calendar.
@@ -7387,12 +7475,18 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     """
     from hub.calendar_entries import google_calendar_event_url
     from membership.models import CommunityEvent
-    from membership.permissions import can_edit_event
 
     event = get_object_or_404(CommunityEvent.objects.published().select_related("guild", "area"), pk=pk)
     ctx = _get_hub_context(request)
     on_member_surface = getattr(request, "surface", "members") == "members"
     can_edit = on_member_surface and can_edit_event(request, event)
+    # The composer the viewer can actually open: the guild's own for its leadership (and
+    # admins), the Calendar's for everyone else can_edit_event admits, such as a Calendar
+    # Administrator on a guild event, whom the guild composer would refuse.
+    if event.guild is not None and _can_edit_guild(request, event.guild):
+        edit_url = reverse("hub_guild_event_edit", args=[event.guild.pk, event.pk])
+    else:
+        edit_url = reverse("hub_event_edit", args=[event.pk])
     is_recurring = event.recurrence != CommunityEvent.Recurrence.NONE
     # "Who's coming": names for signed-in viewers, count only for an anonymous QR scan.
     # A hidden member (#614) is left out of the names and the count, except to themselves.
@@ -7416,6 +7510,7 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
             **ctx,
             "event": event,
             "can_edit": can_edit,
+            "edit_url": edit_url,
             "is_recurring": is_recurring,
             "when": event.when_display_for(start),
             "google_event_url": google_event_url,

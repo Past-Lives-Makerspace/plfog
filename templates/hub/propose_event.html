@@ -1,18 +1,13 @@
 {% extends "hub/base.html" %}
-{% block title %}{% if editing %}Edit your proposal{% else %}Propose an event{% endif %} — Past Lives Makerspace{% endblock %}
+{% block title %}Propose an event — Past Lives Makerspace{% endblock %}
 {% block content %}
 <div x-data="{}">
   <p style="margin-bottom:0.75rem;">
     <a href="{{ cancel_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to the Calendar</a>
   </p>
-  <h1 class="hub-page-title">{% if editing %}Edit your proposal{% else %}Propose an event{% endif %}</h1>
+  <h1 class="hub-page-title">Propose an event</h1>
 
-  {% if editing and event.review_notes %}
-  <div class="hub-card" style="padding:1rem 1.25rem; margin-bottom:1.5rem; border-left:3px solid var(--color-tuscan-yellow);">
-    <p style="margin:0;"><strong>A reviewer asked for changes:</strong> {{ event.review_notes }}</p>
-  </div>
-  {% endif %}
-
+  {# Editing a proposal happens in the Calendar's composer (hub_event_edit), reached from the Edit button below. #}
   {% include "hub/partials/_my_proposed_events.html" %}
   {% if not my_proposals %}
   <p class="hub-text-muted" style="margin:-0.5rem 0 1.5rem;">You haven't proposed any events yet.</p>
@@ -55,7 +50,7 @@
 
     <div style="display:flex; gap:1rem;">
       <button type="submit" class="pl-btn pl-btn--primary">
-        {% if editing %}Resubmit for review{% elif policy == "open" %}Publish event{% else %}Submit for review{% endif %}
+        {% if policy == "open" %}Publish event{% else %}Submit for review{% endif %}
       </button>
       <a href="{{ cancel_url }}" class="pl-btn pl-btn--secondary">Cancel</a>
     </div>
