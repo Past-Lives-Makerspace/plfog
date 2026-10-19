@@ -83,15 +83,12 @@ The urge to open a document means the ticket is bigger than this skill. Stop and
 In this session. No agent unless the `Is now` column cannot be filled without one.
 
 1. **Resolve the ticket.** `gh issue view <n>`, or write the issue if Jo gave prose. Then move its card, so
-   the board shows the work is alive rather than parked in Triage. CI owns `Implement` onward, from the
-   branch push and the PR; this one move is yours:
+   the board shows the work is alive rather than parked in Triage:
 
-       set -a; source .env; set +a
-       PROJECT_OWNER=Past-Lives-Makerspace GITHUB_REPOSITORY=Past-Lives-Makerspace/plfog \
-         .venv/bin/python .github/scripts/project_status.py --issue <n> --status Research
+       .venv/bin/python .github/scripts/project_status.py --issue <n> --status Progress
 
-   A board that will not answer is one line in the status block, never a reason to stop. `PROJECT_PAT` is a
-   session token that dies on re-login, so this failing is routine.
+   CI moves the card through Draft, In Bot Review, Ready to Merge and Done on its own; agents only make
+   the Progress move. A board that will not answer is one line in the status block, never a reason to stop.
 2. **Fill `Is now` by looking**, not by reasoning. Grep for each criterion. **The recon budget is exactly
    this column**: stop searching the moment every row is filled. A row that will not fill from a grep buys
    one scout agent, one page, one question to answer.
