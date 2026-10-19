@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-19"
+title = "Saving a new event no longer times out"
+changes = [
+  "Publishing an event for the whole makerspace now saves in a few seconds. Before, a big send could make the save look like it failed, and saving again posted the event twice.",
+  "Members still hear about each new event once, by bell, email and Discord, right after it is saved.",
+]

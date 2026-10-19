@@ -117,6 +117,10 @@ Helpers on `Member`: `has_admin_capability(cap)` (the authorization gate) and `s
 
 End Early (part 2): with `Equipment.early_end_credit` on (the Pricing card switch, saved only while Hourly), `EquipmentReservation.end_early` lets the member end their own started, confirmed booking under the Equipment lock: `ends_at` moves back to the last half hour mark (never inside the first half hour) and an ENDED_EARLY row credits the time left rounded up to the half hour, in the member's favour (Felix, 2026-10-12). ENDED_EARLY and UNUSED are `EquipmentCredit.UNUSED_KINDS`: they share the per booking cap, and either one blocks the other and any later cancel or decline. No fee, refund or email.
 
+## Event announcement after the response (#845)
+
+`CommunityEvent.publish()` never sends the member announcement in the request: `owe_announcement` stamps `announcement_owed_since` and hands `finish_announcement` to `core.deferred.defer`, which runs it on a background thread once the save commits. A site-wide send is about 30 seconds of email, bell and push, and gunicorn killed the request at 30 after members were already told, so creators saved again (events 29, 30, 31 on 2026-10-18). `finish_announcement` runs `announce()`, then clears the stamp only if it still holds the value it read; the `finish_event_announcements` job (every 15 minutes, not pausable) finishes any event still stamped after `ANNOUNCEMENT_FINISH_GRACE`. Exactly once rests on the `event:{pk}:published` delivery ledger, which every runner shares. Discord `/create`'s email escalation counts its addresses for the reply (`email_announcement_addresses`) and sends through `send_email_announcement` on its own deferred thread, with no cron backstop. Two known gaps: a hard kill between one member's ledger claim and its send strands that one slot, and an interrupted escalation email is not finished.
+
 ## Vote Calculator
 
 `membership/vote_calculator.py` — `calculate_results(votes, paying_voter_count, pool_override)` returns a dict with per-guild allocations. Called by `FundingSnapshot.take()`.

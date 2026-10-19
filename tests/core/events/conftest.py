@@ -56,3 +56,17 @@ def linked_member():
         return member
 
     return _make
+
+
+@pytest.fixture
+def held_deferred(monkeypatch):
+    """Hold ``core.deferred.defer`` work instead of running it, as a list of ``(name, task)``.
+
+    Lets a spec look at the state a request leaves behind before its background work runs
+    (the response never waits on it), then run each task itself, as the thread would.
+    """
+    from core import deferred
+
+    held: list[tuple[str, object]] = []
+    monkeypatch.setattr(deferred, "_schedule", lambda task, name: held.append((name, task)))
+    return held
