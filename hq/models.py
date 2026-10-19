@@ -7,9 +7,11 @@ so an admin can retitle them, hide them, reorder them and open each one to the p
 members, or to named people from the card's edit page. The event itself stays a
 ``CommunityEvent``: the hub only points at it for the date, the location and the RSVP door.
 
-Part 1 of Track C builds the hub, the cards and the goals. Volunteer shifts (C2) and the wine
-wall (C3) hang their pages off the ``volunteers`` and ``wine_wall`` cards; until they ship,
-those cards render with their own title and no link (:attr:`HubCard.url`).
+Part 1 of Track C builds the hub, the cards and the goals. Part 2 adds the volunteer shifts
+behind the ``volunteers`` card: a :class:`VolunteerShift` is one job on Lee's sign-up sheet
+(a role, when, how many are needed) and a :class:`ShiftSignup` is one person on it, with or
+without an account. The wine wall (C3) hangs off the ``wine_wall`` card; until it ships that
+card renders with its own title and no link (:attr:`HubCard.url`).
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Q
+from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
@@ -255,11 +257,13 @@ class HubCard(models.Model):
         """Where the card's button goes, or "" for a card that opens nothing yet (rendered as a plain tile)."""
         if self.kind == self.Kind.RSVP:
             return reverse("hub_event_detail", args=[self.hub.event_id]) if self.hub.event_id is not None else ""
-        if self.kind in _KIND_ROUTES:
-            # C2 adds hq:volunteers and C3 adds hq:wine. Until each lands its card has no page to
-            # open, so it renders like a placeholder with its own title rather than a broken link.
+        if self.kind == self.Kind.VOLUNTEERS:
+            return reverse("hq:volunteers", args=[self.hub.slug])
+        if self.kind == self.Kind.WINE_WALL:
+            # C3 adds hq:wine. Until it lands the card has no page to open, so it renders like a
+            # placeholder with its own title rather than a broken link.
             try:
-                return reverse(_KIND_ROUTES[self.kind], args=[self.hub.slug])
+                return reverse("hq:wine", args=[self.hub.slug])
             except NoReverseMatch:
                 return ""
         return ""
@@ -282,13 +286,6 @@ class HubCard(models.Model):
             if card.sort_order != position:
                 HubCard.objects.filter(pk=card.pk).update(sort_order=position)
         self.sort_order = other
-
-
-# The two card kinds whose pages later parts of Track C add, by URL name.
-_KIND_ROUTES: dict[str, str] = {
-    HubCard.Kind.VOLUNTEERS: "hq:volunteers",
-    HubCard.Kind.WINE_WALL: "hq:wine",
-}
 
 
 class HubGoal(models.Model):
@@ -409,3 +406,125 @@ DEFAULT_CARDS: tuple[dict[str, str], ...] = (
         "button_text": "Track marketing",
     },
 )
+
+
+class ShiftPhase(models.TextChoices):
+    """When a volunteer shift happens, in page order. ``VolunteerShift.Phase`` is this."""
+
+    BEFORE = "before", "Before the event"
+    SETUP = "setup", "Setup, Friday"
+    DURING = "during", "During the event"
+    AFTER = "after", "After"
+
+
+# Shifts sort by phase in the order above, then by their own sort order. Built here so the
+# model's Meta can carry it; a nested Meta cannot see the class body it sits in.
+_PHASE_ORDER = Case(
+    *(When(phase=value, then=Value(position)) for position, value in enumerate(ShiftPhase.values)),
+    default=Value(len(ShiftPhase.values)),
+    output_field=IntegerField(),
+)
+
+
+class VolunteerShiftQuerySet(models.QuerySet["VolunteerShift"]):
+    def with_counts(self) -> VolunteerShiftQuerySet:
+        """Each shift with ``filled``, how many people are signed up, in one query."""
+        return self.annotate(filled=Count("signups"))
+
+
+class VolunteerShift(models.Model):
+    """One job on the volunteer sign-up sheet: a role, when it happens and how many are needed."""
+
+    Phase = ShiftPhase
+
+    hub = models.ForeignKey(
+        EventHub, on_delete=models.CASCADE, related_name="shifts", help_text="The HQ this shift belongs to."
+    )
+    phase = models.CharField(
+        max_length=10,
+        choices=ShiftPhase.choices,
+        default=ShiftPhase.DURING,
+        help_text="When the shift happens; the page groups shifts by it, before to after.",
+    )
+    role = models.CharField(max_length=120, help_text="The job, e.g. Bartender, first half.")
+    when_text = models.CharField(
+        max_length=120, blank=True, help_text="When, in words, e.g. Fri Dec 4, 5 to 7:30 PM or November, your schedule."
+    )
+    need = models.PositiveSmallIntegerField(default=1, help_text="How many people this shift needs.")
+    description = models.TextField(blank=True, help_text="What the job involves, a line or two.")
+    requires_olcc = models.BooleanField(
+        default=False, help_text="Whether the shift needs an Oregon OLCC service permit (bartending does)."
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Position within its phase; lower comes first.")
+
+    objects = VolunteerShiftQuerySet.as_manager()
+
+    class Meta:
+        ordering = [_PHASE_ORDER, "sort_order", "pk"]
+
+    def __str__(self) -> str:
+        return self.role
+
+    @property
+    def filled_count(self) -> int:
+        """How many are signed up: the ``with_counts`` annotation when the row carries it, else a count."""
+        if "filled" in self.__dict__:
+            filled: int = self.__dict__["filled"]
+            return filled
+        return self.signups.count()
+
+    @property
+    def spots_open(self) -> int:
+        """Spots still open: ``need`` less the sign-ups, never below zero."""
+        return max(0, self.need - self.filled_count)
+
+    @property
+    def is_full(self) -> bool:
+        return self.spots_open == 0
+
+
+class ShiftSignup(models.Model):
+    """One person on one shift, with the details they gave on the Your Info step.
+
+    ``member`` is set when the person was signed in; everyone is keyed by ``email``, lowercased
+    on save, so a guest and a member with the same address are one person and one shift holds
+    an address once (``uq_shiftsignup_shift_email``).
+    """
+
+    # The longest note Your Info accepts; the column is sized to it.
+    MAX_NOTE_LENGTH = 500
+
+    shift = models.ForeignKey(
+        VolunteerShift, on_delete=models.CASCADE, related_name="signups", help_text="The shift signed up for."
+    )
+    member = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="shift_signups",
+        help_text="The member, when the person was signed in. Blank for a guest.",
+    )
+    name = models.CharField(max_length=120, help_text="The person's name as they gave it.")
+    email = models.EmailField(help_text="The person's email, lowercased; one address per shift.")
+    phone = models.CharField(max_length=40, blank=True, help_text="A phone number, optional.")
+    has_olcc = models.BooleanField(default=False, help_text="Whether they hold an Oregon OLCC service permit.")
+    note = models.CharField(
+        max_length=MAX_NOTE_LENGTH,
+        blank=True,
+        help_text="Anything they wanted the organisers to know, up to 500 characters.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When they signed up.")
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["shift", "email"], name="uq_shiftsignup_shift_email"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} on {self.shift.role}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.email = self.email.strip().lower()
+        super().save(*args, **kwargs)

@@ -166,7 +166,7 @@ def describe_goal_rows():
         assert goal_rows(open_hub)[0].current == 0
         assert rsvp_count(None) == 0
 
-    @pytest.mark.parametrize("kind", [HubGoal.Kind.VOLUNTEER_SPOTS, HubGoal.Kind.BOTTLES, HubGoal.Kind.BOTTLE_VALUE])
+    @pytest.mark.parametrize("kind", [HubGoal.Kind.BOTTLES, HubGoal.Kind.BOTTLE_VALUE])
     def it_reads_zero_for_the_kinds_later_parts_count(open_hub, kind):
         HubGoalFactory(hub=open_hub, kind=kind, target=82)
 
@@ -272,10 +272,11 @@ def describe_the_doors():
         assert "<a " not in door
         assert '<rect x="8" y="2" width="8" height="4"' in door  # the clipboard icon
 
-    @pytest.mark.parametrize("kind", [HubCard.Kind.VOLUNTEERS, HubCard.Kind.WINE_WALL])
-    def it_renders_a_card_whose_page_has_not_shipped_as_a_tile_with_its_own_title(open_hub, kind):
-        """C2 and C3 add hq:volunteers and hq:wine; until then the card is a tile, never a broken link."""
-        card = HubCardFactory(hub=open_hub, kind=kind, audience=HubCard.Audience.PUBLIC, title="Door To Come")
+    def it_renders_a_card_whose_page_has_not_shipped_as_a_tile_with_its_own_title(open_hub):
+        """C3 adds hq:wine; until then the wine wall card is a tile, never a broken link."""
+        card = HubCardFactory(
+            hub=open_hub, kind=HubCard.Kind.WINE_WALL, audience=HubCard.Audience.PUBLIC, title="Door To Come"
+        )
 
         body = Client().get(_page(open_hub)).content.decode()
         door = body.split(f'data-hq-card-pk="{card.pk}"')[1].split("</div>")[0]

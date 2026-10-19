@@ -1,0 +1,19 @@
+{% comment %}
+The band over the shifts: how many people have signed up, spots filled of the total with a
+meter, and the most needed shift (the largest open gap).
+
+  band — required, a hq.services.VolunteerBand
+  oob  — True adds hx-swap-oob, so an htmx answer to Sign Me Up or Remove Me refreshes the
+         band in place beside the row it swaps
+{% endcomment %}
+<section class="pl-hq-vol__band" id="hq-volunteer-band" data-hq-band{% if oob %} hx-swap-oob="true"{% endif %} aria-label="Volunteers so far">
+  <div class="pl-hq-vol__band-top">
+    <p class="pl-hq-vol__big" data-hq-band-people>{{ band.people }}</p>
+    <p class="pl-hq-vol__band-label">Volunteer{{ band.people|pluralize }}<span class="pl-hq-vol__band-sub">signed up so far</span></p>
+  </div>
+  <div class="pl-hq-vol__band-spots">
+    <p class="pl-hq-vol__band-line"><span>Spots filled</span><strong data-hq-band-filled>{{ band.filled }} / {{ band.total }}</strong></p>
+    <progress class="pl-hq-vol__meter" max="{{ band.total|default:1 }}" value="{{ band.filled }}" aria-label="Spots filled: {{ band.filled }} of {{ band.total }}"></progress>
+  </div>
+  <p class="pl-hq-vol__band-need" data-hq-band-most-needed>{% if band.most_needed %}Most needed: {{ band.most_needed.role }} ({{ band.most_needed.spots_open }} open){% else %}Every shift is covered. Thank you!{% endif %}</p>
+</section>

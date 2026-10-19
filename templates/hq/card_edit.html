@@ -92,6 +92,41 @@ DOM under x-show so one Save posts them), Hidden, and one plain Save last.
       {% include "components/form_field.html" with field=form.is_hidden %}
     </div>
 
+    {% if shift_formset %}
+    <div class="hub-card pl-hq-edit__card" data-hq-shifts-editor>
+      <h2 class="pl-hq-edit__title">Shifts</h2>
+      <p class="hub-text-muted pl-hq-edit__lead">The jobs on the sign-up sheet, grouped by phase on the page. A shift with sign-ups keeps them: it cannot be deleted until everyone is off it.</p>
+      {{ shift_formset.management_form }}
+      {% for error in shift_formset.non_form_errors %}<p class="pl-field-error" role="alert" data-hq-shift-error>{{ error }}</p>{% endfor %}
+      <div class="pl-hq-goal-rows" id="hq-shift-rows">
+        {% for f in shift_formset %}
+        {% include "hq/partials/_shift_form_row.html" with f=f saved=f.instance.pk %}
+        {% empty %}
+        <p class="hub-text-muted pl-hq-goal-rows__empty" data-hq-shifts-empty>No shifts yet. Add the first.</p>
+        {% endfor %}
+      </div>
+      {# Hidden empty-form template, cloned by the + Add shift button below. #}
+      <template id="hq-shift-empty-template">
+        {% include "hq/partials/_shift_form_row.html" with f=shift_formset.empty_form saved=False %}
+      </template>
+      <button type="button" class="hub-btn hub-btn--sm pl-hq-edit__add" data-hq-add-shift
+              onclick="
+                const tpl = document.getElementById('hq-shift-empty-template');
+                const total = document.getElementById('id_shifts-TOTAL_FORMS');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                const rows = document.getElementById('hq-shift-rows');
+                const empty = rows.querySelector('[data-hq-shifts-empty]');
+                if (empty) empty.remove();
+                rows.appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+              ">
+        + Add shift
+      </button>
+    </div>
+    {% endif %}
+
     <div class="pl-hq-edit__actions">
       <button type="submit" class="pl-btn pl-btn--primary">Save</button>
     </div>

@@ -5,7 +5,7 @@ from __future__ import annotations
 import factory
 from factory.django import DjangoModelFactory
 
-from hq.models import EventHub, HubCard, HubGoal
+from hq.models import EventHub, HubCard, HubGoal, ShiftSignup, VolunteerShift
 
 
 class EventHubFactory(DjangoModelFactory):
@@ -51,3 +51,32 @@ class HubGoalFactory(DjangoModelFactory):
     target = 100
     current_value = 0
     sort_order = factory.Sequence(lambda n: n)
+
+
+class VolunteerShiftFactory(DjangoModelFactory):
+    """A shift during the event needing two people."""
+
+    class Meta:
+        model = VolunteerShift
+
+    hub = factory.SubFactory(EventHubFactory)
+    phase = VolunteerShift.Phase.DURING
+    role = factory.Sequence(lambda n: f"Shift role {n}")
+    when_text = "5 to 7:30 PM"
+    need = 2
+    description = "Help where it is needed."
+    sort_order = factory.Sequence(lambda n: n)
+
+
+class ShiftSignupFactory(DjangoModelFactory):
+    """A guest on a shift (no member)."""
+
+    class Meta:
+        model = ShiftSignup
+
+    shift = factory.SubFactory(VolunteerShiftFactory)
+    name = factory.Sequence(lambda n: f"Volunteer {n}")
+    email = factory.Sequence(lambda n: f"volunteer{n}@example.com")
+    phone = ""
+    has_olcc = False
+    note = ""
