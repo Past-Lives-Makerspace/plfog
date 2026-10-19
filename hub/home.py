@@ -191,8 +191,10 @@ def _upcoming_items(member: Member) -> list[UpcomingItem]:
             )
         )
 
-    # 2. Community/guild events visible to the member — the next in-window occurrence each.
-    for event in CommunityEvent.objects.upcoming().for_member(member).select_related("guild"):
+    # 2. Published community/guild events visible to the member — the next in-window occurrence
+    # each. Published only, like the Calendar: a proposal, a parked event or a draft (#831) is
+    # not on the Calendar yet, so Home never shows it either.
+    for event in CommunityEvent.objects.published().upcoming().for_member(member).select_related("guild"):
         occurrence = _next_occurrence(event, today, horizon, now)
         if occurrence is None:
             continue

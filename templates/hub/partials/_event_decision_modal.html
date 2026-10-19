@@ -12,6 +12,8 @@ Params (via {% include ... with %}):
   submit_text    — primary button label
   submit_style   — "primary" (default) or "danger"
   intro          — muted line naming the consequence
+  decision_next  — optional; the same-host page the decision lands back on (the per-event
+                   screen on Manage Events). Absent, the decision returns to the queue.
 
 Reads from the page context to re-open + repopulate on a server-side notes error:
   open_decision_for / open_decision_kind / decision_note_value / decision_note_error
@@ -38,6 +40,7 @@ Reads from the page context to re-open + repopulate on a server-side notes error
             <form method="post" action="{% url 'hub_event_review_decision' event.pk %}">
                 {% csrf_token %}
                 <input type="hidden" name="decision" value="{{ decision_value }}">
+                {% if decision_next %}<input type="hidden" name="next" value="{{ decision_next }}">{% endif %}
                 <div class="pl-form-group">
                     <label for="{{ modal_id }}-notes" class="pl-form-label">Note to the proposer</label>
                     <textarea id="{{ modal_id }}-notes" name="notes" rows="3" required>{% if open_decision_for == event.pk and open_decision_kind == decision_value %}{{ decision_note_value }}{% endif %}</textarea>

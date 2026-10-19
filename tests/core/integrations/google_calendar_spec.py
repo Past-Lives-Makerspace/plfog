@@ -467,3 +467,14 @@ def describe_GoogleCalendarClient():
         def it_rejects_json_that_is_not_an_object():
             # Valid JSON, but a list/number is not a service-account dict → None.
             assert gc._parse_service_account_info("[1, 2, 3]") is None
+
+
+@pytest.mark.django_db
+def describe__build_event_body_with_editor_html():
+    def it_sends_the_description_as_plain_text():
+        event = CommunityEventFactory(
+            community=True, description="<p>Bring <strong>paper</strong>.</p><p>Second line</p>"
+        )
+        body = gc._build_event_body(event, actor=None)
+        assert body["description"].startswith("Bring paper.\n\nSecond line\n\nAdded by")
+        assert "<p>" not in body["description"]

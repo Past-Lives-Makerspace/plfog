@@ -4765,6 +4765,61 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 
 /* ========================================
+   Rich text bodies: a description written in the editor (the core.html_sanitize allowlist:
+   paragraphs, headings, lists, quotes, links) or legacy plain text as paragraphs, rendered by
+   the |rich_body filter. The event page, the review queue, the Manage Events screen and the
+   class review page wrap it in .pl-rich-body. Theme tokens only, so it reads on both Obsidian
+   and Slate; the public class page has its twin in cms-public.css (.cp-detail__prose).
+   ======================================== */
+.pl-rich-body {
+    line-height: 1.6;
+    color: var(--hub-text);
+}
+.pl-rich-body p,
+.pl-rich-body ul,
+.pl-rich-body ol,
+.pl-rich-body blockquote {
+    margin: 0 0 0.75rem;
+}
+.pl-rich-body > :last-child {
+    margin-bottom: 0;
+}
+.pl-rich-body h2,
+.pl-rich-body h3 {
+    margin: 1.25rem 0 0.5rem;
+    line-height: 1.25;
+    color: var(--hub-text);
+}
+.pl-rich-body > h2:first-child,
+.pl-rich-body > h3:first-child {
+    margin-top: 0;
+}
+.pl-rich-body h2 { font-size: 1.25rem; }
+.pl-rich-body h3 { font-size: 1.1rem; }
+.pl-rich-body ul,
+.pl-rich-body ol {
+    padding-left: 1.5rem;
+}
+.pl-rich-body ul { list-style: disc outside; }
+.pl-rich-body ol { list-style: decimal outside; }
+.pl-rich-body li { margin: 0 0 0.25rem; }
+.pl-rich-body blockquote {
+    padding-left: 0.875rem;
+    border-left: 3px solid var(--hub-border);
+    color: var(--hub-text-muted);
+}
+.pl-rich-body a {
+    color: var(--hub-link);
+    font-weight: 600;
+}
+.pl-rich-body a:hover { color: var(--hub-link-hover); }
+/* The review queue's card: the 0.875rem line it had under the proposer, close beneath it. */
+.pl-rich-body--compact {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+}
+
+/* ========================================
    Public event detail page (/events/<pk>/) — a centered single column of cards.
    Layout + theme tokens only, so it reads correctly on both Obsidian (dark) and
    Slate (light) and for the anonymous public-topbar view. Reused by templates/404.html.
@@ -4913,6 +4968,17 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin-top: 1.25rem;
     color: var(--hub-text);
     line-height: 1.6;
+}
+
+/* The gallery and the promo video under the description (#831 part 3); the full page redesign is part 5. */
+.pl-event-detail__gallery {
+    margin-top: 1.25rem;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.pl-event-detail__video {
+    margin-top: 1.25rem;
 }
 
 .pl-event-detail__actions {

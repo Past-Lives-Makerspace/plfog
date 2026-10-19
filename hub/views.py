@@ -78,6 +78,7 @@ from hub.forms import (
     VotePreferenceForm,
 )
 from hub.autosave import autosave_refused, autosave_saved, formset_rows, wants_autosave
+from hub.event_media_views import event_media_context
 from hub.toast import trigger_toast
 from hub.calendar_entries import calendar_day
 from hub.calendar_window import CALENDAR_PAGE_SIZE, calendar_window, calendar_window_context
@@ -4326,10 +4327,10 @@ def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:
 
     Anyone with elevated permissions that unlock a tool it collects sees it — a site admin, a
     guild lead/staff (Announcements + Orientations), an instructor (Announcements — by the public
-    profile flag or by actually teaching, same as :func:`_can_compose`), or a Billing
-    Administrator (Payments + Reports). For an ACTUAL admin it is view-as-aware: an admin previewing
-    the site as a plain member does NOT see it, while a real (non-admin) lead, instructor, or
-    Billing Administrator always does.
+    profile flag or by actually teaching, same as :func:`_can_compose`), a Billing
+    Administrator (Payments + Reports) or a Calendar Administrator (Manage Events). For an
+    ACTUAL admin it is view-as-aware: an admin previewing the site as a plain member does NOT
+    see it, while a real (non-admin) lead, instructor or capability holder always does.
     """
     is_actual_admin = getattr(request.user, "is_superuser", False) or (member is not None and member.is_fog_admin)
     if is_actual_admin:
@@ -4340,6 +4341,7 @@ def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:
         or member.is_instructor
         or _compose_editable_classes(request, member).exists()
         or member.has_admin_capability(AdminCapability.Capability.BILLING_APPROVER)
+        or member.has_admin_capability(AdminCapability.Capability.EVENTS_APPROVER)
     )
 
 
@@ -5096,18 +5098,19 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
     each card shows only to whoever can use it. View-as-aware for actual admins — an admin
     previewing as a plain member is bounced home. Others are bounced home too.
     """
-    from hub.view_as import has_billing_admin_access
+    from hub.view_as import has_billing_admin_access, has_events_admin_access
 
     member = _get_member(request)
     if not _can_use_admin_tools(request, member):
         return redirect("hub_home")
     is_admin = _viewing_as_admin(request)
     can_orient = is_admin or (member is not None and (member.is_guild_lead or member.is_guild_staff))
-    # The billing cards use has_billing_admin_access (has_actual-based) rather than is_admin
-    # (view-as-aware) like the other tool_* flags. No leak: an actual admin previewing as a
-    # member is bounced home above before these flags matter, and a non-admin capability holder
-    # has no view-as machinery. Do not "fix" this to is_admin.
+    # The billing and Manage Events cards use the has_*_admin_access twins (has_actual-based)
+    # rather than is_admin (view-as-aware) like the other tool_* flags. No leak: an actual admin
+    # previewing as a member is bounced home above before these flags matter, and a non-admin
+    # capability holder has no view-as machinery. Do not "fix" this to is_admin.
     tool_payments = tool_reports = has_billing_admin_access(request)
+    tool_manage_events = has_events_admin_access(request)
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -5118,6 +5121,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_orientations": can_orient,
             "tool_manage_members": is_admin,
             "tool_manage_classes": is_admin,
+            "tool_manage_events": tool_manage_events,
             "tool_payments": tool_payments,
             "tool_reports": tool_reports,
             "tool_activity": is_admin,
@@ -6416,12 +6420,36 @@ def guild_events(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
 
 
+def _event_edit_url(request: HttpRequest, event: CommunityEvent) -> str | None:
+    """The composer this viewer can open for ``event``, or None when they may not edit it.
+
+    The one rule the public event page and Manage Events share: nobody :func:`can_edit_event`
+    refuses gets a link; the guild's own composer for whoever passes ``can_edit_guild`` on
+    its guild (its leadership, admins), the Calendar's for everyone else it admits, such as a
+    Calendar Administrator on a guild event, whom the guild composer would refuse.
+    """
+    if not can_edit_event(request, event):
+        return None
+    if event.guild is not None and _can_edit_guild(request, event.guild):
+        return reverse("hub_guild_event_edit", args=[event.guild.pk, event.pk])
+    return reverse("hub_event_edit", args=[event.pk])
+
+
 def _event_delete_confirm_message(event: CommunityEvent) -> str:
-    """Consequence copy for the edit page's delete confirm modal, varying by publish state."""
+    """Consequence copy for the delete confirm modal, varying by publish state.
+
+    A draft taken down after its announcement went out (#831) was announced; the
+    announcement stays where it was posted, so the copy must not promise otherwise.
+    """
     if event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
         message = (
             "Members will no longer see it on the calendar, and it will be removed from "
             "Google Calendar and Discord. This can't be undone."
+        )
+    elif event.channel_announced_at is not None:
+        message = (
+            "It was announced before it was unpublished; the announcement stays where it was "
+            "posted, but the event itself is gone for good. This can't be undone."
         )
     else:
         message = "It'll be removed before it's ever announced. This can't be undone."
@@ -6431,7 +6459,11 @@ def _event_delete_confirm_message(event: CommunityEvent) -> str:
 
 
 def _event_photo_context() -> dict[str, Any]:
-    """The photo field's byte cap and its hint — one copy for all three composers."""
+    """The photo field's byte cap and its hint — one copy for all three composers.
+
+    The hero field and the gallery manager's own context (the photo to crop, the routes
+    they post to) comes from ``event_media_views.event_media_context`` beside this.
+    """
     return {
         "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
         "photo_upload_hint": (
@@ -6492,10 +6524,12 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
         )
         if form.is_valid():
             event = form.save(commit=False)
+            form.apply_hero_crop_to_instance(event)
             event.guild = guild
             if is_new:
                 event.created_by = request.user
             event.save()
+            event.add_gallery_images(form.gallery_files)
             # The form's flags are what the page told the editor a save would do: a new or
             # still-SCHEDULED event routes through schedule_or_go_live (a future publish_at
             # parks it, a cleared/back-dated one publishes now: no strand); a live event only
@@ -6527,6 +6561,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             "delete_url": reverse("hub_guild_event_delete", args=[guild.pk, event.pk]) if event.pk else None,
             "delete_confirm_message": _event_delete_confirm_message(event) if event.pk else None,
             **_event_photo_context(),
+            **event_media_context(event),
         },
     )
 
@@ -6556,16 +6591,22 @@ _PROPOSAL_SUBMITTED_MESSAGE = (
 )
 
 
+def _safe_next_url(request: HttpRequest) -> str | None:
+    """The same-host ``next`` the form posted, or None when it posted none or an unsafe one."""
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return next_url
+    return None
+
+
 def _events_tab_or_next(request: HttpRequest) -> HttpResponse:
     """Land on the calendar's Events tab, or on the same-host ``next`` the form posted.
 
     The event actions (delete, retry sync, photo delete) are posted from several pages (the
-    Events tab, the composer, the event page), so each form says where to come back to.
+    Events tab, the composer, the event page, Manage Events), so each form says where to
+    come back to.
     """
-    next_url = request.POST.get("next", "")
-    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
-        return redirect(next_url)
-    return redirect(reverse("hub_community_calendar") + "?tab=events")
+    return redirect(_safe_next_url(request) or (reverse("hub_community_calendar") + "?tab=events"))
 
 
 def _event_edit_mode(request: HttpRequest, event: CommunityEvent) -> EventCreateMode | None:
@@ -6661,6 +6702,7 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
         form = CommunityEventForm(request.POST, request.FILES, instance=event, **form_kwargs)
         if form.is_valid():
             event = form.save(commit=False)
+            form.apply_hero_crop_to_instance(event)
             if review_first:
                 # Always the approval path, whatever SiteConfiguration.member_event_policy
                 # says: the policy governs members without the grant (the propose page and
@@ -6676,6 +6718,9 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
                 messages.success(request, _PROPOSAL_SUBMITTED_MESSAGE)
             else:
                 _save_as_the_page_promised(request, event, form, is_new=is_new)
+            # An unsaved event's gallery rode the form (checked in its clean); a saved one's
+            # posts straight to the gallery routes, so this list is empty on an edit.
+            event.add_gallery_images(form.gallery_files)
             return redirect(cancel_url)
     else:
         form = CommunityEventForm(instance=event, **form_kwargs)
@@ -6695,6 +6740,7 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
             "delete_url": reverse("hub_event_delete", args=[event.pk]) if can_delete else None,
             "delete_confirm_message": _event_delete_confirm_message(event) if can_delete else None,
             **_event_photo_context(),
+            **event_media_context(event),
         },
     )
 
@@ -6845,6 +6891,7 @@ def propose_event(request: HttpRequest) -> HttpResponse:
         form = CommunityEventForm(request.POST, request.FILES, instance=event, **form_kwargs)
         if form.is_valid():
             event = form.save(commit=False)
+            form.apply_hero_crop_to_instance(event)
             published = event.propose(
                 by=user,
                 guild=form.cleaned_data.get("guild"),
@@ -6852,6 +6899,7 @@ def propose_event(request: HttpRequest) -> HttpResponse:
                 editing=False,
                 event_type=form.resolved_event_type(),
             )
+            event.add_gallery_images(form.gallery_files)
             if published:
                 messages.success(request, "Your event is live on the Calendar.")
             else:
@@ -6861,9 +6909,16 @@ def propose_event(request: HttpRequest) -> HttpResponse:
         form = CommunityEventForm(instance=event, **form_kwargs)
 
     ctx = _get_hub_context(request)
+    # The same cut as the Calendar's Events tab: a published proposal is on the Calendar and a
+    # draft (#831) is Manage Events' row, so neither is still in flight here.
     my_proposals = (
         CommunityEvent.objects.filter(submitted_by=user)
-        .exclude(moderation_state=CommunityEvent.ModerationState.PUBLISHED)
+        .exclude(
+            moderation_state__in=[
+                CommunityEvent.ModerationState.PUBLISHED,
+                CommunityEvent.ModerationState.DRAFT,
+            ]
+        )
         .select_related("guild")
         .order_by("-updated_at")
     )
@@ -6878,6 +6933,7 @@ def propose_event(request: HttpRequest) -> HttpResponse:
             "cancel_url": cancel_url,
             "my_proposals": my_proposals,
             **_event_photo_context(),
+            **event_media_context(event),
         },
     )
 
@@ -6905,10 +6961,20 @@ def event_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 def event_review_queue(request: HttpRequest) -> HttpResponse:
-    """The reviewer queue — pending proposals a lead/admin can approve, send back, or decline."""
+    """The reviewer queue — pending proposals a lead or staffer can approve, send back, or decline.
+
+    An admin or a Calendar Administrator reviews site-wide, and that review lives on Manage
+    Events now (#831): they land on its Needs review chip, and every link to the queue (the
+    ``event.submitted`` notification, the Calendar's review badge) keeps working. A guild's
+    leadership reviews only its own guild's proposals and keeps this scoped queue.
+    """
+    from hub.event_lifecycle import NEEDS_REVIEW_KEY
+
     scope = _reviewer_guild_scope(request)
     if not scope.can_review:
         return HttpResponse("Forbidden", status=403)
+    if scope.is_admin:
+        return redirect(f"{reverse('hub_admin_events')}?status={NEEDS_REVIEW_KEY}")
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -6928,7 +6994,13 @@ def event_review_queue(request: HttpRequest) -> HttpResponse:
 @login_required
 @require_POST
 def event_review_decision(request: HttpRequest, pk: int) -> HttpResponse:
-    """Record a reviewer's decision (approve / request changes / decline) on a proposal."""
+    """Record a reviewer's decision (approve / request changes / decline) on a proposal.
+
+    The one decision endpoint for the queue and for the per-event screen on Manage Events,
+    which posts a same-host ``next`` to land back on itself; without one the queue is where a
+    decision returns to. A missing note goes back to ``next`` with the error as a message, or
+    re-renders the queue with the modal reopened on the error.
+    """
     from hub.forms import EventDecisionForm
     from membership.models import CommunityEvent, InvalidEventTransition
 
@@ -6941,6 +7013,7 @@ def event_review_decision(request: HttpRequest, pk: int) -> HttpResponse:
     # but NOT to a moderation state — a stale decision surfaces as a friendly "already
     # handled" via the model guard rather than a bare 404.
     event = get_object_or_404(scope.scoped(CommunityEvent.objects.all()), pk=pk)
+    next_url = _safe_next_url(request)
 
     # Approve carries its decision in the query string (a plain confirm modal posts no
     # notes field); changes/decline post the decision + notes in the body.
@@ -6950,6 +7023,10 @@ def event_review_decision(request: HttpRequest, pk: int) -> HttpResponse:
     form = EventDecisionForm(data)
     if not form.is_valid():
         kind = data.get("decision", "")
+        note_error = " ".join(str(e) for e in form.errors.get("notes", []))
+        if next_url is not None:
+            messages.error(request, note_error or "That decision could not be recorded.")
+            return redirect(next_url)
         return render(
             request,
             "hub/event_review_queue.html",
@@ -6960,7 +7037,7 @@ def event_review_decision(request: HttpRequest, pk: int) -> HttpResponse:
                 "open_decision_for": event.pk,
                 "open_decision_kind": kind,
                 "decision_note_value": data.get("notes", ""),
-                "decision_note_error": " ".join(str(e) for e in form.errors.get("notes", [])),
+                "decision_note_error": note_error,
             },
         )
 
@@ -6978,7 +7055,7 @@ def event_review_decision(request: HttpRequest, pk: int) -> HttpResponse:
             messages.success(request, "Proposal declined.")
     except InvalidEventTransition:
         messages.info(request, "That event was already handled.")
-    return redirect("hub_event_review_queue")
+    return redirect(next_url or reverse("hub_event_review_queue"))
 
 
 @login_required
@@ -7353,9 +7430,16 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
     cal_ctx["can_review"] = scope.can_review
     cal_ctx["review_pending_count"] = scope.pending().count()
     if request.user.is_authenticated:
+        # A published proposal is on the Calendar, and one unpublished to a draft (#831) is
+        # Manage Events' row, not the proposer's any more: neither is "in flight" here.
         cal_ctx["my_proposals"] = (
             CommunityEvent.objects.filter(submitted_by=request.user)
-            .exclude(moderation_state=CommunityEvent.ModerationState.PUBLISHED)
+            .exclude(
+                moderation_state__in=[
+                    CommunityEvent.ModerationState.PUBLISHED,
+                    CommunityEvent.ModerationState.DRAFT,
+                ]
+            )
             .select_related("guild")
             .order_by("-updated_at")
         )
@@ -7479,14 +7563,8 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     event = get_object_or_404(CommunityEvent.objects.published().select_related("guild", "area"), pk=pk)
     ctx = _get_hub_context(request)
     on_member_surface = getattr(request, "surface", "members") == "members"
-    can_edit = on_member_surface and can_edit_event(request, event)
-    # The composer the viewer can actually open: the guild's own for its leadership (and
-    # admins), the Calendar's for everyone else can_edit_event admits, such as a Calendar
-    # Administrator on a guild event, whom the guild composer would refuse.
-    if event.guild is not None and _can_edit_guild(request, event.guild):
-        edit_url = reverse("hub_guild_event_edit", args=[event.guild.pk, event.pk])
-    else:
-        edit_url = reverse("hub_event_edit", args=[event.pk])
+    edit_url = _event_edit_url(request, event)
+    can_edit = on_member_surface and edit_url is not None
     is_recurring = event.recurrence != CommunityEvent.Recurrence.NONE
     # "Who's coming": names for signed-in viewers, count only for an anonymous QR scan.
     # A hidden member (#614) is left out of the names and the count, except to themselves.

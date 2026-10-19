@@ -15,7 +15,6 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
-from django.core.files.uploadedfile import UploadedFile
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import (
@@ -149,7 +148,7 @@ from core.htmx import wants_fragment
 from core.integrations.eventbrite import EVENTBRITE_RULE_PARTS, EventbriteClient, EventbriteSync, fee_breakdown
 from core.models import SiteConfiguration
 from core.urls_util import book_absolute_url
-from core.validators import validate_image_content
+from core.images import image_upload_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -5244,9 +5243,9 @@ def _hero_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
-    refused = _oversize_image_error(file) or _not_an_image_error(file)
-    if refused is not None:
-        return refused
+    refusal = image_upload_refusal(file)
+    if refusal is not None:
+        return JsonResponse({"error": refusal}, status=400)
     offering.image = file
     offering.hero_crop_x = None
     offering.hero_crop_y = None
@@ -5256,42 +5255,16 @@ def _hero_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     return JsonResponse({"url": offering.image.url})
 
 
-def _oversize_image_error(file: UploadedFile) -> JsonResponse | None:
-    """The 400 for an upload over ``MAX_UPLOAD_IMAGE_BYTES``, or None when it fits.
-
-    Shared by the hero and gallery routes so the two cannot drift apart again: the model
-    field's ``validate_image_size`` runs only under ``full_clean()``, which the hero path
-    does not reach, so the cap has to be enforced here.
-    """
-    assert file.size is not None  # an uploaded file always reports its size
-    if file.size <= settings.MAX_UPLOAD_IMAGE_BYTES:
-        return None
-    limit_mb = settings.MAX_UPLOAD_IMAGE_BYTES / (1024 * 1024)
-    return JsonResponse({"error": f"Image must be {limit_mb:.0f} MB or smaller."}, status=400)
-
-
-def _not_an_image_error(file: UploadedFile) -> JsonResponse | None:
-    """The 400 for an upload whose bytes are not an image, or None when Pillow can open it.
-
-    Beside ``_oversize_image_error`` for the same reason: neither route builds a form, and the
-    model field never reads the bytes, so without this a text file is saved as a class photo.
-    """
-    try:
-        validate_image_content(file)
-    except ValidationError as exc:
-        return JsonResponse({"error": exc.messages[0]}, status=400)
-    return None
-
-
 def _gallery_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     if offering.gallery_images.count() >= MAX_GALLERY_IMAGES:
         return JsonResponse({"error": f"A class can have at most {MAX_GALLERY_IMAGES} images."}, status=400)
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
-    refused = _oversize_image_error(file) or _not_an_image_error(file)
-    if refused is not None:
-        return refused
+    # The byte cap and the "is it an image" check, shared with the event routes (core.images).
+    refusal = image_upload_refusal(file)
+    if refusal is not None:
+        return JsonResponse({"error": refusal}, status=400)
     next_order = (offering.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
     img = ClassImage(class_offering=offering, image=file, sort_order=next_order)
     img.full_clean()
