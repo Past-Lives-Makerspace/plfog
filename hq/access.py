@@ -56,6 +56,14 @@ def is_actual_admin(request: HttpRequest) -> bool:
     return bool(request.view_as.actual_is_admin)  # type: ignore[attr-defined]  # ViewAsMiddleware sets it
 
 
+def actual_member(request: HttpRequest) -> Member | None:
+    """The signed in Member whatever the preview, for what the request may do; none while signed out."""
+    if not request.user.is_authenticated:
+        return None
+    member: Member | None = getattr(request.user, "member", None)
+    return member
+
+
 def hub_or_404(slug: str, request: HttpRequest) -> EventHub:
     """The hub at ``slug`` for rendering: an open hub for everyone, a closed one for admins only (effective role)."""
     return _hub(slug, admin=renders_as_admin(request))
@@ -131,8 +139,7 @@ def organizer_required(kind: str) -> Callable[[Callable[..., HttpResponseBase]],
             card = hub.cards.prefetch_related("named_members").filter(kind=kind).first()
             if card is None:
                 raise Http404("No such card.")
-            member: Member | None = getattr(request.user, "member", None) if request.user.is_authenticated else None
-            if not card.can_organize(member, is_admin=is_actual_admin(request)):
+            if not card.can_organize(actual_member(request), is_admin=is_actual_admin(request)):
                 raise PermissionDenied("Only the organisers of this part of the event can do this.")
             return view(request, *args, hub=hub, card=card, **kwargs)
 

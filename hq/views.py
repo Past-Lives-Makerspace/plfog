@@ -1,4 +1,4 @@
-"""The HQ page and its edit pages (Track C, part 1), and the volunteer sign-up page (part 2)."""
+"""The HQ page and its edit pages (Track C, part 1), the volunteer sign-up page (part 2) and the wine wall (part 3)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -17,9 +18,26 @@ from django.views.decorators.http import require_POST
 from core.abuse_limits import record_keyed_attempt
 from core.htmx import wants_fragment
 from hq import services
-from hq.access import card_view, hub_or_404, organizer_required, renders_as_admin, viewer_member
-from hq.exports import stream_roster_csv
-from hq.forms import HubCardForm, HubForm, HubGoalFormSet, VolunteerInfoForm, VolunteerShiftForm, VolunteerShiftFormSet
+from hq.access import (
+    actual_member,
+    card_view,
+    hub_or_404,
+    is_actual_admin,
+    organizer_required,
+    renders_as_admin,
+    viewer_member,
+)
+from hq.exports import stream_donors_csv, stream_roster_csv
+from hq.forms import (
+    HubCardForm,
+    HubForm,
+    HubGoalFormSet,
+    VolunteerInfoForm,
+    VolunteerShiftForm,
+    VolunteerShiftFormSet,
+    WineBottleForm,
+    WineryLogoForm,
+)
 from hq.models import EventHub, HubCard, ShiftSignup, VolunteerShift
 from hq.services import VolunteerBand, VolunteerInfo, goal_rows
 from hub.toast import trigger_toast
@@ -247,16 +265,9 @@ def shift_signup(request: HttpRequest, *, hub: EventHub, card: HubCard, shift_pk
     person = services.person_for(request, member)
     if person is None:
         return _shift_answer(request, hub, shift, "Save your info in step 1 first.", "error")
-    if member is None:
-        allowed, _reason = record_keyed_attempt(
-            services.RATE_SCOPE,
-            services.rate_key(request),
-            hourly_limit=services.RATE_HOURLY_LIMIT,
-            daily_limit=services.RATE_DAILY_LIMIT,
-        )
-        if not allowed:
-            message = "Too many sign-ups from this connection for now. Try again in an hour."
-            return _shift_answer(request, hub, shift, message, "error")
+    if member is None and not _guest_within_limits(request, services.RATE_SCOPE):
+        message = "Too many sign-ups from this connection for now. Try again in an hour."
+        return _shift_answer(request, hub, shift, message, "error")
     try:
         services.sign_up(shift, person, member=member)
     except services.AlreadySignedUp:
@@ -279,6 +290,17 @@ def shift_remove(request: HttpRequest, *, hub: EventHub, card: HubCard, shift_pk
     except services.NotSignedUp:
         return _shift_answer(request, hub, shift, f"You were not on {shift.role}.", "info")
     return _shift_answer(request, hub, shift, f"You are off {shift.role}.", "success")
+
+
+def _guest_within_limits(request: HttpRequest, scope: str) -> bool:
+    """Count one guest write under ``scope`` (a shift sign-up or a bottle) against the connection; False past the cap."""
+    allowed, _reason = record_keyed_attempt(
+        scope,
+        services.rate_key(request),
+        hourly_limit=services.RATE_HOURLY_LIMIT,
+        daily_limit=services.RATE_DAILY_LIMIT,
+    )
+    return allowed
 
 
 def _shift_answer(request: HttpRequest, hub: EventHub, shift: VolunteerShift, message: str, kind: str) -> HttpResponse:
@@ -320,3 +342,136 @@ def volunteer_roster(request: HttpRequest, *, hub: EventHub, card: HubCard) -> H
 def volunteer_roster_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
     """The roster as a CSV download, one row per person per shift."""
     return stream_roster_csv(ShiftSignup.objects.filter(shift__hub=hub), filename_stem=hub.slug)
+
+
+# ---- Wine wall (part 3) ----
+
+
+def _wall_url(hub: EventHub) -> str:
+    return reverse("hq:wine", args=[hub.slug])
+
+
+def _identity(request: HttpRequest, member: Member | None) -> tuple[str, str]:
+    """Who is acting, as on the volunteer sheet: the Your Info name and email this browser saved, else the
+    member's own name and primary email, else blanks. The email is what a guest's bottles are keyed on."""
+    person = services.person_for(request, member)
+    if person is None:
+        return "", ""
+    return person.name, person.email
+
+
+@card_view(HubCard.Kind.WINE_WALL)
+def wine(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """The wine wall: the band, Log a Bottle, All Bottles, the wineries, and the donors for organisers.
+
+    A POST logs a bottle (multipart, so the form opts out of hx-boost). A guest's post goes
+    through the honeypot and the rate limit the volunteer sign-ups share.
+    """
+    member = viewer_member(request)
+    name, email = _identity(request, member)
+    if request.method != "POST":
+        return _wine_page(request, hub, card, form=WineBottleForm(initial={"credited_name": name}))
+    form = WineBottleForm(request.POST, request.FILES)
+    if not form.is_valid():
+        return _wine_page(request, hub, card, form=form)
+    if form.is_honeypot_hit:
+        return redirect(_wall_url(hub))
+    if member is None and not _guest_within_limits(request, services.RATE_SCOPE_BOTTLE):
+        form.add_error(None, "Too many bottles from this connection for now. Try again in an hour.")
+        return _wine_page(request, hub, card, form=form)
+    bottle = services.log_bottle(hub, form.to_fields(), member=member, logger_name=name, logger_email=email)
+    messages.success(request, f"{bottle.name} is on the wall. Thank you!")
+    return redirect(_wall_url(hub))
+
+
+def _wine_page(
+    request: HttpRequest,
+    hub: EventHub,
+    card: HubCard,
+    *,
+    form: WineBottleForm,
+    logo_form: WineryLogoForm | None = None,
+) -> HttpResponse:
+    """Render the wall. ``form`` bound means Log a Bottle failed and opens with its errors.
+
+    Rendering reads the effective role, as the volunteer page does: an admin previewing as a
+    guest sees no donors, no logo form and no Delete. The action views keep the actual role.
+    """
+    member = viewer_member(request)
+    can_organize = card.can_organize(member, is_admin=renders_as_admin(request))
+    _name, email = _identity(request, member)
+    bottles = list(hub.bottles.all())
+    rows = services.wineries(hub)
+    donors = services.donor_rows(hub) if can_organize else []
+    if can_organize and logo_form is None:
+        logo_form = WineryLogoForm(names=[row.name for row in rows])
+    return render(
+        request,
+        "hq/wine.html",
+        {
+            "hub": hub,
+            "card": card,
+            "form": form,
+            "form_open": form.is_bound,
+            "is_guest": member is None,
+            "band": services.wine_band(hub),
+            "bottles": bottles,
+            # The bottles this viewer logged or organises: their Delete, and their note, show.
+            "manageable": {
+                b.pk for b in bottles if b.can_be_deleted_by(member, email=email, is_organizer=can_organize)
+            },
+            "wineries": rows,
+            "logo_form": logo_form if can_organize else None,
+            "can_organize": can_organize,
+            "donors": donors,
+            "donor_emails": services.donor_emails(donors),
+            "max_upload_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
+        },
+    )
+
+
+@require_POST
+@card_view(HubCard.Kind.WINE_WALL)
+def bottle_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Take a bottle off the wall: its logger (by member, or by the email it was logged under) or an
+    organiser, by their actual roles; anyone else gets a 403."""
+    bottle = get_object_or_404(hub.bottles, pk=pk)
+    member = actual_member(request)
+    is_organizer = card.can_organize(member, is_admin=is_actual_admin(request))
+    _name, email = _identity(request, member)
+    try:
+        services.delete_bottle(bottle, member=member, email=email, is_organizer=is_organizer)
+    except services.NotYourBottle as exc:
+        raise PermissionDenied(str(exc)) from exc
+    messages.success(request, f"{bottle.name} is off the wall.")
+    return redirect(_wall_url(hub))
+
+
+@require_POST
+@organizer_required(HubCard.Kind.WINE_WALL)
+def winery_logo(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Upload a logo for a winery named on the wall, replacing the one under that name."""
+    form = WineryLogoForm(request.POST, request.FILES, names=[row.name for row in services.wineries(hub)])
+    if not form.is_valid():
+        name, _email = _identity(request, viewer_member(request))
+        return _wine_page(request, hub, card, form=WineBottleForm(initial={"credited_name": name}), logo_form=form)
+    logo = services.set_winery_logo(hub, form.cleaned_data["name"], form.cleaned_data["logo"])
+    messages.success(request, f"Logo saved for {logo.name}.")
+    return redirect(_wall_url(hub))
+
+
+@organizer_required(HubCard.Kind.WINE_WALL)
+def wine_donors(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """The donors on their own page: every giver, their type, email and listing, Copy donor emails and the CSV."""
+    donors = services.donor_rows(hub)
+    return render(
+        request,
+        "hq/wine_donors.html",
+        {"hub": hub, "card": card, "donors": donors, "donor_emails": services.donor_emails(donors)},
+    )
+
+
+@organizer_required(HubCard.Kind.WINE_WALL)
+def wine_donors_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
+    """The donors table as a CSV download, one row per giver."""
+    return stream_donors_csv(services.donor_rows(hub), filename_stem=hub.slug)

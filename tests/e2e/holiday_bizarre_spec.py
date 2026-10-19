@@ -1,22 +1,27 @@
-"""End-to-end: the Holiday Bizarre HQ and its volunteer sign-up (Track C, parts 1 and 2).
+"""End-to-end: the Holiday Bizarre HQ, its volunteer sign-up and its wine wall (Track C, parts 1 to 3).
 
 In a real browser: a signed out visitor opens the HQ and sees the public door but not the
 admins one, opens Volunteer Sign-up, saves Your Info, signs up for a shift over htmx (the row
 flips to Remove Me and the band's figures move in place), then removes themself. A member
 signs in through the real login by code flow and finds their name, email and phone already in
-Your Info. The service worker is blocked because it fetches navigations past ``page.route``;
-every wait is on what the page shows. Run with ``pytest -m e2e`` on PostgreSQL.
+Your Info; another opens the wine wall from the HQ, logs a bottle with a photo and sees the
+band's count, value and supporters move. The service worker is blocked because it fetches
+navigations past ``page.route``; every wait is on what the page shows. Run with
+``pytest -m e2e`` on PostgreSQL.
 """
 
 from __future__ import annotations
 
+import io
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from PIL import Image
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect
 
-from hq.models import HubCard, ShiftSignup, VolunteerShift
+from hq.models import HubCard, ShiftSignup, VolunteerShift, WineBottle
 from membership.models import Member
 from tests.hq.factories import EventHubFactory, HubCardFactory, VolunteerShiftFactory
 from tests.membership.factories import MembershipPlanFactory
@@ -123,3 +128,71 @@ def describe_a_member():
         expect(page.locator('input[name="email"]')).to_have_value(member.primary_email)
         expect(page.locator('input[name="phone"]')).to_have_value("503 555 0142")
         expect(page.locator("button[data-hq-shift-signup]").first).to_be_enabled()
+
+
+def _png() -> dict:
+    """A small bottle photo for the file input, as Playwright takes it."""
+    buffer = io.BytesIO()
+    Image.new("RGB", (64, 96), (120, 20, 40)).save(buffer, format="PNG")
+    return {"name": "bottle.png", "mimeType": "image/png", "buffer": buffer.getvalue()}
+
+
+@pytest.fixture
+def media_in_tmp(settings, tmp_path):
+    """Uploads land in a throwaway folder. Requested before ``serve_media``, which reads the root once."""
+    settings.MEDIA_ROOT = str(tmp_path / "media")
+
+
+def describe_the_wine_wall():
+    def it_opens_from_the_hq_logs_a_bottle_with_a_photo_and_sees_the_band_move(
+        live_server, page, login_via_code, media_in_tmp, serve_media
+    ):
+        hub = EventHubFactory(is_open=True, slug="holiday-bizarre", title="Holiday Bizarre HQ")
+        wine = HubCardFactory(
+            hub=hub,
+            kind=HubCard.Kind.WINE_WALL,
+            audience=HubCard.Audience.MEMBERS,
+            title="Log a wine bottle",
+            button_text="Enter a bottle",
+        )
+        member = _seed_member()
+        login_via_code(MEMBER_EMAIL)
+        page.goto(live_server.url + reverse("hq:page", args=["holiday-bizarre"]))
+        page.locator(f'[data-hq-card-pk="{wine.pk}"] a[data-hq-card-link]').click()
+
+        expect(page.locator("[data-hq-wine]")).to_be_visible()
+        expect(page.locator("[data-hq-wine-bottles]")).to_have_text("0")
+        expect(page.locator("[data-hq-wine-no-bottles]")).to_be_visible()
+        expect(page.locator("[data-hq-wine-form]")).to_be_hidden()
+        page.locator("[data-hq-wine-open]").click()
+
+        expect(page.locator("[data-hq-wine-form]")).to_be_visible()
+        expect(page.locator('input[name="credited_name"]')).to_have_value("Lee Organiser")
+        page.select_option('select[name="kind"]', "white")
+        page.fill('input[name="name"]', "2022 Pinot Gris")
+        page.fill('input[name="winery"]', "Abacela")
+        page.fill('input[name="value"]', "18")
+        page.fill('input[name="qty"]', "2")
+        page.fill('input[name="giver_name"]', "Pat Giver")
+        page.select_option('select[name="giver_type"]', "wine_shop")
+        page.locator('input[name="photo"]').set_input_files(_png())
+        page.locator("[data-hq-wine-add]").click()
+
+        expect(page.locator("[data-hq-wine-bottles]")).to_have_text("2")
+        expect(page.locator("[data-hq-wine-value]")).to_have_text("$36")
+        expect(page.locator("[data-hq-wine-supporters]")).to_have_text("1")
+        expect(page.locator('[data-hq-wine-kind="white"]')).to_be_visible()
+        expect(page.locator("[data-hq-bottle-photo]")).to_have_count(1)
+        expect(page.locator("[data-hq-bottle-photo]")).to_have_js_property("naturalWidth", 64)
+        expect(page.locator('[data-hq-winery="Abacela"] [data-hq-winery-bottles]')).to_have_text("2 bottles")
+        expect(page.locator("[data-hq-wine-form]")).to_be_hidden()
+        bottle = WineBottle.objects.get()
+        assert (bottle.name, bottle.qty, bottle.value_cents, bottle.giver_type) == (
+            "2022 Pinot Gris",
+            2,
+            1800,
+            "wine_shop",
+        )
+        assert (bottle.logged_by_id, bottle.credited_name) == (member.pk, "Lee Organiser")
+        assert bottle.logged_by_email == MEMBER_EMAIL
+        assert bottle.photo.name.startswith("hq/bottles/")

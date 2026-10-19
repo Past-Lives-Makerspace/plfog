@@ -12,7 +12,7 @@
 | `airtable_sync/` | Airtable bidirectional sync for members, spaces, leases, votes |
 | `kiln/` | Ceramics Guild kiln tickets (#691), a tab on that guild's page: tickets with photos and flags, loading, unloading with ready for pickup notices, the kiln log, the clay and glaze lists; see `kiln/AGENTS.md` |
 | `polls/` | Polls for the Spotlight (#708): a question, 2 to 6 answers, open until it expires, one vote per member; posted from Admin Tools > Spotlight; see `polls/AGENTS.md` |
-| `hq/` | The Holiday Bizarre HQ (Track C): one hub page per event with a hero band, goal chips and nine door cards an admin opens to the public, to members or to named people; behind the `holiday_bizarre` switch; see `hq/AGENTS.md` |
+| `hq/` | The Holiday Bizarre HQ (Track C): one hub page per event with a hero band, goal chips and nine door cards an admin opens to the public, to members or to named people; behind the `holiday_bizarre` switch; `manage.py seed_holiday_bizarre --event <pk>` writes Lee's hub, doors, goals and shifts from `hq/holiday_bizarre.py`; see `hq/AGENTS.md` |
 | `plfog/` | Django project: settings, urls, wsgi, auto_admin, adapters |
 
 Those nine plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
