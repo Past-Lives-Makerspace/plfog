@@ -1,0 +1,25 @@
+{% comment %}
+The band over the wall: the big bottle count with a meter against the goal (only while the
+hub has a bottles goal), the value on the wall, the supporters, and a chip per kind with a
+bottle on the wall.
+
+  band — required, a hq.services.WineBand
+{% endcomment %}
+<section class="pl-hq-wine__band" data-hq-wine-band aria-label="The wine wall so far">
+  <div class="pl-hq-wine__band-top">
+    <p class="pl-hq-wine__big" data-hq-wine-bottles>{{ band.bottles }}</p>
+    <p class="pl-hq-wine__band-label">Bottle{{ band.bottles|pluralize }} collected{% if band.goal %}<span class="pl-hq-wine__band-sub" data-hq-wine-goal>of a {{ band.goal }} bottle goal</span>{% endif %}</p>
+  </div>
+  {% if band.goal %}
+  <progress class="pl-hq-wine__meter" max="{{ band.goal }}" value="{{ band.bottles }}" aria-label="Bottles collected: {{ band.bottles }} of {{ band.goal }}" data-hq-wine-meter></progress>
+  {% endif %}
+  <dl class="pl-hq-wine__stats">
+    <div class="pl-hq-wine__stat"><dt>Value on the wall</dt><dd data-hq-wine-value>{{ band.value_display }}</dd></div>
+    <div class="pl-hq-wine__stat"><dt>Wine wall supporters</dt><dd data-hq-wine-supporters>{{ band.supporters }}</dd></div>
+  </dl>
+  {% if band.by_kind %}
+  <ul class="pl-hq-wine__kinds" data-hq-wine-kinds>
+    {% for kind in band.by_kind %}<li class="pl-hq-wine__kind pl-hq-wine__kind--{{ kind.key }}" data-hq-wine-kind="{{ kind.key }}">{{ kind.label }} <strong>{{ kind.bottles }}</strong></li>{% endfor %}
+  </ul>
+  {% endif %}
+</section>

@@ -4343,8 +4343,10 @@ def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:
         or member.is_guild_staff
         or member.is_instructor
         or _compose_editable_classes(request, member).exists()
-        or member.has_admin_capability(AdminCapability.Capability.BILLING_APPROVER)
-        or member.has_admin_capability(AdminCapability.Capability.EVENTS_APPROVER)
+        # One query for both grants: this runs on every hub page through the sidebar.
+        or member.admin_capabilities.filter(
+            capability__in=[AdminCapability.Capability.BILLING_APPROVER, AdminCapability.Capability.EVENTS_APPROVER]
+        ).exists()
     )
 
 

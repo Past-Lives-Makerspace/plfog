@@ -48,6 +48,7 @@ ATTACHMENT_SOURCES: dict[tuple[str, str], frozenset[str]] = {
     ("classes/exports.py", "stream_instructor_inquiries_csv"): frozenset({"classes:admin_instructor_inquiries_export"}),
     ("membership/orientation_exports.py", "stream_orientations_csv"): frozenset({"hub_orientations_export"}),
     ("hq/exports.py", "stream_roster_csv"): frozenset({"hq:volunteer_roster_csv"}),
+    ("hq/exports.py", "stream_donors_csv"): frozenset({"hq:wine_donors_csv"}),
     ("billing/reconciliation.py", "stream_reconciliation_csv"): frozenset({"billing_admin_reconciliation_csv"}),
     ("billing/payments_panel.py", "stream_payments_csv"): frozenset({"billing_admin_payments_csv"}),
     # Retired: billing_admin_reports_csv now redirects to the reconciliation CSV.

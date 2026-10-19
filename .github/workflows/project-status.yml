@@ -1,18 +1,17 @@
 name: Delivery board
 
-# Moves a ticket's card across the RPIPO delivery board as the work becomes visible to
-# GitHub. The board's columns pair the method's word with a plain one -- "Present / In
-# Review", "Observe / Checking Production" -- because "Observe" alone tells a reader nothing
-# about what is happening to their ticket. Everything below, and the CLI, speaks the single
-# word; project_status.py holds the one mapping between the two. This workflow owns only
-# Implement, Present, Observe and Done. Research and Plan happen on a laptop
-# against a corpus that deliberately lives outside the repo, so no event ever reaches here
-# for them; the rpipo-research and rpipo-plan skills call
-# .github/scripts/project_status.py themselves. Triage is the board's own built-in
-# auto-add workflow, configured in the board UI rather than here.
+# Moves a ticket's card across the delivery board as the work becomes visible to GitHub.
+# The board's columns are Backlog, Triage / Not Started, In Progress, In Draft (Awaiting
+# Mock/Screenshot Approval), In Bot Review, Ready to Merge, Done. Everything below, and the
+# CLI, speaks a single word per column (Triage, Progress, Draft, Review, Ready, Done);
+# project_status.py holds the one mapping between the two. This workflow owns Progress
+# onward. Triage is the board's own built-in auto-add workflow, configured in the board UI
+# rather than here, and Backlog is a column people park cards in by hand.
 #
 # Movement is forward only. A push to a branch that already has an open pull request does
-# not drag the card back from Present to Implement -- see the script's module docstring.
+# not drag the card back from In Bot Review to In Progress; see the script's module
+# docstring. The one deliberate backwards move is a pull request converted back to draft,
+# which passes --force.
 #
 # The credential is PROJECT_PAT: a classic token holding ONLY the `project` scope. It is
 # deliberately not BOT_PAT, which holds `repo` and is already handed to the
@@ -33,14 +32,16 @@ name: Delivery board
 #
 # The trigger is `pull_request`, not `pull_request_target`. That means a pull request from a
 # fork gets no secrets and moves no card, which is the behaviour we want: a drive-by fork PR
-# is not RPIPO work and has no ticket on this board.
+# has no ticket on this board. The same holds for `pull_request_review`.
 
 on:
   push:
     branches-ignore:
       - main
   pull_request:
-    types: [opened, reopened, ready_for_review, closed]
+    types: [opened, reopened, ready_for_review, converted_to_draft, closed]
+  pull_request_review:
+    types: [submitted]
   issues:
     types: [closed]
   workflow_dispatch:
@@ -53,7 +54,7 @@ on:
         description: Target column
         required: true
         type: choice
-        options: [Triage, Research, Plan, Implement, Present, Observe, Done]
+        options: [Triage, Progress, Draft, Review, Ready, Done]
       force:
         description: Allow a backwards move
         required: false
@@ -86,10 +87,10 @@ jobs:
         with:
           python-version: '3.13'
 
-      # A branch appearing is the first thing GitHub can see of the Implement phase. Every
-      # later push to the same branch re-runs this and is a no-op, because the card is by
-      # then at Present or beyond and the move is forward only.
-      - name: Implement -- a branch exists
+      # A branch appearing is the first thing GitHub can see of the work. Every later push
+      # to the same branch re-runs this and is a no-op, because the card is by then at
+      # Draft or beyond and the move is forward only.
+      - name: Progress -- a branch exists
         continue-on-error: true
         if: github.event_name == 'push'
         env:
@@ -97,21 +98,58 @@ jobs:
           PROJECT_OWNER: ${{ github.repository_owner }}
           PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: python .github/scripts/project_status.py --branch "${GITHUB_REF#refs/heads/}" --status Implement
+        run: python .github/scripts/project_status.py --branch "${GITHUB_REF#refs/heads/}" --status Progress
 
-      - name: Present -- a pull request is open
+      # Opened as a draft, or converted back to one. Converting is a person deliberately
+      # taking a PR out of review (a mock or screenshot still needs approval), so it passes
+      # --force and moves the card back from In Bot Review or Ready to Merge.
+      - name: Draft -- a draft pull request is open
         continue-on-error: true
-        if: github.event_name == 'pull_request' && github.event.action != 'closed'
+        if: >-
+          github.event_name == 'pull_request' &&
+          ((github.event.action == 'opened' && github.event.pull_request.draft) ||
+           github.event.action == 'converted_to_draft')
         env:
           PROJECT_PAT: ${{ secrets.PROJECT_PAT }}
           PROJECT_OWNER: ${{ github.repository_owner }}
           PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: python .github/scripts/project_status.py --pr ${{ github.event.pull_request.number }} --status Present
+          FORCE: ${{ github.event.action == 'converted_to_draft' && '--force' || '' }}
+        run: python .github/scripts/project_status.py --pr ${{ github.event.pull_request.number }} --status Draft $FORCE
+
+      # Opened ready, reopened, or marked ready: this is what fires PastLivesReviewBot.
+      - name: Review -- a pull request is open for review
+        continue-on-error: true
+        if: >-
+          github.event_name == 'pull_request' &&
+          ((github.event.action == 'opened' && !github.event.pull_request.draft) ||
+           github.event.action == 'reopened' || github.event.action == 'ready_for_review')
+        env:
+          PROJECT_PAT: ${{ secrets.PROJECT_PAT }}
+          PROJECT_OWNER: ${{ github.repository_owner }}
+          PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python .github/scripts/project_status.py --pr ${{ github.event.pull_request.number }} --status Review
+
+      # Only the review bot's approval counts. PastLivesReviewBot is a plain user account
+      # (bot_review_post.py posts with BOT_PAT), so its login carries no "[bot]" suffix. The
+      # webhook spells the state in lower case.
+      - name: Ready -- the review bot approved
+        continue-on-error: true
+        if: >-
+          github.event_name == 'pull_request_review' &&
+          github.event.review.state == 'approved' &&
+          github.event.review.user.login == 'PastLivesReviewBot'
+        env:
+          PROJECT_PAT: ${{ secrets.PROJECT_PAT }}
+          PROJECT_OWNER: ${{ github.repository_owner }}
+          PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python .github/scripts/project_status.py --pr ${{ github.event.pull_request.number }} --status Ready
 
       # Merged, not closed. A pull request closed without merging leaves the card where it
       # is: the ticket did not advance, and dropping it to Done would be a lie.
-      - name: Observe -- merged, production unverified
+      - name: Done -- merged
         continue-on-error: true
         if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
         env:
@@ -119,11 +157,8 @@ jobs:
           PROJECT_OWNER: ${{ github.repository_owner }}
           PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: python .github/scripts/project_status.py --pr ${{ github.event.pull_request.number }} --status Observe
+        run: python .github/scripts/project_status.py --pr ${{ github.event.pull_request.number }} --status Done
 
-      # Merged is not done. Observe closes the issue only once production evidence says the
-      # change deployed, is being used, and broke nothing -- so the issue closing is the
-      # signal, and it is the human or the Observe phase that produces it.
       - name: Done -- the issue closed
         continue-on-error: true
         if: github.event_name == 'issues'

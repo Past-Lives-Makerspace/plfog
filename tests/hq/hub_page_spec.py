@@ -167,7 +167,7 @@ def describe_goal_rows():
         assert rsvp_count(None) == 0
 
     @pytest.mark.parametrize("kind", [HubGoal.Kind.BOTTLES, HubGoal.Kind.BOTTLE_VALUE])
-    def it_reads_zero_for_the_kinds_later_parts_count(open_hub, kind):
+    def it_reads_zero_for_the_wine_wall_kinds_while_the_wall_is_empty(open_hub, kind):
         HubGoalFactory(hub=open_hub, kind=kind, target=82)
 
         assert goal_rows(open_hub)[0].current == 0
@@ -272,19 +272,15 @@ def describe_the_doors():
         assert "<a " not in door
         assert '<rect x="8" y="2" width="8" height="4"' in door  # the clipboard icon
 
-    def it_renders_a_card_whose_page_has_not_shipped_as_a_tile_with_its_own_title(open_hub):
-        """C3 adds hq:wine; until then the wine wall card is a tile, never a broken link."""
-        card = HubCardFactory(
-            hub=open_hub, kind=HubCard.Kind.WINE_WALL, audience=HubCard.Audience.PUBLIC, title="Door To Come"
-        )
+    def it_links_the_wine_wall_card_to_the_wall(open_hub):
+        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL, audience=HubCard.Audience.PUBLIC)
 
         body = Client().get(_page(open_hub)).content.decode()
         door = body.split(f'data-hq-card-pk="{card.pk}"')[1].split("</div>")[0]
 
-        assert card.url == ""
-        assert "Door To Come" in door
-        assert "data-hq-card-placeholder" in door
-        assert "<a " not in door
+        assert card.url == reverse("hq:wine", args=[open_hub.slug])
+        assert f'<a href="{card.url}" class="pl-hq-card" data-hq-card-link>' in door
+        assert "data-hq-card-placeholder" not in door
 
     def it_renders_the_rsvp_card_as_a_tile_while_the_hub_has_no_event(open_hub):
         card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.RSVP, audience=HubCard.Audience.PUBLIC)
