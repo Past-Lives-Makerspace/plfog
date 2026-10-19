@@ -7686,10 +7686,13 @@ def event_rsvp_guest(request: HttpRequest, pk: int) -> HttpResponse:
     """Count me in on the public event page for someone with no account (#831, part 4).
 
     No login, like the page: a scanned flyer leads here. The order is the cheap refusals first
-    (an unpublished event 404s, an ended one is turned away with the page's own note), then
+    (an unpublished event 404s, a signed-in user goes back to the page, where their RSVP is the
+    member one tap and never a guest row, an ended event is turned away with the page's own
+    note), then
     one rate limit attempt per POST whatever follows, then the honeypot (a filled one is
     answered exactly like a success and writes nothing), then the form. A valid form upserts
-    the guest by email (``CommunityEvent.rsvp_guest``) and refreshes the Discord embed; the
+    the guest by email (``EventGuestRSVPForm.save``: an email that is a member's already on the
+    list resizes that member's RSVP instead) and refreshes the Discord embed; the
     redirect carries ``?going=1`` so the page's "You're on the list" state needs no session.
     An invalid form re-renders the page with its errors.
     """
@@ -7699,6 +7702,8 @@ def event_rsvp_guest(request: HttpRequest, pk: int) -> HttpResponse:
     event = get_object_or_404(CommunityEvent.objects.published().select_related("guild", "area"), pk=pk)
     date_query = event.date_query(EventDateForm(request.GET).occurrence_start(event))
     page = reverse("hub_event_detail", args=[pk]) + date_query
+    if request.user.is_authenticated:
+        return redirect(page)
     if event.rsvps_closed:
         messages.info(request, "This event has already taken place.")
         return redirect(page)

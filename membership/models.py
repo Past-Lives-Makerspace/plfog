@@ -9747,10 +9747,11 @@ class CommunityEvent(HeroCropMixin, models.Model):
         return list(self.rsvps.select_related("member").exclude(member__hide_from_directory=True))
 
     def rsvp_people_count(self) -> int:
-        """How many people are coming: every visible RSVP's party size, summed (#831).
+        """How many people are coming: ``party_size`` summed over every RSVP row (#831).
 
-        The same rows :meth:`visible_rsvps` lists, so the public page's count and the Discord
-        embed's agree, as one aggregate query.
+        Members under the ``hide_from_directory`` override are excluded (#614); guest rows are
+        counted. These are the rows :meth:`visible_rsvps` lists, so the public page's count and
+        the Discord embed's agree, as one aggregate query.
         """
         total = self.rsvps.exclude(member__hide_from_directory=True).aggregate(total=Coalesce(Sum("party_size"), 0))[
             "total"
@@ -9887,6 +9888,20 @@ class CommunityEvent(HeroCropMixin, models.Model):
         them again with the size they chose).
         """
         return bool(self.rsvps.filter(member=member).update(party_size=party_size))
+
+    def member_rsvp_for_email(self, email: str) -> "EventRSVP | None":
+        """The member RSVP on this event whose member's primary email is ``email``, if any.
+
+        Case-insensitive, read through :attr:`EventRSVP.contact_email` (the
+        ``Member.primary_email`` contract) over :meth:`guest_list`'s prefetch, so it costs two
+        queries however many members are going. The guest form uses it so a member who fills it
+        logged out resizes their own RSVP instead of being counted twice (#831).
+        """
+        wanted = EventRSVP.normalise_email(email)
+        if not wanted:
+            return None
+        members = self.guest_list().filter(member__isnull=False)
+        return next((rsvp for rsvp in members if EventRSVP.normalise_email(rsvp.contact_email) == wanted), None)
 
     def rsvp_guest(
         self,

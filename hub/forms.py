@@ -4215,8 +4215,17 @@ class EventGuestRSVPForm(forms.Form):
         return bool(str(self.data.get("website", "")).strip())
 
     def save(self, event: CommunityEvent) -> EventRSVP:
-        """Write or update the guest's RSVP on ``event`` from the clean values."""
+        """Write or update the guest's RSVP on ``event`` from the clean values.
+
+        An email that belongs to a member already on the list is that member filling the form
+        logged out: their RSVP takes the new party size and no second row counts them twice.
+        """
         data = self.cleaned_data
+        member_rsvp = event.member_rsvp_for_email(data["email"])
+        if member_rsvp is not None:
+            event.set_member_party_size(member_rsvp.member, data["party_size"])
+            member_rsvp.party_size = data["party_size"]
+            return member_rsvp
         return event.rsvp_guest(
             name=data["name"],
             email=data["email"],

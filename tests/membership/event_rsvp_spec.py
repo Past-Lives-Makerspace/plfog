@@ -5,7 +5,7 @@ delete round-trip and the race backstop), ``attendees_field`` at 0 / 1 / 15 / 16
 count in the field name, 1024-char guard), the rich ``discord_announcement_embed`` field rules
 and footer fallback, the humanized duration, ``next_occurrence_start`` for a recurring series,
 ``rsvps_closed``, and ``can_manage_from_discord`` per authority tier. Then the guest side
-(#831, part 4): the three constraints, ``rsvp_guest``'s upsert by email, the people count,
+(#831, part 4): the three constraints, ``rsvp_guest``'s upsert by email, finding a member's row by email, the people count,
 party sizes, a guest row's names and contact, ``guest_list``'s query count, the Attendees
 field folding guests, and the Interested sync leaving guest rows alone.
 """
@@ -426,7 +426,7 @@ def describe_the_guest_constraints():
         _guest(_future_event(), email="lee@example.com")
         assert EventRSVP.objects.filter(email="lee@example.com").count() == 2
 
-    def it_lets_a_member_row_sit_beside_a_guest_row_with_a_blank_email():
+    def it_lets_two_member_rows_on_one_event_share_a_blank_email():
         event = _future_event()
         EventRSVPFactory(event=event)
         EventRSVPFactory(event=event)
@@ -476,6 +476,28 @@ def describe_rsvp_guest():
         rsvp = event.rsvp_guest(name="Lee", email="lee@example.com", source=EventRSVP.Source.STAFF, note=" ")
         rsvp.refresh_from_db()
         assert rsvp.note == ""
+
+
+def describe_member_rsvp_for_email():
+    def it_finds_an_unlinked_members_row_by_their_email_in_any_case():
+        event = _future_event()
+        rsvp = EventRSVPFactory(event=event, member=MemberFactory(_pre_signup_email="Sam@Example.com"))
+        assert event.member_rsvp_for_email(" SAM@example.COM ") == rsvp
+
+    def it_finds_a_linked_members_row_by_their_primary_email():
+        event = _future_event()
+        member = _linked_member()
+        EmailAddress.objects.create(user=member.user, email="Primary@Example.com", primary=True, verified=True)
+        rsvp = EventRSVPFactory(event=event, member=member)
+        assert event.member_rsvp_for_email("primary@example.com") == rsvp
+
+    def it_ignores_guest_rows_other_events_and_a_blank_email():
+        event = _future_event()
+        _guest(event, email="lee@example.com")
+        EventRSVPFactory(event=_future_event(), member=MemberFactory(_pre_signup_email="sam@example.com"))
+        assert event.member_rsvp_for_email("lee@example.com") is None
+        assert event.member_rsvp_for_email("sam@example.com") is None
+        assert event.member_rsvp_for_email("  ") is None
 
 
 def describe_rsvp_people_count():

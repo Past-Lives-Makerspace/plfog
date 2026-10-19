@@ -89,8 +89,9 @@ rest via templates/404.html). Add-to-calendar works logged-out.
     (a guest's name never reaches other members) and RSVPs with one tap plus a party size,
     posting to hub_event_rsvp. An anonymous visitor gets the guest form, posting to
     hub_event_rsvp_guest with no account, and the "You're on the list" state once the
-    redirect carries ?going=1. Both forms hide once a non-recurring event has ended (the
-    show_past_note gate); ?date= rides on each action so a series' page keeps its date.
+    redirect carries ?going=1. Both forms and that state hide once a non-recurring event has
+    ended (the show_past_note gate); ?date= rides on each action so a series' page keeps its
+    date. With no member names to follow, the folded line reads "N guests are going".
     {% endcomment %}
     <div class="pl-event-detail__attendees" data-event-rsvps>
       <h2 class="pl-event-detail__attendees-heading" data-people-count="{{ people_count }}">Who's coming ({{ people_count }})</h2>
@@ -101,7 +102,7 @@ rest via templates/404.html). Add-to-calendar works logged-out.
           <li class="pl-event-detail__attendee">{{ rsvp.display_name }}</li>
           {% endfor %}
           {% if unnamed_count %}
-          <li class="pl-event-detail__attendee pl-event-detail__attendee--guests" data-guest-count="{{ unnamed_count }}">and {{ unnamed_count }} guest{{ unnamed_count|pluralize }}</li>
+          <li class="pl-event-detail__attendee pl-event-detail__attendee--guests" data-guest-count="{{ unnamed_count }}">{% if member_rsvps %}and {{ unnamed_count }} guest{{ unnamed_count|pluralize }}{% else %}{{ unnamed_count }} guest{{ unnamed_count|pluralize:" is,s are" }} going{% endif %}</li>
           {% endif %}
         </ul>
         {% else %}
@@ -126,12 +127,14 @@ rest via templates/404.html). Add-to-calendar works logged-out.
           {% endif %}
         </form>
         {% endif %}
+      {% elif show_past_note %}
+        {# An ended event takes no RSVPs, so a stale ?going=1 link shows no going state either. #}
       {% elif guest_going %}
         <div class="pl-event-detail__going" data-rsvp-going>
           <p class="pl-event-detail__going-title">You're on the list. See you there.</p>
           <p class="pl-event-detail__going-note">{% if is_recurring %}One RSVP covers the whole series. {% endif %}Changed plans? <a href="{% url 'hub_event_detail' event.pk %}{{ date_query }}">Fill the form again</a> with the same email and it updates your RSVP.</p>
         </div>
-      {% elif not show_past_note %}
+      {% else %}
         <form method="post" action="{% url 'hub_event_rsvp_guest' event.pk %}{{ date_query }}" class="pl-event-detail__guest-form" data-guest-rsvp-form>
           {% csrf_token %}
           <h3 class="pl-event-detail__guest-title">Count Me In</h3>

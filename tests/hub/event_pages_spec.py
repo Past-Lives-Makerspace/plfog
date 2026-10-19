@@ -2,7 +2,7 @@
 the per-event .ics (public add-to-calendar), the editor-gated QR download, and the themed
 404 that an anonymous scanner hits on a stale/withdrawn/pending pk. Then #831 part 4: the
 guest form and its POST (the honeypot, the rate limit, the repeat email, the ended event, the
-date), a member's party size, and the page folding guests into a count."""
+date, a signed-in poster, a member's email), a member's party size, and the page folding guests into a count."""
 
 from __future__ import annotations
 
@@ -816,6 +816,45 @@ def describe_the_guest_form():
         assert (rsvp.name, rsvp.party_size, rsvp.wants_updates) == ("Lee P", 5, True)
         assert 'data-people-count="5"' in client.get(_page_url(event)).content.decode()
 
+    def it_sends_a_signed_in_user_back_to_the_page_and_writes_no_guest_row(client: Client):
+        _user_with_role("guest_post_member")
+        client.login(username="guest_post_member", password="pass")
+        anchor = timezone.localtime().replace(hour=18, minute=0, second=0, microsecond=0) - timedelta(weeks=5)
+        event = CommunityEventFactory(
+            community=True,
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+            starts_at=anchor,
+            ends_at=anchor + timedelta(hours=2),
+        )
+        today = timezone.localdate()
+        later = event.occurrences_in(today + timedelta(days=14), today + timedelta(days=20))[0]
+        query = f"?date={timezone.localdate(later).isoformat()}"
+        resp = _guest_post(client, event, query)
+        assert resp.status_code == 302
+        assert resp["Location"] == _page_url(event, query)
+        assert not event.rsvps.exists()
+
+    def it_resizes_a_members_rsvp_when_the_email_is_theirs(client: Client):
+        event = CommunityEventFactory(community=True)
+        member = MemberFactory(_pre_signup_email="sam@example.com")
+        EventRSVPFactory(event=event, member=member, party_size=1)
+        resp = _guest_post(client, event, email="SAM@Example.com", party_size="4")
+        assert resp["Location"] == _page_url(event, "?going=1")
+        rsvp = event.rsvps.get()
+        assert rsvp.member == member and rsvp.party_size == 4 and rsvp.email == ""
+
+    def it_adds_a_guest_row_when_the_member_with_that_email_is_not_going(client: Client):
+        event = CommunityEventFactory(community=True)
+        MemberFactory(_pre_signup_email="sam@example.com")
+        _guest_post(client, event, email="sam@example.com", party_size="3")
+        rsvp = event.rsvps.get()
+        assert rsvp.is_guest and rsvp.email == "sam@example.com" and rsvp.party_size == 3
+
+    def it_shows_no_going_state_on_an_ended_event(client: Client):
+        past = timezone.now() - timedelta(days=2)
+        event = CommunityEventFactory(community=True, starts_at=past, ends_at=past + timedelta(hours=1))
+        assert _GOING not in _page_url_body(client, event, "?going=1")
+
     def it_refuses_an_ended_event(client: Client):
         past = timezone.now() - timedelta(days=2)
         event = CommunityEventFactory(community=True, starts_at=past, ends_at=past + timedelta(hours=1))
@@ -939,7 +978,14 @@ def describe_guests_on_the_page():
         client.login(username="sees_one_guest", password="pass")
         event = CommunityEventFactory(community=True)
         EventRSVPFactory(event=event, guest=True)
-        assert 'data-guest-count="1">and 1 guest<' in _page_url_body(client, event)
+        assert 'data-guest-count="1">1 guest is going<' in _page_url_body(client, event)
+
+    def it_says_guests_are_going_when_no_member_is_named(client: Client):
+        _user_with_role("sees_only_guests")
+        client.login(username="sees_only_guests", password="pass")
+        event = CommunityEventFactory(community=True)
+        EventRSVPFactory(event=event, guest=True, party_size=3)
+        assert 'data-guest-count="3">3 guests are going<' in _page_url_body(client, event)
 
     def it_shows_an_anonymous_visitor_the_people_count_only(client: Client):
         event = CommunityEventFactory(community=True)
