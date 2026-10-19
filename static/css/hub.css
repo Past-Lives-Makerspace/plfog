@@ -10545,7 +10545,11 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 /* Filter chips are LINKS, so their active state has to be a class — .pl-chip gets its
    selected look from :has(input:checked) and there is no checkbox here. Same pill geometry
    and the same active colors, so the two read as one family side by side. */
-.pl-wp-chiprow { margin-bottom: 0.75rem; gap: 0.5rem; }
+/* A chip row borrows .pl-tabs for its sideways scroll and edge fade, NOT its underline: the
+   rule is tab-strip language, and under 48px pills it sat flush against their bottom edge.
+   The vertical padding is room for the focus ring, which overflow-x:auto would otherwise clip. */
+.pl-wp-chiprow { margin-bottom: 0.5rem; padding: 0.2rem 0.1rem; gap: 0.5rem; border-bottom: 0; }
+.pl-wp-chiprow + :not(.pl-wp-chiprow) { margin-top: 0.75rem; }
 .pl-wp-chip {
     display: inline-flex;
     align-items: center;
@@ -10606,6 +10610,19 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-wp-home__empty { margin: 0 0 1rem; }
 .pl-wp-section__title { margin-top: 0; margin-bottom: 0.5rem; }
 .pl-wp-machinegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: 0.75rem; }
+/* Pages Waiting For You: dashed rows, the house shape for "empty, and yours to fill". */
+.pl-wp-waiting__intro { margin: 0 0 0.75rem; font-size: 0.9rem; }
+.pl-wp-waiting__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.pl-wp-waiting__item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px dashed var(--hub-border-strong);
+    border-radius: 8px;
+}
+.pl-wp-waiting__link { font-weight: 600; }
+.pl-wp-waiting__meta { font-size: 0.8rem; }
 .pl-wp-starterlist { list-style: none; margin: 0 0 0.75rem; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
 
 /* The one card. Home rows, search results, spec B's tab rows and spec E's policies all use
@@ -10662,13 +10679,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-wp-attrs,
 .pl-wp-accessline { margin: 0.25rem 0 0; font-size: 0.85rem; }
 .pl-wp-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-/* Archive is the one action that takes a page away from every member at once, and it lands
-   mid-row because .pl-wp-mod__actions is a flex item with Report and Print after it. Its
-   own escalation order is right; what it lacked was separation from the routine buttons
-   either side, which is what made a destructive control read as the next button along.
-   Scoped to the moderation cluster on purpose: .pl-wp-actions also holds Withdraw, which is
-   --danger red but only withdraws your own report and wants no such distance. */
-.pl-wp-actions .pl-wp-mod__actions .pl-btn--danger { margin-inline: 0.75rem; }
 .pl-wp-checked { font-size: 0.85rem; }
 
 /* Neutral, not amber: nothing is wrong, we are only asking. */
@@ -10754,6 +10764,130 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-wp-body [id] { scroll-margin-top: calc(var(--topbar-height) + 3.5rem); }
 .pl-wp-body__empty { padding: 1.5rem; margin-bottom: 1.25rem; }
 
+/* The editor's Confluence-style blocks, styled once for the reading page and the editor
+   (static/js/rich-editor-init.js registers them; membership/markdown.py allows them).
+
+   A panel is a class on each line, not a wrapper, so a run of lines of one kind is drawn as
+   one box: every line carries the wash and the stripe, the first of a run gets the top
+   padding, the rounded top and the label, and the last (no same-kind sibling after it, via
+   :has) gets the bottom. Colours are literal hex pairs in the .pl-confirm-warn style, because
+   the hub has no info/success/danger wash tokens; [data-theme="light"] swaps each pair. */
+:is(.pl-wp-body, .pl-rte-wrap .ql-editor) :is(.pl-panel-info, .pl-panel-tip, .pl-panel-warning, .pl-panel-danger) {
+    margin: 0;
+    padding: 0.1rem 1rem 0.1rem 1rem;
+    border-left: 4px solid var(--pl-panel-ink);
+    background: var(--pl-panel-wash);
+}
+.pl-panel-info { --pl-panel-ink: #60a5fa; --pl-panel-wash: rgba(96, 165, 250, 0.12); --pl-panel-label: "Info"; --pl-panel-hint: "Something worth knowing"; }
+.pl-panel-tip { --pl-panel-ink: #4ade80; --pl-panel-wash: rgba(74, 222, 128, 0.11); --pl-panel-label: "Tip"; --pl-panel-hint: "A trick that saves the next person time"; }
+.pl-panel-warning { --pl-panel-ink: #fbbf24; --pl-panel-wash: rgba(251, 191, 36, 0.12); --pl-panel-label: "Warning"; --pl-panel-hint: "What goes wrong, and how to avoid it"; }
+.pl-panel-danger { --pl-panel-ink: #f87171; --pl-panel-wash: rgba(248, 113, 113, 0.13); --pl-panel-label: "Danger"; --pl-panel-hint: "What can hurt you, and how to stay safe"; }
+[data-theme="light"] .pl-panel-info { --pl-panel-ink: #1d4ed8; --pl-panel-wash: rgba(29, 78, 216, 0.08); }
+[data-theme="light"] .pl-panel-tip { --pl-panel-ink: #15803d; --pl-panel-wash: rgba(21, 128, 61, 0.08); }
+[data-theme="light"] .pl-panel-warning { --pl-panel-ink: #a16207; --pl-panel-wash: rgba(180, 120, 10, 0.1); }
+[data-theme="light"] .pl-panel-danger { --pl-panel-ink: #b91c1c; --pl-panel-wash: rgba(185, 28, 28, 0.08); }
+:is(.pl-wp-body, .pl-rte-wrap .ql-editor) :is(
+    .pl-panel-info:not(.pl-panel-info + .pl-panel-info),
+    .pl-panel-tip:not(.pl-panel-tip + .pl-panel-tip),
+    .pl-panel-warning:not(.pl-panel-warning + .pl-panel-warning),
+    .pl-panel-danger:not(.pl-panel-danger + .pl-panel-danger)
+) {
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top-right-radius: 8px;
+}
+:is(.pl-wp-body, .pl-rte-wrap .ql-editor) :is(
+    .pl-panel-info:not(.pl-panel-info + .pl-panel-info),
+    .pl-panel-tip:not(.pl-panel-tip + .pl-panel-tip),
+    .pl-panel-warning:not(.pl-panel-warning + .pl-panel-warning),
+    .pl-panel-danger:not(.pl-panel-danger + .pl-panel-danger)
+)::before {
+    content: var(--pl-panel-label);
+    display: block;
+    margin-bottom: 0.15rem;
+    color: var(--pl-panel-ink);
+    font-size: 0.75em;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+:is(.pl-wp-body, .pl-rte-wrap .ql-editor) :is(
+    .pl-panel-info:not(:has(+ .pl-panel-info)),
+    .pl-panel-tip:not(:has(+ .pl-panel-tip)),
+    .pl-panel-warning:not(:has(+ .pl-panel-warning)),
+    .pl-panel-danger:not(:has(+ .pl-panel-danger))
+) {
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom-right-radius: 8px;
+}
+/* An empty panel line in the editor shows what belongs there. The hint is CSS, never stored
+   text, so nothing a member types can be mistaken for a prompt and dropped. It sits inline
+   before the line's <br> (hiding the <br> would collapse the line under Quill's caret), and
+   the doubled class outranks the run-start label rule above. */
+.pl-rte-wrap.pl-rte-wrap .ql-editor :is(.pl-panel-info, .pl-panel-tip, .pl-panel-warning, .pl-panel-danger):has(> br:only-child)::before {
+    content: var(--pl-panel-label) " \00B7  " var(--pl-panel-hint);
+    display: inline;
+    margin: 0;
+    color: var(--hub-text-muted);
+    font-size: inherit;
+    font-weight: 400;
+    font-style: italic;
+    letter-spacing: normal;
+    text-transform: none;
+    pointer-events: none;
+}
+
+/* The same for an empty checklist line: Quill puts its box in a .ql-ui span beside a lone
+   <br>, so "empty" is a line holding nothing else. The span is absolutely placed from its
+   static position, so the hint is taken out of flow too, or the box would sit after it. */
+.pl-rte-wrap .ql-editor li[data-list="unchecked"]:has(> br):not(:has(> :not(br, .ql-ui)))::before {
+    content: "A step to tick off";
+    position: absolute;
+    color: var(--hub-text-muted);
+    font-style: italic;
+    pointer-events: none;
+}
+
+/* Divider, settings block and checklist. */
+:is(.pl-wp-body, .pl-rte-wrap .ql-editor) hr { border: 0; border-top: 1px solid var(--hub-border-strong); margin: 1.5rem 0; }
+.pl-rte-wrap .ql-editor .ql-code-block-container,
+.pl-wp-body pre {
+    margin: 1rem 0;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+    color: var(--hub-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.85em;
+    white-space: pre-wrap;
+}
+.pl-wp-body ul.pl-checklist { list-style: none; padding-left: 0.25rem; }
+.pl-wp-body ul.pl-checklist > li { position: relative; padding-left: 1.75rem; }
+.pl-wp-body ul.pl-checklist > li[data-list]::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.3em;
+    width: 1.05em;
+    height: 1.05em;
+    border: 2px solid var(--hub-border-strong);
+    border-radius: 4px;
+}
+.pl-wp-body ul.pl-checklist > li[data-list="checked"]::before { border-color: var(--hub-blue); background: var(--hub-blue); }
+.pl-wp-body ul.pl-checklist > li[data-list="checked"]::after {
+    content: "";
+    position: absolute;
+    left: 0.36em;
+    top: 0.42em;
+    width: 0.32em;
+    height: 0.6em;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
 .pl-wp-attachments { padding: 1.25rem; margin-bottom: 1.25rem; }
 .pl-wp-attachments__head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
 /* The title's own margin-bottom centres with it and lifts the text off the baseline of
@@ -10822,6 +10956,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-header { flex-direction: column; }
     .pl-wp-actions { width: 100%; }
     .pl-wp-actions .pl-btn, .pl-wp-actions .hub-btn { min-height: 48px; }
+    .pl-wp-actions__more--bar { display: none; }
 }
 
 /* The editor. */
@@ -10997,11 +11132,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text-muted);
 }
 
-/* No margin-bottom: this renders as a flex ITEM inside A's .pl-wp-actions, which centres
-   on align-items:center, so a bottom margin lifts these three controls ~12px above Edit /
-   Still accurate / Report / Print in the same row and grows the row by 24px. Rule 18's
-   clearance is A's row's job; nothing follows this inside it. */
-.pl-wp-mod__actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .pl-wp-mod__report { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .pl-wp-mod__reported { font-size: 0.85rem; }
 /* .pl-btn is already nowrap, so the risk is spilling past the border, not wrapping. At
@@ -11101,11 +11231,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-mod__tabs .vote-tab { min-height: 48px; display: inline-flex; align-items: center; }
 }
 
-/* The desktop header row is desktop-only: on a phone these actions live inside spec A's
-   single overflow menu, because two kebabs both containing Edit reads as a bug. */
-@media (max-width: 768px) {
-    .pl-wp-mod__actions { display: none; }
-}
 
 /* ── Member wiki: the guild Wiki tab (spec B) ───────────────────────────────
    Namespace: pl-wp-tab__* and nothing else. Spec A owns bare pl-wp-*, spec D owns

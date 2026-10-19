@@ -12,9 +12,10 @@
 | `airtable_sync/` | Airtable bidirectional sync for members, spaces, leases, votes |
 | `kiln/` | Ceramics Guild kiln tickets (#691), a tab on that guild's page: tickets with photos and flags, loading, unloading with ready for pickup notices, the kiln log, the clay and glaze lists; see `kiln/AGENTS.md` |
 | `polls/` | Polls for the Spotlight (#708): a question, 2 to 6 answers, open until it expires, one vote per member; posted from Admin Tools > Spotlight; see `polls/AGENTS.md` |
+| `hq/` | The Holiday Bizarre HQ (Track C): one hub page per event with a hero band, goal chips and nine door cards an admin opens to the public, to members or to named people; behind the `holiday_bizarre` switch; see `hq/AGENTS.md` |
 | `plfog/` | Django project: settings, urls, wsgi, auto_admin, adapters |
 
-Those seven plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
+Those nine plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
 
 | Directory | What it is |
 |-----------|-----------|
@@ -60,6 +61,8 @@ Those seven plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Ot
 
 ### polls
 - `Poll` / `PollChoice` / `PollVote` — Spotlight polls (#708); open while `opens_at <= now < closes_at`; one vote per member per poll
+### hq
+- `EventHub` / `HubCard` / `HubGoal` — the Holiday Bizarre HQ: the one open hub, its door cards (kind, audience, named members, hidden) and its goal chips; `hq.services.goal_rows` counts the live kinds
 ### classes (book CMS — `book.` subdomain)
 - `Category` (+ `verbose_name`) — class grouping; **UI labeled "Guild"** (see relabel plan); optional FK to `membership.Guild`
 - `ClassOffering` (+ `ClassOfferingQuerySet`) — a class; status DRAFT/PENDING/PUBLISHED/ARCHIVED; `public()` / `bookable()`; sequential approval state machine; instructor welcome-email fields
@@ -117,6 +120,7 @@ Those seven plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Ot
 /classes/admin/                 CMS admin (overview, classes, registrations, categories, discount codes, settings)
 /classes/admin/registrations/export/  Registrations CSV download (admins only)
 /account/                       Book CMS account area (classes.account)
+/hq/                            The Holiday Bizarre HQ: 302 to the open hub's page (/hq/<slug>/, public); /hq/new/, /hq/<slug>/edit/ and /hq/<slug>/cards/<pk>/edit/ for admins
 /kiln/                          Kiln tickets (a guest's home; members land on the Ceramics Guild page's ?tab=kiln; /kiln/load/, /kiln/unload/, /kiln/log/, /kiln/lists/ for the crew and admins)
 /manage/spotlight/              Admin Tools > Spotlight (#708): Spotlight text and meeting with a preview, polls, past polls
 /manage/bookings/               Manage Bookings (#768): the one home for everyone who runs orientations or equipment; /orientations/manage/ 302s here
