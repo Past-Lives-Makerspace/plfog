@@ -52,12 +52,14 @@ if TYPE_CHECKING:
 
 
 def index(request: HttpRequest) -> HttpResponse:
-    """``/hq/``: the open hub's page. With none open, an admin is sent to make one; everyone else gets a 404."""
+    """``/hq/``: the open hub's page. With none open, an admin goes to a closed hub if one exists, else to
+    the Load Lee's HQ page; everyone else gets a 404."""
     hub = EventHub.objects.open()
     if hub is not None:
         return redirect(hub.get_absolute_url())
     if renders_as_admin(request):
-        return redirect("hq:create")
+        closed = EventHub.objects.order_by("-created_at").first()
+        return redirect(closed.get_absolute_url() if closed is not None else "hq:setup")
     raise Http404("No HQ is open.")
 
 
@@ -83,9 +85,25 @@ def hub_page(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @fog_admin_required
-def create(request: HttpRequest) -> HttpResponse:
-    """Make a hub. Its nine door cards come with it, so the page is never empty."""
-    return _hub_editor(request, None)
+def setup(request: HttpRequest) -> HttpResponse:
+    """``/hq/new/``: load Lee's HQ (her doors, goals and shifts from :mod:`hq.holiday_bizarre`) with one button.
+
+    There is no blank form: the HQ is always Lee's. Once a hub exists this page sends an admin to it.
+    """
+    existing = EventHub.objects.order_by("-created_at").first()
+    if existing is not None:
+        return redirect(existing.get_absolute_url())
+    if request.method == "POST":
+        from hq.management.commands.seed_holiday_bizarre import seed
+
+        with transaction.atomic():
+            report = seed()
+        messages.success(
+            request,
+            "Lee's HQ is loaded. Every door is admins only until you open it, and Edit HQ links the calendar event.",
+        )
+        return redirect(report.hub.get_absolute_url())
+    return render(request, "hq/setup.html")
 
 
 @fog_admin_required
@@ -94,26 +112,19 @@ def edit(request: HttpRequest, slug: str) -> HttpResponse:
     return _hub_editor(request, get_object_or_404(EventHub, slug=slug))
 
 
-def _hub_editor(request: HttpRequest, hub: EventHub | None) -> HttpResponse:
-    instance = hub if hub is not None else EventHub()
+def _hub_editor(request: HttpRequest, hub: EventHub) -> HttpResponse:
     if request.method == "POST":
-        form = HubForm(request.POST, request.FILES, instance=instance)
-        formset = HubGoalFormSet(request.POST, instance=instance, prefix="goals")
+        form = HubForm(request.POST, request.FILES, instance=hub)
+        formset = HubGoalFormSet(request.POST, instance=hub, prefix="goals")
         if form.is_valid() and formset.is_valid():
             with transaction.atomic():
                 saved = form.save()
-                formset.instance = saved
                 formset.save()
-                if hub is None:
-                    saved.seed_default_cards()
-            if hub is None:
-                messages.success(request, "HQ made. Its nine doors are admins only until you open them.")
-            else:
-                messages.success(request, "HQ saved.")
+            messages.success(request, "HQ saved.")
             return redirect(saved.get_absolute_url())
     else:
-        form = HubForm(instance=instance)
-        formset = HubGoalFormSet(instance=instance, prefix="goals")
+        form = HubForm(instance=hub)
+        formset = HubGoalFormSet(instance=hub, prefix="goals")
     return render(
         request,
         "hq/edit.html",

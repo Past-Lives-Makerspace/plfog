@@ -263,12 +263,20 @@ def describe_seeding():
 
 
 def describe_refusals():
-    def it_refuses_without_an_event(event):
-        with pytest.raises(CommandError, match=r"--event <pk> is required") as excinfo:
-            _run()
+    def it_seeds_with_no_event_when_none_is_named():
+        out = _run()
 
-        assert f"Published upcoming events: {event.pk} Holiday Bizarre (" in str(excinfo.value)
-        assert _counts() == (0, 0, 0, 0)
+        hub = EventHub.objects.get(slug=HUB.slug)
+        assert hub.event is None
+        assert _counts() == (1, 9, 4, 21)
+        assert "Seeded for no event" in out
+
+    def it_leaves_an_existing_hubs_event_alone_when_none_is_named(event):
+        _run("--event", str(event.pk))
+
+        _run()
+
+        assert EventHub.objects.get(slug=HUB.slug).event_id == event.pk
 
     def it_lists_only_published_upcoming_events_to_pick_from(event):
         CommunityEventFactory(community=True, title="Last Winter", starts_at=timezone.now() - timedelta(days=300))
@@ -285,7 +293,7 @@ def describe_refusals():
 
     def it_says_where_to_make_the_event_when_none_is_published():
         with pytest.raises(CommandError, match=r"make the Holiday Bizarre at /events/add/ first"):
-            _run()
+            _run("--event", "999999")
 
     def it_refuses_an_event_that_is_not_published():
         pending = CommunityEventFactory(community=True, title="Not Yet", pending=True)

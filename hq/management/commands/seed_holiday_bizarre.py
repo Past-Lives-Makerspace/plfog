@@ -1,15 +1,18 @@
 """Seed Lee's Holiday Bizarre HQ from :mod:`hq.holiday_bizarre`: the hub, its nine doors, four goals and 21 shifts.
 
-A command, never a migration (STANDARDS §3 and §10): deploys do not run it, and the calendar
-event it organises is made by hand at ``/events/add/`` first. Run it once after that, as a
-Render job::
+A command, never a migration (STANDARDS §3 and §10): deploys do not run it. An admin loads the
+same content from ``/hq/new/`` (the Load Lee's HQ button, :func:`hq.views.setup`), so the command
+is for a shell or a Render job::
 
-    manage.py seed_holiday_bizarre --event <pk> [--dry-run]
+    manage.py seed_holiday_bizarre [--event <pk>] [--dry-run]
+
+``--event`` is optional: without it the hub is made with no event, and an admin links the
+calendar event later from Edit HQ.
 
 The acceptance criterion: it runs twice without duplicates and never touches an admin's
 edits. Everything is written on create only. A hub that already exists keeps its title,
 eyebrow, intro, footer note and open state; only its event moves, and only when ``--event``
-names a different one, which the output says. The three live doors are made one by one,
+names a different one, which the output says; with no ``--event`` it is left alone. The three live doors are made one by one,
 keyed on kind (unique on a hub, so a renamed one is still found). The six placeholders, the
 four goals and the 21 shifts are each made only on a hub that holds none of that kind of
 row: all three are editable and have no stable key, so a renamed or deleted row never grows
@@ -96,7 +99,7 @@ class SeedReport:
             f"Shifts: {self.shifts.created} created, {self.shifts.kept} kept as edited.",
         ]
 
-    def summary(self, event: CommunityEvent, *, dry_run: bool) -> str:
+    def summary(self, event: CommunityEvent | None, *, dry_run: bool) -> str:
         """The last line: the counts in one sentence, in the conditional for a dry run."""
         if self.hub_created:
             hub = "created"
@@ -108,15 +111,16 @@ class SeedReport:
             f"{self.cards.created} cards, {self.goals.created} goals, {self.shifts.created} shifts created; "
             f"{self.cards.kept} cards, {self.goals.kept} goals, {self.shifts.kept} shifts kept."
         )
+        target = f"event {event.pk} ({event.title})" if event is not None else "no event"
         if dry_run:
-            return f"Dry run for event {event.pk} ({event.title}), rolled back: hub would be {hub}; {counts}"
-        return f"Seeded for event {event.pk} ({event.title}): hub {hub}; {counts}"
+            return f"Dry run for {target}, rolled back: hub would be {hub}; {counts}"
+        return f"Seeded for {target}: hub {hub}; {counts}"
 
 
-def published_event(pk: int | None) -> CommunityEvent:
-    """The published calendar event at ``pk``, or a :class:`CommandError` that says what to do instead."""
+def published_event(pk: int | None) -> CommunityEvent | None:
+    """The published calendar event at ``pk`` (None when no pk was given), or a :class:`CommandError` that says what to do instead."""
     if pk is None:
-        raise CommandError(f"--event <pk> is required: the published calendar event the HQ organises.{_hint()}")
+        return None
     event = CommunityEvent.objects.filter(pk=pk).first()
     if event is None:
         raise CommandError(f"No calendar event has pk {pk}.{_hint()}")
@@ -138,8 +142,12 @@ def _hint() -> str:
     return f" Published upcoming events: {listed}."
 
 
-def seed(event: CommunityEvent) -> SeedReport:
-    """Write Lee's HQ for ``event``, creating what is missing and leaving the rest alone, and say what happened."""
+def seed(event: CommunityEvent | None = None) -> SeedReport:
+    """Write Lee's HQ, creating what is missing and leaving the rest alone, and say what happened.
+
+    ``event`` links the hub to its calendar event; None makes a new hub with none and leaves an
+    existing hub's event as it is.
+    """
     hub = EventHub.objects.filter(slug=HUB.slug).first()
     if hub is None:
         blocked_by = EventHub.objects.filter(is_open=True).first()
@@ -154,7 +162,7 @@ def seed(event: CommunityEvent) -> SeedReport:
         )
         report = SeedReport(hub=hub, hub_created=True, blocked_by=blocked_by)
     else:
-        changed = hub.event_id != event.pk
+        changed = event is not None and hub.event_id != event.pk
         report = SeedReport(hub=hub, hub_created=False, event_changed_to=event if changed else None)
         if changed:
             hub.event = event
@@ -239,8 +247,8 @@ def _seed_shifts(hub: EventHub, tally: Tally) -> None:
 
 class Command(BaseCommand):
     help = (
-        "Create the Holiday Bizarre HQ (hub, nine doors, four goals, 21 shifts) for a published calendar "
-        "event. Runs twice without duplicates and never touches an admin's edits; --dry-run rolls everything "
+        "Create the Holiday Bizarre HQ (hub, nine doors, four goals, 21 shifts), linked to a published "
+        "calendar event when --event names one. Runs twice without duplicates and never touches an admin's edits; --dry-run rolls everything "
         "back and writes nothing."
     )
 
@@ -249,7 +257,7 @@ class Command(BaseCommand):
             "--event",
             type=int,
             default=None,
-            help="The pk of the PUBLISHED calendar event the HQ organises (made first at /events/add/).",
+            help="Optional: the pk of the PUBLISHED calendar event the HQ organises. Leave it out and link the event from Edit HQ.",
         )
         parser.add_argument(
             "--dry-run",
