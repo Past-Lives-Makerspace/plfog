@@ -5,13 +5,13 @@ file path via ``importlib``, the same way ``bot_review_post_spec.py`` loads its 
 
 Two properties carry most of the weight here.
 
-**Forward only.** A card at Present must not be dragged back to Implement by the next push to
+**Forward only.** A card at Review must not be dragged back to Progress by the next push to
 its branch, because a fix round on a reviewed pull request is several pushes and the board
 would thrash. The rank comparison is the guard, and ``--force`` is the one sanctioned way
 past it.
 
 **Issue resolution must not scrape.** PR #366's body reads "Closes #364. Parent epic: #358
-(stays open...)" — a loose ``#\\d+`` scrape would have marched the epic to Observe against
+(stays open...)" — a loose ``#\\d+`` scrape would have marched the epic to Done against
 the body's own explicit instruction. So the specs pin the narrowest-first order and pin that
 prose mentioning a ticket mid-sentence resolves to nothing.
 """
@@ -209,7 +209,7 @@ def describe_project_status():
             project_id, field_id, options = module.load_board(_ORG, 4, "tok")
             assert project_id == _PROJECT_ID
             assert field_id == _FIELD_ID
-            assert options["Observe"] == "opt_Observe / Checking Production"
+            assert options["Draft"] == "opt_In Draft (Awaiting Mock/Screenshot Approval)"
 
         def describe_when_the_organization_is_invisible():
             def it_raises(module, serve):
@@ -237,11 +237,11 @@ def describe_project_status():
 
         def describe_when_a_phase_column_is_missing():
             def it_names_every_missing_column(module, serve):
-                present = [_COLUMNS["Triage"], _COLUMNS["Plan"], "Done"]
+                present = [_COLUMNS["Triage"], _COLUMNS["Draft"], "Done"]
                 serve(board=_board(present))
                 with pytest.raises(
                     module.ProjectStatusError,
-                    match="Research / Finding Facts, Implement / Building, Present / In Review",
+                    match="In Progress, In Bot Review, Ready to Merge",
                 ):
                     module.load_board(_ORG, 4, "tok")
 
@@ -286,12 +286,12 @@ def describe_project_status():
     def describe_current_status():
         def it_returns_the_board_column_verbatim(module, serve):
             # The board's own spelling, not the phase. move() does the translating.
-            serve(item_status=_status("Present"))
-            assert module.current_status(_ITEM_ID, "tok") == "Present / In Review"
+            serve(item_status=_status("Review"))
+            assert module.current_status(_ITEM_ID, "tok") == "In Bot Review"
 
         def it_asks_for_the_status_field_by_name_rather_than_paging_every_value(module, serve):
             # A paged fieldValues(first: N) read "unset" once a card carried more than N values.
-            server = serve(item_status=_status("Present"))
+            server = serve(item_status=_status("Review"))
             module.current_status(_ITEM_ID, "tok")
             assert server.sent("item_status") == [{"item": _ITEM_ID, "name": "Status"}]
 
@@ -310,16 +310,28 @@ def describe_project_status():
         def it_maps_every_phase_to_a_column(module):
             assert set(module.COLUMNS) == set(module.PHASES)
 
-        def it_pairs_the_method_word_with_a_plain_one(module):
-            assert module.COLUMNS["Present"] == "Present / In Review"
-            assert module.COLUMNS["Observe"] == "Observe / Checking Production"
+        def it_names_the_board_columns_in_board_order(module):
+            assert [module.COLUMNS[p] for p in module.PHASES] == [
+                "Triage / Not Started",
+                "In Progress",
+                "In Draft (Awaiting Mock/Screenshot Approval)",
+                "In Bot Review",
+                "Ready to Merge",
+                "Done",
+            ]
+
+        def it_does_not_require_a_backlog_column(module, serve):
+            """Backlog is where people park cards; no event moves a card there."""
+            serve(board=_board())
+            module.load_board(_ORG, 4, "tok")
+            assert "Backlog" not in module.COLUMNS.values()
 
         def it_reads_a_board_column_back_as_its_phase(module, serve):
-            """The round trip that the CLI depends on: the board says "Present / In Review",
-            and a --status Implement must still be recognised as a backwards move."""
-            server = serve(board=_board(), issue=_issue(), item_status=_status("Present"))
-            result = module.move("o", "r", 357, "Implement", _ORG, 4, "tok")
-            assert result == "#357 is in Present, which is not behind Implement; left alone."
+            """The round trip that the CLI depends on: the board says "In Bot Review",
+            and a --status Progress must still be recognised as a backwards move."""
+            server = serve(board=_board(), issue=_issue(), item_status=_status("Review"))
+            result = module.move("o", "r", 357, "Progress", _ORG, 4, "tok")
+            assert result == "#357 is in Review, which is not behind Progress; left alone."
             assert server.sent("set") == []
 
     def describe_move():
@@ -327,12 +339,12 @@ def describe_project_status():
             server = serve(
                 board=_board(),
                 issue=_issue(item=True),
-                item_status=_status("Implement"),
+                item_status=_status("Progress"),
                 set={"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": _ITEM_ID}}},
             )
-            result = module.move("o", "r", 357, "Present", _ORG, 4, "tok")
-            assert result == "#357: Implement -> Present"
-            assert server.sent("set")[0]["option"] == "opt_Present / In Review"
+            result = module.move("o", "r", 357, "Review", _ORG, 4, "tok")
+            assert result == "#357: Progress -> Review"
+            assert server.sent("set")[0]["option"] == "opt_In Bot Review"
 
         def describe_when_the_issue_is_not_on_the_board_yet():
             def it_adds_the_card_first_and_says_so(module, serve):
@@ -342,35 +354,35 @@ def describe_project_status():
                     add={"addProjectV2ItemById": {"item": {"id": _ITEM_ID}}},
                     set={"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": _ITEM_ID}}},
                 )
-                result = module.move("o", "r", 357, "Implement", _ORG, 4, "tok")
-                assert result == "#357: no status -> Implement (added to the board)"
+                result = module.move("o", "r", 357, "Progress", _ORG, 4, "tok")
+                assert result == "#357: no status -> Progress (added to the board)"
                 assert server.sent("add")[0]["content"] == _ISSUE_ID
 
         def describe_when_the_card_is_already_in_the_target_column():
             def it_does_nothing(module, serve):
-                server = serve(board=_board(), issue=_issue(), item_status=_status("Observe"))
-                assert module.move("o", "r", 357, "Observe", _ORG, 4, "tok") == (
-                    "#357 is already in Observe; nothing to do."
+                server = serve(board=_board(), issue=_issue(), item_status=_status("Progress"))
+                assert module.move("o", "r", 357, "Progress", _ORG, 4, "tok") == (
+                    "#357 is already in Progress; nothing to do."
                 )
                 assert server.sent("set") == []
 
         def describe_when_the_card_is_already_further_along():
             def it_refuses_to_drag_it_backwards(module, serve):
-                server = serve(board=_board(), issue=_issue(), item_status=_status("Present"))
-                result = module.move("o", "r", 357, "Implement", _ORG, 4, "tok")
-                assert result == "#357 is in Present, which is not behind Implement; left alone."
+                server = serve(board=_board(), issue=_issue(), item_status=_status("Ready"))
+                result = module.move("o", "r", 357, "Progress", _ORG, 4, "tok")
+                assert result == "#357 is in Ready, which is not behind Progress; left alone."
                 assert server.sent("set") == []
 
             def it_moves_anyway_when_forced(module, serve):
                 server = serve(
                     board=_board(),
                     issue=_issue(),
-                    item_status=_status("Observe"),
+                    item_status=_status("Ready"),
                     set={"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": _ITEM_ID}}},
                 )
-                result = module.move("o", "r", 357, "Research", _ORG, 4, "tok", force=True)
-                assert result == "#357: Observe -> Research"
-                assert server.sent("set")[0]["option"] == "opt_Research / Finding Facts"
+                result = module.move("o", "r", 357, "Draft", _ORG, 4, "tok", force=True)
+                assert result == "#357: Ready -> Draft"
+                assert server.sent("set")[0]["option"] == "opt_In Draft (Awaiting Mock/Screenshot Approval)"
 
         def describe_when_the_card_sits_in_a_column_that_is_not_a_phase():
             def it_treats_it_as_behind_everything_and_moves(module, serve):
@@ -380,7 +392,16 @@ def describe_project_status():
                     item_status=_status("Icebox"),
                     set={"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": _ITEM_ID}}},
                 )
-                assert module.move("o", "r", 357, "Plan", _ORG, 4, "tok") == "#357: Icebox -> Plan"
+                assert module.move("o", "r", 357, "Progress", _ORG, 4, "tok") == "#357: Icebox -> Progress"
+
+            def it_moves_a_card_out_of_backlog(module, serve):
+                serve(
+                    board=_board([*(_COLUMNS[p] for p in _PHASES), "Backlog"]),
+                    issue=_issue(),
+                    item_status=_status("Backlog"),
+                    set={"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": _ITEM_ID}}},
+                )
+                assert module.move("o", "r", 357, "Progress", _ORG, 4, "tok") == "#357: Backlog -> Progress"
 
         def describe_with_a_status_that_is_not_a_phase():
             def it_raises_before_touching_the_api(module, serve):
@@ -481,11 +502,11 @@ def describe_project_status():
             serve(
                 board=_board(),
                 issue=_issue(),
-                item_status=_status("Plan"),
+                item_status=_status("Triage"),
                 set={"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": _ITEM_ID}}},
             )
-            assert module.main(["--issue", "357", "--status", "Implement"]) == 0
-            assert "#357: Plan -> Implement" in capsys.readouterr().out
+            assert module.main(["--issue", "357", "--status", "Progress"]) == 0
+            assert "#357: Triage -> Progress" in capsys.readouterr().out
 
         def it_moves_every_issue_a_pull_request_names(module, serve, env, capsys):
             pr = {
@@ -501,13 +522,13 @@ def describe_project_status():
                 pr=pr,
                 board=_board(),
                 issue=_issue(),
-                item_status=_status("Implement"),
+                item_status=_status("Review"),
                 set={"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": _ITEM_ID}}},
             )
-            assert module.main(["--pr", "363", "--status", "Present"]) == 0
+            assert module.main(["--pr", "363", "--status", "Ready"]) == 0
             out = capsys.readouterr().out
-            assert "#357: Implement -> Present" in out
-            assert "#358: Implement -> Present" in out
+            assert "#357: Review -> Ready" in out
+            assert "#358: Review -> Ready" in out
 
         def it_reads_an_issue_number_out_of_a_branch(module, serve, env, capsys):
             serve(
@@ -516,8 +537,8 @@ def describe_project_status():
                 item_status=_status(None),
                 set={"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": _ITEM_ID}}},
             )
-            assert module.main(["--branch", "fog/357-topbar", "--status", "Implement"]) == 0
-            assert "#357: no status -> Implement" in capsys.readouterr().out
+            assert module.main(["--branch", "fog/357-topbar", "--status", "Progress"]) == 0
+            assert "#357: no status -> Progress" in capsys.readouterr().out
 
         def it_passes_force_through(module, serve, env, capsys):
             serve(
@@ -526,42 +547,42 @@ def describe_project_status():
                 item_status=_status("Done"),
                 set={"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": _ITEM_ID}}},
             )
-            assert module.main(["--issue", "357", "--status", "Plan", "--force"]) == 0
-            assert "#357: Done -> Plan" in capsys.readouterr().out
+            assert module.main(["--issue", "357", "--status", "Draft", "--force"]) == 0
+            assert "#357: Done -> Draft" in capsys.readouterr().out
 
         def describe_when_nothing_names_a_ticket():
             def it_succeeds_quietly(module, serve, env, capsys):
                 serve()
-                assert module.main(["--branch", "fog/no-number-here", "--status", "Implement"]) == 0
+                assert module.main(["--branch", "fog/no-number-here", "--status", "Progress"]) == 0
                 assert "nothing to do" in capsys.readouterr().out
 
         def describe_when_a_required_variable_is_missing():
             def it_fails_naming_the_variable(module, serve, env, monkeypatch, capsys):
                 monkeypatch.delenv("PROJECT_PAT")
-                assert module.main(["--issue", "357", "--status", "Plan"]) == 1
+                assert module.main(["--issue", "357", "--status", "Progress"]) == 1
                 assert "PROJECT_PAT is not set" in capsys.readouterr().err
 
             def it_fails_on_an_empty_variable_too(module, serve, env, monkeypatch, capsys):
                 monkeypatch.setenv("PROJECT_NUMBER", "")
-                assert module.main(["--issue", "357", "--status", "Plan"]) == 1
+                assert module.main(["--issue", "357", "--status", "Progress"]) == 1
                 assert "PROJECT_NUMBER is not set" in capsys.readouterr().err
 
         def describe_when_the_board_number_is_not_a_number():
             def it_fails_with_an_annotation_not_a_traceback(module, serve, env, monkeypatch, capsys):
                 monkeypatch.setenv("PROJECT_NUMBER", "four")
-                assert module.main(["--issue", "357", "--status", "Plan"]) == 1
+                assert module.main(["--issue", "357", "--status", "Progress"]) == 1
                 assert "PROJECT_NUMBER must be the board's number, got 'four'" in capsys.readouterr().err
 
         def describe_when_the_repository_is_not_owner_slash_repo():
             def it_fails(module, serve, env, monkeypatch, capsys):
                 monkeypatch.setenv("GITHUB_REPOSITORY", "plfog")
-                assert module.main(["--issue", "357", "--status", "Plan"]) == 1
+                assert module.main(["--issue", "357", "--status", "Progress"]) == 1
                 assert "owner/repo" in capsys.readouterr().err
 
         def describe_when_the_board_cannot_be_reached():
             def it_emits_a_workflow_error_annotation(module, serve, env, capsys):
                 serve(board={"organization": None})
-                assert module.main(["--issue", "357", "--status", "Plan"]) == 1
+                assert module.main(["--issue", "357", "--status", "Progress"]) == 1
                 err = capsys.readouterr().err
                 assert err.startswith("::error title=Delivery board not updated::")
                 assert "No organization" in err
@@ -574,7 +595,7 @@ def describe_project_status():
         def describe_with_no_source_at_all():
             def it_is_refused_by_the_argument_parser(module, env):
                 with pytest.raises(SystemExit):
-                    module.main(["--status", "Plan"])
+                    module.main(["--status", "Progress"])
 
     def describe_the_query_documents():
         def it_declares_no_variable_it_does_not_use(module):
