@@ -1,0 +1,95 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+The volunteer sign-up page (Track C, part 2), in the look of Lee's sheet: a header with the
+hub's name and date line, a navy band with the people count, the spots meter and the most
+needed shift, then 1. Your Info (kept in the session, prefilled for a member) and 2. Pick Your
+Shifts by phase. Sign Me Up and Remove Me post over htmx and get the refreshed row and band
+back with a toast; a plain post lands back here with a message. Organisers (admins and the
+card's named members) get the roster at the foot. No login gate of its own: card_view decides
+who may open the page.
+{% endcomment %}
+{% block title %}{{ card.title }}{% endblock %}
+{% block extra_head %}
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq-vol" data-hq-volunteers>
+  <header class="pl-hq-vol__header">
+    <div class="pl-hq-vol__heading">
+      <h1 class="pl-hq-vol__title">{{ card.title }}</h1>
+      <p class="pl-hq-vol__subline" data-hq-vol-subline>{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %}</p>
+    </div>
+    <a href="{% url 'hq:page' hub.slug %}" class="pl-hq-vol__back" data-hq-vol-back>&larr; HQ</a>
+  </header>
+
+  {% include "hq/partials/_volunteer_band.html" with band=band %}
+
+  <section class="pl-hq-vol__section" aria-labelledby="hq-vol-info-title">
+    <h2 class="pl-hq-vol__h2" id="hq-vol-info-title">1. Your Info</h2>
+    <form method="post" action="{% url 'hq:volunteer_info' hub.slug %}" class="pl-hq-vol__card pl-hq-vol__form" data-hq-vol-info>
+      {% csrf_token %}
+      {% if info_saved %}
+      <p class="pl-hq-vol__ok" data-hq-vol-saved>You're on the list as {{ person.name }} ({{ person.email }}). Change anything below and save again.</p>
+      {% elif person %}
+      <p class="pl-hq-vol__hint" data-hq-vol-prefilled>Filled in from your membership. Add a note or your permit if you like, then save.</p>
+      {% else %}
+      <p class="pl-hq-vol__hint" data-hq-vol-empty>Nothing saved yet. Tell us who you are, then pick your shifts below.</p>
+      {% endif %}
+      <div class="pl-hq-vol__fields">
+        {% include "components/form_field.html" with field=form.name %}
+        {% include "components/form_field.html" with field=form.email %}
+        {% include "components/form_field.html" with field=form.phone %}
+      </div>
+      {% include "components/form_field.html" with field=form.has_olcc %}
+      {% include "components/form_field.html" with field=form.note %}
+      {% if is_guest %}
+      {# The honeypot: off screen for people, tempting for a bot; a filled value saves nothing. #}
+      <div class="pl-hq-vol__trap" aria-hidden="true">
+        {% include "components/form_field.html" with field=form.website %}
+      </div>
+      {% endif %}
+      <div class="pl-hq-vol__actions">
+        <button type="submit" class="pl-hq-vol__btn pl-hq-vol__btn--primary" data-hq-vol-save>Save my info</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="pl-hq-vol__section" aria-labelledby="hq-vol-shifts-title" data-hq-vol-shifts>
+    <h2 class="pl-hq-vol__h2" id="hq-vol-shifts-title">2. Pick Your Shifts</h2>
+    {% if not person %}
+    <p class="pl-hq-vol__hint" data-hq-vol-need-info>Save your info in step 1 and the buttons here switch on.</p>
+    {% endif %}
+    {% for group in phases %}
+    <div class="pl-hq-vol__phase" data-hq-phase="{{ group.key }}">
+      <h3 class="pl-hq-vol__h3">{{ group.label }}</h3>
+      <div class="pl-hq-vol__shifts">
+        {% for shift in group.shifts %}
+        {% include "hq/partials/_shift.html" with shift=shift hub=hub person=person mine=mine %}
+        {% endfor %}
+      </div>
+    </div>
+    {% empty %}
+    <p class="pl-hq-vol__hint" data-hq-vol-no-shifts>No shifts posted yet. Check back soon.</p>
+    {% endfor %}
+  </section>
+
+  {% if wine_url %}
+  <section class="pl-hq-vol__section" aria-labelledby="hq-vol-wine-title">
+    <h2 class="pl-hq-vol__h2" id="hq-vol-wine-title">Wine Wall</h2>
+    <div class="pl-hq-vol__card pl-hq-vol__link-card">
+      <p class="pl-hq-vol__link-text">Collecting bottles too? Log each one as it comes in.</p>
+      <a href="{{ wine_url }}" class="pl-hq-vol__btn pl-hq-vol__btn--ghost" data-hq-vol-wine>Open the Wine Wall</a>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if can_organize %}
+  <section class="pl-hq-vol__section" aria-labelledby="hq-vol-roster-title" data-hq-vol-organizers>
+    <h2 class="pl-hq-vol__h2" id="hq-vol-roster-title">Roster</h2>
+    {% include "hq/partials/_roster.html" with hub=hub roster=roster roster_emails=roster_emails %}
+  </section>
+  {% endif %}
+</div>
+{% endblock %}
