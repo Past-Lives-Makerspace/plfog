@@ -5,6 +5,9 @@ a Cover badge on the first card (the cover IS sort_order first; CSS :first-child
 badge on whichever card leads after any reorder, upload or delete), a Make cover button on
 every other card, and a Set focus panel that posts the point the class page frame crops around.
 On create (no pk): multi-file input that submits with the form, with local previews.
+Pass page_noun ("event page") for a page that is not a class page; the three strings naming it default to "class page".
+help_key is the Info View key stamped on the manager: the class gallery's unless given, and none at all when
+given False (the event composers do), so no class wording reaches another page's help.
 {% endcomment %}
 
 <style>
@@ -211,7 +214,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
 
 {% if offering and offering.pk %}
 <div id="gallery-manager"
-     data-help-key="teach.class-gallery"
+     {% if help_key is None %}data-help-key="teach.class-gallery"{% elif help_key %}data-help-key="{{ help_key }}"{% endif %}
      {# The composer's one step check that is not an attribute (static/js/composer_validation.js, #424): Next counts the cards in here and reads its refusal from the message attribute; tabindex lets the refusal focus this like a control. Inert on the published class form, which loads no step check. #}
      data-composer-gallery
      data-composer-gallery-message="Add at least one gallery photo."
@@ -222,7 +225,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
      data-image-url-base="{{ gallery_image_url_base }}"
      data-csrf="{{ csrf_token }}">
 
-    <p class="cls-image-hint" id="gallery-cover-hint">The cover leads the gallery on your class page. Drag to reorder, or use Make cover.</p>
+    <p class="cls-image-hint" id="gallery-cover-hint">The cover leads the gallery on your {{ page_noun|default:"class page" }}. Drag to reorder, or use Make cover.</p>
     {# addImageCard() below builds the same card for an upload; change one, change both. #}
     <div id="gallery-grid" class="cls-image-grid" aria-describedby="gallery-cover-hint">
         {% for img in offering.gallery_images.all %}
@@ -261,7 +264,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
                 <button type="button" class="pl-modal__close" data-focus-cancel aria-label="Close">&times;</button>
             </div>
             <div class="cls-focus__body">
-                <p class="cls-focus__hint" id="gallery-focus-hint">Tap the part of the photo that matters most. The frame on your class page keeps that part in view. Arrow keys move the point too.</p>
+                <p class="cls-focus__hint" id="gallery-focus-hint">Tap the part of the photo that matters most. The frame on your {{ page_noun|default:"class page" }} keeps that part in view. Arrow keys move the point too.</p>
                 <div class="cls-focus__layout">
                     <div class="cls-focus__stage">
                         <div class="cls-focus__picker" id="gallery-focus-picker" tabindex="0" role="group" aria-label="Photo" aria-describedby="gallery-focus-hint gallery-focus-readout">
@@ -270,7 +273,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
                         </div>
                     </div>
                     <div>
-                        <span class="cls-focus__preview-label">On your class page</span>
+                        <span class="cls-focus__preview-label">On your {{ page_noun|default:"class page" }}</span>
                         <div class="cls-focus__preview"><img id="gallery-focus-preview" src="" alt=""></div>
                         <p class="cls-focus__readout" id="gallery-focus-readout" aria-live="polite"></p>
                     </div>
@@ -569,7 +572,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
 {% else %}
 {# Create mode — multi-file input, previews shown locally, uploaded with form #}
 {# Same hook as the saved class container above: the step check counts the preview cards here. #}
-<div id="gallery-create" data-help-key="teach.class-gallery" data-composer-gallery data-composer-gallery-message="Add at least one gallery photo." tabindex="-1">
+<div id="gallery-create" {% if help_key is None %}data-help-key="teach.class-gallery"{% elif help_key %}data-help-key="{{ help_key }}"{% endif %} data-composer-gallery data-composer-gallery-message="Add at least one gallery photo." tabindex="-1">
     <div id="gallery-preview-grid" class="cls-image-grid"></div>
     <div class="cls-image-count" id="gallery-count"></div>
     <label class="cls-image-upload-zone" id="gallery-upload-zone">

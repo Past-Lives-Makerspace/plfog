@@ -1286,3 +1286,49 @@ def describe_calendar_subscribe_links():
 
         assert body.count(">Member calendar</a>") == 2
         assert ">Public calendar</a>" not in body
+
+
+def describe_the_rich_description_and_the_promo_video():
+    def it_stores_editor_html_sanitised(db):
+        form = CommunityEventForm(
+            data=_event_payload(description="<p>Hi</p><script>alert(1)</script>", hero_crop=""),
+            can_choose_audience=False,
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["description"] == "<p>Hi</p>"
+
+    def it_keeps_plain_text_as_typed(db):
+        form = CommunityEventForm(data=_event_payload(description="Bring paper <3"), can_choose_audience=False)
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["description"] == "Bring paper <3"
+
+    def it_takes_a_recognised_video_link_and_refuses_anything_else(db):
+        good = CommunityEventForm(
+            data=_event_payload(promo_video_url="https://youtu.be/dQw4w9WgXcQ"), can_choose_audience=False
+        )
+        assert good.is_valid(), good.errors
+        assert good.cleaned_data["promo_video_url"] == "https://youtu.be/dQw4w9WgXcQ"
+        bad = CommunityEventForm(
+            data=_event_payload(promo_video_url="https://example.com/v"), can_choose_audience=False
+        )
+        assert not bad.is_valid()
+        assert "YouTube" in bad.errors["promo_video_url"][0]
+        blank = CommunityEventForm(data=_event_payload(promo_video_url=""), can_choose_audience=False)
+        assert blank.is_valid(), blank.errors
+        assert blank.cleaned_data["promo_video_url"] == ""
+
+    def it_saves_the_sanitised_html_through_the_composer(client: Client, db):
+        _user_with_role("rich_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="rich_admin", password="pass")
+        resp = client.post(
+            reverse("hub_event_add"),
+            data=_event_payload(
+                description="<p>Bring <strong>paper</strong>.</p><script>x</script>",
+                promo_video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            ),
+        )
+        assert resp.status_code == 302
+        event = CommunityEvent.objects.get(title=_event_payload()["title"])
+        assert event.description == "<p>Bring <strong>paper</strong>.</p>"
+        assert event.description_text == "Bring paper."
+        assert event.promo_video_url == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"

@@ -928,3 +928,14 @@ def describe_DiscordScheduledEventsClient():
                 client.insert_event(SERVER_ID, {}, retry_on_rate_limit=True)
             fake_sleep.assert_not_called()
             assert route.call_count == 1
+
+
+@pytest.mark.django_db
+def describe__build_scheduled_event_body_with_editor_html():
+    def it_sends_the_description_as_plain_text():
+        event = CommunityEventFactory(
+            community=True, description="<p>Bring <strong>paper</strong>.</p><p>Second line</p>"
+        )
+        body = de._build_scheduled_event_body(event)
+        assert body["description"].startswith("Bring paper.\n\nSecond line\n\n")
+        assert "<p>" not in body["description"]

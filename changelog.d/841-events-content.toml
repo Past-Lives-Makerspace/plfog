@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-18"
+title = "Event pages get a cropped photo, a gallery and formatted text"
+changes = [
+  "Whoever edits a Calendar event can crop its photo, add up to ten gallery photos and a video link, and format the description the way class pages are written.",
+  "Event pages show the photo, the gallery and the video. Discord, Google Calendar and the calendar list keep plain text.",
+]

@@ -78,6 +78,7 @@ from hub.forms import (
     VotePreferenceForm,
 )
 from hub.autosave import autosave_refused, autosave_saved, formset_rows, wants_autosave
+from hub.event_media_views import event_media_context
 from hub.toast import trigger_toast
 from hub.calendar_entries import calendar_day
 from hub.calendar_window import CALENDAR_PAGE_SIZE, calendar_window, calendar_window_context
@@ -6458,7 +6459,11 @@ def _event_delete_confirm_message(event: CommunityEvent) -> str:
 
 
 def _event_photo_context() -> dict[str, Any]:
-    """The photo field's byte cap and its hint — one copy for all three composers."""
+    """The photo field's byte cap and its hint — one copy for all three composers.
+
+    The hero field and the gallery manager's own context (the photo to crop, the routes
+    they post to) comes from ``event_media_views.event_media_context`` beside this.
+    """
     return {
         "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
         "photo_upload_hint": (
@@ -6519,10 +6524,12 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
         )
         if form.is_valid():
             event = form.save(commit=False)
+            form.apply_hero_crop_to_instance(event)
             event.guild = guild
             if is_new:
                 event.created_by = request.user
             event.save()
+            event.add_gallery_images(form.gallery_files)
             # The form's flags are what the page told the editor a save would do: a new or
             # still-SCHEDULED event routes through schedule_or_go_live (a future publish_at
             # parks it, a cleared/back-dated one publishes now: no strand); a live event only
@@ -6554,6 +6561,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             "delete_url": reverse("hub_guild_event_delete", args=[guild.pk, event.pk]) if event.pk else None,
             "delete_confirm_message": _event_delete_confirm_message(event) if event.pk else None,
             **_event_photo_context(),
+            **event_media_context(event),
         },
     )
 
@@ -6694,6 +6702,7 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
         form = CommunityEventForm(request.POST, request.FILES, instance=event, **form_kwargs)
         if form.is_valid():
             event = form.save(commit=False)
+            form.apply_hero_crop_to_instance(event)
             if review_first:
                 # Always the approval path, whatever SiteConfiguration.member_event_policy
                 # says: the policy governs members without the grant (the propose page and
@@ -6709,6 +6718,9 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
                 messages.success(request, _PROPOSAL_SUBMITTED_MESSAGE)
             else:
                 _save_as_the_page_promised(request, event, form, is_new=is_new)
+            # An unsaved event's gallery rode the form (checked in its clean); a saved one's
+            # posts straight to the gallery routes, so this list is empty on an edit.
+            event.add_gallery_images(form.gallery_files)
             return redirect(cancel_url)
     else:
         form = CommunityEventForm(instance=event, **form_kwargs)
@@ -6728,6 +6740,7 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
             "delete_url": reverse("hub_event_delete", args=[event.pk]) if can_delete else None,
             "delete_confirm_message": _event_delete_confirm_message(event) if can_delete else None,
             **_event_photo_context(),
+            **event_media_context(event),
         },
     )
 
@@ -6878,6 +6891,7 @@ def propose_event(request: HttpRequest) -> HttpResponse:
         form = CommunityEventForm(request.POST, request.FILES, instance=event, **form_kwargs)
         if form.is_valid():
             event = form.save(commit=False)
+            form.apply_hero_crop_to_instance(event)
             published = event.propose(
                 by=user,
                 guild=form.cleaned_data.get("guild"),
@@ -6885,6 +6899,7 @@ def propose_event(request: HttpRequest) -> HttpResponse:
                 editing=False,
                 event_type=form.resolved_event_type(),
             )
+            event.add_gallery_images(form.gallery_files)
             if published:
                 messages.success(request, "Your event is live on the Calendar.")
             else:
@@ -6918,6 +6933,7 @@ def propose_event(request: HttpRequest) -> HttpResponse:
             "cancel_url": cancel_url,
             "my_proposals": my_proposals,
             **_event_photo_context(),
+            **event_media_context(event),
         },
     )
 
