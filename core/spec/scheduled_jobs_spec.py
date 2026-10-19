@@ -27,6 +27,7 @@ _DISPATCHER_ALWAYS = {
     "auto_complete_orientations",
     "send_class_reminders",
     "publish_due_events",
+    "finish_event_announcements",
     "send_event_reminders",
     "bill_tabs",
     "retry_calendar_pushes",
@@ -105,8 +106,9 @@ def describe_registry():
         # send_queued_announcements: the dispatcher skips a disabled job BEFORE it records a
         # run, so pausing this one would leave an admin's queued announcement unsent, with no
         # run record and nothing in the composer or the voting UI to show it had stalled.
+        # finish_event_announcements: the same, for an event announcement a redeploy cut short.
         pinned = {job.key for job in SCHEDULED_JOBS if not job.toggleable}
-        assert pinned == {"bill_tabs", "send_payouts", "send_queued_announcements"}
+        assert pinned == {"bill_tabs", "finish_event_announcements", "send_payouts", "send_queued_announcements"}
 
     def it_no_longer_registers_or_ships_the_retired_results_email_queue():
         # Retired with the results announcement (October 2026): nothing may re-add the job

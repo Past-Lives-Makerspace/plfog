@@ -7933,6 +7933,15 @@ class CommunityEventQuerySet(models.QuerySet):
         """Proposals a reviewer turned down (the Manage Events Declined chip)."""
         return self.filter(moderation_state=CommunityEvent.ModerationState.DECLINED)
 
+    def announcement_overdue(self, now: datetime_type) -> CommunityEventQuerySet:
+        """Events whose background announcement should have finished by ``now`` and has not.
+
+        Owed for longer than :data:`CommunityEvent.ANNOUNCEMENT_FINISH_GRACE`: the in-process
+        send was interrupted (a redeploy, a kill). Any moderation state, so the finisher also
+        clears the stamp on an event taken down before its send ran.
+        """
+        return self.filter(announcement_owed_since__lte=now - CommunityEvent.ANNOUNCEMENT_FINISH_GRACE)
+
     def past(self) -> CommunityEventQuerySet:
         """Published one-offs that have ended (the Manage Events Past chip).
 
@@ -8101,6 +8110,12 @@ class CommunityEvent(HeroCropMixin, models.Model):
 
     #: The title column's cap, shared with ``duplicate`` so " (copy)" never overflows it.
     TITLE_MAX_LENGTH = 200
+
+    #: How long the in-process announcement send has before the ``finish_event_announcements``
+    #: cron treats it as interrupted. A site-wide send takes about 30 seconds; the margin keeps
+    #: the cron from running alongside a send that is still going (harmless, since the delivery
+    #: ledger sends each slot once, but wasted work).
+    ANNOUNCEMENT_FINISH_GRACE = timedelta(minutes=5)
 
     title = models.CharField(
         max_length=TITLE_MAX_LENGTH, help_text="Event name shown on the calendar — e.g. 'Monthly Potluck'."
@@ -8329,6 +8344,17 @@ class CommunityEvent(HeroCropMixin, models.Model):
         help_text=(
             "When this event was announced (or silently marked announced) in the Discord calendar "
             "channel. NULL = not yet announced; the 15-minute announcer picks it up once published."
+        ),
+    )
+    announcement_owed_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When this event went live with its member announcement (bell, email, push and the "
+            "Discord post) still to send. The send runs in the background right after the save "
+            "and clears this when it finishes; still set after a few minutes means it was "
+            "interrupted, and the 15 minute finish_event_announcements job completes it. NULL = "
+            "nothing owed."
         ),
     )
     discord_announce_channel_id = models.CharField(
@@ -9077,10 +9103,22 @@ class CommunityEvent(HeroCropMixin, models.Model):
         Raises:
             ValueError: If ``audience`` is not one of the two known values (fail loudly).
         """
+        addresses = self.email_announcement_addresses(audience)
+        self.send_email_announcement(addresses, actor=actor)
+        return len(addresses)
+
+    def email_announcement_addresses(self, audience: str) -> list[str]:
+        """The addresses :meth:`email_announcement` would email for ``audience``, sorted.
+
+        Split out so Discord ``/create`` can report the count in its reply at once and send
+        through :meth:`send_email_announcement` in the background.
+
+        Raises:
+            ValueError: If ``audience`` is not one of the two known values (fail loudly).
+        """
         if self.event_type == self.EventType.STUDIO_HOURS:
-            return 0
+            return []
         from core.events import preferences, resolvers
-        from core.events.emit import emit
         from core.events.registry import Channel, Recipients
 
         event_key = self.announce_event_key()
@@ -9093,7 +9131,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
         else:
             raise ValueError(f"Unknown event email audience: {audience!r}")
 
-        addresses = sorted(
+        return sorted(
             {
                 email
                 for user, _reason in recipients
@@ -9101,10 +9139,19 @@ class CommunityEvent(HeroCropMixin, models.Model):
                 and Channel.EMAIL not in preferences.enabled_channels(user, event_key)
             }
         )
+
+    def send_email_announcement(self, addresses: list[str], *, actor: User | None = None) -> None:
+        """Email the launch announcement to ``addresses`` (from :meth:`email_announcement_addresses`).
+
+        Same ``period`` as the launch, so the in-app and push fan-out this emit also walks is
+        deduped against :meth:`announce` whichever runs first, and each address is claimed once.
+        """
         if not addresses:
-            return 0
+            return
+        from core.events.emit import emit
+
         emit(
-            event_key,
+            self.announce_event_key(),
             actor=actor,
             target=self,
             context=self._announce_context(),
@@ -9113,24 +9160,72 @@ class CommunityEvent(HeroCropMixin, models.Model):
             email_to=addresses,
             suppress_broadcast=True,
         )
-        return len(addresses)
 
     # --- Review lifecycle (member proposals) ----------------------------------
 
     def publish(self, *, actor: User | None = None) -> None:
         """Make a PUBLISHED event live everywhere: the single "it's live now" choke point.
 
-        Fires the one-shot announcement (idempotent via its ``period``), then
-        :meth:`push_live`. Called by :meth:`approve` and by the direct-create views.
+        Owes the one-shot announcement (:meth:`owe_announcement`, which sends it in the
+        background once the save commits), then :meth:`push_live`. Called by :meth:`approve`,
+        :meth:`publish_scheduled` and by the direct-create views. The response never waits on
+        the member fan-out (#845): a site-wide send takes about 30 seconds, and gunicorn killed
+        the request at 30 after members had already been told, so the creator saved again.
 
         A draft that was published before still carries its announcement message, whose
         RSVP and Manage buttons :meth:`unpublish` stripped; the announcer skips it on the
         kept stamp, so the buttons come back here, through the refresh path.
         """
-        self.announce(actor=actor)
+        self.owe_announcement(actor=actor)
         self.push_live(actor=actor)
         if self.discord_announce_message_id:
             self.refresh_discord_announcement(restore_buttons=True)
+
+    def owe_announcement(self, *, actor: User | None = None) -> None:
+        """Stamp the announcement as owed and send it in the background after the commit.
+
+        The stamp (``announcement_owed_since``) is what lets the ``finish_event_announcements``
+        cron complete a send the process did not live to finish. A studio-hours row never
+        announces, so it is never owed.
+        """
+        if self.event_type == self.EventType.STUDIO_HOURS:
+            return
+        from core.deferred import defer
+
+        self.announcement_owed_since = timezone.now()
+        self.save(update_fields=["announcement_owed_since", "updated_at"])
+        pk = self.pk
+        defer(lambda: CommunityEvent.finish_owed_announcement(pk, actor=actor), name=f"event:{pk}:announce")
+
+    @classmethod
+    def finish_owed_announcement(cls, pk: int, *, actor: User | None = None) -> None:
+        """Re-read event ``pk`` and finish its owed announcement; a deleted event is skipped."""
+        for event in cls.objects.filter(pk=pk):
+            event.finish_announcement(actor=actor)
+
+    def finish_announcement(self, *, actor: User | None = None) -> bool:
+        """Send the owed announcement, then clear the stamp. Safe to run any number of times.
+
+        Runs from the background thread :meth:`owe_announcement` starts and from the cron
+        backstop. Every run goes through :meth:`announce`, whose ``event:{pk}:published``
+        period claims each (member, channel) slot and the Discord post once, so a second run
+        sends only what the first did not. An event no longer published (taken down before the
+        send ran) announces nothing and just loses its stamp. The stamp is cleared only while
+        it still holds the value read here, so an event published again meanwhile stays owed.
+
+        Returns:
+            ``True`` when it announced, ``False`` when nothing was owed or the event is not live.
+        """
+        owed_since = self.announcement_owed_since
+        if owed_since is None:
+            return False
+        live = self.moderation_state == self.ModerationState.PUBLISHED
+        if live:
+            self.announce(actor=actor)
+        CommunityEvent.objects.filter(pk=self.pk, announcement_owed_since=owed_since).update(
+            announcement_owed_since=None
+        )
+        return live
 
     def push_live(self, *, actor: User | None = None) -> None:
         """Push a live event to Google Calendar and Discord Events, without announcing it.
@@ -9139,7 +9234,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
         linked Google Calendar, then likewise marks + pushes it to the Discord server's Scheduled
         Events (both best-effort — an outage records ``FAILED`` and never blocks this call; the
         Discord push self-gates to a no-op for studio hours and when Discord Events sync is off).
-        :meth:`publish` calls it after the announcement; a meeting's own event calls it alone
+        :meth:`publish` calls it once the announcement is owed; a meeting's own event calls it alone
         (:meth:`Meeting.create_calendar_event`), because its announcement waits as a draft.
         """
         if self.sync_state == self.SyncState.IDLE:
@@ -9252,6 +9347,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
         for field, blank in self._SYNC_RESET.items():
             setattr(copy, field, blank)
         copy.channel_announced_at = None
+        copy.announcement_owed_since = None
         copy.discord_announce_channel_id = ""
         copy.discord_announce_message_id = ""
         copy.import_source_uid = ""

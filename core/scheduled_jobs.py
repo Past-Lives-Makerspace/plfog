@@ -140,6 +140,20 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="finish_event_announcements",
+        name="Finish event announcements",
+        description=(
+            "Finishes telling members about a newly published event when the send was interrupted, "
+            "such as by a redeploy. Nobody is told twice."
+        ),
+        command="finish_event_announcements",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+        # Not toggleable, for the reason send_queued_announcements is not: paused, an
+        # interrupted event announcement would stay unsent with no run record to show it.
+        toggleable=False,
+    ),
+    ScheduledJob(
         key="send_event_reminders",
         name="Event reminders",
         description="Reminds members about upcoming events they can attend.",

@@ -171,6 +171,26 @@ def describe_admin_tools_manage_events_card():
             assert has_card == admitted
 
 
+def describe_admin_tools_holiday_bizarre_card():
+    """Admins reach the Holiday Bizarre HQ from Admin Tools even while its sidebar switch is Hidden."""
+
+    _HQ_HREF = reverse("hq:index")
+
+    def it_shows_to_an_admin_while_the_sidebar_switch_is_hidden(client: Client):
+        from core.features import FeatureState
+        from core.models import FeatureSwitch
+
+        FeatureSwitch.objects.update_or_create(feature_key="holiday_bizarre", defaults={"state": FeatureState.HIDDEN})
+        _login_superuser(client, "hq_card_admin")
+        grid = _tools_grid(client)
+        assert "data-tool-holiday-bizarre" in grid
+        assert f'href="{_HQ_HREF}"' in grid
+
+    def it_is_absent_for_a_calendar_administrator(client: Client):
+        _login_events_approver(client, "hq_card_cal")
+        assert "data-tool-holiday-bizarre" not in _tools_grid(client)
+
+
 def _tools_grid(client: Client) -> str:
     """Just the tool card grid from /manage/tools/, not the whole page.
 
@@ -211,6 +231,7 @@ def describe_admin_tools_card_order():
             "Announcements",
             "Feedback Inbox",
             "Growth",
+            "Holiday Bizarre HQ",
             "Instructor Inquiries",
             "Leadership Directory",
             "Locations",
