@@ -372,12 +372,15 @@ def describe_the_composer():
         assert f'data-image-url-base="{event_image_url_base()}"' in html
         assert 'value="Loom"' in html
         assert "on your event page" in html
+        # The class gallery's help key stays on the class composers; the event composers stamp none.
+        assert 'data-help-key="teach.class-gallery"' not in html
 
     def it_renders_the_create_mode_input_for_a_new_event(client: Client):
         _admin(client, "render_admin2")
         html = client.get(reverse("hub_event_add")).content.decode()
         assert 'id="gallery-create"' in html
         assert 'name="gallery_images"' in html
+        assert 'data-help-key="teach.class-gallery"' not in html
 
     def it_renders_the_create_mode_input_on_the_propose_page_and_the_guild_composer(client: Client):
         config = SiteConfiguration.load()

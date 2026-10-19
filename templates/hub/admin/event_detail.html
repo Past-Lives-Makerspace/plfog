@@ -27,12 +27,12 @@ row a draft.
   </div>
 
   {% if event.description %}
-  <h2 class="hub-detail-label">Details</h2>
+  <h2 class="hub-detail-label pl-events-admin__section">Details</h2>
   {# Editor HTML sanitized, or a plain description as paragraphs (core.html_sanitize.render_rich_body). #}
   <div class="pl-rich-body" data-event-description>{{ event.description|rich_body }}</div>
   {% endif %}
 
-  <h2 class="hub-detail-label">Actions</h2>
+  <h2 class="hub-detail-label pl-events-admin__section">Actions</h2>
   <div class="pl-btn-row" data-event-actions>
     {% if can_decide %}
     {# Approve is spaced apart from the destructive controls so it isn't fat-fingered next to Decline. #}

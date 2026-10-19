@@ -56,7 +56,7 @@
       {% include "hub/partials/_event_hero_field.html" with field=form.photo crop_field=form.hero_crop event=event %}
       <div class="pl-form-group" data-event-gallery>
         <span class="pl-form-label">Gallery</span>
-        {% include "classes/_components/image_formset.html" with offering=event page_noun="event page" %}
+        {% include "classes/_components/image_formset.html" with offering=event page_noun="event page" help_key=False %}
       </div>
       {% include "components/form_field.html" with field=form.promo_video_url field_hint="A YouTube, Instagram or Facebook video for the event page. Optional." %}
       {% include "components/form_field.html" with field=form.recurrence field_hint="A weekly event repeats on the same weekday; a monthly event repeats on the same weekday-of-month as the start (e.g. the 2nd Saturday)." %}
@@ -129,14 +129,14 @@
     </p>
     {% else %}
     <p class="hub-text-muted" id="event-save-note" style="font-size:0.8125rem; margin-bottom:1rem;">
-      {% if form.announced %}This event is already live, so saving won't announce it again. Reminders are never sent on save.{% elif form.in_review %}This event hasn't been approved, so saving won't announce it.{% else %}Saving posts the announcement to Discord and adds it to the Calendar — right away, or on your scheduled date if you set one.{% endif %}{% if google_sync_enabled %} Saving also updates this event on the linked Google Calendar.{% endif %}
+      {% if form.announced %}This event is already live, so saving won't announce it again. Reminders are never sent on save.{% elif form.in_review %}This event hasn't been approved, so saving won't announce it.{% elif form.republishes %}This event was announced before it was unpublished, so saving puts it back on the Calendar and Discord without announcing it again — right away, or on your scheduled date if you set one.{% else %}Saving posts the announcement to Discord and adds it to the Calendar — right away, or on your scheduled date if you set one.{% endif %}{% if google_sync_enabled %} Saving also updates this event on the linked Google Calendar.{% endif %}
     </p>
     {% endif %}
 
     <div class="pl-form-actions">
       {# The label is the promise: it comes from the same flags the view acts on (FRONTEND rule 21). #}
       <button type="submit" class="pl-btn pl-btn--primary" id="event-save"{% if form.saves_announce %}
-              x-text="scheduleLater && hasAnnounceAt ? 'Save and schedule' : 'Save and announce'"{% endif %}>{% if form.submits_for_review %}{% if event.pk %}Resubmit for review{% else %}Submit for review{% endif %}{% elif not form.saves_announce %}Save{% elif form.publish_at.value %}Save and schedule{% else %}Save and announce{% endif %}</button>
+              x-text="scheduleLater && hasAnnounceAt ? 'Save and schedule' : '{% if form.republishes %}Save and publish{% else %}Save and announce{% endif %}'"{% endif %}>{% if form.submits_for_review %}{% if event.pk %}Resubmit for review{% else %}Submit for review{% endif %}{% elif not form.saves_announce %}Save{% elif form.publish_at.value %}Save and schedule{% elif form.republishes %}Save and publish{% else %}Save and announce{% endif %}</button>
       <a href="{{ cancel_url }}" class="pl-btn pl-btn--secondary">Cancel</a>
       {% if delete_url %}
         <button type="button" class="pl-btn pl-btn--danger pl-form-actions__danger"

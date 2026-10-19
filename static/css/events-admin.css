@@ -1,0 +1,68 @@
+/* Manage Events (#831): the list's columns and the per event screen's sections, on top of the
+   Manage Classes table styles in hub.css. Loaded by hub/admin/events_list.html and
+   hub/admin/event_detail.html, both wrapped in .pl-events-admin. */
+
+/* The list has to fit seven columns into the content column beside the sidebar, about
+   910px at a 1280px viewport: the title keeps a smaller floor than Manage Classes, Kind
+   stays on one line with the guild ellipsised under it, the date stays on one line with
+   its recurrence pill on a second, the Eventbrite slot is an icon-width column, and
+   Created by steps aside until the viewport gives the content column room (about 1440px). */
+.pl-events-admin .admin-table-wrap td {
+    vertical-align: top;
+}
+.pl-events-admin .admin-table-wrap td.pl-class-list__title {
+    min-width: 12rem;
+}
+.pl-events-admin__kind {
+    white-space: nowrap;
+}
+.pl-events-admin__guild {
+    display: block;
+    max-width: 9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+.pl-events-admin .admin-table-wrap td.pl-events-admin__dates {
+    white-space: nowrap;
+}
+.pl-events-admin__dates .hub-pill {
+    display: inline-block;
+    margin-top: 0.25rem;
+}
+.pl-events-admin__dates .hub-pill::before {
+    /* Puts the pill on its own line under the date without a wrapper element. */
+    content: "";
+    display: block;
+}
+.pl-events-admin .admin-table-wrap th.pl-events-admin__status,
+.pl-events-admin .admin-table-wrap td.pl-events-admin__status {
+    white-space: nowrap;
+}
+.pl-events-admin__eventbrite {
+    width: 1rem;
+    text-align: center;
+}
+.pl-events-admin__eventbrite svg {
+    display: inline-block;
+    vertical-align: middle;
+}
+@media (max-width: 1439px) {
+    .pl-events-admin__creator {
+        display: none;
+    }
+}
+
+/* Light theme (Slate) contrast for the status pills, matching the Bookings tab (FRONTEND rule 7). */
+[data-theme="light"] .pl-events-admin .hub-pill--ok { color: #1f7a52; }
+[data-theme="light"] .pl-events-admin .hub-pill--neutral { color: #5b6675; }
+[data-theme="light"] .pl-events-admin .hub-pill--danger { color: #b03030; }
+[data-theme="light"] .pl-events-admin .hub-pill--warn { color: #9a6a00; }
+
+/* The per event screen: a section label clears the facts table or the description above it
+   (FRONTEND rules 18 and 26). */
+.pl-events-admin__section {
+    margin-top: 1.5rem;
+}

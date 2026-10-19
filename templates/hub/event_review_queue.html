@@ -25,7 +25,7 @@
           </div>
           {% if event.description %}
           {# Editor HTML sanitized, or a plain description as paragraphs (core.html_sanitize.render_rich_body). #}
-          <div class="pl-rich-body" data-event-description>{{ event.description|rich_body }}</div>
+          <div class="pl-rich-body pl-rich-body--compact" data-event-description>{{ event.description|rich_body }}</div>
           {% endif %}
         </div>
 

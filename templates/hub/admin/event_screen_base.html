@@ -1,5 +1,9 @@
 {% extends "hub/base.html" %}
+{% load static %}
 {% block title %}{{ event.title }} · Manage Events{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/events-admin.css' %}">
+{% endblock %}
 {% block content %}
 {% comment %}
 One event's admin screen (#831, parts 2 and 4), after the per-class screen
@@ -7,11 +11,12 @@ One event's admin screen (#831, parts 2 and 4), after the per-class screen
 line, then the tab strip, then whichever tab extends this (the Overview in event_detail.html,
 the Guest list in event_guests.html). hub.event_admin_views._event_screen_context builds what
 the header and the strip read: event, active_tab, detail_url, guests_url, list_url, when and
-can_edit. The tabs are plain links with aria-current, as templates/hub/admin/_voting_tabs.html
-does; the Eventbrite tab arrives with the Eventbrite listing (track B), shown only once an
-event is listed.
+edit_url (the composer this viewer can open, the same rule as the public event page; None
+hides Edit). The tabs are plain links with aria-current, as
+templates/hub/admin/_voting_tabs.html does; the Eventbrite tab arrives with the Eventbrite
+listing (track B), shown only once an event is listed.
 {% endcomment %}
-<div class="hub-card" data-event-admin="{{ event.pk }}">
+<div class="hub-card pl-events-admin" data-event-admin="{{ event.pk }}">
   <div class="pl-class-header">
     <div class="pl-class-header__main">
       <h1 class="pl-class-header__title">{{ event.title }}</h1>
@@ -30,7 +35,8 @@ event is listed.
       </div>
     </div>
     <div class="pl-class-header__actions">
-      {% if can_edit %}<a class="hub-btn hub-btn--sm hub-btn--primary" href="{% url 'hub_event_edit' event.pk %}" data-event-edit>Edit</a>{% endif %}
+      {# The view picks the composer this viewer can open (edit_url), the same way the event page does. #}
+      {% if edit_url %}<a class="hub-btn hub-btn--sm hub-btn--primary" href="{{ edit_url }}" data-event-edit>Edit</a>{% endif %}
       {% if event.moderation_state == "published" %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'hub_event_detail' event.pk %}" data-event-view>View page ↗</a>{% endif %}
       <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ list_url }}">Back to Manage Events</a>
     </div>

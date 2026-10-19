@@ -35,3 +35,8 @@
     font-size: 0.75rem;
     font-weight: 500;
 }
+
+/* The Events tab's state line under a row (a Draft pill, #831): clears the date line above it. */
+.pl-guild-events__state {
+    margin-top: 0.35rem;
+}
