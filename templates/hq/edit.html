@@ -1,0 +1,91 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+The hub form (new and edit): the page's words, its event, the hero image, the goals as a
+formset in the Help editor's idiom (extra=0, a hidden template row, + Add goal, Delete that
+saves the page), the Open switch, and one plain Save last. Not boosted: it uploads a file.
+{% endcomment %}
+{% block title %}{% if hub %}Edit HQ{% else %}New HQ{% endif %}{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq-edit" data-hq-edit-page>
+  {% if hub %}
+  {% url 'hq:page' hub.slug as back_url %}
+  {% include "components/page_header.html" with title="Edit HQ" description="The hero band, the goals and whether the HQ is open. Each door card has its own Edit link on the page." action_url=back_url action_label="View HQ" %}
+  {% else %}
+  {% url 'hub_home' as back_url %}
+  {% include "components/page_header.html" with title="New HQ" description="Make the HQ page. Its nine door cards come with it, admins only until you open each one." action_url=back_url action_label="Back to Home" %}
+  {% endif %}
+
+  <form method="post" enctype="multipart/form-data" class="hub-form" hx-boost="false">
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+
+    <div class="hub-card pl-hq-edit__card">
+      <h2 class="pl-hq-edit__title">The Page</h2>
+      {% include "components/form_field.html" with field=form.title %}
+      {% include "components/form_field.html" with field=form.slug %}
+      {% include "components/form_field.html" with field=form.eyebrow %}
+      {% include "components/form_field.html" with field=form.event %}
+      {% include "components/form_field.html" with field=form.intro %}
+      {% include "components/form_field.html" with field=form.footer_note %}
+    </div>
+
+    <div class="hub-card pl-hq-edit__card">
+      <h2 class="pl-hq-edit__title">Hero Image</h2>
+      {% if hub %}{% url 'hq:hero_delete' hub.slug as hero_delete_url %}{% endif %}
+      {% include "components/image_field.html" with field=form.hero_image current_image=form.instance.hero_image delete_url=hero_delete_url modal_id="delete-hq-hero" shape="rect" thumbnail_width="320px" thumbnail_height="120px" max_bytes=max_upload_bytes tooltip_html="A wide photo, about 2400 by 900 pixels, JPG or PNG. It sits behind the navy band with the title over it." confirm_title="Remove the hero image?" confirm_message="The band keeps its navy background; the photo is removed from our storage." delete_button_text="Remove" %}
+    </div>
+
+    <div class="hub-card pl-hq-edit__card">
+      <h2 class="pl-hq-edit__title">Goals</h2>
+      <p class="hub-text-muted pl-hq-edit__lead">Each goal is a chip under the hero band with a meter. Counted goals fill in on their own; a typed in goal shows the figure you enter.</p>
+      {{ formset.management_form }}
+      {% for error in formset.non_form_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+      <div class="pl-hq-goal-rows" id="hq-goal-rows">
+        {% for f in formset %}
+        {% include "hq/partials/_goal_row.html" with f=f saved=f.instance.pk %}
+        {% empty %}
+        <p class="hub-text-muted pl-hq-goal-rows__empty" data-hq-goals-empty>No goals yet. Add your first.</p>
+        {% endfor %}
+      </div>
+      {# Hidden empty-form template, cloned by the + Add goal button below. #}
+      <template id="hq-goal-empty-template">
+        {% include "hq/partials/_goal_row.html" with f=formset.empty_form saved=False %}
+      </template>
+      <button type="button" class="hub-btn hub-btn--sm pl-hq-edit__add" data-hq-add-goal
+              onclick="
+                const tpl = document.getElementById('hq-goal-empty-template');
+                const total = document.getElementById('id_goals-TOTAL_FORMS');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                const rows = document.getElementById('hq-goal-rows');
+                const empty = rows.querySelector('[data-hq-goals-empty]');
+                if (empty) empty.remove();
+                rows.appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+              ">
+        + Add goal
+      </button>
+    </div>
+
+    <div class="hub-card pl-hq-edit__card">
+      <h2 class="pl-hq-edit__title">Open or Closed</h2>
+      {% include "components/form_field.html" with field=form.is_open %}
+      {# The toggle component shows no errors of its own, and this one names the hub that is already open. #}
+      {% if form.is_open.errors %}
+      <ul class="pl-field-errors pl-hq-edit__toggle-errors">
+        {% for error in form.is_open.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+
+    <div class="pl-hq-edit__actions">
+      <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
