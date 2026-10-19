@@ -102,8 +102,8 @@ def describe_the_note_on_the_page():
         login(client, "note_member")
         body = client.get(page.get_absolute_url()).content
         assert NOTE.encode() in body
-        assert b"Edit Note" not in body
-        assert b"Add an Official Note" not in body
+        assert b"Edit official note" not in body
+        assert b"Add an official note" not in body
 
     def it_shows_staff_the_control(client: Client):
         page = WikiPageFactory()

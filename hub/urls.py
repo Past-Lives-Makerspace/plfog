@@ -757,7 +757,7 @@ urlpatterns = [
     path("events/<int:event_pk>/photo/delete/", views.event_photo_delete, name="hub_event_photo_delete"),
     # Member event proposals + reviewer queue.
     path("events/propose/", views.propose_event, name="hub_propose_event"),
-    path("events/propose/<int:pk>/edit/", views.propose_event, name="hub_propose_event_edit"),
+    path("events/propose/<int:pk>/edit/", views.propose_event_edit, name="hub_propose_event_edit"),
     path("events/<int:pk>/withdraw/", views.event_withdraw, name="hub_event_withdraw"),
     path("events/<int:pk>/retry-sync/", views.event_retry_sync, name="hub_event_retry_sync"),
     path("events/review/", views.event_review_queue, name="hub_event_review_queue"),

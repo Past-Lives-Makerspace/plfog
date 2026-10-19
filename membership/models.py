@@ -3785,7 +3785,10 @@ class AdminCapability(models.Model):
     still go to the Billing Administrators. ``BILLING_APPROVER`` additionally gates the
     admin Payments dashboard views. ``WEBMASTER`` is alert-only: it routes the
     ``automation.failed`` alert (:func:`core.scheduled_jobs.alert_webmasters`) and grants
-    no action or page.
+    no action or page. ``EVENT_CREATOR`` is action-only: it opens the Calendar's event
+    composer to a member whatever the member-event policy says, every event they add
+    going through the review queue first (:func:`membership.permissions.event_create_mode`),
+    and routes nothing.
     For every capability but ``REFUNDS`` the capability is the master switch: ONLY holders
     receive the matching notifications (and see them on the settings page); the refund
     notice above is the one union with the Admin role. A plain Admin who does not hold it gets nothing
@@ -3802,6 +3805,7 @@ class AdminCapability(models.Model):
         REFUNDS = "refunds", "Refunds"
         EQUIPMENT = "equipment", "Equipment Administrator"
         SPACE_MANAGER = "space_manager", "Space Manager"
+        EVENT_CREATOR = "event_creator", "Can create events"
         WEBMASTER = "webmaster", "Webmaster"
 
     #: What each duty actually does, in one plain sentence — the SINGLE source of the
@@ -3832,6 +3836,10 @@ class AdminCapability(models.Model):
         Capability.SPACE_MANAGER: (
             "Adds rooms and spaces members can reserve, such as the loading dock, and manages the ones they add. "
             "Cannot add tools."
+        ),
+        Capability.EVENT_CREATOR: (
+            "Adds events to the Calendar. Each one goes to an admin or a Calendar Administrator for a quick "
+            "review before it is announced."
         ),
         Capability.WEBMASTER: (
             "Gets an alert when an automation fails, such as the reminder emails, saying what broke and when. "
@@ -8927,7 +8935,7 @@ class CommunityEvent(models.Model):
         self.save(update_fields=["reviewed_by", "reviewed_at", "review_notes", "moderation_state", "updated_at"])
         from django.urls import reverse
 
-        edit_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_propose_event_edit', args=[self.pk])}"
+        edit_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_event_edit', args=[self.pk])}"
         self._emit_decision(
             "event.changes_requested",
             url=edit_url,
@@ -9023,7 +9031,7 @@ class CommunityEvent(models.Model):
                 "event_title": self.title,
                 "when": self.when_display,
                 "event_url": self.absolute_url,
-                "edit_url": f"{base}{reverse('hub_propose_event_edit', args=[self.pk])}",
+                "edit_url": f"{base}{reverse('hub_event_edit', args=[self.pk])}",
                 "propose_url": f"{base}{reverse('hub_propose_event')}",
                 "reviewer_notes": self.review_notes,
                 "publish_at": self.publish_at_display,
@@ -17895,6 +17903,19 @@ class WikiPageQuerySet(models.QuerySet["WikiPage"]):
     def space_wide(self) -> Self:
         """Pages belonging to no guild — the space-wide half of the same store."""
         return self.filter(guild__isnull=True)
+
+    def written(self) -> Self:
+        """Pages a person has edited (``body_edited_at`` is set), so the seeders' stubs drop out.
+
+        Listing stubs under Recently Updated told members a page had news on the day a command
+        created it. ``has_written_body`` also needs a non-empty body; this does not, because
+        the list is about who has been editing, not what is in the page.
+        """
+        return self.filter(body_edited_at__isnull=False)
+
+    def unwritten(self) -> Self:
+        """Stubs nobody has written in yet, which the home page lists as an invitation."""
+        return self.filter(body_edited_at__isnull=True)
 
     def visible_for(self, request: HttpRequest) -> Self:
         """The pages this request may see in a listing — a FILTER, not a check.

@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-18"
+title = "The wiki shows the pages waiting for someone to write them"
+changes = [
+  "The wiki home has a Pages Waiting For You list: pages with their sections ready and nothing written yet. Tap one to start writing.",
+  "Recently Updated now lists only pages someone has actually written in.",
+  "On a wiki page, Edit comes first. Print, History and the guild tools moved into a More menu.",
+]

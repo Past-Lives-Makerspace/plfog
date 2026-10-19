@@ -55,7 +55,7 @@ opens, because the queue has no other route on a day when nobody has reported an
             <p class="hub-text-muted pl-wp-home__empty">Nothing here yet. Start with the machine you know best.</p>
             {% if can_write %}<a href="{% url 'hub_wiki_new' %}" class="pl-btn pl-btn--primary">+ New Page</a>{% endif %}
         </div>
-        {% elif not recent_pages and not your_guild_pages and not machine_pages %}
+        {% elif not recent_pages and not your_guild_pages and not machine_pages and not waiting_pages %}
         <div class="hub-card pl-wp-home__card">
             <p class="hub-text-muted pl-wp-home__empty">Nothing matches those filters. <a href="{% url 'hub_wiki_home' %}">Clear filters</a></p>
         </div>
@@ -110,6 +110,27 @@ opens, because the queue has no other route on a day when nobody has reported an
             <ul class="pl-wp-starterlist">
                 {% for starter in starters %}
                 <li><a href="{% url 'hub_wiki_create' starter.kind %}">{{ starter.label }}</a></li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% if waiting_pages %}
+        {% comment %}
+        Stubs nobody has written in yet, offered as an invitation rather than listed as news:
+        each opens the editor on a page whose sections are already there, so the member's
+        first contribution is an edit. Same gate as Start A Page; empty when every page has
+        been written.
+        {% endcomment %}
+        <div class="hub-card pl-wp-home__card pl-wp-waiting">
+            <h2 class="hub-detail-label pl-wp-section__title">Pages Waiting For You</h2>
+            <p class="hub-text-muted pl-wp-waiting__intro">Nobody has written these yet. Pick one you know something about.</p>
+            <ul class="pl-wp-waiting__list">
+                {% for wiki_page in waiting_pages %}
+                <li class="pl-wp-waiting__item">
+                    <a href="{% url 'hub_wiki_edit' wiki_page.slug %}" class="pl-wp-waiting__link">{{ wiki_page.title }}</a>
+                    <span class="hub-text-muted pl-wp-waiting__meta">{{ wiki_page.attribute_line }}</span>
+                </li>
                 {% endfor %}
             </ul>
         </div>

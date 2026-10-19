@@ -11,7 +11,8 @@ from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
 
-from membership.models import CommunityEvent, Member
+from core.models import SiteConfiguration
+from membership.models import AdminCapability, CommunityEvent, Member
 from tests.membership.factories import CommunityEventFactory, GuildFactory, MembershipPlanFactory
 
 
@@ -144,6 +145,44 @@ def describe_cross_guild_isolation():
         assert resp.status_code == 404
         b_event.refresh_from_db()
         assert b_event.moderation_state == CommunityEvent.ModerationState.PENDING
+
+
+@pytest.mark.django_db
+def describe_a_granted_members_event_in_the_queue():
+    """An event added by a "Can create events" holder is an ordinary proposal to the reviewers:
+    it sits in the queue, and approving it publishes and announces it."""
+
+    def _granted_event(client: Client) -> CommunityEvent:
+        config = SiteConfiguration.load()
+        config.member_event_policy = SiteConfiguration.MemberEventPolicy.DISABLED
+        config.save(update_fields=["member_event_policy"])
+        creator = _user_with_role("granted_creator")
+        creator.member.admin_capabilities.create(capability=AdminCapability.Capability.EVENT_CREATOR)
+        client.login(username="granted_creator", password="pass")
+        assert client.post(reverse("hub_event_add"), data=_payload(title="Granted Potluck")).status_code == 302
+        client.logout()
+        return CommunityEvent.objects.get(title="Granted Potluck")
+
+    def it_sits_in_the_reviewers_queue(client: Client):
+        event = _granted_event(client)
+        _user_with_role("queue_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="queue_admin", password="pass")
+        resp = client.get(reverse("hub_event_review_queue"))
+        assert resp.status_code == 200
+        assert f'id="event-{event.pk}"'.encode() in resp.content
+        assert list(resp.context["pending_events"]) == [event]
+
+    def it_publishes_and_announces_once_approved(client: Client):
+        event = _granted_event(client)
+        _user_with_role("approving_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="approving_admin", password="pass")
+        with patch.object(CommunityEvent, "announce") as mock_announce:
+            resp = client.post(reverse("hub_event_review_decision", args=[event.pk]) + "?decision=approve")
+        assert resp.status_code == 302
+        event.refresh_from_db()
+        assert event.moderation_state == CommunityEvent.ModerationState.PUBLISHED
+        assert event.sync_state == CommunityEvent.SyncState.PENDING
+        mock_announce.assert_called_once()
 
 
 @pytest.mark.django_db
