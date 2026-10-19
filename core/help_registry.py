@@ -830,7 +830,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "title": "Goal tracker",
         "short_text": (
             "Where the event stands against its goals. People going, volunteer spots and bottles count "
-            "themselves from the pages behind the doors; a money goal is typed in by an admin."
+            "themselves from the pages behind the doors; the Raised goal is typed in by an admin."
         ),
         "article_slug": "holiday-bizarre-hq",
         "anchor": "hq-goal-tracker",
@@ -839,7 +839,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "title": "Pick your shifts",
         "short_text": (
             "Save your info once, then Sign Me Up on any shift with a spot open. Remove Me takes you off again. "
-            "No account needed."
+            "No account needed when the door is open to everyone."
         ),
         "article_slug": "holiday-bizarre-hq",
         "anchor": "hq-volunteer-shifts",

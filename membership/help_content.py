@@ -642,7 +642,7 @@ The Holiday Bizarre HQ is the home page for the makerspace's December party. It 
 
 ### Where It Lives {#hq-where}
 
-Click **Holiday Bizarre** in the left menu. The entry is there once an admin turns it on in Site Settings; while it reads **Coming soon**, hover it for a note. Once an HQ is open, the address `/hq/` takes anyone there, signed in or not.
+Click **Holiday Bizarre** in the left menu. While its switch in Site Settings is Hidden there is no entry at all. While it is Coming soon the entry shows greyed out and opens nothing; hover it, or tab to it, for a note. Once an HQ is open, the address `/hq/` takes anyone there, signed in or not.
 
 The top of the page shows the event's date and place, with a countdown to the night.
 
@@ -659,15 +659,15 @@ You only see the doors that are open to you. Every card starts as admins only; a
 
 ### The Goal Tracker {#hq-goal-tracker}
 
-Under the top band sits a row of goals, each with a meter. Goals that count people going, volunteer spots or bottles update themselves from the pages behind the doors. A money goal is typed in by an admin.
+Under the top band sits a row of goals, each with a meter. Goals that count people going, volunteer spots or bottles update themselves from the pages behind the doors. The Raised goal is typed in by an admin.
 
 ### RSVP on the Event Page {#hq-rsvp}
 
-The **Going to the Bizarre?** door opens the event's page. Signed-in members click **I'm going** there; your name joins **Who's coming** and the count feeds the goal tracker. **I'm not going** takes it back.
+The **Going to the Bizarre?** door opens the event's page. A door open to everyone opens without an account, but RSVPing on the event page still needs one: signed-in members click **I'm going** there; your name joins **Who's coming** and the count feeds the goal tracker. **I'm not going** takes it back.
 
 ### Sign Up for a Shift {#hq-volunteer-shifts}
 
-Open the **Volunteer Sign-up** door. You do not need an account.
+Open the **Volunteer Sign-up** door. When the door is open to everyone you do not need an account; a door open to members sends you to sign in first.
 
 1. Under **1. Your Info**, give your name and email. Phone and a note are optional. Tick the OLCC box if you hold an Oregon service permit (the bartending shifts need one). Click **Save my info**. As a guest, your info is remembered in this browser.
 2. Under **2. Pick Your Shifts**, find a shift and click **Sign Me Up**. The band at the top moves. A shift marked **Full** has no spots left; a bartending shift shows an **OLCC permit** chip.
@@ -679,7 +679,7 @@ One email holds one spot on a shift. Coming back on another device as a guest? S
 
 ### Log a Bottle {#hq-wine-wall}
 
-Open the **Log a wine bottle** door. It opens for the collectors an admin names, and for anyone else an admin opens it to. The band at the top shows the bottles so far against the goal, the value on the wall, and how many supporters have given.
+Open the **Log a wine bottle** door. It opens for the collectors an admin names, and for anyone else an admin opens it to. When it is open to everyone you can log a bottle without an account; a door open to members sends you to sign in first. The band at the top shows the bottles so far against the goal, the value on the wall, and how many supporters have given.
 
 1. Click **Log a Bottle**.
 2. Fill in the bottle: what it is (red, white, champagne, cider or beer), the name on the label, the winery, what one bottle is worth in dollars, and how many came in.

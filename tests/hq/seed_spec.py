@@ -1,5 +1,6 @@
 """The seed_holiday_bizarre command (Track C, part 4): Lee's hub, its nine doors, four goals and 21 shifts,
-written from hq.holiday_bizarre for a published calendar event, idempotently, with a dry run that writes nothing."""
+written from hq.holiday_bizarre for a published calendar event. It runs twice without duplicates and never
+touches an admin's edits; a dry run writes nothing."""
 
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from django.utils import timezone
 from hq.holiday_bizarre import CARDS, GOALS, HUB, SHIFTS
 from hq.models import DEFAULT_CARDS, EventHub, HubCard, HubGoal, ShiftPhase, ShiftSignup, VolunteerShift
 from membership.models import CommunityEvent
-from tests.hq.factories import ShiftSignupFactory
+from tests.hq.factories import EventHubFactory, HubGoalFactory, ShiftSignupFactory, VolunteerShiftFactory
 from tests.membership.factories import CommunityEventFactory
 
 pytestmark = pytest.mark.django_db
@@ -108,11 +109,11 @@ def describe_seeding():
         assert hub.shifts.get(role="Flyer runner").description.startswith("Drop flyers at SE Portland businesses")
         assert "Hub holiday-bizarre-2026 (Holiday Bizarre HQ): created, open." in out
         assert "Cards: 9 created, 0 kept as edited." in out
-        assert "Goals: 4 created, 0 updated." in out
-        assert "Shifts: 21 created, 0 updated." in out
+        assert "Goals: 4 created, 0 kept as edited." in out
+        assert "Shifts: 21 created, 0 kept as edited." in out
         assert (
             f"Seeded for event {event.pk} (Holiday Bizarre): hub created; 9 cards, 4 goals, 21 shifts created; "
-            "0 cards kept; 0 goals, 0 shifts updated."
+            "0 cards, 0 goals, 0 shifts kept."
         ) in out
 
     def it_leaves_the_new_hub_closed_while_another_hq_is_open(event, open_hub):
@@ -124,7 +125,7 @@ def describe_seeding():
         assert open_hub.is_open is True
         assert f"created, closed ({open_hub.slug} is open; open this one from Edit HQ)." in out
 
-    def it_creates_nothing_the_second_time_and_keeps_what_admins_changed(event):
+    def it_creates_nothing_the_second_time_and_keeps_every_edit(event):
         _run("--event", str(event.pk))
         hub = EventHub.objects.get(slug=HUB.slug)
         before = (
@@ -132,6 +133,10 @@ def describe_seeding():
             set(hub.goals.values_list("pk", flat=True)),
             set(hub.shifts.values_list("pk", flat=True)),
         )
+        hub.title = "Lee's HQ"
+        hub.intro = "Doors at five."
+        hub.is_open = False
+        hub.save(update_fields=["title", "intro", "is_open"])
         rsvp = hub.cards.get(kind=HubCard.Kind.RSVP)
         rsvp.title = "Renamed by Lee"
         rsvp.audience = HubCard.Audience.PUBLIC
@@ -139,58 +144,76 @@ def describe_seeding():
         ledger = hub.cards.get(title="PL Ledger")
         ledger.title = "The Ledger"
         ledger.save(update_fields=["title"])
+        rsvps = hub.goals.get(label="RSVPs")
+        rsvps.label = "People going"
+        rsvps.save(update_fields=["label"])
         raised = hub.goals.get(label="Raised")
         raised.current_value = 2_500
         raised.save(update_fields=["current_value"])
-        signup = ShiftSignupFactory(shift=hub.shifts.get(role="Flyer runner"))
+        setup = hub.shifts.get(role="Setup crew")
+        setup.when_text = "Fri Dec 4, noon to 4"
+        setup.save(update_fields=["when_text"])
+        flyers = hub.shifts.get(role="Flyer runner")
+        flyers.need = 10
+        flyers.save(update_fields=["need"])
+        photo = hub.shifts.get(role="Photo and video")
+        photo_pk = photo.pk
+        photo.delete()
+        signup = ShiftSignupFactory(shift=flyers)
 
         out = _run("--event", str(event.pk))
 
-        assert _counts() == (1, 9, 4, 21)
+        assert _counts() == (1, 9, 4, 20)
         hub.refresh_from_db()
-        assert hub.is_open is True
+        assert (hub.title, hub.intro, hub.is_open, hub.event) == ("Lee's HQ", "Doors at five.", False, event)
+        assert len(before[2]) == 21
         assert (
             set(hub.cards.values_list("pk", flat=True)),
             set(hub.goals.values_list("pk", flat=True)),
             set(hub.shifts.values_list("pk", flat=True)),
-        ) == before
+        ) == (before[0], before[1], before[2] - {photo_pk})
         rsvp.refresh_from_db()
         assert (rsvp.title, rsvp.audience) == ("Renamed by Lee", HubCard.Audience.PUBLIC)
         assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 6
         assert not hub.cards.filter(title="PL Ledger").exists()
+        assert sorted(hub.goals.values_list("label", flat=True)) == [
+            "People going",
+            "Raised",
+            "Volunteer spots",
+            "Wine wall bottles",
+        ]
         raised.refresh_from_db()
         assert raised.current_value == 2_500
+        assert hub.shifts.filter(role="Setup crew").count() == 1
+        flyers.refresh_from_db()
+        assert flyers.need == 10
+        assert not hub.shifts.filter(role="Photo and video").exists()
         assert ShiftSignup.objects.filter(pk=signup.pk).exists()
-        assert "Hub holiday-bizarre-2026 (Holiday Bizarre HQ): updated." in out
+        assert "Hub holiday-bizarre-2026 (Lee's HQ): kept as edited." in out
         assert (
-            "Cards: 0 created, 9 kept as edited. The six placeholders were already on the hub and were left as edited."
+            "Cards: 0 created, 9 kept as edited. The hub already held its placeholders, so none was added and they were left as edited."
         ) in out
-        assert "Goals: 0 created, 4 updated." in out
-        assert "Shifts: 0 created, 21 updated." in out
-        assert "hub updated; 0 cards, 0 goals, 0 shifts created; 9 cards kept; 4 goals, 21 shifts updated." in out
+        assert "Goals: 0 created, 4 kept as edited." in out
+        assert "Shifts: 0 created, 20 kept as edited." in out
+        assert "hub kept; 0 cards, 0 goals, 0 shifts created; 9 cards, 4 goals, 20 shifts kept." in out
 
-    def it_refreshes_the_words_goals_and_shifts_it_owns(event):
+    def it_moves_an_existing_hub_to_the_event_named_and_says_so(event):
         _run("--event", str(event.pk))
         hub = EventHub.objects.get(slug=HUB.slug)
-        hub.title = "Something else"
-        hub.event = None
-        hub.save(update_fields=["title", "event"])
-        bottles = hub.goals.get(label="Wine wall bottles")
-        bottles.target = 50
-        bottles.save(update_fields=["target"])
-        flyers = hub.shifts.get(role="Flyer runner")
-        flyers.need = 2
-        flyers.description = "Changed"
-        flyers.save(update_fields=["need", "description"])
+        hub.title = "Lee's HQ"
+        hub.save(update_fields=["title"])
+        other = CommunityEventFactory(community=True, title="Holiday Bizarre 2027")
 
-        _run("--event", str(event.pk))
+        out = _run("--event", str(other.pk))
 
         hub.refresh_from_db()
-        assert (hub.title, hub.event) == (HUB.title, event)
-        bottles.refresh_from_db()
-        assert bottles.target == 100
-        flyers.refresh_from_db()
-        assert (flyers.need, flyers.description) == (6, SHIFTS[0].description)
+        assert (hub.title, hub.event) == ("Lee's HQ", other)
+        assert _counts() == (1, 9, 4, 21)
+        assert (
+            f"Hub holiday-bizarre-2026 (Lee's HQ): kept as edited, event changed to {other.pk} (Holiday Bizarre 2027)."
+            in out
+        )
+        assert f"Seeded for event {other.pk} (Holiday Bizarre 2027): hub kept, event changed; 0 cards" in out
 
     def it_adds_a_missing_live_door_without_touching_the_placeholders(event):
         _run("--event", str(event.pk))
@@ -206,6 +229,37 @@ def describe_seeding():
         assert hub.cards.filter(kind=HubCard.Kind.WINE_WALL).count() == 1
         assert not hub.cards.filter(title="PL Ledger").exists()
         assert "Cards: 1 created, 8 kept as edited." in out
+
+    def it_adds_goals_and_shifts_only_to_a_hub_that_holds_none(event):
+        hub = EventHubFactory(slug=HUB.slug, title="Lee's HQ", event=event)
+        HubGoalFactory(hub=hub, label="Raised")
+        VolunteerShiftFactory(hub=hub, role="Flyer runner")
+
+        out = _run("--event", str(event.pk))
+
+        assert _counts() == (1, 9, 1, 1)
+        assert "Cards: 9 created, 0 kept as edited." in out
+        assert "Goals: 0 created, 1 kept as edited." in out
+        assert "Shifts: 0 created, 1 kept as edited." in out
+
+    def it_adds_no_placeholder_once_the_hub_holds_any_even_renamed_or_deleted(event):
+        _run("--event", str(event.pk))
+        hub = EventHub.objects.get(slug=HUB.slug)
+        hub.cards.get(title="Marketing Tracker").delete()
+        ledger = hub.cards.get(title="PL Ledger")
+        ledger.title = "The Ledger"
+        ledger.sort_order = 40
+        ledger.save(update_fields=["title", "sort_order"])
+        rsvp = hub.cards.get(kind=HubCard.Kind.RSVP)
+        rsvp.title = "Coming?"
+        rsvp.save(update_fields=["title"])
+
+        out = _run("--event", str(event.pk))
+
+        assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 5
+        assert not hub.cards.filter(title__in=["PL Ledger", "Marketing Tracker"]).exists()
+        assert hub.cards.filter(kind=HubCard.Kind.RSVP).get().title == "Coming?"
+        assert "Cards: 0 created, 8 kept as edited. The hub already held its placeholders" in out
 
 
 def describe_refusals():
@@ -250,7 +304,7 @@ def describe_a_dry_run():
         assert "Hub holiday-bizarre-2026 (Holiday Bizarre HQ): created, open." in out
         assert (
             f"Dry run for event {event.pk} (Holiday Bizarre), rolled back: hub would be created; "
-            "9 cards, 4 goals, 21 shifts created; 0 cards kept; 0 goals, 0 shifts updated."
+            "9 cards, 4 goals, 21 shifts created; 0 cards, 0 goals, 0 shifts kept."
         ) in out
 
     def it_leaves_an_existing_hub_as_it_is(event):
@@ -264,7 +318,10 @@ def describe_a_dry_run():
         hub.refresh_from_db()
         assert hub.title == "Edited by hand"
         assert _counts() == (1, 9, 4, 21)
-        assert "rolled back: hub would be updated; 0 cards, 0 goals, 0 shifts created; 9 cards kept" in out
+        assert (
+            "rolled back: hub would be kept; 0 cards, 0 goals, 0 shifts created; 9 cards, 4 goals, 21 shifts kept."
+            in out
+        )
 
 
 def describe_the_seeded_hq():
