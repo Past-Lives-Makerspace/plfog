@@ -92,7 +92,11 @@
 .pl-event-page__hero-shade {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, rgba(23, 35, 63, 0.94) 0%, rgba(30, 45, 78, 0.62) 55%, rgba(42, 60, 99, 0.28) 100%);
+  background: linear-gradient(to top, rgba(23, 35, 63, 0.96) 0%, rgba(30, 45, 78, 0.82) 50%, rgba(42, 60, 99, 0.5) 100%);
+}
+/* Over a busy photo the small gold eyebrow and the lines need a lift the shade alone does not give. */
+.pl-event-page__hero--photo .pl-event-page__hero-text {
+  text-shadow: 0 1px 3px rgba(10, 16, 32, 0.85);
 }
 .pl-event-page__hero-text {
   position: relative;
