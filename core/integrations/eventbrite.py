@@ -4,6 +4,10 @@ Mirrors :mod:`core.integrations.discord_events`: build via :meth:`EventbriteClie
 check ``.enabled``, and **never raise to the caller**. An Eventbrite outage records a sync error
 on the class and the plfog save proceeds regardless; ``retry_eventbrite_pushes`` tries again.
 
+The push reads whatever it lists through :class:`ListingSource`, a structural protocol a class
+satisfies with its own fields and a few thin properties (a calendar event is next); it writes
+the sync fields back onto that instance, and the model's own method saves them.
+
 Five gates make a client ``enabled``: the admin toggle
 (``SiteConfiguration.eventbrite_sync_enabled``), a private token, an organization ID, an organizer
 ID and a venue ID (``EVENTBRITE_*`` settings). Staging is always disabled, because its database
@@ -25,10 +29,10 @@ from __future__ import annotations
 import html as html_module
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 import httpx
 from django.conf import settings
@@ -37,15 +41,15 @@ from django.template.defaultfilters import linebreaks_filter
 from django.utils import timezone
 from django.utils.html import escape, strip_tags
 
-from classes.eventbrite_categories import CLASS_FORMAT_ID
 from core.html_sanitize import SPACER_PARAGRAPH_RE, AllowlistCleaner
+from core.integrations.eventbrite_choices import EventbriteFeePayer, EventbriteSyncState
 from core.linkify import _TLDS as _LINKIFY_TLDS
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
     from datetime import datetime
 
-    from classes.models import ClassOffering
+    from django.db.models.fields.files import FieldFile
 
 logger = logging.getLogger(__name__)
 
@@ -460,6 +464,11 @@ EVENTBRITE_RULE_PARTS = EventbriteRules(
 )
 # The rules as instructors and admins read them beside the Eventbrite switch (#725).
 EVENTBRITE_RULES = EVENTBRITE_RULE_PARTS.text
+# The same rules as a calendar event's Eventbrite tab lists them: an event has no FAQ to keep free.
+EVENTBRITE_EVENT_RULE_PARTS = replace(
+    EVENTBRITE_RULE_PARTS,
+    keep_free="To list this event on Eventbrite, keep the title, description and photos free of:",
+)
 
 
 class ListingRule(TextChoices):
@@ -616,15 +625,131 @@ def _listing_text(text: str) -> str:
     return re.sub(r"[ \t]+(?=\n|$)", "", re.sub(r"[ \t]{2,}", " ", plain)).strip()
 
 
-def _description_html(offering: ClassOffering, sessions: list[Any], faq_html: str = "") -> str:
-    """The class description and every session (a series lists them all), then the FAQ when it goes as text.
+@dataclass(frozen=True)
+class ListingSchedule:
+    """When a listing runs, read from its source in one go (one sessions query for a class).
+
+    ``dates`` are every occurrence's start, in order, listed in the description under
+    ``heading`` ("Sessions:" for a class); ``starts_at`` and ``ends_at`` bound the Eventbrite
+    event; ``sales_end`` closes the ticket.
+    """
+
+    dates: tuple[datetime, ...]
+    starts_at: datetime
+    ends_at: datetime
+    sales_end: datetime
+    heading: str
+
+
+class ListingPhoto(Protocol):
+    """A gallery photo sent as an image module, remembering its Eventbrite media ID on the row."""
+
+    @property
+    def pk(self) -> int | None: ...
+
+    @property
+    def image(self) -> FieldFile: ...
+
+    eventbrite_image_id: str
+
+    def remember_eventbrite_image(self, media_id: str) -> None: ...
+
+
+# The protocol member below shares the enum's name; the alias keeps its annotation on the enum.
+_SyncState = EventbriteSyncState
+
+
+class ListingSource(Protocol):
+    """What the push reads of anything listed on Eventbrite, and the sync fields it writes back.
+
+    Structural: a model satisfies it with its own fields and thin properties, no wrapper, and
+    the push sets the six sync fields on the instance for the model's own method to save.
+    ``ClassOffering`` maps ``listing_title`` to ``title``, ``listing_summary`` to ``subtitle``,
+    ``listing_html`` to ``description``, ``listing_faqs()`` to the locked questions then
+    ``own_faqs()``, ``listing_schedule()`` to its sessions, ``ticket_name`` to "Series ticket"
+    or "Ticket", ``ticket_price_cents`` to ``sale_price_cents``, ``ticket_quantity(sold)`` to
+    ``spots_remaining`` plus what Eventbrite sold (``quantity_tracks_sales`` is True, so the
+    push reads ``quantity_sold`` before an update), ``eventbrite_format_id`` to
+    :attr:`EventbriteFormat.CLASS`, ``listing_image`` to ``image`` and ``listing_gallery()`` to
+    ``gallery_images``.
+    """
+
+    EventbriteSyncState: ClassVar[type[_SyncState]]
+
+    @property
+    def pk(self) -> int | None: ...
+
+    # The listing's text and pictures.
+    @property
+    def listing_title(self) -> str: ...
+
+    @property
+    def listing_summary(self) -> str: ...
+
+    @property
+    def listing_html(self) -> str: ...
+
+    def listing_faqs(self) -> list[dict[str, str]]: ...
+
+    def listing_schedule(self) -> ListingSchedule: ...
+
+    @property
+    def listing_image(self) -> FieldFile | None: ...
+
+    def listing_gallery(self) -> Iterable[ListingPhoto]: ...
+
+    # The ticket.
+    @property
+    def ticket_name(self) -> str: ...
+
+    @property
+    def ticket_price_cents(self) -> int: ...
+
+    def ticket_quantity(self, sold: int) -> int: ...
+
+    @property
+    def quantity_tracks_sales(self) -> bool: ...
+
+    # Eventbrite's browse lists and who pays its fee.
+    @property
+    def eventbrite_format_id(self) -> str: ...
+
+    @property
+    def eventbrite_category(self) -> str: ...
+
+    @property
+    def eventbrite_subcategory(self) -> str: ...
+
+    @property
+    def eventbrite_fee_payer(self) -> str: ...
+
+    # The sync fields the push writes back.
+    eventbrite_event_id: str
+    eventbrite_ticket_class_id: str
+    eventbrite_sync_state: str
+    eventbrite_sync_error: str
+    eventbrite_synced_at: datetime | None
+    eventbrite_published: bool
+
+    # Whether the source belongs on Eventbrite now, and whether its text may go there.
+    @property
+    def wants_eventbrite_listing(self) -> bool: ...
+
+    @property
+    def needs_eventbrite_agreement(self) -> bool: ...
+
+    def eventbrite_listing_check(self) -> ListingCheck: ...
+
+
+def _description_html(source: ListingSource, schedule: ListingSchedule, faq_html: str = "") -> str:
+    """The description and every date (a series lists them all), then the FAQ when it goes as text.
 
     No booking line and no link back to the site (#720): Eventbrite counts sending buyers
     elsewhere as Unauthorized Selling.
     """
-    local = [timezone.localtime(s.starts_at) for s in sessions]
+    local = [timezone.localtime(moment) for moment in schedule.dates]
     dates = "".join(f"<li>{moment:%A %B %-d, %Y at %-I:%M %p}</li>" for moment in local)
-    return f"{_listing_html(offering.description)}<p>Sessions:</p><ul>{dates}</ul>{faq_html}"
+    return f"{_listing_html(source.listing_html)}<p>{schedule.heading}</p><ul>{dates}</ul>{faq_html}"
 
 
 def _sendable_faqs(faqs: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -636,13 +761,6 @@ def _sendable_faqs(faqs: list[dict[str, str]]) -> list[dict[str, str]]:
     ]
 
 
-def _faq_items(offering: ClassOffering) -> list[dict[str, str]]:
-    """The locked questions first, then the class's own rows in order (the arrival FAQ stays off Eventbrite)."""
-    from classes.models import LOCKED_CLASS_FAQS
-
-    return [*(dict(faq) for faq in LOCKED_CLASS_FAQS), *offering.own_faqs()]
-
-
 def _faq_entries(faqs: list[dict[str, str]]) -> list[dict[str, str]]:
     """The FAQ in order, as the plain text Eventbrite's FAQ section holds (#716), without addresses (#720)."""
     return [{"question": _listing_text(faq["question"]), "answer": _listing_text(faq["answer"])} for faq in faqs]
@@ -652,8 +770,11 @@ def _faq_html(faqs: list[dict[str, str]]) -> str:
     """The FAQ as description text, when Eventbrite refuses its FAQ section: each question bold, its answer under it.
 
     Answers keep their line breaks (``linebreaks``, escaping on), as on the class page, but no
-    address becomes a link: addresses are dropped (#720).
+    address becomes a link: addresses are dropped (#720). No FAQ at all is no text, not a bare
+    heading.
     """
+    if not faqs:
+        return ""
     items = "".join(
         f"<p><strong>{escape(_listing_text(faq['question']))}</strong></p>"
         f"{linebreaks_filter(_listing_text(faq['answer']), autoescape=True)}"
@@ -662,69 +783,75 @@ def _faq_html(faqs: list[dict[str, str]]) -> str:
     return f"<p>Questions:</p>{items}"
 
 
-def _event_body(offering: ClassOffering, client: EventbriteClient, sessions: list[Any]) -> dict[str, Any]:
-    summary = _listing_text(offering.subtitle) or _listing_text(offering.title)
+def _event_body(source: ListingSource, client: EventbriteClient, schedule: ListingSchedule) -> dict[str, Any]:
+    summary = _listing_text(source.listing_summary) or _listing_text(source.listing_title)
     body: dict[str, Any] = {
         "event": {
-            "name": {"html": offering.title},
+            "name": {"html": source.listing_title},
             "summary": summary[:_SUMMARY_MAX],
             "organizer_id": client.organizer_id,
-            "start": _when(sessions[0].starts_at),
-            "end": _when(sessions[-1].ends_at),
+            "start": _when(schedule.starts_at),
+            "end": _when(schedule.ends_at),
             "currency": "USD",
             "venue_id": client.venue_id,
             "online_event": False,
             "listed": True,
-            "format_id": CLASS_FORMAT_ID,
+            "format_id": source.eventbrite_format_id,
         }
     }
     # Only a chosen category goes out; none chosen sends neither, as before #716.
-    if offering.eventbrite_category:
-        body["event"]["category_id"] = offering.eventbrite_category
-    if offering.eventbrite_subcategory:
-        body["event"]["subcategory_id"] = offering.eventbrite_subcategory
+    if source.eventbrite_category:
+        body["event"]["category_id"] = source.eventbrite_category
+    if source.eventbrite_subcategory:
+        body["event"]["subcategory_id"] = source.eventbrite_subcategory
     return body
 
 
-def _quantity_total(client: EventbriteClient, offering: ClassOffering) -> int:
-    """The ticket quantity that leaves Eventbrite exactly :attr:`spots_remaining` seats to sell.
+def _quantity_total(client: EventbriteClient, source: ListingSource) -> int:
+    """The ticket quantity the source wants on Eventbrite, counting what Eventbrite already sold.
 
-    Eventbrite's ``quantity_total`` counts the tickets it already sold, and those sales are
-    plfog registrations already out of ``spots_remaining``, so they are added back.
+    Eventbrite's ``quantity_total`` counts the tickets it already sold. A class tracks those
+    sales (``quantity_tracks_sales``): they are plfog registrations already out of
+    ``spots_remaining``, so they are read back and added. A source with a fixed capacity never
+    reads them.
     """
-    ticket = client.get_ticket_class(offering.eventbrite_event_id, offering.eventbrite_ticket_class_id)
-    return int(offering.spots_remaining or 0) + int(field(ticket, "quantity_sold"))
+    sold = 0
+    if source.quantity_tracks_sales:
+        ticket = client.get_ticket_class(source.eventbrite_event_id, source.eventbrite_ticket_class_id)
+        sold = int(field(ticket, "quantity_sold"))
+    return source.ticket_quantity(sold)
 
 
-def _ticket_body(offering: ClassOffering, sessions: list[Any], quantity_total: int) -> dict[str, Any]:
-    price = offering.sale_price_cents
+def _ticket_body(source: ListingSource, schedule: ListingSchedule, quantity_total: int) -> dict[str, Any]:
+    price = source.ticket_price_cents
     ticket: dict[str, Any] = {
-        "name": "Series ticket" if offering.is_series else "Ticket",
+        "name": source.ticket_name,
         "quantity_total": quantity_total,
-        "sales_end": _utc(offering.registration_closes_at or sessions[0].starts_at),
+        "sales_end": _utc(schedule.sales_end),
     }
     if price:
         # A ticket's cost is the string "USD,<cents>"; the object form an order reports is refused (400).
         ticket["cost"] = f"USD,{price}"
-        ticket["include_fee"] = offering.eventbrite_fee_payer == offering.EventbriteFeePayer.INCLUDED
+        ticket["include_fee"] = source.eventbrite_fee_payer == EventbriteFeePayer.INCLUDED
     else:
         ticket["free"] = True
     return {"ticket_class": ticket}
 
 
-def _logo_id(client: EventbriteClient, offering: ClassOffering) -> str:
-    """Upload the class photo; ``""`` on any failure, because a picture never fails a listing."""
-    if not offering.image:
+def _logo_id(client: EventbriteClient, source: ListingSource) -> str:
+    """Upload the source's photo; ``""`` on any failure, because a picture never fails a listing."""
+    image = source.listing_image
+    if not image:
         return ""
     try:
-        with offering.image.open("rb") as photo:
-            return client.upload_logo(PurePosixPath(offering.image.name or "class.jpg").name, photo.read())
+        with image.open("rb") as photo:
+            return client.upload_logo(PurePosixPath(image.name or "class.jpg").name, photo.read())
     except (EventbriteError, OSError) as exc:
-        logger.warning("Eventbrite image upload failed for class %s: %s", offering.pk, exc)
+        logger.warning("Eventbrite image upload failed for %s %s: %s", type(source).__name__, source.pk, exc)
         return ""
 
 
-def _gallery_image_ids(client: EventbriteClient, offering: ClassOffering) -> tuple[list[str], list[str]]:
+def _gallery_image_ids(client: EventbriteClient, source: ListingSource) -> tuple[list[str], list[str]]:
     """The gallery's Eventbrite media IDs in gallery order, and why any photo was left out.
 
     A photo is uploaded once: its media ID is stored on the row and reused by every later sync.
@@ -732,22 +859,28 @@ def _gallery_image_ids(client: EventbriteClient, offering: ClassOffering) -> tup
     """
     image_ids: list[str] = []
     refused: list[str] = []
-    for photo in offering.gallery_images.all():
+    for photo in source.listing_gallery():
         if not photo.eventbrite_image_id:
             try:
                 with photo.image.open("rb") as file:
                     name = PurePosixPath(photo.image.name or "photo.jpg").name
                     photo.remember_eventbrite_image(client.upload_content_image(name, file.read()))
             except (EventbriteError, OSError) as exc:
-                logger.warning("Eventbrite gallery upload failed for class image %s: %s", photo.pk, exc)
+                logger.warning(
+                    "Eventbrite gallery upload failed for %s %s photo %s: %s",
+                    type(source).__name__,
+                    source.pk,
+                    photo.pk,
+                    exc,
+                )
                 refused.append(str(exc))
                 continue
         image_ids.append(photo.eventbrite_image_id)
     return image_ids, refused
 
 
-def _set_description(client: EventbriteClient, offering: ClassOffering, sessions: list[Any]) -> str:
-    """Publish the description with the gallery and the FAQ; returns the note for the class ("" when all went).
+def _set_description(client: EventbriteClient, source: ListingSource, schedule: ListingSchedule) -> str:
+    """Publish the description with the gallery and the FAQ; returns the note to record ("" when all went).
 
     The first request carries the widgets (the FAQ section, and every other widget sent back as
     read), whose write shape was read back from the dashboard rather than documented. Any 400 to it
@@ -755,21 +888,22 @@ def _set_description(client: EventbriteClient, offering: ClassOffering, sessions
     description. A 400 to that with photos retries as text alone. So widgets never fail a sync,
     and the worst case is the text only page. Any other failure raises as before.
     """
-    event_id = offering.eventbrite_event_id
-    image_ids, refused = _gallery_image_ids(client, offering)
+    event_id = source.eventbrite_event_id
+    image_ids, refused = _gallery_image_ids(client, source)
     photo_note = EventbriteSync.photos_not_sent(refused) if refused else ""
-    faqs = _sendable_faqs(_faq_items(offering))
+    faqs = _sendable_faqs(source.listing_faqs())
     try:
-        client.set_description(event_id, _description_html(offering, sessions), image_ids, _faq_entries(faqs))
+        client.set_description(event_id, _description_html(source, schedule), image_ids, _faq_entries(faqs))
         return photo_note
     except EventbriteError as exc:
         if exc.status != 400:
             raise
         refusal = exc
-    logger.warning("Eventbrite refused the widgets for class %s: %s", offering.pk, refusal)
-    # The FAQ is never empty: the locked accessibility question rides on every class (#720 keeps cancellation off).
+    logger.warning("Eventbrite refused the widgets for %s %s: %s", type(source).__name__, source.pk, refusal)
+    # A class's FAQ is never empty (the locked accessibility question rides on every one; #720
+    # keeps cancellation off); a source with no FAQ retries as the description alone.
     dropped = ["its widgets (the FAQ went into the description as text)"]
-    html = _description_html(offering, sessions, _faq_html(faqs))
+    html = _description_html(source, schedule, _faq_html(faqs))
     try:
         client.set_description(event_id, html, image_ids)
         return " ".join(note for note in (EventbriteSync.left_out(dropped, str(refusal)), photo_note) if note)
@@ -777,145 +911,145 @@ def _set_description(client: EventbriteClient, offering: ClassOffering, sessions
         if exc.status != 400 or not image_ids:
             raise
         refusal = exc
-    logger.warning("Eventbrite refused the gallery for class %s: %s", offering.pk, refusal)
+    logger.warning("Eventbrite refused the gallery for %s %s: %s", type(source).__name__, source.pk, refusal)
     client.set_description(event_id, html)
     return EventbriteSync.left_out([*dropped, "its photos"], str(refusal))
 
 
-def _list(client: EventbriteClient, offering: ClassOffering) -> tuple[str, str]:
+def _list(client: EventbriteClient, source: ListingSource) -> tuple[str, str]:
     """Create or update the event and its ticket class, then publish it while it is a draft plfog never published.
 
-    Whether to publish is Eventbrite's answer plus :attr:`ClassOffering.eventbrite_published`, not
-    our sync state: the event object a create or update returns carries its ``status``, so a live
-    event behind a failed or pending sync is never published again, and a draft plfog never
+    Whether to publish is Eventbrite's answer plus :attr:`ListingSource.eventbrite_published`,
+    not our sync state: the event object a create or update returns carries its ``status``, so a
+    live event behind a failed or pending sync is never published again, and a draft plfog never
     published (or unpublished itself) is. A draft plfog published was taken down outside plfog,
-    by Eventbrite or in the dashboard, and is left down (#720); the class records that as ``ENDED``.
+    by Eventbrite or in the dashboard, and is left down (#720); the source records that as ``ENDED``.
 
     Returns the sync state and the note to record: blank, or why some photos are missing.
     """
-    sessions = list(offering.sessions.order_by("starts_at"))
-    event = _event_body(offering, client, sessions)
-    if not offering.eventbrite_event_id:
-        logo = _logo_id(client, offering)
+    schedule = source.listing_schedule()
+    event = _event_body(source, client, schedule)
+    if not source.eventbrite_event_id:
+        logo = _logo_id(client, source)
         if logo:
             event["event"]["logo_id"] = logo
         answer = client.create_event(event)
-        offering.eventbrite_event_id = str(field(answer, "id"))
+        source.eventbrite_event_id = str(field(answer, "id"))
     else:
-        answer = client.update_event(offering.eventbrite_event_id, event)
+        answer = client.update_event(source.eventbrite_event_id, event)
     status = field(answer, "status")
     if status in _PUBLISHED:
         # Remembered from Eventbrite's answer too, not only after plfog's own publish call: a
         # publish that landed but timed out or answered 5xx shows up here as live on the retry.
-        offering.eventbrite_published = True
-    if not offering.eventbrite_ticket_class_id:
-        ticket = _ticket_body(offering, sessions, int(offering.spots_remaining or 0))
-        created = client.create_ticket_class(offering.eventbrite_event_id, ticket)
-        offering.eventbrite_ticket_class_id = str(field(created, "id"))
+        source.eventbrite_published = True
+    if not source.eventbrite_ticket_class_id:
+        ticket = _ticket_body(source, schedule, source.ticket_quantity(0))
+        created = client.create_ticket_class(source.eventbrite_event_id, ticket)
+        source.eventbrite_ticket_class_id = str(field(created, "id"))
     else:
-        ticket = _ticket_body(offering, sessions, _quantity_total(client, offering))
-        client.update_ticket_class(offering.eventbrite_event_id, offering.eventbrite_ticket_class_id, ticket)
-    note = _set_description(client, offering, sessions)
-    listed = offering.EventbriteSyncState.LISTED
-    if status == _DRAFT and offering.eventbrite_published:
+        ticket = _ticket_body(source, schedule, _quantity_total(client, source))
+        client.update_ticket_class(source.eventbrite_event_id, source.eventbrite_ticket_class_id, ticket)
+    note = _set_description(client, source, schedule)
+    listed = source.EventbriteSyncState.LISTED
+    if status == _DRAFT and source.eventbrite_published:
         taken_down = " ".join(part for part in (EventbriteSync.TAKEN_DOWN, note) if part)
-        return offering.EventbriteSyncState.ENDED, taken_down
+        return source.EventbriteSyncState.ENDED, taken_down
     if status == _DRAFT:
-        client.publish(offering.eventbrite_event_id)
-        offering.eventbrite_published = True
+        client.publish(source.eventbrite_event_id)
+        source.eventbrite_published = True
     elif status in _NOT_SELLING:
         note = " ".join(part for part in (EventbriteSync.not_selling(status), note) if part)
     return listed, note
 
 
-def _end(client: EventbriteClient, offering: ClassOffering) -> str:
+def _end(client: EventbriteClient, source: ListingSource) -> str:
     """Close ticket sales, then unpublish; returns the note to record ("" when fully down).
 
-    plfog's own unpublish clears :attr:`ClassOffering.eventbrite_published`, so switching the
-    class back on publishes it again. An event plfog published that already reads ``draft`` was
-    taken down outside plfog: :func:`sync_class_listing` reads that before calling here (#720, #725).
+    plfog's own unpublish clears :attr:`ListingSource.eventbrite_published`, so switching the
+    source back on publishes it again. An event plfog published that already reads ``draft`` was
+    taken down outside plfog: :func:`sync_listing` reads that before calling here (#720, #725).
     """
-    event_id = offering.eventbrite_event_id
-    if offering.eventbrite_ticket_class_id:
+    event_id = source.eventbrite_event_id
+    if source.eventbrite_ticket_class_id:
         closed = {"ticket_class": {"sales_end": _utc(timezone.now())}}
-        client.update_ticket_class(event_id, offering.eventbrite_ticket_class_id, closed)
+        client.update_ticket_class(event_id, source.eventbrite_ticket_class_id, closed)
     try:
         client.unpublish(event_id)
     except EventbriteError as exc:
         if exc.status != 400:
             raise
         return EventbriteSync.STILL_UP
-    offering.eventbrite_published = False
+    source.eventbrite_published = False
     return ""
 
 
-def _taken_down(client: EventbriteClient, offering: ClassOffering) -> bool:
+def _taken_down(client: EventbriteClient, source: ListingSource) -> bool:
     """An event plfog published that reads ``draft`` was taken down outside plfog (#720); one GET."""
-    return field(client.get_event(offering.eventbrite_event_id), "status") == _DRAFT
+    return field(client.get_event(source.eventbrite_event_id), "status") == _DRAFT
 
 
-def sync_class_listing(offering: ClassOffering) -> None:
-    """Bring the class's Eventbrite listing in line with the class; set the sync fields.
+def sync_listing(source: ListingSource) -> None:
+    """Bring the source's Eventbrite listing in line with it; set the sync fields.
 
     NEVER raises: records ``PENDING`` (sync off) or ``FAILED`` (API error) instead, so the plfog
     save is never rolled back. Does not save; :meth:`ClassOffering.sync_eventbrite_listing` does.
     """
-    state = offering.EventbriteSyncState
-    wanted = offering.wants_eventbrite_listing
-    if not wanted and not offering.eventbrite_event_id:
-        offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.IDLE, ""
+    state = source.EventbriteSyncState
+    wanted = source.wants_eventbrite_listing
+    if not wanted and not source.eventbrite_event_id:
+        source.eventbrite_sync_state, source.eventbrite_sync_error = state.IDLE, ""
         return
-    if not wanted and offering.eventbrite_sync_state == state.ENDED:
+    if not wanted and source.eventbrite_sync_state == state.ENDED:
         return
-    if wanted and offering.needs_eventbrite_agreement:
+    if wanted and source.needs_eventbrite_agreement:
         # On without anyone's agreement (switched on before #725): it waits, unchanged and unsent,
         # until someone ticks Submit to Eventbrite and saves. Never the end path: that is no decision.
         return
-    if wanted and (check := offering.eventbrite_listing_check()).problems:
+    if wanted and (check := source.eventbrite_listing_check()).problems:
         # Edited through a path the form check does not guard (#725): nothing is sent.
-        offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.FAILED, check.refusal[:_SYNC_ERROR_MAX]
+        source.eventbrite_sync_state, source.eventbrite_sync_error = state.FAILED, check.refusal[:_SYNC_ERROR_MAX]
         return
     client = EventbriteClient.from_settings()
     if not client.enabled:
-        offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.PENDING, EventbriteSync.SYNC_OFF
+        source.eventbrite_sync_state, source.eventbrite_sync_error = state.PENDING, EventbriteSync.SYNC_OFF
         return
     try:
-        if offering.eventbrite_published and _taken_down(client, offering):
+        if source.eventbrite_published and _taken_down(client, source):
             # Read before any write (#725): a takedown nobody has seen yet gets no update, no
             # ticket change and no unpublish; it is recorded and left alone.
-            offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.ENDED, EventbriteSync.TAKEN_DOWN
-            offering.eventbrite_synced_at = timezone.now()
+            source.eventbrite_sync_state, source.eventbrite_sync_error = state.ENDED, EventbriteSync.TAKEN_DOWN
+            source.eventbrite_synced_at = timezone.now()
             return
         if wanted:
-            listed_state, note = _list(client, offering)
-            offering.eventbrite_sync_state, offering.eventbrite_sync_error = listed_state, note[:_SYNC_ERROR_MAX]
+            listed_state, note = _list(client, source)
+            source.eventbrite_sync_state, source.eventbrite_sync_error = listed_state, note[:_SYNC_ERROR_MAX]
         else:
-            offering.eventbrite_sync_error = _end(client, offering)
-            offering.eventbrite_sync_state = state.ENDED
-        offering.eventbrite_synced_at = timezone.now()
+            source.eventbrite_sync_error = _end(client, source)
+            source.eventbrite_sync_state = state.ENDED
+        source.eventbrite_synced_at = timezone.now()
     except EventbriteError as exc:
-        offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.FAILED, str(exc)[:_SYNC_ERROR_MAX]
+        source.eventbrite_sync_state, source.eventbrite_sync_error = state.FAILED, str(exc)[:_SYNC_ERROR_MAX]
 
 
-def push_ticket_quantity(offering: ClassOffering) -> bool:
-    """Set the listed ticket's quantity from :attr:`spots_remaining`; True when Eventbrite took it.
+def push_ticket_quantity(source: ListingSource) -> bool:
+    """Set the listed ticket's quantity from the source (``spots_remaining`` for a class); True when Eventbrite took it.
 
-    NEVER raises. False records ``PENDING`` (sync off) or ``FAILED`` (API error) on the class
+    NEVER raises. False records ``PENDING`` (sync off) or ``FAILED`` (API error) on the source
     without saving it; :meth:`ClassOffering.push_eventbrite_quantity` saves.
     """
-    state = offering.EventbriteSyncState
+    state = source.EventbriteSyncState
     client = EventbriteClient.from_settings()
     if not client.enabled:
-        offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.PENDING, EventbriteSync.SYNC_OFF
+        source.eventbrite_sync_state, source.eventbrite_sync_error = state.PENDING, EventbriteSync.SYNC_OFF
         return False
     client.timeout = QUANTITY_PUSH_TIMEOUT_SECONDS
     try:
-        body = {"ticket_class": {"quantity_total": _quantity_total(client, offering)}}
-        client.update_ticket_class(offering.eventbrite_event_id, offering.eventbrite_ticket_class_id, body)
+        body = {"ticket_class": {"quantity_total": _quantity_total(client, source)}}
+        client.update_ticket_class(source.eventbrite_event_id, source.eventbrite_ticket_class_id, body)
     except Exception as exc:
         # Any failure, not only an API error: this runs after the booking committed, so raising
-        # would turn a saved booking into an error page. The retry command picks the class up.
-        logger.exception("Eventbrite quantity push failed for class %s", offering.pk)
-        offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.FAILED, str(exc)[:_SYNC_ERROR_MAX]
+        # would turn a saved booking into an error page. The retry command picks the source up.
+        logger.exception("Eventbrite quantity push failed for %s %s", type(source).__name__, source.pk)
+        source.eventbrite_sync_state, source.eventbrite_sync_error = state.FAILED, str(exc)[:_SYNC_ERROR_MAX]
         return False
     return True

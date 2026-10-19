@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from django.db.models import Q
+from django.db.models import Q, TextChoices
 from django.utils import timezone
 
 if TYPE_CHECKING:
@@ -533,6 +533,72 @@ def can_create_equipment(request: HttpRequest) -> bool:
     return bool(creatable_equipment_kinds(request))
 
 
+class EventCreateMode(TextChoices):
+    """What saving a new Calendar event does for this request: :func:`event_create_mode`."""
+
+    DIRECT = "direct", "Publishes directly"
+    REVIEW = "review", "Reviewed first"
+
+
+def can_administer_events(request: HttpRequest) -> bool:
+    """True when this request runs the Calendar's events site-wide.
+
+    A full admin (``view_as``-aware, as every helper here) or a Calendar Administrator
+    (``EVENTS_APPROVER``). The capability leg is preview-independent, matching
+    :func:`creatable_equipment_kinds` and the house capability gates: it reads the
+    request's actual linked member.
+    """
+    from membership.models import AdminCapability
+
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.is_admin:
+        return True
+    actual_member: Member | None = getattr(request.user, "member", None)
+    return actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EVENTS_APPROVER)
+
+
+def event_create_mode(request: HttpRequest) -> EventCreateMode | None:
+    """How this request's new Calendar event goes out, or None when it may not add one.
+
+    ``DIRECT`` for :func:`can_administer_events`: the event publishes (or schedules) on
+    save. ``REVIEW`` for a "Can create events" holder (``EVENT_CREATOR``, read off the
+    actual member like the other capability legs): the event enters the review queue and
+    an administrator's approval is what announces it. The grant bypasses the site's
+    member-event policy, which keeps governing everyone else through the propose page.
+    """
+    from membership.models import AdminCapability
+
+    if can_administer_events(request):
+        return EventCreateMode.DIRECT
+    actual_member: Member | None = getattr(request.user, "member", None)
+    if actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EVENT_CREATOR):
+        return EventCreateMode.REVIEW
+    return None
+
+
+def can_create_events(request: HttpRequest) -> bool:
+    """True when this request may add a Calendar event at all — see :func:`event_create_mode`."""
+    return event_create_mode(request) is not None
+
+
+def is_own_open_proposal(request: HttpRequest, event: CommunityEvent) -> bool:
+    """True when ``event`` is this user's own proposal still in the review loop.
+
+    The row :func:`can_edit_event` lets its author reopen whatever their role: submitted by
+    them and Pending or Changes requested. Read off the actual user, like the photo delete
+    endpoint it was lifted from; a published or declined proposal is no longer theirs to edit.
+    """
+    from membership.models import CommunityEvent
+
+    user = request.user
+    if not user.is_authenticated or event.submitted_by_id is None:
+        return False
+    return event.submitted_by_id == user.pk and event.moderation_state in (
+        CommunityEvent.ModerationState.PENDING,
+        CommunityEvent.ModerationState.CHANGES_REQUESTED,
+    )
+
+
 def can_edit_class(request: HttpRequest, offering: ClassOffering) -> bool:
     """True when this request may edit the class offering.
 
@@ -569,17 +635,18 @@ def can_print_class_marketing(request: HttpRequest, offering: ClassOffering) -> 
 def can_edit_event(request: HttpRequest, event: CommunityEvent) -> bool:
     """True when this request may edit the community event.
 
-    A site-wide event (no guild) requires admin — the same gate the admin authoring
-    view (``_require_admin``) uses, so the "Edit event" affordance and the QR download
-    never drift from who may actually save it. A guild event defers to
-    :func:`can_edit_guild` (lead / staff / admin / officer). Honors ``view_as`` preview
-    like the other helpers.
+    The one answer the composer (``event_edit``), the "Edit event" affordance, the QR
+    download and the photo delete endpoint share, so none of them can drift from who may
+    actually save it. The author of their own open proposal always may
+    (:func:`is_own_open_proposal`), and so may whoever :func:`can_administer_events` (an
+    admin or a Calendar Administrator manages every event, guild ones included). Otherwise
+    a guild event defers to :func:`can_edit_guild` (lead / staff / officer) and a site-wide
+    one is closed. Honors ``view_as`` preview like the other helpers.
     """
+    if is_own_open_proposal(request, event) or can_administer_events(request):
+        return True
     guild = event.guild
-    if guild is None:
-        view_as = getattr(request, "view_as", None)
-        return view_as is not None and view_as.is_admin
-    return can_edit_guild(request, guild)
+    return guild is not None and can_edit_guild(request, guild)
 
 
 def can_edit_meeting(request: HttpRequest, meeting: Meeting) -> bool:

@@ -564,3 +564,30 @@ def describe_reservation_entries():
             OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
         with django_assert_num_queries(3):
             assert len(reservation_entries(items, *_calendar_range())) == 6
+
+
+@pytest.mark.django_db
+def describe_community_event_entries_with_editor_html():
+    def it_carries_the_description_as_plain_text():
+        from hub.calendar_entries import community_event_entries, upcoming_calendar_events
+
+        start = timezone.now() + timedelta(days=2)
+        event = CommunityEventFactory(
+            community=True,
+            description="<p>Bring <strong>paper</strong>.</p><p>Second line</p>",
+            starts_at=start,
+            ends_at=start + timedelta(hours=2),
+        )
+        day = timezone.localdate(start)
+        [entry] = [e for e in community_event_entries(day, day) if e.community_event == event]
+        assert entry.description == "Bring paper.\n\nSecond line"
+        [upcoming] = [e for e in upcoming_calendar_events() if e.community_event == event]
+        assert upcoming.description == "Bring paper.\n\nSecond line"
+
+    def it_fills_the_google_link_with_plain_text():
+        event = CommunityEventFactory(community=True, description="<p>Bring paper.</p><p>Second line</p>")
+        params = {
+            key: values[0]
+            for key, values in parse_qs(urlsplit(google_calendar_event_url(event, event.starts_at)).query).items()
+        }
+        assert params["details"] == "Bring paper.\n\nSecond line"

@@ -55,13 +55,17 @@ def describe_create():
         assert not CommunityEvent.objects.exists()
 
     def it_still_lets_a_proposer_edit_their_pending_proposal_when_disabled(client: Client):
+        # The old edit link lands on the Calendar's composer, which opens the author's own
+        # open proposal whatever the policy says.
         user = _member("d2")
         event = CommunityEventFactory(
             community=True, submitted_by=user, moderation_state=CommunityEvent.ModerationState.PENDING
         )
         _set_policy(SiteConfiguration.MemberEventPolicy.DISABLED)
         client.login(username="d2", password="pass")
-        assert client.get(reverse("hub_propose_event_edit", args=[event.pk])).status_code == 200
+        resp = client.get(reverse("hub_propose_event_edit", args=[event.pk]), follow=True)
+        assert resp.redirect_chain == [(reverse("hub_event_edit", args=[event.pk]), 302)]
+        assert resp.status_code == 200
 
     def it_submits_for_review_under_the_approval_policy(client: Client):
         user = _member("a1")
@@ -191,8 +195,12 @@ def describe_create():
 
 
 @pytest.mark.django_db
-def describe_edit():
-    def it_lets_the_owner_edit_a_changes_requested_proposal_and_resubmit(client: Client):
+def describe_the_old_edit_url():
+    """``/events/propose/<pk>/edit/`` is in every changes-requested email already sent, so it
+    keeps working as a redirect to the Calendar's composer, which decides who may open the row
+    (see community_events_spec for the author, a stranger and a published proposal)."""
+
+    def it_redirects_to_the_calendars_composer(client: Client):
         user = _member("e1")
         event = CommunityEventFactory(
             community=True,
@@ -201,35 +209,41 @@ def describe_edit():
             review_notes="Please add a description.",
         )
         client.login(username="e1", password="pass")
-        get_resp = client.get(reverse("hub_propose_event_edit", args=[event.pk]))
-        assert get_resp.status_code == 200
-        assert b"A reviewer asked for changes" in get_resp.content
-        assert b"Please add a description." in get_resp.content
+        resp = client.get(reverse("hub_propose_event_edit", args=[event.pk]))
+        assert resp.status_code == 302
+        assert resp["Location"] == reverse("hub_event_edit", args=[event.pk])
 
-        post_resp = client.post(
-            reverse("hub_propose_event_edit", args=[event.pk]),
-            data=_payload(title="Fixed", description="Now with detail"),
+    def it_lands_the_author_on_their_proposal_with_the_reviewers_note(client: Client):
+        user = _member("e1b")
+        event = CommunityEventFactory(
+            community=True,
+            moderation_state=CommunityEvent.ModerationState.CHANGES_REQUESTED,
+            submitted_by=user,
+            review_notes="Please add a description.",
         )
-        assert post_resp.status_code == 302
-        event.refresh_from_db()
-        assert event.title == "Fixed"
-        assert event.moderation_state == CommunityEvent.ModerationState.PENDING
-        assert event.review_notes == ""
+        client.login(username="e1b", password="pass")
+        resp = client.get(reverse("hub_propose_event_edit", args=[event.pk]), follow=True)
+        assert resp.status_code == 200
+        # Anchored on the note card's markup, which no changelog entry can reproduce.
+        assert (
+            '<p class="pl-nudge__lead"><strong>A reviewer asked for changes:</strong> Please add a description.</p>'
+            in resp.content.decode()
+        )
 
-    def it_404s_editing_another_members_proposal(client: Client):
+    def it_leaves_who_may_open_the_row_to_the_composer(client: Client):
         _member("e2")
         other = _member("e2other")
         event = CommunityEventFactory(community=True, pending=True, submitted_by=other)
         client.login(username="e2", password="pass")
-        assert client.get(reverse("hub_propose_event_edit", args=[event.pk])).status_code == 404
+        assert client.get(reverse("hub_propose_event_edit", args=[event.pk]), follow=True).status_code == 403
 
-    def it_404s_editing_an_already_published_or_declined_event(client: Client):
+    def it_points_the_your_proposed_events_edit_button_straight_at_the_composer(client: Client):
         user = _member("e3")
-        published = CommunityEventFactory(community=True, submitted_by=user)  # PUBLISHED
-        declined = CommunityEventFactory(community=True, declined=True, submitted_by=user)
+        event = CommunityEventFactory(community=True, pending=True, submitted_by=user, title="Mine To Fix")
         client.login(username="e3", password="pass")
-        assert client.get(reverse("hub_propose_event_edit", args=[published.pk])).status_code == 404
-        assert client.get(reverse("hub_propose_event_edit", args=[declined.pk])).status_code == 404
+        body = client.get(reverse("hub_community_calendar")).content.decode()
+        assert f'href="{reverse("hub_event_edit", args=[event.pk])}" class="hub-btn hub-btn--sm">Edit</a>' in body
+        assert reverse("hub_propose_event_edit", args=[event.pk]) not in body
 
 
 @pytest.mark.django_db

@@ -3,6 +3,8 @@ and lets an admin edit a member's notification preferences for them."""
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
@@ -99,6 +101,25 @@ def describe_capabilities_form():
         member.admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)
         assert MemberCapabilitiesForm.initial_for(member)["cap_webmaster"] is True
 
+    def it_offers_the_can_create_events_toggle_right_before_webmaster():
+        form = MemberCapabilitiesForm({"cap_event_creator": "on"})
+        assert form.is_valid()
+        assert form.selected() == ["event_creator"]
+        fields = list(form.fields)
+        assert fields[fields.index("cap_webmaster") - 1] == "cap_event_creator"
+        assert form.fields["cap_event_creator"].label == "Can create events"
+        assert (
+            form.fields["cap_event_creator"].help_text
+            == (AdminCapability.DESCRIPTIONS[AdminCapability.Capability.EVENT_CREATOR])
+        )
+
+    def it_initializes_the_can_create_events_toggle_from_an_existing_grant():
+        member = _member_user("creatorinit").member
+        member.admin_capabilities.create(capability=AdminCapability.Capability.EVENT_CREATOR)
+        initial = MemberCapabilitiesForm.initial_for(member)
+        assert initial["cap_event_creator"] is True
+        assert initial["cap_events_approver"] is False
+
 
 def describe_admin_member_edit_permissions():
     def it_grants_the_checked_capabilities(client: Client):
@@ -181,6 +202,28 @@ def describe_admin_member_edit_permissions():
 
         client.post(url, _cap_post(cap_webmaster=True))
         assert set(target.admin_capabilities.values_list("capability", flat=True)) == {"webmaster"}
+
+        client.post(url, _cap_post())
+        assert target.admin_capabilities.count() == 0
+
+    def it_renders_and_round_trips_the_can_create_events_toggle_on_the_permissions_tab(client: Client):
+        _member_user("boss8", fog_role=Member.FogRole.ADMIN)
+        target = _member_user("target8").member
+        client.login(username="boss8", password="pass")
+        url = reverse("hub_admin_member_edit", args=[target.pk])
+
+        content = client.get(url).content.decode()
+        assert 'name="cap_event_creator"' in content
+        # Anchored on the toggle's markup: a changelog entry quoting the copy cannot satisfy it.
+        description = AdminCapability.DESCRIPTIONS[AdminCapability.Capability.EVENT_CREATOR]
+        assert f'<div class="pl-toggle-desc">{description}</div>' in content
+
+        client.post(url, _cap_post(cap_event_creator=True))
+        assert set(target.admin_capabilities.values_list("capability", flat=True)) == {"event_creator"}
+        # The toggle comes back on: Django writes the id before ``checked``, so match the whole tag.
+        assert re.search(
+            r'<input type="checkbox" name="cap_event_creator"[^>]*\bchecked\b', client.get(url).content.decode()
+        )
 
         client.post(url, _cap_post())
         assert target.admin_capabilities.count() == 0

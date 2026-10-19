@@ -402,6 +402,11 @@ confirm modal carries its own POST form, and template content can't nest a form.
           <div style="margin-top:0.35rem;">
             <span class="hub-badge">Scheduled for {{ event.publish_at_display }}</span>
           </div>
+          {% elif event.moderation_state == 'draft' %}
+          {# A copy or an unpublished event (#831): on this list so the guild can edit it, off every calendar until it is saved and announced. #}
+          <div class="pl-guild-events__state">
+            <span class="hub-pill hub-pill--neutral" data-event-draft>Draft</span>
+          </div>
           {% endif %}
           {% if google_sync_enabled %}
           <div style="margin-top:0.35rem;">

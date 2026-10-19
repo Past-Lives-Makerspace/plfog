@@ -13,9 +13,9 @@ from django.test import Client, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import SiteConfiguration
+from core.models import EventDelivery, SiteConfiguration
 from hub.forms import CommunityEventForm
-from membership.models import CommunityEvent, Guild, GuildStaffMembership, Member
+from membership.models import AdminCapability, CommunityEvent, Guild, GuildStaffMembership, Member
 from tests.membership.factories import CommunityEventFactory, GuildFactory, MembershipPlanFactory
 
 ADD_HREF = b'href="/events/add/"'
@@ -53,6 +53,26 @@ def _event_payload(**overrides: str) -> dict:
     }
     data.update(overrides)
     return data
+
+
+def _granted_user(username: str, capability: str) -> User:
+    """A plain member's user holding one admin capability."""
+    user = _user_with_role(username)
+    user.member.admin_capabilities.create(capability=capability)
+    return user
+
+
+def _signed_in_reviewer(username: str) -> User:
+    """A Calendar Administrator the resolver can reach: signed in once, with an email to deliver to."""
+    user = _granted_user(username, AdminCapability.Capability.EVENTS_APPROVER)
+    user.email = f"{username}@example.com"
+    user.last_login = timezone.now()
+    user.save(update_fields=["email", "last_login"])
+    return user
+
+
+def _submitted_deliveries() -> int:
+    return EventDelivery.objects.filter(event_key="event.submitted", channel="in_app").count()
 
 
 @pytest.mark.django_db
@@ -639,6 +659,33 @@ def describe_admin_authoring():
         assert event.is_site_wide
         mock_announce.assert_called_once()
 
+    def it_parks_an_event_with_a_future_announce_time_and_says_so(client: Client):
+        from django.contrib.messages import get_messages
+
+        _user_with_role("ad_sched", fog_role=Member.FogRole.ADMIN)
+        client.login(username="ad_sched", password="pass")
+        start = timezone.localtime(timezone.now() + timedelta(days=30))
+        announce_at = timezone.localtime(timezone.now() + timedelta(days=2))
+        stamp = "%Y-%m-%dT%H:%M"
+        with patch.object(CommunityEvent, "announce") as mock_announce:
+            resp = client.post(
+                reverse("hub_event_add"),
+                data=_event_payload(
+                    event_type="community",
+                    title="Parked Night",
+                    starts_at=start.strftime(stamp),
+                    ends_at=(start + timedelta(hours=2)).strftime(stamp),
+                    publish_at=announce_at.strftime(stamp),
+                ),
+            )
+        assert resp.status_code == 302
+        event = CommunityEvent.objects.get(title="Parked Night")
+        assert event.moderation_state == CommunityEvent.ModerationState.SCHEDULED
+        mock_announce.assert_not_called()
+        assert [m.message for m in get_messages(resp.wsgi_request)] == [
+            f"Event scheduled for {event.publish_at_display}."
+        ]
+
     def it_deletes_an_event_as_admin(client: Client):
         _user_with_role("ad3", fog_role=Member.FogRole.ADMIN)
         event = CommunityEventFactory(community=True)
@@ -652,6 +699,279 @@ def describe_admin_authoring():
         event = CommunityEventFactory(community=True)
         client.login(username="ad4", password="pass")
         assert client.get(reverse("hub_event_delete", args=[event.pk])).status_code == 405
+
+
+@pytest.mark.django_db
+def describe_granted_event_creators():
+    """The "Can create events" grant opens the Calendar's composer review-first: a holder's
+    event enters the review queue whatever the member-event policy says, and the author of an
+    open proposal reopens it here. Admins and Calendar Administrators keep the full composer."""
+
+    def it_opens_the_composer_without_the_announcement_fields(client: Client):
+        _granted_user("creator_get", AdminCapability.Capability.EVENT_CREATOR)
+        _set_policy(SiteConfiguration.MemberEventPolicy.DISABLED)
+        client.login(username="creator_get", password="pass")
+        resp = client.get(reverse("hub_event_add"))
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert 'name="title"' in html
+        assert 'name="publish_at"' not in html
+        assert 'name="remind_7d"' not in html
+        assert 'name="notify_happening_now"' not in html
+        form = resp.context["form"]
+        assert form.review_first is True
+        assert form.submits_for_review is True
+        assert form.saves_announce is False
+        assert form.in_review is True
+        assert "delete-event" not in html
+
+    def it_submits_a_new_event_for_review_while_the_policy_is_disabled(client: Client):
+        user = _granted_user("creator_post", AdminCapability.Capability.EVENT_CREATOR)
+        _signed_in_reviewer("site_reviewer")
+        _set_policy(SiteConfiguration.MemberEventPolicy.DISABLED)
+        client.login(username="creator_post", password="pass")
+        with patch.object(CommunityEvent, "announce") as mock_announce:
+            resp = client.post(reverse("hub_event_add"), data=_event_payload(title="Granted Night"))
+        assert resp.status_code == 302
+        assert resp["Location"] == reverse("hub_community_calendar") + "?tab=events"
+        event = CommunityEvent.objects.get(title="Granted Night")
+        assert event.moderation_state == CommunityEvent.ModerationState.PENDING
+        assert event.submitted_by == user
+        assert event.created_by == user
+        assert event.is_site_wide
+        assert event.sync_state == CommunityEvent.SyncState.IDLE
+        assert _submitted_deliveries() == 1
+        mock_announce.assert_not_called()
+
+    def it_still_reviews_first_under_an_open_policy(client: Client):
+        # The grant promises a review; the OPEN policy is for members proposing without it.
+        _granted_user("creator_open", AdminCapability.Capability.EVENT_CREATOR)
+        _set_policy(SiteConfiguration.MemberEventPolicy.OPEN)
+        client.login(username="creator_open", password="pass")
+        with patch.object(CommunityEvent, "announce") as mock_announce:
+            client.post(reverse("hub_event_add"), data=_event_payload(title="Still Reviewed"))
+        assert CommunityEvent.objects.get(title="Still Reviewed").moderation_state == (
+            CommunityEvent.ModerationState.PENDING
+        )
+        mock_announce.assert_not_called()
+
+    def it_re_renders_with_errors_instead_of_submitting(client: Client):
+        _granted_user("creator_bad", AdminCapability.Capability.EVENT_CREATOR)
+        client.login(username="creator_bad", password="pass")
+        resp = client.post(
+            reverse("hub_event_add"),
+            data=_event_payload(title="Backwards", starts_at="2026-07-11T20:00", ends_at="2026-07-11T18:00"),
+        )
+        assert resp.status_code == 200
+        assert not CommunityEvent.objects.filter(title="Backwards").exists()
+
+    def it_403s_a_plain_member_on_add_while_the_policy_is_disabled(client: Client):
+        _user_with_role("plain_add")
+        _set_policy(SiteConfiguration.MemberEventPolicy.DISABLED)
+        client.login(username="plain_add", password="pass")
+        assert client.get(reverse("hub_event_add")).status_code == 403
+        assert client.post(reverse("hub_event_add"), data=_event_payload(title="Sneaked")).status_code == 403
+        assert not CommunityEvent.objects.filter(title="Sneaked").exists()
+
+    def it_lets_the_author_reopen_and_resubmit_their_own_sent_back_proposal(client: Client):
+        user = _granted_user("creator_edit", AdminCapability.Capability.EVENT_CREATOR)
+        _signed_in_reviewer("site_reviewer2")
+        event = CommunityEventFactory(
+            community=True,
+            submitted_by=user,
+            moderation_state=CommunityEvent.ModerationState.CHANGES_REQUESTED,
+            review_notes="Add a room.",
+            title="Needs A Room",
+        )
+        client.login(username="creator_edit", password="pass")
+        resp = client.get(reverse("hub_event_edit", args=[event.pk]))
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert resp.context["form"].review_first is True
+        assert '<p class="pl-nudge__lead"><strong>A reviewer asked for changes:</strong> Add a room.</p>' in html
+        assert 'name="publish_at"' not in html
+
+        resp = client.post(reverse("hub_event_edit", args=[event.pk]), data=_event_payload(title="Has A Room"))
+        assert resp.status_code == 302
+        event.refresh_from_db()
+        assert event.title == "Has A Room"
+        assert event.moderation_state == CommunityEvent.ModerationState.PENDING
+        assert event.review_notes == ""
+        assert event.submitted_by == user
+        assert _submitted_deliveries() == 1
+
+    def it_lets_a_plain_member_reopen_their_own_pending_proposal_the_same_way(client: Client):
+        # No grant needed: the row is theirs, so the composer opens it review-first.
+        user = _user_with_role("plain_author")
+        event = CommunityEventFactory(community=True, pending=True, submitted_by=user)
+        _set_policy(SiteConfiguration.MemberEventPolicy.DISABLED)
+        client.login(username="plain_author", password="pass")
+        resp = client.get(reverse("hub_event_edit", args=[event.pk]))
+        assert resp.status_code == 200
+        assert resp.context["form"].submits_for_review is True
+
+    def it_403s_the_author_on_someone_elses_proposal_and_on_their_own_once_published(client: Client):
+        user = _granted_user("creator_other", AdminCapability.Capability.EVENT_CREATOR)
+        someone_elses = CommunityEventFactory(community=True, pending=True)
+        published = CommunityEventFactory(community=True, submitted_by=user, created_by=user)  # PUBLISHED
+        client.login(username="creator_other", password="pass")
+        assert client.get(reverse("hub_event_edit", args=[someone_elses.pk])).status_code == 403
+        assert client.get(reverse("hub_event_edit", args=[published.pk])).status_code == 403
+        resp = client.post(reverse("hub_event_edit", args=[published.pk]), data=_event_payload(title="Changed"))
+        assert resp.status_code == 403
+        published.refresh_from_db()
+        assert published.title != "Changed"
+
+    def it_lets_a_calendar_administrator_create_directly(client: Client):
+        user = _granted_user("approver_add", AdminCapability.Capability.EVENTS_APPROVER)
+        _set_policy(SiteConfiguration.MemberEventPolicy.DISABLED)
+        client.login(username="approver_add", password="pass")
+        resp = client.get(reverse("hub_event_add"))
+        assert resp.status_code == 200
+        assert resp.context["form"].review_first is False
+        assert 'name="publish_at"' in resp.content.decode()
+        with patch.object(CommunityEvent, "announce") as mock_announce:
+            client.post(reverse("hub_event_add"), data=_event_payload(event_type="community", title="Direct Night"))
+        event = CommunityEvent.objects.get(title="Direct Night")
+        assert event.moderation_state == CommunityEvent.ModerationState.PUBLISHED
+        assert event.created_by == user
+        mock_announce.assert_called_once()
+
+    def it_keeps_the_full_composer_for_an_admin_editing_a_pending_row(client: Client):
+        _user_with_role("admin_pending", fog_role=Member.FogRole.ADMIN)
+        event = CommunityEventFactory(community=True, pending=True)
+        client.login(username="admin_pending", password="pass")
+        resp = client.get(reverse("hub_event_edit", args=[event.pk]))
+        assert resp.status_code == 200
+        form = resp.context["form"]
+        assert form.review_first is False
+        assert form.in_review is True
+        assert 'name="publish_at"' in resp.content.decode()
+        assert reverse("hub_event_delete", args=[event.pk]) in resp.content.decode()
+        with patch.object(CommunityEvent, "announce") as mock_announce:
+            resp = client.post(reverse("hub_event_edit", args=[event.pk]), data=_event_payload(title="Admin Touch"))
+        assert resp.status_code == 302
+        event.refresh_from_db()
+        assert event.title == "Admin Touch"
+        assert event.moderation_state == CommunityEvent.ModerationState.PENDING
+        mock_announce.assert_not_called()
+
+    def it_keeps_a_calendar_administrator_who_proposed_in_the_full_composer(client: Client):
+        # Their own pending row is theirs to publish: administering events wins over resubmitting.
+        user = _granted_user("approver_author", AdminCapability.Capability.EVENTS_APPROVER)
+        event = CommunityEventFactory(community=True, pending=True, submitted_by=user)
+        client.login(username="approver_author", password="pass")
+        assert client.get(reverse("hub_event_edit", args=[event.pk])).context["form"].review_first is False
+
+    def it_names_the_reviewers_in_the_note_by_whether_the_event_has_a_guild(client: Client):
+        user = _granted_user("creator_note", AdminCapability.Capability.EVENT_CREATOR)
+        guild = GuildFactory(name="Lantern Makers")
+        guild_proposal = CommunityEventFactory(guild_hosted=True, guild=guild, pending=True, submitted_by=user)
+        client.login(username="creator_note", password="pass")
+        note_tag = '<p class="pl-form-note hub-text-muted" id="event-review-note">'
+        html = client.get(reverse("hub_event_edit", args=[guild_proposal.pk])).content.decode()
+        assert "Lantern Makers lead or staff" in html.split(note_tag, 1)[1][:200]
+        html = client.get(reverse("hub_event_add")).content.decode()
+        assert "Calendar Administrator" in html.split(note_tag, 1)[1][:260]
+
+
+@pytest.mark.django_db
+def describe_a_guild_events_on_the_site_wide_composer():
+    """A guild's own leadership edits its event in the guild composer, which fixes the guild:
+    this composer's guild picker would let a lead move the event out of their own reach. A
+    Calendar Administrator, who manages every event, gets the full composer here."""
+
+    def it_sends_a_lead_to_the_guild_composer(client: Client):
+        user = _user_with_role("lead_site")
+        guild = GuildFactory(guild_lead=user.member)
+        event = CommunityEventFactory(guild=guild, google_calendar_target=_MEMBER)
+        client.login(username="lead_site", password="pass")
+        resp = client.get(reverse("hub_event_edit", args=[event.pk]))
+        assert resp.status_code == 302
+        assert resp["Location"] == reverse("hub_guild_event_edit", args=[guild.pk, event.pk])
+
+    def it_never_lets_a_crafted_post_reach_the_site_wide_save(client: Client):
+        user = _user_with_role("lead_craft")
+        guild = GuildFactory(guild_lead=user.member)
+        event = CommunityEventFactory(guild=guild, google_calendar_target=_MEMBER, title="Guild Night")
+        client.login(username="lead_craft", password="pass")
+        with (
+            patch.object(CommunityEvent, "push_to_google") as mock_google,
+            patch.object(CommunityEvent, "push_to_discord") as mock_discord,
+        ):
+            resp = client.post(
+                reverse("hub_event_edit", args=[event.pk]),
+                data=_event_payload(
+                    title="Orphaned", guild="", event_type="community", google_calendar_target="public"
+                ),
+            )
+        assert resp.status_code == 302
+        assert resp["Location"] == reverse("hub_guild_event_edit", args=[guild.pk, event.pk])
+        event.refresh_from_db()
+        assert event.guild == guild
+        assert event.google_calendar_target == _MEMBER
+        assert event.title == "Guild Night"
+        mock_google.assert_not_called()
+        mock_discord.assert_not_called()
+        # And the event is still within the lead's reach.
+        assert client.get(reverse("hub_guild_event_edit", args=[guild.pk, event.pk])).status_code == 200
+
+    def it_lets_a_calendar_administrator_edit_a_guild_event_in_the_full_composer(client: Client):
+        _granted_user("approver_guild", AdminCapability.Capability.EVENTS_APPROVER)
+        event = CommunityEventFactory(guild=GuildFactory())
+        client.login(username="approver_guild", password="pass")
+        resp = client.get(reverse("hub_event_edit", args=[event.pk]))
+        assert resp.status_code == 200
+        assert resp.context["form"].review_first is False
+        assert 'name="guild"' in resp.content.decode()
+
+    def it_still_403s_a_plain_member_on_a_guild_event(client: Client):
+        _user_with_role("plain_guild")
+        event = CommunityEventFactory(guild=GuildFactory())
+        client.login(username="plain_guild", password="pass")
+        assert client.get(reverse("hub_event_edit", args=[event.pk])).status_code == 403
+
+
+@pytest.mark.django_db
+def describe_event_actions_for_calendar_administrators():
+    """Delete and Retry sync answer to ``can_administer_events`` and land on ``next``."""
+
+    def it_lets_a_calendar_administrator_delete_and_return_to_next(client: Client):
+        _granted_user("approver_del", AdminCapability.Capability.EVENTS_APPROVER)
+        event = CommunityEventFactory(community=True)
+        client.login(username="approver_del", password="pass")
+        resp = client.post(reverse("hub_event_delete", args=[event.pk]), {"next": "/calendar/?tab=events&page=2"})
+        assert resp.status_code == 302
+        assert resp["Location"] == "/calendar/?tab=events&page=2"
+        assert not CommunityEvent.objects.filter(pk=event.pk).exists()
+
+    def it_ignores_a_next_on_another_host(client: Client):
+        _user_with_role("admin_del_next", fog_role=Member.FogRole.ADMIN)
+        event = CommunityEventFactory(community=True)
+        client.login(username="admin_del_next", password="pass")
+        resp = client.post(reverse("hub_event_delete", args=[event.pk]), {"next": "https://evil.example/x"})
+        assert resp["Location"] == reverse("hub_community_calendar") + "?tab=events"
+
+    def it_403s_a_can_create_events_holder_on_delete(client: Client):
+        _granted_user("creator_del", AdminCapability.Capability.EVENT_CREATOR)
+        event = CommunityEventFactory(community=True)
+        client.login(username="creator_del", password="pass")
+        assert client.post(reverse("hub_event_delete", args=[event.pk])).status_code == 403
+        assert CommunityEvent.objects.filter(pk=event.pk).exists()
+
+    def it_lets_a_calendar_administrator_retry_sync_but_not_a_holder(client: Client):
+        _granted_user("approver_sync", AdminCapability.Capability.EVENTS_APPROVER)
+        _granted_user("creator_sync", AdminCapability.Capability.EVENT_CREATOR)
+        event = CommunityEventFactory(community=True, sync_state=CommunityEvent.SyncState.FAILED)
+        client.login(username="approver_sync", password="pass")
+        with patch.object(CommunityEvent, "push_to_google", autospec=True) as mock_push:
+            assert client.post(reverse("hub_event_retry_sync", args=[event.pk])).status_code == 302
+        mock_push.assert_called_once()
+        client.logout()
+        client.login(username="creator_sync", password="pass")
+        with patch.object(CommunityEvent, "push_to_google", autospec=True) as mock_push:
+            assert client.post(reverse("hub_event_retry_sync", args=[event.pk])).status_code == 403
+        mock_push.assert_not_called()
 
 
 @pytest.mark.django_db
@@ -787,7 +1107,6 @@ def describe_events_tab_visibility():
         resp = client.get(reverse("hub_community_calendar"))
         assert resp.status_code == 200
         assert b"Open Mic Night" in resp.content
-        assert b"+ Add event" not in resp.content
         assert reverse("hub_event_add").encode() not in resp.content
 
     def it_shows_management_controls_to_an_admin(client: Client):
@@ -844,9 +1163,8 @@ def describe_header_cta():
         )
 
     def it_renders_the_cta_exactly_once(client: Client):
-        # A member with an in-flight proposal also renders an edit link at
-        # /events/propose/<pk>/edit/ — which *starts with* the propose-new path — so the
-        # count must match the exact quoted href, never a bare substring, or it double-counts.
+        # A member with an in-flight proposal also renders an Edit link for it, so the count
+        # must match the exact quoted href, never a bare substring, or it double-counts.
         user = _user_with_role("hc_once")
         _set_policy(SiteConfiguration.MemberEventPolicy.APPROVAL)
         CommunityEventFactory(
@@ -968,3 +1286,49 @@ def describe_calendar_subscribe_links():
 
         assert body.count(">Member calendar</a>") == 2
         assert ">Public calendar</a>" not in body
+
+
+def describe_the_rich_description_and_the_promo_video():
+    def it_stores_editor_html_sanitised(db):
+        form = CommunityEventForm(
+            data=_event_payload(description="<p>Hi</p><script>alert(1)</script>", hero_crop=""),
+            can_choose_audience=False,
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["description"] == "<p>Hi</p>"
+
+    def it_keeps_plain_text_as_typed(db):
+        form = CommunityEventForm(data=_event_payload(description="Bring paper <3"), can_choose_audience=False)
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["description"] == "Bring paper <3"
+
+    def it_takes_a_recognised_video_link_and_refuses_anything_else(db):
+        good = CommunityEventForm(
+            data=_event_payload(promo_video_url="https://youtu.be/dQw4w9WgXcQ"), can_choose_audience=False
+        )
+        assert good.is_valid(), good.errors
+        assert good.cleaned_data["promo_video_url"] == "https://youtu.be/dQw4w9WgXcQ"
+        bad = CommunityEventForm(
+            data=_event_payload(promo_video_url="https://example.com/v"), can_choose_audience=False
+        )
+        assert not bad.is_valid()
+        assert "YouTube" in bad.errors["promo_video_url"][0]
+        blank = CommunityEventForm(data=_event_payload(promo_video_url=""), can_choose_audience=False)
+        assert blank.is_valid(), blank.errors
+        assert blank.cleaned_data["promo_video_url"] == ""
+
+    def it_saves_the_sanitised_html_through_the_composer(client: Client, db):
+        _user_with_role("rich_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="rich_admin", password="pass")
+        resp = client.post(
+            reverse("hub_event_add"),
+            data=_event_payload(
+                description="<p>Bring <strong>paper</strong>.</p><script>x</script>",
+                promo_video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            ),
+        )
+        assert resp.status_code == 302
+        event = CommunityEvent.objects.get(title=_event_payload()["title"])
+        assert event.description == "<p>Bring <strong>paper</strong>.</p>"
+        assert event.description_text == "Bring paper."
+        assert event.promo_video_url == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"

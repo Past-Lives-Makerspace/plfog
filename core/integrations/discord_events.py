@@ -227,8 +227,10 @@ def _build_description(event: CommunityEvent) -> str:
     parts: list[str] = []
     if event.video_url:
         parts.append(f"Join online: {event.video_url}")
-    if event.description:
-        parts.append(event.description)
+    # Plain text, never the stored editor HTML (#831).
+    details = event.description_text
+    if details:
+        parts.append(details)
     parts.append(event.public_url)
     return "\n\n".join(parts)
 

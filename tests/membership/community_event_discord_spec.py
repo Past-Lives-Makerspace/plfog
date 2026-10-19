@@ -66,3 +66,22 @@ def describe_defaults():
         assert event.discord_sync_error == ""
         assert event.discord_synced_at is None
         assert event.discord_pushed_occurrence is None
+
+
+def describe_the_announcement_embed_description():
+    def it_carries_the_flattened_text_never_the_editor_html():
+        event = CommunityEventFactory(
+            community=True, description="<p>Bring <strong>paper</strong>.</p><p>Second line</p>"
+        )
+        embed = event.discord_announcement_embed()
+        assert embed["description"] == "Bring paper.\n\nSecond line"
+
+    def it_still_trims_a_long_description_to_the_page_pointer():
+        event = CommunityEventFactory(community=True, description="<p>" + "y" * 2000 + "</p>")
+        description = event.discord_announcement_embed()["description"]
+        assert description.endswith("… more on the event page")
+        assert "<p>" not in description
+
+    def it_has_no_description_for_an_empty_editor():
+        event = CommunityEventFactory(community=True, description="<p><br></p>")
+        assert "description" not in event.discord_announcement_embed()

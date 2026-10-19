@@ -28,6 +28,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# The four columns the composer's crop box (or the Adjust tool's focal point) lives in. A
+# model's ``save()`` reads them from the stored row to tell whether the box moved.
+HERO_CROP_FIELDS = ("hero_crop_x", "hero_crop_y", "hero_crop_w", "hero_crop_h")
+
 
 class HeroCropMixin(models.Model):
     """Adds hero_crop_* fields and a hero_object_position property to a model.
@@ -54,6 +58,11 @@ class HeroCropMixin(models.Model):
 
     def get_hero_image_field_name(self) -> str:
         raise NotImplementedError("Subclasses must implement get_hero_image_field_name()")
+
+    @property
+    def hero_crop_box(self) -> tuple[int | None, int | None, int | None, int | None]:
+        """The four crop columns as one value, so a row can be compared with its stored state."""
+        return (self.hero_crop_x, self.hero_crop_y, self.hero_crop_w, self.hero_crop_h)
 
     def scale_hero_crop(self, factor: float) -> None:
         """Shrink or grow a pixel crop box to follow a resize of its source image.
