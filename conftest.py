@@ -41,6 +41,19 @@ def _fake_stripe_keys(settings):
     settings.STRIPE_FIELD_ENCRYPTION_KEY = "b4-PlK9DFN7ABVCQwOHuQXMydh5IUj1ysLKGJOqMEWI="
 
 
+@pytest.fixture(autouse=True)
+def _deferred_work_inline(monkeypatch):
+    """Run ``core.deferred.defer`` work at the call, in the test's own thread.
+
+    Production starts a thread after the commit; a spec inside pytest's test transaction
+    would never see the commit, and a thread would race its assertions. A spec that tests
+    the real thread puts ``core.deferred.after_commit_thread`` back on ``_schedule``.
+    """
+    from core import deferred
+
+    monkeypatch.setattr(deferred, "_schedule", deferred.run_inline)
+
+
 @pytest.fixture
 def midday_now():
     """Pin ``timezone.now`` to local noon of today, reading the wall clock once.

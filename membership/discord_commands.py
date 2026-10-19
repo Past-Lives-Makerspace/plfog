@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta
 from math import ceil
 from typing import TYPE_CHECKING, cast
 
+from core.deferred import defer
 from core.events.discord_commands import (
     ComponentHandler,
     ModalHandler,
@@ -959,8 +960,15 @@ def _finalize_event(
         logger.exception("create: instant channel announcement failed; the 15 minute announcer will post it")
     emailed = 0
     if email_choice in _EMAIL_AUDIENCES:
+        # The addresses are counted now for the reply; the send runs in the background like
+        # the launch announcement, so a big audience never holds Discord's reply (#845).
         try:
-            emailed = event.email_announcement(email_choice, actor=member.user)
+            addresses = event.email_announcement_addresses(email_choice)
+            emailed = len(addresses)
+            defer(
+                lambda: event.send_email_announcement(addresses, actor=member.user),
+                name=f"event:{event.pk}:email_announcement",
+            )
         except Exception:
             logger.exception("create: email announcement failed after the event was published")
     # A Discord modal cannot take a file, so the reply offers the trip to the composer that
