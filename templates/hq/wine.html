@@ -26,7 +26,7 @@ its own: card_view decides who may open the page.
 
   {% include "hq/partials/_wine_band.html" with band=band %}
 
-  <section class="pl-hq-wine__section" aria-labelledby="hq-wine-log-title" x-data="{ open: {{ form_open|yesno:'true,false' }} }" data-hq-wine-log>
+  <section class="pl-hq-wine__section" aria-labelledby="hq-wine-log-title" x-data="{ open: {{ form_open|yesno:'true,false' }} }" data-hq-wine-log data-help-key="hq.wine-wall">
     <h2 class="pl-hq-wine__h2" id="hq-wine-log-title">Log a Bottle</h2>
     <div class="pl-hq-wine__card pl-hq-wine__invite" x-show="!open"{% if form_open %} x-cloak{% endif %}>
       <p class="pl-hq-wine__hint">Got a bottle? Log what it is, who gave it and a photo if you have one.</p>

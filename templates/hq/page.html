@@ -44,7 +44,7 @@ included, with Edit links and the Edit HQ action; everyone else gets only the do
   {% endif %}
 
   {% if goals or can_edit %}
-  <section class="pl-hq-goals" aria-labelledby="hq-goals-title">
+  <section class="pl-hq-goals" aria-labelledby="hq-goals-title" data-help-key="hq.goal-tracker">
     <h2 class="pl-hq-goals__title" id="hq-goals-title">Goal Tracker</h2>
     {% if goals %}
     <div class="pl-hq-goals__grid">
@@ -65,7 +65,7 @@ included, with Edit links and the Edit HQ action; everyone else gets only the do
 
   <section class="pl-hq-doors" aria-labelledby="hq-doors-title">
     <h2 class="pl-hq-section__title" id="hq-doors-title">Pick a Door</h2>
-    <div class="pl-hq-grid">
+    <div class="pl-hq-grid" data-help-key="hq.door-cards">
       {% for card in cards %}
       {% include "hq/partials/_card.html" with card=card hub=hub can_edit=can_edit %}
       {% empty %}
