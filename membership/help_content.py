@@ -655,7 +655,7 @@ Each card on the page is a door into one part of the event. A card says who it i
 - **Log a wine bottle** opens the wine wall.
 - A greyed card reading **Not shared yet** is a page the organisers have not opened. It links nowhere.
 
-You only see the doors that are open to you. Every card starts as admins only; an admin opens it to members, to everyone, or to the people who run that part (see Editing the HQ below). If a door you expect is missing, sign in, or ask an admin.
+You only see the doors that are open to you. Every card starts as admins only; an admin opens it to members, to everyone, or to the people who run that part (see Editing the HQ below). A door open to everyone needs no account for what is behind it: RSVP, shifts or bottles. If a door you expect is missing, sign in, or ask an admin.
 
 ### The Goal Tracker {#hq-goal-tracker}
 
@@ -663,7 +663,7 @@ Under the top band sits a row of goals, each with a meter. Goals that count peop
 
 ### RSVP on the Event Page {#hq-rsvp}
 
-The **Going to the Bizarre?** door opens the event's page. A door open to everyone opens without an account, but RSVPing on the event page still needs one: signed-in members click **I'm going** there; your name joins **Who's coming** and the count feeds the goal tracker. **I'm not going** takes it back.
+The **Going to the Bizarre?** door opens the event's page. When the door is open to everyone, anyone can RSVP there with no account. Signed-in members click **I'm going**; your name joins **Who's coming** and the count feeds the goal tracker. **I'm not going** takes it back.
 
 ### Sign Up for a Shift {#hq-volunteer-shifts}
 
