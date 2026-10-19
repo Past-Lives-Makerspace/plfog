@@ -4223,7 +4223,8 @@ class EventGuestRSVPForm(forms.Form):
         data = self.cleaned_data
         member_rsvp = event.member_rsvp_for_email(data["email"])
         if member_rsvp is not None:
-            event.set_member_party_size(member_rsvp.member, data["party_size"])
+            # member_rsvp_for_email only returns rows with a member.
+            event.set_member_party_size(cast(Member, member_rsvp.member), data["party_size"])
             member_rsvp.party_size = data["party_size"]
             return member_rsvp
         return event.rsvp_guest(
