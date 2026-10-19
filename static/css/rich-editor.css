@@ -134,3 +134,16 @@
 [data-theme="light"] .pl-rte-wrap .ql-snow .ql-picker {
     color: #5b6675;
 }
+
+/* The wiki toolbar's panel picker (rich-editor-init.js). Quill builds a picker for a custom
+   format with no text in it, so its labels come from data-value here, the way snow labels
+   its own header picker. The block styles themselves live in hub.css beside the reading
+   page's, so the editor and the page cannot draw a panel two ways. */
+.pl-rte-wrap .ql-snow .ql-picker.ql-panel { width: 6.5rem; }
+.pl-rte-wrap .ql-snow .ql-picker.ql-panel .ql-picker-label::before,
+.pl-rte-wrap .ql-snow .ql-picker.ql-panel .ql-picker-item::before { content: "Panel"; }
+.pl-rte-wrap .ql-snow .ql-picker.ql-panel .ql-picker-item:not([data-value])::before { content: "No panel"; }
+.pl-rte-wrap .ql-snow .ql-picker.ql-panel [data-value="info"]::before { content: "Info"; }
+.pl-rte-wrap .ql-snow .ql-picker.ql-panel [data-value="tip"]::before { content: "Tip"; }
+.pl-rte-wrap .ql-snow .ql-picker.ql-panel [data-value="warning"]::before { content: "Warning"; }
+.pl-rte-wrap .ql-snow .ql-picker.ql-panel [data-value="danger"]::before { content: "Danger"; }

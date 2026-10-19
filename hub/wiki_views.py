@@ -26,6 +26,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import redirect_to_login
 from django.core.paginator import Paginator
 from django.db import transaction
+from django.db.models import F
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -98,6 +99,9 @@ _SEARCH_PAGE_SIZE = 20
 _HOME_GUILD_LIMIT = 8
 _HOME_RECENT_LIMIT = 10
 _HOME_MACHINE_LIMIT = 8
+# Pages Waiting For You: enough to offer a choice, few enough to read as an invitation
+# rather than a backlog.
+_HOME_WAITING_LIMIT = 6
 _HOME_DRAFT_LIMIT = 3
 
 
@@ -255,7 +259,27 @@ def hub_wiki_home(request: HttpRequest) -> HttpResponse:
         if joined_guild_ids
         else []
     )
-    recent_pages = list(cards.order_by("-updated_at")[:_HOME_RECENT_LIMIT])
+    # Written pages only: a seeded stub's "Updated" date is the day a command made it, and
+    # listing it here announced news nobody had written. The stubs get their own card.
+    recent_pages = list(cards.written().order_by("-updated_at")[:_HOME_RECENT_LIMIT])
+    can_write = _active_member(request) is not None
+    waiting_pages = (
+        # Space-wide pages first (nulls_first, because Postgres and SQLite sort a null guild
+        # at opposite ends), then each guild's.
+        # Official pages are left out: every link here opens the editor, and a member has none
+        # on an Official page. Archived pages are left out because staff see them in `cards`,
+        # and machines because the Machines card below already lists every one.
+        list(
+            cards.unwritten()
+            .published()
+            .not_archived()
+            .exclude(kind=WikiPage.Kind.MACHINE)
+            .exclude(status=WikiPage.Status.OFFICIAL)
+            .order_by(F("guild__name").asc(nulls_first=True), "title")[:_HOME_WAITING_LIMIT]
+        )
+        if can_write
+        else []
+    )
     machine_pages = list(cards.filter(kind=WikiPage.Kind.MACHINE).order_by("title")[:_HOME_MACHINE_LIMIT])
     drafts = list(WikiDraft.objects.for_member(member)[:_HOME_DRAFT_LIMIT]) if member is not None else []
     can_review, open_review_count = _review_link(request)
@@ -271,9 +295,10 @@ def hub_wiki_home(request: HttpRequest) -> HttpResponse:
             "your_guild_pages": your_guild_pages,
             "recent_pages": recent_pages,
             "machine_pages": machine_pages,
+            "waiting_pages": waiting_pages,
             "drafts": drafts,
             "starters": [{"kind": key, **value} for key, value in STARTERS.items()],
-            "can_write": _active_member(request) is not None,
+            "can_write": can_write,
             # The review queue's only entry point on an ordinary day. Without it the queue
             # is reachable only from a report banner on a page you happen to be reading,
             # which means a held safety proposal and the ?archived=1 view both sit behind

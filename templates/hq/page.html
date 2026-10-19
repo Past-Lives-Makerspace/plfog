@@ -1,0 +1,83 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+The Holiday Bizarre HQ page (Track C, part 1). Extends hub/base.html, which auto-degrades for
+a signed-out visitor (public topbar, no sidebar) and shows the hub chrome for a member; the
+view has no login gate, so the public doors open for anyone with the link. The view already
+filtered the cards by the viewer's effective role: an admin gets every card, hidden ones
+included, with Edit links and the Edit HQ action; everyone else gets only the doors open to them.
+{% endcomment %}
+{% block title %}{{ hub.title }}{% endblock %}
+{% block extra_head %}
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq" data-hq-page>
+  {% if can_edit %}
+  <div class="pl-hq-adminbar" data-hq-adminbar>
+    <span class="pl-hq-adminbar__text">{% if hub.is_open %}This HQ is open: members reach it from the sidebar.{% else %}This HQ is closed: only admins can see it.{% endif %}</span>
+    <a href="{% url 'hq:edit' hub.slug %}" class="hub-btn hub-btn--sm" data-hq-edit>Edit HQ</a>
+  </div>
+  {% endif %}
+
+  <section class="pl-hq-hero{% if hub.hero_image %} pl-hq-hero--photo{% endif %}" data-hq-hero>
+    {% if hub.hero_image %}
+    {# The photo is decorative: the title beside it carries the meaning, so its alt is empty. #}
+    <img class="pl-hq-hero__img" src="{{ hub.hero_image.url }}" alt="">
+    {% endif %}
+    <div class="pl-hq-hero__text">
+      {% if hub.eyebrow %}<p class="pl-hq-hero__eyebrow">{{ hub.eyebrow }}</p>{% endif %}
+      <h1 class="pl-hq-hero__title">{{ hub.title }}</h1>
+      {% if hub.date_line %}<p class="pl-hq-hero__date" data-hq-date>{{ hub.date_line }}</p>{% endif %}
+    </div>
+    {% if countdown.big %}
+    <p class="pl-hq-hero__countdown" data-hq-countdown="{{ countdown.big }}{% if countdown.small %} {{ countdown.small }}{% endif %}">
+      <span class="pl-hq-hero__figure">{{ countdown.big }}</span>
+      {% if countdown.small %}<span class="pl-hq-hero__cd-label">{{ countdown.small }}</span>{% endif %}
+    </p>
+    {% endif %}
+  </section>
+
+  {% if hub.intro %}
+  <div class="pl-hq-intro">{{ hub.intro|linebreaks }}</div>
+  {% endif %}
+
+  {% if goals or can_edit %}
+  <section class="pl-hq-goals" aria-labelledby="hq-goals-title">
+    <h2 class="pl-hq-goals__title" id="hq-goals-title">Goal Tracker</h2>
+    {% if goals %}
+    <div class="pl-hq-goals__grid">
+      {% for goal in goals %}
+      <div class="pl-hq-goal" data-hq-goal>
+        <span class="pl-hq-goal__label">{{ goal.label }}</span>
+        <strong class="pl-hq-goal__value">{{ goal.current_display }} <small>of {{ goal.target_display }}</small></strong>
+        <progress class="pl-hq-meter" max="100" value="{{ goal.percent }}" aria-label="{{ goal.label }}: {{ goal.percent }} percent of the goal">{{ goal.percent }}%</progress>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    {# Admins alone reach this branch: the section is skipped for everyone else while there are no goals. #}
+    <p class="pl-hq-empty" data-hq-goals-empty>No goals yet. Add them from Edit HQ and they show here as chips.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <section class="pl-hq-doors" aria-labelledby="hq-doors-title">
+    <h2 class="pl-hq-section__title" id="hq-doors-title">Pick a Door</h2>
+    <div class="pl-hq-grid">
+      {% for card in cards %}
+      {% include "hq/partials/_card.html" with card=card hub=hub can_edit=can_edit %}
+      {% empty %}
+      <p class="pl-hq-empty" data-hq-doors-empty>
+        No doors are open to you yet.{% if not request.user.is_authenticated %} <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}">Sign in</a> if you are a member.{% endif %}
+      </p>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% if hub.footer_note %}
+  <p class="pl-hq-footnote" data-hq-footnote>{{ hub.footer_note|linebreaksbr }}</p>
+  {% endif %}
+</div>
+{% endblock %}

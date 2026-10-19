@@ -7,8 +7,11 @@ seventh "Safety & Rules" starter card without editing spec A's template (brief �
 Each entry supplies:
 
 - The chooser card copy (``label`` / ``description`` / ``icon``).
-- ``body`` — a starter body (headings only) for the Quill editor, so a member opens a
-  structured page instead of a blank box. The ``blank`` starter's is empty on purpose.
+- ``body`` — a starter body for the Quill editor, so a member opens a structured page
+  instead of a blank box: headings, plus an empty panel or checklist line where one helps.
+  The editor shows a hint in an empty panel, and the reading page drops whatever was left
+  empty (``render_wiki_content``), so an unanswered prompt never publishes. The ``blank``
+  starter's body is empty on purpose.
 
 There is deliberately no ``fact_prompts`` key any more. Create mode used to pre-seed one
 Quick Answers row per prompt, which put three or four list-editor cards — each with a
@@ -55,9 +58,12 @@ STARTERS: dict[str, WikiStarter] = {
         "icon": "machine",
         "body": (
             "<h2>What It Does</h2><p></p>"
-            "<h2>How To Use It</h2><p></p>"
+            '<p class="pl-panel-danger"><br></p>'
+            "<h2>How To Use It</h2>"
+            '<ul class="pl-checklist"><li data-list="unchecked"><br></li></ul>'
             "<h2>What Goes Wrong</h2><p></p>"
-            "<h2>Tips From Members</h2><p></p>"
+            "<h2>Tips From Members</h2>"
+            '<p class="pl-panel-tip"><br></p>'
         ),
         "page_kind": "machine",
         "status": "",
@@ -66,7 +72,13 @@ STARTERS: dict[str, WikiStarter] = {
         "label": "How to do something",
         "description": "A process, a technique, a fix. Steps someone can follow.",
         "icon": "howto",
-        "body": ("<h2>Before You Start</h2><p></p><h2>Steps</h2><p></p><h2>What Goes Wrong</h2><p></p>"),
+        "body": (
+            "<h2>Before You Start</h2>"
+            '<ul class="pl-checklist"><li data-list="unchecked"><br></li></ul>'
+            "<h2>Steps</h2><p></p>"
+            "<h2>What Goes Wrong</h2>"
+            '<p class="pl-panel-warning"><br></p>'
+        ),
         "page_kind": "howto",
         "status": "",
     },
@@ -74,7 +86,12 @@ STARTERS: dict[str, WikiStarter] = {
         "label": "Material",
         "description": "Wood, resin, filament, fabric. What it is and how to work with it.",
         "icon": "material",
-        "body": ("<h2>What It Is</h2><p></p><h2>Working With It</h2><p></p><h2>Where To Get It</h2><p></p>"),
+        "body": (
+            "<h2>What It Is</h2><p></p>"
+            '<p class="pl-panel-warning"><br></p>'
+            "<h2>Working With It</h2><p></p>"
+            "<h2>Where To Get It</h2><p></p>"
+        ),
         "page_kind": "material",
         "status": "",
     },
@@ -90,7 +107,7 @@ STARTERS: dict[str, WikiStarter] = {
         "label": "How this guild works",
         "description": "Meeting times, how to join, who to ask.",
         "icon": "guild_info",
-        "body": "<h2>How To Get Involved</h2><p></p><h2>What We Do</h2><p></p>",
+        "body": '<h2>How To Get Involved</h2><p class="pl-panel-info"><br></p><h2>What We Do</h2><p></p>',
         "page_kind": "guild_info",
         "status": "",
     },
@@ -113,9 +130,12 @@ STARTERS: dict[str, WikiStarter] = {
         "icon": "safety",
         "body": (
             "<h2>The Rules</h2><p></p>"
-            "<h2>What Can Go Wrong</h2><p></p>"
-            "<h2>Required Gear</h2><p></p>"
-            "<h2>Who To Ask</h2><p></p>"
+            "<h2>What Can Go Wrong</h2>"
+            '<p class="pl-panel-danger"><br></p>'
+            "<h2>Required Gear</h2>"
+            '<ul class="pl-checklist"><li data-list="unchecked"><br></li></ul>'
+            "<h2>Who To Ask</h2>"
+            '<p class="pl-panel-info"><br></p>'
         ),
         "page_kind": "guild_info",
         "status": "official",

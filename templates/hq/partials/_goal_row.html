@@ -1,0 +1,28 @@
+{% comment %}
+One goal row on the hub form.
+
+  f     — required, one HubGoalForm (or the formset's empty_form for the + Add goal template)
+  saved — True for a goal already in the database: its Delete flips the hidden DELETE field
+          and saves the whole page, so no other edit is lost. An unsaved row's Remove just
+          drops the row.
+{% endcomment %}
+<div class="pl-hq-goal-row" data-hq-goal-row>
+  {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+  <div class="pl-hq-goal-row__fields">
+    {% include "components/form_field.html" with field=f.label %}
+    {% include "components/form_field.html" with field=f.kind %}
+    {% include "components/form_field.html" with field=f.target %}
+    {% include "components/form_field.html" with field=f.current_value %}
+  </div>
+  {% include "components/form_field.html" with field=f.is_money %}
+  {{ f.id }}
+  {% if saved %}
+  <div hidden>{{ f.DELETE }}</div>
+  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-hq-goal-delete
+          onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+    Delete
+  </button>
+  {% else %}
+  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('[data-hq-goal-row]').remove();">Remove</button>
+  {% endif %}
+</div>
