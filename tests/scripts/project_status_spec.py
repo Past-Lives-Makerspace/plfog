@@ -556,16 +556,59 @@ def describe_project_status():
                 assert module.main(["--branch", "fog/no-number-here", "--status", "Progress"]) == 0
                 assert "nothing to do" in capsys.readouterr().out
 
-        def describe_when_a_required_variable_is_missing():
-            def it_fails_naming_the_variable(module, serve, env, monkeypatch, capsys):
+        def describe_when_project_pat_is_unset():
+            def it_uses_the_hexagonstorms_gh_token(module, serve, env, monkeypatch, capsys):
                 monkeypatch.delenv("PROJECT_PAT")
-                assert module.main(["--issue", "357", "--status", "Progress"]) == 1
-                assert "PROJECT_PAT is not set" in capsys.readouterr().err
+                seen = {}
 
-            def it_fails_on_an_empty_variable_too(module, serve, env, monkeypatch, capsys):
-                monkeypatch.setenv("PROJECT_NUMBER", "")
+                def _run(cmd, **kwargs):
+                    seen["cmd"], seen["godebug"] = cmd, kwargs["env"]["GODEBUG"]
+                    return module.subprocess.CompletedProcess(cmd, 0, stdout="gho_local\n", stderr="")
+
+                monkeypatch.setattr(module.subprocess, "run", _run)
+                server = serve(board=_board(), issue=_issue(), item_status=_status("Progress"))
+                assert module.main(["--issue", "357", "--status", "Progress"]) == 0
+                assert seen == {"cmd": ["gh", "auth", "token", "--user", "HexagonStorms"], "godebug": "netdns=cgo"}
+                assert server.calls, "no request was sent"
+                assert "nothing to do" in capsys.readouterr().out
+
+            def it_fails_naming_both_when_gh_gives_no_token(module, serve, env, monkeypatch, capsys):
+                monkeypatch.setenv("PROJECT_PAT", "")
+                monkeypatch.setattr(
+                    module.subprocess,
+                    "run",
+                    lambda cmd, **kwargs: module.subprocess.CompletedProcess(cmd, 1, stdout="", stderr="no account"),
+                )
                 assert module.main(["--issue", "357", "--status", "Progress"]) == 1
-                assert "PROJECT_NUMBER is not set" in capsys.readouterr().err
+                err = capsys.readouterr().err
+                assert "PROJECT_PAT is not set" in err
+                assert "gh auth token --user HexagonStorms" in err
+
+            def it_fails_naming_both_when_gh_is_not_installed(module, serve, env, monkeypatch, capsys):
+                monkeypatch.delenv("PROJECT_PAT")
+
+                def _run(cmd, **kwargs):
+                    raise FileNotFoundError("gh")
+
+                monkeypatch.setattr(module.subprocess, "run", _run)
+                assert module.main(["--issue", "357", "--status", "Progress"]) == 1
+                assert "gh auth token --user HexagonStorms" in capsys.readouterr().err
+
+        def describe_when_the_board_coordinates_are_unset():
+            def it_defaults_to_this_repos_board(module, serve, monkeypatch):
+                monkeypatch.setenv("PROJECT_PAT", "tok")
+                for name in ("PROJECT_OWNER", "PROJECT_NUMBER", "GITHUB_REPOSITORY"):
+                    monkeypatch.delenv(name, raising=False)
+                server = serve(board=_board(), issue=_issue(), item_status=_status("Progress"))
+                assert module.main(["--issue", "357", "--status", "Progress"]) == 0
+                assert server.sent("board") == [{"org": "Past-Lives-Makerspace", "number": 1}]
+                assert server.sent("issue") == [{"owner": "Past-Lives-Makerspace", "repo": "plfog", "number": 357}]
+
+            def it_treats_an_empty_variable_as_unset(module, serve, env, monkeypatch):
+                monkeypatch.setenv("PROJECT_NUMBER", "")
+                server = serve(board=_board(), issue=_issue(), item_status=_status("Progress"))
+                assert module.main(["--issue", "357", "--status", "Progress"]) == 0
+                assert server.sent("board")[0]["number"] == 1
 
         def describe_when_the_board_number_is_not_a_number():
             def it_fails_with_an_annotation_not_a_traceback(module, serve, env, monkeypatch, capsys):

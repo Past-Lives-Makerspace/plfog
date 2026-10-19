@@ -45,6 +45,11 @@ the org's boards would widen that blast radius for no reason. A token that can o
 cards can only ever move cards. ``GITHUB_TOKEN`` is not an option at all: it is scoped to the
 repository that issued it, and an organization board is not in any repository.
 
+Locally no ``PROJECT_PAT`` is needed: when it is unset the script asks ``gh`` for the
+HexagonStorms login's token, which carries the ``project`` scope, and the board coordinates
+default to this repo's board (``Past-Lives-Makerspace``, board 1). So the local call is just
+``.venv/bin/python .github/scripts/project_status.py --issue <n> --status Progress``.
+
 Stdlib only -- this workflow installs nothing beyond the interpreter.
 """
 
@@ -54,6 +59,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -422,23 +428,63 @@ def issues_for_pr(owner: str, repo: str, number: int, token: str) -> list[int]:
     return issues_from_text(pull_request["body"], pull_request["headRefName"])
 
 
+# What a local run means when the workflow's variables are absent. CI sets every one of them.
+_DEFAULTS = {
+    "PROJECT_OWNER": "Past-Lives-Makerspace",
+    "PROJECT_NUMBER": "1",
+    "GITHUB_REPOSITORY": "Past-Lives-Makerspace/plfog",
+}
+_GH_USER = "HexagonStorms"
+
+
 def _env(name: str) -> str:
-    """A required environment variable, or a clear failure naming it.
+    """An environment variable, its local default from :data:`_DEFAULTS`, or a clear failure.
 
     Args:
         name: The variable to read.
 
     Returns:
-        Its value.
+        Its value, or its default when it is unset or empty.
 
     Raises:
-        ProjectStatusError: If it is unset or empty. A missing PROJECT_PAT must stop the run,
-            not fall back to an anonymous request that 401s ten lines later.
+        ProjectStatusError: If it is unset or empty and has no default.
     """
-    value = os.environ.get(name, "")
+    value = os.environ.get(name, "") or _DEFAULTS.get(name, "")
     if not value:
         raise ProjectStatusError(f"{name} is not set.")
     return value
+
+
+def _token() -> str:
+    """``PROJECT_PAT``, or locally the HexagonStorms ``gh`` login's token.
+
+    Returns:
+        A token carrying the ``project`` scope.
+
+    Raises:
+        ProjectStatusError: If ``PROJECT_PAT`` is unset and ``gh`` cannot supply a token. A
+            missing token must stop the run, not fall back to an anonymous request that 401s
+            ten lines later.
+    """
+    value = os.environ.get("PROJECT_PAT", "")
+    if value:
+        return value
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token", "--user", _GH_USER],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            # Go's pure resolver fails on Tailscale MagicDNS; cgo uses the system resolver.
+            env={**os.environ, "GODEBUG": "netdns=cgo"},
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        result = None
+    token = result.stdout.strip() if result is not None and result.returncode == 0 else ""
+    if not token:
+        raise ProjectStatusError(f"PROJECT_PAT is not set, and `gh auth token --user {_GH_USER}` gave no token.")
+    return token
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -460,7 +506,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        token = _env("PROJECT_PAT")
+        token = _token()
         org = _env("PROJECT_OWNER")
         raw_number = _env("PROJECT_NUMBER")
         if not raw_number.isdigit():

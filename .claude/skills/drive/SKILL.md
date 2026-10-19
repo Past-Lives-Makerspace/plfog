@@ -83,15 +83,12 @@ The urge to open a document means the ticket is bigger than this skill. Stop and
 In this session. No agent unless the `Is now` column cannot be filled without one.
 
 1. **Resolve the ticket.** `gh issue view <n>`, or write the issue if Jo gave prose. Then move its card, so
-   the board shows the work is alive rather than parked in Triage. CI moves it on from there (In Draft,
-   In Bot Review, Ready to Merge, Done) as the PR opens, is approved and merges; this one move is yours:
+   the board shows the work is alive rather than parked in Triage:
 
-       PROJECT_PAT=$(GODEBUG=netdns=cgo gh auth token --user HexagonStorms) \
-       PROJECT_OWNER=Past-Lives-Makerspace PROJECT_NUMBER=1 GITHUB_REPOSITORY=Past-Lives-Makerspace/plfog \
-         .venv/bin/python .github/scripts/project_status.py --issue <n> --status Progress
+       .venv/bin/python .github/scripts/project_status.py --issue <n> --status Progress
 
-   The CLI needs `PROJECT_PAT`, a token with the `project` scope; HexagonStorms's gh token carries it. A
-   board that will not answer is one line in the status block, never a reason to stop.
+   CI moves the card through Draft, In Bot Review, Ready to Merge and Done on its own; agents only make
+   the Progress move. A board that will not answer is one line in the status block, never a reason to stop.
 2. **Fill `Is now` by looking**, not by reasoning. Grep for each criterion. **The recon budget is exactly
    this column**: stop searching the moment every row is filled. A row that will not fill from a grep buys
    one scout agent, one page, one question to answer.
