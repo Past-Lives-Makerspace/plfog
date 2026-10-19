@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0236_eventimage"),
+        ("membership", "0237_communityevent_announcement_owed_since"),
     ]
 
     operations = [
