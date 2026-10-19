@@ -167,7 +167,9 @@ def _build_event_body(event: CommunityEvent, *, actor: User | None) -> dict[str,
     A recurring event carries its ``ical_rrule()`` as a single ``RRULE`` line.
     """
     who = _display_name(event.created_by or event.submitted_by or actor)
-    description = f"{event.description}\n\n" if event.description else ""
+    # The plain text of the description: the composer stores editor HTML (#831).
+    details = event.description_text
+    description = f"{details}\n\n" if details else ""
     description += f"Added by {who} via FOG"
     if event.video_url:
         description = f"Join online: {event.video_url}\n\n{description}"

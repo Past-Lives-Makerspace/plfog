@@ -11,7 +11,8 @@ from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
 
-from membership.models import CommunityEvent, Member
+from core.models import SiteConfiguration
+from membership.models import AdminCapability, CommunityEvent, Member
 from tests.membership.factories import CommunityEventFactory, GuildFactory, MembershipPlanFactory
 
 
@@ -45,13 +46,15 @@ def describe_queue_gating():
         client.login(username="pm1", password="pass")
         assert client.get(reverse("hub_event_review_queue")).status_code == 403
 
-    def it_lets_an_admin_see_every_pending_proposal(client: Client):
+    def it_sends_an_admin_to_manage_events_needs_review(client: Client):
+        """Site-wide review lives on Manage Events (#831); the queue stays the guild leads'."""
         _user_with_role("adm1", fog_role=Member.FogRole.ADMIN)
-        CommunityEventFactory(community=True, pending=True, title="Site Proposal")
+        event = CommunityEventFactory(community=True, pending=True, title="Site Proposal")
         client.login(username="adm1", password="pass")
         resp = client.get(reverse("hub_event_review_queue"))
-        assert resp.status_code == 200
-        assert b"Site Proposal" in resp.content
+        assert resp.status_code == 302
+        assert resp["Location"] == f"{reverse('hub_admin_events')}?status=needs_review"
+        assert [row.pk for row in client.get(resp["Location"]).context["page"]] == [event.pk]
 
     def it_scopes_a_lead_to_their_own_guilds(client: Client):
         user = _user_with_role("lead1")
@@ -144,6 +147,44 @@ def describe_cross_guild_isolation():
         assert resp.status_code == 404
         b_event.refresh_from_db()
         assert b_event.moderation_state == CommunityEvent.ModerationState.PENDING
+
+
+@pytest.mark.django_db
+def describe_a_granted_members_event_in_the_queue():
+    """An event added by a "Can create events" holder is an ordinary proposal to the reviewers:
+    it sits in the queue, and approving it publishes and announces it."""
+
+    def _granted_event(client: Client) -> CommunityEvent:
+        config = SiteConfiguration.load()
+        config.member_event_policy = SiteConfiguration.MemberEventPolicy.DISABLED
+        config.save(update_fields=["member_event_policy"])
+        creator = _user_with_role("granted_creator")
+        creator.member.admin_capabilities.create(capability=AdminCapability.Capability.EVENT_CREATOR)
+        client.login(username="granted_creator", password="pass")
+        assert client.post(reverse("hub_event_add"), data=_payload(title="Granted Potluck")).status_code == 302
+        client.logout()
+        return CommunityEvent.objects.get(title="Granted Potluck")
+
+    def it_sits_in_the_reviewers_queue(client: Client):
+        event = _granted_event(client)
+        _user_with_role("queue_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="queue_admin", password="pass")
+        resp = client.get(reverse("hub_event_review_queue"), follow=True)
+        assert resp.status_code == 200
+        assert f'data-event-row="{event.pk}"'.encode() in resp.content
+        assert [row.pk for row in resp.context["page"]] == [event.pk]
+
+    def it_publishes_and_announces_once_approved(client: Client):
+        event = _granted_event(client)
+        _user_with_role("approving_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="approving_admin", password="pass")
+        with patch.object(CommunityEvent, "announce") as mock_announce:
+            resp = client.post(reverse("hub_event_review_decision", args=[event.pk]) + "?decision=approve")
+        assert resp.status_code == 302
+        event.refresh_from_db()
+        assert event.moderation_state == CommunityEvent.ModerationState.PUBLISHED
+        assert event.sync_state == CommunityEvent.SyncState.PENDING
+        mock_announce.assert_called_once()
 
 
 @pytest.mark.django_db

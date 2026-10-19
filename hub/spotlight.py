@@ -67,7 +67,7 @@ class SpotlightMeeting:
         query = event.date_query(start)
         return cls(
             title=event.title,
-            description=event.description,
+            description=event.description_text,
             starts_at=start,
             video_url=event.video_url,
             ics_url=f"{reverse('hub_event_ics', args=[event.pk])}{query}",

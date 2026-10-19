@@ -299,6 +299,23 @@ def classes_review_access_required(view_func: _ViewFunc) -> _ViewFunc:
     )(view_func)
 
 
+def events_admin_access_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator gating Manage Events: fog-admins or Calendar Administrators.
+
+    The ``EVENTS_APPROVER`` capability's contract is reviewing the Calendar's proposals
+    site-wide, and Manage Events is where that review now lives (#831), so the list, the
+    per-event screen and its Duplicate and Unpublish actions admit holders alongside admins.
+    Actual-role based like every gate here, while the Admin Tools card reads
+    :func:`has_events_admin_access`; follow the billing precedent and do not unify the two.
+    """
+    from membership.models import AdminCapability
+
+    return _capability_or_admin_required(
+        AdminCapability.Capability.EVENTS_APPROVER,
+        "Manage Events requires admin privileges or the Calendar Administrator permission.",
+    )(view_func)
+
+
 def refund_authority_required(view_func: _ViewFunc) -> _ViewFunc:
     """Decorator gating refund actions: fog-admins or holders of the ``REFUNDS`` capability.
 
@@ -345,6 +362,22 @@ def has_billing_admin_access(request: "HttpRequest") -> bool:
         return True
     member = getattr(request.user, "member", None)
     return member is not None and member.has_admin_capability(AdminCapability.Capability.BILLING_APPROVER)
+
+
+def has_events_admin_access(request: "HttpRequest") -> bool:
+    """True when the user may open Manage Events — fog-admin (actual) or ``EVENTS_APPROVER`` holder.
+
+    The template-side twin of :func:`events_admin_access_required`: it decides whether the
+    Admin Tools Manage Events card shows without granting anything — the views stay
+    decorator-gated regardless.
+    """
+    from membership.models import AdminCapability
+
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.has_actual(ROLE_ADMIN):
+        return True
+    member = getattr(request.user, "member", None)
+    return member is not None and member.has_admin_capability(AdminCapability.Capability.EVENTS_APPROVER)
 
 
 class ViewAsMiddleware:

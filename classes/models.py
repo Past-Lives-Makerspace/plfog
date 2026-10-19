@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import logging
 import re
 import secrets
@@ -14,12 +13,11 @@ from functools import partial
 from datetime import UTC, date as date_type, datetime, timedelta
 from html import unescape
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, cast
 
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.core.files.base import ContentFile
 from django.core.validators import MaxValueValidator
 from django.db import IntegrityError, models, transaction
 from django.db.models import (
@@ -43,13 +41,14 @@ from django.utils.formats import date_format
 from django.utils.html import strip_tags
 from django.utils.safestring import SafeString, mark_safe
 from django.utils.timezone import localtime
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import UnidentifiedImageError
 
-from classes.eventbrite_categories import EventbriteCategory, EventbriteSubcategory
 from core.files import delete_orphan_on_replace
+from core.integrations import eventbrite_choices
+from core.integrations.eventbrite_choices import EventbriteCategory, EventbriteSubcategory
 from core.html_sanitize import is_editor_html, rich_body_to_text, rich_html_to_text
-from core.images import normalize_field_if_uploaded
-from core.models import HeroCropMixin
+from core.images import cut_hero_crop, normalize_field_if_uploaded
+from core.models import HERO_CROP_FIELDS, HeroCropMixin
 from core.validators import validate_image_content, validate_image_size
 from membership.names import user_name_or_email
 
@@ -60,7 +59,7 @@ if TYPE_CHECKING:
     from django.forms import ModelForm
 
     from billing.models import PaymentRefund
-    from core.integrations.eventbrite import ListingCheck
+    from core.integrations.eventbrite import ListingCheck, ListingSchedule
     from membership.models import Member
 
 logger = logging.getLogger(__name__)
@@ -246,9 +245,8 @@ CLASS_IMAGE_PREFIX = "classes/images/"
 # same post (and clones, which carry the key across) share one object.
 VIDEO_THUMBNAIL_PREFIX = "classes/video-thumbnails/"
 
-# The four columns the composer's crop box (or the Adjust tool's focal point) lives in.
-# ``ClassOffering.save()`` reads them from the stored row to tell whether the box moved.
-HERO_CROP_FIELDS = ("hero_crop_x", "hero_crop_y", "hero_crop_w", "hero_crop_h")
+# ``HERO_CROP_FIELDS`` (the four crop columns ``save()`` compares against the stored row) now
+# lives in ``core.models`` beside the mixin, shared with the event hero; imported above.
 
 # Ceiling on how much of the live legacy catalog a single sync run may archive. Above
 # this, ``ClassOfferingQuerySet.archive_missing_from_legacy_feed`` refuses to act and logs
@@ -1009,26 +1007,13 @@ class ClassOffering(HeroCropMixin, models.Model):
         SINGLE_SESSION = "single_session", "Single Session"
         SERIES_PACKAGE = "series_package", "Series Package"
 
-    class EventbriteFeePayer(models.TextChoices):
-        BUYER = "buyer", "Buyer pays it on top"
-        INCLUDED = "included", "Included in my price"
-
-    class EventbriteSyncState(models.TextChoices):
-        IDLE = "idle", "Not listed"  # never opted in, or nothing on Eventbrite to end
-        PENDING = "pending", "Pending"  # waiting on sync to be switched on (retry_eventbrite_pushes)
-        LISTED = "listed", "Listed"  # live on Eventbrite and up to date
-        ENDED = "ended", "Ended"  # sales closed and unpublished (or as far as Eventbrite allows)
-        FAILED = "failed", "Failed"  # last push errored (retry_eventbrite_pushes will retry)
-
-    class EventbriteStage(models.TextChoices):
-        """Where a class stands with Eventbrite, as the Eventbrite tab's badge reads it (#725)."""
-
-        OFF = "off", "Not on Eventbrite"
-        NEEDS_AGREEMENT = "needs_agreement", "Needs agreement"
-        QUEUED = "queued", "Queued for Eventbrite"
-        LISTED = "listed", "Listed on Eventbrite"
-        FAILED = "failed", "Failed"
-        TAKEN_DOWN = "taken_down", "Taken down"
+    # Eventbrite's listing choices live in core (core.integrations.eventbrite_choices) so the
+    # service never imports classes; they stay reachable here, ``offering.EventbriteSyncState``,
+    # because every caller, template and spec reads them off the class. Same values and labels,
+    # so no migration.
+    EventbriteFeePayer: ClassVar[type[eventbrite_choices.EventbriteFeePayer]] = eventbrite_choices.EventbriteFeePayer
+    EventbriteSyncState: ClassVar[type[eventbrite_choices.EventbriteSyncState]] = eventbrite_choices.EventbriteSyncState
+    EventbriteStage: ClassVar[type[eventbrite_choices.EventbriteStage]] = eventbrite_choices.EventbriteStage
 
     title = models.CharField(max_length=255, help_text="Public class title.")
     # db_default as well as default: the migration applies while the previous release still
@@ -1189,11 +1174,6 @@ class ClassOffering(HeroCropMixin, models.Model):
         return "image"
 
     @property
-    def hero_crop_box(self) -> tuple[int | None, int | None, int | None, int | None]:
-        """The four crop columns as one value, so a row can be compared with its stored state."""
-        return (self.hero_crop_x, self.hero_crop_y, self.hero_crop_w, self.hero_crop_h)
-
-    @property
     def hero_object_position(self) -> str:
         """CSS ``object-position`` for the photo :attr:`hero_image_url` returns.
 
@@ -1286,46 +1266,30 @@ class ClassOffering(HeroCropMixin, models.Model):
         """Cut ``hero_cropped``, the hero image inside the crop box, or clear it.
 
         The composer stores the box as pixels on the uploaded file, so this cuts exactly
-        that rectangle (clamped to the image's edges) with Pillow, keeps the source
-        format (JPEG at quality 88, PNG as is, anything else as JPEG) and stores the
-        result through the field's storage under ``classes/hero-crops/``, so the same
-        code serves the local filesystem and R2. With no uploaded image, no real box (the
-        Adjust tool's focal point has width and height 0), a box that lies off the image
-        or a file Pillow cannot read, the copy is cleared instead: every surface then
-        shows the original again. Writes storage only; the caller saves the row.
+        that rectangle (:func:`core.images.cut_hero_crop`, shared with the event hero:
+        clamped to the image's edges, the source format kept) and stores the result
+        through the field's storage under ``classes/hero-crops/``, so the same code serves
+        the local filesystem and R2. With no uploaded image, no real box (the Adjust
+        tool's focal point has width and height 0), a box that lies off the image or a
+        file Pillow cannot read, the copy is cleared instead: every surface then shows
+        the original again. Writes storage only; the caller saves the row.
         """
         if not (self.image and self.hero_crop_w and self.hero_crop_h):
             self.hero_cropped = ""
             return
+        assert self.image.name  # a truthy FieldFile is one with a name, checked above
+        box = (self.hero_crop_x or 0, self.hero_crop_y or 0, self.hero_crop_w, self.hero_crop_h)
         try:
-            opened = Image.open(io.BytesIO(self._hero_source_bytes()))
-            source_format = opened.format
-            img: Image.Image = ImageOps.exif_transpose(opened) or opened
+            copy = cut_hero_crop(self._hero_source_bytes(), box, stem=Path(self.image.name).stem)
         except (UnidentifiedImageError, OSError, ValueError) as exc:
             logger.warning("hero crop skipped for ClassOffering %s: %s", self.pk, exc)
             self.hero_cropped = ""
             return
-        src_w, src_h = img.size
-        left = min(self.hero_crop_x or 0, src_w)
-        top = min(self.hero_crop_y or 0, src_h)
-        right = min(left + self.hero_crop_w, src_w)
-        bottom = min(top + self.hero_crop_h, src_h)
-        if right <= left or bottom <= top:
+        if copy is None:
             self.hero_cropped = ""
             return
-        cropped = img.crop((left, top, right, bottom))
-        buffer = io.BytesIO()
-        if source_format == "PNG":
-            cropped.save(buffer, format="PNG")
-            ext = "png"
-        else:
-            if cropped.mode != "RGB":
-                cropped = cropped.convert("RGB")
-            cropped.save(buffer, format="JPEG", quality=88, optimize=True)
-            ext = "jpg"
-        assert self.image.name  # a truthy FieldFile is one with a name, checked above
-        name = f"{Path(self.image.name).stem}-crop.{ext}"
-        self.hero_cropped.save(name, ContentFile(buffer.getvalue()), save=False)
+        assert copy.name  # cut_hero_crop names its file
+        self.hero_cropped.save(copy.name, copy, save=False)
 
     def _sync_hero_crop_copy(self, old: ClassOffering | None, image_changed: bool) -> bool:
         """Cut or drop the cropped copy when the box or the image changed; True when it did.
@@ -2526,6 +2490,85 @@ class ClassOffering(HeroCropMixin, models.Model):
             return ""
         return f"https://www.eventbrite.com/e/{self.eventbrite_event_id}"
 
+    # --- Eventbrite listing source ----------------------------------------------------------
+    # What core.integrations.eventbrite reads of a class (its ListingSource protocol), each a thin
+    # view over the field or property the push read directly before: listing_title = title,
+    # listing_summary = subtitle, listing_html = description, listing_faqs() = LOCKED_CLASS_FAQS
+    # then own_faqs(), listing_schedule() = the sessions by start, ticket_name = "Series ticket"
+    # for a series else "Ticket", ticket_price_cents = sale_price_cents, ticket_quantity(sold) =
+    # spots_remaining + sold, quantity_tracks_sales = True, eventbrite_format_id =
+    # EventbriteFormat.CLASS ("9"), listing_image = image, listing_gallery() = gallery_images.
+
+    @property
+    def listing_title(self) -> str:
+        return self.title
+
+    @property
+    def listing_summary(self) -> str:
+        return self.subtitle
+
+    @property
+    def listing_html(self) -> str:
+        return self.description
+
+    def listing_faqs(self) -> list[dict[str, str]]:
+        """The locked questions first, then the class's own rows in order (the arrival FAQ stays off Eventbrite)."""
+        return [*(dict(faq) for faq in LOCKED_CLASS_FAQS), *self.own_faqs()]
+
+    def listing_schedule(self) -> ListingSchedule:
+        """When the listing runs, from one sessions query.
+
+        Every start in order (the description lists them under "Sessions:"), the first start to
+        the last end, and sales closing at the registration cutoff (:attr:`registration_closes_at`,
+        counted here from the first session already fetched rather than a query of its own) or
+        else at the first start. Only a class that :attr:`wants_eventbrite_listing` is asked,
+        and that needs a session and rules a flexible class out.
+        """
+        from core.integrations.eventbrite import ListingSchedule
+
+        sessions = list(self.sessions.order_by("starts_at"))
+        first = sessions[0].starts_at
+        cutoff = self.registration_cutoff_hours
+        return ListingSchedule(
+            dates=tuple(session.starts_at for session in sessions),
+            starts_at=first,
+            ends_at=sessions[-1].ends_at,
+            sales_end=first if cutoff is None else first - timedelta(hours=cutoff),
+            heading="Sessions:",
+        )
+
+    @property
+    def ticket_name(self) -> str:
+        return "Series ticket" if self.is_series else "Ticket"
+
+    @property
+    def ticket_price_cents(self) -> int:
+        return self.sale_price_cents
+
+    def ticket_quantity(self, sold: int) -> int:
+        """The ticket quantity that leaves Eventbrite exactly :attr:`spots_remaining` seats to sell.
+
+        Eventbrite's ``quantity_total`` counts the ``sold`` tickets, and those sales are plfog
+        registrations already out of ``spots_remaining``, so they are added back.
+        """
+        return int(self.spots_remaining or 0) + sold
+
+    @property
+    def quantity_tracks_sales(self) -> bool:
+        """Eventbrite's sales come back as registrations, so the push reads ``quantity_sold`` before an update."""
+        return True
+
+    @property
+    def eventbrite_format_id(self) -> str:
+        return eventbrite_choices.EventbriteFormat.CLASS
+
+    @property
+    def listing_image(self) -> ImageFieldFile:
+        return self.image
+
+    def listing_gallery(self) -> models.QuerySet[ClassImage]:
+        return self.gallery_images.all()
+
     def eventbrite_listing_check(self, faqs: "Sequence[Mapping[str, str]] | None" = None) -> "ListingCheck":
         """This class's text against Eventbrite's selling rules (#725); the form and the sync both ask here.
 
@@ -2549,7 +2592,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.eventbrite_rules_agreed_at = timezone.now()
 
     @property
-    def eventbrite_stage(self) -> "ClassOffering.EventbriteStage":
+    def eventbrite_stage(self) -> eventbrite_choices.EventbriteStage:
         """The Eventbrite tab's badge (#725). A takedown outranks everything: it is never relisted.
 
         An event plfog published reads Listed until it is ended, whatever a pending edit or a
@@ -2632,10 +2675,10 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         if not self.eventbrite_enabled and not self.eventbrite_event_id:
             return
-        from core.integrations.eventbrite import EventbriteSync, sync_class_listing
+        from core.integrations.eventbrite import EventbriteSync, sync_listing
 
         recorded = self.eventbrite_sync_error
-        sync_class_listing(self)
+        sync_listing(self)
         self.save(
             update_fields=[
                 "eventbrite_event_id",

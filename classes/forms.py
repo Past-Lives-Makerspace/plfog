@@ -6,7 +6,7 @@ import json
 from collections.abc import Mapping
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, ClassVar, TypeGuard, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 from urllib.parse import urlencode
 
 from django import forms
@@ -247,43 +247,9 @@ class _CardFocusMixin:
         offering.card_focus_y = focus["y"]
 
 
-GALLERY_FOCUS_INVALID = 'Send {"x": 0 to 100, "y": 0 to 100}, or both as null to reset.'
-
-
-def _is_percent(value: object) -> TypeGuard[int]:
-    """A whole number from 0 to 100. ``True`` is an int to Python and is refused here on purpose."""
-    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 100
-
-
-def parse_gallery_focus(body: bytes) -> tuple[int, int] | None:
-    """The gallery Set focus tool's JSON body, checked: a point, or None for Reset.
-
-    Stricter than ``_CardFocusMixin.clean_card_focus`` on purpose: that field rides a form
-    the composer itself fills, while this body arrives on its own route, so a string, a
-    float, a bool, a missing or extra key, or one null beside a number is refused rather
-    than coerced.
-
-    Args:
-        body: The raw request body.
-
-    Returns:
-        ``(x, y)`` percentages, or None when both are null.
-
-    Raises:
-        ValidationError: Anything other than ``{"x": int, "y": int}`` in range or ``{"x": null, "y": null}``.
-    """
-    try:
-        data = json.loads(body)
-    except ValueError:
-        raise ValidationError(GALLERY_FOCUS_INVALID) from None
-    if not isinstance(data, dict) or set(data) != {"x", "y"}:
-        raise ValidationError(GALLERY_FOCUS_INVALID)
-    x, y = data["x"], data["y"]
-    if x is None and y is None:
-        return None
-    if not (_is_percent(x) and _is_percent(y)):
-        raise ValidationError(GALLERY_FOCUS_INVALID)
-    return (x, y)
+# The gallery Set focus body check lives in core.images beside the other gallery helpers (the
+# event gallery routes share it); re-exported here for the class routes and their specs.
+from core.images import GALLERY_FOCUS_INVALID, parse_gallery_focus  # noqa: F401, E402
 
 
 class _PricingRulesMixin:

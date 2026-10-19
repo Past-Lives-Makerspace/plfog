@@ -6,6 +6,8 @@ from . import (
     discord_views,
     door_code_views,
     equipment_views,
+    event_admin_views,
+    event_media_views,
     feedback_views,
     growth_views,
     leadership_views,
@@ -755,9 +757,17 @@ urlpatterns = [
     path("events/send-toggles/", views.event_send_toggles, name="hub_event_send_toggles"),
     # Shared by all three composers — the photo field's own delete endpoint.
     path("events/<int:event_pk>/photo/delete/", views.event_photo_delete, name="hub_event_photo_delete"),
+    # The hero upload and the gallery routes the composers' photo tools post to (#831 part 3),
+    # the shapes of their class twins; gated by can_edit_event on the event.
+    path("events/<int:pk>/hero/upload/", event_media_views.event_hero_upload, name="hub_event_hero_upload"),
+    path("events/<int:pk>/images/upload/", event_media_views.event_image_upload, name="hub_event_image_upload"),
+    path("events/<int:pk>/images/reorder/", event_media_views.event_image_reorder, name="hub_event_image_reorder"),
+    path("events/images/<int:pk>/delete/", event_media_views.event_image_delete, name="hub_event_image_delete"),
+    path("events/images/<int:pk>/alt/", event_media_views.event_image_alt, name="hub_event_image_alt"),
+    path("events/images/<int:pk>/focus/", event_media_views.event_image_focus, name="hub_event_image_focus"),
     # Member event proposals + reviewer queue.
     path("events/propose/", views.propose_event, name="hub_propose_event"),
-    path("events/propose/<int:pk>/edit/", views.propose_event, name="hub_propose_event_edit"),
+    path("events/propose/<int:pk>/edit/", views.propose_event_edit, name="hub_propose_event_edit"),
     path("events/<int:pk>/withdraw/", views.event_withdraw, name="hub_event_withdraw"),
     path("events/<int:pk>/retry-sync/", views.event_retry_sync, name="hub_event_retry_sync"),
     path("events/review/", views.event_review_queue, name="hub_event_review_queue"),
@@ -891,6 +901,20 @@ urlpatterns = [
     # The Locations admin (#616): the list with its add form, and one edit page per location.
     path("manage/locations/", location_views.hub_admin_locations, name="hub_admin_locations"),
     path("manage/locations/<int:pk>/", location_views.hub_admin_location_edit, name="hub_admin_location_edit"),
+    # Manage Events (#831): the list, one screen per event, and its Duplicate and Unpublish actions.
+    # Reserved beside them: manage/events/<pk>/guests/ (the Guest list tab) and .../eventbrite/.
+    path("manage/events/", event_admin_views.hub_admin_events, name="hub_admin_events"),
+    path("manage/events/<int:pk>/", event_admin_views.hub_admin_event, name="hub_admin_event"),
+    path(
+        "manage/events/<int:pk>/duplicate/",
+        event_admin_views.hub_admin_event_duplicate,
+        name="hub_admin_event_duplicate",
+    ),
+    path(
+        "manage/events/<int:pk>/unpublish/",
+        event_admin_views.hub_admin_event_unpublish,
+        name="hub_admin_event_unpublish",
+    ),
     # The admin Feedback inbox (#693): every request from the Feedback page, and one page per request.
     path("manage/feedback/", feedback_views.hub_admin_feedback_inbox, name="hub_admin_feedback_inbox"),
     # The admin Growth dashboard (#795): counts since launch for a date range, a GET page.

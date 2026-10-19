@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import secrets
 from collections import Counter
@@ -13,6 +14,7 @@ from datetime import datetime as datetime_type
 from datetime import time as time_type
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 from html import unescape
 from typing import Any, ClassVar, NamedTuple, Self, TYPE_CHECKING, cast
 
@@ -46,10 +48,11 @@ from django.utils import timezone
 from django.utils.functional import cached_property
 from django.utils.html import escape, format_html, strip_tags
 from django.utils.safestring import SafeString
+from PIL import UnidentifiedImageError
 
 from core.files import delete_orphan_on_replace
-from core.images import normalize_field_if_uploaded
-from core.models import EventDelivery, HeroCropMixin
+from core.images import cut_hero_crop, image_upload_refusal, normalize_field_if_uploaded
+from core.models import HERO_CROP_FIELDS, EventDelivery, HeroCropMixin
 from core.phone import phone_tel_number
 from core.validators import (
     ALLOWED_WIKI_IMAGE_EXTENSIONS,
@@ -64,6 +67,7 @@ from membership.names import user_display_name, user_name_or_email
 if TYPE_CHECKING:
     from django import forms
     from django.contrib.auth.models import User
+    from django.core.files.uploadedfile import UploadedFile
     from django.http import HttpRequest
 
     from billing.models import LateCancellationFee, PaymentRefund
@@ -3785,7 +3789,10 @@ class AdminCapability(models.Model):
     still go to the Billing Administrators. ``BILLING_APPROVER`` additionally gates the
     admin Payments dashboard views. ``WEBMASTER`` is alert-only: it routes the
     ``automation.failed`` alert (:func:`core.scheduled_jobs.alert_webmasters`) and grants
-    no action or page.
+    no action or page. ``EVENT_CREATOR`` is action-only: it opens the Calendar's event
+    composer to a member whatever the member-event policy says, every event they add
+    going through the review queue first (:func:`membership.permissions.event_create_mode`),
+    and routes nothing.
     For every capability but ``REFUNDS`` the capability is the master switch: ONLY holders
     receive the matching notifications (and see them on the settings page); the refund
     notice above is the one union with the Admin role. A plain Admin who does not hold it gets nothing
@@ -3802,6 +3809,7 @@ class AdminCapability(models.Model):
         REFUNDS = "refunds", "Refunds"
         EQUIPMENT = "equipment", "Equipment Administrator"
         SPACE_MANAGER = "space_manager", "Space Manager"
+        EVENT_CREATOR = "event_creator", "Can create events"
         WEBMASTER = "webmaster", "Webmaster"
 
     #: What each duty actually does, in one plain sentence — the SINGLE source of the
@@ -3832,6 +3840,10 @@ class AdminCapability(models.Model):
         Capability.SPACE_MANAGER: (
             "Adds rooms and spaces members can reserve, such as the loading dock, and manages the ones they add. "
             "Cannot add tools."
+        ),
+        Capability.EVENT_CREATOR: (
+            "Adds events to the Calendar. Each one goes to an admin or a Calendar Administrator for a quick "
+            "review before it is announced."
         ),
         Capability.WEBMASTER: (
             "Gets an alert when an automation fails, such as the reminder emails, saying what broke and when. "
@@ -3891,6 +3903,123 @@ class GuildImage(models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         from django.conf import settings
 
+        delete_orphan_on_replace(self, "image")
+        normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_GALLERY)
+        super().save(*args, **kwargs)
+
+
+#: The most gallery photos a Calendar event may carry: the class gallery's cap
+#: (``classes.models.MAX_GALLERY_IMAGES``), restated here because membership never imports classes.
+MAX_EVENT_GALLERY_IMAGES = 10
+
+
+class EventImage(models.Model):
+    """A gallery photo on a Calendar event (#831), modelled on ``classes.models.ClassImage``.
+
+    ``CommunityEvent.photo`` stays the one hero; rows here are the extra shots the event page
+    shows under it, in ``sort_order`` then ``created_at`` so a drag reorders them without
+    rewriting timestamps. The first row is the cover. A copied event
+    (``CommunityEvent.duplicate``) carries the same storage keys as its source, which is why
+    :meth:`remove` deletes the file only once no row points at it.
+    """
+
+    event = models.ForeignKey(
+        "CommunityEvent",
+        on_delete=models.CASCADE,
+        related_name="gallery_images",
+        help_text="The event this photo belongs to.",
+    )
+    image = models.ImageField(
+        upload_to="events/images/", validators=[validate_image_size], help_text="A gallery photo of the event."
+    )
+    alt_text = models.CharField(
+        max_length=255, blank=True, default="", help_text="Short description of the photo for accessibility."
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0, help_text="Ascending; lower shows first. The first photo is the cover."
+    )
+    # Where the 16:9 gallery frame and its thumbnail crop this photo. Null on both is the centre.
+    focus_x = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MaxValueValidator(100)],
+        help_text="Horizontal focal point for the gallery frame, 0 to 100. Null is the centre.",
+    )
+    focus_y = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MaxValueValidator(100)],
+        help_text="Vertical focal point for the gallery frame, 0 to 100. Null is the centre.",
+    )
+    eventbrite_image_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text=(
+            "The Eventbrite media ID of this photo once it was uploaded for the event's Eventbrite listing. "
+            "Blank until then; later syncs reuse it instead of uploading again."
+        ),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the photo was added.")
+
+    class Meta:
+        ordering = ["sort_order", "created_at"]
+
+    def __str__(self) -> str:
+        return f"Image #{self.pk} for {self.event.title}"
+
+    @property
+    def object_position(self) -> str:
+        """CSS ``object-position`` for the gallery frame and its thumbnail: the focal point, or the centre."""
+        if self.focus_x is None or self.focus_y is None:
+            return "50% 50%"
+        return f"{self.focus_x}% {self.focus_y}%"
+
+    def set_focus(self, point: tuple[int, int] | None) -> None:
+        """Store the focal point the gallery manager's Set focus tool chose, or clear it back to the centre.
+
+        Args:
+            point: ``(x, y)`` percentages, already checked to lie in 0 to 100, or None to reset.
+        """
+        self.focus_x, self.focus_y = point if point is not None else (None, None)
+        self.save(update_fields=["focus_x", "focus_y"])
+
+    def set_alt_text(self, text: str) -> None:
+        """Store the alt text typed under the photo, cut to the column."""
+        self.alt_text = text[:255]
+        self.save(update_fields=["alt_text"])
+
+    def remember_eventbrite_image(self, media_id: str) -> None:
+        """Store the Eventbrite media ID this photo was uploaded as, so no later sync uploads it again.
+
+        A bare UPDATE: :meth:`save` would re-run the image normalising and orphan sweep for a
+        column that has nothing to do with the file.
+        """
+        self.eventbrite_image_id = media_id
+        type(self).objects.filter(pk=self.pk).update(eventbrite_image_id=media_id)
+
+    def remove(self) -> None:
+        """Drop the row, then the file only if no other gallery row still shows it.
+
+        A copied event carries the same storage keys as its source, so a bare
+        ``FieldFile.delete`` here would blank the picture on the other event too.
+        """
+        from core.files import delete_if_unreferenced
+
+        name = self.image.name or ""
+        self.delete()
+        delete_if_unreferenced(EventImage, "image", name)
+
+    def clean(self) -> None:
+        super().clean()
+        existing = EventImage.objects.filter(event=self.event)
+        if self.pk:
+            existing = existing.exclude(pk=self.pk)
+        if existing.count() >= MAX_EVENT_GALLERY_IMAGES:
+            raise ValidationError(f"An event can have at most {MAX_EVENT_GALLERY_IMAGES} photos.")
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
         delete_orphan_on_replace(self, "image")
         normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_GALLERY)
         super().save(*args, **kwargs)
@@ -7799,6 +7928,18 @@ class CommunityEventQuerySet(models.QuerySet):
         """Parked-but-not-yet-announced events (the admin management list, §6)."""
         return self.filter(moderation_state=CommunityEvent.ModerationState.SCHEDULED)
 
+    def declined(self) -> CommunityEventQuerySet:
+        """Proposals a reviewer turned down (the Manage Events Declined chip)."""
+        return self.filter(moderation_state=CommunityEvent.ModerationState.DECLINED)
+
+    def past(self) -> CommunityEventQuerySet:
+        """Published one-offs that have ended (the Manage Events Past chip).
+
+        The complement of ``published().upcoming()``: a repeating series keeps recurring, so
+        it is never past, and a draft, proposal or declined row never happened at all.
+        """
+        return self.published().filter(recurrence=CommunityEvent.Recurrence.NONE, ends_at__lt=timezone.now())
+
     def due_to_publish(self, now: datetime_type) -> CommunityEventQuerySet:
         """SCHEDULED events whose publish_at has arrived (the deferred-publish set).
 
@@ -7865,7 +8006,16 @@ class InvalidEventTransition(ValueError):
     that does not permit it (e.g. approving an already-declined proposal)."""
 
 
-class CommunityEvent(models.Model):
+class EventUnpublishError(Exception):
+    """Raised by :meth:`CommunityEvent.unpublish` when a remote copy could not be removed.
+
+    The event stays PUBLISHED with the failing side's ids kept and its sync state FAILED,
+    so Retry sync and a second Unpublish both still have something to work on; the message
+    names the service that refused.
+    """
+
+
+class CommunityEvent(HeroCropMixin, models.Model):
     """A FOG-native event on the Calendar (a guild meeting/event, a site-wide
     community event, or the cross-guild Guild Lead Meeting).
 
@@ -7902,6 +8052,19 @@ class CommunityEvent(models.Model):
         PENDING = "pending", "Pending review"  # member proposal awaiting a decision; FOG-only
         CHANGES_REQUESTED = "changes_requested", "Changes requested"  # sent back to the proposer to edit + resubmit
         DECLINED = "declined", "Declined"  # rejected; never pushes (removed from Google if it was)
+        # A copy, or a published event taken down: seen only on Manage Events and in the
+        # composer, where saving it publishes it (every live surface keys on published()).
+        DRAFT = "draft", "Draft"
+
+    #: The tone of the status pill on Manage Events, one per state (``status_tone``).
+    STATUS_TONES: dict[str, str] = {
+        ModerationState.PUBLISHED.value: "ok",
+        ModerationState.SCHEDULED.value: "primary",
+        ModerationState.PENDING.value: "warn",
+        ModerationState.CHANGES_REQUESTED.value: "warn",
+        ModerationState.DECLINED.value: "danger",
+        ModerationState.DRAFT.value: "neutral",
+    }
 
     class SyncState(models.TextChoices):
         IDLE = "idle", "Not synced"  # nothing to push yet (unpublished, or a pre-existing/unmanaged row)
@@ -7935,7 +8098,12 @@ class CommunityEvent(models.Model):
     # an offset later; drives ``enabled_reminder_offsets`` and the reminder source.
     REMINDER_OFFSETS: list[tuple[str, int]] = [("remind_7d", 7), ("remind_3d", 3), ("remind_1d", 1)]
 
-    title = models.CharField(max_length=200, help_text="Event name shown on the calendar — e.g. 'Monthly Potluck'.")
+    #: The title column's cap, shared with ``duplicate`` so " (copy)" never overflows it.
+    TITLE_MAX_LENGTH = 200
+
+    title = models.CharField(
+        max_length=TITLE_MAX_LENGTH, help_text="Event name shown on the calendar — e.g. 'Monthly Potluck'."
+    )
     event_type = models.CharField(
         max_length=20,
         choices=EventType.choices,
@@ -7978,7 +8146,14 @@ class CommunityEvent(models.Model):
             "carries your own video-call features."
         ),
     )
-    description = models.TextField(blank=True, default="", help_text="Optional details for members.")
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Optional details for members: the composer's editor HTML, or plain text from before the "
+            "editor. Read it through description_text wherever HTML cannot go."
+        ),
+    )
     photo = models.ImageField(
         upload_to="events/photos/",
         blank=True,
@@ -7986,6 +8161,26 @@ class CommunityEvent(models.Model):
         help_text=(
             "Optional photo. It fronts the event page, rides along on the Discord announcement, "
             "and becomes the cover image in Discord's own Events tab."
+        ),
+    )
+    photo_cropped = models.ImageField(
+        upload_to="events/hero-crops/",
+        blank=True,
+        db_default="",
+        help_text=(
+            "The photo cut to the composer's crop box. Rendered by save() whenever the box or the photo "
+            "changes and shown in place of the photo on the event page; empty when there is no box. "
+            "Discord and the announcement keep the original."
+        ),
+    )
+    promo_video_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        db_default="",
+        help_text=(
+            "Optional YouTube, Instagram or Facebook video shown on the event page. A YouTube link plays "
+            "there; the others show a card that opens the video on their site. Not the link to join online."
         ),
     )
     recurrence = models.CharField(
@@ -8208,19 +8403,119 @@ class CommunityEvent(models.Model):
         where = self.guild.name if self.guild is not None else "Site-wide"
         return f"{self.title} — {where} ({self.starts_at:%Y-%m-%d %H:%M})"
 
+    def get_hero_image_field_name(self) -> str:
+        return "photo"
+
     def save(self, *args: Any, **kwargs: Any) -> None:
-        """Normalize a freshly uploaded photo and clean up the one it replaced.
+        """Normalize a freshly uploaded photo, keep its cropped copy in step and clean up what it replaced.
 
         The photo work is skipped for a targeted ``update_fields`` save that does not name
         it, which is most of this model's saves: the sync bookkeeping rewrites a handful of
-        columns after every Google and Discord push, and ``delete_orphan_on_replace`` costs a
-        query per call. An ordinary full save (a form, a new row) still checks both.
+        columns after every Google and Discord push, and each storage check costs a query.
+        A full save (a form, a new row) and a save naming ``photo`` (the delete endpoint)
+        run all of it: the stored row's photo name and crop box are read, a new photo clears
+        the box, a fresh upload is downsized to the hero cap and the box scaled with it, the
+        cropped copy is cut or dropped (:meth:`_sync_hero_crop_copy`) and a replaced file
+        leaves storage. A save naming ``photo`` writes the box and the copy with it, so a
+        cleared photo never leaves a stale copy behind.
         """
         update_fields = kwargs.get("update_fields")
-        if update_fields is None or "photo" in update_fields:
-            delete_orphan_on_replace(self, "photo")
-            normalize_field_if_uploaded(self, "photo", settings.IMAGE_MAX_LONG_EDGE_HERO)
+        if update_fields is not None and "photo" not in update_fields:
+            super().save(*args, **kwargs)
+            return
+        delete_orphan_on_replace(self, "photo")
+        old = self._stored_photo_state()
+        photo_changed = old is not None and (old.photo.name or "") != (self.photo.name or "")
+        if photo_changed:
+            # The box was drawn on the old photo; a new one starts uncropped.
+            self.hero_crop_x = self.hero_crop_y = self.hero_crop_w = self.hero_crop_h = None
+        scale = normalize_field_if_uploaded(self, "photo", settings.IMAGE_MAX_LONG_EDGE_HERO)
+        # The composer crops the photo the browser showed, the original file; once that
+        # upload is downsized to the cap, the box shrinks with it.
+        self.scale_hero_crop(scale)
+        self._sync_hero_crop_copy(old, photo_changed)
+        if update_fields is not None:
+            kwargs["update_fields"] = [*update_fields, *HERO_CROP_FIELDS, "photo_cropped"]
         super().save(*args, **kwargs)
+
+    def _stored_photo_state(self) -> CommunityEvent | None:
+        """The stored row's photo name and crop box, or None for a row not yet saved."""
+        if self.pk is None:
+            return None
+        return type(self)._default_manager.filter(pk=self.pk).only("photo", *HERO_CROP_FIELDS).first()
+
+    def _hero_source_bytes(self) -> bytes:
+        """The photo's bytes, whether it is a fresh upload or already in storage.
+
+        Opens and closes the way ``ImageField.width`` does: a file that was closed (one
+        loaded from storage) is closed again afterwards, and one that was open (an upload
+        on its way to storage) is left open for the write that follows.
+        """
+        was_closed = self.photo.closed
+        self.photo.open("rb")
+        try:
+            return self.photo.read()
+        finally:
+            if was_closed:
+                self.photo.close()
+
+    def render_hero_crop(self) -> None:
+        """Cut ``photo_cropped``, the photo inside the crop box, or clear it.
+
+        The same cut as a class hero (:func:`core.images.cut_hero_crop`): the box is pixels
+        on the uploaded file, clamped to its edges, the source format kept, stored through
+        the field's storage under ``events/hero-crops/``. With no photo, no real box (a
+        focal point has width and height 0), a box that lies off the photo or a file Pillow
+        cannot read, the copy is cleared instead and the page shows the original again.
+        Writes storage only; the caller saves the row.
+        """
+        if not (self.photo and self.hero_crop_w and self.hero_crop_h):
+            self.photo_cropped = ""
+            return
+        assert self.photo.name  # a truthy FieldFile is one with a name, checked above
+        box = (self.hero_crop_x or 0, self.hero_crop_y or 0, self.hero_crop_w, self.hero_crop_h)
+        try:
+            copy = cut_hero_crop(self._hero_source_bytes(), box, stem=Path(self.photo.name).stem)
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
+            logger.warning("hero crop skipped for CommunityEvent %s: %s", self.pk, exc)
+            self.photo_cropped = ""
+            return
+        if copy is None:
+            self.photo_cropped = ""
+            return
+        assert copy.name  # cut_hero_crop names its file
+        self.photo_cropped.save(copy.name, copy, save=False)
+
+    def _sync_hero_crop_copy(self, old: CommunityEvent | None, photo_changed: bool) -> bool:
+        """Cut or drop the cropped copy when the box or the photo changed; True when it did.
+
+        Called from ``save()`` once the box has followed any downsize. The copy follows the
+        box and the photo, and only them, so an ordinary save never touches storage. A new
+        photo clears the box, so the copy goes with it; a box that moved is cut again; a
+        focal point (no box) drops the copy. The old copy's file is removed the way a
+        replaced upload's is. A new row renders when it arrives with a box.
+        """
+        if old is None:
+            box_changed = bool(self.hero_crop_w and self.hero_crop_h)
+        else:
+            box_changed = self.hero_crop_box != old.hero_crop_box
+        if not (photo_changed or box_changed):
+            return False
+        self.render_hero_crop()
+        delete_orphan_on_replace(self, "photo_cropped")
+        return True
+
+    def replace_photo(self, file: UploadedFile) -> None:
+        """Store a photo uploaded from the composer's hero field, dropping the crop box.
+
+        ``save()`` clears the box when the stored name changes, but a same named upload can
+        get the old key back once the replaced file is deleted, so it is cleared here too,
+        as the class hero route does. The event page shows the new photo whole until the
+        composer's next save brings a box.
+        """
+        self.photo = file
+        self.hero_crop_x = self.hero_crop_y = self.hero_crop_w = self.hero_crop_h = None
+        self.save()
 
     # --- Recurrence (virtual expansion, reusing _nth_weekday) -----------------
 
@@ -8337,8 +8632,9 @@ class CommunityEvent(models.Model):
         rrule = self.ical_rrule()
         if rrule:
             lines.append(f"RRULE:{rrule}")
-        if self.description:
-            lines.append(f"DESCRIPTION:{ical_escape(self.description[:250])}")
+        description = self.description_text
+        if description:
+            lines.append(f"DESCRIPTION:{ical_escape(description[:250])}")
         if self.location:
             lines.append(f"LOCATION:{ical_escape(self.location)}")
         if self.video_url:
@@ -8391,6 +8687,47 @@ class CommunityEvent(models.Model):
         if self.google_calendar_target == self.GoogleCalendarTarget.MEMBER:
             return "Member event"
         return "Public event"
+
+    @property
+    def has_ended(self) -> bool:
+        """True for a one-off whose end has passed; a repeating series is never over."""
+        return self.recurrence == self.Recurrence.NONE and self.ends_at < timezone.now()
+
+    @property
+    def status_label(self) -> str:
+        """The Status pill on Manage Events: the moderation state, or "Past" once a live event is over."""
+        if self.moderation_state == self.ModerationState.PUBLISHED and self.has_ended:
+            return "Past"
+        return str(self.get_moderation_state_display())
+
+    @property
+    def status_tone(self) -> str:
+        """The ``hub-pill--<tone>`` modifier beside :attr:`status_label`; a past event reads muted."""
+        if self.status_label == "Past":
+            return "neutral"
+        return self.STATUS_TONES[self.moderation_state]
+
+    @property
+    def creator_name(self) -> str:
+        """Who made this event, by display name: the creator, else the proposer, else "Past Lives".
+
+        Read on the Discord announcement's footer and on Manage Events, so both say the same
+        thing. Goes through the user's ``member`` accessor rather than a fresh query, so a list
+        that ``select_related("created_by__member", "submitted_by__member")`` pays nothing per row;
+        a user with no member (or an imported row with no user) falls back to the makerspace.
+        """
+        user = self.created_by or self.submitted_by
+        member: Member | None = getattr(user, "member", None)
+        return member.display_name if member is not None else "Past Lives"
+
+    @property
+    def eventbrite_listed(self) -> bool:
+        """Whether this event is listed on Eventbrite.
+
+        Always False until track B (Eventbrite for events) adds the listing fields and the
+        sync; Manage Events already reserves the Eventbrite column and tab on it.
+        """
+        return False
 
     @property
     def when_display(self) -> str:
@@ -8511,6 +8848,111 @@ class CommunityEvent(models.Model):
         if url.startswith(("http://", "https://")):
             return url
         return f"{settings.MEMBER_BASE_URL}{url}"
+
+    @property
+    def hero_image_url(self) -> str:
+        """The photo as the event page shows it: the copy cut to the crop box, else the original, else ``""``.
+
+        Discord keeps the original (:attr:`photo_url`): the box frames the page's banner, and
+        an embed or an Events-tab cover has its own frame.
+        """
+        if self.photo_cropped:
+            return self.photo_cropped.url
+        if self.photo:
+            return self.photo.url
+        return ""
+
+    @property
+    def hero_object_position(self) -> str:
+        """CSS ``object-position`` for the photo :attr:`hero_image_url` returns.
+
+        With a cropped copy the copy IS the box, so it sits at its centre; without one the
+        mixin's answer stands (the box centre on the original, a focal point, or the default).
+        """
+        if self.photo_cropped:
+            return "50% 50%"
+        return super().hero_object_position
+
+    @property
+    def description_text(self) -> str:
+        """The description as plain text, for anywhere HTML cannot go.
+
+        The composer stores editor HTML (``CommunityEventForm``), and a description typed
+        before the editor existed, or through Discord's ``/create``, is plain text. Discord,
+        Google, the ``.ics`` and the Calendar's list read this, never ``description``, so no
+        tag ever reaches them: editor HTML is sanitized then flattened, plain text comes back
+        as typed.
+        """
+        from core.html_sanitize import rich_body_to_text
+
+        return rich_body_to_text(self.description or "")
+
+    @property
+    def gallery_display_images(self) -> list[dict[str, str]]:
+        """The gallery rows the event page's gallery component renders, cover first.
+
+        The dicts ``classes/_components/gallery.html`` expects (``url``, ``alt``, ``position``),
+        the event's title standing in for a photo with no alt text. Empty when the event has
+        no gallery, so the page renders nothing (the hero already leads it).
+        """
+        return [
+            {"url": image.image.url, "alt": image.alt_text or self.title, "position": image.object_position}
+            for image in self.gallery_images.all()
+        ]
+
+    @staticmethod
+    def check_gallery_files(files: Sequence[UploadedFile], *, already: int = 0) -> None:
+        """Refuse a batch of gallery uploads that cannot all be stored.
+
+        Args:
+            files: The uploads, in the order they would be added.
+            already: How many gallery photos the event holds before them.
+
+        Raises:
+            ValidationError: Adding ``files`` would pass ``MAX_EVENT_GALLERY_IMAGES``, or a
+                file is over the byte cap or not an image. The batch is refused whole, so the
+                caller can surface one clear message before anything is saved.
+        """
+        if already + len(files) > MAX_EVENT_GALLERY_IMAGES:
+            raise ValidationError(f"An event can have at most {MAX_EVENT_GALLERY_IMAGES} photos.")
+        for file in files:
+            refusal = image_upload_refusal(file)
+            if refusal is not None:
+                raise ValidationError(refusal)
+
+    def add_gallery_images(self, files: Sequence[UploadedFile]) -> None:
+        """Create ``EventImage`` rows from the composer's create-mode uploads, after any existing ones.
+
+        Raises:
+            ValidationError: As :meth:`check_gallery_files`; no row is created.
+        """
+        current = self.gallery_images.count()
+        self.check_gallery_files(files, already=current)
+        for offset, file in enumerate(files):
+            EventImage.objects.create(event=self, image=file, sort_order=current + offset)
+
+    def add_gallery_image(self, file: UploadedFile) -> EventImage:
+        """One photo from the gallery manager's upload, appended after the existing ones.
+
+        ``full_clean`` holds the cap (``EventImage.clean``) and the byte cap; the route has
+        already refused a file that is not an image.
+        """
+        last = self.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0
+        image = EventImage(event=self, image=file, sort_order=last + 1)
+        image.full_clean()
+        image.save()
+        return image
+
+    def reorder_gallery(self, order: list[object]) -> None:
+        """Rewrite ``sort_order`` from a list of image ids; the first id becomes the cover.
+
+        Ids that are not whole numbers, or are not this event's, are skipped.
+        """
+        images = {image.pk: image for image in self.gallery_images.all()}
+        for index, image_id in enumerate(order):
+            if isinstance(image_id, int) and not isinstance(image_id, bool) and image_id in images:
+                images[image_id].sort_order = index
+                images[image_id].save(update_fields=["sort_order"])
 
     @property
     def qr_url(self) -> str:
@@ -8679,9 +9121,15 @@ class CommunityEvent(models.Model):
 
         Fires the one-shot announcement (idempotent via its ``period``), then
         :meth:`push_live`. Called by :meth:`approve` and by the direct-create views.
+
+        A draft that was published before still carries its announcement message, whose
+        RSVP and Manage buttons :meth:`unpublish` stripped; the announcer skips it on the
+        kept stamp, so the buttons come back here, through the refresh path.
         """
         self.announce(actor=actor)
         self.push_live(actor=actor)
+        if self.discord_announce_message_id:
+            self.refresh_discord_announcement(restore_buttons=True)
 
     def push_live(self, *, actor: User | None = None) -> None:
         """Push a live event to Google Calendar and Discord Events, without announcing it.
@@ -8731,6 +9179,198 @@ class CommunityEvent(models.Model):
         self.moderation_state = self.ModerationState.PUBLISHED
         self.save(update_fields=["moderation_state", "updated_at"])
         self.publish(actor=actor)
+
+    # --- Manage Events: duplicate and unpublish --------------------------------
+
+    #: The Google sync bookkeeping a copy starts without and a successful removal clears.
+    _GOOGLE_SYNC_RESET: dict[str, Any] = {
+        "google_event_id": "",
+        "google_calendar_id": "",
+        "google_ical_uid": "",
+        "sync_state": SyncState.IDLE,
+        "sync_error": "",
+        "synced_at": None,
+    }
+
+    #: The Discord sync bookkeeping, likewise.
+    _DISCORD_SYNC_RESET: dict[str, Any] = {
+        "discord_event_id": "",
+        "discord_sync_state": SyncState.IDLE,
+        "discord_sync_error": "",
+        "discord_synced_at": None,
+        "discord_pushed_occurrence": None,
+        "discord_pushed_start": None,
+    }
+
+    #: Both together: nothing on Google or Discord belongs to the row any more.
+    _SYNC_RESET: dict[str, Any] = {**_GOOGLE_SYNC_RESET, **_DISCORD_SYNC_RESET}
+
+    #: Discord's error carries only its message ("Discord API 404: ..."), so a Scheduled Event
+    #: someone deleted by hand is recognised there; Google's wraps the HTTP status, which
+    #: ``core.integrations.google_calendar._is_gone`` reads.
+    _DISCORD_COPY_GONE = re.compile(r"^Discord API 404\b")
+
+    def duplicate(self, *, by: User) -> CommunityEvent:
+        """Copy this event as a fresh DRAFT the way :meth:`ClassOffering.duplicate` copies a class.
+
+        The columns come across (kind, guild, times, place, text, reminders); the title gains
+        " (copy)"; ``by`` is the creator. Nothing of the source's life rides along: the copy is
+        unreviewed (no proposer, reviewer or note), unscheduled, unsynced (every Google and
+        Discord id, state and stamp blank), unannounced (``channel_announced_at`` and the
+        announcement message cleared) and never imported (``import_source_uid``), so saving it
+        from the composer announces and pushes it as the new event it is.
+
+        The photo's bytes are written to a **new** file: ``save`` runs
+        ``delete_orphan_on_replace``, so a shared storage key would be deleted from under the
+        source the first time either row changed its picture. The crop box comes across and
+        the save cuts the copy its own cropped file from it. The gallery rows are copied
+        afterwards with the SAME storage keys, as ``ClassOffering._copy_photos_and_faqs_from``
+        does: nothing is read or written, and every gallery delete goes through
+        ``EventImage.remove``, which leaves a file in storage while any row still points at it.
+
+        Args:
+            by: The user clicking Duplicate, recorded as the copy's creator.
+
+        Returns:
+            The saved copy.
+        """
+        from django.core.files.base import ContentFile
+
+        copy = CommunityEvent.objects.get(pk=self.pk)
+        copy.pk = None
+        copy._state.adding = True
+        suffix = " (copy)"
+        copy.title = f"{self.title[: self.TITLE_MAX_LENGTH - len(suffix)]}{suffix}"
+        copy.created_by = by
+        copy.moderation_state = self.ModerationState.DRAFT
+        copy.submitted_by = None
+        copy.reviewed_by = None
+        copy.reviewed_at = None
+        copy.review_notes = ""
+        copy.publish_at = None
+        for field, blank in self._SYNC_RESET.items():
+            setattr(copy, field, blank)
+        copy.channel_announced_at = None
+        copy.discord_announce_channel_id = ""
+        copy.discord_announce_message_id = ""
+        copy.import_source_uid = ""
+        if self.photo:
+            photo_name = os.path.basename(self.photo.name or "")
+            with self.photo.open("rb") as source:
+                copy.photo.save(photo_name, ContentFile(source.read()), save=False)
+        copy.save()
+        EventImage.objects.bulk_create(
+            EventImage(
+                event=copy,
+                image=image.image.name,
+                alt_text=image.alt_text,
+                sort_order=image.sort_order,
+                focus_x=image.focus_x,
+                focus_y=image.focus_y,
+            )
+            for image in EventImage.objects.filter(event_id=self.pk).order_by("sort_order", "created_at")
+        )
+        return copy
+
+    def _remove_google_copy_strictly(self) -> bool:
+        """Delete this event's Google copy, or record why not.
+
+        Unlike the best-effort :meth:`remove_from_google` a delete uses (the FOG row is about
+        to go either way), an unpublish needs the truth: a copy left on Google would reappear
+        on the member calendar through the feed echo once ``pushed()`` stopped de-duping its
+        uid, with nothing left to retry. A copy already gone (a 404 or 410, read off the
+        wrapped status the way the push service does) counts as removed. Nothing to remove
+        (sync off, or never pushed) is also success.
+
+        Returns:
+            True when nothing of this event is on Google any more; False after recording
+            ``FAILED`` and the reason on the Google sync fields.
+        """
+        from core.integrations.google_calendar import GoogleCalendarClient, GoogleCalendarError, _is_gone
+
+        client = GoogleCalendarClient.from_settings()
+        if client.enabled and self.google_event_id and self.google_calendar_id:
+            try:
+                client.delete_event(self.google_calendar_id, self.google_event_id)
+            except GoogleCalendarError as exc:
+                if not _is_gone(exc):
+                    self.sync_state = self.SyncState.FAILED
+                    self.sync_error = f"Could not remove it from Google Calendar: {exc}"
+                    return False
+        return True
+
+    def _remove_discord_copy_strictly(self) -> bool:
+        """Delete this event's Discord Scheduled Event, or record why not (see the Google twin)."""
+        from core.integrations.discord_events import DiscordEventsError, DiscordScheduledEventsClient
+
+        client = DiscordScheduledEventsClient.from_settings()
+        if client.enabled and self.discord_event_id:
+            try:
+                client.delete_event(client.server_id, self.discord_event_id)
+            except DiscordEventsError as exc:
+                if not self._DISCORD_COPY_GONE.search(str(exc)):
+                    self.discord_sync_state = self.SyncState.FAILED
+                    self.discord_sync_error = f"Could not remove it from Discord: {exc}"
+                    return False
+        return True
+
+    def unpublish(self, *, actor: User) -> None:
+        """Take a live event down to a DRAFT: off the Calendar, Google and Discord, kept for later.
+
+        Both remote copies are removed first, and only when both are gone does the row move:
+        the RSVP and Manage buttons come off the announcement message (the way a delete does,
+        so a dead event stops inviting clicks), both syncs reset to IDLE with their ids blank
+        so publishing it again pushes it afresh, ``publish_at`` is cleared (the draft goes
+        back out on save, never on a schedule that already passed, which the composer would
+        refuse) and the state becomes DRAFT. When either
+        removal fails the event stays PUBLISHED: the failing side keeps its ids with its sync
+        state FAILED (so Retry sync and a second Unpublish both still work), a side that did
+        succeed is left blank and PENDING (it is still a live event, so the retry cron puts
+        it back), and :class:`EventUnpublishError` says which service refused.
+
+        ``channel_announced_at`` and the announcement message ids are kept on purpose: the
+        launch announcement already went out, and the ``period`` on :meth:`announce` plus the
+        announcer's stamp are what stop a second one, so re-publishing re-syncs but never
+        re-announces.
+
+        Args:
+            actor: Who unpublished it, for the log.
+
+        Raises:
+            InvalidEventTransition: Unless the event is PUBLISHED.
+            EventUnpublishError: When Google or Discord still holds a copy.
+        """
+        if self.moderation_state != self.ModerationState.PUBLISHED:
+            raise InvalidEventTransition(f"Cannot unpublish an event in state '{self.moderation_state}'.")
+        google_gone = self._remove_google_copy_strictly()
+        discord_gone = self._remove_discord_copy_strictly()
+        if not (google_gone and discord_gone):
+            if google_gone:
+                self._reset_sync_side(self._GOOGLE_SYNC_RESET, "sync_state")
+            if discord_gone:
+                self._reset_sync_side(self._DISCORD_SYNC_RESET, "discord_sync_state")
+            self.save(update_fields=[*self._SYNC_RESET, "updated_at"])
+            refused = " and ".join(
+                name for name, gone in (("Google Calendar", google_gone), ("Discord", discord_gone)) if not gone
+            )
+            raise EventUnpublishError(
+                f"The event is still published: it could not be removed from {refused}. "
+                "Fix the connection and try again, or use Retry sync."
+            )
+        self.strip_discord_announcement_buttons()
+        for field, blank in self._SYNC_RESET.items():
+            setattr(self, field, blank)
+        self.publish_at = None
+        self.moderation_state = self.ModerationState.DRAFT
+        self.save(update_fields=[*self._SYNC_RESET, "publish_at", "moderation_state", "updated_at"])
+        logger.info("Event %s unpublished by user %s", self.pk, actor.pk)
+
+    def _reset_sync_side(self, reset: dict[str, Any], state_field: str) -> None:
+        """Blank one side's ids after its copy was removed from under a still-live event, and
+        mark it PENDING so the retry cron puts the copy back."""
+        for field, blank in reset.items():
+            setattr(self, field, blank)
+        setattr(self, state_field, self.SyncState.PENDING)
 
     # --- Google Calendar sync (delegates to core.integrations) ----------------
 
@@ -8927,7 +9567,7 @@ class CommunityEvent(models.Model):
         self.save(update_fields=["reviewed_by", "reviewed_at", "review_notes", "moderation_state", "updated_at"])
         from django.urls import reverse
 
-        edit_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_propose_event_edit', args=[self.pk])}"
+        edit_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_event_edit', args=[self.pk])}"
         self._emit_decision(
             "event.changes_requested",
             url=edit_url,
@@ -9023,7 +9663,7 @@ class CommunityEvent(models.Model):
                 "event_title": self.title,
                 "when": self.when_display,
                 "event_url": self.absolute_url,
-                "edit_url": f"{base}{reverse('hub_propose_event_edit', args=[self.pk])}",
+                "edit_url": f"{base}{reverse('hub_event_edit', args=[self.pk])}",
                 "propose_url": f"{base}{reverse('hub_propose_event')}",
                 "reviewer_notes": self.review_notes,
                 "publish_at": self.publish_at_display,
@@ -9073,7 +9713,7 @@ class CommunityEvent(models.Model):
         A recurring series keeps accepting RSVPs (the row represents the ongoing series),
         mirroring the public page's ``show_past_note`` rule (``hub.views.event_detail``).
         """
-        return self.recurrence == self.Recurrence.NONE and self.ends_at < timezone.now()
+        return self.has_ended
 
     def _discord_time_value(self, start: datetime_type, end: datetime_type) -> str:
         """The **Time** field value, e.g. ``'Fri, Aug 29 · 6:00 PM to 8:00 PM'`` (local, no dash)."""
@@ -9094,14 +9734,6 @@ class CommunityEvent(models.Model):
         if minutes or not hours:
             parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
         return " ".join(parts)
-
-    def _discord_creator_name(self) -> str:
-        """The creator's display name for the embed footer, or ``'Past Lives'`` for imported rows."""
-        user = self.created_by or self.submitted_by
-        if user is None:
-            return "Past Lives"
-        member = Member.objects.filter(user=user).first()
-        return member.display_name if member is not None else "Past Lives"
 
     def attendees_field(self) -> dict[str, str]:
         """The **Attendees (N)** embed field: the first names in RSVP order, then 'and N more'.
@@ -9144,10 +9776,10 @@ class CommunityEvent(models.Model):
             "url": self.public_url,
             "color": _DISCORD_ANNOUNCE_COLOR,
             "fields": fields,
-            "footer": {"text": f"RSVP below · Created by {self._discord_creator_name()}"},
+            "footer": {"text": f"RSVP below · Created by {self.creator_name}"},
         }
-        if self.description:
-            description = self.description.strip()
+        description = self.description_text.strip()
+        if description:
             if len(description) > _DISCORD_DESCRIPTION_MAX:
                 description = description[:_DISCORD_DESCRIPTION_MAX].rstrip() + "… more on the event page"
             embed["description"] = description
@@ -9241,21 +9873,25 @@ class CommunityEvent(models.Model):
         user_pk = getattr(member.user, "pk", None)
         return user_pk is not None and user_pk in (self.created_by_id, self.submitted_by_id)
 
-    def refresh_discord_announcement(self) -> None:
+    def refresh_discord_announcement(self, *, restore_buttons: bool = False) -> None:
         """Best-effort: rebuild the announcement embed's Attendees field in place (buttons kept).
 
         No-ops silently when the message ids are unset (pre-RSVP-embed or unannounced events).
         A Discord hiccup is logged and swallowed — a hub RSVP must never 500 on it (PATCHing
-        only ``embeds`` leaves the existing buttons untouched)."""
+        only ``embeds`` leaves the existing buttons untouched). ``restore_buttons`` sends the
+        RSVP and Manage row again, for an event re-published after an unpublish stripped it."""
         if not (self.discord_announce_channel_id and self.discord_announce_message_id):
             return
         from core.integrations.discord_channel import DiscordChannelError, edit_channel_message
 
+        # components is sent only when restoring: omitted, Discord keeps whatever buttons are there.
+        buttons = {"components": self.discord_announcement_components()} if restore_buttons else {}
         try:
             edit_channel_message(
                 self.discord_announce_channel_id,
                 self.discord_announce_message_id,
                 [self.discord_announcement_embed()],
+                **buttons,
             )
         except DiscordChannelError:
             logger.warning("refresh_discord_announcement failed for event %s", self.pk, exc_info=True)
@@ -17895,6 +18531,19 @@ class WikiPageQuerySet(models.QuerySet["WikiPage"]):
     def space_wide(self) -> Self:
         """Pages belonging to no guild — the space-wide half of the same store."""
         return self.filter(guild__isnull=True)
+
+    def written(self) -> Self:
+        """Pages a person has edited (``body_edited_at`` is set), so the seeders' stubs drop out.
+
+        Listing stubs under Recently Updated told members a page had news on the day a command
+        created it. ``has_written_body`` also needs a non-empty body; this does not, because
+        the list is about who has been editing, not what is in the page.
+        """
+        return self.filter(body_edited_at__isnull=False)
+
+    def unwritten(self) -> Self:
+        """Stubs nobody has written in yet, which the home page lists as an invitation."""
+        return self.filter(body_edited_at__isnull=True)
 
     def visible_for(self, request: HttpRequest) -> Self:
         """The pages this request may see in a listing — a FILTER, not a check.

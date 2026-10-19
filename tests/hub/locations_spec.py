@@ -154,13 +154,14 @@ def describe_event_forms():
     def it_sets_and_clears_the_location_on_a_member_proposal(client: Client):
         user = _login(client, "loc_proposer")
         location = LocationFactory(name="Common Area")
+        # The author's own open proposal opens in the Calendar's composer, review-first.
         event = CommunityEventFactory(community=True, pending=True, submitted_by=user, area=location)
-        page = client.get(reverse("hub_propose_event_edit", args=[event.pk]))
+        page = client.get(reverse("hub_event_edit", args=[event.pk]))
         assert 'name="area"' in page.content.decode()
-        client.post(reverse("hub_propose_event_edit", args=[event.pk]), _event_payload())
+        client.post(reverse("hub_event_edit", args=[event.pk]), _event_payload())
         event.refresh_from_db()
         assert event.area is None
-        client.post(reverse("hub_propose_event_edit", args=[event.pk]), _event_payload(area=str(location.pk)))
+        client.post(reverse("hub_event_edit", args=[event.pk]), _event_payload(area=str(location.pk)))
         event.refresh_from_db()
         assert event.area == location
 

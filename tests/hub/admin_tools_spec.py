@@ -38,6 +38,12 @@ def _login_billing_approver(client: Client, username: str = "biller") -> User:
     return user
 
 
+def _login_events_approver(client: Client, username: str = "calendar_admin") -> User:
+    user = _login_user(client, username)
+    user.member.admin_capabilities.create(capability=AdminCapability.Capability.EVENTS_APPROVER)  # type: ignore[attr-defined]
+    return user
+
+
 def _login_guild_lead(client: Client, username: str = "lead") -> User:
     user = _login_user(client, username)
     GuildFactory(guild_lead=user.member)  # type: ignore[attr-defined]
@@ -123,6 +129,48 @@ def describe_admin_tools_billing_cards():
             assert has_card == admitted
 
 
+def describe_admin_tools_manage_events_card():
+    """Manage Events (#831) is a card for admins and Calendar Administrators, gated by
+    ``has_events_admin_access`` like the billing cards; holding only that capability opens
+    Admin Tools at all (the ``_can_use_admin_tools`` arm the Billing Administrator already had)."""
+
+    _EVENTS_HREF = reverse("hub_admin_events")
+
+    def describe_a_calendar_administrator_only_member():
+        def it_sees_the_admin_tools_sidebar_entry(client: Client):
+            _login_events_approver(client, "cal_sidebar")
+            body = client.get(reverse("hub_member_directory")).content.decode()
+            assert reverse("hub_admin_tools") in body
+
+        def it_sees_the_manage_events_card_and_may_open_it(client: Client):
+            _login_events_approver(client, "cal_card")
+            content = client.get(reverse("hub_admin_tools")).content.decode()
+            assert "data-tool-manage-events" in content
+            assert _EVENTS_HREF in content
+            assert client.get(_EVENTS_HREF).status_code == 200
+
+        def it_sees_none_of_the_admin_only_cards(client: Client):
+            _login_events_approver(client, "cal_noadmin")
+            content = client.get(reverse("hub_admin_tools")).content.decode()
+            assert _MEMBERS_HREF not in content
+            assert _PAYMENTS_HREF not in content
+
+    def describe_card_access_parity():
+        def it_holds_for_a_guild_lead(client: Client):
+            _login_guild_lead(client, "events_parity_lead")
+            has_card = "data-tool-manage-events" in client.get(reverse("hub_admin_tools")).content.decode()
+            admitted = client.get(_EVENTS_HREF).status_code == 200
+            assert has_card is False
+            assert has_card == admitted
+
+        def it_holds_for_a_fog_admin(client: Client):
+            _login_superuser(client, "events_parity_admin")
+            has_card = "data-tool-manage-events" in client.get(reverse("hub_admin_tools")).content.decode()
+            admitted = client.get(_EVENTS_HREF).status_code == 200
+            assert has_card is True
+            assert has_card == admitted
+
+
 def _tools_grid(client: Client) -> str:
     """Just the tool card grid from /manage/tools/, not the whole page.
 
@@ -167,6 +215,7 @@ def describe_admin_tools_card_order():
             "Leadership Directory",
             "Locations",
             "Manage Classes",
+            "Manage Events",
             "Manage Members",
             "Notification Settings",
             "Orientations",

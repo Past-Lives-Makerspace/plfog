@@ -14,6 +14,7 @@ from factory.django import mute_signals
 from membership.models import (
     AnnouncementDraft,
     CommunityEvent,
+    EventImage,
     DiscordGuildEmoji,
     Equipment,
     EquipmentHours,
@@ -374,6 +375,18 @@ class CommunityEventFactory(factory.django.DjangoModelFactory):
             google_ical_uid=factory.Sequence(lambda n: f"gevent{n}@google.com"),
             sync_state=CommunityEvent.SyncState.SYNCED,
         )
+
+
+class EventImageFactory(factory.django.DjangoModelFactory):
+    """One gallery photo on a community event (#831), a real 4 by 4 PNG the normalising save can decode."""
+
+    class Meta:
+        model = EventImage
+
+    event = factory.SubFactory(CommunityEventFactory)
+    image = factory.django.ImageField(width=4, height=4, color="red")
+    alt_text = ""
+    sort_order = 0
 
 
 class EventRSVPFactory(factory.django.DjangoModelFactory):

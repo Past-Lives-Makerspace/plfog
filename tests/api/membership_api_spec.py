@@ -120,6 +120,15 @@ def describe_CommunityEventViewSet():
             response = member_client.get("/api/v1/events/")
             assert response.status_code == status.HTTP_200_OK
 
+        def it_leaves_drafts_out(member_client):
+            # A copy or an unpublished event (#831) is Manage Events' row; nothing else changes here.
+            live = CommunityEventFactory()
+            CommunityEventFactory(moderation_state=CommunityEvent.ModerationState.DRAFT)
+            pending = CommunityEventFactory(pending=True)
+            response = member_client.get("/api/v1/events/")
+            assert response.status_code == status.HTTP_200_OK
+            assert sorted(row["id"] for row in response.data["results"]) == sorted([live.pk, pending.pk])
+
     def describe_create():
         def it_requires_fog_admin(member_client):
             response = member_client.post("/api/v1/events/", {})

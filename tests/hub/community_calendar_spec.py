@@ -11,7 +11,8 @@ from django.contrib.auth.models import User
 from django.test import Client
 from django.utils import timezone
 
-from membership.models import CalendarEvent
+from core.models import SiteConfiguration
+from membership.models import AdminCapability, CalendarEvent
 from tests.membership.factories import GuildFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
@@ -469,6 +470,37 @@ def describe_community_calendar_view():
         assert response.status_code == 200
         assert response.context["classes_enabled"] is True
         assert response.context["classes_color"] == "#AA33BB"
+
+
+def describe_the_add_event_button_for_granted_members():
+    """A "Can create events" holder and a Calendar Administrator get the admin's "+ Add event"
+    button, even while the member-event policy is disabled; a plain member still does not."""
+
+    ADD_HREF = 'href="/events/add/"'
+
+    def _disable_member_events() -> None:
+        config = SiteConfiguration.load()
+        config.member_event_policy = SiteConfiguration.MemberEventPolicy.DISABLED
+        config.save(update_fields=["member_event_policy"])
+
+    def it_shows_the_button_to_a_can_create_events_holder_while_the_policy_is_disabled(client: Client):
+        user = _logged_in_user(client, username="cal_creator")
+        user.member.admin_capabilities.create(capability=AdminCapability.Capability.EVENT_CREATOR)
+        _disable_member_events()
+        body = client.get("/calendar/").content.decode()
+        assert ADD_HREF in body
+        assert 'href="/events/propose/"' not in body
+
+    def it_shows_the_button_to_a_calendar_administrator(client: Client):
+        user = _logged_in_user(client, username="cal_approver")
+        user.member.admin_capabilities.create(capability=AdminCapability.Capability.EVENTS_APPROVER)
+        _disable_member_events()
+        assert ADD_HREF in client.get("/calendar/").content.decode()
+
+    def it_still_hides_the_button_from_a_plain_member(client: Client):
+        _logged_in_user(client, username="cal_plain")
+        _disable_member_events()
+        assert ADD_HREF not in client.get("/calendar/").content.decode()
 
 
 def describe_calendar_events_partial_view():
