@@ -4820,9 +4820,9 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 
 /* ========================================
-   Public event detail page (/events/<pk>/) — a centered single column of cards.
-   Layout + theme tokens only, so it reads correctly on both Obsidian (dark) and
-   Slate (light) and for the anonymous public-topbar view. Reused by templates/404.html.
+   The themed 404 page (templates/404.html): a centred card with a title and an actions row.
+   These four rules were the public event page's until #831 part 5 moved that page to
+   static/css/event-page.css; the 404 keeps its own copy of the layout under the old names.
    ======================================== */
 .pl-event-detail {
     max-width: 640px;
@@ -4833,152 +4833,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     padding: 1.75rem;
 }
 
-.pl-event-detail__kind {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.75rem;
-}
-
-/* The photo hero. Without a photo `.pl-event-detail__hero` is an inert wrapper and the
-   card reads as it always has; `--photo` lifts the headline onto the picture, which needs
-   the negative margins to escape the card's 1.75rem padding and its own radius to match
-   the card's 10px corners. The text is forced white on both themes because it now sits on
-   a photograph, not on the card, and the gradient is what guarantees it stays readable
-   over a pale or busy one (there is no cropping or focal point here by design). */
-.pl-event-detail__hero--photo {
-    position: relative;
-    display: flex;
-    align-items: flex-end;
-    min-height: 240px;
-    margin: -1.75rem -1.75rem 1.25rem;
-    padding: 1.75rem;
-    border-radius: 10px 10px 0 0;
-    overflow: hidden;
-}
-
-.pl-event-detail__hero-img {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.pl-event-detail__hero-shade {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.5) 45%, rgba(0, 0, 0, 0.12) 100%);
-}
-
-.pl-event-detail__hero--photo .pl-event-detail__hero-text {
-    position: relative;
-    width: 100%;
-}
-
-.pl-event-detail__hero--photo .pl-event-detail__title,
-.pl-event-detail__hero--photo .pl-event-detail__row,
-.pl-event-detail__hero--photo .pl-event-detail__type {
-    color: #fff;
-}
-
-.pl-event-detail__hero--photo .pl-event-detail__guild {
-    background: rgba(255, 255, 255, 0.16);
-    color: #fff;
-}
-
-.pl-event-detail__hero--photo .pl-event-detail__guild:hover {
-    background: rgba(255, 255, 255, 0.28);
-}
-
-.pl-event-detail__hero--photo .pl-event-detail__badge {
-    border-color: rgba(255, 255, 255, 0.45);
-    color: #fff;
-}
-
-.pl-event-detail__hero--photo .pl-event-detail__row:last-child {
-    margin-bottom: 0;
-}
-
-@media (max-width: 640px) {
-    .pl-event-detail__hero--photo {
-        min-height: 180px;
-    }
-}
-
-
-.pl-event-detail__guild {
-    display: inline-block;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-    background: var(--hub-surface);
-    color: var(--color-tuscan-yellow);
-    font-size: 0.8125rem;
-    font-weight: 600;
-    text-decoration: none;
-}
-
-.pl-event-detail__guild:hover {
-    background: var(--hub-elevated);
-}
-
-.pl-event-detail__type {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--hub-text-muted);
-}
-
-.pl-event-detail__badge {
-    display: inline-block;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-    border: 1px solid var(--hub-border);
-    color: var(--hub-text-muted);
-    font-size: 0.75rem;
-    font-weight: 600;
-}
-
 .pl-event-detail__title {
     margin: 0 0 1rem;
-}
-
-.pl-event-detail__row {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    margin: 0 0 0.6rem;
-    color: var(--hub-text);
-}
-
-.pl-event-detail__icon {
-    flex: 0 0 auto;
-    color: var(--hub-text-muted);
-}
-
-.pl-event-detail__past {
-    margin: 0.75rem 0 0;
-    color: var(--hub-text-muted);
-    font-style: italic;
-}
-
-.pl-event-detail__description {
-    margin-top: 1.25rem;
-    color: var(--hub-text);
-    line-height: 1.6;
-}
-
-/* The gallery and the promo video under the description (#831 part 3); the full page redesign is part 5. */
-.pl-event-detail__gallery {
-    margin-top: 1.25rem;
-    border-radius: 8px;
-    overflow: hidden;
-}
-
-.pl-event-detail__video {
-    margin-top: 1.25rem;
 }
 
 .pl-event-detail__actions {
@@ -4988,101 +4844,15 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin-top: 1.75rem;
 }
 
-/* Who's coming — read-only attendee roster + the RSVP toggle. Layout only; every color
-   comes from theme tokens, so it reads on both Obsidian (dark) and Slate (light). */
-.pl-event-detail__attendees {
-    margin-top: 1.75rem;
-    padding-top: 1.25rem;
-    border-top: 1px solid var(--hub-border);
+/* The event composer's Event page card (#831, part 5; hub/partials/_event_page_card.html):
+   the padding and gap its neighbouring cards on the composer still write as style attributes. */
+.pl-event-page-card {
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
 }
 
-.pl-event-detail__attendees-heading {
-    margin: 0 0 0.75rem;
-    font-size: 1rem;
-    color: var(--hub-text);
-}
-
-.pl-event-detail__attendee-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+.pl-event-page-card__title {
     margin: 0 0 1rem;
-    padding: 0;
-    list-style: none;
-}
-
-.pl-event-detail__attendee {
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-    background: var(--hub-surface);
-    color: var(--hub-text);
-    font-size: 0.8125rem;
-}
-
-.pl-event-detail__attendees-empty {
-    margin: 0 0 1rem;
-    color: var(--hub-text-muted);
-}
-
-.pl-event-detail__rsvp-form {
-    margin: 0;
-}
-
-/* The member's RSVP (#831, part 4): the party size select beside the button on one line, the
-   state line above it. The select keeps form_field.html's wrapper, so it takes the theme's
-   input tokens; only the gap and the alignment live here. */
-.pl-event-detail__rsvp-state {
-    margin: 0 0 0.75rem;
-    color: var(--hub-text-muted);
-    font-size: 0.9rem;
-}
-
-.pl-event-detail__rsvp-controls {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 0.75rem;
-}
-
-.pl-event-detail__rsvp-controls .pl-form-group {
-    flex: 0 1 14rem;
-    margin: 0;
-}
-
-/* Count Me In: the guest form an anonymous visitor fills, and the state it lands on. The
-   button clears the actions row below through pl-btn--spaced and the row's own margin. */
-.pl-event-detail__guest-form {
-    margin-top: 0.5rem;
-}
-
-.pl-event-detail__guest-title {
-    margin: 0 0 0.25rem;
-    font-size: 1rem;
-    color: var(--hub-text);
-}
-
-.pl-event-detail__guest-hint {
-    margin: 0 0 1rem;
-    color: var(--hub-text-muted);
-    font-size: 0.9rem;
-}
-
-.pl-event-detail__going {
-    padding: 1rem 1.25rem;
-    border-radius: 8px;
-    background: var(--hub-surface);
-}
-
-.pl-event-detail__going-title {
-    margin: 0 0 0.5rem;
-    font-weight: 700;
-    color: var(--hub-text);
-}
-
-.pl-event-detail__going-note {
-    margin: 0;
-    color: var(--hub-text-muted);
-    font-size: 0.9rem;
 }
 
 /* A honeypot field: in the form for a bot that fills every field, off screen and out of the

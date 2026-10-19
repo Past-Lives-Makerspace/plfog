@@ -1,0 +1,512 @@
+/* The public event page (#831, part 5): /events/<pk>/ in the look of the Holiday Bizarre HQ
+   (static/css/hq.css), Lee's Guest List page carried onto the portal's tokens. Loaded from
+   templates/hub/event_detail.html's extra_head on top of hub.css and components.css.
+
+   The palette is declared once here, on the page wrapper, so nothing leaks into the hub
+   chrome around it. The surfaces, ink, rules and buttons are hq.css's values so the two
+   pages match; the band, the eyebrow, the count and the meter are Lee's. Where the portal
+   already has a token it is reused (the brand navy, the tuscan yellow as the gold highlight).
+   hub.css keys dark on the absence of data-theme and light on data-theme="light", so the dark
+   block below does too. */
+
+.pl-event-page {
+  --pl-event-surface: #FFFFFF;
+  --pl-event-ink: #1E2D4E;
+  --pl-event-muted: #56627A;
+  --pl-event-rule: #D3D9E3;
+  --pl-event-navy: var(--color-navy);
+  --pl-event-navy-hover: #2A3C63;
+  --pl-event-gold: #8F7029;
+  --pl-event-gold-hi: var(--color-tuscan-yellow);
+  --pl-event-cream: #F6F3EA;
+  --pl-event-cream-soft: #D6DCE7;
+  --pl-event-band: radial-gradient(120% 140% at 10% 0%, #2A3C63 0%, #1E2D4E 55%, #17233F 100%);
+  --pl-event-band-inset: rgba(201, 164, 74, 0.4);
+  --pl-event-band-gold: #C9A44A;
+  --pl-event-count: #E3C677;
+  --pl-event-meter-track: rgba(255, 255, 255, 0.14);
+  --pl-event-meter-fill: #C9A44A;
+  --pl-event-button-bg: var(--pl-event-navy);
+  --pl-event-button-ink: #FFFFFF;
+  --pl-event-button-hover: var(--pl-event-navy-hover);
+  --pl-event-ok: #0b7a52;
+  --pl-event-ok-bg: rgba(16, 150, 100, 0.12);
+  --pl-event-display: 'Playfair Display', Georgia, serif;
+  --pl-event-body: 'Lato', var(--font-body);
+}
+:root:not([data-theme="light"]) .pl-event-page {
+  --pl-event-surface: #1A2644;
+  --pl-event-ink: #E7ECF3;
+  --pl-event-muted: #9DAEBF;
+  --pl-event-rule: #2D3A5C;
+  --pl-event-gold: #D4B15E;
+  --pl-event-button-bg: var(--pl-event-gold-hi);
+  --pl-event-button-ink: var(--pl-event-navy);
+  --pl-event-button-hover: var(--pl-event-gold);
+  --pl-event-ok: #6ee7b7;
+  --pl-event-ok-bg: rgba(52, 211, 153, 0.15);
+}
+
+/* ---- Page ---- */
+.pl-event-page {
+  display: grid;
+  gap: 22px;
+  max-width: 980px;
+  margin: 0 auto;
+  min-width: 0;
+  color: var(--pl-event-ink);
+  font-family: var(--pl-event-body);
+}
+
+/* ---- Hero ---- */
+/* The navy band alone, or the cropped photo under the navy shade (--photo). The thin gold
+   inset is drawn 9px inside the band, over the photo and under the text. */
+.pl-event-page__hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  min-height: 300px;
+  padding: 2.5rem 2rem;
+  border-radius: 16px;
+  background: var(--pl-event-band);
+  color: var(--pl-event-cream);
+}
+.pl-event-page__hero::before {
+  content: "";
+  position: absolute;
+  inset: 9px;
+  border: 1px solid var(--pl-event-band-inset);
+  border-radius: 12px;
+  pointer-events: none;
+  z-index: 1;
+}
+.pl-event-page__hero-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 50%;
+}
+.pl-event-page__hero-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(23, 35, 63, 0.94) 0%, rgba(30, 45, 78, 0.62) 55%, rgba(42, 60, 99, 0.28) 100%);
+}
+.pl-event-page__hero-text {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 46rem;
+  min-width: 0;
+}
+.pl-event-page__eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  margin: 0 0 0.6rem;
+  color: var(--pl-event-band-gold);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.pl-event-page__guild {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pl-event-page__guild:hover {
+  color: var(--pl-event-count);
+}
+.pl-event-page__type::before {
+  content: "\00B7";
+  margin-right: 0.6rem;
+  opacity: 0.7;
+}
+.pl-event-page__pill {
+  padding: 0.15rem 0.6rem;
+  border: 1px solid rgba(246, 243, 234, 0.45);
+  border-radius: 999px;
+  color: var(--pl-event-cream);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+}
+.pl-event-page__title {
+  margin: 0;
+  font-family: var(--pl-event-display);
+  font-weight: 800;
+  font-size: clamp(2rem, 6vw, 3.1rem);
+  line-height: 1.05;
+  color: var(--pl-event-cream);
+  overflow-wrap: anywhere;
+}
+.pl-event-page__line {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.75rem 0 0;
+  color: var(--pl-event-cream-soft);
+  font-size: 1.0625rem;
+}
+.pl-event-page__where {
+  margin-top: 0.4rem;
+}
+.pl-event-page__icon {
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+
+/* ---- Going band ---- */
+.pl-event-page__band {
+  position: relative;
+  overflow: hidden;
+  padding: 1.75rem 2rem;
+  border-radius: 16px;
+  background: var(--pl-event-band);
+  color: var(--pl-event-cream);
+}
+.pl-event-page__band::before {
+  content: "";
+  position: absolute;
+  inset: 9px;
+  border: 1px solid var(--pl-event-band-inset);
+  border-radius: 12px;
+  pointer-events: none;
+}
+.pl-event-page__band > * {
+  position: relative;
+  z-index: 1;
+}
+.pl-event-page__count {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.75rem;
+  margin: 0;
+}
+.pl-event-page__count-number {
+  font-family: var(--pl-event-display);
+  font-weight: 800;
+  font-size: clamp(2.8rem, 9vw, 4rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--pl-event-count);
+}
+.pl-event-page__count-label {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--pl-event-cream);
+}
+.pl-event-page__goal {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 1rem;
+}
+.pl-event-page__meter {
+  display: block;
+  width: 100%;
+  height: 10px;
+  border: none;
+  border-radius: 5px;
+  background-color: var(--pl-event-meter-track);
+  appearance: none;
+  overflow: hidden;
+}
+.pl-event-page__meter::-webkit-progress-bar {
+  background-color: var(--pl-event-meter-track);
+}
+.pl-event-page__meter::-webkit-progress-value {
+  background-color: var(--pl-event-meter-fill);
+  border-radius: 5px;
+}
+.pl-event-page__meter::-moz-progress-bar {
+  background-color: var(--pl-event-meter-fill);
+  border-radius: 5px;
+}
+.pl-event-page__goal-label {
+  color: var(--pl-event-band-gold);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.pl-event-page__pitch {
+  max-width: 68ch;
+  margin: 1rem 0 0;
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  color: var(--pl-event-cream);
+}
+.pl-event-page__past {
+  margin: 1rem 0 0;
+  color: var(--pl-event-cream-soft);
+  font-style: italic;
+}
+
+/* ---- Cards ---- */
+.pl-event-page__card {
+  min-width: 0;
+  padding: 22px 24px;
+  background: var(--pl-event-surface);
+  border: 1px solid var(--pl-event-rule);
+  border-radius: 16px;
+  color: var(--pl-event-ink);
+}
+.pl-event-page__card-title {
+  margin: 0 0 0.75rem;
+  font-family: var(--pl-event-display);
+  font-weight: 800;
+  font-size: 1.45rem;
+  line-height: 1.2;
+  color: var(--pl-event-ink);
+}
+.pl-event-page__note {
+  margin: 0 0 1rem;
+  color: var(--pl-event-muted);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+.pl-event-page__description {
+  line-height: 1.6;
+}
+.pl-event-page__gallery {
+  border-radius: 10px;
+  overflow: hidden;
+}
+.pl-event-page__place {
+  margin: 0;
+  font-weight: 700;
+}
+.pl-event-page__place-detail {
+  margin: 0.25rem 0 0;
+  color: var(--pl-event-muted);
+}
+
+/* ---- Count Me In ---- */
+/* The member's one tap: the party size select beside the button on one line, the state
+   line above it. The select keeps form_field.html's wrapper, so it takes the theme's input
+   tokens; only the gap and the alignment live here. */
+.pl-event-page__rsvp-form,
+.pl-event-page__guest-form {
+  margin: 0;
+}
+.pl-event-page__rsvp-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+.pl-event-page__rsvp-controls .pl-form-group {
+  flex: 0 1 14rem;
+  margin: 0;
+}
+.pl-event-page__going {
+  margin: 0 0 1rem;
+  font-weight: 700;
+  color: var(--pl-event-ok);
+}
+.pl-event-page__going-card {
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--pl-event-ok-bg);
+  border-radius: 10px;
+  background: var(--pl-event-ok-bg);
+}
+.pl-event-page__going-card .pl-event-page__going {
+  margin-bottom: 0.5rem;
+}
+.pl-event-page__going-card .pl-event-page__note {
+  margin-bottom: 0;
+  color: var(--pl-event-ink);
+}
+.pl-event-page__guest-form .pl-form-group {
+  margin-bottom: 1rem;
+}
+
+/* ---- Who's Going ---- */
+.pl-event-page__people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pl-event-page__person {
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--pl-event-rule);
+  border-radius: 999px;
+  background: var(--hub-surface);
+  font-size: 0.875rem;
+}
+.pl-event-page__person--guests {
+  color: var(--pl-event-muted);
+}
+
+/* ---- Buttons ---- */
+/* Primary is navy with white text (gold with navy text in the dark theme); a ghost keeps
+   the rule as its border. Both are links and buttons, so the base rules reset each. */
+.pl-event-page__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 12px 18px;
+  border: 1px solid var(--pl-event-button-bg);
+  border-radius: 10px;
+  background: var(--pl-event-button-bg);
+  color: var(--pl-event-button-ink);
+  font-family: var(--pl-event-body);
+  font-size: 0.95rem;
+  font-weight: 900;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.pl-event-page__btn:hover,
+.pl-event-page__btn:focus-visible {
+  background: var(--pl-event-button-hover);
+  border-color: var(--pl-event-button-hover);
+  color: var(--pl-event-button-ink);
+  text-decoration: none;
+}
+.pl-event-page__btn:focus-visible {
+  outline: 2px solid var(--pl-event-gold-hi);
+  outline-offset: 2px;
+}
+.pl-event-page__btn--ghost {
+  background: transparent;
+  border-color: var(--pl-event-rule);
+  color: var(--pl-event-ink);
+}
+.pl-event-page__btn--ghost:hover,
+.pl-event-page__btn--ghost:focus-visible {
+  background: rgba(127, 127, 127, 0.1);
+  border-color: var(--pl-event-muted);
+  color: var(--pl-event-ink);
+}
+.pl-event-page__btn--spaced {
+  margin-top: 0.75rem;
+}
+
+/* ---- Actions row ---- */
+.pl-event-page__actions {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* The Share menu: the class page's wrapper, restyled. The panel is the dropdown surface;
+   the role="menu" list inside it holds only menuitems, and the by-hand copy field
+   (revealed when the clipboard write fails) sits under that list. */
+.pl-event-page__share {
+  position: relative;
+  display: inline-block;
+}
+.pl-event-page__share-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 180px;
+  padding: 6px;
+  background: var(--hub-elevated);
+  border: 1px solid var(--hub-border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  z-index: 60;
+}
+.pl-event-page__share-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pl-event-page__share-item {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--hub-text);
+  font-family: var(--pl-event-body);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pl-event-page__share-item:hover,
+.pl-event-page__share-item:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--hub-text);
+  text-decoration: none;
+}
+[data-theme="light"] .pl-event-page__share-item:hover,
+[data-theme="light"] .pl-event-page__share-item:focus-visible {
+  background: rgba(9, 46, 76, 0.07);
+}
+.pl-event-page__share-manual {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 260px;
+  margin: 6px 0 2px;
+  padding: 7px 10px;
+  border: 1px solid var(--hub-input-border);
+  border-radius: 6px;
+  background: var(--hub-input-bg);
+  color: var(--hub-text);
+  font-family: var(--pl-event-body);
+  font-size: 13px;
+}
+
+/* Share & Print is the shared QR card in its own style; only its corners join this page. */
+.pl-event-page__qr .pl-qr-share {
+  border-radius: 16px;
+}
+
+.pl-event-page__footer {
+  margin: 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--pl-event-rule);
+  color: var(--pl-event-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* ---- Phones ---- */
+/* The hero and the band hold at 390px: tighter padding, a shorter photo frame, and the Share
+   panel spanning the actions row so the by-hand copy field never runs off the viewport. */
+@media (max-width: 640px) {
+  .pl-event-page {
+    gap: 16px;
+  }
+  .pl-event-page__hero {
+    min-height: 220px;
+    padding: 1.75rem 1.25rem;
+  }
+  .pl-event-page__band {
+    padding: 1.5rem 1.25rem;
+  }
+  .pl-event-page__card {
+    padding: 18px 16px;
+  }
+  .pl-event-page__share {
+    position: static;
+  }
+  .pl-event-page__share-panel {
+    left: 0;
+    right: 0;
+    min-width: 0;
+  }
+  .pl-event-page__share-manual {
+    min-width: 0;
+  }
+}

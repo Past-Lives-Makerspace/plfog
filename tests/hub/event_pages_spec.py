@@ -38,7 +38,7 @@ from tests.membership.factories import (
 )
 
 #: The audience badge's own markup on the event page — assert against this, never bare copy.
-_BADGE = '<span class="pl-event-detail__type">'
+_BADGE = '<span class="pl-event-page__type">'
 
 pytestmark = pytest.mark.django_db
 
@@ -162,14 +162,14 @@ def describe_event_detail():
         event = CommunityEventFactory(community=True, location="", description="")
         resp = client.get(reverse("hub_event_detail", args=[event.pk]))
         assert resp.status_code == 200
-        assert b"pl-event-detail__description" not in resp.content
+        assert b"pl-event-page__description" not in resp.content
 
     def it_shows_location_and_description_when_set(client: Client):
         event = CommunityEventFactory(community=True, location="Main Studio", description="Come by.")
         resp = client.get(reverse("hub_event_detail", args=[event.pk]))
         assert b"Main Studio" in resp.content
         assert b"Come by." in resp.content
-        assert b"pl-event-detail__description" in resp.content
+        assert b"pl-event-page__description" in resp.content
 
     def it_shows_a_join_online_primary_cta_when_video_url_is_set(client: Client):
         event = CommunityEventFactory(community=True, video_url="https://meet.google.com/abc-defg-hij")
@@ -179,10 +179,10 @@ def describe_event_detail():
         assert "Join online" in content
         # "Join online" is the primary CTA; "Add to calendar" is demoted to a ghost button.
         assert (
-            'class="hub-btn hub-btn--primary" href="https://meet.google.com/abc-defg-hij"'
-            ' target="_blank" rel="noopener noreferrer">Join online</a>' in content
+            'class="pl-event-page__btn" href="https://meet.google.com/abc-defg-hij"'
+            ' target="_blank" rel="noopener noreferrer" data-join-online>Join online</a>' in content
         )
-        assert 'class="hub-btn hub-btn--ghost" @click' in content
+        assert 'class="pl-event-page__btn pl-event-page__btn--ghost" @click' in content
 
     def it_omits_join_online_and_keeps_add_to_calendar_primary_when_video_url_is_blank(client: Client):
         event = CommunityEventFactory(community=True, video_url="")
@@ -191,8 +191,8 @@ def describe_event_detail():
         # Scope to the exact CTA anchor, not a bare "Join online" substring — the site-wide
         # changelog widget (rendered in every hub page's context) can legitimately mention
         # "Join online" in this feature's own release notes.
-        assert 'target="_blank" rel="noopener noreferrer">Join online</a>' not in content
-        assert 'class="hub-btn hub-btn--primary" @click' in content
+        assert "data-join-online>Join online</a>" not in content
+        assert 'class="pl-event-page__btn" @click' in content
 
     def it_shows_the_edit_button_to_a_guild_lead(client: Client):
         user = _user_with_role("evt_editor")
@@ -346,14 +346,14 @@ def describe_whos_coming():
         EventRSVPFactory(event=event, member=MemberFactory(full_legal_name="Zzytrix Quon"))
         client.login(username="evt_rsvp_viewer", password="pass")
         resp = client.get(reverse("hub_event_detail", args=[event.pk]))
-        assert b"Who's coming (1)" in resp.content
+        assert b'data-people-count="1">1<' in resp.content
         assert b"Zzytrix Quon" in resp.content
 
     def it_shows_the_count_but_not_names_to_an_anonymous_visitor(client: Client):
         event = CommunityEventFactory(community=True)
         EventRSVPFactory(event=event, member=MemberFactory(full_legal_name="Zzytrix Quon"))
         resp = client.get(reverse("hub_event_detail", args=[event.pk]))
-        assert b"Who's coming (1)" in resp.content  # the count is public
+        assert b'data-people-count="1">1<' in resp.content  # the count is public
         assert b"Zzytrix Quon" not in resp.content  # names are not
 
     def it_leaves_a_hidden_member_out_of_the_names_and_the_count(client: Client):
@@ -363,7 +363,7 @@ def describe_whos_coming():
         EventRSVPFactory(event=event, member=MemberFactory(full_legal_name="Qwyll Reviewbot", hide_from_directory=True))
         client.login(username="evt_rsvp_hidden_viewer", password="pass")
         resp = client.get(reverse("hub_event_detail", args=[event.pk]))
-        assert b"Who's coming (1)" in resp.content
+        assert b'data-people-count="1">1<' in resp.content
         assert b"Zzytrix Quon" in resp.content
         assert b"Qwyll Reviewbot" not in resp.content
 
@@ -374,7 +374,7 @@ def describe_whos_coming():
         EventRSVPFactory(event=event, member=user.member)
         client.login(username="evt_rsvp_hidden_self", password="pass")
         resp = client.get(reverse("hub_event_detail", args=[event.pk]))
-        assert b"Who's coming (1)" in resp.content
+        assert b'data-people-count="1">1<' in resp.content
         assert b"Qwyll Reviewbot" in resp.content
         assert resp.context["viewer_rsvped"] is True
 
@@ -382,7 +382,7 @@ def describe_whos_coming():
         event = CommunityEventFactory(community=True)
         EventRSVPFactory(event=event, member=MemberFactory(hide_from_directory=True))
         resp = client.get(reverse("hub_event_detail", args=[event.pk]))
-        assert b"Who's coming (0)" in resp.content
+        assert b'data-people-count="0">0<' in resp.content
 
     def it_offers_the_rsvp_button_to_a_signed_in_member(client: Client):
         _user_with_role("evt_rsvp_btn")
@@ -596,7 +596,7 @@ def describe_the_description():
         )
         html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
         assert (
-            '<div class="pl-event-detail__description pl-rich-body"><p>Bring <strong>paper</strong>.</p><p>Second</p></div>'
+            '<div class="pl-event-page__description pl-rich-body"><p>Bring <strong>paper</strong>.</p><p>Second</p></div>'
             in html
         )
         assert "<script>alert(1)</script>" not in html
@@ -769,9 +769,10 @@ def describe_the_guest_form():
     def it_says_one_rsvp_covers_a_series(client: Client):
         event = CommunityEventFactory(community=True, recurrence=CommunityEvent.Recurrence.WEEKLY)
         body = client.get(_page_url(event)).content.decode()
-        assert 'class="pl-event-detail__guest-hint">No account needed. One RSVP covers the whole series.' in body
+        assert '<p class="pl-event-page__note" data-rsvp-series-note>One RSVP is for the whole series.</p>' in body
+        assert _GUEST_FORM in body
         oneoff = client.get(_page_url(CommunityEventFactory(community=True))).content.decode()
-        assert "One RSVP covers the whole series" not in oneoff
+        assert "data-rsvp-series-note" not in oneoff
 
     def it_creates_a_site_row_and_lands_on_the_going_state(client: Client):
         event = CommunityEventFactory(community=True)
@@ -929,7 +930,7 @@ def describe_guests_on_the_page():
         EventRSVPFactory(event=event, member=MemberFactory(full_legal_name="Zzytrix Quon"), party_size=2)
         EventRSVPFactory(event=event, guest=True, name="Zzorp Guest", party_size=3)
         body = _page_url_body(client, event)
-        assert "Who's coming (5)" in body
+        assert 'data-people-count="5">5<' in body
         assert "Zzytrix Quon" in body
         assert "Zzorp Guest" not in body
         assert 'data-guest-count="4">and 4 guests<' in body
@@ -945,11 +946,215 @@ def describe_guests_on_the_page():
         event = CommunityEventFactory(community=True)
         EventRSVPFactory(event=event, guest=True, name="Zzorp Guest", party_size=3)
         body = _page_url_body(client, event)
-        assert "Who's coming (3)" in body
+        assert 'data-people-count="3">3<' in body
         assert "Zzorp Guest" not in body
 
     def it_keeps_the_guests_when_a_hidden_member_is_left_out(client: Client):
         event = CommunityEventFactory(community=True)
         EventRSVPFactory(event=event, member=MemberFactory(hide_from_directory=True), party_size=2)
         EventRSVPFactory(event=event, guest=True)
-        assert "Who's coming (1)" in _page_url_body(client, event)
+        assert 'data-people-count="1">1<' in _page_url_body(client, event)
+
+
+# --- The event page redesign and the RSVP goal (#831, part 5) -------------------------------
+
+
+def _going(event: CommunityEvent, people: int) -> None:
+    """``people`` coming to ``event`` as one guest party, so the count is exactly that."""
+    EventRSVPFactory(event=event, guest=True, party_size=people)
+
+
+def describe_the_going_band():
+    def it_shows_the_people_count_to_an_anonymous_visitor(client: Client):
+        event = CommunityEventFactory(community=True)
+        _going(event, 4)
+        body = _page_url_body(client, event)
+        assert '<span class="pl-event-page__count-number" data-people-count="4">4</span>' in body
+        assert "data-people-label>people are going<" in body
+
+    def it_says_one_person_in_the_singular(client: Client):
+        event = CommunityEventFactory(community=True)
+        _going(event, 1)
+        assert "data-people-label>person is going<" in _page_url_body(client, event)
+
+    def it_draws_no_meter_without_a_goal(client: Client):
+        event = CommunityEventFactory(community=True, rsvp_goal=None)
+        body = _page_url_body(client, event)
+        assert "data-goal-meter" not in body
+        assert 'role="progressbar"' not in body
+
+    def it_draws_the_meter_towards_a_goal(client: Client):
+        event = CommunityEventFactory(community=True, rsvp_goal=40)
+        _going(event, 10)
+        body = _page_url_body(client, event)
+        assert (
+            '<progress class="pl-event-page__meter" max="100" value="25" role="progressbar"'
+            ' aria-valuenow="10" aria-valuemin="0" aria-valuemax="40"'
+        ) in body
+        assert 'data-goal="40">Goal 40<' in body
+
+    def it_shows_the_pitch_only_when_set(client: Client):
+        event = CommunityEventFactory(community=True, pitch="Bring a friend and a mug.")
+        assert "data-event-pitch>Bring a friend and a mug.<" in _page_url_body(client, event)
+        assert "data-event-pitch" not in _page_url_body(client, CommunityEventFactory(community=True))
+
+
+def describe_rsvp_goal_percent():
+    def it_is_zero_without_a_goal():
+        assert CommunityEvent(rsvp_goal=None).rsvp_goal_percent(12) == 0
+
+    def it_rounds_the_share_of_the_goal():
+        assert CommunityEvent(rsvp_goal=3).rsvp_goal_percent(1) == 33
+
+    def it_stops_at_full_once_the_goal_is_passed():
+        assert CommunityEvent(rsvp_goal=10).rsvp_goal_percent(25) == 100
+
+
+def describe_the_eyebrow():
+    def it_names_past_lives_for_a_site_wide_event(client: Client):
+        body = _page_url_body(client, CommunityEventFactory(community=True))
+        assert '<span class="pl-event-page__org">Past Lives Makerspace</span>' in body
+
+    def it_links_the_guild_for_a_guild_event(client: Client):
+        guild = GuildFactory(name="Metal Guild")
+        body = _page_url_body(client, CommunityEventFactory(guild=guild))
+        url = reverse("hub_guild_detail", args=[guild.slug])
+        assert f'<a href="{url}" class="pl-event-page__guild">Metal Guild</a>' in body
+        assert "pl-event-page__org" not in body
+
+    def it_carries_the_recurrence_pill_for_a_series(client: Client):
+        event = CommunityEventFactory(community=True, recurrence=CommunityEvent.Recurrence.WEEKLY)
+        assert "data-recurrence-pill>Every week<" in _page_url_body(client, event)
+        assert "data-recurrence-pill" not in _page_url_body(client, CommunityEventFactory(community=True))
+
+
+def describe_the_share_button():
+    def it_renders_the_class_page_share_wrapper_and_script(client: Client):
+        event = CommunityEventFactory(community=True, title="Zine Night")
+        body = _page_url_body(client, event)
+        assert "/static/js/class_share.js" in body
+        assert '@pl-share-menu="open = !open"' in body
+        assert f'data-share-url="{event.public_url}"' in body
+        assert 'data-share-title="Zine Night"' in body
+        assert 'data-share-text="Zine Night at Past Lives Makerspace"' in body
+        assert f'data-share-copy="{event.public_url}"' in body
+        assert 'role="menu" aria-label="Share this event"' in body
+
+
+def describe_the_location_card():
+    def it_links_directions_to_a_maps_search(client: Client):
+        event = CommunityEventFactory(community=True, location="2100 SE Division St")
+        body = _page_url_body(client, event)
+        assert f'href="https://www.google.com/maps/search/?api=1&amp;query={quote_plus("2100 SE Division St")}"' in body
+        assert "data-directions>Get directions<" in body
+
+    def it_offers_no_directions_without_a_location(client: Client):
+        event = CommunityEventFactory(community=True, location="")
+        assert event.directions_url == ""
+        assert "data-directions" not in _page_url_body(client, event)
+
+
+def describe_the_manage_link():
+    def it_links_an_administrator_to_manage_events(client: Client):
+        _user_with_role("page_manage_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="page_manage_admin", password="pass")
+        event = CommunityEventFactory(community=True)
+        body = _page_url_body(client, event)
+        assert f'href="{reverse("hub_admin_event", args=[event.pk])}" data-event-manage>Manage<' in body
+
+    def it_links_a_calendar_administrator_too(client: Client):
+        from membership.models import AdminCapability
+
+        user = _user_with_role("page_manage_cal")
+        user.member.admin_capabilities.create(capability=AdminCapability.Capability.EVENTS_APPROVER)
+        client.login(username="page_manage_cal", password="pass")
+        assert "data-event-manage" in _page_url_body(client, CommunityEventFactory(community=True))
+
+    def it_hides_from_a_guild_lead_who_may_only_edit(client: Client):
+        user = _user_with_role("page_manage_lead")
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username="page_manage_lead", password="pass")
+        body = _page_url_body(client, CommunityEventFactory(guild=guild))
+        assert "data-event-edit" in body
+        assert "data-event-manage" not in body
+
+    def it_hides_from_a_member(client: Client):
+        _user_with_role("page_manage_member")
+        client.login(username="page_manage_member", password="pass")
+        assert "data-event-manage" not in _page_url_body(client, CommunityEventFactory(community=True))
+
+
+def describe_the_anonymous_page():
+    def it_renders_the_whole_page_with_no_editor_or_member_parts(client: Client):
+        event = CommunityEventFactory(community=True, rsvp_goal=20, pitch="Come along.", location="Main Studio")
+        _going(event, 3)
+        resp = client.get(_page_url(event))
+        assert resp.status_code == 200
+        body = resp.content.decode()
+        for present in (
+            "data-event-hero",
+            "data-event-going",
+            "data-goal-meter",
+            _GUEST_FORM,
+            "data-share",
+            "data-directions",
+        ):
+            assert present in body
+        for absent in ("data-event-edit", "data-event-manage", "data-event-qr", "data-event-rsvps", _MEMBER_FORM):
+            assert absent not in body
+
+    def it_carries_no_style_attribute_in_the_page(client: Client):
+        body = _page_url_body(client, CommunityEventFactory(community=True, rsvp_goal=5))
+        page = body[body.index("data-event-page") : body.index('class="pl-event-page__footer"')]
+        assert "style=" not in page
+
+
+def describe_the_event_page_composer_card():
+    def it_renders_in_the_direct_composer(client: Client):
+        _user_with_role("page_card_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="page_card_admin", password="pass")
+        html = client.get(reverse("hub_event_add")).content.decode()
+        assert "data-event-page-card" in html
+        assert 'name="rsvp_goal"' in html and 'name="pitch"' in html
+
+    def it_renders_in_the_review_composer(client: Client):
+        config = SiteConfiguration.load()
+        config.member_event_policy = SiteConfiguration.MemberEventPolicy.APPROVAL
+        config.save()
+        _user_with_role("page_card_member")
+        client.login(username="page_card_member", password="pass")
+        html = client.get(reverse("hub_propose_event")).content.decode()
+        assert "data-event-page-card" in html
+        assert 'name="rsvp_goal"' in html and 'name="pitch"' in html
+
+    def it_saves_the_goal_and_the_pitch(client: Client):
+        _user_with_role("page_card_saver", fog_role=Member.FogRole.ADMIN)
+        client.login(username="page_card_saver", password="pass")
+        data = {
+            "title": "Goal Night",
+            "starts_at": "2026-07-11T18:00",
+            "ends_at": "2026-07-11T20:00",
+            "recurrence": "none",
+            "rsvp_goal": "60",
+            "pitch": "Sixty makers in one room.",
+        }
+        with patch.object(CommunityEvent, "announce"):
+            client.post(reverse("hub_event_add"), data=data)
+        event = CommunityEvent.objects.get(title="Goal Night")
+        assert (event.rsvp_goal, event.pitch) == (60, "Sixty makers in one room.")
+
+    def it_refuses_a_goal_of_zero(client: Client):
+        _user_with_role("page_card_zero", fog_role=Member.FogRole.ADMIN)
+        client.login(username="page_card_zero", password="pass")
+        data = {
+            "title": "Zero Night",
+            "starts_at": "2026-07-11T18:00",
+            "ends_at": "2026-07-11T20:00",
+            "recurrence": "none",
+            "rsvp_goal": "0",
+        }
+        with patch.object(CommunityEvent, "announce"):
+            resp = client.post(reverse("hub_event_add"), data=data)
+        assert resp.status_code == 200
+        assert not CommunityEvent.objects.filter(title="Zero Night").exists()
+        assert resp.context["form"].errors["rsvp_goal"]

@@ -8184,6 +8184,21 @@ class CommunityEvent(HeroCropMixin, models.Model):
             "there; the others show a card that opens the video on their site. Not the link to join online."
         ),
     )
+    rsvp_goal = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=(
+            "How many people the event page is aiming for. Shown as a goal meter under the people count "
+            "on the event page; blank means no goal and no meter."
+        ),
+    )
+    pitch = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="One line under the people count on the event page: the reason to come. Optional.",
+    )
     recurrence = models.CharField(
         max_length=20,
         choices=Recurrence.choices,
@@ -8832,6 +8847,19 @@ class CommunityEvent(HeroCropMixin, models.Model):
     def public_url_on(self, start: datetime_type) -> str:
         """:attr:`public_url` opened on the date that begins at ``start``."""
         return f"{self.public_url}{self.date_query(start)}"
+
+    @property
+    def directions_url(self) -> str:
+        """A Google Maps search of the location text, for the event page's Get directions link (#831).
+
+        ``""`` without a location, when the page offers no link. The text goes as typed: a
+        street address finds the place, and a room name finds nothing worse than a search.
+        """
+        from urllib.parse import quote_plus
+
+        if not self.location:
+            return ""
+        return f"https://www.google.com/maps/search/?api=1&query={quote_plus(self.location)}"
 
     @property
     def photo_url(self) -> str:
@@ -9756,6 +9784,16 @@ class CommunityEvent(HeroCropMixin, models.Model):
             "total"
         ]
         return cast(int, total)
+
+    def rsvp_goal_percent(self, people_count: int) -> int:
+        """How far ``people_count`` is to :attr:`rsvp_goal`, 0 to 100, for the event page's meter (#831).
+
+        Capped at 100 once the goal is passed, so the meter reads full rather than overflowing;
+        0 without a goal, when the page draws no meter at all.
+        """
+        if not self.rsvp_goal:
+            return 0
+        return min(100, round(100 * people_count / self.rsvp_goal))
 
     def guest_list(self) -> "models.QuerySet[EventRSVP]":
         """Every RSVP row for the Guest list tab and its CSV, in RSVP order, no query per row.

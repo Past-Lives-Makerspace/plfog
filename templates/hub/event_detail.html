@@ -1,178 +1,296 @@
 {% extends "hub/base.html" %}
-{% load rich_text classes_tags %}
+{% load static rich_text classes_tags %}
 {% comment %}
-Public event detail page — the canonical link a QR/flyer/signage resolves to. Extends
-hub/base.html, which auto-degrades for an anonymous visitor (public topbar, no sidebar) and
-shows the full hub chrome for a logged-in member. PUBLISHED events only (the view 404s the
-rest via templates/404.html). Add-to-calendar works logged-out.
+The public event page (#831, part 5): the canonical link a QR, a flyer or the signage
+resolves to, in the look of the Holiday Bizarre HQ (static/css/event-page.css). Extends
+hub/base.html, which auto-degrades for a signed-out visitor (public topbar, no sidebar)
+and shows the hub chrome for a member. PUBLISHED events only (the view 404s the rest).
+
+Top to bottom: the hero (photo or navy band), the going band with the people count, the
+goal meter and the pitch, Count Me In, the description, the gallery, the video, the
+location card, Who's Going (members only), the actions row, Share & Print for editors and
+the footer line. Nothing here carries a style attribute (FRONTEND rule 9): the hero's
+focal point rides data-hero-position and the script at the end lands it.
 {% endcomment %}
 {% block title %}{{ event.title }}{% endblock %}
+{% block extra_head %}
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/event-page.css' %}">
+{# The Share button's script, as the class page loads it: it binds once on document behind a flag on window and registers no Alpine component, so the head is the right place (FRONTEND, Scripts under hx-boost). #}
+<script src="{% static 'js/class_share.js' %}" defer></script>
+{% endblock %}
 {% block content %}
-<div class="pl-event-detail">
-  <div class="hub-card pl-event-detail__card">
-    {% comment %}
-    Whose it is, what it is called and when: one copy of the markup for both states. With a
-    photo the block sits over it (--photo turns on the overlay and the white text); without
-    one the wrapper does nothing and the card reads exactly as it did before the photo
-    existed. The photo is decorative here — the title beside it carries the meaning — so its
-    alt is empty rather than a guess at what the picture shows.
-    {% endcomment %}
-    <div class="pl-event-detail__hero{% if event.photo %} pl-event-detail__hero--photo{% endif %}">
-      {% if event.photo %}
-      {# The copy cut to the composer's crop box when there is one (CommunityEvent.hero_image_url), centred on it. #}
-      <img class="pl-event-detail__hero-img" src="{{ event.hero_image_url }}" alt="" style="object-position: {{ event.hero_object_position }}">
-      <span class="pl-event-detail__hero-shade" aria-hidden="true"></span>
+<div class="pl-event-page" data-event-page>
+  {% comment %}
+  The hero: the photo cut to the composer's crop box (CommunityEvent.hero_image_url) under
+  the navy shade, or the navy band alone. The photo is decorative, the title beside it
+  carries the meaning, so its alt is empty. Its focal point (hero_object_position) rides a
+  data attribute rather than an inline style.
+  {% endcomment %}
+  <header class="pl-event-page__hero{% if event.photo %} pl-event-page__hero--photo{% endif %}" data-event-hero>
+    {% if event.photo %}
+    <img class="pl-event-page__hero-img" src="{{ event.hero_image_url }}" alt="" data-hero-position="{{ event.hero_object_position }}">
+    <span class="pl-event-page__hero-shade" aria-hidden="true"></span>
+    {% endif %}
+    <div class="pl-event-page__hero-text">
+      <p class="pl-event-page__eyebrow" data-event-eyebrow>
+        {% if event.guild %}
+        <a href="{% url 'hub_guild_detail' event.guild.slug %}" class="pl-event-page__guild">{{ event.guild.name }}</a>
+        {% else %}
+        <span class="pl-event-page__org">Past Lives Makerspace</span>
+        {% endif %}
+        {# One property decides this: who it is for, or its own name for a type that has one. #}
+        <span class="pl-event-page__type">{{ event.badge_label }}</span>
+        {% if is_recurring %}<span class="pl-event-page__pill" data-recurrence-pill>{{ event.get_recurrence_display }}</span>{% endif %}
+      </p>
+      <h1 class="pl-event-page__title">{{ event.title }}</h1>
+      <p class="pl-event-page__line pl-event-page__when">
+        <svg class="pl-event-page__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
+        </svg>
+        <span>{{ when }}</span>
+      </p>
+      {% if event.area or event.location %}
+      <p class="pl-event-page__line pl-event-page__where">
+        <svg class="pl-event-page__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+        </svg>
+        <span>{% if event.area %}<span data-event-area>{{ event.area.name }}</span>{% if event.location %} · {% endif %}{% endif %}{{ event.location }}</span>
+      </p>
       {% endif %}
-      <div class="pl-event-detail__hero-text">
-        <div class="pl-event-detail__kind">
-          {% if event.guild %}
-            <a href="{% url 'hub_guild_detail' event.guild.slug %}" class="pl-event-detail__guild">{{ event.guild.name }}</a>
-          {% endif %}
-          {# One property decides this: who it is for, or its own name for a type that has one. #}
-          <span class="pl-event-detail__type">{{ event.badge_label }}</span>
-          {% if is_recurring %}
-            <span class="pl-event-detail__badge">{{ event.get_recurrence_display }}</span>
-          {% endif %}
-        </div>
-
-        <h1 class="hub-page-title pl-event-detail__title">{{ event.title }}</h1>
-
-        <p class="pl-event-detail__row">
-          <svg class="pl-event-detail__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
-          </svg>
-          <span>{{ when }}</span>
-        </p>
-      </div>
     </div>
+  </header>
 
-    {% if event.area or event.location %}
-    <p class="pl-event-detail__row">
-      <svg class="pl-event-detail__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
-      </svg>
-      <span>{% if event.area %}<span data-event-area>{{ event.area.name }}</span>{% if event.location %} · {% endif %}{% endif %}{{ event.location }}</span>
+  {% comment %}
+  The going band: the people count (party sizes summed, hidden members left out) for
+  everyone, the meter towards the goal when the composer set one, and the pitch. The meter
+  is a native progress element drawn by its value, as the HQ's goal chips are, so no width
+  has to be written as a style; its ARIA values carry the real numbers.
+  {% endcomment %}
+  <section class="pl-event-page__band" data-event-going aria-label="Who is going">
+    <p class="pl-event-page__count">
+      <span class="pl-event-page__count-number" data-people-count="{{ people_count }}">{{ people_count }}</span>
+      <span class="pl-event-page__count-label" data-people-label>{% if people_count == 1 %}person is going{% else %}people are going{% endif %}</span>
     </p>
+    {% if event.rsvp_goal %}
+    <div class="pl-event-page__goal">
+      <progress class="pl-event-page__meter" max="100" value="{{ goal_percent }}" role="progressbar" aria-valuenow="{{ people_count }}" aria-valuemin="0" aria-valuemax="{{ event.rsvp_goal }}" aria-label="{{ people_count }} of a goal of {{ event.rsvp_goal }} people" data-goal-meter>{{ goal_percent }}%</progress>
+      <span class="pl-event-page__goal-label" data-goal="{{ event.rsvp_goal }}">Goal {{ event.rsvp_goal }}</span>
+    </div>
     {% endif %}
+    {% if event.pitch %}<p class="pl-event-page__pitch" data-event-pitch>{{ event.pitch }}</p>{% endif %}
+    {% if show_past_note %}<p class="pl-event-page__past" data-event-past>This event has already taken place.</p>{% endif %}
+  </section>
 
-    {% if show_past_note %}
-    <p class="pl-event-detail__past">This event has already taken place.</p>
+  {% comment %}
+  Count Me In (#831, part 4): a signed-in member RSVPs with one tap plus a party size,
+  posting to hub_event_rsvp, and takes it back with I'm not going. An anonymous visitor gets
+  the guest form, posting to hub_event_rsvp_guest with no account, and the "You're on the
+  list" state once the redirect carries ?going=1. The whole card goes once a one-off event
+  has ended (show_past_note); ?date= rides on each action so a series' page keeps its date.
+  {% endcomment %}
+  {% if not show_past_note %}
+  <section class="pl-event-page__card pl-event-page__rsvp" data-event-rsvp-card aria-labelledby="event-count-me-in">
+    <h2 class="pl-event-page__card-title" id="event-count-me-in">Count Me In</h2>
+    {% if is_recurring %}<p class="pl-event-page__note" data-rsvp-series-note>One RSVP is for the whole series.</p>{% endif %}
+    {# Track B lists an event on Eventbrite; until then this property is False and the line never renders. #}
+    {% if event.eventbrite_listed %}<p class="pl-event-page__note" data-eventbrite-counts>Bought a ticket on Eventbrite? You are already counted.</p>{% endif %}
+    {% if user.is_authenticated %}
+    <form method="post" action="{% url 'hub_event_rsvp' event.pk %}{{ date_query }}" class="pl-event-page__rsvp-form" data-member-rsvp-form>
+      {% csrf_token %}
+      {% if viewer_rsvp %}
+      <p class="pl-event-page__going" data-rsvp-state="going">You're on the list{% if is_recurring %} for the whole series{% endif %}. See you there.</p>
+      <div class="pl-event-page__rsvp-controls">
+        {% include "components/form_field.html" with field=member_form.party_size %}
+        <button type="submit" name="update" value="1" class="pl-event-page__btn pl-event-page__btn--ghost" data-rsvp-update>Update</button>
+        <button type="submit" class="pl-event-page__btn pl-event-page__btn--ghost" data-rsvp-leave>I'm not going</button>
+      </div>
+      {% else %}
+      <div class="pl-event-page__rsvp-controls">
+        {% include "components/form_field.html" with field=member_form.party_size %}
+        <button type="submit" class="pl-event-page__btn" data-rsvp-join>Count me in</button>
+      </div>
+      {% endif %}
+    </form>
+    {% elif guest_going %}
+    <div class="pl-event-page__going-card" data-rsvp-going>
+      <p class="pl-event-page__going">You're on the list. See you there.</p>
+      <p class="pl-event-page__note">Changed plans? <a href="{% url 'hub_event_detail' event.pk %}{{ date_query }}">Fill the form again</a> with the same email and it updates your RSVP.</p>
+    </div>
+    {% else %}
+    <form method="post" action="{% url 'hub_event_rsvp_guest' event.pk %}{{ date_query }}" class="pl-event-page__guest-form" data-guest-rsvp-form>
+      {% csrf_token %}
+      <p class="pl-event-page__note pl-event-page__guest-hint">No account needed. A Past Lives member can <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" hx-boost="false">log in</a> to RSVP with one tap.</p>
+      {% include "components/form_field.html" with field=guest_form.name %}
+      {% include "components/form_field.html" with field=guest_form.email %}
+      {% include "components/form_field.html" with field=guest_form.phone %}
+      {% include "components/form_field.html" with field=guest_form.party_size %}
+      {% include "components/form_field.html" with field=guest_form.wants_updates %}
+      {# The honeypot: off screen for people, filled by bots that fill every field; a filled one writes nothing. #}
+      <div class="pl-honeypot" aria-hidden="true">
+        <label for="{{ guest_form.website.id_for_label }}">Leave this field empty</label>
+        {{ guest_form.website }}
+      </div>
+      <button type="submit" class="pl-event-page__btn pl-event-page__btn--spaced" data-rsvp-count-me-in>Count me in</button>
+    </form>
     {% endif %}
+  </section>
+  {% endif %}
 
-    {% if event.description %}
+  {% if event.description %}
+  <section class="pl-event-page__card" data-event-description aria-labelledby="event-about">
+    <h2 class="pl-event-page__card-title" id="event-about">About</h2>
     {# Editor HTML sanitized, or a description from before the editor as escaped paragraphs (core.html_sanitize.render_rich_body). #}
-    <div class="pl-event-detail__description pl-rich-body">{{ event.description|rich_body }}</div>
-    {% endif %}
+    <div class="pl-event-page__description pl-rich-body">{{ event.description|rich_body }}</div>
+  </section>
+  {% endif %}
 
-    {# The gallery, the class page's component over the event's rows; nothing at all without any. #}
-    {% with gallery=event.gallery_display_images %}
-    {% if gallery %}
-    <div class="pl-event-detail__gallery" data-event-gallery>
+  {# The gallery, the class page's component over the event's rows; nothing at all without any. #}
+  {% with gallery=event.gallery_display_images %}
+  {% if gallery %}
+  <section class="pl-event-page__card" data-event-gallery aria-labelledby="event-photos">
+    <h2 class="pl-event-page__card-title" id="event-photos">Photos</h2>
+    <div class="pl-event-page__gallery">
       {% include "classes/_components/gallery.html" with offering=event images=gallery aria_label="Event photos" %}
     </div>
-    {% endif %}
-    {% endwith %}
+  </section>
+  {% endif %}
+  {% endwith %}
 
-    {# The promo video: a YouTube embed, or a card that opens an Instagram or Facebook post. Unrecognised renders nothing. #}
-    {% with video=event.promo_video_url|video_link %}
-    {% if video %}
-    <div class="pl-event-detail__video" data-event-video>
-      <h2 class="pl-event-detail__attendees-heading">Watch</h2>
-      {% include "components/video_embed.html" with video=video title=event.title|add:" promo video" frame_class="pl-guild-video" %}
-    </div>
-    {% endif %}
-    {% endwith %}
+  {# The promo video: a YouTube embed, or a card that opens an Instagram or Facebook post. Unrecognised renders nothing. #}
+  {% with video=event.promo_video_url|video_link %}
+  {% if video %}
+  <section class="pl-event-page__card" data-event-video aria-labelledby="event-watch">
+    <h2 class="pl-event-page__card-title" id="event-watch">Watch</h2>
+    {% include "components/video_embed.html" with video=video title=event.title|add:" promo video" frame_class="pl-guild-video" %}
+  </section>
+  {% endif %}
+  {% endwith %}
 
-    {% comment %}
-    Who's coming (#831, part 4): the people count (party sizes summed) shows for everyone.
-    A signed-in member sees the member names with everyone else folded into "and N guests"
-    (a guest's name never reaches other members) and RSVPs with one tap plus a party size,
-    posting to hub_event_rsvp. An anonymous visitor gets the guest form, posting to
-    hub_event_rsvp_guest with no account, and the "You're on the list" state once the
-    redirect carries ?going=1. Both forms hide once a non-recurring event has ended (the
-    show_past_note gate); ?date= rides on each action so a series' page keeps its date.
-    {% endcomment %}
-    <div class="pl-event-detail__attendees" data-event-rsvps>
-      <h2 class="pl-event-detail__attendees-heading" data-people-count="{{ people_count }}">Who's coming ({{ people_count }})</h2>
-      {% if user.is_authenticated %}
-        {% if rsvps %}
-        <ul class="pl-event-detail__attendee-list">
-          {% for rsvp in member_rsvps %}
-          <li class="pl-event-detail__attendee">{{ rsvp.display_name }}</li>
-          {% endfor %}
-          {% if unnamed_count %}
-          <li class="pl-event-detail__attendee pl-event-detail__attendee--guests" data-guest-count="{{ unnamed_count }}">and {{ unnamed_count }} guest{{ unnamed_count|pluralize }}</li>
-          {% endif %}
-        </ul>
-        {% else %}
-        <p class="pl-event-detail__attendees-empty">No RSVPs yet.</p>
-        {% endif %}
-        {% if not show_past_note %}
-        <form method="post" action="{% url 'hub_event_rsvp' event.pk %}{{ date_query }}" class="pl-event-detail__rsvp-form" data-member-rsvp-form>
-          {% csrf_token %}
-          {% if viewer_rsvp %}
-          <p class="pl-event-detail__rsvp-state" data-rsvp-state="going">You're on the list{% if is_recurring %} for the whole series{% endif %}.</p>
-          <div class="pl-event-detail__rsvp-controls">
-            {% include "components/form_field.html" with field=member_form.party_size %}
-            <button type="submit" name="update" value="1" class="hub-btn hub-btn--ghost hub-btn--sm" data-rsvp-update>Update</button>
-            <button type="submit" class="hub-btn hub-btn--ghost hub-btn--sm" data-rsvp-leave>I'm not going</button>
-          </div>
-          {% else %}
-          {% if is_recurring %}<p class="pl-event-detail__rsvp-state" data-rsvp-series-note>One RSVP is for the whole series.</p>{% endif %}
-          <div class="pl-event-detail__rsvp-controls">
-            {% include "components/form_field.html" with field=member_form.party_size %}
-            <button type="submit" class="hub-btn hub-btn--primary hub-btn--sm" data-rsvp-join>I'm going</button>
-          </div>
-          {% endif %}
-        </form>
-        {% endif %}
-      {% elif guest_going %}
-        <div class="pl-event-detail__going" data-rsvp-going>
-          <p class="pl-event-detail__going-title">You're on the list. See you there.</p>
-          <p class="pl-event-detail__going-note">{% if is_recurring %}One RSVP covers the whole series. {% endif %}Changed plans? <a href="{% url 'hub_event_detail' event.pk %}{{ date_query }}">Fill the form again</a> with the same email and it updates your RSVP.</p>
+  {% if event.area or event.location %}
+  <section class="pl-event-page__card" data-event-location aria-labelledby="event-where">
+    <h2 class="pl-event-page__card-title" id="event-where">Where</h2>
+    {% if event.area %}<p class="pl-event-page__place" data-event-area-line>{{ event.area.name }}</p>{% endif %}
+    {% if event.location %}<p class="pl-event-page__place-detail">{{ event.location }}</p>{% endif %}
+    {# A Google Maps search of the location text (CommunityEvent.directions_url); nothing without one. #}
+    {% if event.directions_url %}
+    <a class="pl-event-page__btn pl-event-page__btn--ghost pl-event-page__btn--spaced" href="{{ event.directions_url }}" target="_blank" rel="noopener noreferrer" data-directions>Get directions</a>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% comment %}
+  Who's Going is for members: the member names, with everyone else folded into "and N
+  guests" (a guest's name never reaches other members). An anonymous visitor has the
+  count in the band and nothing more.
+  {% endcomment %}
+  {% if user.is_authenticated %}
+  <section class="pl-event-page__card" data-event-rsvps aria-labelledby="event-whos-going">
+    <h2 class="pl-event-page__card-title" id="event-whos-going">Who's Going</h2>
+    {% if rsvps %}
+    <ul class="pl-event-page__people">
+      {% for rsvp in member_rsvps %}
+      <li class="pl-event-page__person">{{ rsvp.display_name }}</li>
+      {% endfor %}
+      {% if unnamed_count %}
+      <li class="pl-event-page__person pl-event-page__person--guests" data-guest-count="{{ unnamed_count }}">and {{ unnamed_count }} guest{{ unnamed_count|pluralize }}</li>
+      {% endif %}
+    </ul>
+    {% else %}
+    <p class="pl-event-page__note" data-rsvps-empty>No RSVPs yet.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% comment %}
+  The actions row. Add to calendar puts this one event in the viewer's own calendar,
+  signed in or not (hub/partials/_add_event_to_calendar.html); it is the primary action
+  unless the event has a video link, when Join online is. Share is the class page's button
+  and script; the Copy / Text / Email menu is the fallback where the device has no share
+  sheet. Edit opens the composer this viewer may use (edit_url); Manage is the
+  administrator's Manage Events screen.
+  {% endcomment %}
+  <div class="pl-event-page__actions" data-event-actions>
+    {% if event.video_url %}
+    <a class="pl-event-page__btn" href="{{ event.video_url }}" target="_blank" rel="noopener noreferrer" data-join-online>Join online</a>
+    {% include "hub/partials/_add_event_to_calendar.html" with button_class="pl-event-page__btn pl-event-page__btn--ghost" %}
+    {% else %}
+    {% include "hub/partials/_add_event_to_calendar.html" with button_class="pl-event-page__btn" %}
+    {% endif %}
+    {# The facts ride on data attributes the server renders; static/js/class_share.js reads them and tells this wrapper to open the menu through bubbling custom events. #}
+    {% with share_title=event.title %}
+    {% with share_text=share_title|add:" at Past Lives Makerspace" %}
+    {% with share_body=share_text|add:" "|add:event.public_url %}
+    <div class="pl-event-page__share" data-share
+         x-data="{ open: false, copied: false, manual: false }"
+         @click.outside="open = false"
+         @keydown.escape.window="open = false"
+         @pl-share-menu="open = !open"
+         @pl-share-copied="copied = true; setTimeout(() => copied = false, 2000)"
+         @pl-share-manual="manual = true; $nextTick(() => $refs.manualUrl.select())">
+      <button type="button" class="pl-event-page__btn pl-event-page__btn--ghost"
+              data-share-url="{{ event.public_url }}"
+              data-share-title="{{ share_title }}"
+              data-share-text="{{ share_text }}"
+              aria-haspopup="menu" :aria-expanded="open">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+          <path d="M8.59 13.51l6.83 3.98"/><path d="M15.41 6.51l-6.82 3.98"/>
+        </svg>
+        <span>Share</span>
+      </button>
+      {# The panel positions the dropdown; the menu inside holds only menuitems (ARIA), and the by-hand copy field sits under it. #}
+      <div class="pl-event-page__share-panel" x-show="open" x-cloak>
+        <div class="pl-event-page__share-menu" role="menu" aria-label="Share this event">
+          <button type="button" role="menuitem" class="pl-event-page__share-item" data-share-copy="{{ event.public_url }}"
+                  x-text="copied ? 'Copied!' : 'Copy link'">Copy link</button>
+          <a role="menuitem" class="pl-event-page__share-item" href="sms:?&body={{ share_body|urlencode:'' }}" @click="open = false">Text</a>
+          <a role="menuitem" class="pl-event-page__share-item" href="mailto:?subject={{ share_title|urlencode:'' }}&body={{ share_body|urlencode:'' }}" @click="open = false">Email</a>
         </div>
-      {% elif not show_past_note %}
-        <form method="post" action="{% url 'hub_event_rsvp_guest' event.pk %}{{ date_query }}" class="pl-event-detail__guest-form" data-guest-rsvp-form>
-          {% csrf_token %}
-          <h3 class="pl-event-detail__guest-title">Count Me In</h3>
-          <p class="pl-event-detail__guest-hint">No account needed.{% if is_recurring %} One RSVP covers the whole series.{% endif %} A Past Lives member can <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" hx-boost="false">log in</a> to RSVP with one tap.</p>
-          {% include "components/form_field.html" with field=guest_form.name %}
-          {% include "components/form_field.html" with field=guest_form.email %}
-          {% include "components/form_field.html" with field=guest_form.phone %}
-          {% include "components/form_field.html" with field=guest_form.party_size %}
-          {% include "components/form_field.html" with field=guest_form.wants_updates %}
-          {# The honeypot: off screen for people, filled by bots that fill every field; a filled one writes nothing. #}
-          <div class="pl-honeypot" aria-hidden="true">
-            <label for="{{ guest_form.website.id_for_label }}">Leave this field empty</label>
-            {{ guest_form.website }}
-          </div>
-          <button type="submit" class="hub-btn hub-btn--primary pl-btn--spaced" data-rsvp-count-me-in>Count me in</button>
-        </form>
-      {% endif %}
+        <input type="text" readonly class="pl-event-page__share-manual" value="{{ event.public_url }}" aria-label="Event link"
+               x-show="manual" x-ref="manualUrl" @click="$el.select()">
+      </div>
     </div>
-
-    <div class="pl-event-detail__actions">
-      {% comment %}
-      Add to calendar puts this one event in the viewer's own calendar, signed in or not
-      (hub/partials/_add_event_to_calendar.html). It is the primary action unless the event
-      has a video link, when Join online is.
-      {% endcomment %}
-      {% if event.video_url %}
-      <a class="hub-btn hub-btn--primary" href="{{ event.video_url }}" target="_blank" rel="noopener noreferrer">Join online</a>
-      {% include "hub/partials/_add_event_to_calendar.html" with button_class="hub-btn hub-btn--ghost" %}
-      {% else %}
-      {% include "hub/partials/_add_event_to_calendar.html" with button_class="hub-btn hub-btn--primary" %}
-      {% endif %}
-      {% if user.is_authenticated %}
-        <a class="hub-btn hub-btn--ghost" href="{% url 'hub_community_calendar' %}">View the Calendar</a>
-      {% else %}
-        <a class="hub-btn hub-btn--ghost" href="{% url 'classes:public_list' %}">Browse Past Lives classes</a>
-      {% endif %}
-      {% if can_edit %}
-        {# The view picks the composer this viewer can open (edit_url). #}
-        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ edit_url }}">Edit event</a>
-      {% endif %}
-    </div>
+    {% endwith %}
+    {% endwith %}
+    {% endwith %}
+    {% if user.is_authenticated %}
+    <a class="pl-event-page__btn pl-event-page__btn--ghost" href="{% url 'hub_community_calendar' %}">View the Calendar</a>
+    {% else %}
+    <a class="pl-event-page__btn pl-event-page__btn--ghost" href="{% url 'classes:public_list' %}">Browse Past Lives classes</a>
+    {% endif %}
+    {% if can_edit %}
+    {# The view picks the composer this viewer can open (edit_url). #}
+    <a class="pl-event-page__btn pl-event-page__btn--ghost" href="{{ edit_url }}" data-event-edit>Edit event</a>
+    {% endif %}
+    {% if can_manage %}
+    <a class="pl-event-page__btn pl-event-page__btn--ghost" href="{% url 'hub_admin_event' event.pk %}" data-event-manage>Manage</a>
+    {% endif %}
   </div>
+
+  {% if can_edit %}
+  {# Share & Print for editors: the shared QR card, whose downloads carry hx-boost="false" and data-pl-download (FRONTEND rule 24). #}
+  {% url 'hub_event_qr' event.pk 'svg' as event_qr_svg_url %}
+  {% url 'hub_event_qr' event.pk 'png' as event_qr_png_url %}
+  <div class="pl-event-page__qr" data-event-qr>
+    {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens this page. Print it on signage, add it to a flyer, or hand it out." qr_svg=event.qr_svg share_url=event.public_url svg_url=event_qr_svg_url png_url=event_qr_png_url %}
+  </div>
+  {% endif %}
+
+  <p class="pl-event-page__footer">Past Lives Makerspace is an Oregon nonprofit corporation.</p>
 </div>
+{% comment %}
+The hero photo's focal point: the server writes it as data-hero-position and this lands it
+as the image's object-position, so the markup carries no style attribute (FRONTEND rule 9).
+A body script runs on every arrival, boosted or not, after the image above it is in the
+document, and it is idempotent; the image has no id, so htmx's settle never writes over it.
+{% endcomment %}
+<script>
+  (function () {
+    var heroes = document.querySelectorAll("[data-hero-position]");
+    for (var i = 0; i < heroes.length; i += 1) {
+      heroes[i].style.objectPosition = heroes[i].getAttribute("data-hero-position");
+    }
+  })();
+</script>
 {% endblock %}

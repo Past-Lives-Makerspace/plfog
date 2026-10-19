@@ -7577,6 +7577,10 @@ def _render_event_page(
     count, except to themselves; a guest row has no member, so the exclusion keeps it.
     ``guest_form`` is the bound form the guest POST hands back with its errors; the GET renders
     a blank one for an anonymous visitor and the party size select for a member.
+
+    The page's going band (#831, part 5) reads the count against ``rsvp_goal`` through
+    ``CommunityEvent.rsvp_goal_percent``; Manage links an administrator to the event's
+    Manage Events screen, on the member surface like Edit.
     """
     from hub.calendar_entries import google_calendar_event_url
     from membership.models import CommunityEvent
@@ -7585,6 +7589,7 @@ def _render_event_page(
     on_member_surface = getattr(request, "surface", "members") == "members"
     edit_url = _event_edit_url(request, event)
     can_edit = on_member_surface and edit_url is not None
+    can_manage = on_member_surface and can_administer_events(request)
     is_recurring = event.recurrence != CommunityEvent.Recurrence.NONE
     member = _get_member(request)
     hidden_rsvp = Q(member__hide_from_directory=True)
@@ -7612,6 +7617,7 @@ def _render_event_page(
             "event": event,
             "can_edit": can_edit,
             "edit_url": edit_url,
+            "can_manage": can_manage,
             "is_recurring": is_recurring,
             "when": event.when_display_for(start),
             "google_event_url": google_event_url,
@@ -7623,6 +7629,7 @@ def _render_event_page(
             "rsvps": rsvps,
             "member_rsvps": member_rsvps,
             "people_count": people_count,
+            "goal_percent": event.rsvp_goal_percent(people_count),
             # Everyone coming who is not named: guests, and the people a member brings.
             "unnamed_count": people_count - len(member_rsvps),
             "viewer_rsvp": viewer_rsvp,

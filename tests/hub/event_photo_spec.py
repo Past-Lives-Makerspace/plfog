@@ -256,21 +256,21 @@ def describe_the_event_page():
     def it_fronts_the_page_with_the_photo(client: Client):
         event = _with_photo(guild=GuildFactory(name="Print"))
         html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
-        assert "pl-event-detail__hero--photo" in html
+        assert "pl-event-page__hero--photo" in html
         assert event.photo.url in html
 
     def it_reads_as_it_always_did_without_one(client: Client):
         event = CommunityEventFactory(guild=GuildFactory(name="Print"))
         html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
-        assert "pl-event-detail__hero--photo" not in html
-        assert "pl-event-detail__hero-img" not in html
+        assert "pl-event-page__hero--photo" not in html
+        assert "pl-event-page__hero-img" not in html
         assert event.title in html  # the headline still renders, photo or no photo
 
     def it_keeps_the_photo_out_of_the_accessible_name(client: Client):
         # The title beside it says what the event is, so the picture is decorative.
         event = _with_photo(guild=GuildFactory())
         html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
-        assert 'class="pl-event-detail__hero-img" src="' in html
+        assert 'class="pl-event-page__hero-img" src="' in html
         assert 'alt=""' in html
 
 
@@ -492,15 +492,15 @@ def describe_the_cropped_copy():
         event = _cropped(community=True)
         html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
         assert event.photo_cropped.url in html
-        assert 'class="pl-event-detail__hero-img" src="' + event.photo_cropped.url in html
-        assert "object-position: 50% 50%" in html
+        assert 'class="pl-event-page__hero-img" src="' + event.photo_cropped.url in html
+        assert 'data-hero-position="50% 50%"' in html
 
     def it_is_the_photo_itself_without_a_box(client: Client):
         event = CommunityEventFactory(community=True, photo=_upload())
         assert event.hero_image_url == event.photo.url
         assert event.hero_object_position == "50% 50%"
         html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
-        assert 'class="pl-event-detail__hero-img" src="' + event.photo.url in html
+        assert 'class="pl-event-page__hero-img" src="' + event.photo.url in html
 
     def it_is_blank_without_a_photo():
         event = CommunityEventFactory(community=True)
