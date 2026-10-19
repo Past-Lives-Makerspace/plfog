@@ -19,7 +19,7 @@ from tests.membership.factories import CommunityEventFactory
 
 pytestmark = pytest.mark.django_db
 
-CREATE = reverse("hq:create")
+SETUP = reverse("hq:setup")
 
 
 def _edit(hub: EventHub) -> str:
@@ -54,27 +54,42 @@ def _hub_post(goals: list[dict[str, Any]] | None = None, initial: int = 0, **fie
     return data
 
 
-def describe_making_a_hub():
+def describe_loading_lees_hq():
     def it_is_for_admins(member_client, admin_client):
-        assert Client().get(CREATE).status_code == 302
-        assert "/accounts/login/" in Client().get(CREATE)["Location"]
-        assert member_client.get(CREATE).status_code == 403
-        assert admin_client.get(CREATE).status_code == 200
+        assert Client().get(SETUP).status_code == 302
+        assert "/accounts/login/" in Client().get(SETUP)["Location"]
+        assert member_client.get(SETUP).status_code == 403
+        assert member_client.post(SETUP).status_code == 403
+        assert not EventHub.objects.exists()
 
-    def it_makes_the_hub_and_its_nine_doors_admins_only(admin_client):
-        response = admin_client.post(CREATE, _hub_post())
+    def it_offers_one_button_and_no_form_fields(admin_client):
+        body = admin_client.get(SETUP).content.decode()
+
+        assert "data-hq-setup-submit" in body
+        assert "Load Lee&#x27;s HQ" in body or "Load Lee's HQ" in body
+        assert 'name="title"' not in body
+        assert 'name="slug"' not in body
+
+    def it_loads_her_doors_goals_and_shifts_and_lands_on_the_page(admin_client):
+        response = admin_client.post(SETUP)
 
         hub = EventHub.objects.get(slug="holiday-bizarre-2026")
         assert response.status_code == 302
         assert response["Location"] == hub.get_absolute_url()
+        assert hub.is_open
+        assert hub.event is None
         cards = list(hub.cards.all())
         assert [card.kind for card in cards] == [spec["kind"] for spec in DEFAULT_CARDS]
-        assert [card.sort_order for card in cards] == list(range(9))
         assert {card.audience for card in cards} == {HubCard.Audience.ADMINS}
         assert cards[0].title == "Going to the Bizarre?"
-        assert cards[0].bullet_lines[0] == "Tell us you're coming"
-        assert cards[1].button_text == "Sign up to volunteer"
-        assert [card.kind for card in cards].count(HubCard.Kind.PLACEHOLDER) == 6
+        assert hub.goals.count() == 4
+        assert hub.shifts.count() == 21
+
+    def it_sends_an_admin_to_the_hq_once_one_exists(open_hub, admin_client):
+        for response in (admin_client.get(SETUP), admin_client.post(SETUP)):
+            assert response.status_code == 302
+            assert response["Location"] == open_hub.get_absolute_url()
+        assert EventHub.objects.count() == 1
 
     def it_adds_nothing_when_the_doors_are_seeded_again(open_hub):
         first = open_hub.seed_default_cards()
@@ -87,21 +102,6 @@ def describe_making_a_hub():
         assert open_hub.cards.count() == 9
         assert [card.pk for card in again] == [card.pk for card in first]
         assert open_hub.cards.get(kind=HubCard.Kind.RSVP).title == "Renamed by Lee"
-
-    def it_refuses_the_new_address(admin_client):
-        response = admin_client.post(CREATE, _hub_post(slug="new"))
-
-        assert response.status_code == 200
-        assert "taken by the HQ pages themselves" in response.content.decode()
-        assert not EventHub.objects.exists()
-
-    def it_shows_the_page_with_no_goal_rows_and_the_add_button(admin_client):
-        body = admin_client.get(CREATE).content.decode()
-
-        assert "data-hq-goals-empty" in body
-        assert "data-hq-add-goal" in body
-        assert 'id="hq-goal-empty-template"' in body
-        assert 'name="goals-TOTAL_FORMS" value="0"' in body
 
 
 def describe_editing_a_hub():

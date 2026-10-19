@@ -163,13 +163,19 @@ def describe_index():
             assert response.status_code == 302
             assert response["Location"] == _page(open_hub)
 
-    def it_sends_an_admin_to_make_one_when_none_is_open(admin_client):
-        EventHubFactory(is_open=False)
+    def it_sends_an_admin_to_the_closed_hub_when_none_is_open(admin_client):
+        closed = EventHubFactory(is_open=False)
 
         response = admin_client.get(reverse("hq:index"))
 
         assert response.status_code == 302
-        assert response["Location"] == reverse("hq:create")
+        assert response["Location"] == _page(closed)
+
+    def it_sends_an_admin_to_load_lees_hq_when_there_is_none(admin_client):
+        response = admin_client.get(reverse("hq:index"))
+
+        assert response.status_code == 302
+        assert response["Location"] == reverse("hq:setup")
 
     def it_404s_everyone_else_when_none_is_open(member_client, make_member):
         EventHubFactory(is_open=False)

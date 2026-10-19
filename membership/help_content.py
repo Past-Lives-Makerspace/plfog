@@ -699,6 +699,8 @@ Admins and the people named on a card run what is behind it.
 
 ### Editing the HQ (Admins) {#hq-edit}
 
+Before the HQ exists, an admin who opens it (from **Admin Tools**, **Holiday Bizarre HQ**) gets one button, **Load Lee's HQ**, which puts her nine doors, four goals and 21 volunteer shifts on the site, every door admins only.
+
 Admins see an **Edit HQ** button at the top of the page and an **Edit** link under each card.
 
 **Edit HQ** sets the page: the title, the address, the eyebrow line, the calendar event (its date and place fill the top band), the hero image, the intro, the footer note, and the goals. The **Open** switch is what puts the HQ behind the sidebar entry and `/hq/`; only one HQ can be open at a time. A closed HQ is reachable by admins only, so you can build it before anyone sees it.

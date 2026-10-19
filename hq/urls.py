@@ -1,6 +1,6 @@
 """HQ URLs, all under ``/hq/`` (the guest carve-out in the lockout middleware admits this prefix).
 
-``new/`` sits before ``<slug>/`` so it is never read as a hub; ``hq.forms.RESERVED_SLUGS`` keeps
+``new/`` (Load Lee's HQ) sits before ``<slug>/`` so it is never read as a hub; ``hq.forms.RESERVED_SLUGS`` keeps
 a hub from taking that address. The volunteer pages live under ``<slug>/volunteers/`` and the
 wine wall under ``<slug>/wine/``.
 """
@@ -15,7 +15,7 @@ app_name = "hq"
 
 urlpatterns = [
     path("", views.index, name="index"),
-    path("new/", views.create, name="create"),
+    path("new/", views.setup, name="setup"),
     path("<slug:slug>/", views.hub_page, name="page"),
     path("<slug:slug>/edit/", views.edit, name="edit"),
     path("<slug:slug>/hero/delete/", views.hero_delete, name="hero_delete"),

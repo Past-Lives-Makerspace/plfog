@@ -1,23 +1,18 @@
 {% extends "hub/base.html" %}
 {% load static %}
 {% comment %}
-The hub form (new and edit): the page's words, its event, the hero image, the goals as a
+The hub form: the page's words, its event, the hero image, the goals as a
 formset in the Help editor's idiom (extra=0, a hidden template row, + Add goal, Delete that
 saves the page), the Open switch, and one plain Save last. Not boosted: it uploads a file.
 {% endcomment %}
-{% block title %}{% if hub %}Edit HQ{% else %}New HQ{% endif %}{% endblock %}
+{% block title %}Edit HQ{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/hq.css' %}">
 {% endblock %}
 {% block content %}
 <div class="pl-hq-edit" data-hq-edit-page>
-  {% if hub %}
   {% url 'hq:page' hub.slug as back_url %}
   {% include "components/page_header.html" with title="Edit HQ" description="The hero band, the goals and whether the HQ is open. Each door card has its own Edit link on the page." action_url=back_url action_label="View HQ" %}
-  {% else %}
-  {% url 'hub_home' as back_url %}
-  {% include "components/page_header.html" with title="New HQ" description="Make the HQ page. Its nine door cards come with it, admins only until you open each one." action_url=back_url action_label="Back to Home" %}
-  {% endif %}
 
   <form method="post" enctype="multipart/form-data" class="hub-form" hx-boost="false">
     {% csrf_token %}
@@ -35,7 +30,7 @@ saves the page), the Open switch, and one plain Save last. Not boosted: it uploa
 
     <div class="hub-card pl-hq-edit__card">
       <h2 class="pl-hq-edit__title">Hero Image</h2>
-      {% if hub %}{% url 'hq:hero_delete' hub.slug as hero_delete_url %}{% endif %}
+      {% url 'hq:hero_delete' hub.slug as hero_delete_url %}
       {% include "components/image_field.html" with field=form.hero_image current_image=form.instance.hero_image delete_url=hero_delete_url modal_id="delete-hq-hero" shape="rect" thumbnail_width="320px" thumbnail_height="120px" max_bytes=max_upload_bytes tooltip_html="A wide photo, about 2400 by 900 pixels, JPG or PNG. It sits behind the navy band with the title over it." confirm_title="Remove the hero image?" confirm_message="The band keeps its navy background; the photo is removed from our storage." delete_button_text="Remove" %}
     </div>
 
