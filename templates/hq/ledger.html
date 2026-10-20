@@ -4,8 +4,9 @@
 The PL Ledger (Track D, part 6a), in the look of Lee's ledger page and in her order: the header with her title and
 line, the board summary (the approval, used, left and sponsored, the meter, her board paragraph, Copy board summary,
 the CSV and the approval form), the budget lines, Log a sponsor or expense, the ledger with its filters, and the
-receipts report. Organisers only: the view's gate is the card's audience and then a 403 for anyone who does not
-organise it, because this is the event's money. D6b and D6c add their sections where the comments say.
+receipts report, then (D6b) Drink sales and the Wine Wall's tickets. Organisers only: the view's gate is the card's
+audience and then a 403 for anyone who does not organise it, because this is the event's money. D6c adds its sections
+where the comments say.
 {% endcomment %}
 {% block title %}{{ title }}{% endblock %}
 {% block extra_head %}
@@ -41,7 +42,10 @@ organise it, because this is the event's money. D6b and D6c add their sections w
     </div>
   </section>
 
-  {# D6b: drink sales, then the wine wall tickets, go here. #}
+  {% include "hq/partials/_ledger_bar.html" %}
+
+  {% include "hq/partials/_ledger_wine.html" %}
+
   {# D6c: staff time, guild demos and the launch checklist go here. #}
 </div>
 {% endblock %}

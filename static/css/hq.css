@@ -4075,6 +4075,194 @@ a.pl-hq-fl__figure:hover .pl-hq-fl__figure-link {
   color: var(--pl-hq-vol-btn-ink);
 }
 
+/* Drink sales and the Wine Wall (D6b): Lee's surface panel of four tiles over a gold meter, the night's large +1
+   buttons, and the small price and ticket forms. The board's tiles are cream on navy; here they read on the surface. */
+.pl-hq-lg__h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 900;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-lg__money {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 14px;
+  background: var(--pl-hq-vol-surface);
+}
+.pl-hq-lg__money .pl-hq-lg__tile-heading {
+  color: var(--pl-hq-vol-gold);
+}
+.pl-hq-lg__money .pl-hq-lg__tile-figure {
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-lg__money .pl-hq-lg__tile-helper {
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-lg__money .pl-hq-lg__tile--bad .pl-hq-lg__tile-figure {
+  color: var(--pl-hq-lg-bad);
+}
+.pl-hq-lg__money .pl-hq-lg__tile--ok .pl-hq-lg__tile-figure {
+  color: var(--pl-hq-vol-ok);
+}
+/* A filling meter: gold on the chip track (the board's meter is the reverse, used on a gold track). */
+.pl-hq-lg__meter--fill {
+  background: var(--pl-hq-vol-chip);
+}
+.pl-hq-lg__meter--fill::-webkit-progress-bar {
+  background: var(--pl-hq-vol-chip);
+}
+.pl-hq-lg__meter--fill::-webkit-progress-value {
+  background: var(--pl-hq-vol-gold-hi);
+}
+.pl-hq-lg__meter--fill::-moz-progress-bar {
+  background: var(--pl-hq-vol-gold-hi);
+}
+.pl-hq-lg__meter-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-lg__meter-labels strong {
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-lg__quick,
+.pl-hq-lg__tickets {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+.pl-hq-lg__quick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+/* Big enough for a thumb at a busy bar: Lee's .qbtn, taller. */
+.pl-hq-lg__qbtn {
+  display: grid;
+  gap: 2px;
+  min-height: 92px;
+  padding: 12px 14px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 12px;
+  background: var(--pl-hq-vol-bg);
+  color: var(--pl-hq-vol-ink);
+  font: inherit;
+  font-weight: 900;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pl-hq-lg__qbtn:hover {
+  border-color: var(--pl-hq-vol-gold);
+}
+.pl-hq-lg__qbtn:active {
+  transform: translateY(1px);
+}
+.pl-hq-lg__qbtn:focus-visible {
+  outline: 2px solid var(--pl-hq-vol-gold-hi);
+  outline-offset: 2px;
+}
+.pl-hq-lg__qbtn-name {
+  font-size: 1.05rem;
+}
+.pl-hq-lg__qbtn-count {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.6rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.pl-hq-lg__qbtn-price {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-lg__undo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.pl-hq-lg__prices {
+  border-top: 1px solid var(--pl-hq-vol-rule);
+  padding-top: 12px;
+}
+.pl-hq-lg__prices-summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-lg__prices .pl-hq-lg__form,
+.pl-hq-lg__prices .pl-field-error {
+  margin-top: 10px;
+}
+.pl-hq-lg__fields--narrow {
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+}
+.pl-hq-lg__table--bar {
+  min-width: 620px;
+}
+.pl-hq-lg__bar-sales {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+.pl-hq-lg__wine-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.pl-hq-lg__wine-links .pl-hq-lg__link {
+  margin-top: 0;
+  text-decoration: none;
+}
+
+/* The wine wall's Under $25 flag (Lee's) and the donors' Thanked toggle. */
+.pl-hq-wine {
+  --pl-hq-wine-bad: #EE8B8B;
+}
+[data-theme="light"] .pl-hq-wine {
+  --pl-hq-wine-bad: #A23B3B;
+}
+.pl-hq-wine__under {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--pl-hq-wine-bad);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.pl-hq-wine__thanked {
+  padding: 4px 10px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pl-hq-vol-ink);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pl-hq-wine__thanked--on {
+  border-color: var(--pl-hq-vol-ok);
+  background: var(--pl-hq-vol-ok-bg);
+  color: var(--pl-hq-vol-ok);
+}
+.pl-hq-wine__thanked:focus-visible {
+  outline: 2px solid var(--pl-hq-vol-gold-hi);
+  outline-offset: 2px;
+}
+
 /* The receipts report: the summary box, then one card per purchase with its facts and its receipt. */
 .pl-hq-lg--report {
   max-width: 820px;

@@ -679,9 +679,9 @@ def describe_the_donors():
         assert response.status_code == 200
         assert response["Content-Disposition"].startswith(f'attachment; filename="{card.hub.slug}-wine-donors-')
         rows = b"".join(response.streaming_content).decode().splitlines()
-        assert rows[0] == "Giver,Type,Email,Sponsor listing,Bottles,Value,Logged by,Notes"
-        assert rows[1] == "Amy,Person,amy@example.com,Not asked,1,25.00,Lee,Drop off Friday"
-        assert rows[2] == f"zed shop,Restaurant,zed@example.com,Yes,3,25.00,Lee; {member.display_name},"
+        assert rows[0] == "Giver,Type,Email,Sponsor listing,Bottles,Value,Thanked,Logged by,Notes"
+        assert rows[1] == "Amy,Person,amy@example.com,Not asked,1,25.00,no,Lee,Drop off Friday"
+        assert rows[2] == f"zed shop,Restaurant,zed@example.com,Yes,3,25.00,no,Lee; {member.display_name},"
         assert member_client.get(_csv_url(card.hub)).status_code == 403
         assert Client().get(_csv_url(card.hub)).status_code == 403
 

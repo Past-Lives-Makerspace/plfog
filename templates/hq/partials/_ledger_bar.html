@@ -1,0 +1,47 @@
+{% comment %}
+Drink sales (Track D, part 6b), Lee's section: the tiles (drinks sold, sales against 2025, the bar's cost from the
+Drinks lines and the profit, with her break-even line), Quick add during the event (Paid by, then a large +1 button
+per drink at the hub's prices, Undo last, and Set drink prices), Log a batch, and the sales newest first with the CSV.
+A +1 tap and Undo last post over htmx and swap nothing in place: the tiles, the buttons' counts and the table come back
+out of band, so Paid by keeps its choice for the next tap. This is the bar on event night, on a phone.
+
+  hub          — required, the EventHub
+  bar          — required, a hq.services.BarTotals
+  quick_buttons — required, the hq.services.QuickButton list
+  quick_form   — required, a BarQuickForm (Paid by)
+  batch_form, batch_open — as hq/partials/_ledger_bar_batch.html
+  prices_form, prices_open, prices_error — as hq/partials/_ledger_bar_prices.html
+  bar_sales    — required, the sales newest first
+{% endcomment %}
+<section class="pl-hq-lg__section" id="hq-lg-bar" aria-labelledby="hq-lg-bar-title" data-hq-lg-bar>
+  <div class="pl-hq-lg__section-head">
+    <h2 class="pl-hq-lg__h2" id="hq-lg-bar-title">Drink Sales</h2>
+    <span class="pl-hq-lg__muted pl-hq-lg__helper">Bar sales at the event, against what the bar cost</span>
+  </div>
+
+  {% include "hq/partials/_ledger_bar_tiles.html" %}
+
+  <div class="pl-hq-lg__card pl-hq-lg__quick" data-hq-lg-quick-add data-help-key="hq.ledger-bar">
+    <div class="pl-hq-lg__section-head">
+      <h3 class="pl-hq-lg__h3">Quick add during the event</h3>
+      <span class="pl-hq-lg__muted pl-hq-lg__helper">Tap once per drink sold</span>
+    </div>
+    <form method="post" action="{% url 'hq:ledger_bar_quick' hub.slug %}" hx-post="{% url 'hq:ledger_bar_quick' hub.slug %}" hx-swap="none" class="pl-hq-lg__form" data-hq-lg-quick-form>
+      {% csrf_token %}
+      <div class="pl-hq-lg__kinds pl-hq-lg__pay" data-hq-lg-pay>
+        {% include "components/radio_group.html" with field=quick_form.pay %}
+      </div>
+      {% include "hq/partials/_ledger_bar_buttons.html" %}
+    </form>
+    <form method="post" action="{% url 'hq:ledger_bar_undo' hub.slug %}" hx-post="{% url 'hq:ledger_bar_undo' hub.slug %}" hx-swap="none" class="pl-hq-lg__undo" data-hq-lg-undo-form>
+      {% csrf_token %}
+      <button type="submit" class="pl-hq-lg__btn pl-hq-lg__btn--ghost" data-hq-lg-undo>Undo last</button>
+      <span class="pl-hq-lg__muted pl-hq-lg__helper">Takes back your own newest tap.</span>
+    </form>
+    {% include "hq/partials/_ledger_bar_prices.html" %}
+  </div>
+
+  {% include "hq/partials/_ledger_bar_batch.html" %}
+
+  {% include "hq/partials/_ledger_bar_table.html" %}
+</section>

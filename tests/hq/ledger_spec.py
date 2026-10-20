@@ -497,7 +497,15 @@ def _doors(**overrides: Any) -> services.DoorFigures:
     """No figures on any other door, with ``overrides`` in place."""
     hub = EventHubFactory()
     figures = services.door_figures(hub)
-    values = {"sponsors": figures.sponsors, "flyers": 0, "checkin": figures.checkin, "wine": figures.wine}
+    values = {
+        "sponsors": figures.sponsors,
+        "flyers": 0,
+        "checkin": figures.checkin,
+        "wine": figures.wine,
+        "cash": figures.cash,
+        "bar": figures.bar,
+        "tickets": figures.tickets,
+    }
     values.update(overrides)
     return services.DoorFigures(**values)
 

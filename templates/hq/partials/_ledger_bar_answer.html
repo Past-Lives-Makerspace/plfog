@@ -1,0 +1,9 @@
+{% comment %}
+The htmx answer to a +1 tap or Undo last (the form swaps nothing in place): the tiles, the buttons' counts and the
+sales table, each out of band by id.
+
+  as hq/partials/_ledger_bar_tiles.html, _ledger_bar_buttons.html and _ledger_bar_table.html
+{% endcomment %}
+<template>{% include "hq/partials/_ledger_bar_tiles.html" with oob=True %}</template>
+<template>{% include "hq/partials/_ledger_bar_buttons.html" with oob=True %}</template>
+<template>{% include "hq/partials/_ledger_bar_table.html" with oob=True %}</template>

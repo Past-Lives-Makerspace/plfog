@@ -10,10 +10,10 @@ The nine doors live beside the model that seeds them (:data:`hq.models.DEFAULT_C
 words each was first seeded with, so a re-run can tell Lee's untouched words from an admin's);
 :data:`CARDS` is that same tuple, so the two never drift.
 The shifts are Lee's sign-up sheet, phase by phase, in her words; the two bartender shifts
-need an Oregon OLCC service permit. The goals are her tracker: Raised is typed in by an admin
-(a money goal, in whole dollars, as every ``HubGoal`` money figure is), the other four are
-counted live from the pages behind the doors; Member tables has no target, so it shows as a plain
-count. The sponsor tiers are her draft "what they get" table on the Sponsorship Tracker, row for
+need an Oregon OLCC service permit. The goals are her tracker, all five counted live from the pages
+behind the doors: Raised is the event cash (sponsors received, bar sales and wine wall tickets; a
+money goal, in whole dollars, as every ``HubGoal`` money figure is; Felix, 2026-10-20), and Member
+tables has no target, so it shows as a plain count. The sponsor tiers are her draft "what they get" table on the Sponsorship Tracker, row for
 row. The vendor setup windows are the Setup day choices on Vendor Tables and its band's note. The check-in
 words are the Market Check-in's thank-you line and footer. The flyer words are her member event page's: the message
 to send friends (the default an organiser edits), Coming soon, the line under Help spread the word and last year's. The
@@ -75,7 +75,7 @@ HUB = HubContent(
 CARDS: tuple[DoorContent, ...] = DEFAULT_CARDS
 
 GOALS: tuple[GoalContent, ...] = (
-    GoalContent(label="Raised", kind=HubGoal.Kind.MANUAL, target=10_000, is_money=True),
+    GoalContent(label="Raised", kind=HubGoal.Kind.EVENT_CASH, target=10_000, is_money=True),
     GoalContent(label="Wine wall bottles", kind=HubGoal.Kind.BOTTLES, target=100),
     GoalContent(label="Volunteer spots", kind=HubGoal.Kind.VOLUNTEER_SPOTS, target=82),
     GoalContent(label="RSVPs", kind=HubGoal.Kind.RSVPS, target=250),

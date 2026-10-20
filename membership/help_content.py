@@ -665,7 +665,7 @@ You only see the doors that are open to you. Every card starts as admins only; a
 
 ### The Goal Tracker {#hq-goal-tracker}
 
-Under the top band sits a row of goals, each with a meter. Goals that count people going, volunteer spots, bottles or confirmed vendor tables update themselves from the pages behind the doors. The Raised goal is typed in by an admin. A goal with no target, like **Member tables**, shows its count with no meter.
+Under the top band sits a row of goals, each with a meter. Every one of Lee's goals updates itself from the pages behind the doors: **Raised** adds up the sponsor money received, the bar's sales and the wine wall tickets; the others count people going, volunteer spots, bottles and confirmed vendor tables. A goal with no target, like **Member tables**, shows its count with no meter.
 
 ### RSVP on the Event Page {#hq-rsvp}
 
@@ -799,12 +799,26 @@ The **Ledger** lists every entry, newest first, with filters for each kind. A pu
 
 **Download receipts report** opens every purchase and refund with its receipt on one page, oldest first, under the approval's totals. Click **Print or save as PDF** to print it or keep it for the books.
 
+### Drink Sales and Wine Wall Tickets {#hq-ledger-bar}
+
+**Drink Sales** shows the drinks sold, the sales against last year's, what the bar cost (the Drinks budget lines) and the bar's profit, with how many more beers would cover the cost.
+
+1. Under **Quick add during the event**, choose **Paid by**: Card, Cash, $5 RSVP credit or Other.
+2. Tap **+1** on the drink sold, once per drink. The counts and the table update as you go.
+3. Tapped the wrong one? **Undo last** takes back your own newest tap.
+
+**Log a batch** adds a shift's total, the tip jar or a cash box count: pick the drink (or **Mixed / total only**), how many and the total collected. Leave the total blank to use the price times how many; a mixed batch needs its total. **Set drink prices** changes the four prices and last year's bar sales. **Delete** on a sale takes it out, and **Download drink sales (CSV)** gives every sale with the totals last.
+
+**Wine Wall** shows the bottles and their value from the wine wall itself (bottles are logged there, not here), what the tickets would raise at the goal, and how many donors have been thanked. Type the **single tickets** and **2-ticket deals** sold and click **Update**; **Set ticket prices** changes the two prices.
+
+The **Raised** goal on the HQ page adds up the sponsor money received, the drink sales and the wine wall tickets by itself.
+
 ### Organiser Tools {#hq-organiser-tools}
 
 Admins and the people named on a card run what is behind it.
 
 - **Roster**: at the foot of the volunteer page, and on its own page, everyone signed up with their shifts, email, phone, permit and note. **Copy emails** puts every address on your clipboard. **Download CSV** gives one row per person per shift.
-- **Wine Donors to Thank**: at the foot of the wine wall, and on its own page, every giver with their type, email, sponsor listing, bottles and who logged them. **Copy donor emails** and **Download CSV** work the same way, one row per giver.
+- **Wine Donors to Thank**: at the foot of the wine wall, and on its own page, every giver with their type, email, sponsor listing, bottles and who logged them. Click **Mark thanked** once their thank-you is sent; click it again to undo. A bottle worth less than one wine wall ticket is flagged **Under $25** (the ticket price). **Copy donor emails** and **Download CSV** work the same way, one row per giver.
 - **Add a Logo**: on the wine wall, organisers upload a logo for any winery named on a bottle. A new logo replaces the one under the same name.
 
 ### Editing the HQ (Admins) {#hq-edit}

@@ -1,7 +1,7 @@
 {% comment %}
 The htmx answer to a line's Save: the line (saved, or refused and open with its errors) for the target and, once
-saved, the Total row, the log form's Budget line select (the line chosen) and the ledger out of band, since each of
-them shows the line. The answer starts with a tbody, so the browser parses it as table content; the out of band parts
+saved, the Total row, the log form's Budget line select (the line chosen), the ledger and the Drink sales tiles out of
+band, since each of them shows the line (the bar's cost is the Drinks lines'). The answer starts with a tbody, so the browser parses it as table content; the out of band parts
 ride in a template tag (htmx 2 swaps the hx-swap-oob elements inside one), which parses each in its own right.
 
   hub, row, show  — as hq/partials/_ledger_line.html
@@ -9,10 +9,12 @@ ride in a template tag (htmx 2 swaps the hx-swap-oob elements inside one), which
   line_oob        — required, True once the line is saved
   entry_line_form — with line_oob, a LedgerEntryForm whose line select comes back
   the Ledger section's context (hq/partials/_ledger_entries.html) — with line_oob
+  bar             — with line_oob, a hq.services.BarTotals
 {% endcomment %}
 {% include "hq/partials/_ledger_line.html" %}
 {% if line_oob %}
 <template>{% include "hq/partials/_ledger_lines_total.html" with oob=True %}</template>
 <template>{% include "hq/partials/_ledger_entry_line.html" with oob=True %}</template>
 <template>{% include "hq/partials/_ledger_entries.html" with oob=True %}</template>
+<template>{% include "hq/partials/_ledger_bar_tiles.html" with oob=True %}</template>
 {% endif %}

@@ -1,7 +1,7 @@
 """The HQ page and its edit pages (Track C, part 1), the volunteer sign-up page (part 2), the wine wall (part 3),
 the Marketing Tracker (Track D, part 1), the Sponsorship Tracker (Track D, part 2), Vendor Tables (Track D, part 3)
 the Market Check-in (Track D, part 4), the event flyer and sharing page (Track D, part 5) and the PL Ledger's budget
-(Track D, part 6a).
+(Track D, part 6a) and money in (Track D, part 6b).
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ from hq.access import (
     viewer_member,
 )
 from hq.exports import (
+    stream_bar_sales_csv,
     stream_donors_csv,
     stream_ledger_csv,
     stream_market_reports_csv,
@@ -51,12 +52,15 @@ from hq.forms import (
     MARKETING_TEAM_LIST_ID,
     RECEIPT_NOT_TAKEN,
     SPONSOR_TEAM_LIST_ID,
+    BarBatchForm,
+    BarQuickForm,
     BudgetLineEditForm,
     BudgetLineForm,
     FlyerLinksForm,
     FlyerUploadForm,
     HubCardForm,
     HubForm,
+    DrinkPricesForm,
     HubGoalFormSet,
     LedgerApprovalForm,
     LedgerEntryForm,
@@ -66,6 +70,8 @@ from hq.forms import (
     SponsorEditForm,
     SponsorForm,
     SponsorLogForm,
+    TicketPricesForm,
+    TicketsForm,
     VendorFloorForm,
     VendorTableEditForm,
     VendorTableForm,
@@ -95,6 +101,7 @@ from hq.models import (
     FlyerSlot,
     HubCard,
     LedgerEntry,
+    LedgerSettings,
     MarketingKind,
     MarketReport,
     ShiftSignup,
@@ -102,6 +109,7 @@ from hq.models import (
     VendorTable,
     VolunteerHours,
     VolunteerShift,
+    donor_key,
     format_hours,
     format_money,
 )
@@ -202,12 +210,14 @@ def _hub_editor(request: HttpRequest, hub: EventHub) -> HttpResponse:
 @require_POST
 def doors_update(request: HttpRequest, slug: str) -> HttpResponse:
     """Bring Lee's doors up to date on this hub: built doors adopt their placeholders, untouched words take her latest,
-    and a counted goal the hub lacks by kind is added (:func:`hq.services.seed_goals`)."""
+    a typed in Raised becomes the counted event cash, and a counted goal the hub lacks by kind is added
+    (:func:`hq.services.seed_goals`)."""
     with transaction.atomic():
         # The row lock makes a double-submit wait for the first, so it finds the doors and goals made and adds none.
         hub = get_object_or_404(EventHub.objects.select_for_update(), slug=slug)
         seeded = hub.seed_default_cards()
-        seeded.goals_added = services.seed_goals(hub).added
+        goals = services.seed_goals(hub)
+        seeded.goals_added, seeded.goals_adopted = goals.added, goals.adopted
         summary = seeded.summary
     messages.success(request, summary)
     return redirect(hub.get_absolute_url())
@@ -502,6 +512,8 @@ def _wine_page(
     bottles = list(hub.bottles.all())
     rows = services.wineries(hub)
     donors = services.donor_rows(hub) if can_organize else []
+    # Organisers see Lee's Under $25 flag on a bottle worth less than one ticket; nobody else pays for the read.
+    ticket_cents = services.ticket_price_cents(hub) if can_organize else 0
     if can_organize and logo_form is None:
         logo_form = WineryLogoForm(names=[row.name for row in rows])
     return render(
@@ -524,6 +536,10 @@ def _wine_page(
             "can_organize": can_organize,
             "donors": donors,
             "donor_emails": services.donor_emails(donors),
+            "donors_thanked": sum(1 for row in donors if row.thanked),
+            "donors_back": DONORS_BACK_WALL,
+            "ticket_cents": ticket_cents,
+            "ticket_display": format_money(ticket_cents),
             "max_upload_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
         },
     )
@@ -559,21 +575,55 @@ def winery_logo(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpRe
     return redirect(_wall_url(hub))
 
 
+# Where a donor's Thanked toggle lands after a plain post: the wall, or (by default) the donors page.
+DONORS_BACK_WALL = "wall"
+
+
+def _donors_context(hub: EventHub, donors: list[services.DonorRow]) -> dict[str, Any]:
+    return {
+        "hub": hub,
+        "donors": donors,
+        "donor_emails": services.donor_emails(donors),
+        "donors_thanked": sum(1 for row in donors if row.thanked),
+        "donors_back": "",
+    }
+
+
 @organizer_required(HubCard.Kind.WINE_WALL)
 def wine_donors(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """The donors on their own page: every giver, their type, email and listing, Copy donor emails and the CSV."""
-    donors = services.donor_rows(hub)
-    return render(
-        request,
-        "hq/wine_donors.html",
-        {"hub": hub, "card": card, "donors": donors, "donor_emails": services.donor_emails(donors)},
-    )
+    """The donors on their own page: every giver, their type, email and listing, Thanked, Copy donor emails and the
+    CSV."""
+    return render(request, "hq/wine_donors.html", {**_donors_context(hub, services.donor_rows(hub)), "card": card})
 
 
 @organizer_required(HubCard.Kind.WINE_WALL)
 def wine_donors_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
     """The donors table as a CSV download, one row per giver."""
     return stream_donors_csv(services.donor_rows(hub), filename_stem=hub.slug)
+
+
+@require_POST
+@organizer_required(HubCard.Kind.WINE_WALL)
+def wine_donor_thanked(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Mark a wine donor thanked, or take the mark off (``thanked`` "1" or not), by the actual role. Over htmx the
+    donor's row comes back with the thanked count out of band; a plain post lands back where it came from. A giver no
+    bottle names is a 404."""
+    name = request.POST.get("giver", "")
+    thanked = request.POST.get("thanked") == "1"
+    if services.donor_row(hub, donor_key(name)) is None:
+        raise Http404("No such donor.")
+    services.set_donor_thanked(hub, name, thanked=thanked)
+    donors = services.donor_rows(hub)
+    row = next(row for row in donors if row.key == donor_key(name))
+    message = f"{row.name} is marked thanked." if thanked else f"{row.name} is back on the list to thank."
+    back = DONORS_BACK_WALL if request.POST.get("back") == DONORS_BACK_WALL else ""
+    if not wants_fragment(request):
+        messages.success(request, message)
+        return redirect(_wall_url(hub) if back else reverse("hq:wine_donors", args=[hub.slug]))
+    context = {**_donors_context(hub, donors), "row": row, "donors_back": back}
+    response = render(request, "hq/partials/_donor_row_answer.html", context)
+    trigger_toast(response, message, "success")
+    return response
 
 
 # ---- Marketing Tracker (Track D, part 1) ----
@@ -1587,9 +1637,11 @@ def _ledger_entries_context(
     }
 
 
-def _ledger_board_context(hub: EventHub, band: services.LedgerBand) -> dict[str, Any]:
+def _ledger_board_context(
+    hub: EventHub, band: services.LedgerBand, doors: services.DoorFigures | None = None
+) -> dict[str, Any]:
     """What the board summary renders: the band, Lee's paragraph and the text Copy board summary copies."""
-    doors = services.door_figures(hub)
+    doors = doors if doors is not None else services.door_figures(hub, band)
     return {
         "hub": hub,
         "band": band,
@@ -1612,17 +1664,23 @@ def _ledger_context(
     line_edit: BudgetLineEditForm | None = None,
     line_error: str = "",
     receipt_form: ReceiptForm | None = None,
+    bar: dict[str, Any] | None = None,
+    wine: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """What the page renders. Organisers alone reach it, so every section carries its forms.
 
     ``keep_line`` is a line whose refused edit (``line_edit``, or ``line_error`` for a stale Save) renders open in its
-    row; ``receipt_form`` a refused receipt upload shown on its entry's row.
+    row; ``receipt_form`` a refused receipt upload shown on its entry's row. ``bar`` and ``wine`` carry a refused form
+    of the Drink sales or Wine Wall section into :func:`_bar_context` or :func:`_wine_ledger_context`.
     """
     found = services.ledger_settings(hub)
     band = services.ledger_band(hub, found)
+    doors = services.door_figures(hub, band, found)
     return {
-        **_ledger_board_context(hub, band),
+        **_ledger_board_context(hub, band, doors),
         **_ledger_entries_context(hub, band, show, receipt_form=receipt_form),
+        **_bar_context(hub, found, doors.bar, **(bar or {})),
+        **_wine_ledger_context(request, hub, found, doors.wine, **(wine or {})),
         "card": card,
         "title": LEDGER_TITLE,
         "intro": LEDGER_INTRO,
@@ -1746,6 +1804,8 @@ def ledger_line_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: 
         "line_oob": valid,
         **(_line_select_context(hub, band, line.pk) if valid else {}),
         **(_ledger_entries_context(hub, band, show) if valid else {}),
+        # A line moved into or out of Drinks changes the bar's cost, so the Drink sales tiles follow it.
+        **({"bar": _bar_totals(hub, band)} if valid else {}),
     }
     response = render(request, "hq/partials/_ledger_line_answer.html", context)
     if valid:
@@ -1838,3 +1898,297 @@ def ledger_receipts(request: HttpRequest, *, hub: EventHub, card: HubCard) -> Ht
             "today": timezone.localdate(),
         },
     )
+
+
+# ---- PL Ledger, money in (Track D, part 6b) ----
+
+
+def _bar_url(hub: EventHub) -> str:
+    return f"{reverse('hq:ledger', args=[hub.slug])}#hq-lg-bar"
+
+
+def _wine_section_url(hub: EventHub) -> str:
+    return f"{reverse('hq:ledger', args=[hub.slug])}#hq-lg-wine"
+
+
+def _bar_totals(hub: EventHub, band: services.LedgerBand | None = None) -> services.BarTotals:
+    found = services.ledger_settings(hub)
+    band = band if band is not None else services.ledger_band(hub, found)
+    return services.bar_totals(hub, found, cost_cents=band.bar_cost_cents)
+
+
+def _prices_form(found: LedgerSettings, data: Any = None) -> DrinkPricesForm:
+    return DrinkPricesForm(data, found=found, prefix="prices", initial=DrinkPricesForm.initial_for(found))
+
+
+def _batch_form(found: LedgerSettings, data: Any = None, initial: dict[str, Any] | None = None) -> BarBatchForm:
+    return BarBatchForm(data, found=found, prefix="batch", initial=initial)
+
+
+def _bar_context(
+    hub: EventHub,
+    found: LedgerSettings,
+    bar: services.BarTotals,
+    *,
+    batch_form: BarBatchForm | None = None,
+    prices_form: DrinkPricesForm | None = None,
+    prices_error: str = "",
+) -> dict[str, Any]:
+    """What the Drink sales section renders: the tiles, the +1 buttons at the hub's prices, Paid by, Set drink prices,
+    Log a batch and the sales newest first. A refused batch or price form comes back bound and open."""
+    return {
+        "bar": bar,
+        "quick_buttons": services.quick_buttons(found, bar),
+        "quick_form": BarQuickForm(prefix="quick"),
+        "batch_form": batch_form if batch_form is not None else _batch_form(found),
+        "batch_open": batch_form is not None,
+        "prices_form": prices_form if prices_form is not None else _prices_form(found),
+        "prices_open": prices_form is not None or bool(prices_error),
+        "prices_error": prices_error,
+        "bar_sales": list(hub.bar_sales.all()),
+    }
+
+
+def _wine_links(request: HttpRequest, hub: EventHub) -> tuple[str, str]:
+    """Where the Wine Wall section's two links go, by the effective role: the wall (when its card is open to the viewer)
+    and the donors page (when the viewer organises the wall); "" for either the viewer may not open."""
+    member = viewer_member(request)
+    is_admin = renders_as_admin(request)
+    card = hub.cards.prefetch_related("named_members").filter(kind=HubCard.Kind.WINE_WALL).first()
+    if card is None or (card.is_hidden and not is_admin) or not card.is_open_to(member, is_admin=is_admin):
+        return "", ""
+    donors = reverse("hq:wine_donors", args=[hub.slug]) if card.can_organize(member, is_admin=is_admin) else ""
+    return card.url, donors
+
+
+def _wine_ledger_context(
+    request: HttpRequest,
+    hub: EventHub,
+    found: LedgerSettings,
+    wine: services.WineBand,
+    *,
+    tickets_form: TicketsForm | None = None,
+    ticket_prices_form: TicketPricesForm | None = None,
+    tickets_error: str = "",
+    ticket_prices_error: str = "",
+) -> dict[str, Any]:
+    """What the Wine Wall section renders: the wall's bottles and value read from its band, the tickets with Lee's
+    revenue at goal, the donors thanked, the two links, and the tickets and ticket prices forms."""
+    wall_url, donors_url = _wine_links(request, hub)
+    return {
+        "approval": found.approval_words,
+        "wine": wine,
+        "tickets": services.ticket_totals(found, wine),
+        "donor_thanks": services.donor_thanks(hub),
+        "wall_url": wall_url,
+        "donors_url": donors_url,
+        "tickets_form": tickets_form
+        if tickets_form is not None
+        else TicketsForm(found=found, prefix="tickets", initial=TicketsForm.initial_for(found)),
+        "tickets_error": tickets_error,
+        "ticket_prices_form": ticket_prices_form
+        if ticket_prices_form is not None
+        else TicketPricesForm(found=found, prefix="ticket-prices", initial=TicketPricesForm.initial_for(found)),
+        "ticket_prices_open": ticket_prices_form is not None or bool(ticket_prices_error),
+        "ticket_prices_error": ticket_prices_error,
+    }
+
+
+def _bar_answer(request: HttpRequest, hub: EventHub, message: str, tone: str = "success") -> HttpResponse:
+    """The htmx answer to a +1 tap or Undo last: the tiles and the sales table out of band, and a toast. The buttons and
+    Paid by stay as they are, so the next tap keeps the chosen way to pay."""
+    found = services.ledger_settings(hub)
+    bar = _bar_totals(hub)
+    context = {
+        "hub": hub,
+        "bar": bar,
+        "bar_sales": list(hub.bar_sales.all()),
+        "quick_buttons": services.quick_buttons(found, bar),
+    }
+    response = render(request, "hq/partials/_ledger_bar_answer.html", context)
+    trigger_toast(response, message, tone)
+    return response
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_bar_quick(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """One +1 tap on the night, by the actual role: one drink at the hub's price, paid as chosen. Over htmx the tiles
+    and the table come back out of band with Lee's "Added 1 IPA (Card)."; a plain post lands back on the section."""
+    form = BarQuickForm(request.POST, prefix="quick")
+    fragment = wants_fragment(request)
+    if not form.is_valid():
+        refusal = "Choose a drink and how it was paid."
+        if not fragment:
+            messages.error(request, refusal)
+            return redirect(_bar_url(hub))
+        response = HttpResponse("")
+        trigger_toast(response, refusal, "error")
+        return response
+    sale = services.log_quick_sale(
+        hub, drink=form.cleaned_data["drink"], pay=form.cleaned_data["pay"], member=actual_member(request)
+    )
+    message = f"Added {sale.summary}."
+    if not fragment:
+        messages.success(request, message)
+        return redirect(_bar_url(hub))
+    return _bar_answer(request, hub, message)
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_bar_undo(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Undo last, by the actual role: takes back the newest +1 the signed in organiser tapped, never anyone else's and
+    never a batch."""
+    sale = services.undo_quick_sale(hub, actual_member(request))
+    message = "Nothing of yours to undo." if sale is None else f"Took back {sale.summary}."
+    tone = "info" if sale is None else "success"
+    if not wants_fragment(request):
+        (messages.info if sale is None else messages.success)(request, message)
+        return redirect(_bar_url(hub))
+    return _bar_answer(request, hub, message, tone)
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_bar_batch(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Log a batch, by the actual role. Over htmx the form comes back (open, its errors, or fresh keeping the drink and
+    Paid by) with the tiles and the table out of band; a plain post lands back on the section."""
+    found = services.ledger_settings(hub)
+    form = _batch_form(found, request.POST)
+    fragment = wants_fragment(request)
+    if not form.is_valid():
+        if not fragment:
+            context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, bar={"batch_form": form})
+            return render(request, "hq/ledger.html", context)
+        return render(
+            request, "hq/partials/_ledger_bar_batch.html", {"hub": hub, "batch_form": form, "batch_open": True}
+        )
+    services.add_bar_batch(hub, form.to_fields(), member=actual_member(request))
+    if not fragment:
+        messages.success(request, "Sales added.")
+        return redirect(_bar_url(hub))
+    context = {
+        "hub": hub,
+        "batch_form": _batch_form(found, initial={key: form.cleaned_data[key] for key in ("drink", "pay")}),
+        "batch_open": True,
+        "bar": _bar_totals(hub),
+        "bar_sales": list(hub.bar_sales.all()),
+    }
+    response = render(request, "hq/partials/_ledger_bar_batch_answer.html", context)
+    trigger_toast(response, "Sales added.", "success")
+    return response
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_bar_prices(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Set drink prices and last year's bar sales, by the actual role. A save from a page older than the prices is
+    refused (:data:`hq.services.SETTINGS_STALE_SAVE`) and the form comes back with what the database holds. Over htmx
+    the form comes back with the +1 buttons and the tiles out of band, so Paid by keeps its choice."""
+    found = services.ledger_settings(hub)
+    form = _prices_form(found, request.POST)
+    fragment = wants_fragment(request)
+    saved = services.save_ledger_figures(hub, form.to_fields(), seen=form.seen()) if form.is_valid() else None
+    stale = form.is_valid() and saved is None
+    if saved is None:
+        refused = _prices_form(services.ledger_settings(hub)) if stale else form
+        error = services.SETTINGS_STALE_SAVE if stale else ""
+        if not fragment:
+            context = _ledger_context(
+                request,
+                hub,
+                card,
+                show=services.LEDGER_FILTER_ALL,
+                bar={"prices_form": refused, "prices_error": error},
+            )
+            return render(request, "hq/ledger.html", context)
+        return render(
+            request,
+            "hq/partials/_ledger_bar_prices.html",
+            {"hub": hub, "prices_form": refused, "prices_open": True, "prices_error": error},
+        )
+    if not fragment:
+        messages.success(request, "Prices saved.")
+        return redirect(_bar_url(hub))
+    bar = _bar_totals(hub)
+    context = {
+        "hub": hub,
+        "prices_form": _prices_form(saved),
+        "prices_open": False,
+        "prices_error": "",
+        "quick_buttons": services.quick_buttons(saved, bar),
+        "bar": bar,
+    }
+    response = render(request, "hq/partials/_ledger_bar_prices_answer.html", context)
+    trigger_toast(response, "Prices saved.", "success")
+    return response
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_bar_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Delete one sale from the bar, by the actual role; then the section."""
+    sale = get_object_or_404(hub.bar_sales, pk=pk)
+    sale.delete()
+    messages.success(request, f"Deleted {sale.summary}.")
+    return redirect(_bar_url(hub))
+
+
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_bar_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
+    """The drink sales as a CSV download, oldest first, with Lee's totals row last."""
+    sales = hub.bar_sales.order_by("created_at", "pk")
+    return stream_bar_sales_csv(sales, totals=_bar_totals(hub), filename_stem=hub.slug)
+
+
+def _wine_answer(request: HttpRequest, hub: EventHub, found: LedgerSettings, **forms: Any) -> HttpResponse:
+    context = {"hub": hub, **_wine_ledger_context(request, hub, found, services.wine_band(hub), **forms)}
+    return render(request, "hq/partials/_ledger_wine.html", context)
+
+
+def _save_wine_figures(
+    request: HttpRequest,
+    hub: EventHub,
+    card: HubCard,
+    form: TicketsForm | TicketPricesForm,
+    *,
+    key: str,
+    saved_message: str,
+) -> HttpResponse:
+    """Save the tickets or the ticket prices (``key`` names which form), refusing one from an older page. Over htmx the
+    Wine Wall section comes back whole with a toast; a plain post lands back on the section."""
+    fragment = wants_fragment(request)
+    saved = services.save_ledger_figures(hub, form.to_fields(), seen=form.seen()) if form.is_valid() else None
+    if saved is None:
+        refusal: dict[str, Any] = {f"{key}_form": form}
+        if form.is_valid():  # stale: the figures changed since the page loaded; show what the database holds
+            refusal = {f"{key}_error": services.SETTINGS_STALE_SAVE}
+        if not fragment:
+            context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, wine=refusal)
+            return render(request, "hq/ledger.html", context)
+        return _wine_answer(request, hub, services.ledger_settings(hub), **refusal)
+    if not fragment:
+        messages.success(request, saved_message)
+        return redirect(_wine_section_url(hub))
+    response = _wine_answer(request, hub, saved)
+    trigger_toast(response, saved_message, "success")
+    return response
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_tickets(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """The wine wall's tickets sold (singles and two-ticket deals), by the actual role."""
+    found = services.ledger_settings(hub)
+    form = TicketsForm(request.POST, found=found, prefix="tickets")
+    return _save_wine_figures(request, hub, card, form, key="tickets", saved_message="Tickets updated.")
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_ticket_prices(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """The wine wall's two ticket prices, by the actual role; the ticket inputs' labels follow them."""
+    found = services.ledger_settings(hub)
+    form = TicketPricesForm(request.POST, found=found, prefix="ticket-prices")
+    return _save_wine_figures(request, hub, card, form, key="ticket_prices", saved_message="Ticket prices saved.")

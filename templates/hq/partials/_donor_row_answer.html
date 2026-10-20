@@ -1,0 +1,8 @@
+{% comment %}
+The htmx answer to a donor's Thanked toggle: the row, and the panel's count out of band (in a template, so the row
+parses as table content and the count in its own right).
+
+  as hq/partials/_donor_row.html and _donor_count.html
+{% endcomment %}
+{% include "hq/partials/_donor_row.html" %}
+<template>{% include "hq/partials/_donor_count.html" with oob=True %}</template>

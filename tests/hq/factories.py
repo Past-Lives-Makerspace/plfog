@@ -6,6 +6,7 @@ import factory
 from factory.django import DjangoModelFactory
 
 from hq.models import (
+    BarSale,
     BudgetLine,
     EventHub,
     HubCard,
@@ -20,6 +21,7 @@ from hq.models import (
     VendorTable,
     VolunteerShift,
     WineBottle,
+    WineDonorThanks,
     WineryLogo,
 )
 
@@ -214,3 +216,27 @@ class LedgerEntryFactory(DjangoModelFactory):
     kind = LedgerEntry.Kind.SPONSORED
     source = factory.Sequence(lambda n: f"Spec Source {n}")
     amount_cents = 2_500
+
+
+class BarSaleFactory(DjangoModelFactory):
+    """One IPA tapped on the night, $6 by card, with no organiser."""
+
+    class Meta:
+        model = BarSale
+
+    hub = factory.SubFactory(EventHubFactory)
+    drink = BarSale.Drink.IPA
+    qty = 1
+    amount_cents = 600
+    pay = BarSale.Pay.CARD
+    source = BarSale.Source.QUICK
+
+
+class WineDonorThanksFactory(DjangoModelFactory):
+    """A wine donor marked thanked."""
+
+    class Meta:
+        model = WineDonorThanks
+
+    hub = factory.SubFactory(EventHubFactory)
+    giver_key = factory.Sequence(lambda n: f"spec donor {n}")

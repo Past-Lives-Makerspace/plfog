@@ -1,0 +1,17 @@
+{% comment %}
+The night's +1 buttons, Lee's four drinks in her order, each large enough for a thumb at the bar: the drink, how many
+have sold and its price. Each is a submit button of the quick form, so the tap sends the drink with Paid by. Swapped out
+of band after a tap, an undo or a price change, leaving Paid by alone.
+
+  quick_buttons — required, the hq.services.QuickButton list
+  oob           — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<div class="pl-hq-lg__quick-grid" id="hq-lg-bar-buttons" data-hq-lg-bar-buttons{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% for button in quick_buttons %}
+  <button type="submit" name="quick-drink" value="{{ button.drink }}" class="pl-hq-lg__qbtn" aria-label="Add one {{ button.label }} at {{ button.price_display }}" data-hq-lg-quick="{{ button.drink }}">
+    <span class="pl-hq-lg__qbtn-name">+1 {{ button.label }}</span>
+    <span class="pl-hq-lg__qbtn-count" data-hq-lg-quick-sold>{{ button.sold }}</span>
+    <small class="pl-hq-lg__qbtn-price">{{ button.price_display }} each</small>
+  </button>
+  {% endfor %}
+</div>

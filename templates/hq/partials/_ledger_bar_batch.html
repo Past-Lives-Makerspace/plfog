@@ -1,0 +1,29 @@
+{% comment %}
+Log a batch, Lee's: end of shift, the tip jar or a cash box count. The drink (Mixed for a total only), how many, the
+total collected (blank is the price times how many; Mixed needs it), Paid by and a note. Posts over htmx and swaps
+itself, with the tiles and the table out of band once saved.
+
+  hub        — required, the EventHub
+  batch_form — required, a BarBatchForm (bound when a save failed)
+  batch_open — required, whether it renders open
+{% endcomment %}
+<details class="pl-disclosure pl-hq-lg__disclosure" id="hq-lg-bar-batch" {% if batch_open %}open{% endif %} data-hq-lg-batch>
+  <summary class="pl-disclosure__summary">
+    <span class="pl-disclosure__title">Log a batch (end of shift, tip jar, cash box count)</span>
+    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+  </summary>
+  <form method="post" action="{% url 'hq:ledger_bar_batch' hub.slug %}" hx-post="{% url 'hq:ledger_bar_batch' hub.slug %}" hx-target="closest [data-hq-lg-batch]" hx-swap="outerHTML" class="pl-disclosure__body pl-hq-lg__form" data-hq-lg-batch-form>
+    {% csrf_token %}
+    {% for error in batch_form.non_field_errors %}<p class="pl-field-error" role="alert" data-hq-lg-batch-error>{{ error }}</p>{% endfor %}
+    <div class="pl-hq-lg__fields">
+      {% include "components/form_field.html" with field=batch_form.drink field_hint_off=True %}
+      {% include "components/form_field.html" with field=batch_form.qty field_hint_off=True %}
+      {% include "components/form_field.html" with field=batch_form.total field_hint_off=True %}
+      {% include "components/form_field.html" with field=batch_form.pay field_hint_off=True %}
+    </div>
+    {% include "components/form_field.html" with field=batch_form.note field_hint_off=True %}
+    <div class="pl-hq-lg__actions">
+      <button type="submit" class="pl-hq-lg__btn" data-hq-lg-batch-add>Add sales</button>
+    </div>
+  </form>
+</details>
