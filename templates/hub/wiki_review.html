@@ -1,4 +1,5 @@
 {% extends "hub/base.html" %}
+{% load tab_picker %}
 {% block body_class %}pl-wp-screen{% endblock %}
 {% block title %}Wiki Review{% endblock %}
 
@@ -18,10 +19,12 @@ trusting.
 <nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb"><a href="{% url 'hub_wiki_home' %}">Wiki</a></nav>
 {% include "components/page_header.html" with title="Wiki Review" description="Pages members have flagged, and safety pages waiting on a second read. Oldest first." %}
 
+{% tab_picker "Wiki Review" %}
 <div class="pl-tabs pl-wp-mod__tabs">
     <a href="{{ open_url }}" class="vote-tab {% if not archived_view %}vote-tab--active{% endif %}">Open</a>
     <a href="{{ archived_url }}" class="vote-tab {% if archived_view %}vote-tab--active{% endif %}">Archived</a>
 </div>
+{% endtab_picker %}
 
 {% if archived_view %}
 <div class="hub-card pl-wp-group">

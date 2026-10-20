@@ -550,6 +550,40 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="orientation_member_context",
     ),
     GalleryEmail(
+        key="orientation_moved",
+        name="Orientation moved",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when a leader moves a booking to another time with Move it now, or the member "
+            "accepts a proposed time (#853). Shows the old and new time and carries an updated "
+            "calendar invite. Goes to the booked member."
+        ),
+        edit_pointer=_tpl("membership/emails", "orientation_moved"),
+        audience="The member whose orientation moved.",
+        event_keys=frozenset({"orientation_update"}),
+        text_template="membership/emails/orientation_moved.txt",
+        html_template="membership/emails/orientation_moved.html",
+        context_builder="orientation_moved_context",
+    ),
+    GalleryEmail(
+        key="orientation_time_proposed",
+        name="Orientation new time proposed",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when a leader moves a booking with Ask the member first (#853). Carries Accept "
+            "new time and Keep my current time links that work without signing in. Goes to the "
+            "booked member."
+        ),
+        edit_pointer=_tpl("membership/emails", "orientation_time_proposed"),
+        audience="The member asked to accept a new orientation time.",
+        event_keys=frozenset({"orientation_update"}),
+        text_template="membership/emails/orientation_time_proposed.txt",
+        html_template="membership/emails/orientation_time_proposed.html",
+        context_builder="orientation_time_proposed_context",
+    ),
+    GalleryEmail(
         key="orientation_thankyou",
         name="Orientation thank-you",
         section="Guilds & Orientations",
