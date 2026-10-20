@@ -1,5 +1,6 @@
 {% load static %}
 {% load classes_tags %}
+{% load tab_picker %}
 {% comment %}The description is a rich-text editor (core.widgets.RichBodyEditorWidget). Quill and
 rich-editor-init.js load here, above the form, so the widget's own init line finds them and the
 editor is mounted while the page is still parsing: composer_draft.js reads its baseline from the
@@ -176,7 +177,7 @@ Do not merge them.
      @input="if ($event.target.id === 'id_title') liveTitle = $event.target.value"
      @composer-goto-step.window="goTo($event.detail.step)">
 
-  <p class="pl-composer-count">Step <span x-text="phase"></span> of {{ step_count }}</p>
+  {% tab_picker "Class Steps" %}
   <div class="pl-phase-tabs" role="tablist" aria-label="Class steps">
     {% for tab in composer_tabs %}
     <button type="button" class="pl-phase-tab{% if tab.done %} pl-phase-tab--done{% endif %}" role="tab"
@@ -187,6 +188,7 @@ Do not merge them.
             @click="goTo({{ tab.step.number }})">{{ tab.step.tab_label }}{% if tab.done %}<span class="pl-phase-tab__mark" aria-hidden="true" x-show="!errorSteps.includes({{ tab.step.number }})">&#10003;</span>{% endif %}<span class="pl-phase-tab__mark" aria-hidden="true" x-show="errorSteps.includes({{ tab.step.number }})" x-cloak>&#9679;</span></button>
     {% endfor %}
   </div>
+  {% endtab_picker %}
 
   {% comment %}
   Draft persistence (issue #368, item 3c). static/js/composer_draft.js picks the line and

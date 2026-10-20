@@ -1,4 +1,4 @@
-"""Specs for ``{% tab_picker %}`` (#852): the phone section picker read off a ``.pl-tabs`` row."""
+"""Specs for ``{% tab_picker %}`` (#852): the phone section picker read off a ``.pl-tabs`` row or a step bar."""
 
 from __future__ import annotations
 
@@ -21,6 +21,16 @@ BUTTONS = (
     "@click=\"section = 'one'\">\n    One\n</button>"
     '<button type="button" class="vote-tab" @click="section = \'two\'">Two</button>'
     "</nav></div>"
+)
+
+STEPS = (
+    '<div class="pl-phase-tabs" role="tablist" aria-label="Class steps">'
+    '<button type="button" class="pl-phase-tab pl-phase-tab--done" role="tab" data-step-tab="1">Basics'
+    '<span class="pl-phase-tab__mark" aria-hidden="true" x-show="!errorSteps.includes(1)">&#10003;</span>'
+    '<span class="pl-phase-tab__mark" aria-hidden="true" x-show="errorSteps.includes(1)" x-cloak>&#9679;</span></button>'
+    '<button type="button" class="pl-phase-tab" role="tab" data-step-tab="2">Photos'
+    '<span class="pl-phase-tab__mark" aria-hidden="true" x-cloak>&#9679;</span></button>'
+    "</div>"
 )
 
 
@@ -86,8 +96,14 @@ def describe_read_tabs():
         tabs, _ = read_tabs(row)
         assert [(tab.label, tab.href) for tab in tabs] == [("A still A", "/a/"), ("B", "/b/")]
 
+    def it_reads_a_step_bar_and_leaves_its_marks_out_of_the_label():
+        tabs, buttons = read_tabs(STEPS)
+        assert buttons
+        assert [tab.label for tab in tabs] == ["Basics", "Photos"]
+        assert [tab.count for tab in tabs] == ["", ""]
+
     def it_refuses_markup_with_no_row():
-        with pytest.raises(ValueError, match="wraps no .pl-tabs row"):
+        with pytest.raises(ValueError, match="wraps no .pl-tabs or .pl-phase-tabs row"):
             read_tabs('<nav class="pl-wp-chiprow"><a href="/" class="vote-tab">A</a></nav>')
 
     def it_refuses_a_row_that_mixes_links_and_buttons():
@@ -159,6 +175,14 @@ def describe_the_tab_picker_tag():
         assert 'x-text="positionText()">1 of 2</span>' in html
         assert '<template x-for="(item, i) in items" :key="i">' in html
         assert 'role="group" aria-label="Guild Sections"' in html
+
+    def it_turns_a_step_bar_into_a_picker_after_it():
+        html = _render(STEPS, '"Class Steps"')
+        assert html.startswith(STEPS)
+        assert "data-tab-picker-buttons" in html
+        assert 'x-text="currentText()">Basics</span>' in html
+        assert 'x-text="positionText()">1 of 2</span>' in html
+        assert 'x-text="item.mark"' in html
 
     def it_paints_a_button_rows_server_marked_tab():
         row = '<nav class="pl-tabs"><button class="vote-tab">A</button><button class="vote-tab vote-tab--active">B</button></nav>'
