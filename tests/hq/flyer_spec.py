@@ -12,6 +12,7 @@ from typing import Any
 from urllib.parse import quote
 
 import pytest
+from django.core.files.storage import FileSystemStorage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 from django.urls import reverse
@@ -20,7 +21,7 @@ from PIL import Image
 from hq import services
 from hq.forms import FLYER_TYPE_ERROR, FlyerUploadForm
 from hq.holiday_bizarre import FLYER_COMING_SOON, FLYER_LAST_YEAR_NOTE, FLYER_SHARE_LEDE, FLYER_SHARE_MESSAGE
-from hq.models import BUILT_DOORS, DEFAULT_CARDS, CardSeed, EventHub, FlyerSlot, HubCard, HubFlyer, MarketingAction
+from hq.models import BUILT_DOORS, DEFAULT_CARDS, EventHub, FlyerSlot, HubCard, HubFlyer, MarketingAction
 from hub.view_as import ROLE_MEMBER
 from membership.models import Member
 from tests.hq.conftest import signed_in
@@ -32,6 +33,8 @@ pytestmark = pytest.mark.django_db
 HTMX = {"HTTP_HX_REQUEST": "true"}
 THIS_YEAR = FlyerSlot.THIS_YEAR.value
 LAST_YEAR = FlyerSlot.LAST_YEAR.value
+# A member's GET of the page, with both flyers up and an event: pinned so a figure that starts to query per row shows.
+QUERIES_PER_PAGE = 28
 
 
 def _page(hub: Any) -> str:
@@ -44,6 +47,10 @@ def _upload(hub: Any, slot: str = THIS_YEAR) -> str:
 
 def _remove(hub: Any, slot: str = THIS_YEAR) -> str:
     return reverse("hq:flyer_remove", args=[hub.slug, slot])
+
+
+def _download(hub: Any, slot: str = THIS_YEAR) -> str:
+    return reverse("hq:flyer_download", args=[hub.slug, slot])
 
 
 def _links(hub: Any) -> str:
@@ -88,7 +95,7 @@ def lee(make_member) -> Member:
 
 @pytest.fixture
 def card(open_hub, lee) -> HubCard:
-    """The flyer door on the open hub, open to members (its default), with Lee named on it."""
+    """The flyer door on the open hub, opened to members by a card edit (it is seeded admins only), with Lee named on it."""
     return HubCardFactory(
         hub=open_hub,
         kind=HubCard.Kind.FLYER,
@@ -143,7 +150,7 @@ def describe_the_door():
 
 
 def describe_who_may_open_it():
-    def it_sends_a_signed_out_visitor_through_login_on_its_members_default(hub):
+    def it_sends_a_signed_out_visitor_through_login_once_opened_to_members(hub):
         response = Client().get(_page(hub))
 
         assert response.status_code == 302
@@ -232,6 +239,29 @@ def describe_who_may_open_it():
         assert not HubFlyer.objects.exists()
 
 
+def describe_the_page_cost():
+    def it_renders_for_a_member_in_a_fixed_number_of_queries(hub, event, member_client, django_assert_num_queries):
+        _with_flyer(hub)
+        _with_flyer(hub, LAST_YEAR, _pdf())
+        MarketingActionFactory(hub=hub, kind=MarketingAction.Kind.FLYER)
+        member_client.get(_page(hub))  # warm the session and the site configuration
+
+        with django_assert_num_queries(QUERIES_PER_PAGE):
+            response = member_client.get(_page(hub))
+
+        assert response.status_code == 200
+
+    def it_costs_the_same_with_more_rsvps_and_flyer_drop_offs(hub, event, member_client, django_assert_num_queries):
+        _with_flyer(hub)
+        for _ in range(3):
+            EventRSVPFactory(event=event)
+            MarketingActionFactory(hub=hub, kind=MarketingAction.Kind.FLYER)
+        member_client.get(_page(hub))
+
+        with django_assert_num_queries(QUERIES_PER_PAGE):
+            member_client.get(_page(hub))
+
+
 def describe_this_years_flyer():
     def it_says_coming_soon_with_no_flyer_and_offers_no_download(hub, member_client):
         body = member_client.get(_page(hub)).content.decode()
@@ -251,11 +281,15 @@ def describe_this_years_flyer():
         assert f'<img src="{url}" alt="{hub.title} flyer" data-hq-fl-image>' in body
         assert f'href="{url}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" target="_blank"' in body
         assert (
-            f'href="{url}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" download hx-boost="false" data-hq-fl-download'
-            in body
+            f'href="{_download(hub)}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" download hx-boost="false"'
+            " data-pl-download data-hq-fl-download>Download</a>" in body
         )
         assert '@click="window.print()" data-hq-fl-print>Print</button>' in body
-        assert f'href="{url}" class="pl-hq-fl__btn pl-hq-fl__btn--primary" download' in body
+        assert (
+            f'href="{_download(hub)}" class="pl-hq-fl__btn pl-hq-fl__btn--primary" download hx-boost="false"'
+            " data-pl-download data-hq-fl-share-download>" in body
+        )
+        assert f'href="{url}" download' not in body
         assert "data-hq-fl-soon" not in body and "data-hq-fl-pdf" not in body
 
     def it_shows_a_pdf_as_a_card_that_opens_it(hub, member_client):
@@ -269,6 +303,51 @@ def describe_this_years_flyer():
         assert ">Flyer ready</span>" in body
         assert 'aria-label="Open the PDF to print it" data-hq-fl-print>Print</a>' in body
         assert "data-hq-fl-image" not in body and "window.print()" not in body
+
+
+def describe_downloading():
+    def it_sends_this_years_flyer_as_an_attachment_named_for_the_hub_and_year(hub, member_client):
+        page = _with_flyer(hub)
+
+        response = member_client.get(_download(hub))
+
+        assert response.status_code == 200
+        assert response["Content-Disposition"] == 'attachment; filename="holiday-bizarre-2026-flyer.jpg"'
+        assert response["Content-Type"] == "image/jpeg"
+        with open(page.flyer.path, "rb") as stored:
+            assert b"".join(response.streaming_content) == stored.read()
+
+    def it_sends_last_years_pdf_with_its_own_name(hub, member_client):
+        _with_flyer(hub, LAST_YEAR, _pdf())
+
+        response = member_client.get(_download(hub, LAST_YEAR))
+
+        assert response["Content-Disposition"] == 'attachment; filename="holiday-bizarre-2025-flyer.pdf"'
+        assert response["Content-Type"] == "application/pdf"
+
+    def it_is_a_404_with_no_flyer_up_or_an_unknown_slot(hub, member_client):
+        assert member_client.get(_download(hub)).status_code == 404
+        _with_flyer(hub)
+        assert member_client.get(_download(hub, LAST_YEAR)).status_code == 404
+        assert member_client.get(_download(hub, "poster")).status_code == 404
+
+    def it_is_gated_like_the_page(card, member_client, admin_client):
+        hub = card.hub
+        _with_flyer(hub)
+
+        signed_out = Client().get(_download(hub))
+        assert signed_out.status_code == 302
+        assert signed_out["Location"].startswith("/accounts/login/")
+
+        card.audience = HubCard.Audience.ADMINS
+        card.save(update_fields=["audience"])
+        assert member_client.get(_download(hub)).status_code == 404
+        assert admin_client.get(_download(hub)).status_code == 200
+
+        card.audience, card.is_hidden = HubCard.Audience.PUBLIC, True
+        card.save(update_fields=["audience", "is_hidden"])
+        assert Client().get(_download(hub)).status_code == 404
+        assert member_client.get(_download(hub)).status_code == 404
 
 
 def describe_uploading():
@@ -330,6 +409,54 @@ def describe_uploading():
         assert not form.is_valid()
         assert form.errors["file"] == [FLYER_TYPE_ERROR]
 
+    @pytest.mark.parametrize(
+        "upload",
+        [
+            SimpleUploadedFile(
+                "flyer.png",
+                b'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><rect width="10" height="10"/></svg>',
+                content_type="image/png",
+            ),
+            SimpleUploadedFile(
+                "flyer.png", b"<!doctype html><script>alert(document.cookie)</script>", content_type="image/png"
+            ),
+        ],
+        ids=["svg", "html"],
+    )
+    def it_refuses_markup_renamed_as_a_png(hub, lee_client, upload):
+        response = lee_client.post(_upload(hub), _file_post(THIS_YEAR, upload))
+
+        assert response.status_code == 200
+        assert FLYER_TYPE_ERROR in response.content.decode().replace("&#x27;", "'")
+        assert not HubFlyer.objects.exists()
+
+    def it_refuses_a_gif_with_html_after_it_whatever_its_name(hub):
+        gif = io.BytesIO()
+        Image.new("RGB", (4, 4)).save(gif, format="GIF")
+        polyglot = gif.getvalue() + b"<html><script>alert(document.cookie)</script></html>"
+        assert Image.open(io.BytesIO(polyglot)).format == "GIF"  # Pillow opens it: the type list refuses it
+
+        form = FlyerUploadForm({}, {"flyer-file": SimpleUploadedFile("flyer.png", polyglot)}, slot=THIS_YEAR)
+
+        assert not form.is_valid()
+        assert form.errors["file"] == [FLYER_TYPE_ERROR]
+
+    def it_refuses_an_image_over_fifty_million_pixels_before_decoding_it(hub, lee_client):
+        # 8000 by 8000 one-bit pixels: a few kilobytes on disk, 64 million pixels once decoded.
+        buffer = io.BytesIO()
+        Image.new("1", (8000, 8000)).save(buffer, format="PNG")
+        bomb = SimpleUploadedFile("flyer.png", buffer.getvalue(), content_type="image/png")
+        assert bomb.size is not None and bomb.size < 100_000
+
+        response = lee_client.post(_upload(hub), _file_post(THIS_YEAR, bomb))
+
+        assert response.status_code == 200
+        assert (
+            "That image is 8,000 by 8,000 pixels, too large to open. Choose one under 50 million pixels."
+            in response.content.decode()
+        )
+        assert not HubFlyer.objects.exists()
+
     def it_holds_an_image_to_the_image_cap_and_a_pdf_to_the_document_cap(hub, lee_client, settings):
         settings.MAX_UPLOAD_IMAGE_BYTES = 1024 * 1024
         settings.MAX_UPLOAD_DOCUMENT_BYTES = 2 * 1024 * 1024
@@ -360,15 +487,34 @@ def describe_uploading():
         assert "data-hq-fl-upload-errors" in last_year
         assert "data-hq-fl-upload-errors" not in this_year
 
-    def it_deletes_the_file_it_replaces(hub, lee_client):
+    def it_deletes_the_file_it_replaces_once_the_new_one_is_stored(hub, lee_client, django_capture_on_commit_callbacks):
         old = _with_flyer(hub).flyer.path
         assert os.path.exists(old)
 
-        lee_client.post(_upload(hub), _file_post(THIS_YEAR, _pdf()))
+        with django_capture_on_commit_callbacks() as pending:
+            lee_client.post(_upload(hub), _file_post(THIS_YEAR, _pdf()))
 
         page = HubFlyer.objects.get(hub=hub)
+        assert os.path.exists(page.flyer.path)
+        assert os.path.exists(old)  # still there until the save has committed
+        for callback in pending:
+            callback()
         assert not os.path.exists(old)
         assert os.path.exists(page.flyer.path)
+
+    def it_keeps_the_old_file_when_storing_the_new_one_fails(hub, monkeypatch, django_capture_on_commit_callbacks):
+        old = _with_flyer(hub)
+        old_name, old_path = old.flyer.name, old.flyer.path
+
+        def full_disk(*args: Any, **kwargs: Any) -> str:
+            raise OSError("No space left on device")
+
+        monkeypatch.setattr(FileSystemStorage, "_save", full_disk)
+        with django_capture_on_commit_callbacks(execute=True), pytest.raises(OSError):
+            services.set_flyer(hub, THIS_YEAR, _pdf())
+
+        assert os.path.exists(old_path)
+        assert HubFlyer.objects.get(hub=hub).flyer.name == old_name
 
     def it_leaves_the_other_flyer_alone(hub, lee_client):
         last = _with_flyer(hub, LAST_YEAR).last_year_flyer.path
@@ -380,10 +526,11 @@ def describe_uploading():
 
 
 def describe_removing():
-    def it_takes_the_flyer_off_the_page_and_out_of_storage(hub, lee_client):
+    def it_takes_the_flyer_off_the_page_and_out_of_storage(hub, lee_client, django_capture_on_commit_callbacks):
         path = _with_flyer(hub).flyer.path
 
-        response = lee_client.post(_remove(hub), follow=True)
+        with django_capture_on_commit_callbacks(execute=True):
+            response = lee_client.post(_remove(hub), follow=True)
 
         page = HubFlyer.objects.get(hub=hub)
         assert response.redirect_chain == [(_page(hub), 302)]
@@ -701,11 +848,12 @@ def describe_the_services():
 
 
 def describe_the_seed():
-    def it_opens_a_new_flyer_door_to_members():
+    def it_seeds_a_new_flyer_door_admins_only_like_every_door():
         door = next(door for door in DEFAULT_CARDS if door.door == HubCard.Kind.FLYER)
 
-        assert door.fields()["audience"] == HubCard.Audience.MEMBERS
+        assert "audience" not in door.fields()
         assert door.kind == HubCard.Kind.FLYER
+        assert HubCard(**door.fields()).audience == HubCard.Audience.ADMINS
 
     def it_turns_the_flyer_placeholder_into_the_live_door_in_place(open_hub, member):
         placeholder = HubCardFactory(
@@ -725,7 +873,7 @@ def describe_the_seed():
 
         card = HubCard.objects.get(pk=placeholder.pk)
         assert "Event flyer and sharing" in result.adopted
-        assert result.added_open == []
+        assert "Event flyer and sharing" not in result.added_beside
         assert (card.kind, card.audience, card.button_text) == (
             HubCard.Kind.FLYER,
             HubCard.Audience.ADMINS,
@@ -735,22 +883,14 @@ def describe_the_seed():
         assert list(card.named_members.all()) == [member]
         assert card.url == _page(open_hub)
 
-    def it_makes_the_flyer_door_open_to_members_beside_other_cards_and_says_so(open_hub):
+    def it_makes_the_flyer_door_admins_only_beside_other_cards_and_says_so(open_hub):
         HubCardFactory(hub=open_hub, kind=HubCard.Kind.PLACEHOLDER, title="Something else")
 
         result = open_hub.seed_default_cards()
 
         card = open_hub.cards.get(kind=HubCard.Kind.FLYER)
-        assert card.audience == HubCard.Audience.MEMBERS
-        assert result.added_open == ["Event flyer and sharing"]
-        assert "Event flyer and sharing" not in result.added_beside
-        assert " New and open to members: Event flyer and sharing." in result.summary
-
-    def it_names_a_members_door_alone_without_the_admins_only_line():
-        summary = CardSeed(created=1, added_open=["Event flyer and sharing"]).summary
-
-        assert summary == (
-            "Doors updated: added 1 door. New and open to members: Event flyer and sharing."
-            " If an old Not shared yet card for it is still on the page, delete that one."
-        )
-        assert "admins only" not in summary
+        assert card.audience == HubCard.Audience.ADMINS
+        assert "Event flyer and sharing" in result.added_beside
+        admins_only = result.summary.split(" New and admins only until you open it: ")[1].split(".")[0]
+        assert "Event flyer and sharing" in admins_only.split(", ")
+        assert "open to members" not in result.summary

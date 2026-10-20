@@ -3472,22 +3472,46 @@ a.pl-hq-fl__figure:hover .pl-hq-fl__figure-link {
   color: var(--pl-hq-vol-muted);
 }
 
-/* Print: the flyer alone, filling the page. */
+/* Print: the flyer alone, once, on one page. Everything off the path from <body> to the poster is taken out of
+   the layout (display: none, not visibility: hidden, which kept every hidden box's height and printed blank pages),
+   and the poster's ancestors drop their own boxes so the flyer is all that is left to lay out. */
 @media print {
-  body:has([data-hq-flyer]) * {
-    visibility: hidden;
+  body:has([data-hq-flyer]) {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #FFFFFF !important;
   }
-  body:has([data-hq-flyer]) [data-hq-fl-poster],
-  body:has([data-hq-flyer]) [data-hq-fl-poster] * {
-    visibility: visible;
+  body:has([data-hq-flyer]) *:not(:has([data-hq-fl-poster])):not([data-hq-fl-poster]):not([data-hq-fl-poster] *) {
+    display: none !important;
+  }
+  body:has([data-hq-flyer]) :has([data-hq-fl-poster]) {
+    display: block !important;
+    position: static !important;
+    width: auto !important;
+    max-width: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    background: none !important;
+    overflow: visible !important;
+    transform: none !important;
   }
   body:has([data-hq-flyer]) [data-hq-fl-poster] {
-    position: fixed;
-    inset: 0;
+    display: block;
     width: 100%;
-    height: 100%;
+    aspect-ratio: auto;
     border: none;
     border-radius: 0;
     background: #FFFFFF;
+    break-inside: avoid;
+  }
+  body:has([data-hq-flyer]) [data-hq-fl-poster] img {
+    width: 100%;
+    height: auto;
+    max-height: 100vh;
+    object-fit: contain;
   }
 }

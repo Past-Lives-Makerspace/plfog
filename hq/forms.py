@@ -21,7 +21,7 @@ from django.db.models import Prefetch
 from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.utils import timezone
 
-from core.validators import validate_image_content, validate_image_size
+from core.validators import validate_image_content, validate_image_pixels, validate_image_size
 from hq.models import (
     EventHub,
     FlyerSlot,
@@ -885,7 +885,8 @@ def _megabytes(limit: int) -> str:
 
 class FlyerUploadForm(forms.Form):
     """Upload or replace one flyer: an image (JPG, PNG, WEBP; up to ``MAX_UPLOAD_IMAGE_BYTES``) or a PDF (up to
-    ``MAX_UPLOAD_DOCUMENT_BYTES``), told apart by the bytes, never the name or the declared type.
+    ``MAX_UPLOAD_DOCUMENT_BYTES``), told apart by the bytes, never the name or the declared type. An image over
+    ``core.validators.MAX_IMAGE_PIXELS`` is refused before it is decoded (:func:`validate_image_pixels`).
 
     The cleaned file is renamed to the type found (``.pdf``, or the image's own extension), so the model can tell a
     PDF from an image by its name: an image is re-encoded on save, a PDF is stored as it came. ``slot`` is the
@@ -924,6 +925,7 @@ class FlyerUploadForm(forms.Form):
         extension = FLYER_IMAGE_TYPES.get(upload.content_type or "")
         if extension is None:
             raise ValidationError(FLYER_TYPE_ERROR)
+        validate_image_pixels(upload)
         upload.name = f"{stem}.{extension}"
         return upload
 

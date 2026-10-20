@@ -18,7 +18,7 @@ Swapped out of band when the organisers save a new message.
   <p class="pl-hq-fl__muted">{{ share_lede }}</p>
   <div class="pl-hq-fl__share">
     {% if page.flyer %}
-    <a href="{{ page.flyer.url }}" class="pl-hq-fl__btn pl-hq-fl__btn--primary" download hx-boost="false" data-hq-fl-share-download>Download the flyer to print or post</a>
+    <a href="{% url 'hq:flyer_download' hub.slug 'flyer' %}" class="pl-hq-fl__btn pl-hq-fl__btn--primary" download hx-boost="false" data-pl-download data-hq-fl-share-download>Download the flyer to print or post</a>
     {% endif %}
     <textarea class="sr-only" readonly x-ref="link" aria-label="The event link">{{ share_link }}</textarea>
     <button type="button" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" @click="copy('link', 'Link copied. Paste it anywhere!')" data-hq-fl-copy-link>Copy the event link</button>

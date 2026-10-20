@@ -60,6 +60,7 @@ urlpatterns = [
     path("<slug:slug>/check-in/hours.csv", views.checkin_hours_csv, name="checkin_hours_csv"),
     path("<slug:slug>/flyer/", views.flyer, name="flyer"),
     path("<slug:slug>/flyer/links/", views.flyer_links, name="flyer_links"),
+    path("<slug:slug>/flyer/<slug:slot>/download/", views.flyer_download, name="flyer_download"),
     path("<slug:slug>/flyer/<slug:slot>/upload/", views.flyer_upload, name="flyer_upload"),
     path("<slug:slug>/flyer/<slug:slot>/remove/", views.flyer_remove, name="flyer_remove"),
 ]

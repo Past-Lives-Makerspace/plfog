@@ -660,7 +660,7 @@ Each card on the page is a door into one part of the event. A card says who it i
 - **Event flyer and sharing** opens the flyer and the links to share the event.
 - A greyed card reading **Not shared yet** is a page the organisers have not opened. It links nowhere.
 
-You only see the doors that are open to you. Every card starts as admins only, except **Event flyer and sharing**, which starts open to members; an admin opens a card to members, to everyone, or to the people who run that part (see Editing the HQ below). A door open to everyone needs no account for what is behind it: RSVP, shifts or bottles. If a door you expect is missing, sign in, or ask an admin.
+You only see the doors that are open to you. Every card starts as admins only; an admin opens it to members, to everyone, or to the people who run that part (see Editing the HQ below). A door open to everyone needs no account for what is behind it: RSVP, shifts or bottles. If a door you expect is missing, sign in, or ask an admin.
 
 ### The Goal Tracker {#hq-goal-tracker}
 
@@ -768,7 +768,7 @@ Organisers (admins and the people named on the card) also get **Market reports**
 
 Open the **Event flyer and sharing** door. Its top shows how many people have RSVP'd so far (click it for who is coming, on the event page) and how many businesses have the flyer up.
 
-- **This Year's Flyer**: click it, or **View full size**, to see it whole. **Download** saves it and **Print** prints it. Until it is ready it reads Coming soon.
+- **This Year's Flyer**: click it, or **View full size**, to see it whole. **Download** saves it to your device and **Print** prints it on its own, one page. Until it is ready it reads Coming soon.
 - **Help Spread the Word**: **Copy the event link**, **Share on Facebook**, or **Copy a message to send friends**, which copies a short invitation with the link. Paste either anywhere.
 - **Find the Event**: the event on the Past Lives website and on Eventbrite, once the organisers add them, and in the member portal.
 - **Last Year: 2025** shows last year's flyer once it is up.
@@ -790,7 +790,7 @@ Admins and the people named on a card run what is behind it.
 
 ### Editing the HQ (Admins) {#hq-edit}
 
-Before the HQ exists, an admin who opens it (from **Admin Tools**, **Holiday Bizarre HQ**) gets one button, **Load Lee's HQ**, which puts her nine doors, five goals and 21 volunteer shifts on the site, every door admins only but the flyer, which members can open.
+Before the HQ exists, an admin who opens it (from **Admin Tools**, **Holiday Bizarre HQ**) gets one button, **Load Lee's HQ**, which puts her nine doors, five goals and 21 volunteer shifts on the site, every door admins only.
 
 Admins see an **Edit HQ** button at the top of the page and an **Edit** link under each card.
 

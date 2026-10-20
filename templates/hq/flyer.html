@@ -58,7 +58,7 @@ own: card_view decides who may open the page.
         {% endif %}
         <div class="pl-hq-fl__actions" data-hq-fl-flyer-actions>
           <a href="{{ page.flyer.url }}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" target="_blank" rel="noopener" hx-boost="false" data-hq-fl-view>View full size</a>
-          <a href="{{ page.flyer.url }}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" download hx-boost="false" data-hq-fl-download>Download</a>
+          <a href="{% url 'hq:flyer_download' hub.slug 'flyer' %}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" download hx-boost="false" data-pl-download data-hq-fl-download>Download</a>
           {% if page.flyer_is_pdf %}
           <a href="{{ page.flyer.url }}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" target="_blank" rel="noopener" hx-boost="false" aria-label="Open the PDF to print it" data-hq-fl-print>Print</a>
           {% else %}

@@ -30,6 +30,7 @@ links and the message members copy to send friends.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import partial
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -37,7 +38,7 @@ from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.db.models.functions import Lower
 from django.urls import reverse
@@ -188,8 +189,7 @@ class EventHub(models.Model):
                     HubCard.objects.create(hub=self, sort_order=position, **door.fields())
                     result.created += 1
                     if not fresh and door.door in BUILT_DOORS:
-                        beside = result.added_beside if door.audience == HubCard.Audience.ADMINS else result.added_open
-                        beside.append(door.title)
+                        result.added_beside.append(door.title)
                 continue
             changed = door.refresh_words(card)
             if card.kind != door.kind:
@@ -221,8 +221,6 @@ class CardSeed:
     placeholders_skipped: bool = False
     # Live doors made on a hub that already had cards: admins only, and a renamed placeholder may sit beside them.
     added_beside: list[str] = field(default_factory=list)
-    # The same, for a door Lee opens to members from the start (the flyer).
-    added_open: list[str] = field(default_factory=list)
     # The labels of Lee's goals the same press added (``hq.services.seed_goals``), in the order they were added.
     goals_added: list[str] = field(default_factory=list)
 
@@ -242,11 +240,10 @@ class CardSeed:
             return "The doors are up to date."
         sentence = f"Doors updated: {'; '.join(parts)}."
         if self.added_beside:
-            sentence += f" New and admins only until you open it: {', '.join(self.added_beside)}."
-        if self.added_open:
-            sentence += f" New and open to members: {', '.join(self.added_open)}."
-        if self.added_beside or self.added_open:
-            sentence += " If an old Not shared yet card for it is still on the page, delete that one."
+            sentence += (
+                f" New and admins only until you open it: {', '.join(self.added_beside)}."
+                " If an old Not shared yet card for it is still on the page, delete that one."
+            )
         return sentence
 
 
@@ -459,9 +456,7 @@ class DoorContent:
 
     ``door`` is the kind the card is once its page is built; until then it is seeded as a placeholder
     with the same words. ``old_bullets`` and ``old_button_text`` are the words the card was seeded with
-    before Lee's update: a card still carrying them takes the current ones. ``audience`` is who a newly made
-    live door is open to: admins only, but the flyer, which is for members from the start (Felix, 2026-10-20).
-    An adopted placeholder keeps its own audience.
+    before Lee's update: a card still carrying them takes the current ones.
     """
 
     door: str
@@ -471,7 +466,6 @@ class DoorContent:
     button_text: str
     old_bullets: str
     old_button_text: str
-    audience: str = HubCard.Audience.ADMINS
 
     @property
     def is_live(self) -> bool:
@@ -483,11 +477,9 @@ class DoorContent:
         return self.door if self.is_live else HubCard.Kind.PLACEHOLDER
 
     def fields(self) -> dict[str, str]:
-        """The card's fields for a new row: a placeholder is admins only (the model's default), a live door its
-        :attr:`audience`."""
+        """The card's fields for a new row (admins only, the model's default audience)."""
         return {
             "kind": self.kind,
-            "audience": self.audience if self.is_live else HubCard.Audience.ADMINS,
             "who_for": self.who_for,
             "title": self.title,
             "bullets": self.bullets,
@@ -635,7 +627,6 @@ DEFAULT_CARDS: tuple[DoorContent, ...] = (
             "The flyer to print and post\nGraphics to share on Instagram and by email\nWhere to drop flyers around town"
         ),
         old_button_text="Get the flyer",
-        audience=HubCard.Audience.MEMBERS,
     ),
     DoorContent(
         door=HubCard.Kind.MARKETING,
@@ -1560,7 +1551,7 @@ class HubFlyer(models.Model):
 
     This year's and last year's flyer are each an image (JPG, PNG or WEBP, re-encoded to a JPEG at the hero's long
     edge on save) or a PDF (stored as it came); the upload form checks the content, not the name. A replaced or
-    cleared file is deleted from storage. The RSVP figure and the businesses with flyers are never stored here:
+    cleared file is deleted from storage once the save that replaced it has committed. The RSVP figure and the businesses with flyers are never stored here:
     the page reads them live from the event and the Marketing Tracker.
     """
 
@@ -1595,11 +1586,19 @@ class HubFlyer(models.Model):
         return f"Flyer for {self.hub.title}"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        """Normalise a fresh image, store the row and its new file, and only then delete the file each slot held.
+
+        The old names are read before the save and deleted once the transaction commits, so a storage write or a
+        database error that fails the save leaves the old flyer in place rather than a row pointing at nothing.
+        """
+        stored = HubFlyer.objects.filter(pk=self.pk).values(*FlyerSlot.values).first() if self.pk else None
         for slot in FlyerSlot.values:
             if not is_pdf_name(getattr(self, slot).name or ""):
                 normalize_field_if_uploaded(self, slot, settings.IMAGE_MAX_LONG_EDGE_HERO)
-            delete_orphan_on_replace(self, slot)
         super().save(*args, **kwargs)
+        for slot, old_name in (stored or {}).items():
+            if old_name and old_name != (getattr(self, slot).name or ""):
+                transaction.on_commit(partial(delete_if_unreferenced, HubFlyer, slot, old_name, exclude_pk=self.pk))
 
     @property
     def flyer_is_pdf(self) -> bool:

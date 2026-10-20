@@ -81,9 +81,7 @@ def describe_loading_lees_hq():
         assert hub.event is None
         cards = list(hub.cards.all())
         assert [card.kind for card in cards] == [door.kind for door in DEFAULT_CARDS]
-        assert {card.kind: card.audience for card in cards if card.audience != HubCard.Audience.ADMINS} == {
-            HubCard.Kind.FLYER: HubCard.Audience.MEMBERS
-        }
+        assert {card.audience for card in cards} == {HubCard.Audience.ADMINS}
         assert cards[0].title == "Going to the Bizarre?"
         assert hub.goals.count() == 5
         assert hub.shifts.count() == 21
@@ -138,8 +136,8 @@ def describe_updating_the_doors():
         assert messages == [
             "Doors updated: opened Marketing Tracker; added 7 doors; gave 1 card Lee's latest words;"
             " added the Raised, Wine wall bottles, Volunteer spots, RSVPs and Member tables goals."
-            " New and admins only until you open it: Sponsorship Tracker, Market Check-in, Vendor Tables."
-            " New and open to members: Event flyer and sharing."
+            " New and admins only until you open it: Sponsorship Tracker, Market Check-in, Vendor Tables,"
+            " Event flyer and sharing."
             " If an old Not shared yet card for it is still on the page, delete that one."
         ]
         assert open_hub.cards.count() == 9

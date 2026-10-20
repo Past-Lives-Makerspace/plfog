@@ -167,10 +167,7 @@ def describe_seeding():
         assert [card.kind for card in cards] == [door.kind for door in CARDS]
         assert [card.title for card in cards] == [door.title for door in CARDS]
         assert [card.sort_order for card in cards] == list(range(9))
-        # Every door starts admins only but the flyer, which Lee opens to members from the start.
-        assert {card.kind: card.audience for card in cards if card.audience != HubCard.Audience.ADMINS} == {
-            HubCard.Kind.FLYER: HubCard.Audience.MEMBERS
-        }
+        assert {card.audience for card in cards} == {HubCard.Audience.ADMINS}
         goals = list(hub.goals.all())
         assert [(goal.label, goal.kind, goal.target, goal.is_money, goal.current_value) for goal in goals] == [
             ("Raised", HubGoal.Kind.MANUAL, 10_000, True, 0),

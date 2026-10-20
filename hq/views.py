@@ -6,6 +6,7 @@ the Market Check-in (Track D, part 4) and the event flyer and sharing page (Trac
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -13,11 +14,12 @@ from django.contrib import messages
 from django.contrib.auth import REDIRECT_FIELD_NAME
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, StreamingHttpResponse
+from django.http import FileResponse, Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render, resolve_url
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import urlencode
+from django.utils.text import slugify
 from django.views.decorators.http import require_POST
 
 from core.abuse_limits import record_keyed_attempt
@@ -1401,6 +1403,22 @@ def _flyer_slot(slot: str) -> FlyerSlot:
     if slot not in FlyerSlot.values:
         raise Http404("No such flyer.")
     return FlyerSlot(slot)
+
+
+@card_view(HubCard.Kind.FLYER)
+def flyer_download(request: HttpRequest, *, hub: EventHub, card: HubCard, slot: str) -> FileResponse:
+    """One flyer as a download, gated like the page: whoever may open the page may save the file. It is named for
+    the hub and the year, e.g. ``holiday-bizarre-2026-flyer.jpg``; a slot with no file, or any other word, is a
+    404. Served from here rather than linked straight to storage, because a browser ignores ``download`` on a
+    link to another host and opens the file instead."""
+    which = _flyer_slot(slot)
+    stored = getattr(services.flyer_page(hub), which)
+    if not stored:
+        raise Http404("No flyer up yet.")
+    response = FileResponse(stored.open("rb"))
+    filename = f"{hub.slug}-{slugify(which.label)}{Path(stored.name).suffix.lower()}"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 
 @require_POST
