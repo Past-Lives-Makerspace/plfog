@@ -1,7 +1,7 @@
 """The HQ page and its edit pages (Track C, part 1), the volunteer sign-up page (part 2), the wine wall (part 3),
 the Marketing Tracker (Track D, part 1), the Sponsorship Tracker (Track D, part 2), Vendor Tables (Track D, part 3)
 the Market Check-in (Track D, part 4), the event flyer and sharing page (Track D, part 5) and the PL Ledger's budget
-(Track D, part 6a) and money in (Track D, part 6b).
+(Track D, part 6a), money in (Track D, part 6b), and team and tally (Track D, part 6c).
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from django.http import FileResponse, Http404, HttpRequest, HttpResponse, HttpRe
 from django.shortcuts import get_object_or_404, redirect, render, resolve_url
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import format_html
 from django.utils.http import urlencode
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST
@@ -43,12 +44,15 @@ from hq.exports import (
     stream_donors_csv,
     stream_ledger_csv,
     stream_market_reports_csv,
+    stream_people_csv,
     stream_roster_csv,
     stream_sponsors_csv,
+    stream_staff_time_csv,
     stream_vendor_tables_csv,
     stream_volunteer_hours_csv,
 )
 from hq.forms import (
+    LEDGER_TEAM_LIST_ID,
     MARKETING_TEAM_LIST_ID,
     RECEIPT_NOT_TAKEN,
     SPONSOR_TEAM_LIST_ID,
@@ -56,12 +60,17 @@ from hq.forms import (
     BarQuickForm,
     BudgetLineEditForm,
     BudgetLineForm,
+    DoorCountForm,
     FlyerLinksForm,
     FlyerUploadForm,
+    GuildDemoAddForm,
+    GuildDemoEditForm,
     HubCardForm,
     HubForm,
     DrinkPricesForm,
     HubGoalFormSet,
+    LaunchTaskEditForm,
+    LaunchTaskForm,
     LedgerApprovalForm,
     LedgerEntryForm,
     MarketingActionForm,
@@ -70,6 +79,7 @@ from hq.forms import (
     SponsorEditForm,
     SponsorForm,
     SponsorLogForm,
+    StaffTimeForm,
     TicketPricesForm,
     TicketsForm,
     VendorFloorForm,
@@ -84,22 +94,31 @@ from hq.forms import (
 )
 from hq.holiday_bizarre import (
     CHECKIN_FOOTER,
+    DOOR_CLICKER_HINT,
+    DOOR_GUEST_LIST,
     FLYER_COMING_SOON,
     FLYER_LAST_YEAR_NOTE,
     FLYER_SHARE_LEDE,
     LEDGER_INTRO,
     LEDGER_RECEIPT_HINT,
     LEDGER_TITLE,
+    NO_DOUBLE_ENTRY_TITLE,
     SPONSOR_TIERS,
+    TALLY_EYEBROW,
+    TALLY_TITLE,
+    TALLY_TITLE_GOLD,
     VENDOR_SETUP_NOTE,
     WINE_WALL_BENEFIT,
 )
 from hq.models import (
+    DOOR_STEPS,
     RECEIPT_KINDS,
     BudgetLine,
     EventHub,
     FlyerSlot,
+    GuildDemo,
     HubCard,
+    LaunchTask,
     LedgerEntry,
     LedgerSettings,
     MarketingKind,
@@ -115,7 +134,7 @@ from hq.models import (
 )
 from hq.services import VolunteerBand, VolunteerInfo, goal_rows
 from hub.toast import trigger_toast
-from hub.view_as import fog_admin_required
+from hub.view_as import fog_admin_required, has_events_admin_access
 from membership.models import Guild, Member
 
 if TYPE_CHECKING:
@@ -1670,22 +1689,34 @@ def _ledger_context(
     receipt_form: ReceiptForm | None = None,
     bar: dict[str, Any] | None = None,
     wine: dict[str, Any] | None = None,
+    launch: dict[str, Any] | None = None,
+    staff: dict[str, Any] | None = None,
+    guilds: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """What the page renders. Organisers alone reach it, so every section carries its forms.
 
     ``keep_line`` is a line whose refused edit (``line_edit``, or ``line_error`` for a stale Save) renders open in its
     row; ``receipt_form`` a refused receipt upload shown on its entry's row; ``approval_error`` a stale approval Save,
     shown over a fresh approval form that renders open. ``bar`` and ``wine`` carry a refused form of the Drink sales
-    or Wine Wall section into :func:`_bar_context` or :func:`_wine_ledger_context`.
+    or Wine Wall section into :func:`_bar_context` or :func:`_wine_ledger_context`, and ``launch``, ``staff`` and
+    ``guilds`` one of the launch checklist, Staff time or Guild demos (D6c) into theirs.
     """
-    found = services.ledger_settings(hub)
-    band = services.ledger_band(hub, found)
-    doors = services.door_figures(hub, band, found)
+    figures = _ledger_figures(request, hub)
+    found, band, doors = figures.found, figures.band, figures.doors
     return {
-        **_ledger_board_context(hub, band, doors),
+        **_figures_context(request, hub, figures),
         **_ledger_entries_context(hub, band, show, receipt_form=receipt_form),
         **_bar_context(hub, found, doors.bar, **(bar or {})),
         **_wine_ledger_context(request, hub, found, doors.wine, **(wine or {})),
+        **_people_context(hub, figures),
+        **_launch_context(hub, totals=figures.launch, **(launch or {})),
+        **_staff_context(hub, figures, **(staff or {})),
+        **_guilds_context(hub, doors.guilds, **(guilds or {})),
+        **_vol_context(hub, figures),
+        **_flyer_section_context(figures),
+        "team_names": _team_names(card),
+        "door_hint": _door_hint(request, hub),
+        "team_list_id": LEDGER_TEAM_LIST_ID,
         "card": card,
         "title": LEDGER_TITLE,
         "intro": LEDGER_INTRO,
@@ -1777,7 +1808,8 @@ def ledger_line_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> Ht
 @organizer_required(HubCard.Kind.LEDGER)
 def ledger_line_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
     """Save one budget line, by the actual role. Over htmx only that line comes back, with the totals, the log form's
-    line select and the ledger out of band (they name the line); a refused Save comes back open with its errors.
+    line select, the ledger, the Drink sales tiles, the goals and the board panel's figures out of band (they name the
+    line, or read the bar's cost); a refused Save comes back open with its errors.
 
     A Save from a page older than the line (:class:`hq.services.StaleSave`) comes back with the line as the database
     holds it, with :data:`LINE_STALE_SAVE`.
@@ -1807,28 +1839,36 @@ def ledger_line_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: 
     if valid and not fragment:
         messages.success(request, f"{line.name} saved.")
         return redirect(_ledger_url(hub, show))
-    band = services.ledger_band(hub)
-    if stale:
-        rows = _line_rows(band, keep_pk=line.pk, error=LINE_STALE_SAVE)
-    elif not valid:
-        rows = _line_rows(band, keep_pk=line.pk, form=form)
-    else:
-        rows = _line_rows(band)
-    row = next(row for row in rows if row.totals.line.pk == line.pk)
+    if not valid:
+        band = services.ledger_band(hub)
+        if stale:
+            rows = _line_rows(band, keep_pk=line.pk, error=LINE_STALE_SAVE)
+        else:
+            rows = _line_rows(band, keep_pk=line.pk, form=form)
+        row = next(row for row in rows if row.totals.line.pk == line.pk)
+        return render(
+            request,
+            "hq/partials/_ledger_line_answer.html",
+            {"hub": hub, "band": band, "show": show, "row": row, "line_oob": False},
+        )
+    figures = _ledger_figures(request, hub)
+    band = figures.band
+    row = next(row for row in _line_rows(band) if row.totals.line.pk == line.pk)
     context = {
         "hub": hub,
-        "band": band,
         "show": show,
         "row": row,
-        "line_oob": valid,
-        **(_line_select_context(hub, band, line.pk) if valid else {}),
-        **(_ledger_entries_context(hub, band, show) if valid else {}),
-        # A line moved into or out of Drinks changes the bar's cost, so the Drink sales tiles follow it.
-        **({"bar": _bar_totals(hub, band)} if valid else {}),
+        "line_oob": True,
+        **_line_select_context(hub, band, line.pk),
+        **_ledger_entries_context(hub, band, show),
+        # A line moved into or out of Drinks changes the bar's cost, so the Drink sales tiles follow it, and with them
+        # the goals' Drink sales row and the board paragraph's drink sales (FIGURES_BUDGET).
+        "bar": figures.doors.bar,
     }
-    response = render(request, "hq/partials/_ledger_line_answer.html", context)
-    if valid:
-        trigger_toast(response, "Saved.", "success")
+    response = _figures_answer(
+        request, hub, "hq/partials/_ledger_line_answer.html", context, figures=figures, parts=FIGURES_BUDGET
+    )
+    trigger_toast(response, "Saved.", "success")
     return response
 
 
@@ -1930,10 +1970,9 @@ def _wine_section_url(hub: EventHub) -> str:
     return f"{reverse('hq:ledger', args=[hub.slug])}#hq-lg-wine"
 
 
-def _bar_totals(hub: EventHub, band: services.LedgerBand | None = None) -> services.BarTotals:
+def _bar_totals(hub: EventHub) -> services.BarTotals:
     found = services.ledger_settings(hub)
-    band = band if band is not None else services.ledger_band(hub, found)
-    return services.bar_totals(hub, found, cost_cents=band.bar_cost_cents)
+    return services.bar_totals(hub, found, cost_cents=services.ledger_band(hub, found).bar_cost_cents)
 
 
 def _prices_form(found: LedgerSettings, data: Any = None) -> DrinkPricesForm:
@@ -2014,18 +2053,18 @@ def _wine_ledger_context(
 
 
 def _bar_answer(request: HttpRequest, hub: EventHub, message: str, tone: str = "success") -> HttpResponse:
-    """The htmx answer to a +1 tap or Undo last: the tiles, the buttons' counts, the sales table and the board panel's
-    figures out of band, and a toast. Paid by stays as it is, so the next tap keeps the chosen way to pay."""
-    found = services.ledger_settings(hub)
-    band = services.ledger_band(hub, found)
-    doors = services.door_figures(hub, band, found)
+    """The htmx answer to a +1 tap or Undo last: the tiles, the buttons' counts and the sales table out of band, with
+    the tally, the goals, the board panel's figures and Staff time's (each reads the bar's sales in the event cash),
+    and a toast. Paid by stays as it is, so the next tap keeps the chosen way to pay."""
+    figures = _ledger_figures(request, hub)
+    bar = figures.doors.bar
     context = {
-        **_ledger_board_context(hub, band, doors),
-        "bar": doors.bar,
+        "hub": hub,
+        "bar": bar,
         "bar_sales": list(hub.bar_sales.all()),
-        "quick_buttons": services.quick_buttons(found, doors.bar),
+        "quick_buttons": services.quick_buttons(figures.found, bar),
     }
-    response = render(request, "hq/partials/_ledger_bar_answer.html", context)
+    response = _figures_answer(request, hub, "hq/partials/_ledger_bar_answer.html", context, figures=figures)
     trigger_toast(response, message, tone)
     return response
 
@@ -2073,7 +2112,8 @@ def ledger_bar_undo(request: HttpRequest, *, hub: EventHub, card: HubCard) -> Ht
 @organizer_required(HubCard.Kind.LEDGER)
 def ledger_bar_batch(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
     """Log a batch, by the actual role. Over htmx the form comes back (open, its errors, or fresh keeping the drink and
-    Paid by) with the tiles and the table out of band; a plain post lands back on the section."""
+    Paid by); a saved one sends the tiles and the table out of band with every figure the sales move
+    (:data:`FIGURES_ALL`). A plain post lands back on the section."""
     found = services.ledger_settings(hub)
     form = _batch_form(found, request.POST)
     fragment = wants_fragment(request)
@@ -2088,16 +2128,15 @@ def ledger_bar_batch(request: HttpRequest, *, hub: EventHub, card: HubCard) -> H
     if not fragment:
         messages.success(request, "Sales added.")
         return redirect(_bar_url(hub))
-    band = services.ledger_band(hub, found)
-    doors = services.door_figures(hub, band, found)
+    figures = _ledger_figures(request, hub)
     context = {
-        **_ledger_board_context(hub, band, doors),
-        "batch_form": _batch_form(found, initial={key: form.cleaned_data[key] for key in ("drink", "pay")}),
+        "hub": hub,
+        "batch_form": _batch_form(figures.found, initial={key: form.cleaned_data[key] for key in ("drink", "pay")}),
         "batch_open": True,
-        "bar": doors.bar,
+        "bar": figures.doors.bar,
         "bar_sales": list(hub.bar_sales.all()),
     }
-    response = render(request, "hq/partials/_ledger_bar_batch_answer.html", context)
+    response = _figures_answer(request, hub, "hq/partials/_ledger_bar_batch_answer.html", context, figures=figures)
     trigger_toast(response, "Sales added.", "success")
     return response
 
@@ -2123,7 +2162,8 @@ def _prices_refused(
 def ledger_bar_prices(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
     """Set drink prices and last year's bar sales, by the actual role. A save from a page older than the prices is
     refused (:data:`hq.services.SETTINGS_STALE_SAVE`) and the form comes back with what the database holds. Over htmx
-    the form comes back with the +1 buttons and the tiles out of band, so Paid by keeps its choice."""
+    the form comes back with the +1 buttons, the tiles and the goals (the Drink sales row says 2025) out of band, so
+    Paid by keeps its choice."""
     found = services.ledger_settings(hub)
     form = _prices_form(found, request.POST)
     fragment = wants_fragment(request)
@@ -2137,7 +2177,8 @@ def ledger_bar_prices(request: HttpRequest, *, hub: EventHub, card: HubCard) -> 
     if not fragment:
         messages.success(request, "Prices saved.")
         return redirect(_bar_url(hub))
-    bar = _bar_totals(hub)
+    figures = _ledger_figures(request, hub)
+    bar = figures.doors.bar
     context = {
         "hub": hub,
         "prices_form": _prices_form(saved),
@@ -2146,7 +2187,9 @@ def ledger_bar_prices(request: HttpRequest, *, hub: EventHub, card: HubCard) -> 
         "quick_buttons": services.quick_buttons(saved, bar),
         "bar": bar,
     }
-    response = render(request, "hq/partials/_ledger_bar_prices_answer.html", context)
+    response = _figures_answer(
+        request, hub, "hq/partials/_ledger_bar_prices_answer.html", context, figures=figures, parts=FIGURES_GOALS
+    )
     trigger_toast(response, "Prices saved.", "success")
     return response
 
@@ -2169,14 +2212,11 @@ def ledger_bar_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> Str
 
 
 def _wine_answer(request: HttpRequest, hub: EventHub, found: LedgerSettings, **forms: Any) -> HttpResponse:
-    """The Wine Wall section with the board panel's figures out of band, since the paragraph names the tickets."""
-    band = services.ledger_band(hub, found)
-    doors = services.door_figures(hub, band, found)
-    context = {
-        **_ledger_board_context(hub, band, doors),
-        **_wine_ledger_context(request, hub, found, doors.wine, **forms),
-    }
-    return render(request, "hq/partials/_ledger_wine_answer.html", context)
+    """The Wine Wall section with every figure the tickets move out of band (:data:`FIGURES_ALL`): the tally's ticket
+    sales and cash, the goals, the board paragraph and Raised per staff hour."""
+    figures = _ledger_figures(request, hub)
+    context = {"hub": hub, **_wine_ledger_context(request, hub, found, figures.doors.wine, **forms)}
+    return _figures_answer(request, hub, "hq/partials/_ledger_wine_answer.html", context, figures=figures)
 
 
 def _wine_refused(request: HttpRequest, hub: EventHub, card: HubCard, refusal: dict[str, Any]) -> HttpResponse:
@@ -2230,3 +2270,579 @@ def ledger_ticket_prices(request: HttpRequest, *, hub: EventHub, card: HubCard) 
     found = services.ledger_settings(hub)
     form = TicketPricesForm(request.POST, found=found, prefix="ticket-prices")
     return _save_wine_figures(request, hub, card, form, key="ticket_prices", saved_message="Ticket prices saved.")
+
+
+# ---- PL Ledger, team and tally (Track D, part 6c) ----
+
+# A row's Save whose ``updated_at`` no longer matches the database: someone else saved it since the page loaded.
+LAUNCH_STALE_SAVE = "Someone else changed this task. Your page has been refreshed; make your change again."
+GUILD_STALE_SAVE = "Someone else changed this guild. Your page has been refreshed; make your change again."
+
+
+def _ledger_section_url(hub: EventHub, anchor: str) -> str:
+    return f"{reverse('hq:ledger', args=[hub.slug])}#{anchor}"
+
+
+def _door_urls(hub: EventHub, member: Member | None, is_admin: bool) -> dict[str, str]:
+    """Where each door's page is for this viewer, in one read of the cards: a ``HubCard.Kind`` to its page, for every
+    live door that is shown and open to them (:func:`_door_url`'s rule for all of them at once)."""
+    urls: dict[str, str] = {}
+    for card in hub.cards.prefetch_related("named_members").exclude(kind=HubCard.Kind.PLACEHOLDER):
+        if (card.is_hidden and not is_admin) or not card.is_open_to(member, is_admin=is_admin):
+            continue
+        if card.url:
+            urls[card.kind] = card.url
+    return urls
+
+
+def _team_names(card: HubCard) -> list[str]:
+    """The ledger card's named members' display names, for the team datalist (Owner, Who, Contacted by)."""
+    return sorted({named.display_name for named in card.named_members.all() if named.display_name.strip()})
+
+
+@dataclass(frozen=True)
+class LedgerFigures:
+    """Every figure the ledger's tally, goals and board paragraph read, gathered once per request: the settings, the
+    ledger's band, every other door's figures, the doors open to the viewer, the launch checklist and the flyer page."""
+
+    found: LedgerSettings
+    band: services.LedgerBand
+    doors: services.DoorFigures
+    door_urls: dict[str, str]
+    launch: services.LaunchTotals
+    flyer: Any
+
+
+def _ledger_figures(request: HttpRequest, hub: EventHub) -> LedgerFigures:
+    found = services.ledger_settings(hub)
+    band = services.ledger_band(hub, found)
+    return LedgerFigures(
+        found=found,
+        band=band,
+        doors=services.door_figures(hub, band, found),
+        door_urls=_door_urls(hub, viewer_member(request), renders_as_admin(request)),
+        launch=services.launch_totals(hub),
+        flyer=services.flyer_page(hub),
+    )
+
+
+def _figures_context(request: HttpRequest, hub: EventHub, figures: LedgerFigures) -> dict[str, Any]:
+    """What the running tally, the goals and the board paragraph render, every figure read from its door."""
+    doors = figures.doors
+    return {
+        **_ledger_board_context(hub, figures.band, doors),
+        "tally": services.ledger_tally(hub, now=timezone.now(), doors=doors, door_urls=figures.door_urls),
+        "tally_eyebrow": TALLY_EYEBROW,
+        "tally_title": TALLY_TITLE,
+        "tally_title_gold": TALLY_TITLE_GOLD,
+        "goal_groups": services.ledger_goals(
+            figures.band,
+            doors,
+            launch=figures.launch,
+            flyer_ready=bool(figures.flyer.flyer),
+            door_urls=figures.door_urls,
+        ),
+        # Staff time's figures (hq/partials/_ledger_staff_figures.html): Raised per staff hour reads the event cash.
+        "staff": doors.staff,
+        "volunteer_hours": doors.checkin,
+        # Change the goals is Edit HQ's goals formset, an admin page, by the effective role as the page renders.
+        "edit_goals_url": f"{reverse('hq:edit', args=[hub.slug])}#hq-edit-goals" if renders_as_admin(request) else "",
+    }
+
+
+# The figures an htmx answer sends out of band (hq/partials/_ledger_figures_oob.html), by what its post moves: the
+# running tally, the goals, the board panel's figures (its paragraph with them) and Staff time's figures (Raised per
+# staff hour reads the event cash). Every post that moves a tallied figure sends all four; Set drink prices moves only
+# the Drink sales goal's 2025 line, and a budget line's Save the bar's cost the goal and the paragraph read.
+FIGURES_ALL = frozenset({"tally", "goals", "board", "staff"})
+FIGURES_GOALS = frozenset({"goals"})
+FIGURES_BUDGET = frozenset({"goals", "board"})
+
+
+def _figures_answer(
+    request: HttpRequest,
+    hub: EventHub,
+    template: str,
+    context: dict[str, Any],
+    *,
+    figures: LedgerFigures | None = None,
+    parts: frozenset[str] = FIGURES_ALL,
+) -> HttpResponse:
+    """An htmx answer that also sends ``parts`` of the figures out of band (:data:`FIGURES_ALL` by default), since
+    each of them reads what the post just changed. ``figures`` is the request's one reading when the view has it."""
+    figures = figures if figures is not None else _ledger_figures(request, hub)
+    return render(request, template, {**context, **_figures_context(request, hub, figures), "figures_oob": parts})
+
+
+def _door_hint(request: HttpRequest, hub: EventHub) -> str:
+    """The door clicker's line: it counts walk-ins only, and an RSVP checks in on the Guest list, which links to the
+    hub's event's Guest list tab in Manage Events when there is an event and the viewer may open Manage Events."""
+    guest_list: str = DOOR_GUEST_LIST
+    if hub.event_id is not None and has_events_admin_access(request):
+        url = reverse("hub_admin_event_guests", args=[hub.event_id])
+        guest_list = format_html('<a href="{}" class="pl-hq-lg__link" data-hq-lg-guest-list>{}</a>', url, guest_list)
+    return format_html(DOOR_CLICKER_HINT, guest_list=guest_list)
+
+
+def _event_day(hub: EventHub) -> str:
+    """ " on Dec 4", the event's day in Lee's guild demos lede; blank with no event."""
+    if hub.event is None:
+        return ""
+    day = timezone.localdate(hub.event.starts_at)
+    return f" on {day:%b} {day.day}"
+
+
+def _people_context(hub: EventHub, figures: LedgerFigures) -> dict[str, Any]:
+    """What Attendance and Vendors renders: the attendance and the vendors' figures, read from Vendor Tables and the
+    Market Check-in, the door clicker, Lee's No double entry note with the two doors, and the reports."""
+    urls = figures.door_urls
+    return {
+        "attendance": figures.doors.attendance,
+        "people_vendors": figures.doors.vendors,
+        "checkin": figures.doors.checkin,
+        "reports": list(hub.market_reports.select_related("guild")),
+        "vendors_url": urls.get(HubCard.Kind.VENDOR_TABLES, ""),
+        "checkin_url": urls.get(HubCard.Kind.MARKET_CHECKIN, ""),
+        "no_double_title": NO_DOUBLE_ENTRY_TITLE,
+        "door_steps": DOOR_STEPS,
+    }
+
+
+@dataclass(frozen=True)
+class LaunchRow:
+    """One task on the launch checklist: the task, its edit form (bound and refused, or fresh), whether it is late on
+    the Portland date, and any refusal the form lacks (a stale Save)."""
+
+    task: LaunchTask
+    form: LaunchTaskEditForm
+    late: bool
+    error: str = ""
+
+
+def _launch_form(task: LaunchTask, data: Any = None) -> LaunchTaskEditForm:
+    return LaunchTaskEditForm(
+        data, instance=task, prefix=f"task-{task.pk}", form_id=f"hq-lg-task-{task.pk}", row_name=task.task
+    )
+
+
+def _launch_row(task: LaunchTask, form: LaunchTaskEditForm | None = None, error: str = "") -> LaunchRow:
+    return LaunchRow(
+        task=task,
+        form=form if form is not None else _launch_form(task),
+        late=task.is_late(timezone.localdate()),
+        error=error,
+    )
+
+
+def _launch_context(
+    hub: EventHub,
+    *,
+    totals: services.LaunchTotals,
+    add_form: LaunchTaskForm | None = None,
+    add_open: bool = False,
+    keep_pk: int | None = None,
+    row_form: LaunchTaskEditForm | None = None,
+    row_error: str = "",
+) -> dict[str, Any]:
+    """What the launch checklist renders: Lee's summary, each task as a row of its own form, and Add a task (open when
+    it was just used or refused). ``keep_pk`` is a task whose refused Save (``row_form``, or ``row_error``) shows."""
+    rows = []
+    for task in hub.launch_tasks.all():
+        kept = task.pk == keep_pk
+        rows.append(_launch_row(task, row_form if kept else None, row_error if kept else ""))
+    return {
+        "launch_rows": rows,
+        "launch_totals": totals,
+        "launch_form": add_form if add_form is not None else LaunchTaskForm(prefix="launch"),
+        "launch_open": add_open or add_form is not None,
+    }
+
+
+def _staff_context(hub: EventHub, figures: LedgerFigures, *, form: StaffTimeForm | None = None) -> dict[str, Any]:
+    """What Staff time renders: the hours by person and by area against the event cash, the volunteer hours from the
+    Market Check-in, Log time (open when refused) and every entry with its Delete."""
+    return {
+        "staff": figures.doors.staff,
+        "volunteer_hours": figures.doors.checkin,
+        "staff_entries": list(hub.staff_time.all()),
+        "staff_form": form
+        if form is not None
+        else StaffTimeForm(prefix="staff", initial={"date": timezone.localdate()}),
+        "staff_open": form is not None,
+    }
+
+
+@dataclass(frozen=True)
+class GuildRow:
+    """One guild on the Guild demos list: the row, its edit form (bound and refused, or fresh) and any refusal the form
+    lacks (a stale Save)."""
+
+    row: GuildDemo
+    form: GuildDemoEditForm
+    error: str = ""
+
+
+def _guild_form(row: GuildDemo, data: Any = None) -> GuildDemoEditForm:
+    return GuildDemoEditForm(
+        data, instance=row, prefix=f"guild-{row.pk}", form_id=f"hq-lg-guild-{row.pk}", row_name=row.guild.name
+    )
+
+
+def _guilds_context(
+    hub: EventHub,
+    totals: services.GuildDemoTotals,
+    *,
+    add_form: GuildDemoAddForm | None = None,
+    add_open: bool = False,
+    keep_pk: int | None = None,
+    row_form: GuildDemoEditForm | None = None,
+    row_error: str = "",
+) -> dict[str, Any]:
+    """What Guild demos renders: Lee's summary, every guild on the list as a row of its own form, Add a guild (the
+    active guilds not on it yet) and Add every active guild."""
+    rows = []
+    for row in hub.guild_demos.select_related("guild"):
+        kept = row.pk == keep_pk
+        form = row_form if row_form is not None and kept else _guild_form(row)
+        rows.append(GuildRow(row=row, form=form, error=row_error if kept else ""))
+    missing = services.guilds_to_add(hub)
+    return {
+        "guild_rows": rows,
+        "guild_summary": totals.summary(_event_day(hub)),
+        "guild_add_form": add_form if add_form is not None else GuildDemoAddForm(prefix="guild-add", guilds=missing),
+        "guild_add_open": add_open or add_form is not None,
+        "guilds_missing": len(missing),
+    }
+
+
+def _vol_context(hub: EventHub, figures: LedgerFigures) -> dict[str, Any]:
+    """What Volunteer hours renders, read only from the Market Check-in: the totals, the top ten and the two doors."""
+    urls = figures.door_urls
+    return {
+        "vol_band": figures.doors.checkin,
+        "vol_board": services.thank_you_board(hub, limit=VOL_BOARD_LIMIT),
+        "signup_url": urls.get(HubCard.Kind.VOLUNTEERS, ""),
+        "checkin_url": urls.get(HubCard.Kind.MARKET_CHECKIN, ""),
+    }
+
+
+# How many volunteers the ledger's Volunteer hours shows (Lee's top ten; the Market Check-in's board shows fifteen).
+VOL_BOARD_LIMIT = 10
+
+
+def _flyer_section_context(figures: LedgerFigures) -> dict[str, Any]:
+    """What Event flyer renders, read only: the flyer page's flyer and the Marketing Tracker's businesses with it up."""
+    urls = figures.door_urls
+    return {
+        "hub_flyer": figures.flyer,
+        "flyer_count": figures.doors.flyers,
+        "flyer_url": urls.get(HubCard.Kind.FLYER, ""),
+        "marketing_url": urls.get(HubCard.Kind.MARKETING, ""),
+    }
+
+
+# The plain post's message for a door tap, by the toast's tone.
+_MESSAGE_LEVELS_ADD = {"success": messages.success, "info": messages.info}
+
+
+def _people_answer(request: HttpRequest, hub: EventHub, message: str, tone: str = "success") -> HttpResponse:
+    """The htmx answer to a door tap (the clicker swaps nothing in place): the Attendance and vendors figures, the tally,
+    the goals and the board paragraph, each out of band, and a toast."""
+    figures = _ledger_figures(request, hub)
+    context = {"hub": hub, **_people_context(hub, figures)}
+    response = _figures_answer(request, hub, "hq/partials/_ledger_door_answer.html", context, figures=figures)
+    trigger_toast(response, message, tone)
+    return response
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_door(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """One tap on the door clicker, by the actual role: +1, +5 or +10 walk-ins, or Undo 1, which appends a -1 and is
+    refused with nothing written once the walk-ins are at zero. Over htmx the figures come back out of band with a
+    toast; a plain post lands back on the section with a message."""
+    form = DoorCountForm(request.POST)
+    fragment = wants_fragment(request)
+    if not form.is_valid():
+        refusal = "Choose +1, +5, +10 or Undo 1."
+        if not fragment:
+            messages.error(request, refusal)
+            return redirect(_ledger_section_url(hub, "hq-lg-people"))
+        response = HttpResponse("")
+        trigger_toast(response, refusal, "error")
+        return response
+    delta: int = form.cleaned_data["delta"]
+    try:
+        services.count_at_door(hub, delta, member=actual_member(request))
+    except services.NothingToUndo:
+        message, tone = "Nothing to take back: the door count is at zero.", "info"
+    else:
+        message, tone = (f"Added {delta} at the door." if delta > 0 else "Took 1 back."), "success"
+    if not fragment:
+        _MESSAGE_LEVELS_ADD[tone](request, message)
+        return redirect(_ledger_section_url(hub, "hq-lg-people"))
+    return _people_answer(request, hub, message, tone)
+
+
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_people_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
+    """The vendors' reports with the totals and the attendance as a CSV download, in Lee's columns."""
+    reports = hub.market_reports.select_related("guild")
+    return stream_people_csv(
+        reports,
+        vendors=services.vendor_band(hub).confirmed,
+        checkin=services.checkin_band(hub),
+        attendance=services.attendance(hub),
+        filename_stem=hub.slug,
+    )
+
+
+def _launch_section(request: HttpRequest, hub: EventHub, message: str = "", **kwargs: Any) -> HttpResponse:
+    """The launch checklist over htmx, with the figures out of band (the goals count its tasks) and a toast."""
+    context = {
+        "hub": hub,
+        "team_list_id": LEDGER_TEAM_LIST_ID,
+        **_launch_context(hub, totals=services.launch_totals(hub), **kwargs),
+    }
+    response = _figures_answer(request, hub, "hq/partials/_ledger_launch_answer.html", context)
+    if message:
+        trigger_toast(response, message, "success")
+    return response
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_launch_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Add a task to the launch checklist, by the actual role. Over htmx the checklist comes back with Add a task open
+    and empty; a refused one comes back with its errors, and nothing is written."""
+    form = LaunchTaskForm(request.POST, prefix="launch")
+    fragment = wants_fragment(request)
+    if not form.is_valid():
+        if not fragment:
+            context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, launch={"add_form": form})
+            return render(request, "hq/ledger.html", context)
+        return _launch_section(request, hub, add_form=form)
+    services.add_launch_task(hub, form.to_fields())
+    if not fragment:
+        messages.success(request, "Task added.")
+        return redirect(_ledger_section_url(hub, "hq-lg-launch"))
+    return _launch_section(request, hub, "Task added.", add_open=True)
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_launch_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Save one task, by the actual role. Over htmx only that row comes back, with the checklist's summary and the
+    figures out of band. A Save from a page older than the task (:class:`hq.services.StaleSave`) comes back as the
+    database holds it with :data:`LAUNCH_STALE_SAVE`."""
+    fragment = wants_fragment(request)
+    task = get_object_or_404(hub.launch_tasks, pk=pk)
+    form = _launch_form(task, request.POST)
+    valid = form.is_valid()
+    stale = False
+    if valid:
+        try:
+            task = services.update_launch_task(task, form.to_fields(), seen=form.seen())
+        except services.StaleSave:
+            valid, stale = False, True
+    if valid and not fragment:
+        messages.success(request, f"{task.task} saved.")
+        return redirect(_ledger_section_url(hub, "hq-lg-launch"))
+    refusal: dict[str, Any] = {}
+    if stale:
+        refusal = {"keep_pk": task.pk, "row_error": LAUNCH_STALE_SAVE}
+    elif not valid:
+        refusal = {"keep_pk": task.pk, "row_form": form}
+    if not fragment:
+        context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, launch=refusal)
+        return render(request, "hq/ledger.html", context)
+    saved = hub.launch_tasks.get(pk=task.pk)
+    if stale:
+        row = _launch_row(saved, error=LAUNCH_STALE_SAVE)
+    elif not valid:
+        row = _launch_row(saved, form)
+    else:
+        row = _launch_row(saved)
+    context = {
+        "hub": hub,
+        "row": row,
+        "launch_totals": services.launch_totals(hub),
+        "team_list_id": LEDGER_TEAM_LIST_ID,
+    }
+    response = _figures_answer(request, hub, "hq/partials/_ledger_launch_row_answer.html", context)
+    if valid:
+        trigger_toast(response, "Saved.", "success")
+    return response
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_launch_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Take a task off the launch checklist, by the actual role; then the section."""
+    task = get_object_or_404(hub.launch_tasks, pk=pk)
+    task.delete()
+    messages.success(request, f"{task.task} is off the checklist.")
+    return redirect(_ledger_section_url(hub, "hq-lg-launch"))
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_staff_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Log staff time, by the actual role. Over htmx the section comes back keeping Who, the date and the area for the
+    next entry, with the figures out of band (the board paragraph says the staff time); a refused one writes nothing."""
+    form = StaffTimeForm(request.POST, prefix="staff")
+    fragment = wants_fragment(request)
+    if not form.is_valid():
+        if not fragment:
+            context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, staff={"form": form})
+            return render(request, "hq/ledger.html", context)
+        figures = _ledger_figures(request, hub)
+        context = {"hub": hub, "team_list_id": LEDGER_TEAM_LIST_ID, **_staff_context(hub, figures, form=form)}
+        return render(request, "hq/partials/_ledger_staff_answer.html", context)
+    entry = services.log_staff_time(
+        hub, form.to_fields(), team=list(card.named_members.all()), member=actual_member(request)
+    )
+    message = f"Logged {entry.hours_words}."
+    if not fragment:
+        messages.success(request, message)
+        return redirect(_ledger_section_url(hub, "hq-lg-staff"))
+    figures = _ledger_figures(request, hub)
+    fresh = StaffTimeForm(prefix="staff", initial=form.kept_for_next())
+    context = {
+        "hub": hub,
+        "team_list_id": LEDGER_TEAM_LIST_ID,
+        **_staff_context(hub, figures),
+        "staff_form": fresh,
+        "staff_open": True,
+    }
+    response = _figures_answer(request, hub, "hq/partials/_ledger_staff_answer.html", context, figures=figures)
+    trigger_toast(response, message, "success")
+    return response
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_staff_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Delete one stretch of staff time, by the actual role; then the section."""
+    entry = get_object_or_404(hub.staff_time, pk=pk)
+    entry.delete()
+    messages.success(request, f"Deleted {entry.who}'s {entry.hours_words}.")
+    return redirect(_ledger_section_url(hub, "hq-lg-staff"))
+
+
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_staff_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
+    """The staff time as a CSV download, oldest first, with the total row last."""
+    entries = hub.staff_time.select_related("created_by").order_by("date", "created_at", "pk")
+    totals = services.staff_totals(hub, cash_cents=services.event_cash(hub).total_cents)
+    return stream_staff_time_csv(entries, totals=totals, filename_stem=hub.slug)
+
+
+def _guilds_section(
+    request: HttpRequest, hub: EventHub, message: str = "", tone: str = "success", **kwargs: Any
+) -> HttpResponse:
+    """Guild demos over htmx, with the figures out of band (the tally and goals count the guilds) and a toast."""
+    context = {
+        "hub": hub,
+        "team_list_id": LEDGER_TEAM_LIST_ID,
+        **_guilds_context(hub, services.guild_demo_totals(hub), **kwargs),
+    }
+    response = _figures_answer(request, hub, "hq/partials/_ledger_guilds_answer.html", context)
+    if message:
+        trigger_toast(response, message, tone)
+    return response
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_guild_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Put one active guild on the Guild demos list, by the actual role (its lead as typed, else the guild's lead). A
+    guild already listed or no longer active is refused, and nothing is written; one another add listed after the form
+    was read is refused by name (:class:`hq.services.GuildAlreadyListed`), never a 500."""
+    form = GuildDemoAddForm(request.POST, prefix="guild-add", guilds=services.guilds_to_add(hub))
+    fragment = wants_fragment(request)
+    if not form.is_valid():
+        if not fragment:
+            context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, guilds={"add_form": form})
+            return render(request, "hq/ledger.html", context)
+        return _guilds_section(request, hub, add_form=form)
+    try:
+        row = services.add_guild_demo(hub, form.cleaned_data["guild"], lead=form.cleaned_data["lead"])
+    except services.GuildAlreadyListed as exc:  # another add got there first; the row stands as it is
+        if not fragment:
+            messages.error(request, str(exc))
+            return redirect(_ledger_section_url(hub, "hq-lg-guilds"))
+        return _guilds_section(request, hub, str(exc), "error")
+    message = f"{row.guild.name} added."
+    if not fragment:
+        messages.success(request, message)
+        return redirect(_ledger_section_url(hub, "hq-lg-guilds"))
+    return _guilds_section(request, hub, message, add_open=True)
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_guilds_add_all(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Add every active guild not on the list yet, by the actual role, each with its guild lead."""
+    added = services.add_every_active_guild(hub)
+    message = f"Added {added} guild{'' if added == 1 else 's'}." if added else "Every active guild is on the list."
+    if not wants_fragment(request):
+        messages.success(request, message)
+        return redirect(_ledger_section_url(hub, "hq-lg-guilds"))
+    return _guilds_section(request, hub, message)
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_guild_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Save one guild's row, by the actual role. Over htmx only that row comes back, with the summary and the figures
+    out of band. A Save from a page older than the row (:class:`hq.services.StaleSave`) comes back as the database
+    holds it with :data:`GUILD_STALE_SAVE`."""
+    fragment = wants_fragment(request)
+    row = get_object_or_404(hub.guild_demos.select_related("guild"), pk=pk)
+    form = _guild_form(row, request.POST)
+    valid = form.is_valid()
+    stale = False
+    if valid:
+        try:
+            row = services.update_guild_demo(row, form.to_fields(), seen=form.seen())
+        except services.StaleSave:
+            valid, stale = False, True
+    if valid and not fragment:
+        messages.success(request, f"{row.guild.name} saved.")
+        return redirect(_ledger_section_url(hub, "hq-lg-guilds"))
+    refusal: dict[str, Any] = {}
+    if stale:
+        refusal = {"keep_pk": row.pk, "row_error": GUILD_STALE_SAVE}
+    elif not valid:
+        refusal = {"keep_pk": row.pk, "row_form": form}
+    if not fragment:
+        context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, guilds=refusal)
+        return render(request, "hq/ledger.html", context)
+    saved = hub.guild_demos.select_related("guild").get(pk=row.pk)
+    if stale:
+        answer = GuildRow(row=saved, form=_guild_form(saved), error=GUILD_STALE_SAVE)
+    elif not valid:
+        answer = GuildRow(row=saved, form=form)
+    else:
+        answer = GuildRow(row=saved, form=_guild_form(saved))
+    context = {
+        "hub": hub,
+        "guild_row": answer,
+        "guild_summary": services.guild_demo_totals(hub).summary(_event_day(hub)),
+        "team_list_id": LEDGER_TEAM_LIST_ID,
+    }
+    response = _figures_answer(request, hub, "hq/partials/_ledger_guild_row_answer.html", context)
+    if valid:
+        trigger_toast(response, "Saved.", "success")
+    return response
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_guild_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Take a guild off the Guild demos list, by the actual role; then the section."""
+    row = get_object_or_404(hub.guild_demos.select_related("guild"), pk=pk)
+    row.delete()
+    messages.success(request, f"{row.guild.name} is off the list.")
+    return redirect(_ledger_section_url(hub, "hq-lg-guilds"))

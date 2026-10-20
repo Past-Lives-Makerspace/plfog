@@ -5,18 +5,26 @@ from __future__ import annotations
 import factory
 from factory.django import DjangoModelFactory
 
+from tests.membership.factories import GuildFactory
+
+from decimal import Decimal
+
 from hq.models import (
     BarSale,
     BudgetLine,
+    DoorCount,
     EventHub,
+    GuildDemo,
     HubCard,
     HubGoal,
+    LaunchTask,
     LedgerEntry,
     LedgerSettings,
     MarketingAction,
     ShiftSignup,
     Sponsor,
     SponsorLogEntry,
+    StaffTime,
     VendorFloor,
     VendorTable,
     VolunteerShift,
@@ -240,3 +248,46 @@ class WineDonorThanksFactory(DjangoModelFactory):
 
     hub = factory.SubFactory(EventHubFactory)
     giver_key = factory.Sequence(lambda n: f"spec donor {n}")
+
+
+class DoorCountFactory(DjangoModelFactory):
+    """One +1 tap on the door clicker, by nobody."""
+
+    class Meta:
+        model = DoorCount
+
+    hub = factory.SubFactory(EventHubFactory)
+    delta = 1
+
+
+class LaunchTaskFactory(DjangoModelFactory):
+    """A task not started, with no owner, due date or link."""
+
+    class Meta:
+        model = LaunchTask
+
+    hub = factory.SubFactory(EventHubFactory)
+    task = factory.Sequence(lambda n: f"Spec Task {n}")
+    sort_order = factory.Sequence(lambda n: n)
+
+
+class StaffTimeFactory(DjangoModelFactory):
+    """Two hours of planning by Lee, linked to no member and logged by nobody."""
+
+    class Meta:
+        model = StaffTime
+
+    hub = factory.SubFactory(EventHubFactory)
+    who = "Lee"
+    hours = Decimal("2")
+    area = StaffTime.Area.PLANNING
+
+
+class GuildDemoFactory(DjangoModelFactory):
+    """An active guild on the list, not contacted and with no demo planned."""
+
+    class Meta:
+        model = GuildDemo
+
+    hub = factory.SubFactory(EventHubFactory)
+    guild = factory.SubFactory(GuildFactory)

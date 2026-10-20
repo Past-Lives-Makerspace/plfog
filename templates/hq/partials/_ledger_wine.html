@@ -49,7 +49,7 @@ swap this section.
     {% if wine.goal %}
     <div class="pl-hq-lg__meter-wrap">
       <progress class="pl-hq-lg__meter pl-hq-lg__meter--fill" max="100" value="{{ wine.percent }}" aria-label="Bottles toward the goal: {{ wine.percent }} percent" data-hq-lg-wine-meter></progress>
-      <div class="pl-hq-lg__meter-labels" aria-hidden="true"><span>0</span><span>{{ wine.half_goal }}</span><span>{{ wine.goal }} bottles</span></div>
+      <div class="pl-hq-lg__meter-labels" aria-hidden="true"><span>0</span><span>{{ wine.half_goal }}</span><span>{{ wine.goal }} bottle{{ wine.goal|pluralize }}</span></div>
     </div>
     {% endif %}
     <div class="pl-hq-lg__wine-links">

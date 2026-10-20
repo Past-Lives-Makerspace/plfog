@@ -1,8 +1,10 @@
 {% comment %}
 The board panel's figures: the four tiles, the meter, Lee's board paragraph, the box Copy board summary copies, and the
-Copy and CSV buttons. Its own Alpine component, so when a +1 tap, an undo, a batch or a tickets save sends it out of
-band the copy() and its x-ref start afresh on the new text. Change the approval stays outside it, so a swap never
-resets a half typed approval. `display: contents` keeps it out of the panel's grid.
+Copy and CSV buttons. Its own Alpine component, so when a +1 tap, an undo, a batch, a tickets save or a D6c write (a
+door tap, a launch task, a staff entry, a guild row) sends it out of band, copy() starts afresh on the new text; Copy
+finds its box by [data-hq-lg-summary-box], never an Alpine ref, so it reads the box that came back. Change the
+approval stays outside it, so a swap never resets a half typed approval. `display: contents` keeps it out of the
+panel's grid.
 
   hub           — required, the EventHub
   band          — required, a hq.services.LedgerBand
@@ -11,7 +13,7 @@ resets a half typed approval. `display: contents` keeps it out of the panel's gr
   oob           — optional, True renders the hx-swap-oob attribute
 {% endcomment %}
 <div class="pl-hq-lg__board-figures" id="hq-lg-board-figures" data-hq-lg-board-figures{% if oob %} hx-swap-oob="true"{% endif %}
-     x-data="{ copy() { const box = this.$refs.summary; box.focus(); box.select(); if (window.isSecureContext && navigator.clipboard) { navigator.clipboard.writeText(box.value); } else { document.execCommand('copy'); } this.$dispatch('show-toast', { message: 'Board summary copied.', type: 'success' }); } }">
+     x-data="{ copy() { const box = this.$root.querySelector('[data-hq-lg-summary-box]'); box.focus(); box.select(); if (window.isSecureContext && navigator.clipboard) { navigator.clipboard.writeText(box.value); } else { document.execCommand('copy'); } this.$dispatch('show-toast', { message: 'Board summary copied.', type: 'success' }); } }">
   <div class="pl-hq-lg__tiles">
     <div class="pl-hq-lg__tile" data-hq-lg-tile="approved">
       <span class="pl-hq-lg__tile-heading">Board approval</span>
@@ -42,7 +44,7 @@ resets a half typed approval. `display: contents` keeps it out of the panel's gr
     </div>
   </div>
   <p class="pl-hq-lg__summary" data-hq-lg-summary>{{ board_line }}</p>
-  <textarea class="sr-only" readonly x-ref="summary" aria-label="The board summary">{{ board_summary }}</textarea>
+  <textarea class="sr-only" readonly aria-label="The board summary" data-hq-lg-summary-box>{{ board_summary }}</textarea>
   <div class="pl-hq-lg__actions pl-hq-lg__actions--panel">
     <button type="button" class="pl-hq-lg__btn pl-hq-lg__btn--panel" @click="copy()" data-hq-lg-copy>Copy board summary</button>
     <a href="{% url 'hq:ledger_csv' hub.slug %}" class="pl-hq-lg__btn pl-hq-lg__btn--panel" hx-boost="false" data-pl-download data-hq-lg-csv>Download ledger (CSV)</a>

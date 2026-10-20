@@ -29,7 +29,7 @@ group. Delete is a plain post through the confirm modal.
 
   {% if can_organize %}
   <datalist id="{{ team_list_id }}" data-hq-sp-team>{% for name in team %}<option value="{{ name }}"></option>{% endfor %}</datalist>
-  <details class="pl-disclosure pl-hq-sp__disclosure" {% if add_open %}open{% endif %} data-hq-sp-add data-help-key="hq.sponsorship">
+  <details class="pl-disclosure pl-hq-sp__disclosure" {% if add_open %}open{% endif %} data-hq-sp-add>
     <summary class="pl-disclosure__summary">
       <span class="pl-disclosure__title">+ Add a sponsor</span>
       <span class="pl-disclosure__chevron" aria-hidden="true"></span>

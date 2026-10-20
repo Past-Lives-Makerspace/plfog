@@ -278,10 +278,19 @@ def describe_quick_add():
         assert sale.created_by == lee
         assert _toast(response) == {"message": "Added 1 Wine ($5 RSVP credit).", "type": "success"}
         body = response.content.decode()
-        for part in ("hq-lg-bar-tiles", "hq-lg-bar-buttons", "hq-lg-bar-table", "hq-lg-board-figures"):
+        parts = (
+            "hq-lg-bar-tiles",
+            "hq-lg-bar-buttons",
+            "hq-lg-bar-table",
+            "hq-lg-tally",
+            "hq-lg-goals",
+            "hq-lg-board-figures",
+            "hq-lg-staff-figures",
+        )
+        for part in parts:
             assert f'id="{part}"' in body
-        assert body.count('hx-swap-oob="true"') == 4
-        assert body.count("<template>") == 4
+        assert body.count('hx-swap-oob="true"') == len(parts)
+        assert body.count("<template>") == len(parts)
         assert "data-hq-lg-quick-form" not in body  # Paid by is never swapped, so it keeps its choice
         assert 'data-hq-lg-quick="wine"' in body and "data-hq-lg-quick-sold>1<" in body
 
@@ -1111,7 +1120,8 @@ def describe_adopting_the_typed_in_raised():
         second = admin_client.post(_url("doors_update", open_hub), follow=True)
 
         assert [str(message) for message in first.context["messages"]] == [
-            "Doors updated: added the Volunteer spots, RSVPs and Member tables goals; Raised now counts itself."
+            "Doors updated: added the Volunteer spots, RSVPs, Member tables and Guilds taking part goals; "
+            "Raised now counts itself."
         ]
         assert [str(message) for message in second.context["messages"]] == ["The doors are up to date."]
         adopted = HubGoal.objects.get(pk=raised.pk)
@@ -1190,11 +1200,11 @@ def describe_adopting_the_typed_in_raised():
         call_command("seed_holiday_bizarre", "--event", str(event.pk), stdout=out)
 
         assert (
-            "Goals: 3 created, 2 kept as edited. Added: Volunteer spots, RSVPs, Member tables. Raised now counts itself."
-            in out.getvalue()
+            "Goals: 4 created, 2 kept as edited. Added: Volunteer spots, RSVPs, Member tables, Guilds taking part. "
+            "Raised now counts itself." in out.getvalue()
         )
         assert hub.goals.filter(kind=HubGoal.Kind.EVENT_CASH).count() == 1
-        assert hub.goals.count() == 5
+        assert hub.goals.count() == 6
 
 
 def describe_the_sponsor_meter():

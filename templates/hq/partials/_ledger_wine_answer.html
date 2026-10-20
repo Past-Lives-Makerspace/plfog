@@ -1,8 +1,9 @@
 {% comment %}
-The htmx answer to the tickets form and Set ticket prices: the Wine Wall section in place, and the board panel's
-figures out of band (its paragraph names the tickets sold and the event cash).
+The htmx answer to the tickets form and Set ticket prices: the Wine Wall section in place, then every figure the
+tickets move out of band (the tally's ticket sales and cash, the goals, the board panel's figures and Staff time's
+Raised per staff hour).
 
-  as hq/partials/_ledger_wine.html and _ledger_board_figures.html
+  as hq/partials/_ledger_wine.html and _ledger_figures_oob.html
 {% endcomment %}
 {% include "hq/partials/_ledger_wine.html" %}
-<template>{% include "hq/partials/_ledger_board_figures.html" with oob=True %}</template>
+{% include "hq/partials/_ledger_figures_oob.html" %}

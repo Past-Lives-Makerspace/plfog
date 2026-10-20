@@ -1,0 +1,55 @@
+{% comment %}
+The launch checklist (Track D, part 6c), Lee's table: each task as its own tbody whose cells are the controls of the
+row's form (the task, its owner, status, due date and link once live; a late due date in red), with Save and Delete,
+then Add a task. A row's Save swaps that row alone with the summary and the figures out of band; Add a task swaps the
+section.
+
+  hub          — required, the EventHub
+  launch_rows  — required, the hq.views.LaunchRow list in checklist order
+  launch_totals — required, a hq.services.LaunchTotals
+  launch_form  — required, a LaunchTaskForm (bound when an add failed)
+  launch_open  — required, whether Add a task renders open
+  team_list_id — required, the team datalist's id
+{% endcomment %}
+<section class="pl-hq-lg__section" id="hq-lg-launch" aria-labelledby="hq-lg-launch-title" data-hq-lg-launch>
+  <div class="pl-hq-lg__section-head">
+    <h2 class="pl-hq-lg__h2" id="hq-lg-launch-title">Launch Checklist</h2>
+    {% include "hq/partials/_ledger_launch_summary.html" %}
+  </div>
+  <div class="pl-hq-lg__card pl-hq-lg__scroll">
+    <table class="pl-hq-lg__table pl-hq-lg__table--rows pl-hq-lg__table--launch">
+      <thead>
+        <tr>
+          <th scope="col">Task</th>
+          <th scope="col">Owner</th>
+          <th scope="col">Status</th>
+          <th scope="col">Due</th>
+          <th scope="col">Link</th>
+          <th scope="col"><span class="sr-only">Save or delete</span></th>
+        </tr>
+      </thead>
+      {% for row in launch_rows %}
+      {% include "hq/partials/_ledger_launch_row.html" %}
+      {% empty %}
+      <tbody><tr><td colspan="6" class="pl-hq-lg__empty" data-hq-lg-launch-empty>No tasks yet. Add one below.</td></tr></tbody>
+      {% endfor %}
+    </table>
+  </div>
+  <details class="pl-disclosure pl-hq-lg__disclosure" {% if launch_open %}open{% endif %} data-hq-lg-launch-add>
+    <summary class="pl-disclosure__summary">
+      <span class="pl-disclosure__title">Add a task</span>
+      <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+    </summary>
+    <form method="post" action="{% url 'hq:ledger_launch_add' hub.slug %}" hx-post="{% url 'hq:ledger_launch_add' hub.slug %}" hx-target="closest [data-hq-lg-launch]" hx-swap="outerHTML" class="pl-disclosure__body pl-hq-lg__form" data-hq-lg-launch-add-form>
+      {% csrf_token %}
+      <div class="pl-hq-lg__fields">
+        {% include "components/form_field.html" with field=launch_form.task field_hint_off=True %}
+        {% include "components/form_field.html" with field=launch_form.owner field_hint_off=True %}
+        {% include "components/form_field.html" with field=launch_form.due field_hint_off=True %}
+      </div>
+      <div class="pl-hq-lg__actions">
+        <button type="submit" class="pl-hq-lg__btn" data-hq-lg-launch-add-submit>Add task</button>
+      </div>
+    </form>
+  </details>
+</section>

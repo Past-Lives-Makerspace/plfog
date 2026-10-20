@@ -14,7 +14,7 @@ flyer upload's pattern) through a drag and drop zone that takes a JPG, PNG, WEBP
   max_pdf_bytes   — required, settings.MAX_UPLOAD_DOCUMENT_BYTES
 {% endcomment %}
 {% with form=entry_form field=entry_form.receipt %}
-<section class="pl-hq-lg__section" aria-labelledby="hq-lg-log-title" data-hq-lg-log data-help-key="hq.ledger">
+<section class="pl-hq-lg__section" aria-labelledby="hq-lg-log-title" data-hq-lg-log>
   <h2 class="pl-hq-lg__h2" id="hq-lg-log-title">Log a Sponsor or Expense</h2>
   <form method="post" action="{% url 'hq:ledger_entry_add' hub.slug %}" enctype="multipart/form-data" hx-boost="false" class="pl-hq-lg__card pl-hq-lg__form pl-hq-lg__log" x-data="{ kind: '{{ form.kind.value|default:'sponsored'|escapejs }}' }" data-hq-lg-log-form>
     {% csrf_token %}

@@ -1,5 +1,6 @@
 """The volunteer roster, the wine donors, the sponsors, the vendor tables, the Market Check-in's reports and hours, the
-ledger and the drink sales as CSV, in the streaming shape of ``classes/exports.py``."""
+ledger, the drink sales, and the ledger's vendors with the attendance and its staff time as CSV, in the streaming shape of
+``classes/exports.py``."""
 
 from __future__ import annotations
 
@@ -12,13 +13,22 @@ from django.http import StreamingHttpResponse
 from django.utils import timezone
 
 from hq.models import BarPay
-from hq.services import ledger_kind_short
+from hq.services import _plural, ledger_kind_short
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
-    from hq.models import BarSale, LedgerEntry, MarketReport, ShiftSignup, Sponsor, VendorTable, VolunteerHours
-    from hq.services import BarTotals, DonorRow
+    from hq.models import (
+        BarSale,
+        LedgerEntry,
+        MarketReport,
+        ShiftSignup,
+        Sponsor,
+        StaffTime,
+        VendorTable,
+        VolunteerHours,
+    )
+    from hq.services import Attendance, BarTotals, CheckinBand, DonorRow, StaffTotals
 
 ROSTER_CSV_HEADERS = [
     "Name",
@@ -351,4 +361,85 @@ def stream_bar_sales_csv(sales: QuerySet[BarSale], *, totals: BarTotals, filenam
     response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
     stamp = timezone.now().strftime("%Y%m%d")
     response["Content-Disposition"] = f'attachment; filename="{filename_stem}-drink-sales-{stamp}.csv"'
+    return response
+
+
+PEOPLE_CSV_HEADERS = ["Vendor", "Guild", "Items sold", "Total sales", "Their experience"]
+
+
+def stream_people_csv(
+    reports: QuerySet[MarketReport],
+    *,
+    vendors: int,
+    checkin: CheckinBand,
+    attendance: Attendance,
+    filename_stem: str,
+) -> StreamingHttpResponse:
+    """Stream the ledger's Attendance and Vendors as CSV in Lee's columns: every market report by name (read from the
+    Market Check-in), then a blank row, her totals row (the confirmed tables from Vendor Tables, the items and the sales)
+    and the attendance row (everyone, then the check-ins and the walk-ins at the door)."""
+    pseudo = _Echo()
+    writer = csv.writer(pseudo)
+
+    def iter_rows() -> Iterator[str]:
+        yield writer.writerow(PEOPLE_CSV_HEADERS)
+        for report in reports.iterator(chunk_size=500):
+            row = [
+                report.name,
+                report.guild_display,
+                "" if report.items_sold is None else str(report.items_sold),
+                f"{report.sales_cents / 100:.2f}",
+                report.experience,
+            ]
+            yield writer.writerow([_neutralise_formula(cell) for cell in row])
+        yield writer.writerow([])
+        yield writer.writerow(
+            ["Total", _plural(vendors, "vendor", "vendors"), str(checkin.items), f"{checkin.sales_cents / 100:.2f}", ""]
+        )
+        yield writer.writerow(
+            [
+                "Attendance",
+                str(attendance.total),
+                f"{attendance.checked_in} checked in",
+                f"{attendance.walk_ins} at the door",
+                "",
+            ]
+        )
+
+    response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
+    stamp = timezone.now().strftime("%Y%m%d")
+    response["Content-Disposition"] = f'attachment; filename="{filename_stem}-vendors-attendance-{stamp}.csv"'
+    return response
+
+
+STAFF_TIME_CSV_HEADERS = ["Date", "Who", "Hours", "Work area", "What", "Logged by"]
+
+
+def stream_staff_time_csv(
+    entries: QuerySet[StaffTime], *, totals: StaffTotals, filename_stem: str
+) -> StreamingHttpResponse:
+    """Stream the staff time as CSV in Lee's columns, oldest first, then a blank row and her total row: all the hours,
+    and each person's (hers named Lee only; here everyone, most first)."""
+    pseudo = _Echo()
+    writer = csv.writer(pseudo)
+
+    def iter_rows() -> Iterator[str]:
+        yield writer.writerow(STAFF_TIME_CSV_HEADERS)
+        for entry in entries.iterator(chunk_size=500):
+            row = [
+                entry.date.isoformat(),
+                entry.who,
+                str(entry.hours),
+                entry.get_area_display(),
+                entry.note,
+                entry.created_by.display_name if entry.created_by is not None else "",
+            ]
+            yield writer.writerow([_neutralise_formula(cell) for cell in row])
+        yield writer.writerow([])
+        people = " / ".join(f"{person.name}: {person.hours_display}" for person in totals.people)
+        yield writer.writerow(["Total", "", totals.hours_display, _neutralise_formula(people), "", ""])
+
+    response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
+    stamp = timezone.now().strftime("%Y%m%d")
+    response["Content-Disposition"] = f'attachment; filename="{filename_stem}-staff-time-{stamp}.csv"'
     return response

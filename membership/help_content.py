@@ -48,9 +48,12 @@ class ShotSpec(TypedDict):
 # canonical URL resolves normally (registry keys / tours may deep-link them).
 UNLISTED_SLUGS: frozenset[str] = frozenset({"instructor-orientation"})
 
-# Old /help/#slug landing anchors → new article slugs — all 8 legacy slugs
-# (§10.3). Rewritten-in-place slugs are identity-mapped so an old anchor link
-# still lands on the article page instead of a vanished landing anchor.
+# Old /help/#slug landing anchors → new article slugs — the 8 legacy slugs
+# (§10.3) plus guides retired since. Rewritten-in-place slugs are identity-mapped
+# so an old anchor link still lands on the article page instead of a vanished
+# landing anchor. A key that is no longer in ARTICLES is a retired guide:
+# seed_help_center unpublishes its row (never deletes it), and the old anchor
+# lands on the nearest live guide.
 LEGACY_SLUG_MAP: dict[str, str] = {
     "guilds-and-guild-pages": "guilds-and-guild-pages",
     "guild-voting": "guild-voting",
@@ -60,6 +63,8 @@ LEGACY_SLUG_MAP: dict[str, str] = {
     "the-community-calendar": "community-calendar",
     "connecting-discord": "notifications",
     "notifications-and-your-settings": "notifications",
+    # Retired 2026-10-20 (Felix): the Holiday Bizarre HQ has no Help Center guide.
+    "holiday-bizarre-hq": "community-calendar",
 }
 
 # LEGACY_SLUG_MAP targets approved (§10.2) but not yet seeded. Empty now that the
@@ -636,222 +641,6 @@ Each guild also has its own calendar, on the **Guild Calendar** tab of its guild
                 "as_role": "member",
             },
         ],
-    },
-    # ------------------------------------------------------------------
-    # events-community / holiday-bizarre-hq (sort 15: right after the Calendar)
-    # ------------------------------------------------------------------
-    {
-        "slug": "holiday-bizarre-hq",
-        "category": "events-community",
-        "title": "Holiday Bizarre HQ",
-        "sort_order": 15,
-        "related": ["community-calendar"],
-        "body": """\
-The Holiday Bizarre HQ is the home page for the makerspace's December party. It gathers the parts of the event in one place: the guest list, the volunteer shifts, the wine wall, and the pages the organisers are still building.
-
-### Where It Lives {#hq-where}
-
-Click **Holiday Bizarre** in the left menu. While its switch in Site Settings is Hidden there is no entry at all. While it is Coming soon the entry shows greyed out and opens nothing; hover it, or tab to it, for a note. Once an HQ is open, the address `/hq/` takes anyone there, signed in or not.
-
-The top of the page shows the event's date and place, with a countdown to the night.
-
-### The Doors {#hq-door-cards}
-
-Each card on the page is a door into one part of the event. A card says who it is for, what is behind it, and has a button at the foot.
-
-- **Going to the Bizarre?** opens the event's page on the Calendar, where you RSVP.
-- **Volunteer Sign-up** opens the shifts.
-- **Log a wine bottle** opens the wine wall.
-- **Marketing Tracker** opens the marketing log.
-- **Sponsorship Tracker** opens the sponsors the team is asking.
-- **Vendor Tables** opens the member artists' table requests, for the vendor team.
-- **Market Check-in** opens artists' market reports and volunteers' hours, for members.
-- **Event flyer and sharing** opens the flyer and the links to share the event.
-- **PL Ledger** opens the event's budget: sponsors, purchases, refunds and receipts, for the core team.
-- A greyed card reading **Not shared yet** is a page the organisers have not opened. It links nowhere.
-
-You only see the doors that are open to you. Every card starts as admins only; an admin opens it to members, to everyone, or to the people who run that part (see Editing the HQ below). A door open to everyone needs no account for what is behind it: RSVP, shifts or bottles. If a door you expect is missing, sign in, or ask an admin.
-
-### The Goal Tracker {#hq-goal-tracker}
-
-Under the top band sits a row of goals, each with a meter. Every one of Lee's goals updates itself from the pages behind the doors: **Raised** adds up the sponsor money received, the bar's sales and the wine wall tickets; the others count people going, volunteer spots, bottles and confirmed vendor tables. A goal with no target, like **Member tables**, shows its count with no meter.
-
-### RSVP on the Event Page {#hq-rsvp}
-
-The **Going to the Bizarre?** door opens the event's page. When the door is open to everyone, anyone can RSVP there with no account. Signed-in members click **I'm going**; your name joins **Who's coming** and the count feeds the goal tracker. **I'm not going** takes it back.
-
-### Sign Up for a Shift {#hq-volunteer-shifts}
-
-Open the **Volunteer Sign-up** door. When the door is open to everyone you do not need an account; a door open to members sends you to sign in first.
-
-1. Under **1. Your Info**, give your name and email. Phone and a note are optional. Tick the OLCC box if you hold an Oregon service permit (the bartending shifts need one). Click **Save my info**. As a guest, your info is remembered in this browser.
-2. Under **2. Pick Your Shifts**, find a shift and click **Sign Me Up**. The band at the top moves. A shift marked **Full** has no spots left; a bartending shift shows an **OLCC permit** chip.
-3. To take yourself off a shift, click **Remove Me** on it.
-
-Members: your name and email are filled in from your membership, so you can go straight to the shifts. Save step 1 only to add a phone, a note or your permit.
-
-One email holds one spot on a shift. Coming back on another device as a guest? Save your info with the same email and your sign-ups show again.
-
-### Log a Bottle {#hq-wine-wall}
-
-Open the **Log a wine bottle** door. It opens for the collectors an admin names, and for anyone else an admin opens it to. When it is open to everyone you can log a bottle without an account; a door open to members sends you to sign in first. The band at the top shows the bottles so far against the goal, the value on the wall, and how many supporters have given.
-
-1. Click **Log a Bottle**.
-2. Fill in the bottle: what it is (red, white, champagne, cider or beer), the name on the label, the winery, what one bottle is worth in dollars, and how many came in.
-3. Under **Who Gave It**, add the giver's name and what kind of giver they are. Their email and whether they want a sponsor listing are optional, and stay with the organisers.
-4. Under **For the Wall**, the credited volunteer starts as your name. Add a photo if you have one (a phone photo is fine) and a note. The note shows to you and the organisers only.
-5. Click **Add bottle**.
-
-Your bottle joins **All Bottles**, and its winery joins **Wineries, Cideries and Breweries**. **Delete** on a bottle takes off one you logged; organisers can delete any bottle. As a guest, save your info on the volunteer page first so the wall knows a bottle is yours.
-
-### Marketing Tracker {#hq-marketing}
-
-Open the **Marketing Tracker** door. Everyone it is open to sees the totals and the log; the people named on the card, and admins, add to it.
-
-The six tiles at the top count what is in the log: businesses with flyers, Instagram videos, Instagram posts, emails sent, event listings, and every action with the views or reach added up.
-
-To log something:
-
-1. Under **Log a Marketing Action**, pick **What** it was (a flyer drop-off, a reel, a post, an email, a listing and so on) and the **Date**.
-2. Add **Who** did it. The names of the people on the card are suggested as you type.
-3. Add **Views or reach** if you know it, the **Details** (what went out, or which business took a flyer) and a **Link** if there is one.
-4. Click **Add to the log**.
-
-The action joins the top of the list and the tiles move. What, Date and Who stay filled in for the next one, so a run of flyer drop-offs is quick. **Delete** on a row takes it off the log.
-
-### Sponsorship Tracker {#hq-sponsorship}
-
-Open the **Sponsorship Tracker** door. Everyone it is open to sees the totals, the sponsors' names, tiers and where each ask stands; the people named on the card, and admins, see the contact details, notes and log, and make the changes.
-
-The band at the top adds up the sponsors: **Received** (money in), **Committed** (said yes, not paid yet), **Asked, waiting** and the **Prospects** not asked yet. A declined sponsor counts nowhere. The bar fills toward the event's Raised goal: solid for received, faded for committed.
-
-To add a sponsor:
-
-1. Open **+ Add a sponsor**.
-2. Fill in the **Business or organization**, and the tier, the ask in whole dollars and **Who's asking** if you know them. The names of the people on the card are suggested as you type.
-3. Add the contact, a **Next step** and a **Follow up by** date if there is one.
-4. Click **Add sponsor**. It joins the pipeline as a prospect.
-
-Click a sponsor in the **Pipeline** to open it. Change its status, the amount committed or received, the contact and the rest, then click **Save**. A new status adds a line to its **Contact log**; add your own lines there too (a call, an email) with **Add to log**. **Delete sponsor** takes it off the tracker with its log.
-
-**Follow up** lists the sponsors with a follow-up date whose ask is still open, soonest first; one due today or overdue is marked. The buttons over the pipeline show one group at a time, and **2025 donors** shows the sponsors with last year's gift filled in. **Download CSV** gives every sponsor as a spreadsheet.
-
-When you ask, say sponsor, gift or in-kind support, not donate: gifts and sponsorships to Past Lives are not tax-deductible.
-
-### Vendor Tables {#hq-vendor-tables}
-
-Open the **Vendor Tables** door. It opens only for the people named on the card, and admins, because every row holds an artist's email and phone; anyone else the door is open to is turned away (Forbidden).
-
-The band at the top counts the requests: **Confirmed** (tables locked in), **Requested** (waiting on the vendor team), **Waitlist**, and **Space left** on the space map. Under it are the setup times and the sale hours.
-
-To add a table request:
-
-1. Open **+ Add a table request**.
-2. Fill in the **Artist or group**, their **Guild** (or Not in a guild), **What they sell** and the **Table size**.
-3. Add their email and phone, the **Setup day** they picked and anything they **Need**, like power.
-4. Click **Add request**. It joins the list as requested, or on the waitlist when the confirmed tables already fill the space map.
-
-Every field in a row can be changed: confirm a table, give it a **Table #**, move it to the waitlist. Click **Save** on that row. **Delete** takes a request off the list. The buttons over the list show one group at a time, and **Download CSV** gives every request as a spreadsheet.
-
-When the space map is ready, open **Space map capacity**, enter the **Tables that fit** and any **Map notes**, and click **Save capacity**. Space left then counts down as tables are confirmed, and new requests go to the waitlist once it reaches zero. The **Member tables** goal on the HQ page counts the confirmed tables.
-
-### Market Check-in {#hq-market-checkin}
-
-Open the **Market Check-in** door and sign in. It is for Past Lives members: anyone the door is open to can read the hours and the thank-you board, but only a signed in member can add a report or log hours.
-
-**Artists: your market report.** Only you and the organisers see it.
-
-1. Fill in **Your name or shop name** and **Your guild**. If the vendor team confirmed your table under your email, both start filled in and the card says your table number.
-2. Click **Save my report**.
-3. After the market, come back, add **Items sold**, **Total sales** and a sentence about your night, and click **Update my report**.
-
-**Volunteers: log your hours.** Flyering, outreach, setup and event night all count.
-
-1. Pick the **Date**, enter the **Hours** (quarter hours, from 0.25 to 24) and **What you worked on**, and add a note if you like.
-2. Click **Log my hours**.
-
-Your entries are listed under the form with your total. **Delete** takes one off. The **Volunteer thank-you board** shows the 15 volunteers with the most hours.
-
-Organisers (admins and the people named on the card) also get **Market reports**, with the totals, sales by guild and every report, and **All hours**, with every entry and a Delete. Each has **Download CSV**. The volunteer roster shows each person's **Hours logged** beside their shifts.
-
-### Event Flyer and Sharing {#hq-flyer}
-
-Open the **Event flyer and sharing** door. Its top shows how many people have RSVP'd so far (click it for who is coming, on the event page) and how many businesses have the flyer up.
-
-- **This Year's Flyer**: click it, or **View full size**, to see it whole. **Download** saves it to your device and **Print** prints it on its own, one page. Until it is ready it reads Coming soon.
-- **Help Spread the Word**: **Copy the event link**, **Share on Facebook**, or **Copy a message to send friends**, which copies a short invitation with the link. Paste either anywhere.
-- **Find the Event**: the event on the Past Lives website and on Eventbrite, once the organisers add them, and in the member portal.
-- **Last Year: 2025** shows last year's flyer once it is up.
-
-Organisers (admins and the people named on the card) get **Update This Page** at the foot:
-
-1. Under **2026 flyer** or **2025 flyer**, click the box or drag a file onto it, then click **Upload**. A JPG, PNG or WEBP image (up to 10 MB) or a PDF (up to 25 MB) works. A new file replaces the old one; **Remove** takes it down.
-2. Under **Links and Message**, add the **Website event page link** and the **Eventbrite link**, change the **Message to send friends** if you like, and click **Save**. A link left blank is left off the page.
-
-The RSVP count and the businesses count are never typed here: they come from the event's RSVPs and the Marketing Tracker.
-
-### PL Ledger {#hq-ledger}
-
-The **PL Ledger** door is for the people who run it (admins and the people named on the card); anyone else gets a page saying it is for organisers only.
-
-- **The summary** at the top shows the **Board approval**, how much of it is **Used** (net of refunds), what is **Left**, and the **Sponsored value**, with a paragraph for the board. **Copy board summary** copies that paragraph; **Download ledger (CSV)** gives every entry. **Change the approval** sets the amount and the line under it.
-- **Budget Lines** shows each line's budget and how it was covered: sponsored, paid from the approval, or paid from other Past Lives funds, with a status of Open, Sponsored, Purchased or Mixed. **Add a budget line** adds one; **Edit** on a line changes its name, category or budget. A line with entries in the ledger cannot be deleted.
-
-To log a sponsor or an expense:
-
-1. Under **Log a Sponsor or Expense**, choose what happened: **Sponsored or donated**, **Paid from board $900**, **Paid from other PLM funds**, or **Refund back to $900** (the amount follows the approval).
-2. Pick the **Budget line**, type the sponsor, vendor or who refunded it, the value or amount, and the date.
-3. For a purchase or a refund, add the receipt: click the box or drag a photo or PDF onto it. On a phone, tap it to take a photo. A JPG, PNG, WEBP or HEIC photo (up to 10 MB) or a PDF (up to 25 MB) works.
-4. Click **Add to ledger**.
-
-The **Ledger** lists every entry, newest first, with filters for each kind. A purchase or refund with no receipt shows **Needs receipt**; click **Add** to upload it. **Delete** takes an entry out, receipt and all.
-
-**Download receipts report** opens every purchase and refund with its receipt on one page, oldest first, under the approval's totals. Click **Print or save as PDF** to print it or keep it for the books.
-
-### Drink Sales and Wine Wall Tickets {#hq-ledger-bar}
-
-**Drink Sales** shows the drinks sold, the sales against last year's, what the bar cost (the Drinks budget lines) and the bar's profit, with how many more beers would cover the cost.
-
-1. Under **Quick add during the event**, choose **Paid by**: Card, Cash, $5 RSVP credit or Other.
-2. Tap **+1** on the drink sold, once per drink. The counts and the table update as you go.
-3. Tapped the wrong one? **Undo last** takes back your own newest tap.
-
-**Log a batch** adds a shift's total, the tip jar or a cash box count: pick the drink (or **Mixed / total only**), how many and the total collected. Leave the total blank to use the price times how many; a mixed batch needs its total. **Set drink prices** changes the four prices and last year's bar sales. **Delete** on a sale takes it out, and **Download drink sales (CSV)** gives every sale with the totals last.
-
-**Wine Wall** shows the bottles and their value from the wine wall itself (bottles are logged there, not here), what the tickets would raise at the goal, and how many donors have been thanked. Type the **single tickets** and **2-ticket deals** sold and click **Update**; **Set ticket prices** changes the two prices.
-
-The **Raised** goal on the HQ page adds up the sponsor money received, the drink sales and the wine wall tickets by itself.
-
-### Organiser Tools {#hq-organiser-tools}
-
-Admins and the people named on a card run what is behind it.
-
-- **Roster**: at the foot of the volunteer page, and on its own page, everyone signed up with their shifts, email, phone, permit and note. **Copy emails** puts every address on your clipboard. **Download CSV** gives one row per person per shift.
-- **Wine Donors to Thank**: at the foot of the wine wall, and on its own page, every giver with their type, email, sponsor listing, bottles and who logged them. Click **Mark thanked** once their thank-you is sent; click it again to undo. A bottle worth less than one wine wall ticket is flagged **Under $25** (the ticket price). **Copy donor emails** and **Download CSV** work the same way, one row per giver.
-- **Add a Logo**: on the wine wall, organisers upload a logo for any winery named on a bottle. A new logo replaces the one under the same name.
-
-### Editing the HQ (Admins) {#hq-edit}
-
-Before the HQ exists, an admin who opens it (from **Admin Tools**, **Holiday Bizarre HQ**) gets one button, **Load Lee's HQ**, which puts her nine doors, five goals and 21 volunteer shifts on the site, every door admins only.
-
-Admins see an **Edit HQ** button at the top of the page and an **Edit** link under each card.
-
-**Edit HQ** sets the page: the title, the address, the eyebrow line, the calendar event (its date and place fill the top band), the hero image, the intro, the footer note, and the goals. The **Open** switch is what puts the HQ behind the sidebar entry and `/hq/`; only one HQ can be open at a time. A closed HQ is reachable by admins only, so you can build it before anyone sees it.
-
-**Edit** on a card sets the words on it, who may open it, and its place in the order:
-
-- **Who May Open It**: **Admins only** (the default), **Members** (signed-in active members), or **Everyone, signed in or not**.
-- **Named members**: people who may open the card whatever its audience, and who get the organiser tools behind it. Click **Edit** on the row, tick names, then **Done**.
-- **Hidden** keeps the card to admins, with a Hidden chip.
-- **Move up** and **Move down** change the order on the page.
-
-The **Volunteer Sign-up** card's page also carries the shifts: add one, change what it says or how many people it needs, or delete one nobody has signed up for.
-
-When a new page is ready, **Update the doors** at the top of **Edit HQ** opens it: the greyed card becomes the live door, keeping who may open it, its named members and its place. Card words nobody has edited take Lee's latest; anything you edited stays. It also adds any of Lee's counted goals the HQ is missing, such as **Member tables**, at the end of the goal row. A counted goal you deleted comes back the next time you press it; a goal you type in yourself, like **Raised**, is never added back.
-
-The sidebar entry's switch is at **Site Settings > Features**.
-""",
-        "screenshots": [],
     },
     # ------------------------------------------------------------------
     # events-community / propose-an-event (sort 20)

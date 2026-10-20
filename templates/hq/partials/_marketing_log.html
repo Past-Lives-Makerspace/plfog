@@ -29,7 +29,7 @@ through the confirm modal.
   </section>
 
   {% if can_organize %}
-  <section class="pl-hq-mk__section" aria-labelledby="hq-mk-form-title" data-help-key="hq.marketing">
+  <section class="pl-hq-mk__section" aria-labelledby="hq-mk-form-title">
     <form method="post" action="{% url 'hq:marketing_add' hub.slug %}" hx-post="{% url 'hq:marketing_add' hub.slug %}" hx-target="closest [data-hq-mk-log]" hx-swap="outerHTML" class="pl-hq-mk__card pl-hq-mk__form" data-hq-mk-form>
       {% csrf_token %}
       <h2 class="pl-hq-mk__card-title" id="hq-mk-form-title">Log a Marketing Action</h2>

@@ -1,0 +1,8 @@
+{% comment %}
+The htmx answer to a door tap (the clicker swaps nothing in place): Attendance and vendors' figures, then the tally,
+the goals, the board paragraph and Staff time's figures, each out of band in a template tag.
+
+  as hq/partials/_ledger_people_stats.html and hq/partials/_ledger_figures_oob.html
+{% endcomment %}
+<template>{% include "hq/partials/_ledger_people_stats.html" with oob=True %}</template>
+{% include "hq/partials/_ledger_figures_oob.html" %}

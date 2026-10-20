@@ -1,0 +1,7 @@
+{% comment %}
+Lee's line beside the launch checklist's heading: "3 of 8 done", or "Getting the word out" with no tasks.
+
+  launch_totals — required, a hq.services.LaunchTotals
+  oob           — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<span class="pl-hq-lg__muted pl-hq-lg__helper" id="hq-lg-launch-summary" data-hq-lg-launch-summary{% if oob %} hx-swap-oob="true"{% endif %}>{{ launch_totals.summary }}</span>

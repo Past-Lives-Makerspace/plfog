@@ -531,6 +531,10 @@ def _doors(**overrides: Any) -> services.DoorFigures:
         "cash": figures.cash,
         "bar": figures.bar,
         "tickets": figures.tickets,
+        "vendors": figures.vendors,
+        "guilds": figures.guilds,
+        "staff": figures.staff,
+        "attendance": figures.attendance,
     }
     values.update(overrides)
     return services.DoorFigures(**values)
@@ -610,8 +614,8 @@ def describe_the_board_summary():
         text = services.board_summary(services.ledger_band(hub), services.door_figures(hub))
 
         assert "Flyers are up at 1 location." in text
-        assert "Volunteers: 1 person gave 1 hours to event prep." in text
-        assert text.endswith("Wine wall: 1 bottles donated, worth $20.")
+        assert "Volunteers: 1 person gave 1 hour to event prep." in text
+        assert text.endswith("Wine wall: 1 bottle donated, worth $20.")
 
     def it_shows_lees_empty_line_until_the_ledger_has_an_entry_but_copies_the_paragraph(hub, lee_client):
         SponsorFactory(hub=hub, status="received", amount_cents=10_000)
@@ -620,7 +624,7 @@ def describe_the_board_summary():
 
         assert f"data-hq-lg-summary>{services.LEDGER_EMPTY_SUMMARY}</p>" in body
         assert "Holiday Bizarre drinks: the board approved $900." in body  # the hidden box Copy reads
-        assert 'x-ref="summary"' in body
+        assert "data-hq-lg-summary-box>Holiday Bizarre drinks" in body
         assert "Board summary copied." in body
 
     def it_shows_the_paragraph_once_there_is_an_entry(hub, kegs, lee_client):
@@ -1172,7 +1176,6 @@ def describe_logging_an_entry():
         assert 'enctype="multipart/form-data" hx-boost="false"' in body
         assert f'value="{timezone.localdate():%Y-%m-%d}"' in body
         assert f'max="{LEDGER_MAX_DOLLARS}"' in body
-        assert 'data-help-key="hq.ledger"' in body
 
     def it_labels_a_refused_refund_in_its_own_words_with_the_receipt_open(hub, kegs, lee_client):
         response = lee_client.post(_url("ledger_entry_add", hub), _entry_post(kegs, kind=K.REFUND, source=""))

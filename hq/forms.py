@@ -2,7 +2,8 @@
 Bottle and winery logo, the Marketing Tracker's Log a Marketing Action, the Sponsorship Tracker's add form, inline
 edit and contact log line, Vendor Tables' add form, row edit and space map capacity, and the Market Check-in's report
 and hours, the flyer page's upload and links, and the PL Ledger's: the approval, budget lines, entries and receipts
-(D6a), and the bar sales, drink prices and wine wall tickets (D6b)."""
+(D6a), the bar sales, drink prices and wine wall tickets (D6b), and the door clicker, launch checklist, staff time and
+guild demos (D6c)."""
 
 from __future__ import annotations
 
@@ -31,14 +32,17 @@ from hq.models import (
     BarDrink,
     BarPay,
     BudgetLine,
+    DOOR_STEPS,
     EventHub,
     FlyerSlot,
+    GuildDemo,
     HubCard,
     HubFlyer,
     HOURS_MAX,
     HOURS_MIN,
     HOURS_STEP,
     HubGoal,
+    LaunchTask,
     LedgerEntry,
     LedgerKind,
     LedgerSettings,
@@ -47,6 +51,7 @@ from hq.models import (
     ShiftSignup,
     Sponsor,
     SponsorTier,
+    StaffTime,
     VendorTable,
     VolunteerHours,
     VolunteerShift,
@@ -838,14 +843,25 @@ HOURS_ERROR = "Enter hours between 0.25 and 24."
 HOURS_STEP_ERROR = "Enter hours in quarter hours, like 1.25 or 2.5."
 
 
-class VolunteerHoursForm(forms.ModelForm):
-    """Volunteers: log your hours. The date (Portland today), the hours in quarter hours, the task and a note.
+def quarter_hours(hours: Decimal) -> Decimal:
+    """``hours`` held to :data:`hq.models.HOURS_MIN` to :data:`hq.models.HOURS_MAX` in quarter hours, at two places.
 
-    The hours are held to :data:`hq.models.HOURS_MIN` to :data:`hq.models.HOURS_MAX` in ``clean_hours`` rather
-    than by the field's own validators, so one bad figure reads as one message, in Lee's words.
+    The volunteer hours (D4) and the staff time (D6c) share it, so one bad figure reads as one message in Lee's words.
+
+    Raises:
+        ValidationError: :data:`HOURS_ERROR` out of range, :data:`HOURS_STEP_ERROR` off the quarter hour.
     """
+    if not HOURS_MIN <= hours <= HOURS_MAX:
+        raise ValidationError(HOURS_ERROR)
+    if hours % HOURS_STEP:
+        raise ValidationError(HOURS_STEP_ERROR)
+    # A quarter hour typed with trailing zeros ("2.500") is the same figure; the column holds two places.
+    return hours.quantize(Decimal("0.01"))
 
-    hours = forms.DecimalField(
+
+def _hours_field(placeholder: str) -> forms.DecimalField:
+    """The hours box: a quarter hour up to a day, checked by :func:`quarter_hours` for Lee's one message."""
+    return forms.DecimalField(
         label="Hours",
         error_messages={"required": HOURS_ERROR, "invalid": HOURS_ERROR},
         widget=forms.NumberInput(
@@ -854,10 +870,20 @@ class VolunteerHoursForm(forms.ModelForm):
                 "max": str(HOURS_MAX),
                 "step": str(HOURS_STEP),
                 "inputmode": "decimal",
-                "placeholder": "e.g. 2.5",
+                "placeholder": placeholder,
             }
         ),
     )
+
+
+class VolunteerHoursForm(forms.ModelForm):
+    """Volunteers: log your hours. The date (Portland today), the hours in quarter hours, the task and a note.
+
+    The hours are held to :data:`hq.models.HOURS_MIN` to :data:`hq.models.HOURS_MAX` in ``clean_hours`` rather
+    than by the field's own validators, so one bad figure reads as one message, in Lee's words.
+    """
+
+    hours = _hours_field("e.g. 2.5")
 
     class Meta:
         model = VolunteerHours
@@ -874,13 +900,7 @@ class VolunteerHoursForm(forms.ModelForm):
             field.help_text = ""
 
     def clean_hours(self) -> Decimal:
-        hours: Decimal = self.cleaned_data["hours"]
-        if not HOURS_MIN <= hours <= HOURS_MAX:
-            raise ValidationError(HOURS_ERROR)
-        if hours % HOURS_STEP:
-            raise ValidationError(HOURS_STEP_ERROR)
-        # A quarter hour typed with trailing zeros ("2.500") is the same figure; the column holds two places.
-        return hours.quantize(Decimal("0.01"))
+        return quarter_hours(self.cleaned_data["hours"])
 
     def kept_for_next(self) -> dict[str, Any]:
         """What the next entry starts with after a save: the same date and task; the hours and note clear."""
@@ -1399,4 +1419,168 @@ class BarBatchForm(forms.Form):
             "amount_cents": self.cleaned_data["amount_cents"],
             "pay": self.cleaned_data["pay"],
             "note": self.cleaned_data["note"],
+        }
+
+
+# ---- PL Ledger, team and tally (Track D, part 6c) ----
+
+# The datalist the launch checklist's Owner, the staff time's Who and the guild demos' Contacted by suggest from: the
+# ledger card's named members.
+LEDGER_TEAM_LIST_ID = "hq-lg-team"
+
+
+class DoorCountForm(forms.Form):
+    """One tap on the door clicker: the button pressed, +1, +5, +10 or Undo 1 (-1)."""
+
+    delta = forms.TypedChoiceField(coerce=int, choices=[(str(step), f"{step:+d}") for step in DOOR_STEPS])
+
+
+class _RowStamp(forms.ModelForm):
+    """A row's edit form that carries the row's ``updated_at`` as the page saw it and ties every control to the row's
+    ``<form>`` by its ``form`` attribute (``form_id``), since a form cannot wrap a table row. Each label names the row
+    (``row_name``). :meth:`seen` is the stamp its service holds a Save to, refusing one from a page older than the
+    row."""
+
+    updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
+
+    def __init__(self, *args: Any, form_id: str, row_name: str, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.form_id = form_id
+        self.fields["updated_at"].initial = self._stamp
+        for name in self._meta.fields or ():
+            field = self.fields[name]
+            field.help_text = ""
+            field.widget.attrs["form"] = form_id
+            field.label = f"{field.label} for {row_name}"
+
+    @property
+    def _stamp(self) -> str:
+        return self.instance.updated_at.isoformat()
+
+    def seen(self) -> str:
+        """The row's ``updated_at`` as this page was rendered with it."""
+        return str(self.cleaned_data["updated_at"])
+
+    def to_fields(self) -> dict[str, Any]:
+        return {name: self.cleaned_data[name] for name in self._meta.fields or ()}
+
+
+_TEAM_INPUT = {"list": LEDGER_TEAM_LIST_ID, "autocomplete": "off"}
+
+
+class LaunchTaskForm(forms.ModelForm):
+    """Add a task: Lee's three fields, the task, its owner (the team suggested) and when it is due."""
+
+    class Meta:
+        model = LaunchTask
+        fields = ["task", "owner", "due"]
+        labels = {"task": "Task", "owner": "Owner", "due": "Due"}
+        widgets = {
+            "task": forms.TextInput(attrs={"placeholder": "e.g. Post on Nextdoor"}),
+            "owner": forms.TextInput(attrs={**_TEAM_INPUT, "placeholder": "e.g. Amy"}),
+            "due": forms.DateInput(format="%Y-%m-%d", attrs=_DATE_PICKER),
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.help_text = ""
+
+    def to_fields(self) -> dict[str, Any]:
+        return {name: self.cleaned_data[name] for name in self._meta.fields or ()}
+
+
+class LaunchTaskEditForm(_RowStamp):
+    """One line of the launch checklist, saved with one Save: the task, owner, status, due date and the link once
+    live (http or https)."""
+
+    link = forms.URLField(
+        max_length=500,
+        required=False,
+        label="Link",
+        validators=_WEB_LINK,
+        widget=forms.URLInput(attrs={"placeholder": "Paste link when live"}),
+    )
+
+    class Meta:
+        model = LaunchTask
+        fields = ["task", "owner", "status", "due", "link"]
+        labels = {"task": "Task", "owner": "Owner", "status": "Status", "due": "Due"}
+        widgets = {
+            "owner": forms.TextInput(attrs={**_TEAM_INPUT, "placeholder": "Who"}),
+            "due": forms.DateInput(format="%Y-%m-%d", attrs=_DATE_PICKER),
+        }
+
+
+class StaffTimeForm(forms.ModelForm):
+    """Log staff time: Lee's five fields. Who suggests the team; the hours are a quarter hour up to a day."""
+
+    hours = _hours_field("e.g. 1.5")
+
+    class Meta:
+        model = StaffTime
+        fields = ["who", "date", "hours", "area", "note"]
+        labels = {"who": "Who", "date": "Date", "area": "Work area", "note": "What you did"}
+        widgets = {
+            "who": forms.TextInput(attrs={**_TEAM_INPUT, "placeholder": "e.g. Lee"}),
+            "date": forms.DateInput(format="%Y-%m-%d", attrs=_DATE_PICKER),
+            "note": forms.TextInput(attrs={"placeholder": "e.g. Built the ledger and sponsorship tracker"}),
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.help_text = ""
+
+    def clean_hours(self) -> Decimal:
+        return quarter_hours(self.cleaned_data["hours"])
+
+    def to_fields(self) -> dict[str, Any]:
+        return {name: self.cleaned_data[name] for name in self._meta.fields or ()}
+
+    def kept_for_next(self) -> dict[str, Any]:
+        """What the next entry starts with after a save: the same who, date and area; the hours and note clear."""
+        return {key: self.cleaned_data[key] for key in ("who", "date", "area")}
+
+
+class GuildDemoAddForm(forms.Form):
+    """Add a guild: one of the active guilds not on the list yet (``guilds``, read once by the view) and its lead,
+    which defaults to the guild's own lead when left blank."""
+
+    guild = forms.TypedChoiceField(coerce=int, label="Guild")
+    lead = forms.CharField(
+        max_length=120,
+        required=False,
+        label="Guild lead",
+        widget=forms.TextInput(attrs={"placeholder": "Their guild lead if blank"}),
+    )
+
+    def __init__(self, *args: Any, guilds: Sequence[Guild], **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._guilds = {guild.pk: guild for guild in guilds}
+        self.fields["guild"].choices = [(guild.pk, guild.name) for guild in guilds]  # type: ignore[attr-defined]  # a TypedChoiceField
+
+    def clean_guild(self) -> Guild:
+        pk: int = self.cleaned_data["guild"]
+        return self._guilds[pk]
+
+
+class GuildDemoEditForm(_RowStamp):
+    """One guild on the list, saved with one Save: its lead, whether it was contacted and by whom, whether it demos,
+    and what."""
+
+    class Meta:
+        model = GuildDemo
+        fields = ["lead", "contacted", "contacted_by", "demo", "note"]
+        labels = {
+            "lead": "Guild lead",
+            "contacted": "Contacted",
+            "contacted_by": "Contacted by",
+            "demo": "Demo planned",
+            "note": "What they'll demo",
+        }
+        widgets = {
+            "lead": forms.TextInput(attrs={"placeholder": "Name"}),
+            "contacted_by": forms.TextInput(attrs={**_TEAM_INPUT, "placeholder": "Who reached out"}),
+            "note": forms.TextInput(attrs={"placeholder": "What they'll demo"}),
         }

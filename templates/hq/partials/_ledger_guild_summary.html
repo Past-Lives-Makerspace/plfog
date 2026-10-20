@@ -1,0 +1,7 @@
+{% comment %}
+Lee's line beside Guild demos: "X of N contacted · D demos planned" (N the active guilds), or her lede before any row.
+
+  guild_summary — required, the line
+  oob           — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<span class="pl-hq-lg__muted pl-hq-lg__helper" id="hq-lg-guild-summary" data-hq-lg-guild-summary{% if oob %} hx-swap-oob="true"{% endif %}>{{ guild_summary }}</span>

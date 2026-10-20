@@ -388,7 +388,7 @@ def describe_adding_a_request():
         assert (table.status, table.table_no, table.created_by) == (S.REQUESTED, "", kate)
         assert "data-hq-vt-board" in body
         assert "data-hq-vt-subline" not in body
-        assert 'open data-hq-vt-add data-help-key="hq.vendor-tables"' in body
+        assert "open data-hq-vt-add" in body
         assert f'data-hq-vt-row="{table.pk}"' in body
 
     def it_puts_a_new_request_on_the_waitlist_once_the_confirmed_tables_fill_the_map(hub, kate_client):
@@ -977,7 +977,7 @@ def describe_the_member_tables_goal():
         assert "0 <small>of 100</small></strong>" in body
 
     def it_is_one_of_lees_goals_with_no_target(hub):
-        member_tables = GOALS[-1]
+        member_tables = next(goal for goal in GOALS if goal.kind == HubGoal.Kind.MEMBER_TABLES)
 
         assert (member_tables.label, member_tables.kind, member_tables.target) == (
             "Member tables",

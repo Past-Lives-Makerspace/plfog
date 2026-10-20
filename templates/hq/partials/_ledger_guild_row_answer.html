@@ -1,0 +1,11 @@
+{% comment %}
+The htmx answer to a guild row's Save: the row's tbody (saved, or refused with its errors) for the target, then the
+summary, the tally, the goals and the board paragraph out of band in template tags.
+
+  hub, guild_row — as hq/partials/_ledger_guild_row.html
+  guild_summary  — required, Lee's line beside the heading
+  the figures' context (hq/partials/_ledger_figures_oob.html)
+{% endcomment %}
+{% include "hq/partials/_ledger_guild_row.html" %}
+<template>{% include "hq/partials/_ledger_guild_summary.html" with oob=True %}</template>
+{% include "hq/partials/_ledger_figures_oob.html" %}

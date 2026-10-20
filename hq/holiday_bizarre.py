@@ -1,4 +1,4 @@
-"""Lee's Holiday Bizarre HQ as data: the hub, its nine doors, five goals, 21 volunteer shifts, the sponsor tiers, the
+"""Lee's Holiday Bizarre HQ as data: the hub, its nine doors, six goals, 21 volunteer shifts, the sponsor tiers, the
 vendor setup windows, the Market Check-in's words, the flyer page's and the ledger's.
 
 ``manage.py seed_holiday_bizarre`` writes these rows for a published calendar event; correcting
@@ -10,14 +10,16 @@ The nine doors live beside the model that seeds them (:data:`hq.models.DEFAULT_C
 words each was first seeded with, so a re-run can tell Lee's untouched words from an admin's);
 :data:`CARDS` is that same tuple, so the two never drift.
 The shifts are Lee's sign-up sheet, phase by phase, in her words; the two bartender shifts
-need an Oregon OLCC service permit. The goals are her tracker, all five counted live from the pages
+need an Oregon OLCC service permit. The goals are her tracker, all six counted live from the pages
 behind the doors: Raised is the event cash (sponsors received, bar sales and wine wall tickets; a
 money goal, in whole dollars, as every ``HubGoal`` money figure is; Felix, 2026-10-20), and Member
-tables has no target, so it shows as a plain count. The sponsor tiers are her draft "what they get" table on the Sponsorship Tracker, row for
+tables and Guilds taking part (the guilds with a demo planned on the ledger, D6c) have no target, so each shows as a
+plain count. The sponsor tiers are her draft "what they get" table on the Sponsorship Tracker, row for
 row. The vendor setup windows are the Setup day choices on Vendor Tables and its band's note. The check-in
 words are the Market Check-in's thank-you line and footer. The flyer words are her member event page's: the message
 to send friends (the default an organiser edits), Coming soon, the line under Help spread the word and last year's. The
-ledger words are her ledger page's title, the line under it and the hint under the receipt upload.
+ledger words are her ledger page's title, the line under it and the hint under the receipt upload, and (D6c) her
+running tally's, the door clicker's and the No double entry lines, reworded for the portal.
 """
 
 from __future__ import annotations
@@ -80,6 +82,7 @@ GOALS: tuple[GoalContent, ...] = (
     GoalContent(label="Volunteer spots", kind=HubGoal.Kind.VOLUNTEER_SPOTS, target=82),
     GoalContent(label="RSVPs", kind=HubGoal.Kind.RSVPS, target=250),
     GoalContent(label="Member tables", kind=HubGoal.Kind.MEMBER_TABLES, target=0),
+    GoalContent(label="Guilds taking part", kind=HubGoal.Kind.GUILDS, target=0),
 )
 
 # The 21 shifts of Lee's sheet. Their needs add up to the Volunteer spots goal (82).
@@ -354,3 +357,26 @@ LEDGER_INTRO = (
     "receipts."
 )
 LEDGER_RECEIPT_HINT = "On your phone, tap to take a photo of the receipt."
+
+
+# The running tally at the top of the ledger (D6c), in Lee's words: the eyebrow, the title (its last word in gold) and
+# the countdown's labels. The days come from ``EventHub.countdown_parts``; the day-of lines read the event's start.
+TALLY_EYEBROW = "The running tally"
+TALLY_TITLE = "Look what we're building"
+TALLY_TITLE_GOLD = "together"
+TALLY_DAYS = "days to the Bizarre"
+TALLY_TOMORROW = "day to go. Tomorrow!"
+TALLY_DOORS_AT = "Doors at {time}"
+TALLY_LIVE = "We're live!"
+TALLY_DONE = "Done"
+TALLY_THANKS = "Thank you, everyone"
+# Lee's flyer nudge stops once this many businesses have the flyer up.
+TALLY_FLYER_NUDGE_UNDER = 25
+
+# Attendance and vendors: Lee's line beside the door clicker, and her No double entry note in the portal's words (each
+# list lives on its own door; the figures here are read from those doors as they change, never copied in).
+# The clicker counts walk-ins only: an RSVP checks in on the event's Guest list, and attendance adds the two.
+# ``{guest_list}`` is the Guest list's name, a link to Manage Events' Guest list tab when the viewer may open it.
+DOOR_CLICKER_HINT = "Tap for each walk-in without an RSVP. RSVPs check in on the {guest_list}."
+DOOR_GUEST_LIST = "Guest list"
+NO_DOUBLE_ENTRY_TITLE = "No double entry: each list lives on one page"

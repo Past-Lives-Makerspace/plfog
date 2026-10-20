@@ -264,7 +264,6 @@ def describe_logging_an_action():
         )
         assert 'placeholder="e.g. Anjali"' in body
         assert 'placeholder="e.g. Reel: Metal Guild sparks demo teaser"' in body
-        assert 'data-help-key="hq.marketing"' in body
 
     def it_is_dated_portland_today_by_default(card):
         action = MarketingAction.objects.create(hub=card.hub, details="Listing on the Mercury calendar")

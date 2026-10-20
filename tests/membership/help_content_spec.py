@@ -105,7 +105,6 @@ def describe_help_content():
                 "guild-voting": "guilds",
                 "taking-a-class": "classes",
                 "community-calendar": "events-community",
-                "holiday-bizarre-hq": "events-community",
                 "propose-an-event": "events-community",
                 "announcements": "events-community",
                 "member-directory": "events-community",
@@ -154,7 +153,7 @@ def describe_help_content():
                 f"UNLISTED_SLUGS names unknown articles: {sorted(help_content.UNLISTED_SLUGS - known)}"
             )
 
-        def it_covers_all_eight_legacy_slugs():
+        def it_covers_the_eight_legacy_slugs_and_the_retired_guides():
             assert set(help_content.LEGACY_SLUG_MAP) == {
                 "guilds-and-guild-pages",
                 "guild-voting",
@@ -164,7 +163,15 @@ def describe_help_content():
                 "the-community-calendar",
                 "connecting-discord",
                 "notifications-and-your-settings",
+                "holiday-bizarre-hq",
             }
+
+        def it_keeps_the_holiday_bizarre_hq_retired():
+            # Felix, 2026-10-20: no Help Center guide for the HQ. Listing it here is
+            # what makes seed_help_center unpublish the row production still has.
+            seeded = {article["slug"] for article in _articles()}
+            assert "holiday-bizarre-hq" not in seeded
+            assert help_content.LEGACY_SLUG_MAP["holiday-bizarre-hq"] == "community-calendar"
 
         def it_maps_legacy_slugs_to_seeded_or_pending_articles():
             # Pending targets (P2 — §10.3) are tolerated: the landing's legacy-anchor
