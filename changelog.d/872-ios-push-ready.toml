@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-20"
+title = "Push notifications on iPhone"
+changes = [
+  "Push notifications now work in the iPhone app as well as on Android. Update the app, then turn push on under Settings, Notifications.",
+  "If push cannot be turned on for your phone, Push On This Device now says so, with the reason, instead of saying it is on.",
+]
