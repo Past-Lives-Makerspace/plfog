@@ -86,9 +86,12 @@ class BookingRow:
     can_finish_paying: bool = False
     can_cancel_mine: bool = False
     can_pay_fee: bool = False
+    can_move: bool = False
     late_cancel_warning: str = ""
     #: The Waive modal's form, built only for a row that offers Waive Late Fee.
     waive_form: Any = None
+    #: The Move to Another Time modal's form (#853), built only for a row that offers it.
+    move_form: Any = None
 
     @property
     def has_oriented_item(self) -> bool:
@@ -230,6 +233,7 @@ def build_row(
     """
     from billing.forms import LateFeeWaiveForm
     from billing.models import LateCancellationFee
+    from hub.forms import OrientationMoveForm
     from membership.late_cancel import booking_cancel_warning, policy_for_type
 
     is_own = viewer is not None and booking.member_id == viewer.pk
@@ -259,6 +263,10 @@ def build_row(
             and fee.refundable_cents > 0
         )
         row.can_cancel = status == OrientationBooking.Status.CONFIRMED and upcoming
+        row.can_move = booking.is_movable
+        if row.can_move:
+            # Its own ids per row: every row's modal sits on one page (#853).
+            row.move_form = OrientationMoveForm(booking=booking, auto_id=f"id_move_{booking.pk}_%s")
         return row
     # The member menu: only ever on the viewer's own row (the staff rows are managed or own).
     row.can_finish_paying = is_own and status == OrientationBooking.Status.PENDING_PAYMENT

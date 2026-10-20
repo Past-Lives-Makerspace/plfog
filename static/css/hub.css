@@ -10077,6 +10077,34 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     gap: 0.75rem;
     flex-wrap: wrap;
 }
+/* Move to Another Time (#853): the respond page's panel, the move modal's lead line, and the
+   member's proposal block on the booking card. Theme tokens only. */
+.pl-orient-move-panel {
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.pl-orient-move-panel__proposal {
+    margin: 0 0 1rem;
+    padding-left: 0.75rem;
+    border-left: 3px solid var(--color-tuscan-yellow);
+    color: var(--hub-text);
+}
+.pl-orient-move__lead {
+    margin: 0 0 1rem;
+    color: var(--hub-text);
+}
+.pl-orient-proposal {
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-left: 3px solid var(--color-tuscan-yellow);
+    border-radius: 6px;
+    background: var(--hub-input-bg);
+}
+.pl-orient-proposal__text {
+    margin: 0 0 0.5rem;
+    font-size: 0.9rem;
+    color: var(--hub-text);
+}
 /* Part 3: the staff-facing fee card on the orientation respond page, the fee list on the
    equipment manage Reservations tab, and the Waive modal body. Theme tokens only. */
 .pl-late-fee-panel {

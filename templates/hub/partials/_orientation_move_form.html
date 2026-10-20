@@ -1,0 +1,22 @@
+{% comment %}
+The Move to Another Time modal body (#853): a new date and start, and the choice between
+Move it now and Ask the member first, posted to hub_orientation_move. Rendered inside
+components/modal.html through modal_body_include, so it reads the including context:
+move_booking (the OrientationBooking), move_form (an OrientationMoveForm built for it),
+move_next (the page to land back on, or "" for the request page) and move_modal_id (this
+modal's id, for Cancel). Nothing is refunded or charged on either road.
+{% endcomment %}
+{% load classes_tags %}
+<form method="post" action="{% url 'hub_orientation_move' move_booking.pk %}" class="pl-orient-move" data-orientation-move="{{ move_booking.pk }}">
+  {% csrf_token %}
+  {% if move_next %}<input type="hidden" name="next" value="{{ move_next }}">{% endif %}
+  <p class="pl-orient-move__lead">{{ move_booking.member.display_name }} is booked for {{ move_booking.slot.starts_at|date:"l, F j" }} at {{ move_booking.slot.starts_at|time:"g:i A" }}. Pick the new time.</p>
+  {% include "components/form_field.html" with field=move_form.date %}
+  {% include "components/form_field.html" with field=move_form.start_time %}
+  {% include "components/radio_group.html" with field=move_form.mode %}
+  <p class="pl-form-note" data-orientation-move-money>{% if move_booking.amount_paid_cents %}Their {{ move_booking.amount_paid_cents|cents_as_price }} payment stays with the booking. Nothing is refunded or charged.{% else %}Nothing is refunded or charged.{% endif %}</p>
+  <div class="pl-modal__actions">
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', '{{ move_modal_id }}')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary">Move Orientation</button>
+  </div>
+</form>

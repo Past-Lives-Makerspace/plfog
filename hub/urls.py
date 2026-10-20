@@ -204,6 +204,16 @@ urlpatterns = [
         name="hub_orientation_lead_cancel",
     ),
     path(
+        "orientation/bookings/<int:booking_pk>/move/",
+        views.orientation_move,
+        name="hub_orientation_move",
+    ),
+    path(
+        "orientation/bookings/<int:booking_pk>/new-time/",
+        views.orientation_proposal_answer,
+        name="hub_orientation_proposal_answer",
+    ),
+    path(
         "orientation/bookings/<int:booking_pk>/cancel/",
         views.orientation_cancel_mine,
         name="hub_orientation_cancel_mine",

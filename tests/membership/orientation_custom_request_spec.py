@@ -33,7 +33,7 @@ def _future() -> datetime:
 
 
 def describe_request_custom_orientation():
-    def it_creates_a_manual_single_seat_slot_sized_by_the_type_and_requests_it():
+    def it_creates_a_custom_single_seat_slot_sized_by_the_type_and_requests_it():
         guild = GuildFactory()
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True, allow_custom_requests=True)
         orientation_type = OrientationTypeFactory(
@@ -50,7 +50,7 @@ def describe_request_custom_orientation():
         assert booking.orientation_type == orientation_type
         slot = booking.slot
         assert slot.orientation_type == orientation_type
-        assert slot.source == OrientationSlot.Source.MANUAL
+        assert slot.source == OrientationSlot.Source.CUSTOM
         assert slot.seats == 1
         assert slot.location == "Front desk"
         assert slot.ends_at == starts + timedelta(minutes=90)

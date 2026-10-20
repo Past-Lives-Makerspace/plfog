@@ -1,7 +1,7 @@
 {% comment %}
 A member's live state on one orientation type (#502): the checkout hold (Payment pending,
 Resume payment, Cancel) or the booking (Requested or Confirmed, when and where, Cancel my
-orientation), with their confirm modals. One copy for the guild page, the equipment page
+orientation, plus Accept and Keep for a new time the guild asked for, #853), with their confirm modals. One copy for the guild page, the equipment page
 and the Orientations page card, so the three never drift. Context:
   sec      — a section from hub.views._orientation_sections (type, hold, booking,
              late_cancel_warning); renders nothing unless sec.hold or sec.booking is set
@@ -47,6 +47,29 @@ Both owner wordings come from sec.type.is_equipment_owned.
 {% endif %}
 {% if sec.booking.amount_paid_cents %}
 <p class="pl-orient-card__note">Paid {{ sec.booking.amount_paid_cents|cents_as_price }}. Automatic refund if this is declined or cancelled.</p>
+{% endif %}
+{% if sec.booking.has_open_proposal %}
+{# A new time the guild or the managers asked for (#853): Accept moves and confirms it, Keep stays put. #}
+<div class="pl-orient-proposal" data-orientation-proposal="{{ sec.booking.pk }}">
+  <p class="pl-orient-proposal__text">{% if sec.type.is_equipment_owned %}A manager{% else %}The guild{% endif %} asked to move this to <strong>{{ sec.booking.proposed_starts_at|date:"l, F j" }} at {{ sec.booking.proposed_starts_at|time:"g:i A" }}</strong>. Your time stays the same until you answer.</p>
+  <div class="pl-orient-card__actions">
+    {% url 'hub_orientation_proposal_answer' sec.booking.pk as answer_url %}
+    <form method="post" action="{{ answer_url }}">
+      {% csrf_token %}
+      <input type="hidden" name="answer" value="accept">
+      <input type="hidden" name="proposal" value="{{ sec.booking.proposal_key }}">
+      {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+      <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm" data-proposal-accept>Accept new time</button>
+    </form>
+    <form method="post" action="{{ answer_url }}">
+      {% csrf_token %}
+      <input type="hidden" name="answer" value="keep">
+      <input type="hidden" name="proposal" value="{{ sec.booking.proposal_key }}">
+      {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+      <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm" data-proposal-keep>Keep my current time</button>
+    </form>
+  </div>
+</div>
 {% endif %}
 <div class="pl-orient-card__actions">
   <button type="button" class="hub-btn hub-btn--sm hub-btn--danger" data-help-key="orientation.cancel-booking" @click="$dispatch('open-confirm', 'cancel-my-orientation-{{ sec.booking.pk }}')">Cancel my orientation</button>
