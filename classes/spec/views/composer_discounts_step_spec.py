@@ -90,7 +90,8 @@ def describe_the_step_count():
     def it_reads_the_step_count_from_the_map(client, instructor):
         client.force_login(instructor.user)
         html = client.get(reverse(CREATE)).content.decode()
-        assert f"of {STEP_COUNT}</p>" in html
+        # The phone step picker's "n of N", painted by the server before Alpine runs.
+        assert f'x-text="positionText()">1 of {STEP_COUNT}</span>' in html
         assert f"{STEP_COUNT} steps." in html
         assert f'data-step-tab="{STEP_COUNT}"' in html
         assert f'data-composer-step="{STEP_COUNT}" x-show="phase === {STEP_COUNT}"' in html
@@ -108,7 +109,6 @@ def describe_the_step_count():
             assert literal not in source, literal
         for read in (
             "{{ step_count }} steps.",
-            "of {{ step_count }}</p>",
             'data-composer-step="{{ step_count }}" x-show="phase === {{ step_count }}"',
             'x-show="phase < {{ step_count }}"',
         ):

@@ -52,7 +52,7 @@ _CLOSES = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#\d+", re
 #: path such as ``mockups/screenshots/x.png`` resolves against the pull request URL and shows a
 #: broken image, however correct it looks in the repo's own Markdown.
 _IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)")
-_RAW_URL = "https://raw.githubusercontent.com/Past-Lives-Makerspace/plfog/<branch>/mockups/screenshots/<file>"
+_RAW_URL = "https://raw.githubusercontent.com/Past-Lives-Makerspace/plfog/<commit>/mockups/screenshots/<file>"
 
 
 def _sections(body: str) -> dict[str, str]:
@@ -95,7 +95,7 @@ def part_error(problem: str) -> str | None:
 def picture_link_errors(text: str) -> list[str]:
     """One error per image whose target would not render in a PR description.
 
-    Only an absolute ``http(s)`` target renders there: the raw file on the branch, or an upload
+    Only an absolute ``http(s)`` target renders there: the raw file at a commit, or an upload
     GitHub hosted. A relative path is what the repo's own Markdown would use, and it was the
     rule here until PR #542 shipped two broken images.
     """
@@ -104,7 +104,7 @@ def picture_link_errors(text: str) -> list[str]:
         if not target.lower().startswith(("http://", "https://")):
             errors.append(
                 f"The image `{target}` is a relative link, which shows as a broken image in a PR "
-                f"description. Link the raw file on the branch instead: `{_RAW_URL}`."
+                f"description. Link the raw file at the commit that added it instead: `{_RAW_URL}`."
             )
     return errors
 

@@ -1,5 +1,6 @@
 {% load static %}
 {% load classes_tags %}
+{% load tab_picker %}
 {% comment %}The description is a rich-text editor (core.widgets.RichBodyEditorWidget). Quill and
 rich-editor-init.js load here, above the form, so the widget's own init line finds them and the
 editor is mounted while the page is still parsing: composer_draft.js reads its baseline from the
@@ -134,8 +135,10 @@ Do not merge them.
        goTo(n) {
          this.phase = n;
          this.$nextTick(() => {
+           {# Below 640px the bar is hidden behind the step picker, so the page comes back up to the picker instead. #}
            const tab = this.$root.querySelector('[data-step-tab=&quot;' + n + '&quot;]');
-           if (tab) { tab.scrollIntoView({ inline: 'center', block: 'nearest' }); }
+           const target = tab && tab.offsetParent ? tab : this.$root.querySelector('.pl-tab-picker');
+           if (target) { target.scrollIntoView({ inline: 'center', block: 'nearest' }); }
          });
        },
        next() {
@@ -176,17 +179,18 @@ Do not merge them.
      @input="if ($event.target.id === 'id_title') liveTitle = $event.target.value"
      @composer-goto-step.window="goTo($event.detail.step)">
 
-  <p class="pl-composer-count">Step <span x-text="phase"></span> of {{ step_count }}</p>
+  {% tab_picker "Class Steps" %}
   <div class="pl-phase-tabs" role="tablist" aria-label="Class steps">
     {% for tab in composer_tabs %}
     <button type="button" class="pl-phase-tab{% if tab.done %} pl-phase-tab--done{% endif %}" role="tab"
-            data-step-tab="{{ tab.step.number }}"
+            data-step-tab="{{ tab.step.number }}"{% if tab.step.number == initial_phase %} aria-selected="true"{% endif %}
             :aria-selected="phase === {{ tab.step.number }}"
             :aria-invalid="errorSteps.includes({{ tab.step.number }})"
             :class="{ 'pl-phase-tab--active': phase === {{ tab.step.number }}, 'pl-phase-tab--error': errorSteps.includes({{ tab.step.number }}) }"
             @click="goTo({{ tab.step.number }})">{{ tab.step.tab_label }}{% if tab.done %}<span class="pl-phase-tab__mark" aria-hidden="true" x-show="!errorSteps.includes({{ tab.step.number }})">&#10003;</span>{% endif %}<span class="pl-phase-tab__mark" aria-hidden="true" x-show="errorSteps.includes({{ tab.step.number }})" x-cloak>&#9679;</span></button>
     {% endfor %}
   </div>
+  {% endtab_picker %}
 
   {% comment %}
   Draft persistence (issue #368, item 3c). static/js/composer_draft.js picks the line and

@@ -2397,6 +2397,7 @@ select[multiple] option:checked {
 
 @media (max-width: 639.98px) {
     .pl-tabs:has(+ .pl-tab-picker),
+    .pl-phase-tabs:has(+ .pl-tab-picker),
     .pl-tabs:has(+ .pl-section-list),
     .pl-tabs:has(+ .pl-section-back) { display: none; }
 
@@ -2503,6 +2504,9 @@ select[multiple] option:checked {
 .pl-tab-picker__item-label { flex: 1; min-width: 0; }
 .pl-tab-picker__item-count { color: var(--hub-text-muted); font-size: 0.85rem; font-weight: 600; }
 .pl-tab-picker__check { flex: 0 0 auto; width: 18px; height: 18px; color: var(--hub-link); }
+/* A composer step's done tick or error dot, in the step bar's own colours. */
+.pl-tab-picker__item-mark { flex: 0 0 auto; font-size: 0.85rem; color: var(--pl-lifecycle-live); }
+.pl-tab-picker__item-mark--error { color: var(--pl-lifecycle-cancelled); }
 
 /* A class's Overview: every other section as a 56px row with a one line hint. */
 .pl-section-list {

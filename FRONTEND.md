@@ -172,7 +172,9 @@ The hub's `<details>` pattern: a bordered summary row with a title, an optional 
 
 ### Tab row and section picker (`{% tab_picker %}`)
 
-A row of tabs is the shared `.pl-tabs` strip of `.vote-tab` links (`aria-current="page"` on the current one) or in-page Alpine buttons. On a phone a long row hid most of its tabs off the right edge, so every top level row is wrapped in `{% tab_picker "<eyebrow>" %}` (`core/templatetags/tab_picker.py`, `{% load tab_picker %}`): the row renders exactly as written for 640px and up, and below 640px it hides and `components/tab_picker.html` takes its place, one row naming the group (the eyebrow), the current section and "n of N" that opens a list of every section. The picker reads its sections out of the row it wraps, so the `{% if %}`s that decide who gets which tab stay on the row and the two can never disagree; a row with fewer than two tabs gets no picker.
+**Rule: every row of tabs or steps is a section picker on a phone.** Write a new row inside `{% tab_picker %}` from the start, or, for tabs nested under another row, through `{% class_sections %}`. Never add a bare `.pl-tabs` row, a tab or step bar of your own, or any tab row that scrolls sideways on a phone: nobody can tell it scrolls, so the tabs past the edge go unseen (#852). `tests/components/tab_rows_spec.py` fails a template with a row outside the tag.
+
+A row of tabs is the shared `.pl-tabs` strip of `.vote-tab` links (`aria-current="page"` on the current one) or in-page Alpine buttons; a composer's step bar is `.pl-phase-tabs` of `.pl-phase-tab` buttons (the class and announcement composers), wrapped the same way. On a phone a long row hid most of its tabs off the right edge, so every top level row is wrapped in `{% tab_picker "<eyebrow>" %}` (`core/templatetags/tab_picker.py`, `{% load tab_picker %}`): the row renders exactly as written for 640px and up, and below 640px it hides and `components/tab_picker.html` takes its place, one row naming the group (the eyebrow), the current section and "n of N" that opens a list of every section. The picker reads its sections out of the row it wraps, so the `{% if %}`s that decide who gets which tab stay on the row and the two can never disagree; a row with fewer than two tabs gets no picker.
 
 ```html
 {% tab_picker "Guild Sections" %}
@@ -182,7 +184,8 @@ A row of tabs is the shared `.pl-tabs` strip of `.vote-tab` links (`aria-current
 
 - A row of links works with no script (`<details>`); a row of buttons is mirrored in the browser by `plTabPicker` (`static/js/tab_picker.js`), whose choices press the row's own button, so the pane switches as a desktop click would. Both close on Escape and on a tap outside.
 - Keep a count in the label as "Label (3)" or in a child whose class names a count (`pl-kiln-count`); the picker shows it apart.
-- Wrap only the row, not an `{% if %}` around it: the tag fails loudly when it wraps no `.pl-tabs` row.
+- Wrap only the row, not an `{% if %}` around it: the tag fails loudly when it wraps no `.pl-tabs` or `.pl-phase-tabs` row.
+- A step's done tick and error dot are children with a `__mark` class (`pl-phase-tab__mark`) with `aria-invalid` on the step; the picker lists them beside each step, never in its label.
 - A row nested under another (the per-class tabs under the Classes portal row) is not a picker: nested navigation must never look the same twice. The class screen's own tabs come from `{% class_sections %}` (`classes/_components/class_sections.html`), which on a phone shows a list of every other section with a one line hint on the Overview and a back row ("‹ Class Overview", where you are, "n of N") on every other tab.
 - Filter chips are not tabs: `.pl-wp-chiprow` scrolls by itself and never borrows `.pl-tabs`.
 

@@ -68,8 +68,8 @@ def _seed_draft(count: int) -> tuple[ClassOffering, list[ClassImage]]:
 
 
 def _open_gallery(page: Page, live_server, offering: ClassOffering) -> None:
-    page.goto(f"{live_server.url}{reverse('classes:teach_class_edit', kwargs={'pk': offering.pk})}")
-    page.locator('[data-step-tab="2"]').click()
+    # ?step=2 opens the Photos step at any width; on a phone the step bar is behind the section picker.
+    page.goto(f"{live_server.url}{reverse('classes:teach_class_edit', kwargs={'pk': offering.pk})}?step=2")
     expect(page.locator('[data-composer-step="2"]')).to_be_visible()
     expect(page.locator("#gallery-cover-hint")).to_be_visible()
 

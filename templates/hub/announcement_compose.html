@@ -1,5 +1,6 @@
 {% extends "hub/base.html" %}
 {% load static %}
+{% load tab_picker %}
 {% block title %}Compose announcement{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/announcement-compose.css' %}">
@@ -74,12 +75,14 @@
      @compose-count.window="recipientCount = audience === 'site' ? siteCount() : audience === 'instructor' ? instructorCount() : $event.detail.count"
      @compose-body.window="hasBody = $event.detail.has">
 
+  {% tab_picker "Compose Steps" %}
   <div class="pl-phase-tabs" role="tablist" aria-label="Compose steps">
     <button type="button" class="pl-phase-tab" role="tab" :aria-selected="phase === 1"
             :class="{ 'pl-phase-tab--active': phase === 1 }" @click="phase = 1">1. Compose</button>
     <button type="button" class="pl-phase-tab" role="tab" :aria-selected="phase === 2"
             :class="{ 'pl-phase-tab--active': phase === 2 }" @click="goPreview()">2. Preview &amp; send</button>
   </div>
+  {% endtab_picker %}
 
   <form method="post" action="{% url 'hub_compose_send' %}" x-ref="wizardForm" data-help-key="announcements.compose">
     {% csrf_token %}
