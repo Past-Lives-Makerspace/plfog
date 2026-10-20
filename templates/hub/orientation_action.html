@@ -18,18 +18,28 @@
     {% elif result == "declined" %}<h1 style="font-size:18px; margin:0 0 12px;">Request Declined</h1><p style="font-size:14px; color:#96ACBB; margin:0;">{{ booking.member.display_name }} has been notified.</p>
     {% elif result == "cancelled" %}<h1 style="font-size:18px; margin:0 0 12px;">Orientation Cancelled</h1><p style="font-size:14px; color:#96ACBB; margin:0;">Everyone involved has been notified.</p>
     {% if late_fee %}<p style="font-size:14px; color:#F4EFDD; margin:16px 0 0;">A {{ late_fee.amount_display }} late cancellation fee applies to this cancellation. <a href="{{ late_fee_url }}" data-late-fee="{{ late_fee.pk }}" style="color:#EEB44B; font-weight:700;">Pay the late fee</a> (sign in first). You'll get a receipt once it's paid.</p>{% endif %}
+    {% elif result == "accepted" %}<h1 style="font-size:18px; margin:0 0 12px;">Your Orientation Moved</h1><p style="font-size:14px; color:#96ACBB; margin:0;">You're confirmed for {{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}. We emailed you an updated calendar invite.</p>
+    {% elif result == "kept" %}<h1 style="font-size:18px; margin:0 0 12px;">You Kept Your Time</h1><p style="font-size:14px; color:#96ACBB; margin:0;">Your orientation stays on {{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}. We let them know.</p>
+    {% elif result == "stale" %}<h1 style="font-size:18px; margin:0 0 12px;">This New Time Is No Longer Open</h1><p style="font-size:14px; color:#96ACBB; line-height:1.6; margin:0;">It was answered already, or a different time was offered since. Sign in to the member hub to see where your orientation stands.</p>
     {% else %}<h1 style="font-size:18px; margin:0 0 12px;">Already Handled</h1><p style="font-size:14px; color:#96ACBB; margin:0;">This orientation has already been resolved — nothing more to do.</p>{% endif %}
   {% else %}
     <h1 style="font-size:18px; margin:0 0 8px;">
-      {% if action == "confirm" %}Confirm this orientation?{% elif action == "decline" %}Decline this request?{% else %}Cancel this orientation?{% endif %}
+      {% if action == "confirm" %}Confirm this orientation?{% elif action == "decline" %}Decline this request?{% elif action == "accept_time" %}Move to the new time?{% elif action == "keep_time" %}Keep your current time?{% else %}Cancel this orientation?{% endif %}
     </h1>
     <p style="font-size:14px; color:#96ACBB; line-height:1.6; margin:0 0 8px;">
       {{ booking.member.display_name }} · {{ booking.orientation_type.owner_name }}
     </p>
+    {% if booking.has_open_proposal %}
+    <p data-proposal-times style="font-size:14px; color:#F4EFDD; margin:0 0 20px;">
+      Your current time: {{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}<br>
+      New time: <strong>{{ booking.proposed_starts_at|date:"l, F j" }} at {{ booking.proposed_starts_at|time:"g:i A" }}</strong>
+    </p>
+    {% else %}
     <p style="font-size:14px; color:#F4EFDD; margin:0 0 20px;">
       {{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}{% if booking.slot.location %} · {{ booking.slot.location }}{% endif %}
     </p>
-    {% if booking.amount_paid_cents and action != "confirm" %}
+    {% endif %}
+    {% if booking.amount_paid_cents and action != "confirm" and action != "accept_time" and action != "keep_time" %}
     <p style="font-size:13px; color:#96ACBB; margin:0 0 20px;">
       {% if action == "decline" %}Declining refunds their {{ booking.amount_paid_cents|cents_as_price }} automatically.{% else %}Cancelling refunds their {{ booking.amount_paid_cents|cents_as_price }} automatically.{% endif %}
     </p>
@@ -38,7 +48,7 @@
     <form method="post">
       {% csrf_token %}
       <button type="submit" style="display:inline-block; padding:12px 32px; background:#EEB44B; color:#092E4C; font-size:14px; font-weight:700; border:none; border-radius:6px; cursor:pointer;">
-        {% if action == "confirm" %}Confirm orientation{% elif action == "decline" %}Decline request{% else %}Cancel orientation{% endif %}
+        {% if action == "confirm" %}Confirm orientation{% elif action == "decline" %}Decline request{% elif action == "accept_time" %}Accept new time{% elif action == "keep_time" %}Keep my current time{% else %}Cancel orientation{% endif %}
       </button>
     </form>
   {% endif %}

@@ -2460,6 +2460,8 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
         )
         .first()
     )
+    from hub.forms import OrientationMoveForm
+
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -2467,6 +2469,8 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
         {
             **ctx,
             "booking": booking,
+            # Move to Another Time (#853): the modal's form, seeded with the current time.
+            "move_form": OrientationMoveForm(booking=booking, auto_id="id_move_%s") if booking.is_movable else None,
             "refund_state": booking.refund_state if booking.amount_paid_cents else "none",
             "viewer_has_refund_authority": has_refund_authority(request),
             "late_fee": late_fee,
@@ -2498,6 +2502,77 @@ def orientation_lead_cancel(request: HttpRequest, booking_pk: int) -> HttpRespon
     except OrientationError as exc:
         messages.error(request, str(exc))
     return redirect(_safe_next(request, reverse("hub_orientation_respond", args=[booking.pk])))
+
+
+@login_required
+@require_POST
+def orientation_move(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """POST-only: a leader moves a booking to another time, now or by asking the member first (#853).
+
+    Gated like Confirm and Cancel (``_require_can_manage_booking``). ``OrientationMoveForm``
+    reads the new date, start and choice; a bad form or a booking that cannot move answers
+    with an error message and changes nothing. Neither road refunds or charges anything.
+    Lands on ``next`` when it is a local path, else the request page.
+    """
+    from hub.forms import OrientationMoveForm
+    from membership import orientations
+    from membership.models import OrientationBooking, OrientationError
+
+    booking = get_object_or_404(
+        OrientationBooking.objects.select_related("slot", "guild", "member", "orientation_type__equipment"),
+        pk=booking_pk,
+    )
+    forbidden = _require_can_manage_booking(request, booking)
+    if forbidden is not None:
+        return forbidden
+    landing = _safe_next(request, reverse("hub_orientation_respond", args=[booking.pk]))
+    form = OrientationMoveForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, f"Couldn't move the orientation. {form.error_summary()}")
+        return redirect(landing)
+    name = booking.member.display_name
+    try:
+        if form.asks_member_first:
+            orientations.propose_orientation_time(booking, form.cleaned_data["starts_at"], actor=_get_member(request))
+            messages.success(request, f"We asked {name} about the new time. Their booking stays put until they answer.")
+        else:
+            orientations.move_orientation(booking, form.cleaned_data["starts_at"], actor=_get_member(request))
+            messages.success(request, f"Orientation moved and confirmed. We emailed {name}.")
+    except OrientationError as exc:
+        messages.error(request, str(exc))
+    return redirect(landing)
+
+
+@login_required
+@require_POST
+def orientation_proposal_answer(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """POST-only: a member accepts or keeps their time against a proposed new one (#853).
+
+    The booking card's two buttons post ``answer`` (``accept`` or ``keep``) and the
+    ``proposal`` they were drawn for, so a card left open while the leader proposed again
+    never accepts a time the member has not seen. Only the booking's member may answer.
+    """
+    from membership import orientations
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(
+        OrientationBooking.objects.select_related("slot", "guild", "member", "orientation_type__equipment"),
+        pk=booking_pk,
+    )
+    member = _get_member(request)
+    if member is None or booking.member_id != member.pk:
+        return HttpResponse("Forbidden", status=403)
+    answer = request.POST.get("answer", "")
+    if answer not in ("accept", "keep"):
+        return HttpResponseBadRequest("Say answer=accept or answer=keep.")
+    result = orientations.answer_proposal(booking, accept=answer == "accept", proposal=request.POST.get("proposal", ""))
+    if result == "accepted":
+        messages.success(request, "Your orientation moved to the new time. It's confirmed.")
+    elif result == "kept":
+        messages.success(request, "You kept your current time. We let the guild know.")
+    else:
+        messages.info(request, "That new time is no longer open. Your booking shows where things stand.")
+    return _orientation_return(request, booking.orientation_type)
 
 
 @login_required
@@ -2868,14 +2943,10 @@ def _token_cancel_fee_context(booking: Any, action: str, result: str | None) -> 
     member pays from there once signed in; this page never redirects to Stripe).
     """
     from billing.models import LateCancellationFee
-    from membership.late_cancel import cancel_sentence, policy_for
-    from membership.models import OrientationBooking
+    from membership.late_cancel import booking_cancel_warning, policy_for
 
-    warning = ""
-    if action == "cancel" and booking.status == OrientationBooking.Status.CONFIRMED:
-        policy = policy_for(booking)
-        if policy.is_late(booking.slot.starts_at):
-            warning = cancel_sentence(policy)
+    # The one fee line rule, so a booking the guild moved (#853) shows no fee here either.
+    warning = booking_cancel_warning(booking, policy_for(booking)) if action == "cancel" else ""
     late_fee = (
         LateCancellationFee.objects.filter(orientation_booking=booking).first() if result == "cancelled" else None
     )
@@ -2902,7 +2973,15 @@ def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
         booking, action, recipient = orientations.read_action_token(token)
     except (BadSignature, OrientationBooking.DoesNotExist):
         return render(request, "hub/orientation_action.html", {"invalid": True}, status=400)
-    result = orientations.apply_token_action(booking, action, recipient=recipient) if request.method == "POST" else None
+    proposal = orientations.read_action_proposal(token)
+    result = (
+        orientations.apply_token_action(booking, action, recipient=recipient, proposal=proposal)
+        if request.method == "POST"
+        else None
+    )
+    # An Accept or Keep link (#853) whose proposal was answered or replaced says so before the click.
+    if result is None and action in orientations.PROPOSAL_ACTIONS and proposal != booking.proposal_key:
+        result = "stale"
     return render(
         request,
         "hub/orientation_action.html",

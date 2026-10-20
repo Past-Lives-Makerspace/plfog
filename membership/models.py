@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
 from datetime import time as time_type
-from datetime import timedelta
+from datetime import UTC, timedelta
 from decimal import Decimal
 from pathlib import Path
 from html import unescape
@@ -15154,6 +15154,35 @@ class OrientationBooking(models.Model):
     confirmed_at = models.DateTimeField(null=True, blank=True)
     declined_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    moved_by_guild_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the guild last moved this booking to a new time (#853), directly or by the member "
+            "accepting a proposed time. A member cancelling a moved booking never pays a late fee."
+        ),
+    )
+    proposed_starts_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="A new time the guild asked to move this booking to, awaiting the member's answer. Empty when none is open.",
+    )
+    proposed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the open proposal was made. Its Accept and Keep links carry it, so a replaced proposal's links go stale.",
+    )
+    proposed_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orientation_times_proposed",
+        help_text="The leader who proposed the open new time.",
+    )
+
+    #: The columns an open proposal lives in; cleared together on accept, keep, decline and cancel.
+    PROPOSAL_FIELDS: ClassVar[tuple[str, ...]] = ("proposed_starts_at", "proposed_at", "proposed_by")
 
     objects = OrientationBookingQuerySet.as_manager()
 
@@ -15214,19 +15243,106 @@ class OrientationBooking(models.Model):
         self.save(update_fields=["status", "confirmed_at", "oriented_by"])
 
     def decline(self, *, note: str = "") -> None:
-        """Turn down the request, optionally with a note for the member."""
+        """Turn down the request, optionally with a note for the member. Clears any open proposal."""
         self._refuse_checkout_hold()
         self.status = self.Status.DECLINED
         self.declined_at = timezone.now()
         self.lead_note = note
-        self.save(update_fields=["status", "declined_at", "lead_note"])
+        self._drop_proposal()
+        self.save(update_fields=["status", "declined_at", "lead_note", *self.PROPOSAL_FIELDS])
 
     def cancel(self) -> None:
-        """Cancel the booking, freeing its seat."""
+        """Cancel the booking, freeing its seat. Clears any open proposal."""
         self._refuse_checkout_hold()
         self.status = self.Status.CANCELLED
         self.cancelled_at = timezone.now()
-        self.save(update_fields=["status", "cancelled_at"])
+        self._drop_proposal()
+        self.save(update_fields=["status", "cancelled_at", *self.PROPOSAL_FIELDS])
+
+    # --- Moving to another time (#853) ---------------------------------------
+
+    @property
+    def moved_by_guild(self) -> bool:
+        """Whether the guild moved this booking: its member's cancel never carries a late fee."""
+        return self.moved_by_guild_at is not None
+
+    @property
+    def has_open_proposal(self) -> bool:
+        """Whether a proposed new time is waiting on the member's answer."""
+        return self.proposed_starts_at is not None
+
+    @property
+    def proposal_key(self) -> str:
+        """The open proposal's identity for its Accept and Keep links, or "" when none is open.
+
+        Microseconds since the epoch of ``proposed_at``, exact integer arithmetic, so a link
+        minted for one proposal never matches a later one.
+        """
+        if self.proposed_at is None:
+            return ""
+        epoch = datetime_type(1970, 1, 1, tzinfo=UTC)
+        return str((self.proposed_at - epoch) // timedelta(microseconds=1))
+
+    def _drop_proposal(self) -> None:
+        """Clear the open proposal in memory; the caller saves ``PROPOSAL_FIELDS``."""
+        self.proposed_starts_at = None
+        self.proposed_at = None
+        self.proposed_by = None
+
+    @property
+    def is_movable(self) -> bool:
+        """Whether the guild may move this booking (#853): requested or confirmed, and not yet oriented.
+
+        What shows Move to Another Time; :meth:`ensure_movable` is the guard behind it.
+        """
+        return self.status in (self.Status.REQUESTED, self.Status.CONFIRMED) and not self.is_completed
+
+    def ensure_movable(self) -> None:
+        """Raise :class:`OrientationError` unless the guild may move this booking to another time.
+
+        A requested or confirmed booking that has not happened yet moves; a checkout hold, a
+        declined or cancelled booking and a completed orientation never do.
+        """
+        self._refuse_checkout_hold()
+        if self.status not in (self.Status.REQUESTED, self.Status.CONFIRMED):
+            raise OrientationError("Only a requested or confirmed orientation can move to another time.")
+        if self.is_completed:
+            raise OrientationError("This orientation already happened, so it can't move.")
+
+    def move_to(self, slot: OrientationSlot, *, oriented_by: Member | None = None) -> None:
+        """Put the booking on ``slot``, confirmed, and stamp it as moved by the guild.
+
+        The payment columns are never touched: the paid amount and Stripe ids stay with the
+        booking. A booking already confirmed keeps its confirmation time and its runner; a
+        request becomes confirmed now, credited to ``oriented_by`` (the leader who moved it,
+        or who proposed the time the member accepted), else the defaults :meth:`confirm` uses.
+        Any open proposal is cleared.
+        """
+        self.ensure_movable()
+        now = timezone.now()
+        if self.status != self.Status.CONFIRMED:
+            self.status = self.Status.CONFIRMED
+            self.confirmed_at = now
+            self.oriented_by = oriented_by or slot.orienter or self.orientation_type.default_runner()
+        self.slot = slot
+        self.moved_by_guild_at = now
+        self._drop_proposal()
+        self.save(
+            update_fields=["slot", "status", "confirmed_at", "oriented_by", "moved_by_guild_at", *self.PROPOSAL_FIELDS]
+        )
+
+    def propose_time(self, starts_at: datetime_type, *, proposed_by: Member | None) -> None:
+        """Record a proposed new time for the member to accept or keep, replacing any open one."""
+        self.ensure_movable()
+        self.proposed_starts_at = starts_at
+        self.proposed_at = timezone.now()
+        self.proposed_by = proposed_by
+        self.save(update_fields=list(self.PROPOSAL_FIELDS))
+
+    def clear_proposal(self) -> None:
+        """The member kept their current time: drop the open proposal."""
+        self._drop_proposal()
+        self.save(update_fields=list(self.PROPOSAL_FIELDS))
 
     def mark_completed(self, *, oriented_by: Member | None = None) -> None:
         """Record that the orientation happened — this is what marks the member oriented."""

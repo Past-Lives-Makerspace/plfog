@@ -1,0 +1,15 @@
+Hi {{ greeting_name }},
+
+{{ owner_name }} asked to move your orientation to a new time.
+
+{% if orientation_type %}  Orientation: {{ orientation_type.name }}
+{% endif %}  Your current time: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}
+  New time: {{ proposed_starts_at|date:"l, F j" }} at {{ proposed_starts_at|time:"g:i A" }}
+
+Accept the new time: {{ accept_url }}
+Keep my current time: {{ keep_url }}
+
+Your booking stays at your current time until you answer.{% if booking.amount_paid_cents %} Your payment stays with it either way.{% endif %}
+You can also answer from the {{ owner_page_label }}: {{ owner_url }}
+
+{% include "membership/emails/_footer.txt" %}

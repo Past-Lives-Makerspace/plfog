@@ -115,10 +115,14 @@ def _charging_policy(
     """The policy a self cancel of ``target`` at ``now`` would be charged under, or ``None`` when it costs nothing.
 
     The one late fee rule: a fee applies (the site switch on and the owner charging one)
-    and the cancel is inside the notice window at ``now``.
+    and the cancel is inside the notice window at ``now``. An orientation booking the guild
+    moved to another time (#853) never charges: the member did not pick that time.
     """
     from membership.late_cancel import policy_for
+    from membership.models import OrientationBooking
 
+    if isinstance(target, OrientationBooking) and target.moved_by_guild:
+        return None
     policy = policy_for(target)
     if not policy.applies or not policy.is_late(_starts_at(target), now=now):
         return None
