@@ -2,7 +2,8 @@
 Staff time (Track D, part 6c), Lee's section "For the board: what the event took, and what it returned": all staff
 hours, the event cash per staff hour (a dash with none logged), the volunteer hours from the Market Check-in, each
 person's hours most first (Lee's "Lee's hours" for everyone) and the hours by work area, then Log time and every entry
-with its Delete and the CSV. Log time swaps this section with the figures out of band.
+with its Delete and the CSV. The three tiles are hq/partials/_ledger_staff_figures.html, which every answer that moves
+the event cash sends out of band. Log time swaps this section with the figures out of band.
 
   hub             — required, the EventHub
   staff           — required, a hq.services.StaffTotals
@@ -18,23 +19,7 @@ with its Delete and the CSV. Log time swaps this section with the figures out of
     <span class="pl-hq-lg__muted pl-hq-lg__helper">For the board: what the event took, and what it returned</span>
   </div>
   <div class="pl-hq-lg__money">
-    <div class="pl-hq-lg__tiles">
-      <div class="pl-hq-lg__tile" data-hq-lg-staff-tile="hours">
-        <span class="pl-hq-lg__tile-heading">All staff hours</span>
-        <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ staff.hours_display }}</strong>
-        <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{% if staff.people %}From {{ staff.people|length }} {{ staff.people|length|pluralize:"person,people" }}{% else %}Logged so far{% endif %}</span>
-      </div>
-      <div class="pl-hq-lg__tile" data-hq-lg-staff-tile="rate">
-        <span class="pl-hq-lg__tile-heading">Raised per staff hour</span>
-        <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ staff.rate_display }}</strong>
-        <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>Event cash ÷ staff hours</span>
-      </div>
-      <div class="pl-hq-lg__tile" data-hq-lg-staff-tile="volunteers">
-        <span class="pl-hq-lg__tile-heading">Volunteer hours</span>
-        <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ volunteer_hours.hours_display }}</strong>
-        <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>Given freely by the community</span>
-      </div>
-    </div>
+    {% include "hq/partials/_ledger_staff_figures.html" %}
     {% if staff.people %}
     <div class="pl-hq-lg__split">
       <div>
@@ -43,7 +28,7 @@ with its Delete and the CSV. Log time swaps this section with the figures out of
           {% for person in staff.people %}
           <li class="pl-hq-lg__bar-row" data-hq-lg-staff-person>
             <span class="pl-hq-lg__bar-name">{{ person.name }}</span>
-            <progress class="pl-hq-lg__meter pl-hq-lg__meter--fill pl-hq-lg__bar-meter" max="{{ staff.people.0.meter_value }}" value="{{ person.meter_value }}" aria-label="{{ person.name }}: {{ person.hours_display }} hours"></progress>
+            <progress class="pl-hq-lg__meter pl-hq-lg__meter--fill pl-hq-lg__bar-meter" max="{{ staff.people.0.meter_value }}" value="{{ person.meter_value }}" aria-label="{{ person.name }}: {{ person.hours_words }}"></progress>
             <span class="pl-hq-lg__bar-hours">{{ person.hours_display }} h</span>
           </li>
           {% endfor %}
@@ -55,7 +40,7 @@ with its Delete and the CSV. Log time swaps this section with the figures out of
           {% for area in staff.areas %}
           <li class="pl-hq-lg__bar-row" data-hq-lg-staff-area>
             <span class="pl-hq-lg__bar-name">{{ area.name }}</span>
-            <progress class="pl-hq-lg__meter pl-hq-lg__meter--fill pl-hq-lg__bar-meter" max="{{ staff.area_top }}" value="{{ area.meter_value }}" aria-label="{{ area.name }}: {{ area.hours_display }} hours"></progress>
+            <progress class="pl-hq-lg__meter pl-hq-lg__meter--fill pl-hq-lg__bar-meter" max="{{ staff.area_top }}" value="{{ area.meter_value }}" aria-label="{{ area.name }}: {{ area.hours_words }}"></progress>
             <span class="pl-hq-lg__bar-hours">{{ area.hours_display }} h</span>
           </li>
           {% endfor %}
@@ -106,7 +91,7 @@ with its Delete and the CSV. Log time swaps this section with the figures out of
           <td>{{ entry.get_area_display }}</td>
           <td>{{ entry.note }}</td>
           <td>
-            <button type="button" class="pl-hq-lg__delete" aria-label="Delete {{ entry.who }}'s {{ entry.hours_display }} hours on {{ entry.date|date:'M j' }}" @click="$dispatch('open-confirm', 'delete-staff-{{ entry.pk }}')" data-hq-lg-staff-delete>Delete</button>
+            <button type="button" class="pl-hq-lg__delete" aria-label="Delete {{ entry.who }}'s {{ entry.hours_words }} on {{ entry.date|date:'M j' }}" @click="$dispatch('open-confirm', 'delete-staff-{{ entry.pk }}')" data-hq-lg-staff-delete>Delete</button>
             {% url 'hq:ledger_staff_delete' hub.slug entry.pk as delete_url %}
             {% with pk_text=entry.pk|stringformat:"s" %}
             {% include "components/confirm_modal.html" with confirm_id="delete-staff-"|add:pk_text confirm_title="Delete this time?" confirm_message="It comes out of the staff hours. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" %}

@@ -278,10 +278,19 @@ def describe_quick_add():
         assert sale.created_by == lee
         assert _toast(response) == {"message": "Added 1 Wine ($5 RSVP credit).", "type": "success"}
         body = response.content.decode()
-        for part in ("hq-lg-bar-tiles", "hq-lg-bar-buttons", "hq-lg-bar-table", "hq-lg-board-figures"):
+        parts = (
+            "hq-lg-bar-tiles",
+            "hq-lg-bar-buttons",
+            "hq-lg-bar-table",
+            "hq-lg-tally",
+            "hq-lg-goals",
+            "hq-lg-board-figures",
+            "hq-lg-staff-figures",
+        )
+        for part in parts:
             assert f'id="{part}"' in body
-        assert body.count('hx-swap-oob="true"') == 4
-        assert body.count("<template>") == 4
+        assert body.count('hx-swap-oob="true"') == len(parts)
+        assert body.count("<template>") == len(parts)
         assert "data-hq-lg-quick-form" not in body  # Paid by is never swapped, so it keeps its choice
         assert 'data-hq-lg-quick="wine"' in body and "data-hq-lg-quick-sold>1<" in body
 

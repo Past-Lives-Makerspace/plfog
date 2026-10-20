@@ -825,7 +825,7 @@ Nothing here is typed twice: sponsors live on the Sponsorship Tracker, vendors o
 
 **Attendees** adds the people checked in at the door on the event's guest list to the walk-ins counted here.
 
-1. At the door, tap **+1**, **+5** or **+10** as people come in.
+1. At the door, tap **+1**, **+5** or **+10** for each walk-in without an RSVP. Anyone who RSVPed checks in on the event's Guest list instead, so nobody is counted twice.
 2. Tapped too many? **Undo 1** takes one back. The count never goes below zero.
 
 The vendors, their sales and the average per vendor come from Vendor Tables and Market Check-in, with each artist's report and their experience. **Download vendors and attendance (CSV)** gives the reports with the totals.

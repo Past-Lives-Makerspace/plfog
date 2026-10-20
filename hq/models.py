@@ -1400,6 +1400,11 @@ def format_hours(hours: Decimal) -> str:
     return whole or "0"
 
 
+def hours_words(hours: Decimal) -> str:
+    """Hours with the word in the right number: "1 hour", "1.5 hours", "2 hours", "0.25 hours"."""
+    return f"{format_hours(hours)} {'hour' if hours == 1 else 'hours'}"
+
+
 class MarketReport(models.Model):
     """One member artist's market report: who they sell as, their guild, and after the market what they sold.
 
@@ -2191,6 +2196,10 @@ class StaffTime(models.Model):
     @property
     def hours_display(self) -> str:
         return format_hours(self.hours)
+
+    @property
+    def hours_words(self) -> str:
+        return hours_words(self.hours)
 
 
 class GuildDemo(models.Model):

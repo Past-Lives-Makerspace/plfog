@@ -375,5 +375,8 @@ TALLY_FLYER_NUDGE_UNDER = 25
 
 # Attendance and vendors: Lee's line beside the door clicker, and her No double entry note in the portal's words (each
 # list lives on its own door; the figures here are read from those doors as they change, never copied in).
-DOOR_CLICKER_HINT = "Tap at the door as people arrive"
+# The clicker counts walk-ins only: an RSVP checks in on the event's Guest list, and attendance adds the two.
+# ``{guest_list}`` is the Guest list's name, a link to Manage Events' Guest list tab when the viewer may open it.
+DOOR_CLICKER_HINT = "Tap for each walk-in without an RSVP. RSVPs check in on the {guest_list}."
+DOOR_GUEST_LIST = "Guest list"
 NO_DOUBLE_ENTRY_TITLE = "No double entry: each list lives on one page"

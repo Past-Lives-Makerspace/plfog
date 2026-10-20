@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -29,6 +30,8 @@ from hq.exports import PEOPLE_CSV_HEADERS, STAFF_TIME_CSV_HEADERS
 from hq.forms import HOURS_ERROR, HOURS_STEP_ERROR
 from hq.holiday_bizarre import GOALS
 from hq.models import (
+    BarSale,
+    BudgetLine,
     DoorCount,
     GuildDemo,
     HubCard,
@@ -40,6 +43,7 @@ from hq.models import (
     MarketReport,
     StaffTime,
     VolunteerHours,
+    hours_words,
 )
 from hub.view_as import ROLE_MEMBER
 from tests.hq.conftest import photo_upload, signed_in
@@ -691,7 +695,8 @@ def describe_attendance():
         )
         assert 'id="hq-lg-goals" aria-labelledby="hq-lg-goals-title" data-hq-lg-goals hx-swap-oob="true"' in body
         assert 'id="hq-lg-board-figures" data-hq-lg-board-figures hx-swap-oob="true"' in body
-        assert body.count("<template>") == 4
+        assert 'id="hq-lg-staff-figures" data-hq-lg-staff-figures hx-swap-oob="true"' in body
+        assert body.count("<template>") == 5
         assert "0 checked in · 5 at the door · of 250 goal" in body
 
     def it_floors_undo_at_zero_and_writes_nothing_then(hub, lee_client):
@@ -745,7 +750,24 @@ def describe_attendance():
         for step, label in (("1", "Add 1"), ("5", "Add 5"), ("10", "Add 10"), ("-1", "Undo 1")):
             assert f'value="{step}" ' in body
             assert f'aria-label="{label} at the door" data-hq-lg-door-step="{step}"' in body
-        assert "Tap at the door as people arrive" in body
+        assert "Tap for each walk-in without an RSVP. RSVPs check in on the Guest list." in body
+        assert "data-hq-lg-guest-list" not in body  # Lee may not open Manage Events, so the Guest list is plain words
+
+    def it_links_the_guest_list_to_the_events_guest_list_tab_for_whoever_may_open_it(hub, event, admin_client):
+        body = admin_client.get(_page(hub)).content.decode()
+
+        guests = reverse("hub_admin_event_guests", args=[event.pk])
+        assert (
+            "Tap for each walk-in without an RSVP. RSVPs check in on the "
+            f'<a href="{guests}" class="pl-hq-lg__link" data-hq-lg-guest-list>Guest list</a>.'
+        ) in body
+        assert admin_client.get(guests).status_code == 200
+
+    def it_names_the_guest_list_without_a_link_with_no_event(hub, admin_client):
+        body = admin_client.get(_page(hub)).content.decode()
+
+        assert "RSVPs check in on the Guest list." in body
+        assert "data-hq-lg-guest-list" not in body
 
     def it_lists_the_reports_and_the_no_double_entry_doors(busy, doors, lee_client):
         body = lee_client.get(_page(busy)).content.decode()
@@ -1307,7 +1329,7 @@ def describe_the_board_summary():
         text = services.board_summary(services.ledger_band(hub), services.door_figures(hub))
 
         assert "Guild demos: 1 of 1 guild contacted, 1 demo planned." in text
-        assert "Staff time: 1 hours (Lee 1), about $0 raised per staff hour." in text
+        assert "Staff time: 1 hour (Lee 1), about $0 raised per staff hour." in text
         assert "Attendance: 1 person. Vendors: 1 artist sold $0 in total." in text
 
         hub.guild_demos.update(contacted=False)
@@ -1421,3 +1443,362 @@ def describe_the_page():
         assert _count(_url("ledger_door", busy), {"delta": "1"}) == tap
         assert _count(_url("ledger_launch_edit", busy, task.pk), _task_post(task)) == save
         assert _count(_url("ledger_guild_edit", busy, row.pk), _guild_post(row)) == guild
+
+
+# The four figures every answer that moves a tallied figure sends out of band (hq.views.FIGURES_ALL).
+FIGURE_IDS = {"hq-lg-tally", "hq-lg-goals", "hq-lg-board-figures", "hq-lg-staff-figures"}
+BAR_IDS = {"hq-lg-bar-tiles", "hq-lg-bar-buttons", "hq-lg-bar-table"}
+
+
+def _oob_ids(body: str) -> set[str]:
+    """The ids an htmx answer swaps out of band, each in a template tag."""
+    assert body.count("<template>") == body.count('hx-swap-oob="true"')
+    return set(re.findall(r'id="([^"]+)"[^>]*hx-swap-oob="true"', body))
+
+
+def _seen(prefix: str, found: Any, names: tuple[str, ...]) -> dict[str, Any]:
+    return {f"{prefix}-seen_{name}": getattr(found, name) for name in names}
+
+
+def _quick() -> dict[str, str]:
+    return {"quick-drink": BarSale.Drink.IPA, "quick-pay": BarSale.Pay.CARD}
+
+
+def _batch() -> dict[str, str]:
+    return {
+        "batch-drink": BarSale.Drink.IPA,
+        "batch-qty": "2",
+        "batch-total": "",
+        "batch-pay": "cash",
+        "batch-note": "",
+    }
+
+
+def _prices(hub: Any, last_year: str = "650") -> dict[str, Any]:
+    figures = ("ipa_cents", "pils_cents", "wine_cents", "na_cents", "last_year_bar_cents")
+    values = {"ipa": "6", "pils": "6", "wine": "8", "na": "3", "last_year": last_year}
+    found = services.ledger_settings(hub)
+    return {**{f"prices-{key}": value for key, value in values.items()}, **_seen("prices", found, figures)}
+
+
+def _tickets(hub: Any, singles: int = 4) -> dict[str, Any]:
+    found = services.ledger_settings(hub)
+    return {
+        "tickets-singles_sold": singles,
+        "tickets-pairs_sold": 1,
+        **_seen("tickets", found, ("singles_sold", "pairs_sold")),
+    }
+
+
+def _ticket_prices(hub: Any) -> dict[str, Any]:
+    found = services.ledger_settings(hub)
+    return {
+        "ticket-prices-ticket": "20",
+        "ticket-prices-pair": "35",
+        **_seen("ticket-prices", found, ("ticket_cents", "pair_cents")),
+    }
+
+
+def _line_post(line: BudgetLine, **fields: Any) -> dict[str, Any]:
+    line.refresh_from_db()
+    values: dict[str, Any] = {
+        "name": line.name,
+        "category": line.category,
+        "budget": f"{line.budget_cents / 100:.2f}",
+        "updated_at": line.updated_at.isoformat(),
+    }
+    values.update(fields)
+    return {**{f"line-{line.pk}-{key}": value for key, value in values.items()}, "filter": "all"}
+
+
+def _tile_figure(body: str, attribute: str, key: str) -> str:
+    """The figure of the tile marked ``attribute="key"`` in ``body``."""
+    after = body.split(f'{attribute}="{key}"', 1)[1]
+    return re.search(r"data-hq-lg-figure>([^<]*)<", after).group(1)  # type: ignore[union-attr]  # the tile has one
+
+
+def describe_the_figures_out_of_band():
+    """Every answer that changes a tallied figure sends the figures that read it, so nothing on the page goes stale."""
+
+    def it_sends_every_figure_with_a_tap_and_the_new_cash(hub, lee_client):
+        StaffTimeFactory(hub=hub, who="Lee", hours=Decimal("1"))
+
+        body = lee_client.post(_url("ledger_bar_quick", hub), _quick(), **HTMX).content.decode()
+
+        assert _oob_ids(body) == BAR_IDS | FIGURE_IDS
+        tally = body.split('id="hq-lg-tally"', 1)[1]
+        assert re.search(r'data-hq-lg-tally-tile="cash".*?\$6\b', tally, re.S)
+        assert _tile_figure(body, "data-hq-lg-staff-tile", "rate") == "$6"
+        goals = body.split('id="hq-lg-goals"', 1)[1]
+        assert re.search(r'data-hq-lg-goal="cash".*?\$6 of', goals, re.S)
+
+    def it_sends_every_figure_with_an_undo(hub, lee, lee_client):
+        BarSaleFactory(hub=hub, created_by=lee)
+
+        response = lee_client.post(_url("ledger_bar_undo", hub), **HTMX)
+
+        assert _toast(response)["message"] == "Took back 1 IPA (Card)."
+        assert _oob_ids(response.content.decode()) == BAR_IDS | FIGURE_IDS
+
+    def it_sends_every_figure_with_a_batch_and_none_with_a_refused_one(hub, lee_client):
+        saved = lee_client.post(_url("ledger_bar_batch", hub), _batch(), **HTMX).content.decode()
+        refused = lee_client.post(
+            _url("ledger_bar_batch", hub), {**_batch(), "batch-qty": "", "batch-total": ""}, **HTMX
+        ).content.decode()
+
+        assert _oob_ids(saved) == {"hq-lg-bar-tiles", "hq-lg-bar-table"} | FIGURE_IDS
+        assert _oob_ids(refused) == set()
+
+    def it_sends_the_goals_with_the_drink_prices(hub, lee_client):
+        body = lee_client.post(_url("ledger_bar_prices", hub), _prices(hub, "650"), **HTMX).content.decode()
+
+        assert _oob_ids(body) == {"hq-lg-bar-buttons", "hq-lg-bar-tiles", "hq-lg-goals"}
+        assert "Beat 2025 (about $650) and cover bar costs" in body.split('id="hq-lg-goals"', 1)[1]
+
+    @pytest.mark.parametrize("form", ["tickets", "ticket_prices"])
+    def it_sends_every_figure_with_the_tickets_and_their_prices(hub, lee_client, form):
+        LedgerSettingsFactory(hub=hub, singles_sold=1)
+        name, data = (
+            ("ledger_tickets", _tickets(hub)) if form == "tickets" else ("ledger_ticket_prices", _ticket_prices(hub))
+        )
+
+        body = lee_client.post(_url(name, hub), data, **HTMX).content.decode()
+
+        assert _oob_ids(body) == FIGURE_IDS
+        assert 'data-hq-lg-tally-tile="tickets"' in body
+
+    def it_sends_the_goals_and_the_board_with_a_budget_lines_save(hub, lee_client):
+        line = BudgetLineFactory(hub=hub, name="Kegs")
+
+        saved = lee_client.post(_url("ledger_line_edit", hub, line.pk), _line_post(line, category="drinks"), **HTMX)
+        refused = lee_client.post(_url("ledger_line_edit", hub, line.pk), _line_post(line, name=""), **HTMX)
+
+        assert _toast(saved)["message"] == "Saved."
+        assert _oob_ids(saved.content.decode()) == {
+            "hq-lg-lines-total",
+            "hq-lg-entry-line",
+            "hq-lg-entries",
+            "hq-lg-bar-tiles",
+            "hq-lg-goals",
+            "hq-lg-board-figures",
+        }
+        assert _oob_ids(refused.content.decode()) == set()
+
+    def it_sends_the_staff_figures_with_log_time(hub, lee_client):
+        body = lee_client.post(_url("ledger_staff_add", hub), _staff_post(), **HTMX).content.decode()
+
+        assert _oob_ids(body) == FIGURE_IDS
+
+    def it_puts_the_staff_figures_in_the_section_on_the_page(hub, lee_client):
+        body = lee_client.get(_page(hub)).content.decode()
+        section = body.split('id="hq-lg-staff"', 1)[1].split("</section>", 1)[0]
+
+        assert 'id="hq-lg-staff-figures" data-hq-lg-staff-figures>' in section
+        assert 'hx-swap-oob="true"' not in body
+
+    @pytest.mark.parametrize(
+        "answer", ["tap", "undo", "batch", "prices", "tickets", "ticket_prices", "line", "staff", "guild_add"]
+    )
+    def it_answers_in_a_fixed_number_of_queries_however_many_rows(busy, lee, lee_client, answer):
+        line = BudgetLine.objects.get(hub=busy, name="Kegs")
+
+        def _post() -> tuple[str, dict[str, Any]]:
+            BarSaleFactory(hub=busy, created_by=lee)  # Undo last always has a tap of Lee's to take back
+            guild = GuildFactory()
+            return {
+                "tap": (_url("ledger_bar_quick", busy), _quick()),
+                "undo": (_url("ledger_bar_undo", busy), {}),
+                "batch": (_url("ledger_bar_batch", busy), _batch()),
+                "prices": (_url("ledger_bar_prices", busy), _prices(busy)),
+                "tickets": (_url("ledger_tickets", busy), _tickets(busy)),
+                "ticket_prices": (_url("ledger_ticket_prices", busy), _ticket_prices(busy)),
+                "line": (_url("ledger_line_edit", busy, line.pk), _line_post(line)),
+                "staff": (_url("ledger_staff_add", busy), _staff_post()),
+                "guild_add": (_url("ledger_guild_add", busy), {"guild-add-guild": str(guild.pk)}),
+            }[answer]
+
+        def _count() -> int:
+            url, data = _post()
+            with CaptureQueriesContext(connection) as queries:
+                assert lee_client.post(url, data, **HTMX).status_code == 200
+            return len(queries)
+
+        lee_client.get(_page(busy))  # warms the session and the caches
+        _count()
+        few = _count()
+        BarSaleFactory.create_batch(4, hub=busy, created_by=lee)
+        StaffTimeFactory.create_batch(3, hub=busy, who="Dixie")
+        GuildDemoFactory.create_batch(3, hub=busy, demo=True)
+        DoorCountFactory.create_batch(3, hub=busy)
+        WineBottleFactory.create_batch(3, hub=busy)
+        LedgerEntryFactory.create_batch(3, hub=busy, line=line)
+        LaunchTaskFactory.create_batch(3, hub=busy)
+
+        assert _count() == few
+
+
+def describe_the_plurals():
+    @pytest.mark.parametrize(
+        ("hours", "words"),
+        [("1", "1 hour"), ("1.00", "1 hour"), ("1.5", "1.5 hours"), ("2", "2 hours"), ("0.25", "0.25 hours")],
+    )
+    def it_says_hours_in_the_right_number(hours, words):
+        assert hours_words(Decimal(hours)) == words
+
+    def it_writes_every_singular_in_the_board_paragraph(hub):
+        line = BudgetLineFactory(hub=hub)
+        LedgerEntryFactory(hub=hub, line=line)
+        BarSaleFactory(hub=hub)
+        WineBottleFactory(hub=hub, qty=1)
+        LedgerSettingsFactory(hub=hub, singles_sold=1)
+
+        text = services.board_summary(services.ledger_band(hub), services.door_figures(hub))
+
+        assert "Drink sales: 1 drink sold for $6." in text
+        assert "1 ticket sold (1 single at $25 + 0 deals at $40 for 2) raised $25." in text
+
+    def it_writes_the_volunteer_and_staff_hours_in_the_right_number(hub, make_member):
+        line = BudgetLineFactory(hub=hub)
+        LedgerEntryFactory(hub=hub, line=line)
+        _hours(hub, make_member(), "1.5")
+        StaffTimeFactory(hub=hub, who="Lee", hours=Decimal("0.25"))
+
+        text = services.board_summary(services.ledger_band(hub), services.door_figures(hub))
+
+        assert "Staff time: 0.25 hours (Lee 0.25)" in text
+        assert "Volunteers: 1 person gave 1.5 hours to event prep." in text
+
+    def it_writes_the_singulars_on_the_tally_and_its_cheer(hub, make_member):
+        HubGoalFactory(hub=hub, kind=HubGoal.Kind.BOTTLES, label="Bottles", target=2)
+        WineBottleFactory(hub=hub, qty=1)
+        LedgerSettingsFactory(hub=hub, singles_sold=1)
+        _report(hub, make_member(), items_sold=1, sales_cents=1_000)
+        MarketingActionFactory(hub=hub, kind=MarketingKind.FLYER)
+        GuildDemoFactory(hub=hub)
+
+        tiles = _tiles(hub)
+        cheer = _cheer(hub)
+
+        assert tiles["tickets"].sub.startswith("1 ticket · ")
+        assert tiles["sold"].sub == "1 handmade item found new homes"
+        assert "1 bottle to fill the wine wall" in cheer
+        assert "1 guild still to line up a demo" in cheer
+        assert "Drop a flyer somewhere today. 1 business so far" in cheer
+
+    def it_writes_the_plurals_on_the_tally_and_its_cheer(busy):
+        tiles = _tiles(busy)
+
+        assert tiles["tickets"].sub.startswith("5 tickets · ")
+        assert tiles["sold"].sub == "14 handmade items found new homes"
+        assert "88 bottles to fill the wine wall" in _cheer(busy)
+
+    def it_says_one_ticket_at_goal_in_the_singular(hub):
+        HubGoalFactory(hub=hub, kind=HubGoal.Kind.BOTTLES, label="Bottles", target=1)
+        totals = services.ticket_totals(services.ledger_settings(hub), services.wine_band(hub))
+
+        assert totals.at_goal_line == "1 ticket at $25, or 2 for $40"
+
+    def it_says_one_hour_when_an_entry_is_deleted(hub, lee_client):
+        entry = StaffTimeFactory(hub=hub, who="Lee", hours=Decimal("1"))
+        two = StaffTimeFactory(hub=hub, who="Lee", hours=Decimal("2"))
+
+        one = lee_client.post(_url("ledger_staff_delete", hub, entry.pk), follow=True)
+        many = lee_client.post(_url("ledger_staff_delete", hub, two.pk), follow=True)
+
+        assert "Deleted Lee&#x27;s 1 hour." in one.content.decode()
+        assert "Deleted Lee&#x27;s 2 hours." in many.content.decode()
+
+    def it_totals_one_vendor_in_the_singular_in_the_csv(hub, lee_client):
+        VendorTableFactory(hub=hub, status="confirmed")
+
+        response = lee_client.get(_url("ledger_people_csv", hub))
+        rows = list(csv.reader(io.StringIO(b"".join(response.streaming_content).decode("utf-8-sig"))))
+
+        assert ["Total", "1 vendor"] == next(row for row in rows if row and row[0] == "Total")[:2]
+
+
+def describe_live_guilds():
+    """A guild that went inactive or was soft deleted keeps its row, but only live guilds count anywhere."""
+
+    @pytest.fixture
+    def mixed(hub):
+        reached = GuildFactory(name="Glass Guild")
+        GuildFactory(name="Wood Guild")  # active, never reached
+        retired = GuildFactory(name="Old Guild", is_active=False)
+        deleted = GuildFactory(name="Gone Guild")
+        GuildDemoFactory(hub=hub, guild=reached, contacted=True, demo=True)
+        GuildDemoFactory(hub=hub, guild=retired, contacted=True, demo=True)
+        GuildDemoFactory(hub=hub, guild=deleted, contacted=True, demo=True)
+        deleted.soft_delete()
+        LedgerEntryFactory(hub=hub, line=BudgetLineFactory(hub=hub))  # the paragraph speaks once there is an entry
+        HubGoalFactory(hub=hub, kind=HubGoal.Kind.GUILDS, label="Guilds taking part", target=0)
+        return hub
+
+    def it_counts_only_the_live_guilds_on_the_list(mixed):
+        totals = services.guild_demo_totals(mixed)
+
+        assert (totals.guilds, totals.rows, totals.contacted, totals.demos) == (2, 1, 1, 1)
+        assert totals.summary("") == "1 of 2 contacted · 1 demo planned"
+        assert services.guilds_with_demos(mixed) == 1
+        assert [row.current for row in services.goal_rows(mixed) if row.label == "Guilds taking part"] == [1]
+
+    def it_never_reads_all_contacted_with_a_live_guild_never_reached(mixed):
+        row = _goal_rows(mixed)["guilds"]
+        tile = _tiles(mixed)["guilds"]
+
+        assert (row.figure, row.chip) == ("1 / 2 contacted", "1 to contact")
+        assert (tile.value, tile.goal) == (1, 2)
+        assert "1 guild still to line up a demo" in _cheer(mixed)
+        assert "Guild demos: 1 of 2 guilds contacted, 1 demo planned." in services.board_summary(
+            services.ledger_band(mixed), services.door_figures(mixed)
+        )
+
+    def it_marks_a_deleted_guilds_row_as_an_inactive_ones(mixed, lee_client):
+        body = lee_client.get(_page(mixed)).content.decode()
+
+        for name in ("Old Guild", "Gone Guild"):
+            assert f'{name} <span class="pl-hq-lg__cat">Inactive</span>' in body
+        assert 'Glass Guild <span class="pl-hq-lg__cat">' not in body
+        assert "1 of 2 contacted · 1 demo planned" in body
+
+
+def describe_the_add_guild_race():
+    def it_locks_the_hubs_row_before_it_checks_and_adds(hub):
+        guild = GuildFactory(name="Glass Guild")
+
+        with CaptureQueriesContext(connection) as queries:
+            row = services.add_guild_demo(hub, guild, lead="")
+
+        sql = [query["sql"] for query in queries]
+        lock = next(i for i, text in enumerate(sql) if "FOR UPDATE" in text and '"hq_eventhub"' in text)
+        insert = next(i for i, text in enumerate(sql) if text.startswith('INSERT INTO "hq_guilddemo"'))
+        assert lock < insert
+        assert row.guild == guild
+
+    def it_refuses_a_guild_another_add_listed_after_the_form_was_read(hub, lee_client, monkeypatch):
+        listed = GuildDemoFactory(hub=hub, guild=GuildFactory(name="Glass Guild"), lead="Kept")
+        # The race: the form read the choices before Add every active guild listed the guild.
+        monkeypatch.setattr(services, "guilds_to_add", lambda hub: [listed.guild])
+
+        response = lee_client.post(_url("ledger_guild_add", hub), {"guild-add-guild": str(listed.guild.pk)}, **HTMX)
+        plain = lee_client.post(_url("ledger_guild_add", hub), {"guild-add-guild": str(listed.guild.pk)}, follow=True)
+
+        assert response.status_code == 200
+        assert _toast(response) == {"message": "Glass Guild is already on the list.", "type": "error"}
+        assert plain.redirect_chain[-1][0] == f"{_page(hub)}#hq-lg-guilds"
+        assert "Glass Guild is already on the list." in [str(message) for message in plain.context["messages"]]
+        assert list(hub.guild_demos.values_list("lead", flat=True)) == ["Kept"]
+
+    def it_refuses_by_name_when_a_row_lands_between_the_check_and_the_insert(hub, monkeypatch):
+        guild = GuildFactory(name="Glass Guild")
+        clash = IntegrityError('duplicate key value violates unique constraint "uq_guilddemo_hub_guild"')
+
+        def _late_row(*args: Any, **kwargs: Any) -> None:
+            raise clash
+
+        monkeypatch.setattr(GuildDemo.objects, "create", _late_row)
+        with pytest.raises(services.GuildAlreadyListed, match="Glass Guild is already on the list.") as raised:
+            services.add_guild_demo(hub, guild, lead="")
+
+        assert raised.value.__cause__ is clash
+        assert not hub.guild_demos.exists()  # the connection is still usable

@@ -1,0 +1,27 @@
+{% comment %}
+Staff time's three tiles: all staff hours, Raised per staff hour (the event cash over the staff hours, a dash with
+none logged) and the volunteer hours from the Market Check-in. Its own partial with an id, so every htmx answer whose
+post moves the event cash (a bar tap, an undo, a batch, the Wine Wall's tickets) sends it out of band with the tally
+(hq/partials/_ledger_figures_oob.html).
+
+  staff           — required, a hq.services.StaffTotals
+  volunteer_hours — required, a hq.services.CheckinBand
+  oob             — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<div class="pl-hq-lg__tiles" id="hq-lg-staff-figures" data-hq-lg-staff-figures{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="pl-hq-lg__tile" data-hq-lg-staff-tile="hours">
+    <span class="pl-hq-lg__tile-heading">All staff hours</span>
+    <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ staff.hours_display }}</strong>
+    <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{% if staff.people %}From {{ staff.people|length }} {{ staff.people|length|pluralize:"person,people" }}{% else %}Logged so far{% endif %}</span>
+  </div>
+  <div class="pl-hq-lg__tile" data-hq-lg-staff-tile="rate">
+    <span class="pl-hq-lg__tile-heading">Raised per staff hour</span>
+    <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ staff.rate_display }}</strong>
+    <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>Event cash ÷ staff hours</span>
+  </div>
+  <div class="pl-hq-lg__tile" data-hq-lg-staff-tile="volunteers">
+    <span class="pl-hq-lg__tile-heading">Volunteer hours</span>
+    <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ volunteer_hours.hours_display }}</strong>
+    <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>Given freely by the community</span>
+  </div>
+</div>

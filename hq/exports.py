@@ -13,7 +13,7 @@ from django.http import StreamingHttpResponse
 from django.utils import timezone
 
 from hq.models import BarPay
-from hq.services import ledger_kind_short
+from hq.services import _plural, ledger_kind_short
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -394,7 +394,7 @@ def stream_people_csv(
             yield writer.writerow([_neutralise_formula(cell) for cell in row])
         yield writer.writerow([])
         yield writer.writerow(
-            ["Total", f"{vendors} vendors", str(checkin.items), f"{checkin.sales_cents / 100:.2f}", ""]
+            ["Total", _plural(vendors, "vendor", "vendors"), str(checkin.items), f"{checkin.sales_cents / 100:.2f}", ""]
         )
         yield writer.writerow(
             [

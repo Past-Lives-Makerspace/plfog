@@ -1,10 +1,11 @@
 {% comment %}
 The htmx answer to a +1 tap or Undo last (the form swaps nothing in place): the tiles, the buttons' counts and the
-sales table, and the board panel's figures (its paragraph names the bar's sales), each out of band by id.
+sales table out of band by id, then every figure the bar's sales move (the tally, the goals, the board panel's figures
+and Staff time's), each in a template tag.
 
-  as hq/partials/_ledger_bar_tiles.html, _ledger_bar_buttons.html, _ledger_bar_table.html and _ledger_board_figures.html
+  as hq/partials/_ledger_bar_tiles.html, _ledger_bar_buttons.html, _ledger_bar_table.html and _ledger_figures_oob.html
 {% endcomment %}
 <template>{% include "hq/partials/_ledger_bar_tiles.html" with oob=True %}</template>
 <template>{% include "hq/partials/_ledger_bar_buttons.html" with oob=True %}</template>
 <template>{% include "hq/partials/_ledger_bar_table.html" with oob=True %}</template>
-<template>{% include "hq/partials/_ledger_board_figures.html" with oob=True %}</template>
+{% include "hq/partials/_ledger_figures_oob.html" %}

@@ -614,8 +614,8 @@ def describe_the_board_summary():
         text = services.board_summary(services.ledger_band(hub), services.door_figures(hub))
 
         assert "Flyers are up at 1 location." in text
-        assert "Volunteers: 1 person gave 1 hours to event prep." in text
-        assert text.endswith("Wine wall: 1 bottles donated, worth $20.")
+        assert "Volunteers: 1 person gave 1 hour to event prep." in text
+        assert text.endswith("Wine wall: 1 bottle donated, worth $20.")
 
     def it_shows_lees_empty_line_until_the_ledger_has_an_entry_but_copies_the_paragraph(hub, lee_client):
         SponsorFactory(hub=hub, status="received", amount_cents=10_000)

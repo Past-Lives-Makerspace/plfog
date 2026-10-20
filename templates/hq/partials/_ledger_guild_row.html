@@ -9,7 +9,7 @@ Remove goes through the confirm modal.
 {% with row=guild_row.row form=guild_row.form %}
 <tbody class="pl-hq-lg__row-body" data-hq-lg-guild="{{ row.pk }}">
   <tr>
-    <td class="pl-hq-lg__cell pl-hq-lg__strong">{{ row.guild.name }}{% if not row.guild.is_active %} <span class="pl-hq-lg__cat">Inactive</span>{% endif %}</td>
+    <td class="pl-hq-lg__cell pl-hq-lg__strong">{{ row.guild.name }}{% if not row.guild.is_active or row.guild.deleted_at %} <span class="pl-hq-lg__cat">Inactive</span>{% endif %}</td>
     <td class="pl-hq-lg__cell">{% include "components/form_field.html" with field=form.lead field_hint_off=True %}</td>
     <td class="pl-hq-lg__cell pl-hq-lg__cell--switch">{% include "components/form_field.html" with field=form.contacted field_hint_off=True %}</td>
     <td class="pl-hq-lg__cell">{% include "components/form_field.html" with field=form.contacted_by field_hint_off=True %}</td>

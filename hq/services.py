@@ -112,6 +112,7 @@ from hq.models import (
     WineryLogo,
     donor_key,
     format_hours,
+    hours_words,
     format_money,
 )
 from membership.models import CommunityEvent, Guild, GuildMembership, Member
@@ -1224,6 +1225,10 @@ class CheckinBand:
         return format_hours(self.hours)
 
     @property
+    def hours_words(self) -> str:
+        return hours_words(self.hours)
+
+    @property
     def sales_display(self) -> str:
         return format_money(self.sales_cents)
 
@@ -1281,6 +1286,10 @@ class BoardRow:
     @property
     def hours_display(self) -> str:
         return format_hours(self.hours)
+
+    @property
+    def hours_words(self) -> str:
+        return hours_words(self.hours)
 
     @property
     def meter_value(self) -> str:
@@ -1851,8 +1860,14 @@ def door_figures(
     )
 
 
+def _noun(count: int, one: str, many: str) -> str:
+    """The noun for ``count`` alone, for a line that sets the figure apart (Lee's bold cheer figures)."""
+    return one if count == 1 else many
+
+
 def _plural(count: int, one: str, many: str) -> str:
-    return f"{count} {one if count == 1 else many}"
+    """``count`` with its noun in the right number: "1 drink", "2 drinks"."""
+    return f"{count} {_noun(count, one, many)}"
 
 
 def board_summary(band: LedgerBand, doors: DoorFigures) -> str:
@@ -1903,7 +1918,7 @@ def _cash_sentences(doors: DoorFigures) -> list[str]:
                 else f"{money(-bar.profit_cents)} short of break-even"
             )
             after = f", {result} after {money(bar.cost_cents)} in bar costs"
-        parts.append(f"Drink sales: {bar.count} drinks sold for {money(bar.sales_cents)}{after}.")
+        parts.append(f"Drink sales: {_plural(bar.count, 'drink', 'drinks')} sold for {money(bar.sales_cents)}{after}.")
     sponsors = doors.sponsors
     if sponsors.received_cents + sponsors.committed_cents > 0:
         parts.append(
@@ -1928,13 +1943,11 @@ def _team_sentences(doors: DoorFigures) -> list[str]:
     staff = doors.staff
     if staff.hours:
         people = ", ".join(f"{person.name} {person.hours_display}" for person in staff.people)
-        parts.append(
-            f"Staff time: {staff.hours_display} hours ({people}), about {staff.rate_display} raised per staff hour."
-        )
+        parts.append(f"Staff time: {staff.hours_words} ({people}), about {staff.rate_display} raised per staff hour.")
     checkin = doors.checkin
     if checkin.hours:
         volunteers = _plural(checkin.volunteers, "person", "people")
-        parts.append(f"Volunteers: {volunteers} gave {checkin.hours_display} hours to event prep.")
+        parts.append(f"Volunteers: {volunteers} gave {checkin.hours_words} to event prep.")
     present = doors.attendance.total
     if present > 0 or doors.vendors.confirmed > 0:
         parts.append(
@@ -1950,11 +1963,14 @@ def _wine_sentences(doors: DoorFigures) -> list[str]:
     if wine.bottles <= 0:
         return []
     money = format_money
-    of = f" of {wine.goal}" if wine.goal else ""
-    parts = [f"Wine wall: {wine.bottles}{of} bottles donated, worth {money(wine.value_cents)}."]
+    bottles = f"{wine.bottles} of {wine.goal} bottles" if wine.goal else _plural(wine.bottles, "bottle", "bottles")
+    parts = [f"Wine wall: {bottles} donated, worth {money(wine.value_cents)}."]
     tickets = doors.tickets
     if tickets.count > 0:
-        parts.append(f"{tickets.count} tickets sold ({tickets.description}) raised {money(tickets.revenue_cents)}.")
+        parts.append(
+            f"{_plural(tickets.count, 'ticket', 'tickets')} sold ({tickets.description}) raised "
+            f"{money(tickets.revenue_cents)}."
+        )
     return parts
 
 
@@ -2291,7 +2307,7 @@ class TicketTotals:
 
     @property
     def at_goal_line(self) -> str:
-        return f"{self.at_goal_tickets} tickets at {self.ticket_display}, or 2 for {self.pair_display}"
+        return f"{_plural(self.at_goal_tickets, 'ticket', 'tickets')} at {self.ticket_display}, or 2 for {self.pair_display}"
 
     @property
     def description(self) -> str:
@@ -2556,6 +2572,10 @@ class StaffHours:
         return format_hours(self.hours)
 
     @property
+    def hours_words(self) -> str:
+        return hours_words(self.hours)
+
+    @property
     def meter_value(self) -> str:
         """The hours as a plain number for a bar's ``value``, never localised."""
         return str(self.hours)
@@ -2574,6 +2594,10 @@ class StaffTotals:
     @property
     def hours_display(self) -> str:
         return format_hours(self.hours)
+
+    @property
+    def hours_words(self) -> str:
+        return hours_words(self.hours)
 
     @property
     def rate_display(self) -> str:
@@ -2630,7 +2654,8 @@ def log_staff_time(
 
 @dataclass(frozen=True)
 class GuildDemoTotals:
-    """The guild demos' count: the active guilds, the rows on the list, how many were contacted and how many demo."""
+    """The guild demos' count: the active guilds, and of the rows on the list whose guild is live (active and not
+    deleted), how many there are, were contacted and demo."""
 
     guilds: int
     rows: int
@@ -2645,14 +2670,21 @@ class GuildDemoTotals:
         return f"{self.contacted} of {self.guilds} contacted · {_plural(self.demos, 'demo', 'demos')} planned"
 
 
+# A row on the Guild demos list counts only while its guild is live: active and not soft deleted, the guilds N counts.
+# A guild that went inactive or was deleted keeps its row (marked Inactive), but it is no longer one of the N, so
+# counting it would read "2 of 1" or "All contacted" with a live guild never reached.
+_LIVE_GUILD = Q(guild__is_active=True, guild__deleted_at__isnull=True)
+
+
 def guilds_with_demos(hub: EventHub) -> int:
-    """The guilds on ``hub``'s list with a demo planned: the Guilds taking part goal. One query."""
-    return hub.guild_demos.filter(demo=True).count()
+    """The live guilds on ``hub``'s list with a demo planned: the Guilds taking part goal. One query."""
+    return hub.guild_demos.filter(_LIVE_GUILD, demo=True).count()
 
 
 def guild_demo_totals(hub: EventHub) -> GuildDemoTotals:
-    """The guild demos on ``hub`` in two queries: one aggregate over the list, and the active guilds."""
-    totals = hub.guild_demos.aggregate(
+    """The guild demos on ``hub`` in two queries: one aggregate over the list's live guilds, and the active guilds
+    (``Guild.objects`` leaves the soft deleted out)."""
+    totals = hub.guild_demos.filter(_LIVE_GUILD).aggregate(
         rows=Count("pk"), contacted=Count("pk", filter=Q(contacted=True)), demos=Count("pk", filter=Q(demo=True))
     )
     return GuildDemoTotals(
@@ -2672,10 +2704,30 @@ def _lead_name(guild: Guild) -> str:
     return guild.guild_lead.display_name if guild.guild_lead is not None else ""
 
 
-def add_guild_demo(hub: EventHub, guild: Guild, *, lead: str) -> tuple[GuildDemo, bool]:
-    """Put ``guild`` on ``hub``'s list (its lead as typed, else the guild's lead); a guild already listed is returned
-    as it is, with False."""
-    return GuildDemo.objects.get_or_create(hub=hub, guild=guild, defaults={"lead": lead or _lead_name(guild)})
+class GuildAlreadyListed(Exception):
+    """The guild is on the hub's Guild demos list already: another organiser's add, or Add every active guild, got
+    there between the form offering it and the save. The message names the guild."""
+
+
+def add_guild_demo(hub: EventHub, guild: Guild, *, lead: str) -> GuildDemo:
+    """Put ``guild`` on ``hub``'s list (its lead as typed, else the guild's lead).
+
+    The hub's row is locked first, as :func:`add_every_active_guild` locks it, so the two never both add one guild;
+    a row that landed anyway (an admin's insert holds no lock) is answered by the one-per-guild constraint.
+
+    Raises:
+        GuildAlreadyListed: the guild is on the list already, named.
+    """
+    refusal = f"{guild.name} is already on the list."
+    with transaction.atomic():
+        list(EventHub.objects.select_for_update().filter(pk=hub.pk))
+        if hub.guild_demos.filter(guild=guild).exists():
+            raise GuildAlreadyListed(refusal)
+        try:
+            with transaction.atomic():
+                return GuildDemo.objects.create(hub=hub, guild=guild, lead=lead or _lead_name(guild))
+        except IntegrityError as exc:  # a row that landed between the check and the insert
+            raise GuildAlreadyListed(refusal) from exc
 
 
 def add_every_active_guild(hub: EventHub) -> int:
@@ -2819,7 +2871,8 @@ def ledger_tally(
             tickets.revenue_cents,
             True,
             wine.goal * tickets.ticket_cents,
-            f"{tickets.count} tickets · {tickets.ticket_display} a ticket or 2 for {tickets.pair_display}",
+            f"{_plural(tickets.count, 'ticket', 'tickets')} · {tickets.ticket_display} a ticket or 2 for "
+            f"{tickets.pair_display}",
             anchor="hq-lg-wine",
         ),
         TallyTile(
@@ -2846,7 +2899,9 @@ def ledger_tally(
             checkin.sales_cents,
             True,
             0,
-            f"{checkin.items} handmade items found new homes" if checkin.items else "straight into artists' pockets",
+            f"{_plural(checkin.items, 'handmade item', 'handmade items')} found new homes"
+            if checkin.items
+            else "straight into artists' pockets",
             door=HubCard.Kind.MARKET_CHECKIN,
         ),
         TallyTile(
@@ -2897,14 +2952,22 @@ def _cheer(doors: DoorFigures, *, before: bool) -> list[CheerLine]:
     wine = doors.wine
     if wine.goal:
         if wine.bottles < wine.goal:
-            lines.append(CheerLine("", str(wine.goal - wine.bottles), " bottles to fill the wine wall"))
+            short = wine.goal - wine.bottles
+            lines.append(CheerLine("", str(short), f" {_noun(short, 'bottle', 'bottles')} to fill the wine wall"))
         else:
             lines.append(CheerLine("", "Wine wall is full!", ""))
     guilds = doors.guilds
     if guilds.guilds and guilds.demos < guilds.guilds:
-        lines.append(CheerLine("", str(guilds.guilds - guilds.demos), " guilds still to line up a demo"))
+        missing = guilds.guilds - guilds.demos
+        lines.append(CheerLine("", str(missing), f" {_noun(missing, 'guild', 'guilds')} still to line up a demo"))
     if before and doors.flyers < TALLY_FLYER_NUDGE_UNDER:
-        lines.append(CheerLine("Drop a flyer somewhere today. ", str(doors.flyers), " businesses so far"))
+        lines.append(
+            CheerLine(
+                "Drop a flyer somewhere today. ",
+                str(doors.flyers),
+                f" {_noun(doors.flyers, 'business', 'businesses')} so far",
+            )
+        )
     return lines
 
 

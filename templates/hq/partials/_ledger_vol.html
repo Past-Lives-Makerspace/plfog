@@ -10,7 +10,7 @@ is open to the viewer.
 <section class="pl-hq-lg__section" id="hq-lg-vol" aria-labelledby="hq-lg-vol-title" data-hq-lg-vol>
   <div class="pl-hq-lg__section-head">
     <h2 class="pl-hq-lg__h2" id="hq-lg-vol-title">Volunteer Hours</h2>
-    <span class="pl-hq-lg__muted pl-hq-lg__helper">{% if vol_band.hours %}{{ vol_band.hours_display }} hours from {{ vol_band.volunteers }} volunteer{{ vol_band.volunteers|pluralize }} so far{% else %}Every hour of prep counts{% endif %}</span>
+    <span class="pl-hq-lg__muted pl-hq-lg__helper">{% if vol_band.hours %}{{ vol_band.hours_words }} from {{ vol_band.volunteers }} volunteer{{ vol_band.volunteers|pluralize }} so far{% else %}Every hour of prep counts{% endif %}</span>
   </div>
   <div class="pl-hq-lg__money">
     <div class="pl-hq-lg__tiles pl-hq-lg__tiles--two">
@@ -34,7 +34,7 @@ is open to the viewer.
       <li class="pl-hq-lg__bar-row pl-hq-lg__bar-row--ranked" data-hq-lg-vol-row>
         <span class="pl-hq-lg__bar-rank">{{ row.rank }}</span>
         <span class="pl-hq-lg__bar-name">{{ row.name }}</span>
-        <progress class="pl-hq-lg__meter pl-hq-lg__meter--fill pl-hq-lg__bar-meter" max="{{ vol_board.top }}" value="{{ row.meter_value }}" aria-label="{{ row.name }}: {{ row.hours_display }} hours"></progress>
+        <progress class="pl-hq-lg__meter pl-hq-lg__meter--fill pl-hq-lg__bar-meter" max="{{ vol_board.top }}" value="{{ row.meter_value }}" aria-label="{{ row.name }}: {{ row.hours_words }}"></progress>
         <span class="pl-hq-lg__bar-hours">{{ row.hours_display }} h</span>
       </li>
       {% endfor %}
