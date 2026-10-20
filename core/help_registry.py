@@ -916,6 +916,51 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": "holiday-bizarre-hq",
         "anchor": "hq-ledger-bar",
     },
+    "hq.ledger-tally": {
+        "title": "The running tally and goals",
+        "short_text": (
+            "Every figure is read from the page it is kept on: sponsors, the bar, the wine wall, vendors, check-in "
+            "and marketing. Click one to open that page. Admins change the targets on Edit HQ."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-ledger-tally",
+    },
+    "hq.ledger-door": {
+        "title": "Count people at the door",
+        "short_text": (
+            "Tap +1, +5 or +10 as people come in; Undo 1 takes one back. Attendees adds these to the check-ins on "
+            "the event's guest list."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-ledger-door",
+    },
+    "hq.ledger-launch": {
+        "title": "The launch checklist",
+        "short_text": (
+            "Add a task with its owner and due date, then change its status and link on its row and click Save. "
+            "A late task shows its due date in red."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-ledger-launch",
+    },
+    "hq.ledger-staff": {
+        "title": "Log staff time",
+        "short_text": (
+            "Who, the date, the hours in quarter hours and the work area. The figures show each person's hours and "
+            "the event cash raised per staff hour."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-ledger-staff",
+    },
+    "hq.ledger-guilds": {
+        "title": "Guild demos",
+        "short_text": (
+            "Add every active guild, then note who reached out and whether each guild has a demo planned. Click Save "
+            "on the row you changed."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-ledger-guilds",
+    },
     "hq.edit-card": {
         "title": "Who may open a card",
         "short_text": (

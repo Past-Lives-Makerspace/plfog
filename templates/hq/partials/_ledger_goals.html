@@ -1,0 +1,39 @@
+{% comment %}
+The ledger's Goals (Track D, part 6c), Lee's list: the event cash first, then her three groups (Parts of the cash goal,
+Budget, Not part of the cash goal). Each row names the goal and its line, the figure and its line, a meter when it has
+a target, and her chip (Reached, Covered once collected, what is left to go), and jumps to its section of the ledger or
+to the door its figure lives on. Every target is the hub's own goal, the approval or the active guilds, never a copy;
+Change the goals is Edit HQ's goals form, for admins. Sent back out of band with the tally.
+
+  goal_groups    — required, the hq.services.LedgerGoalGroup list
+  edit_goals_url — required, Edit HQ's goals ("" for anyone but an admin)
+  oob            — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<section class="pl-hq-lg__section" id="hq-lg-goals" aria-labelledby="hq-lg-goals-title" data-hq-lg-goals{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="pl-hq-lg__section-head">
+    <h2 class="pl-hq-lg__h2" id="hq-lg-goals-title">Goals</h2>
+    <span class="pl-hq-lg__muted pl-hq-lg__helper">Tap a goal to jump to its section</span>
+  </div>
+  <div class="pl-hq-lg__card pl-hq-lg__goals">
+    {% for group in goal_groups %}
+    {% if group.heading %}<p class="pl-hq-lg__goal-group" data-hq-lg-goal-group>{{ group.heading }}</p>{% endif %}
+    {% for row in group.rows %}
+    <div class="pl-hq-lg__goal{% if row.lead %} pl-hq-lg__goal--lead{% endif %}" data-hq-lg-goal="{{ row.key }}">
+      <div class="pl-hq-lg__goal-name">
+        {% if row.href %}<a href="{{ row.href }}" class="pl-hq-lg__goal-link" data-hq-lg-goal-link>{{ row.name }}</a>{% else %}<span class="pl-hq-lg__strong">{{ row.name }}</span>{% endif %}
+        <small>{{ row.sub }}</small>
+      </div>
+      <div class="pl-hq-lg__goal-figure" data-hq-lg-goal-figure>{{ row.figure }}<small>{{ row.figure_sub }}</small></div>
+      <div class="pl-hq-lg__goal-meter">{% if row.percent is not None %}<progress class="pl-hq-lg__meter pl-hq-lg__meter--fill" max="100" value="{{ row.percent }}" aria-label="{{ row.name }}: {{ row.percent }} percent"></progress>{% endif %}</div>
+      <div class="pl-hq-lg__goal-chip">{% if row.chip %}<span class="pl-hq-lg__chip{% if row.tone %} pl-hq-lg__chip--{{ row.tone }}{% endif %}" data-hq-lg-goal-chip>{{ row.chip }}</span>{% endif %}</div>
+    </div>
+    {% endfor %}
+    {% endfor %}
+  </div>
+  {% if edit_goals_url %}
+  <div class="pl-hq-lg__actions">
+    <a href="{{ edit_goals_url }}" class="pl-hq-lg__link pl-hq-lg__link--plain" data-hq-lg-change-goals>Change the goals</a>
+    <span class="pl-hq-lg__muted pl-hq-lg__helper">The targets are the HQ's goals, set on Edit HQ.</span>
+  </div>
+  {% endif %}
+</section>

@@ -529,6 +529,10 @@ def _doors(**overrides: Any) -> services.DoorFigures:
         "cash": figures.cash,
         "bar": figures.bar,
         "tickets": figures.tickets,
+        "vendors": figures.vendors,
+        "guilds": figures.guilds,
+        "staff": figures.staff,
+        "attendance": figures.attendance,
     }
     values.update(overrides)
     return services.DoorFigures(**values)
@@ -618,7 +622,7 @@ def describe_the_board_summary():
 
         assert f"data-hq-lg-summary>{services.LEDGER_EMPTY_SUMMARY}</p>" in body
         assert "Holiday Bizarre drinks: the board approved $900." in body  # the hidden box Copy reads
-        assert 'x-ref="summary"' in body
+        assert "data-hq-lg-summary-box>Holiday Bizarre drinks" in body
         assert "Board summary copied." in body
 
     def it_shows_the_paragraph_once_there_is_an_entry(hub, kegs, lee_client):

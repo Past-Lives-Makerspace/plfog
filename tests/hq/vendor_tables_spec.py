@@ -977,7 +977,7 @@ def describe_the_member_tables_goal():
         assert "0 <small>of 100</small></strong>" in body
 
     def it_is_one_of_lees_goals_with_no_target(hub):
-        member_tables = GOALS[-1]
+        member_tables = next(goal for goal in GOALS if goal.kind == HubGoal.Kind.MEMBER_TABLES)
 
         assert (member_tables.label, member_tables.kind, member_tables.target) == (
             "Member tables",

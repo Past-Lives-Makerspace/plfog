@@ -1,0 +1,127 @@
+{% comment %}
+Staff time (Track D, part 6c), Lee's section "For the board: what the event took, and what it returned": all staff
+hours, the event cash per staff hour (a dash with none logged), the volunteer hours from the Market Check-in, each
+person's hours most first (Lee's "Lee's hours" for everyone) and the hours by work area, then Log time and every entry
+with its Delete and the CSV. Log time swaps this section with the figures out of band.
+
+  hub             — required, the EventHub
+  staff           — required, a hq.services.StaffTotals
+  volunteer_hours — required, a hq.services.CheckinBand
+  staff_entries   — required, the hub's staff time newest first
+  staff_form      — required, a StaffTimeForm (bound when a post failed, else keeping who, date and area)
+  staff_open      — required, whether Log time renders open
+  team_list_id    — required, the team datalist's id
+{% endcomment %}
+<section class="pl-hq-lg__section" id="hq-lg-staff" aria-labelledby="hq-lg-staff-title" data-hq-lg-staff>
+  <div class="pl-hq-lg__section-head">
+    <h2 class="pl-hq-lg__h2" id="hq-lg-staff-title">Staff Time</h2>
+    <span class="pl-hq-lg__muted pl-hq-lg__helper">For the board: what the event took, and what it returned</span>
+  </div>
+  <div class="pl-hq-lg__money">
+    <div class="pl-hq-lg__tiles">
+      <div class="pl-hq-lg__tile" data-hq-lg-staff-tile="hours">
+        <span class="pl-hq-lg__tile-heading">All staff hours</span>
+        <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ staff.hours_display }}</strong>
+        <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{% if staff.people %}From {{ staff.people|length }} {{ staff.people|length|pluralize:"person,people" }}{% else %}Logged so far{% endif %}</span>
+      </div>
+      <div class="pl-hq-lg__tile" data-hq-lg-staff-tile="rate">
+        <span class="pl-hq-lg__tile-heading">Raised per staff hour</span>
+        <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ staff.rate_display }}</strong>
+        <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>Event cash ÷ staff hours</span>
+      </div>
+      <div class="pl-hq-lg__tile" data-hq-lg-staff-tile="volunteers">
+        <span class="pl-hq-lg__tile-heading">Volunteer hours</span>
+        <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ volunteer_hours.hours_display }}</strong>
+        <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>Given freely by the community</span>
+      </div>
+    </div>
+    {% if staff.people %}
+    <div class="pl-hq-lg__split">
+      <div>
+        <h3 class="pl-hq-lg__h3">Hours By Person</h3>
+        <ol class="pl-hq-lg__bars" data-hq-lg-staff-people>
+          {% for person in staff.people %}
+          <li class="pl-hq-lg__bar-row" data-hq-lg-staff-person>
+            <span class="pl-hq-lg__bar-name">{{ person.name }}</span>
+            <progress class="pl-hq-lg__meter pl-hq-lg__meter--fill pl-hq-lg__bar-meter" max="{{ staff.people.0.meter_value }}" value="{{ person.meter_value }}" aria-label="{{ person.name }}: {{ person.hours_display }} hours"></progress>
+            <span class="pl-hq-lg__bar-hours">{{ person.hours_display }} h</span>
+          </li>
+          {% endfor %}
+        </ol>
+      </div>
+      <div>
+        <h3 class="pl-hq-lg__h3">Hours By Work Area</h3>
+        <ol class="pl-hq-lg__bars" data-hq-lg-staff-areas>
+          {% for area in staff.areas %}
+          <li class="pl-hq-lg__bar-row" data-hq-lg-staff-area>
+            <span class="pl-hq-lg__bar-name">{{ area.name }}</span>
+            <progress class="pl-hq-lg__meter pl-hq-lg__meter--fill pl-hq-lg__bar-meter" max="{{ staff.area_top }}" value="{{ area.meter_value }}" aria-label="{{ area.name }}: {{ area.hours_display }} hours"></progress>
+            <span class="pl-hq-lg__bar-hours">{{ area.hours_display }} h</span>
+          </li>
+          {% endfor %}
+        </ol>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <details class="pl-disclosure pl-hq-lg__disclosure" {% if staff_open or staff_form.errors %}open{% endif %} data-hq-lg-staff-add data-help-key="hq.ledger-staff">
+    <summary class="pl-disclosure__summary">
+      <span class="pl-disclosure__title">Log time</span>
+      <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+    </summary>
+    <form method="post" action="{% url 'hq:ledger_staff_add' hub.slug %}" hx-post="{% url 'hq:ledger_staff_add' hub.slug %}" hx-target="closest [data-hq-lg-staff]" hx-swap="outerHTML" hx-disabled-elt="find button" class="pl-disclosure__body pl-hq-lg__form" data-hq-lg-staff-form>
+      {% csrf_token %}
+      <div class="pl-hq-lg__fields">
+        {% include "components/form_field.html" with field=staff_form.who field_hint_off=True %}
+        {% include "components/form_field.html" with field=staff_form.date field_hint_off=True %}
+        {% include "components/form_field.html" with field=staff_form.hours field_hint_off=True %}
+        {% include "components/form_field.html" with field=staff_form.area field_hint_off=True %}
+      </div>
+      {% include "components/form_field.html" with field=staff_form.note field_hint_off=True %}
+      <div class="pl-hq-lg__actions">
+        <button type="submit" class="pl-hq-lg__btn" data-hq-lg-staff-submit>Log time</button>
+      </div>
+    </form>
+  </details>
+
+  <div class="pl-hq-lg__card pl-hq-lg__scroll">
+    <table class="pl-hq-lg__table">
+      <thead>
+        <tr>
+          <th scope="col">Date</th>
+          <th scope="col">Who</th>
+          <th scope="col" class="pl-hq-lg__num">Hours</th>
+          <th scope="col">Work area</th>
+          <th scope="col">What</th>
+          <th scope="col"><span class="sr-only">Delete</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in staff_entries %}
+        <tr data-hq-lg-staff-entry="{{ entry.pk }}">
+          <td class="pl-hq-lg__nowrap">{{ entry.date|date:"M j" }}</td>
+          <td>{{ entry.who }}</td>
+          <td class="pl-hq-lg__num">{{ entry.hours_display }}</td>
+          <td>{{ entry.get_area_display }}</td>
+          <td>{{ entry.note }}</td>
+          <td>
+            <button type="button" class="pl-hq-lg__delete" aria-label="Delete {{ entry.who }}'s {{ entry.hours_display }} hours on {{ entry.date|date:'M j' }}" @click="$dispatch('open-confirm', 'delete-staff-{{ entry.pk }}')" data-hq-lg-staff-delete>Delete</button>
+            {% url 'hq:ledger_staff_delete' hub.slug entry.pk as delete_url %}
+            {% with pk_text=entry.pk|stringformat:"s" %}
+            {% include "components/confirm_modal.html" with confirm_id="delete-staff-"|add:pk_text confirm_title="Delete this time?" confirm_message="It comes out of the staff hours. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" %}
+            {% endwith %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="pl-hq-lg__empty" data-hq-lg-staff-empty>No time logged yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if staff_entries %}
+  <div class="pl-hq-lg__actions">
+    <a href="{% url 'hq:ledger_staff_csv' hub.slug %}" class="pl-hq-lg__btn pl-hq-lg__btn--ghost" hx-boost="false" data-pl-download data-hq-lg-staff-csv>Download staff time (CSV)</a>
+  </div>
+  {% endif %}
+</section>

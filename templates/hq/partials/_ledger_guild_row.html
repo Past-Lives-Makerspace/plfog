@@ -1,0 +1,36 @@
+{% comment %}
+One guild on the Guild demos list as its own tbody: every cell a control of the row's form (in the last cell) by its
+form attribute, each labelled with the guild; Contacted and Demo planned are switches. Save swaps this tbody alone;
+Remove goes through the confirm modal.
+
+  hub       — required, the EventHub
+  guild_row — required, a hq.views.GuildRow (the row, its edit form, and any refusal the form lacks)
+{% endcomment %}
+{% with row=guild_row.row form=guild_row.form %}
+<tbody class="pl-hq-lg__row-body" data-hq-lg-guild="{{ row.pk }}">
+  <tr>
+    <td class="pl-hq-lg__cell pl-hq-lg__strong">{{ row.guild.name }}{% if not row.guild.is_active %} <span class="pl-hq-lg__cat">Inactive</span>{% endif %}</td>
+    <td class="pl-hq-lg__cell">{% include "components/form_field.html" with field=form.lead field_hint_off=True %}</td>
+    <td class="pl-hq-lg__cell pl-hq-lg__cell--switch">{% include "components/form_field.html" with field=form.contacted field_hint_off=True %}</td>
+    <td class="pl-hq-lg__cell">{% include "components/form_field.html" with field=form.contacted_by field_hint_off=True %}</td>
+    <td class="pl-hq-lg__cell pl-hq-lg__cell--wide">
+      {% include "components/form_field.html" with field=form.demo field_hint_off=True %}
+      {% include "components/form_field.html" with field=form.note field_hint_off=True %}
+    </td>
+    <td class="pl-hq-lg__cell pl-hq-lg__cell--actions">
+      {% if guild_row.error %}<p class="pl-field-error" role="alert" data-hq-lg-guild-error>{{ guild_row.error }}</p>{% endif %}
+      {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+      <form id="{{ form.form_id }}" method="post" action="{% url 'hq:ledger_guild_edit' hub.slug row.pk %}" hx-post="{% url 'hq:ledger_guild_edit' hub.slug row.pk %}" hx-target="closest [data-hq-lg-guild]" hx-swap="outerHTML" data-hq-lg-guild-form>
+        {% csrf_token %}
+        {{ form.updated_at }}
+        <button type="submit" class="pl-hq-lg__btn pl-hq-lg__btn--sm" aria-label="Save {{ row.guild.name }}" data-hq-lg-guild-save>Save</button>
+      </form>
+      <button type="button" class="pl-hq-lg__delete" aria-label="Remove {{ row.guild.name }}" @click="$dispatch('open-confirm', 'delete-guild-{{ row.pk }}')" data-hq-lg-guild-delete>Remove</button>
+      {% url 'hq:ledger_guild_delete' hub.slug row.pk as delete_url %}
+      {% with pk_text=row.pk|stringformat:"s" %}
+      {% include "components/confirm_modal.html" with confirm_id="delete-guild-"|add:pk_text confirm_title="Take this guild off the list?" confirm_message="Its lead, contact and demo notes go with it. The guild itself is not changed." confirm_action_url=delete_url confirm_button_text="Remove" %}
+      {% endwith %}
+    </td>
+  </tr>
+</tbody>
+{% endwith %}

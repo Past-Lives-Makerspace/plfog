@@ -665,7 +665,7 @@ You only see the doors that are open to you. Every card starts as admins only; a
 
 ### The Goal Tracker {#hq-goal-tracker}
 
-Under the top band sits a row of goals, each with a meter. Every one of Lee's goals updates itself from the pages behind the doors: **Raised** adds up the sponsor money received, the bar's sales and the wine wall tickets; the others count people going, volunteer spots, bottles and confirmed vendor tables. A goal with no target, like **Member tables**, shows its count with no meter.
+Under the top band sits a row of goals, each with a meter. Every one of Lee's goals updates itself from the pages behind the doors: **Raised** adds up the sponsor money received, the bar's sales and the wine wall tickets; the others count people going, volunteer spots, bottles, confirmed vendor tables and the guilds with a demo planned on the ledger. A goal with no target, like **Member tables** or **Guilds taking part**, shows its count with no meter.
 
 ### RSVP on the Event Page {#hq-rsvp}
 
@@ -813,6 +813,41 @@ The **Ledger** lists every entry, newest first, with filters for each kind. A pu
 
 The **Raised** goal on the HQ page adds up the sponsor money received, the drink sales and the wine wall tickets by itself.
 
+### Running Tally and Goals {#hq-ledger-tally}
+
+The top of the ledger is **The Running Tally**: the days to the event and nine figures, each read from the page it is kept on. Cash to Past Lives, wine bottles, ticket sales, guilds doing demos, members with tables, what members sold, businesses with flyers, attendees and volunteer hours. Click a figure to open the page it comes from (when that page is open to you). The lines under the figures say what is left to reach each goal.
+
+**Goals** lists every goal with its meter: the event cash first, then the parts of the cash goal, the budget, and the goals that are not part of the cash goal. Click a goal to jump to its section. The targets are the HQ's own goals; admins change them with **Change the goals**, which opens Edit HQ.
+
+Nothing here is typed twice: sponsors live on the Sponsorship Tracker, vendors on Vendor Tables, sales reports and volunteer hours on Market Check-in, and flyer drop-offs on the Marketing Tracker. **Volunteer Hours** and **Event Flyer** further down show their figures and link to those pages.
+
+### Attendance and Vendors {#hq-ledger-door}
+
+**Attendees** adds the people checked in at the door on the event's guest list to the walk-ins counted here.
+
+1. At the door, tap **+1**, **+5** or **+10** as people come in.
+2. Tapped too many? **Undo 1** takes one back. The count never goes below zero.
+
+The vendors, their sales and the average per vendor come from Vendor Tables and Market Check-in, with each artist's report and their experience. **Download vendors and attendance (CSV)** gives the reports with the totals.
+
+### Launch Checklist {#hq-ledger-launch}
+
+Every task to get the word out, with its owner, status, due date and link once it is live. Change a row and click its **Save**. A due date turns red, with **Late**, once it has passed and the task is not done. **Add a task** adds one at the end; **Delete** takes one off.
+
+### Staff Time {#hq-ledger-staff}
+
+What the event took, for the board.
+
+1. Open **Log time**.
+2. Type who (the team is suggested), the date, the hours (a quarter hour up to 24, like 1.5) and the work area, and what you did.
+3. Click **Log time**.
+
+The figures show all staff hours, each person's hours, the hours by work area, and **Raised per staff hour**: the event cash divided by the staff hours. **Download staff time (CSV)** gives every entry with the totals.
+
+### Guild Demos {#hq-ledger-guilds}
+
+One row per guild: its lead, whether someone reached out and who, whether it has a demo planned, and what. **Add every active guild** puts each active guild on the list with its guild lead; **Add a guild** adds one. Change a row and click its **Save**; **Remove** takes a guild off the list. The guilds with a demo planned are the **Guilds taking part** goal.
+
 ### Organiser Tools {#hq-organiser-tools}
 
 Admins and the people named on a card run what is behind it.
@@ -823,7 +858,7 @@ Admins and the people named on a card run what is behind it.
 
 ### Editing the HQ (Admins) {#hq-edit}
 
-Before the HQ exists, an admin who opens it (from **Admin Tools**, **Holiday Bizarre HQ**) gets one button, **Load Lee's HQ**, which puts her nine doors, five goals and 21 volunteer shifts on the site, every door admins only.
+Before the HQ exists, an admin who opens it (from **Admin Tools**, **Holiday Bizarre HQ**) gets one button, **Load Lee's HQ**, which puts her nine doors, six goals and 21 volunteer shifts on the site, every door admins only.
 
 Admins see an **Edit HQ** button at the top of the page and an **Edit** link under each card.
 

@@ -1,0 +1,39 @@
+{% comment %}
+The running tally (Track D, part 6c), Lee's navy scoreboard at the top of the ledger: her eyebrow and title, the
+countdown to the event (her day-of lines on the day), nine tiles each read live from the door its figure lives on (a
+tile links to that door when its card is open to the viewer, or to its section of the ledger), and her cheer lines.
+Sent back out of band after every write that moves a figure on it.
+
+  tally            — required, a hq.services.LedgerTally
+  tally_eyebrow, tally_title, tally_title_gold — required, Lee's words
+  oob              — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<section class="pl-hq-lg__tally" id="hq-lg-tally" aria-labelledby="hq-lg-tally-title" data-hq-lg-tally data-help-key="hq.ledger-tally"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="pl-hq-lg__tally-top">
+    <div>
+      <p class="pl-hq-lg__tally-eyebrow">{{ tally_eyebrow }}</p>
+      <h2 class="pl-hq-lg__tally-title" id="hq-lg-tally-title">{{ tally_title }} <em>{{ tally_title_gold }}</em></h2>
+    </div>
+    {% if tally.countdown.big %}
+    <div class="pl-hq-lg__countdown" data-hq-lg-countdown>
+      <span class="pl-hq-lg__countdown-big">{{ tally.countdown.big }}</span>
+      <span class="pl-hq-lg__countdown-small">{{ tally.countdown.small }}</span>
+    </div>
+    {% endif %}
+  </div>
+  <div class="pl-hq-lg__tally-tiles">
+    {% for tile in tally.tiles %}
+    {% if tile.href %}<a href="{{ tile.href }}" {% else %}<div {% endif %}class="pl-hq-lg__tally-tile{% if tile.is_money %} pl-hq-lg__tally-tile--money{% endif %}" data-hq-lg-tally-tile="{{ tile.key }}">
+      <span class="pl-hq-lg__tally-label">{{ tile.label }}</span>
+      <strong class="pl-hq-lg__tally-figure" data-hq-lg-tally-figure>{{ tile.value_display }}</strong>
+      <span class="pl-hq-lg__tally-sub" data-hq-lg-tally-sub>{{ tile.sub }}</span>
+      {% if tile.goal %}<progress class="pl-hq-lg__tally-meter" max="100" value="{{ tile.percent }}" aria-label="{{ tile.label }}: {{ tile.percent }} percent of the goal"></progress>{% endif %}
+    {% if tile.href %}</a>{% else %}</div>{% endif %}
+    {% endfor %}
+  </div>
+  {% if tally.cheer %}
+  <p class="pl-hq-lg__cheer" data-hq-lg-cheer>
+    {% for line in tally.cheer %}<span class="pl-hq-lg__cheer-line" data-hq-lg-cheer-line>{{ line.before }}<b>{{ line.bold }}</b>{{ line.after }}</span>{% endfor %}
+  </p>
+  {% endif %}
+</section>

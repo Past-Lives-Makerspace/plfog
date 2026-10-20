@@ -1,0 +1,75 @@
+{% comment %}
+Attendance and vendors (Track D, part 6c), Lee's section, "Not part of the cash goal": the four figures (attendees,
+read from the event's check-ins plus the door clicker; the vendors from Vendor Tables' confirmed tables; their sales and
+the average from the Market Check-in), the door clicker in large buttons for a phone at the door, Lee's No double entry
+note with the two doors, and the artists' reports with their experience. No forms: each list lives on its own door.
+
+  hub             — required, the EventHub
+  attendance      — required, a hq.services.Attendance
+  people_vendors  — required, a hq.services.VendorBand
+  checkin         — required, a hq.services.CheckinBand
+  reports         — required, the hub's market reports by name, each with its guild
+  vendors_url, checkin_url — required, the two doors for this viewer ("" when not open to them)
+  door_hint, no_double_title, door_steps — required, Lee's words and the clicker's steps
+{% endcomment %}
+<section class="pl-hq-lg__section" id="hq-lg-people" aria-labelledby="hq-lg-people-title" data-hq-lg-people>
+  <div class="pl-hq-lg__section-head">
+    <h2 class="pl-hq-lg__h2" id="hq-lg-people-title">Attendance And Vendors</h2>
+    <span class="pl-hq-lg__muted pl-hq-lg__helper">Not part of the cash goal</span>
+  </div>
+
+  <div class="pl-hq-lg__money">
+    {% include "hq/partials/_ledger_people_stats.html" %}
+    <form method="post" action="{% url 'hq:ledger_door' hub.slug %}" hx-post="{% url 'hq:ledger_door' hub.slug %}" hx-swap="none" hx-disabled-elt="[data-hq-lg-door-step]" class="pl-hq-lg__door" data-hq-lg-door data-help-key="hq.ledger-door">
+      {% csrf_token %}
+      <div class="pl-hq-lg__door-head">
+        <h3 class="pl-hq-lg__h3">Door Count</h3>
+        <span class="pl-hq-lg__muted pl-hq-lg__helper">{{ door_hint }}</span>
+      </div>
+      <div class="pl-hq-lg__door-buttons">
+        {% for step in door_steps %}
+        {% if step > 0 %}
+        <button type="submit" name="delta" value="{{ step }}" class="pl-hq-lg__door-btn{% if step == 1 %} pl-hq-lg__door-btn--primary{% endif %}" aria-label="Add {{ step }} at the door" data-hq-lg-door-step="{{ step }}">+{{ step }}</button>
+        {% else %}
+        <button type="submit" name="delta" value="{{ step }}" class="pl-hq-lg__door-btn pl-hq-lg__door-btn--undo" aria-label="Undo 1 at the door" data-hq-lg-door-step="{{ step }}">Undo 1</button>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </form>
+  </div>
+
+  <div class="pl-hq-lg__card pl-hq-lg__note" data-hq-lg-no-double>
+    <strong>{{ no_double_title }}</strong>
+    <span class="pl-hq-lg__muted">Who's vending is entered on {% if vendors_url %}<a href="{{ vendors_url }}" class="pl-hq-lg__inline-link" data-hq-lg-vendors-link>Vendor Tables</a>{% else %}Vendor Tables{% endif %}. Artists report their sales on {% if checkin_url %}<a href="{{ checkin_url }}" class="pl-hq-lg__inline-link" data-hq-lg-checkin-link>Market Check-in</a>{% else %}Market Check-in{% endif %}. Check-ins come from the event's guest list. The figures here are read from those pages as they change.</span>
+  </div>
+
+  <div class="pl-hq-lg__card pl-hq-lg__scroll">
+    <table class="pl-hq-lg__table">
+      <thead>
+        <tr>
+          <th scope="col">Vendor</th>
+          <th scope="col">Guild</th>
+          <th scope="col" class="pl-hq-lg__num">Items</th>
+          <th scope="col" class="pl-hq-lg__num">Total sales</th>
+          <th scope="col">Their experience</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for report in reports %}
+        <tr data-hq-lg-report="{{ report.pk }}">
+          <td class="pl-hq-lg__strong">{{ report.name }}</td>
+          <td>{{ report.guild_display }}</td>
+          <td class="pl-hq-lg__num">{% if report.items_sold is None %}&ndash;{% else %}{{ report.items_sold }}{% endif %}</td>
+          <td class="pl-hq-lg__num">{% if report.sales_cents %}{{ report.sales_display }}{% else %}&ndash;{% endif %}</td>
+          <td class="pl-hq-lg__quote">{% if report.experience %}&ldquo;{{ report.experience }}&rdquo;{% else %}<span class="pl-hq-lg__muted">&ndash;</span>{% endif %}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="pl-hq-lg__empty" data-hq-lg-reports-empty>No market reports yet. Artists add theirs on Market Check-in after the market.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="pl-hq-lg__actions">
+    <a href="{% url 'hq:ledger_people_csv' hub.slug %}" class="pl-hq-lg__btn pl-hq-lg__btn--ghost" hx-boost="false" data-pl-download data-hq-lg-people-csv>Download vendors and attendance (CSV)</a>
+  </div>
+</section>

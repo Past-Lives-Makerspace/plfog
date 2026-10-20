@@ -28,13 +28,15 @@ links and the message members copy to send friends. Part 6a adds the PL Ledger's
 :class:`LedgerSettings` holds the board's approval (and D6b's prices and tickets), a :class:`BudgetLine` one line of the
 budget, and a :class:`LedgerEntry` one gift, purchase or refund against a line, with its receipt. Part 6b adds the money
 in: a :class:`BarSale` is one sale (or a batch) at the bar, and a :class:`WineDonorThanks` marks a wine donor thanked.
+Part 6c adds the team and the tally: a :class:`DoorCount` is one tap on the door clicker, a :class:`LaunchTask` one line of
+the launch checklist, a :class:`StaffTime` one stretch of staff time and a :class:`GuildDemo` one guild's demo plans.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import partial
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -406,9 +408,9 @@ class HubGoal(models.Model):
     """One chip in the goal band: a label, a target and where it stands.
 
     A ``manual`` goal's figure is typed in by an admin; the live kinds are counted from the
-    event's RSVPs, the volunteer shifts (C2), the wine wall (C3), the confirmed vendor tables (D3)
-    and the event cash (D6b: sponsors received, bar sales and wine wall tickets, in whole dollars)
-    by :func:`hq.services.goal_rows`. A goal with no target is a plain count.
+    event's RSVPs, the volunteer shifts (C2), the wine wall (C3), the confirmed vendor tables (D3),
+    the event cash (D6b: sponsors received, bar sales and wine wall tickets, in whole dollars) and the
+    guilds with a demo planned on the ledger (D6c) by :func:`hq.services.goal_rows`. A goal with no target is a plain count.
     """
 
     class Kind(models.TextChoices):
@@ -419,6 +421,7 @@ class HubGoal(models.Model):
         BOTTLE_VALUE = "bottle_value", "Wine wall value"
         MEMBER_TABLES = "member_tables", "Vendor tables confirmed"
         EVENT_CASH = "event_cash", "Event cash"
+        GUILDS = "guilds", "Guild demos planned"
 
     hub = models.ForeignKey(
         EventHub, on_delete=models.CASCADE, related_name="goals", help_text="The HQ this goal is on."
@@ -2015,3 +2018,214 @@ class WineDonorThanks(models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         self.giver_key = donor_key(self.giver_key)
         super().save(*args, **kwargs)
+
+
+# ---- PL Ledger, team and tally (Track D, part 6c) ----
+
+# The door clicker's buttons, in Lee's order: +1, +5, +10, and Undo 1, which appends a -1.
+DOOR_STEPS: tuple[int, ...] = (1, 5, 10, -1)
+
+
+class DoorCount(models.Model):
+    """One tap on the ledger's door clicker: walk-ins counted at the door (+1, +5 or +10), or Undo 1 (-1).
+
+    Append-only, so Undo 1 adds a -1 rather than deleting a row, and :func:`hq.services.count_at_door` never lets the
+    walk-ins go below zero. The attendance is the event's checked-in RSVPs plus the sum of these.
+    """
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="door_counts",
+        help_text="The HQ whose door these people came through.",
+    )
+    delta = models.SmallIntegerField(help_text="How many came in: 1, 5 or 10, or -1 for Undo 1.")
+    created_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="hq_door_counts",
+        help_text="The organiser who tapped.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was tapped.")
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(condition=Q(delta__in=DOOR_STEPS), name="ck_doorcount_delta"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.delta:+d} at the door"
+
+
+class LaunchStatus(models.TextChoices):
+    """Where a launch checklist task stands, Lee's three. ``LaunchTask.Status`` is this."""
+
+    NOT_STARTED = "not_started", "Not started"
+    IN_PROGRESS = "in_progress", "In progress"
+    DONE = "done", "Done"
+
+
+class LaunchTask(models.Model):
+    """One line of the launch checklist: a task, who owns it, where it stands, when it is due and its link once live."""
+
+    Status = LaunchStatus
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="launch_tasks",
+        help_text="The HQ whose launch checklist this task is on.",
+    )
+    task = models.CharField(max_length=200, help_text="What needs doing, e.g. Post on Nextdoor.")
+    owner = models.CharField(max_length=120, blank=True, help_text="Who owns it, as typed. Optional.")
+    status = models.CharField(
+        max_length=12,
+        choices=LaunchStatus.choices,
+        default=LaunchStatus.NOT_STARTED,
+        help_text="Not started, in progress or done.",
+    )
+    due = models.DateField(null=True, blank=True, help_text="When it is due, Portland time. Optional.")
+    link = models.URLField(max_length=500, blank=True, help_text="A link to it once it is live. Optional.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Position on the list; a new task goes last.")
+    updated_at = models.DateTimeField(
+        auto_now=True, help_text="When the task was last saved; a row's Save older than this is refused."
+    )
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+
+    def __str__(self) -> str:
+        return self.task
+
+    def is_late(self, today: date) -> bool:
+        """Lee's red due date: a due date before ``today`` (the Portland date) on a task not done."""
+        return self.due is not None and self.due < today and self.status != LaunchStatus.DONE
+
+    @property
+    def href(self) -> str:
+        """The link when it is a web address the list may open (http or https), else ""."""
+        return self.link if self.link.lower().startswith(("http://", "https://")) else ""
+
+
+class StaffArea(models.TextChoices):
+    """What a stretch of staff time went to, Lee's twelve work areas in her order. ``StaffTime.Area`` is this."""
+
+    PLANNING = "planning", "Planning and admin"
+    SPONSORSHIPS = "sponsorships", "Sponsorships and donors"
+    BOARD = "board", "Board approvals and reporting"
+    VENDORS = "vendors", "Vendors and artists"
+    VOLUNTEERS = "volunteers", "Volunteers"
+    MARKETING = "marketing", "Marketing, flyer and website"
+    GUILD_DEMOS = "guild_demos", "Guild demos"
+    BAR_WINE = "bar_wine", "Bar and wine wall"
+    TOOLS = "tools", "Building tracking tools"
+    SETUP = "setup", "Setup and teardown"
+    EVENT_NIGHT = "event_night", "Event night"
+    OTHER = "other", "Other"
+
+
+class StaffTime(models.Model):
+    """One stretch of staff time the event took: who, when, how long, the work area and what they did.
+
+    For the board's "what the event took, and what it returned" (:func:`hq.services.staff_totals`). ``who`` is as typed;
+    ``member`` is set when it names one of the ledger card's named members, and is cleared, not the row, if that
+    member's record goes. The hours are held to the volunteer hours' bounds, in quarter hours.
+    """
+
+    Area = StaffArea
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="staff_time",
+        help_text="The HQ whose event this time went to.",
+    )
+    who = models.CharField(max_length=120, help_text="Who did the work, as typed, e.g. Lee.")
+    member = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="hq_staff_time",
+        help_text="The ledger's named member Who names, when it names one.",
+    )
+    date = models.DateField(default=timezone.localdate, help_text="The day the work was done, Portland time.")
+    hours = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        validators=[MinValueValidator(HOURS_MIN), MaxValueValidator(HOURS_MAX)],
+        help_text="How long, from 0.25 to 24 in quarter hours.",
+    )
+    area = models.CharField(
+        max_length=20,
+        choices=StaffArea.choices,
+        default=StaffArea.PLANNING,
+        help_text="The work area, from Lee's list.",
+    )
+    note = models.CharField(max_length=200, blank=True, help_text="What they did, e.g. Built the sponsor tracker.")
+    created_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="hq_staff_time_logged",
+        help_text="The organiser who logged it.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was logged.")
+
+    class Meta:
+        ordering = ["-date", "-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(hours__gte=HOURS_MIN) & Q(hours__lte=HOURS_MAX), name="ck_stafftime_range"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.who} {format_hours(self.hours)} h on {self.date}"
+
+    @property
+    def hours_display(self) -> str:
+        return format_hours(self.hours)
+
+
+class GuildDemo(models.Model):
+    """One guild on the ledger's Guild demos list: its lead, whether someone reached out and who, and whether it demos.
+
+    ``guild`` is PROTECT: a demo row means nothing without its guild, and SET_NULL would leave nameless rows that the
+    one-per-guild constraint no longer holds apart. Guilds are retired by turning them inactive (or the soft delete), so
+    the protection only stops a hard delete from the Django admin, which names the rows in the way.
+    """
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="guild_demos",
+        help_text="The HQ whose event the guild may demo at.",
+    )
+    guild = models.ForeignKey(
+        Guild,
+        on_delete=models.PROTECT,
+        related_name="hq_guild_demos",
+        help_text="The guild; one row per guild on a hub.",
+    )
+    lead = models.CharField(max_length=120, blank=True, help_text="The guild lead, as typed. Optional.")
+    contacted = models.BooleanField(default=False, help_text="Whether someone has reached out to the guild.")
+    contacted_by = models.CharField(max_length=120, blank=True, help_text="Who reached out, as typed. Optional.")
+    demo = models.BooleanField(default=False, help_text="Whether the guild has a demo planned on the night.")
+    note = models.CharField(max_length=200, blank=True, help_text="What they'll demo, e.g. Glass flameworking.")
+    updated_at = models.DateTimeField(
+        auto_now=True, help_text="When the row was last saved; a row's Save older than this is refused."
+    )
+
+    class Meta:
+        ordering = ["guild__name", "pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["hub", "guild"], name="uq_guilddemo_hub_guild"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.guild.name} ({self.hub.title})"

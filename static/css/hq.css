@@ -4353,3 +4353,497 @@ a.pl-hq-fl__figure:hover .pl-hq-fl__figure-link {
     color: #000000;
   }
 }
+
+/* ---- PL Ledger, team and tally (Track D, part 6c) ----
+   Lee's running tally on the navy scoreboard (gold eyebrow, Playfair title with its gold last word, the countdown, nine
+   tiles three across and two on a phone, her cheer lines), the Goals list in her rows and groups, the door clicker's
+   large buttons for a phone at the door, the launch checklist and guild demos as tables of row forms (the cells'
+   labels kept for screen readers, as on Vendor Tables), the staff and volunteer bars, and the flyer card. */
+.pl-hq-lg__tally {
+  position: relative;
+  display: grid;
+  gap: 18px;
+  padding: 22px clamp(16px, 3vw, 28px);
+  border-radius: 16px;
+  background: radial-gradient(120% 140% at 0% 0%, #2A3C63 0%, #1E2D4E 55%, #17233F 100%);
+  box-shadow: inset 0 2px 0 #C9A44A;
+  color: #F6F3EA;
+}
+.pl-hq-lg__tally::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border: 1px solid rgba(201, 164, 74, 0.35);
+  border-radius: 11px;
+  pointer-events: none;
+}
+.pl-hq-lg__tally-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+}
+.pl-hq-lg__tally-eyebrow {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #C9A44A;
+}
+.pl-hq-lg__tally-title {
+  margin: 0.25rem 0 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.4rem, 3.4vw, 2rem);
+  font-weight: 800;
+  line-height: 1.1;
+  color: #F6F3EA;
+}
+.pl-hq-lg__tally-title em {
+  font-style: normal;
+  color: #C9A44A;
+}
+.pl-hq-lg__countdown {
+  display: grid;
+  justify-items: end;
+  text-align: right;
+}
+.pl-hq-lg__countdown-big {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(2rem, 5vw, 2.8rem);
+  font-weight: 800;
+  line-height: 1;
+  color: #C9A44A;
+}
+.pl-hq-lg__countdown-small {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #B8C2D4;
+}
+.pl-hq-lg__tally-tiles {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.pl-hq-lg__tally-tile {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(201, 164, 74, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #F6F3EA;
+  text-decoration: none;
+}
+a.pl-hq-lg__tally-tile:hover {
+  border-color: #E3C677;
+  color: #F6F3EA;
+}
+a.pl-hq-lg__tally-tile:focus-visible {
+  outline: 2px solid #E3C677;
+  outline-offset: 2px;
+}
+.pl-hq-lg__tally-tile--money {
+  background: rgba(201, 164, 74, 0.12);
+}
+.pl-hq-lg__tally-label {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #C9A44A;
+}
+.pl-hq-lg__tally-figure {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: #FFFFFF;
+  overflow-wrap: anywhere;
+}
+.pl-hq-lg__tally-tile--money .pl-hq-lg__tally-figure {
+  color: #E3C677;
+}
+.pl-hq-lg__tally-sub {
+  font-size: 0.82rem;
+  color: #B8C2D4;
+}
+.pl-hq-lg__tally-meter {
+  display: block;
+  width: 100%;
+  height: 5px;
+  margin-top: 4px;
+  border: none;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  appearance: none;
+}
+.pl-hq-lg__tally-meter::-webkit-progress-bar {
+  background: rgba(255, 255, 255, 0.12);
+}
+.pl-hq-lg__tally-meter::-webkit-progress-value {
+  background: #C9A44A;
+}
+.pl-hq-lg__tally-meter::-moz-progress-bar {
+  background: #C9A44A;
+}
+.pl-hq-lg__cheer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 0;
+  font-size: 0.95rem;
+  color: #F6F3EA;
+}
+.pl-hq-lg__cheer b {
+  color: #E3C677;
+}
+@media (max-width: 760px) {
+  .pl-hq-lg__tally-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pl-hq-lg__tally-tile:last-child {
+    grid-column: 1 / -1;
+  }
+  .pl-hq-lg__countdown {
+    justify-items: start;
+    text-align: left;
+  }
+}
+
+/* Goals: Lee's rows (the name and its line, the figure, a meter, the chip) in her groups; on a phone the meter takes
+   its own line under the name and the figure. */
+.pl-hq-lg__goals {
+  overflow: hidden;
+}
+.pl-hq-lg__goal {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.4fr) 190px;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--pl-hq-vol-rule);
+}
+.pl-hq-lg__goal:last-child {
+  border-bottom: none;
+}
+.pl-hq-lg__goal--lead {
+  background: var(--pl-hq-vol-chip);
+}
+.pl-hq-lg__goal-name small,
+.pl-hq-lg__goal-figure small {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-lg__goal-link {
+  font-weight: 700;
+  color: var(--pl-hq-vol-ink);
+  text-decoration: none;
+}
+.pl-hq-lg__goal-link:hover {
+  color: var(--pl-hq-vol-ink);
+  text-decoration: underline;
+}
+.pl-hq-lg__goal-figure {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.pl-hq-lg__goal-chip {
+  text-align: right;
+}
+.pl-hq-lg__goal-group {
+  margin: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--pl-hq-vol-rule);
+  background: var(--pl-hq-vol-bg);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pl-hq-vol-muted);
+}
+@media (max-width: 760px) {
+  .pl-hq-lg__goal {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .pl-hq-lg__goal-figure {
+    text-align: right;
+  }
+  .pl-hq-lg__goal-meter,
+  .pl-hq-lg__goal-chip {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+  .pl-hq-lg__goal-meter:empty {
+    display: none;
+  }
+}
+.pl-hq-lg__link--plain {
+  margin-top: 0;
+  text-decoration: none;
+}
+.pl-hq-lg__inline-link {
+  color: var(--pl-hq-vol-gold);
+  font-weight: 700;
+}
+
+/* The door clicker: big enough for a thumb at a busy door, +1 in gold; four across, two on a phone. */
+.pl-hq-lg__door {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--pl-hq-vol-rule);
+  padding-top: 14px;
+}
+.pl-hq-lg__door-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pl-hq-lg__door-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 560px) {
+  .pl-hq-lg__door-buttons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.pl-hq-lg__door-btn {
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 14px;
+  background: var(--pl-hq-vol-bg);
+  color: var(--pl-hq-vol-ink);
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.8rem;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pl-hq-lg__door-btn:hover {
+  border-color: var(--pl-hq-vol-gold);
+}
+.pl-hq-lg__door-btn:active {
+  transform: translateY(1px);
+}
+.pl-hq-lg__door-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.pl-hq-lg__door-btn:focus-visible {
+  outline: 2px solid var(--pl-hq-vol-gold-hi);
+  outline-offset: 2px;
+}
+.pl-hq-lg__door-btn--primary {
+  border-color: var(--pl-hq-vol-btn-bg);
+  background: var(--pl-hq-vol-btn-bg);
+  color: var(--pl-hq-vol-btn-ink);
+}
+.pl-hq-lg__door-btn--undo {
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 900;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-lg__note {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-color: var(--pl-hq-vol-gold-hi);
+}
+.pl-hq-lg__note strong {
+  font-weight: 900;
+}
+.pl-hq-lg__quote {
+  max-width: 320px;
+}
+
+/* Tables of row forms (the launch checklist, the guild demos): every cell a control; the labels are kept for screen
+   readers and the column headings say them on screen. A late due date is Lee's red. */
+.pl-hq-lg__table--launch {
+  min-width: 980px;
+}
+.pl-hq-lg__table--guilds {
+  min-width: 900px;
+}
+.pl-hq-lg__table--rows .pl-form-label,
+.pl-hq-lg__table--rows .pl-toggle-info {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.pl-hq-lg__table--rows .pl-form-group input,
+.pl-hq-lg__table--rows .pl-form-group select {
+  min-width: 104px;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+}
+.pl-hq-lg__table--rows .pl-form-group + .pl-form-group,
+.pl-hq-lg__table--rows .pl-toggle-row + .pl-form-group {
+  margin-top: 0.5rem;
+}
+.pl-hq-lg__table--rows .pl-toggle-row {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+.pl-hq-lg__row-body:last-of-type td {
+  border-bottom: none;
+}
+.pl-hq-lg__cell--wide {
+  min-width: 220px;
+}
+.pl-hq-lg__cell--actions {
+  white-space: nowrap;
+}
+.pl-hq-lg__cell--actions form {
+  display: inline;
+}
+.pl-hq-lg__cell--actions .pl-hq-lg__delete {
+  margin-left: 8px;
+}
+.pl-hq-lg__cell--late .pl-form-group input {
+  border-color: var(--pl-hq-lg-bad);
+  color: var(--pl-hq-lg-bad);
+}
+.pl-hq-lg__late {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  font-weight: 900;
+  color: var(--pl-hq-lg-bad);
+}
+
+/* Staff time and volunteer hours: two columns of bars (one on a phone), each a name, a bar and the hours. */
+.pl-hq-lg__tiles--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.pl-hq-lg__split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  border-top: 1px solid var(--pl-hq-vol-rule);
+  padding-top: 14px;
+}
+@media (max-width: 760px) {
+  .pl-hq-lg__split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.pl-hq-lg__bars {
+  display: grid;
+  gap: 8px;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.pl-hq-lg__bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 13rem) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+.pl-hq-lg__bar-row--ranked {
+  grid-template-columns: 1.5rem minmax(0, 13rem) minmax(0, 1fr) auto;
+}
+@media (max-width: 560px) {
+  .pl-hq-lg__bar-row {
+    grid-template-columns: minmax(0, 8rem) minmax(0, 1fr) auto;
+  }
+  .pl-hq-lg__bar-row--ranked {
+    grid-template-columns: 1.5rem minmax(0, 7rem) minmax(0, 1fr) auto;
+  }
+}
+.pl-hq-lg__bar-rank {
+  font-weight: 900;
+  color: var(--pl-hq-vol-gold);
+}
+.pl-hq-lg__bar-name {
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pl-hq-lg__bar-meter {
+  height: 8px;
+}
+.pl-hq-lg__bar-hours {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.pl-hq-lg__board-list {
+  padding: 16px 18px;
+}
+.pl-hq-lg__board-list .pl-hq-lg__bars {
+  margin-top: 0;
+}
+
+/* Event flyer: the thumbnail beside the count and the two doors; stacked on a phone. */
+.pl-hq-lg__flyer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: center;
+  padding: 18px;
+}
+.pl-hq-lg__flyer-thumb {
+  display: grid;
+  place-items: center;
+  flex: 0 0 120px;
+  width: 120px;
+  min-height: 155px;
+  overflow: hidden;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 8px;
+  background: var(--pl-hq-vol-bg);
+  text-align: center;
+  font-size: 0.82rem;
+}
+.pl-hq-lg__flyer-thumb img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.pl-hq-lg__flyer-pdf {
+  padding: 8px;
+  font-weight: 900;
+}
+.pl-hq-lg__flyer-text {
+  display: grid;
+  flex: 1 1 260px;
+  gap: 8px;
+  min-width: 0;
+}
+.pl-hq-lg__flyer-count {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.pl-hq-lg__flyer-count strong {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.6rem;
+  color: var(--pl-hq-vol-gold);
+}

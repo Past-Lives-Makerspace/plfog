@@ -83,7 +83,7 @@ def describe_loading_lees_hq():
         assert [card.kind for card in cards] == [door.kind for door in DEFAULT_CARDS]
         assert {card.audience for card in cards} == {HubCard.Audience.ADMINS}
         assert cards[0].title == "Going to the Bizarre?"
-        assert hub.goals.count() == 5
+        assert hub.goals.count() == 6
         assert hub.shifts.count() == 21
 
     def it_sends_an_admin_to_the_hq_once_one_exists(open_hub, admin_client):
@@ -137,15 +137,15 @@ def describe_updating_the_doors():
         messages = [str(message) for message in response.context["messages"]]
         assert messages == [
             "Doors updated: opened PL Ledger, Marketing Tracker; added 7 doors; gave 1 card Lee's latest words;"
-            " added the Raised, Wine wall bottles, Volunteer spots, RSVPs and Member tables goals."
+            " added the Raised, Wine wall bottles, Volunteer spots, RSVPs, Member tables and Guilds taking part goals."
             " New and admins only until you open it: Sponsorship Tracker, Market Check-in, Vendor Tables,"
             " Event flyer and sharing."
             " If an old Not shared yet card for it is still on the page, delete that one."
         ]
         assert open_hub.cards.count() == 9
-        assert open_hub.goals.count() == 5
+        assert open_hub.goals.count() == 6
 
-    def it_gives_a_track_c_hub_its_member_tables_goal_once(open_hub, admin_client):
+    def it_gives_a_track_c_hub_its_member_tables_and_guilds_goals_once(open_hub, admin_client):
         open_hub.seed_default_cards()
         for position, spec in enumerate(GOALS[:4]):
             HubGoalFactory(hub=open_hub, label=spec.label, kind=spec.kind, target=spec.target, sort_order=position)
@@ -154,7 +154,7 @@ def describe_updating_the_doors():
         second = admin_client.post(_url(open_hub), follow=True)
 
         assert [str(message) for message in first.context["messages"]] == [
-            "Doors updated: added the Member tables goal."
+            "Doors updated: added the Member tables and Guilds taking part goals."
         ]
         assert [str(message) for message in second.context["messages"]] == ["The doors are up to date."]
         assert list(open_hub.goals.values_list("label", "kind", "sort_order")) == [
@@ -163,6 +163,7 @@ def describe_updating_the_doors():
             ("Volunteer spots", HubGoal.Kind.VOLUNTEER_SPOTS, 2),
             ("RSVPs", HubGoal.Kind.RSVPS, 3),
             ("Member tables", HubGoal.Kind.MEMBER_TABLES, 4),
+            ("Guilds taking part", HubGoal.Kind.GUILDS, 5),
         ]
 
     def it_adds_every_counted_kind_the_hub_lacks_beside_its_own(open_hub, admin_client):
@@ -173,7 +174,7 @@ def describe_updating_the_doors():
         response = admin_client.post(_url(open_hub), follow=True)
 
         assert [str(message) for message in response.context["messages"]] == [
-            "Doors updated: added the Raised, Volunteer spots, RSVPs and Member tables goals."
+            "Doors updated: added the Raised, Volunteer spots, RSVPs, Member tables and Guilds taking part goals."
         ]
         assert open_hub.goals.filter(kind=HubGoal.Kind.MANUAL).count() == 1
         assert open_hub.goals.filter(kind=HubGoal.Kind.BOTTLES).get().label == "Bottles"

@@ -1,0 +1,67 @@
+{% comment %}
+Guild demos (Track D, part 6c), Lee's table: Lee's summary ("X of N contacted · D demos planned", N the active
+guilds), each guild as its own tbody whose cells are the controls of the row's form (the guild lead, Contacted, who
+reached out, Demo planned and what they'll demo), with Save and Remove, then Add a guild (an active guild not on the
+list) and Add every active guild. A row's Save swaps that row alone with the summary and the figures out of band.
+
+  hub              — required, the EventHub
+  guild_rows       — required, the hq.views.GuildRow list by guild name
+  guild_summary    — required, Lee's line beside the heading
+  guild_add_form   — required, a GuildDemoAddForm (bound when an add failed)
+  guild_add_open   — required, whether Add a guild renders open
+  guilds_missing   — required, how many active guilds are not on the list yet
+  team_list_id     — required, the team datalist's id
+{% endcomment %}
+<section class="pl-hq-lg__section" id="hq-lg-guilds" aria-labelledby="hq-lg-guilds-title" data-hq-lg-guilds>
+  <div class="pl-hq-lg__section-head">
+    <h2 class="pl-hq-lg__h2" id="hq-lg-guilds-title">Guild Demos</h2>
+    {% include "hq/partials/_ledger_guild_summary.html" %}
+  </div>
+  <div class="pl-hq-lg__card pl-hq-lg__scroll">
+    <table class="pl-hq-lg__table pl-hq-lg__table--rows pl-hq-lg__table--guilds">
+      <thead>
+        <tr>
+          <th scope="col">Guild</th>
+          <th scope="col">Guild lead</th>
+          <th scope="col">Contacted</th>
+          <th scope="col">Contacted by</th>
+          <th scope="col">Demo on the day</th>
+          <th scope="col"><span class="sr-only">Save or remove</span></th>
+        </tr>
+      </thead>
+      {% for guild_row in guild_rows %}
+      {% include "hq/partials/_ledger_guild_row.html" %}
+      {% empty %}
+      <tbody><tr><td colspan="6" class="pl-hq-lg__empty" data-hq-lg-guilds-empty>No guilds yet. Add every active guild, or one at a time below.</td></tr></tbody>
+      {% endfor %}
+    </table>
+  </div>
+  <div class="pl-hq-lg__actions" data-help-key="hq.ledger-guilds">
+    {% if guilds_missing %}
+    <form method="post" action="{% url 'hq:ledger_guilds_add_all' hub.slug %}" hx-post="{% url 'hq:ledger_guilds_add_all' hub.slug %}" hx-target="closest [data-hq-lg-guilds]" hx-swap="outerHTML" hx-disabled-elt="find button" data-hq-lg-guilds-add-all>
+      {% csrf_token %}
+      <button type="submit" class="pl-hq-lg__btn" data-hq-lg-guilds-add-all-submit>Add every active guild ({{ guilds_missing }})</button>
+    </form>
+    {% else %}
+    <span class="pl-hq-lg__muted pl-hq-lg__helper" data-hq-lg-guilds-all-in>Every active guild is on the list.</span>
+    {% endif %}
+  </div>
+  {% if guilds_missing %}
+  <details class="pl-disclosure pl-hq-lg__disclosure" {% if guild_add_open %}open{% endif %} data-hq-lg-guild-add>
+    <summary class="pl-disclosure__summary">
+      <span class="pl-disclosure__title">Add a guild</span>
+      <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+    </summary>
+    <form method="post" action="{% url 'hq:ledger_guild_add' hub.slug %}" hx-post="{% url 'hq:ledger_guild_add' hub.slug %}" hx-target="closest [data-hq-lg-guilds]" hx-swap="outerHTML" class="pl-disclosure__body pl-hq-lg__form" data-hq-lg-guild-add-form>
+      {% csrf_token %}
+      <div class="pl-hq-lg__fields">
+        {% include "components/form_field.html" with field=guild_add_form.guild field_hint_off=True %}
+        {% include "components/form_field.html" with field=guild_add_form.lead field_hint_off=True %}
+      </div>
+      <div class="pl-hq-lg__actions">
+        <button type="submit" class="pl-hq-lg__btn" data-hq-lg-guild-add-submit>Add guild</button>
+      </div>
+    </form>
+  </details>
+  {% endif %}
+</section>

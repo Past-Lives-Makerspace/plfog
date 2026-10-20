@@ -1,0 +1,13 @@
+{% comment %}
+The board summary's paragraph and the hidden box Copy board summary copies, Lee's summaryText. Its own element, so a
+write elsewhere on the ledger (a door tap, a guild or staff entry) sends it back out of band; Copy finds the box by its
+data attribute, never an Alpine ref, so it works on the box that came back.
+
+  board_line    — required, the paragraph shown (Lee's empty line until the ledger has an entry)
+  board_summary — required, the paragraph Copy board summary copies
+  oob           — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<div class="pl-hq-lg__board-text" id="hq-lg-board-text" data-hq-lg-board-text{% if oob %} hx-swap-oob="true"{% endif %}>
+  <p class="pl-hq-lg__summary" data-hq-lg-summary>{{ board_line }}</p>
+  <textarea class="sr-only" readonly aria-label="The board summary" data-hq-lg-summary-box>{{ board_summary }}</textarea>
+</div>

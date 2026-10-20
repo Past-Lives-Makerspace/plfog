@@ -1,7 +1,8 @@
 """The hq.* help keys (Track C, part 4, and Track D): registered against the Holiday Bizarre HQ article's anchors,
 and stamped on the seeded HQ's door grid, goal band, shift list, bottle form, the marketing log form, the add a sponsor
-form, the add a table request form, the market report, the flyer page's share section, the ledger's log form and its
-drink sales quick add, and the card edit page's audience block."""
+form, the add a table request form, the market report, the flyer page's share section, the ledger's log form, its
+drink sales quick add, its running tally, door clicker, Add a task, Log time and guild buttons, and the card edit page's
+audience block."""
 
 from __future__ import annotations
 
@@ -33,6 +34,11 @@ HQ_KEYS = {
     "hq.flyer": "hq-flyer",
     "hq.ledger": "hq-ledger",
     "hq.ledger-bar": "hq-ledger-bar",
+    "hq.ledger-tally": "hq-ledger-tally",
+    "hq.ledger-door": "hq-ledger-door",
+    "hq.ledger-launch": "hq-ledger-launch",
+    "hq.ledger-staff": "hq-ledger-staff",
+    "hq.ledger-guilds": "hq-ledger-guilds",
     "hq.edit-card": "hq-edit",
 }
 
@@ -123,6 +129,15 @@ def describe_the_stamps():
         body = admin_client.get(reverse("hq:ledger", args=[hub.slug])).content.decode()
 
         assert 'data-hq-lg-quick-add data-help-key="hq.ledger-bar"' in body
+
+    def it_marks_the_tally_and_the_team_sections_on_the_ledger(hub, admin_client: Client):
+        body = admin_client.get(reverse("hq:ledger", args=[hub.slug])).content.decode()
+
+        assert 'data-hq-lg-tally data-help-key="hq.ledger-tally"' in body
+        assert 'data-hq-lg-door data-help-key="hq.ledger-door"' in body
+        assert 'data-hq-lg-launch-add data-help-key="hq.ledger-launch"' in body
+        assert 'data-hq-lg-staff-add data-help-key="hq.ledger-staff"' in body
+        assert 'class="pl-hq-lg__actions" data-help-key="hq.ledger-guilds"' in body
 
     def it_marks_who_may_open_it_on_the_card_edit_page(hub, admin_client: Client):
         card = hub.cards.get(kind=HubCard.Kind.VOLUNTEERS)

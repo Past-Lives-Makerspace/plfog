@@ -2,7 +2,8 @@
 The ledger's board summary, Lee's navy panel: four tiles (Board approval with its note, Used from approval net of
 refunds, Left in approval, Sponsored value), a meter of the approval used, her board paragraph, Copy board summary
 (the roster's clipboard idiom: writeText in a secure context, else select the hidden box and execCommand, then a
-toast), Download ledger (CSV), and Change the approval (a plain post, since the approval names the kinds, the filters
+toast; the paragraph and its box are hq/partials/_ledger_board_text.html, which a write elsewhere on the ledger sends
+back out of band, so Copy finds the box by its data attribute), Download ledger (CSV), and Change the approval (a plain post, since the approval names the kinds, the filters
 and a column).
 
   hub           — required, the EventHub
@@ -13,7 +14,7 @@ and a column).
   approval_error — optional, a stale Save's refusal shown over a fresh form, which renders it open
 {% endcomment %}
 <section class="pl-hq-lg__board" id="hq-lg-board" aria-label="Board summary" data-hq-lg-board
-         x-data="{ copy() { const box = this.$refs.summary; box.focus(); box.select(); if (window.isSecureContext && navigator.clipboard) { navigator.clipboard.writeText(box.value); } else { document.execCommand('copy'); } this.$dispatch('show-toast', { message: 'Board summary copied.', type: 'success' }); } }">
+         x-data="{ copy() { const box = this.$root.querySelector('[data-hq-lg-summary-box]'); box.focus(); box.select(); if (window.isSecureContext && navigator.clipboard) { navigator.clipboard.writeText(box.value); } else { document.execCommand('copy'); } this.$dispatch('show-toast', { message: 'Board summary copied.', type: 'success' }); } }">
   <div class="pl-hq-lg__tiles">
     <div class="pl-hq-lg__tile" data-hq-lg-tile="approved">
       <span class="pl-hq-lg__tile-heading">Board approval</span>
@@ -43,8 +44,7 @@ and a column).
       <span class="pl-hq-lg__legend-item pl-hq-lg__legend-item--left">Left</span>
     </div>
   </div>
-  <p class="pl-hq-lg__summary" data-hq-lg-summary>{{ board_line }}</p>
-  <textarea class="sr-only" readonly x-ref="summary" aria-label="The board summary">{{ board_summary }}</textarea>
+  {% include "hq/partials/_ledger_board_text.html" %}
   <div class="pl-hq-lg__actions pl-hq-lg__actions--panel">
     <button type="button" class="pl-hq-lg__btn pl-hq-lg__btn--panel" @click="copy()" data-hq-lg-copy>Copy board summary</button>
     <a href="{% url 'hq:ledger_csv' hub.slug %}" class="pl-hq-lg__btn pl-hq-lg__btn--panel" hx-boost="false" data-pl-download data-hq-lg-csv>Download ledger (CSV)</a>

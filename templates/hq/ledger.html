@@ -5,8 +5,10 @@ The PL Ledger (Track D, part 6a), in the look of Lee's ledger page and in her or
 line, the board summary (the approval, used, left and sponsored, the meter, her board paragraph, Copy board summary,
 the CSV and the approval form), the budget lines, Log a sponsor or expense, the ledger with its filters, and the
 receipts report, then (D6b) Drink sales and the Wine Wall's tickets. Organisers only: the view's gate is the card's
-audience and then a 403 for anyone who does not organise it, because this is the event's money. D6c adds its sections
-where the comments say.
+audience and then a 403 for anyone who does not organise it, because this is the event's money. D6c puts the running
+tally and the goals over the board summary, Attendance and vendors between Drink sales and the Wine Wall (Lee's order),
+and after the Wine Wall the launch checklist, Staff time, Guild demos, Volunteer hours and the Event flyer. Every figure
+they show is read from the door it lives on.
 {% endcomment %}
 {% block title %}{{ title }}{% endblock %}
 {% block extra_head %}
@@ -24,7 +26,9 @@ where the comments say.
     <a href="{% url 'hq:page' hub.slug %}" class="pl-hq-lg__back" data-hq-lg-back>&larr; HQ</a>
   </header>
 
-  {# D6c: the running tally and the goals strip go here, above the board summary. #}
+  {% include "hq/partials/_ledger_tally.html" %}
+
+  {% include "hq/partials/_ledger_goals.html" %}
 
   {% include "hq/partials/_ledger_board.html" %}
 
@@ -44,8 +48,21 @@ where the comments say.
 
   {% include "hq/partials/_ledger_bar.html" %}
 
+  {% include "hq/partials/_ledger_people.html" %}
+
   {% include "hq/partials/_ledger_wine.html" %}
 
-  {# D6c: staff time, guild demos and the launch checklist go here. #}
+  {% include "hq/partials/_ledger_launch.html" %}
+
+  {% include "hq/partials/_ledger_staff.html" %}
+
+  {% include "hq/partials/_ledger_guilds.html" %}
+
+  {% include "hq/partials/_ledger_vol.html" %}
+
+  {% include "hq/partials/_ledger_flyer.html" %}
+
+  {# The team the Owner, Who and Contacted by boxes suggest: the ledger card's named members. #}
+  <datalist id="{{ team_list_id }}" data-hq-lg-team>{% for name in team_names %}<option value="{{ name }}"></option>{% endfor %}</datalist>
 </div>
 {% endblock %}

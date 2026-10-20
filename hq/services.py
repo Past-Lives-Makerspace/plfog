@@ -21,15 +21,18 @@ the approval used and left, the sponsored value, each line's totals and the bar'
 (:func:`board_summary`), the ledger's filters and its writes (:func:`save_approval`, the budget lines',
 :func:`add_ledger_entry`, :func:`attach_receipt`). The money in (D6b) holds the bar (:func:`bar_totals`, the quick and batch
 writes and Undo last), the wine wall tickets (:func:`ticket_totals`), the event cash Raised counts (:func:`event_cash`)
-and the donors thanked (:func:`donor_thanks`, :func:`set_donor_thanked`).
+and the donors thanked (:func:`donor_thanks`, :func:`set_donor_thanked`). The team and tally (D6c) hold the attendance
+(:func:`attendance`, the event's check-ins plus the door clicker, :func:`count_at_door`), the launch checklist, the staff
+time (:func:`staff_totals`), the guild demos (:func:`guild_demo_totals`), the running tally (:func:`ledger_tally`) and the
+ledger's goals (:func:`ledger_goals`), each reading every other door from its one source.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
-from datetime import date
-from decimal import Decimal
+from datetime import date, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from urllib.parse import quote
@@ -55,8 +58,19 @@ from django.db.models.functions import Coalesce, Lower, Trim
 from django.http import HttpRequest
 from django.utils import timezone
 
-from hq.holiday_bizarre import CHECKIN_THANKS, GOALS
+from hq.holiday_bizarre import (
+    CHECKIN_THANKS,
+    GOALS,
+    TALLY_DAYS,
+    TALLY_DONE,
+    TALLY_DOORS_AT,
+    TALLY_FLYER_NUDGE_UNDER,
+    TALLY_LIVE,
+    TALLY_THANKS,
+    TALLY_TOMORROW,
+)
 from hq.models import (
+    DOOR_STEPS,
     PRICED_DRINKS,
     RECEIPT_KINDS,
     BarDrink,
@@ -64,10 +78,16 @@ from hq.models import (
     BarSaleSource,
     BudgetCategory,
     BudgetLine,
+    Countdown,
+    DoorCount,
     EventHub,
     FlyerSlot,
+    GuildDemo,
+    HubCard,
     HubFlyer,
     HubGoal,
+    LaunchStatus,
+    LaunchTask,
     LedgerEntry,
     LedgerKind,
     LedgerSettings,
@@ -77,6 +97,8 @@ from hq.models import (
     ShiftPhase,
     ShiftSignup,
     Sponsor,
+    StaffArea,
+    StaffTime,
     SponsorLogEntry,
     SponsorStatus,
     VendorFloor,
@@ -147,6 +169,7 @@ _LIVE_COUNTS: dict[str, Callable[[EventHub], int]] = {
     HubGoal.Kind.MEMBER_TABLES: lambda hub: vendor_band(hub).confirmed,
     # Whole dollars, as every money goal; cents left over never round up to a dollar not yet raised.
     HubGoal.Kind.EVENT_CASH: lambda hub: event_cash(hub).total_cents // 100,
+    HubGoal.Kind.GUILDS: lambda hub: guilds_with_demos(hub),
 }
 
 # The two wine wall kinds are read off one band, so a hub showing both pays for it once.
@@ -1783,6 +1806,11 @@ class DoorFigures:
     cash: EventCash
     bar: BarTotals
     tickets: TicketTotals
+    # D6c: the confirmed vendor tables, the guild demos, the staff time and the attendance.
+    vendors: VendorBand
+    guilds: GuildDemoTotals
+    staff: StaffTotals
+    attendance: Attendance
 
 
 def door_figures(
@@ -1796,19 +1824,24 @@ def door_figures(
     wine = wine_band(hub)
     bar = bar_totals(hub, found, cost_cents=ledger.bar_cost_cents)
     tickets = ticket_totals(found, wine)
+    cash = EventCash(
+        sponsors_cents=sponsors.received_cents,
+        committed_cents=sponsors.committed_cents,
+        bar_cents=bar.sales_cents,
+        tickets_cents=tickets.revenue_cents,
+    )
     return DoorFigures(
         sponsors=sponsors,
         flyers=marketing_totals(hub)[MarketingKind.FLYER],
         checkin=checkin_band(hub),
         wine=wine,
-        cash=EventCash(
-            sponsors_cents=sponsors.received_cents,
-            committed_cents=sponsors.committed_cents,
-            bar_cents=bar.sales_cents,
-            tickets_cents=tickets.revenue_cents,
-        ),
+        cash=cash,
         bar=bar,
         tickets=tickets,
+        vendors=vendor_band(hub),
+        guilds=guild_demo_totals(hub),
+        staff=staff_totals(hub, cash_cents=cash.total_cents),
+        attendance=attendance(hub),
     )
 
 
@@ -1822,9 +1855,17 @@ def board_summary(band: LedgerBand, doors: DoorFigures) -> str:
     The drinks budget comes from the ledger; then, each only when it has something to say, the cash sponsorships
     (the Sponsorship Tracker), the flyers (the Marketing Tracker's businesses with flyers), the volunteers (the Market
     Check-in's hours) and the wine wall. D6b adds the event cash, the drink sales and the wine wall tickets, and D6c
-    the guild demos, the staff time and the attendance, each in the place Lee gives it (marked below). D6b's are here:
-    the event cash goal and the drink sales after the drinks budget, the tickets sold after the wine wall.
+    the guild demos, the staff time and the attendance, each in the place Lee gives it. D6b's are the event cash goal
+    and the drink sales after the drinks budget, the tickets sold after the wine wall; D6c's the guild demos after the
+    cash sponsorships, the staff time after the flyers, and the attendance and the vendors after the volunteers.
     """
+    return " ".join(
+        [*_budget_sentences(band), *_cash_sentences(doors), *_team_sentences(doors), *_wine_sentences(doors)]
+    )
+
+
+def _budget_sentences(band: LedgerBand) -> list[str]:
+    """The drinks budget: the approval, what was sponsored and by how many, used and left, other PLM funds."""
     money = format_money
     parts = [f"Holiday Bizarre drinks: the board approved {money(band.approved_cents)}."]
     by = f" by {_plural(band.sponsors, 'sponsor', 'sponsors')}" if band.sponsors else ""
@@ -1835,6 +1876,13 @@ def board_summary(band: LedgerBand, doors: DoorFigures) -> str:
     )
     if band.paid_other_cents > 0:
         parts.append(f"Another {money(band.paid_other_cents)} came from other PLM funds.")
+    return parts
+
+
+def _cash_sentences(doors: DoorFigures) -> list[str]:
+    """The money in: the event cash goal, the drink sales and the cash sponsorships, each when it has something."""
+    money = format_money
+    parts = []
     cash = doors.cash
     if cash.total_cents + cash.committed_cents > 0:
         plus = f" (plus {money(cash.committed_cents)} committed)" if cash.committed_cents else ""
@@ -1856,23 +1904,52 @@ def board_summary(band: LedgerBand, doors: DoorFigures) -> str:
             f"Cash sponsorships: {money(sponsors.received_cents)} received and "
             f"{money(sponsors.committed_cents)} committed."
         )
-    # D6c: the guild demos.
+    return parts
+
+
+def _team_sentences(doors: DoorFigures) -> list[str]:
+    """The people: the guild demos, the flyers, the staff time, the volunteers, then the attendance and the vendors,
+    each when it has something."""
+    parts = []
+    guilds = doors.guilds
+    if guilds.contacted > 0:
+        parts.append(
+            f"Guild demos: {guilds.contacted} of {_plural(guilds.guilds, 'guild', 'guilds')} contacted, "
+            f"{_plural(guilds.demos, 'demo', 'demos')} planned."
+        )
     if doors.flyers:
         parts.append(f"Flyers are up at {_plural(doors.flyers, 'location', 'locations')}.")
-    # D6c: the staff time.
+    staff = doors.staff
+    if staff.hours:
+        people = ", ".join(f"{person.name} {person.hours_display}" for person in staff.people)
+        parts.append(
+            f"Staff time: {staff.hours_display} hours ({people}), about {staff.rate_display} raised per staff hour."
+        )
     checkin = doors.checkin
     if checkin.hours:
-        people = _plural(checkin.volunteers, "person", "people")
-        parts.append(f"Volunteers: {people} gave {checkin.hours_display} hours to event prep.")
-    # D6c: the attendance and the vendors.
+        volunteers = _plural(checkin.volunteers, "person", "people")
+        parts.append(f"Volunteers: {volunteers} gave {checkin.hours_display} hours to event prep.")
+    present = doors.attendance.total
+    if present > 0 or doors.vendors.confirmed > 0:
+        parts.append(
+            f"Attendance: {_plural(present, 'person', 'people')}. Vendors: "
+            f"{_plural(doors.vendors.confirmed, 'artist', 'artists')} sold {format_money(checkin.sales_cents)} in total."
+        )
+    return parts
+
+
+def _wine_sentences(doors: DoorFigures) -> list[str]:
+    """The wine wall and its tickets, once a bottle is in."""
     wine = doors.wine
-    if wine.bottles > 0:
-        of = f" of {wine.goal}" if wine.goal else ""
-        parts.append(f"Wine wall: {wine.bottles}{of} bottles donated, worth {money(wine.value_cents)}.")
-        tickets = doors.tickets
-        if tickets.count > 0:
-            parts.append(f"{tickets.count} tickets sold ({tickets.description}) raised {money(tickets.revenue_cents)}.")
-    return " ".join(parts)
+    if wine.bottles <= 0:
+        return []
+    money = format_money
+    of = f" of {wine.goal}" if wine.goal else ""
+    parts = [f"Wine wall: {wine.bottles}{of} bottles donated, worth {money(wine.value_cents)}."]
+    tickets = doors.tickets
+    if tickets.count > 0:
+        parts.append(f"{tickets.count} tickets sold ({tickets.description}) raised {money(tickets.revenue_cents)}.")
+    return parts
 
 
 def board_line(band: LedgerBand, doors: DoorFigures) -> str:
@@ -2317,3 +2394,715 @@ def save_ledger_figures(
             setattr(found, name, value)
         found.save(update_fields=[*fields, "updated_at"])
     return found
+
+
+# ---- PL Ledger, team and tally (Track D, part 6c) ----
+
+
+class NothingToUndo(Exception):
+    """Undo 1 with no walk-ins counted: the door count never goes below zero."""
+
+
+def _percent(value: int | Decimal, goal: int | Decimal) -> int:
+    """``value`` as a share of ``goal``, 0 to 100, rounded; 0 when there is no goal."""
+    if goal <= 0:
+        return 0
+    return max(0, min(100, round(value * 100 / goal)))
+
+
+def _whole(value: Decimal) -> int:
+    """``value`` rounded half up to a whole number (Lee's ``Math.round``)."""
+    return int(value.quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+
+@dataclass(frozen=True)
+class Attendance:
+    """Who came: the event's RSVPs checked in at the door (their party sizes, the people count Manage Events uses) and
+    the walk-ins the door clicker counted, and the RSVPs goal's target as the attendance goal (0 with none)."""
+
+    checked_in: int
+    walk_ins: int
+    goal: int
+
+    @property
+    def total(self) -> int:
+        return self.checked_in + self.walk_ins
+
+    @property
+    def goal_line(self) -> str:
+        """Lee's line under Attendees: "of 250 goal", with " · reached" once there; the parts with no goal."""
+        if not self.goal:
+            return self.parts_line
+        return f"of {self.goal} goal{' · reached' if self.total >= self.goal else ''}"
+
+    @property
+    def parts_line(self) -> str:
+        """Both parts: "40 checked in · 12 at the door"."""
+        return f"{self.checked_in} checked in · {self.walk_ins} at the door"
+
+
+def checked_in_people(event: CommunityEvent | None) -> int:
+    """The people checked in at the event's door: party sizes summed over its checked-in RSVPs, every row (the Guest
+    list's count, hidden members included, since the door is staff's). One query; 0 with no event."""
+    if event is None:
+        return 0
+    total: int = event.rsvps.filter(checked_in_at__isnull=False).aggregate(total=Coalesce(Sum("party_size"), 0))[
+        "total"
+    ]
+    return total
+
+
+def walk_ins(hub: EventHub) -> int:
+    """The walk-ins the door clicker counted on ``hub``: every tap summed, never below zero. One query."""
+    total: int = hub.door_counts.aggregate(total=Coalesce(Sum("delta"), 0))["total"]
+    return max(0, total)
+
+
+def goal_target(hub: EventHub, kind: str) -> int:
+    """The target of the hub's first ``kind`` goal in band order, or 0 while it has none. One query."""
+    target = hub.goals.filter(kind=kind).values_list("target", flat=True).first()
+    return 0 if target is None else target
+
+
+def attendance(hub: EventHub) -> Attendance:
+    """The attendance on ``hub`` in three queries (two with no event): the check-ins, the door count, the RSVPs goal."""
+    return Attendance(
+        checked_in=checked_in_people(hub.event),
+        walk_ins=walk_ins(hub),
+        goal=goal_target(hub, HubGoal.Kind.RSVPS),
+    )
+
+
+def count_at_door(hub: EventHub, delta: int, *, member: Member | None) -> DoorCount:
+    """One tap on the door clicker: ``delta`` walk-ins (+1, +5 or +10), or Undo 1 (-1), appended, never deleted.
+
+    The hub's row is locked, so two Undo taps at once cannot take the count below zero.
+
+    Raises:
+        ValueError: ``delta`` is not one of :data:`hq.models.DOOR_STEPS`.
+        NothingToUndo: Undo 1 with no walk-ins counted; nothing is written.
+    """
+    if delta not in DOOR_STEPS:
+        raise ValueError(f"A door tap is one of {DOOR_STEPS}, not {delta}.")
+    with transaction.atomic():
+        list(EventHub.objects.select_for_update().filter(pk=hub.pk))
+        if delta < 0 and walk_ins(hub) + delta < 0:
+            raise NothingToUndo("No walk-ins to take back.")
+        return DoorCount.objects.create(hub=hub, delta=delta, created_by=member)
+
+
+# -- The launch checklist --
+
+
+@dataclass(frozen=True)
+class LaunchTotals:
+    """The launch checklist's count: tasks and how many are done."""
+
+    tasks: int
+    done: int
+
+    @property
+    def summary(self) -> str:
+        """Lee's line beside the heading: "3 of 8 done", or "Getting the word out" with no tasks."""
+        return f"{self.done} of {self.tasks} done" if self.tasks else "Getting the word out"
+
+
+def launch_totals(hub: EventHub) -> LaunchTotals:
+    """The checklist's totals on ``hub``, in one query."""
+    totals = hub.launch_tasks.aggregate(tasks=Count("pk"), done=Count("pk", filter=Q(status=LaunchStatus.DONE)))
+    return LaunchTotals(tasks=totals["tasks"], done=totals["done"])
+
+
+def add_launch_task(hub: EventHub, fields: Mapping[str, Any]) -> LaunchTask:
+    """Put a task at the end of ``hub``'s launch checklist from the form's fields."""
+    last = hub.launch_tasks.aggregate(last=Max("sort_order"))["last"]
+    return LaunchTask.objects.create(hub=hub, sort_order=0 if last is None else last + 1, **fields)
+
+
+def update_launch_task(task: LaunchTask, fields: Mapping[str, Any]) -> LaunchTask:
+    """Save the row's edited fields on ``task``."""
+    for name, value in fields.items():
+        setattr(task, name, value)
+    task.save()
+    return task
+
+
+# -- Staff time --
+
+
+@dataclass(frozen=True)
+class StaffHours:
+    """One line of the staff time figures: a person or a work area, and its hours."""
+
+    name: str
+    hours: Decimal
+
+    @property
+    def hours_display(self) -> str:
+        return format_hours(self.hours)
+
+    @property
+    def meter_value(self) -> str:
+        """The hours as a plain number for a bar's ``value``, never localised."""
+        return str(self.hours)
+
+
+@dataclass(frozen=True)
+class StaffTotals:
+    """What the event took: the staff hours in all, by person (most first) and by work area (most first), against the
+    event cash it returned (Lee's "Raised per staff hour", event cash over staff hours)."""
+
+    hours: Decimal
+    people: list[StaffHours]
+    areas: list[StaffHours]
+    cash_cents: int
+
+    @property
+    def hours_display(self) -> str:
+        return format_hours(self.hours)
+
+    @property
+    def rate_display(self) -> str:
+        """The event cash per staff hour in whole dollars, rounded half up, or a dash with no hours logged."""
+        if not self.hours:
+            return "–"
+        return f"${_whole(Decimal(self.cash_cents) / 100 / self.hours):,}"
+
+    @property
+    def area_top(self) -> str:
+        """The busiest area's hours as a plain number, for the bars' ``max``; 1 with none."""
+        return str(self.areas[0].hours) if self.areas else "1"
+
+
+def staff_totals(hub: EventHub, *, cash_cents: int) -> StaffTotals:
+    """The staff time on ``hub`` in one query, against ``cash_cents`` (the event cash): by person (Who, whatever the
+    capitalisation or spacing; the first spelling logged names them) and by work area, each most first."""
+    people: dict[str, StaffHours] = {}
+    areas: dict[str, Decimal] = {}
+    for who, hours, area in hub.staff_time.order_by("created_at", "pk").values_list("who", "hours", "area"):
+        key = who.strip().lower()
+        earlier = people.get(key)
+        people[key] = StaffHours(
+            name=earlier.name if earlier is not None else who.strip(),
+            hours=(earlier.hours if earlier is not None else Decimal(0)) + hours,
+        )
+        areas[area] = areas.get(area, Decimal(0)) + hours
+    return StaffTotals(
+        hours=sum(areas.values(), Decimal(0)),
+        people=sorted(people.values(), key=lambda person: (-person.hours, person.name.lower())),
+        areas=[
+            StaffHours(name=str(StaffArea(area).label), hours=total)
+            for area, total in sorted(areas.items(), key=lambda item: (-item[1], StaffArea.values.index(item[0])))
+        ],
+        cash_cents=cash_cents,
+    )
+
+
+def log_staff_time(
+    hub: EventHub, fields: Mapping[str, Any], *, team: Sequence[Member], member: Member | None
+) -> StaffTime:
+    """Log a stretch of staff time on ``hub`` from the form's fields, stamped with the organiser who logged it.
+
+    When Who names one of ``team`` (the ledger card's named members) by display name, whatever the capitalisation,
+    the row is linked to that member too.
+    """
+    who = fields["who"].strip().lower()
+    linked = next((person for person in team if person.display_name.strip().lower() == who), None)
+    return StaffTime.objects.create(hub=hub, member=linked, created_by=member, **fields)
+
+
+# -- Guild demos --
+
+
+@dataclass(frozen=True)
+class GuildDemoTotals:
+    """The guild demos' count: the active guilds, the rows on the list, how many were contacted and how many demo."""
+
+    guilds: int
+    rows: int
+    contacted: int
+    demos: int
+
+    def summary(self, on_date: str) -> str:
+        """Lee's line beside the heading: "X of N contacted · D demos planned", N the active guilds; her lede with
+        ``on_date`` (" on Dec 4") before any row."""
+        if not self.rows:
+            return f"Each guild, who reached out, and what they'll demo{on_date}"
+        return f"{self.contacted} of {self.guilds} contacted · {_plural(self.demos, 'demo', 'demos')} planned"
+
+
+def guilds_with_demos(hub: EventHub) -> int:
+    """The guilds on ``hub``'s list with a demo planned: the Guilds taking part goal. One query."""
+    return hub.guild_demos.filter(demo=True).count()
+
+
+def guild_demo_totals(hub: EventHub) -> GuildDemoTotals:
+    """The guild demos on ``hub`` in two queries: one aggregate over the list, and the active guilds."""
+    totals = hub.guild_demos.aggregate(
+        rows=Count("pk"), contacted=Count("pk", filter=Q(contacted=True)), demos=Count("pk", filter=Q(demo=True))
+    )
+    return GuildDemoTotals(
+        guilds=Guild.objects.filter(is_active=True).count(),
+        rows=totals["rows"],
+        contacted=totals["contacted"],
+        demos=totals["demos"],
+    )
+
+
+def guilds_to_add(hub: EventHub) -> list[Guild]:
+    """The active guilds not on ``hub``'s list yet, by name, in one query: the Add a guild choices."""
+    return list(Guild.objects.filter(is_active=True).exclude(hq_guild_demos__hub=hub).order_by("name"))
+
+
+def _lead_name(guild: Guild) -> str:
+    return guild.guild_lead.display_name if guild.guild_lead is not None else ""
+
+
+def add_guild_demo(hub: EventHub, guild: Guild, *, lead: str) -> tuple[GuildDemo, bool]:
+    """Put ``guild`` on ``hub``'s list (its lead as typed, else the guild's lead); a guild already listed is returned
+    as it is, with False."""
+    return GuildDemo.objects.get_or_create(hub=hub, guild=guild, defaults={"lead": lead or _lead_name(guild)})
+
+
+def add_every_active_guild(hub: EventHub) -> int:
+    """Put every active guild not on ``hub``'s list on it, each with its guild lead; how many were added.
+
+    The hub's row is locked, so a double press adds nothing twice.
+    """
+    with transaction.atomic():
+        list(EventHub.objects.select_for_update().filter(pk=hub.pk))
+        missing = Guild.objects.filter(is_active=True).exclude(hq_guild_demos__hub=hub).select_related("guild_lead")
+        made = GuildDemo.objects.bulk_create(
+            GuildDemo(hub=hub, guild=guild, lead=_lead_name(guild)) for guild in missing.order_by("name")
+        )
+    return len(made)
+
+
+def update_guild_demo(row: GuildDemo, fields: Mapping[str, Any]) -> GuildDemo:
+    """Save the row's edited fields on ``row``."""
+    for name, value in fields.items():
+        setattr(row, name, value)
+    row.save()
+    return row
+
+
+# -- The running tally --
+
+
+@dataclass(frozen=True)
+class TallyTile:
+    """One tile of the running tally: the figure (cents for money), its goal in the same units (0 for none), the line
+    under it, and where it links: another door (``door``, a ``HubCard.Kind``) or a section of the ledger (``anchor``).
+    ``href`` is the link for this viewer, blank when that door is not open to them."""
+
+    key: str
+    label: str
+    value: int
+    is_money: bool
+    goal: int
+    sub: str
+    door: str = ""
+    anchor: str = ""
+    href: str = ""
+
+    @property
+    def value_display(self) -> str:
+        return format_money(self.value) if self.is_money else f"{self.value:,}"
+
+    @property
+    def percent(self) -> int:
+        return _percent(self.value, self.goal)
+
+
+@dataclass(frozen=True)
+class CheerLine:
+    """One of Lee's cheer lines under the tiles, with its bold part: ``before``, ``bold``, ``after``."""
+
+    before: str
+    bold: str
+    after: str
+
+
+@dataclass(frozen=True)
+class LedgerTally:
+    """Lee's running tally: the countdown, nine tiles each read from its door, and the cheer lines."""
+
+    countdown: Countdown
+    tiles: list[TallyTile]
+    cheer: list[CheerLine]
+
+
+def _clock(moment: datetime) -> str:
+    """A Portland time as Lee writes it: "5 PM", "5:30 PM"."""
+    local = timezone.localtime(moment)
+    hour = local.hour % 12 or 12
+    minutes = f":{local.minute:02d}" if local.minute else ""
+    return f"{hour}{minutes} {'AM' if local.hour < 12 else 'PM'}"
+
+
+def tally_countdown(hub: EventHub, now: datetime) -> tuple[Countdown, bool]:
+    """Lee's countdown over the tiles, from :meth:`EventHub.countdown_parts`, and whether the event is still days away
+    (her flyer nudge's condition; true with no event, when nothing says it is over).
+
+    "N days to the Bizarre", "1 day to go. Tomorrow!", on the day "Today" with "Doors at 5 PM" (the event's start)
+    until it starts and "We're live!" after, and "Done, Thank you, everyone" once it has passed.
+    """
+    parts = hub.countdown_parts(now)
+    event = hub.event
+    if event is None:
+        return Countdown("", ""), True
+    if parts.big == "Today":
+        return Countdown(
+            "Today", TALLY_DOORS_AT.format(time=_clock(event.starts_at)) if now < event.starts_at else TALLY_LIVE
+        ), False
+    if parts.big == "Thank you":
+        return Countdown(TALLY_DONE, TALLY_THANKS), False
+    return Countdown(parts.big, TALLY_TOMORROW if parts.big == "1" else TALLY_DAYS), True
+
+
+def ledger_tally(
+    hub: EventHub,
+    *,
+    now: datetime,
+    doors: DoorFigures | None = None,
+    door_urls: Mapping[str, str] | None = None,
+) -> LedgerTally:
+    """Lee's running tally for ``hub``: nine tiles, every one read live from the door its figure lives on, and her cheer
+    lines, in a fixed number of queries (:func:`door_figures`'s; none when the page passes them in).
+
+    ``door_urls`` is where each door's tile links for this viewer (a ``HubCard.Kind`` to its page, only the doors open
+    to them); a tile whose figure lives on the ledger links to its section.
+    """
+    doors = doors if doors is not None else door_figures(hub)
+    urls = door_urls or {}
+    countdown, before = tally_countdown(hub, now)
+    cash, wine, tickets, guilds = doors.cash, doors.wine, doors.tickets, doors.guilds
+    checkin, people = doors.checkin, doors.attendance
+    goal_cents = doors.sponsors.goal_cents
+    volunteers = checkin.volunteers
+    specs = [
+        TallyTile(
+            "cash",
+            "Cash to Past Lives",
+            cash.total_cents,
+            True,
+            goal_cents,
+            f"of {doors.sponsors.goal_display} goal",
+            door=HubCard.Kind.SPONSORSHIP,
+        ),
+        TallyTile(
+            "bottles",
+            "Wine bottles gifted",
+            wine.bottles,
+            False,
+            wine.goal,
+            f"of {wine.goal} for the wine wall" if wine.goal else "for the wine wall",
+            door=HubCard.Kind.WINE_WALL,
+        ),
+        TallyTile(
+            "tickets",
+            "Wine wall ticket sales",
+            tickets.revenue_cents,
+            True,
+            wine.goal * tickets.ticket_cents,
+            f"{tickets.count} tickets · {tickets.ticket_display} a ticket or 2 for {tickets.pair_display}",
+            anchor="hq-lg-wine",
+        ),
+        TallyTile(
+            "guilds",
+            "Guilds doing demos",
+            guilds.demos,
+            False,
+            guilds.guilds,
+            f"of {_plural(guilds.guilds, 'guild', 'guilds')}",
+            anchor="hq-lg-guilds",
+        ),
+        TallyTile(
+            "tables",
+            "Members with tables",
+            doors.vendors.confirmed,
+            False,
+            0,
+            "artists selling their work",
+            door=HubCard.Kind.VENDOR_TABLES,
+        ),
+        TallyTile(
+            "sold",
+            "Members sold",
+            checkin.sales_cents,
+            True,
+            0,
+            f"{checkin.items} handmade items found new homes" if checkin.items else "straight into artists' pockets",
+            door=HubCard.Kind.MARKET_CHECKIN,
+        ),
+        TallyTile(
+            "flyers",
+            "Businesses with flyers",
+            doors.flyers,
+            False,
+            0,
+            "spreading the word",
+            door=HubCard.Kind.MARKETING,
+        ),
+        TallyTile(
+            "people",
+            "Attendees",
+            people.total,
+            False,
+            people.goal,
+            f"of {people.goal} hoped for" if people.goal else people.parts_line,
+            anchor="hq-lg-people",
+        ),
+        TallyTile(
+            "vol",
+            "Volunteer hours",
+            _whole(checkin.hours),
+            False,
+            0,
+            f"from {_plural(volunteers, 'volunteer', 'volunteers')}. Thank you!",
+            door=HubCard.Kind.MARKET_CHECKIN,
+        ),
+    ]
+    tiles = [
+        TallyTile(**{**asdict(tile), "href": f"#{tile.anchor}" if tile.anchor else urls.get(tile.door, "")})
+        for tile in specs
+    ]
+    return LedgerTally(countdown=countdown, tiles=tiles, cheer=_cheer(doors, before=before))
+
+
+def _cheer(doors: DoorFigures, *, before: bool) -> list[CheerLine]:
+    """Lee's cheer lines, her rules exactly: the cash still to raise or the goal reached, the bottles to fill the wall
+    or the wall full (with a bottles goal), the guilds still to line up a demo, and while the event is still days away
+    and fewer than 25 businesses have the flyer up, her nudge to drop one today."""
+    lines: list[CheerLine] = []
+    cash, goal = doors.cash.total_cents, doors.sponsors.goal_cents
+    if cash < goal:
+        lines.append(CheerLine("", format_money(goal - cash), " more to hit our cash goal"))
+    else:
+        lines.append(CheerLine("", "Cash goal reached!", ""))
+    wine = doors.wine
+    if wine.goal:
+        if wine.bottles < wine.goal:
+            lines.append(CheerLine("", str(wine.goal - wine.bottles), " bottles to fill the wine wall"))
+        else:
+            lines.append(CheerLine("", "Wine wall is full!", ""))
+    guilds = doors.guilds
+    if guilds.guilds and guilds.demos < guilds.guilds:
+        lines.append(CheerLine("", str(guilds.guilds - guilds.demos), " guilds still to line up a demo"))
+    if before and doors.flyers < TALLY_FLYER_NUDGE_UNDER:
+        lines.append(CheerLine("Drop a flyer somewhere today. ", str(doors.flyers), " businesses so far"))
+    return lines
+
+
+# -- The ledger's goals --
+
+
+@dataclass(frozen=True)
+class LedgerGoalRow:
+    """One of Lee's goal rows: the name and its line, the figure and its line, the meter (None for none), the chip and
+    its tone, and where the row jumps to (``href``: a section of the ledger, or a door open to the viewer)."""
+
+    key: str
+    name: str
+    sub: str
+    figure: str
+    figure_sub: str
+    percent: int | None
+    chip: str
+    tone: str
+    href: str
+    lead: bool = False
+
+
+@dataclass(frozen=True)
+class LedgerGoalGroup:
+    """A group of goal rows under one of Lee's headings (blank for the lead row)."""
+
+    heading: str
+    rows: list[LedgerGoalRow]
+
+
+def _to_go_chip(have: int, goal: int, *, reached: str = "Reached", none: str = "") -> tuple[str, str]:
+    """Lee's chip for a count against its goal: reached (ok), else what is left to go, warm once something is in."""
+    if have >= goal:
+        return reached, "ok"
+    return (f"{goal - have} to go" if have or not none else none), ("warn" if have else "")
+
+
+def ledger_goals(
+    band: LedgerBand,
+    doors: DoorFigures,
+    *,
+    launch: LaunchTotals,
+    flyer_ready: bool,
+    door_urls: Mapping[str, str] | None = None,
+) -> list[LedgerGoalGroup]:
+    """Lee's Goals, grouped as she groups them: the event cash first, then Parts of the cash goal, Budget, and Not part
+    of the cash goal. Every target is the hub's own (its event cash, bottles and RSVPs goals, the approval, the active
+    guilds), never a typed copy, and every figure is read from its door. No query of its own."""
+    urls = door_urls or {}
+    money = format_money
+    cash, bar, wine, tickets = doors.cash, doors.bar, doors.wine, doors.tickets
+    goal = doors.sponsors.goal_cents
+    if cash.total_cents >= goal:
+        cash_chip = ("Reached", "ok")
+    elif cash.total_cents + cash.committed_cents >= goal:
+        cash_chip = ("Covered once collected", "warn")
+    else:
+        cash_chip = (f"{money(goal - cash.total_cents)} to go", "")
+    lead = LedgerGoalRow(
+        "cash",
+        "Event cash goal",
+        f"Sponsorships {money(cash.sponsors_cents)} · Drinks {money(cash.bar_cents)} · "
+        f"Wine tickets {money(cash.tickets_cents)}",
+        f"{money(cash.total_cents)} of {doors.sponsors.goal_display}",
+        f"+ {money(cash.committed_cents)} committed" if cash.committed_cents else "Raised so far",
+        _percent(cash.total_cents, goal),
+        *cash_chip,
+        href=urls.get(HubCard.Kind.SPONSORSHIP, ""),
+        lead=True,
+    )
+    sponsored = cash.sponsors_cents
+    last_year = bar.last_year_cents
+    if bar.sales_cents > 0 and bar.sales_cents >= last_year and bar.profit_cents >= 0:
+        bar_chip = ("Ahead", "ok")
+    elif bar.sales_cents > 0:
+        bar_chip = ("In progress", "warn")
+    else:
+        bar_chip = ("Event night", "")
+    price = f"{tickets.ticket_display} a ticket or 2 for {tickets.pair_display}"
+    if wine.goal:
+        wine_row = LedgerGoalRow(
+            "wine",
+            "Wine wall",
+            f"{wine.bottles} of {wine.goal} bottles donated · {price}",
+            f"{wine.bottles} / {wine.goal}",
+            f"{money(tickets.revenue_cents)} in tickets"
+            if tickets.revenue_cents
+            else f"{wine.value_display} donated value",
+            _percent(wine.bottles, wine.goal),
+            *_to_go_chip(wine.bottles, wine.goal),
+            href="#hq-lg-wine",
+        )
+    else:
+        wine_row = LedgerGoalRow(
+            "wine",
+            "Wine wall",
+            f"{_plural(wine.bottles, 'bottle', 'bottles')} donated · {price}",
+            str(wine.bottles),
+            f"{money(tickets.revenue_cents)} in tickets"
+            if tickets.revenue_cents
+            else f"{wine.value_display} donated value",
+            None,
+            "No bottles goal",
+            "",
+            href="#hq-lg-wine",
+        )
+    parts = [
+        LedgerGoalRow(
+            "sponsors",
+            "Cash sponsorships",
+            "Received from businesses and partners",
+            money(sponsored),
+            f"{money(cash.committed_cents)} committed" if cash.committed_cents else "Received",
+            _percent(sponsored, goal),
+            *((f"{_percent(sponsored, goal)}% of goal", "info") if sponsored > 0 else ("Not started", "")),
+            href=urls.get(HubCard.Kind.SPONSORSHIP, ""),
+        ),
+        LedgerGoalRow(
+            "bar",
+            "Drink sales",
+            f"Beat 2025 (about {money(last_year)}) and cover bar costs",
+            bar.sales_display,
+            f"Bar cost {bar.cost_display}" if bar.cost_cents else "No bar costs yet",
+            _percent(bar.sales_cents, max(last_year, bar.cost_cents)),
+            *bar_chip,
+            href="#hq-lg-bar",
+        ),
+        wine_row,
+    ]
+    budget = LedgerGoalRow(
+        "budget",
+        "Drinks budget",
+        "Stay within the board's approval",
+        f"{band.used_display} of {band.approved_display}",
+        f"{band.left_display} left",
+        _percent(band.used_cents, band.approved_cents),
+        *(("Over budget", "warn") if band.left_cents < 0 else ("Within budget", "ok")),
+        href="#hq-lg-board",
+    )
+    people = doors.attendance
+    if people.goal:
+        people_figure, people_percent = f"{people.total} / {people.goal}", _percent(people.total, people.goal)
+        people_chip = _to_go_chip(people.total, people.goal, none="Event night")
+    else:
+        people_figure, people_percent = str(people.total), None
+        people_chip = ("", "") if people.total else ("Event night", "")
+    guilds = doors.guilds
+    if launch.tasks and launch.done >= launch.tasks:
+        launch_chip = ("All done", "ok")
+    else:
+        launch_chip = (f"{launch.tasks - launch.done} to go", "warn" if launch.done else "")
+    if guilds.guilds and guilds.contacted >= guilds.guilds:
+        guild_chip = ("All contacted", "ok")
+    else:
+        guild_chip = (f"{max(0, guilds.guilds - guilds.contacted)} to contact", "warn" if guilds.contacted else "")
+    confirmed, checkin = doors.vendors.confirmed, doors.checkin
+    others = [
+        LedgerGoalRow(
+            "people",
+            "Attendance",
+            people.parts_line,
+            people_figure,
+            "People",
+            people_percent,
+            *people_chip,
+            href="#hq-lg-people",
+        ),
+        LedgerGoalRow(
+            "launch",
+            "Launch checklist",
+            "Flyer, website, Eventbrite, member portal and more",
+            f"{launch.done} / {launch.tasks} done",
+            "Tasks",
+            _percent(launch.done, launch.tasks),
+            *launch_chip,
+            href="#hq-lg-launch",
+        ),
+        LedgerGoalRow(
+            "guilds",
+            "Guild demos",
+            "Every guild contacted, demos lined up",
+            f"{guilds.contacted} / {guilds.guilds} contacted",
+            f"{_plural(guilds.demos, 'demo', 'demos')} planned",
+            _percent(guilds.contacted, guilds.guilds),
+            *guild_chip,
+            href="#hq-lg-guilds",
+        ),
+        LedgerGoalRow(
+            "flyer",
+            "Flyer distribution",
+            "Places with the flyer posted",
+            _plural(doors.flyers, "location", "locations"),
+            "Logged on the Marketing Tracker",
+            None,
+            *(("Flyer ready", "ok") if flyer_ready else ("Flyer not uploaded", "")),
+            href="#hq-lg-flyer",
+        ),
+        LedgerGoalRow(
+            "vendors",
+            "Vendors and their sales",
+            "Artists selling at the event",
+            _plural(confirmed, "vendor", "vendors"),
+            f"{checkin.sales_display} in sales",
+            None,
+            *((f"{checkin.vendors_with_sales} reported sales", "info") if confirmed else ("Add vendors", "")),
+            href="#hq-lg-people",
+        ),
+    ]
+    return [
+        LedgerGoalGroup("", [lead]),
+        LedgerGoalGroup("Parts of the cash goal", parts),
+        LedgerGoalGroup("Budget", [budget]),
+        LedgerGoalGroup("Not part of the cash goal", others),
+    ]
