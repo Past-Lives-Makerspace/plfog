@@ -3,9 +3,10 @@
 The review bot reads the diff and never the description, so nothing else holds a PR to the
 format a non-technical reader relies on: a summary of at most 160 characters, the four-part
 Problem / Solution / Impact / Verification skeleton, and at most 300 words. It also fails a PR
-that changes what members see (templates, CSS, front-end JS) without adding a screenshot or
-mockup under ``mockups/`` or shows it with a link that would not render, and warns, without
-failing, when more than 400 lines of code change.
+that changes what members see (templates, CSS, front-end JS) without showing a screenshot,
+shows one by a link that would not render, or commits an image under ``mockups/`` (screenshots
+go to R2 through ``scripts/upload_screenshot.py``), and warns, without failing, when more than
+400 lines of code change.
 
 A split issue closes on its last part, never before. GitHub closes an issue when any merged PR
 carries a closing keyword for it, so the Problem section of the last part must say ``Closes #N`` and
@@ -52,7 +53,7 @@ _CLOSES = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#\d+", re
 #: path such as ``mockups/screenshots/x.png`` resolves against the pull request URL and shows a
 #: broken image, however correct it looks in the repo's own Markdown.
 _IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)")
-_RAW_URL = "https://raw.githubusercontent.com/Past-Lives-Makerspace/plfog/<commit>/mockups/screenshots/<file>"
+_UPLOAD = "`.venv/bin/python scripts/upload_screenshot.py <file>`"
 
 
 def _sections(body: str) -> dict[str, str]:
@@ -95,7 +96,7 @@ def part_error(problem: str) -> str | None:
 def picture_link_errors(text: str) -> list[str]:
     """One error per image whose target would not render in a PR description.
 
-    Only an absolute ``http(s)`` target renders there: the raw file at a commit, or an upload
+    Only an absolute ``http(s)`` target renders there: a screenshot uploaded to R2, or one
     GitHub hosted. A relative path is what the repo's own Markdown would use, and it was the
     rule here until PR #542 shipped two broken images.
     """
@@ -104,7 +105,7 @@ def picture_link_errors(text: str) -> list[str]:
         if not target.lower().startswith(("http://", "https://")):
             errors.append(
                 f"The image `{target}` is a relative link, which shows as a broken image in a PR "
-                f"description. Link the raw file at the commit that added it instead: `{_RAW_URL}`."
+                f"description. Upload it with {_UPLOAD} and embed the link it prints."
             )
     return errors
 
@@ -155,9 +156,9 @@ def needs_pictures(changed: list[str]) -> bool:
     return any(path.startswith(_UI_PREFIXES) for path in changed)
 
 
-def adds_pictures(added: list[str]) -> bool:
-    """True when the change adds a screenshot or mockup under ``mockups/``."""
-    return any(path.startswith("mockups/") and path.lower().endswith(_PICTURE_SUFFIXES) for path in added)
+def committed_pictures(added: list[str]) -> list[str]:
+    """Images the change commits under ``mockups/``. Screenshots live on R2, not in the repo."""
+    return [path for path in added if path.startswith("mockups/") and path.lower().endswith(_PICTURE_SUFFIXES)]
 
 
 def counted_lines(numstat: str) -> int:
@@ -192,18 +193,18 @@ def main() -> None:
 
     changed = _git("diff", "--name-only", span).split()
     added = _git("diff", "--name-only", "--diff-filter=A", span).split()
-    if needs_pictures(changed) and SKIP_PICTURES_LABEL not in labels:
-        if not adds_pictures(added):
-            errors.append(
-                "This PR changes templates, CSS or front-end JS but adds no screenshot or mockup under "
-                f"`mockups/screenshots/`. Add one and show it in the description, or add the "
-                f"`{SKIP_PICTURES_LABEL}` label if nothing visible changes."
-            )
-        elif not shows_a_picture(_COMMENT.sub("", body)):
-            errors.append(
-                "This PR adds a screenshot but the description does not show it. Embed it as "
-                f"`![what it shows]({_RAW_URL})`."
-            )
+    committed = committed_pictures(added)
+    if committed:
+        errors.append(
+            f"This PR commits {', '.join(f'`{path}`' for path in committed)}. Images stay out of the repo: "
+            f"upload each with {_UPLOAD}, embed the link it prints, and remove the file from the PR."
+        )
+    if needs_pictures(changed) and SKIP_PICTURES_LABEL not in labels and not shows_a_picture(_COMMENT.sub("", body)):
+        errors.append(
+            "This PR changes templates, CSS or front-end JS but the description shows no screenshot. "
+            f"Upload one with {_UPLOAD} and embed the link it prints, or add the "
+            f"`{SKIP_PICTURES_LABEL}` label if nothing visible changes."
+        )
 
     lines = counted_lines(_git("diff", "--numstat", span))
     if lines > TARGET_LINES:
