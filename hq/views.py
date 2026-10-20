@@ -1,6 +1,6 @@
 """The HQ page and its edit pages (Track C, part 1), the volunteer sign-up page (part 2), the wine wall (part 3),
 the Marketing Tracker (Track D, part 1), the Sponsorship Tracker (Track D, part 2), Vendor Tables (Track D, part 3)
-and the Market Check-in (Track D, part 4).
+the Market Check-in (Track D, part 4) and the event flyer and sharing page (Track D, part 5).
 """
 
 from __future__ import annotations
@@ -46,6 +46,8 @@ from hq.exports import (
 from hq.forms import (
     MARKETING_TEAM_LIST_ID,
     SPONSOR_TEAM_LIST_ID,
+    FlyerLinksForm,
+    FlyerUploadForm,
     HubCardForm,
     HubForm,
     HubGoalFormSet,
@@ -64,10 +66,20 @@ from hq.forms import (
     WineBottleForm,
     WineryLogoForm,
 )
-from hq.holiday_bizarre import CHECKIN_FOOTER, SPONSOR_TIERS, VENDOR_SETUP_NOTE, WINE_WALL_BENEFIT
+from hq.holiday_bizarre import (
+    CHECKIN_FOOTER,
+    FLYER_COMING_SOON,
+    FLYER_LAST_YEAR_NOTE,
+    FLYER_SHARE_LEDE,
+    SPONSOR_TIERS,
+    VENDOR_SETUP_NOTE,
+    WINE_WALL_BENEFIT,
+)
 from hq.models import (
     EventHub,
+    FlyerSlot,
     HubCard,
+    MarketingKind,
     MarketReport,
     ShiftSignup,
     Sponsor,
@@ -1275,3 +1287,150 @@ def checkin_reports_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -
 def checkin_hours_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
     """Every hours entry as a CSV download, newest date first."""
     return stream_volunteer_hours_csv(hub.volunteer_hours.select_related("member"), filename_stem=hub.slug)
+
+
+# ---- Event flyer and sharing (Track D, part 5) ----
+
+
+def _flyer_url(hub: EventHub) -> str:
+    return reverse("hq:flyer", args=[hub.slug])
+
+
+@dataclass(frozen=True)
+class FlyerUpload:
+    """One of the organisers' upload forms: the slot, the file stored there now (or none) and the form."""
+
+    slot: str
+    label: str
+    current: Any
+    is_pdf: bool
+    form: FlyerUploadForm
+
+
+def _flyer_share_context(hub: EventHub, page: Any) -> dict[str, Any]:
+    """What Help spread the word and Find the event render: the link to share (the event's public page, else the
+    HQ), Facebook's share dialog for it, the message with the link, and the page's two links."""
+    link = services.share_link(hub)
+    return {
+        "hub": hub,
+        "page": page,
+        "share_link": link,
+        "facebook_url": services.facebook_share_url(link),
+        "share_text": services.share_text(page.share_message, link),
+        "share_lede": FLYER_SHARE_LEDE,
+    }
+
+
+def _flyer_context(
+    request: HttpRequest,
+    hub: EventHub,
+    card: HubCard,
+    *,
+    links_form: FlyerLinksForm | None = None,
+    upload_form: FlyerUploadForm | None = None,
+) -> dict[str, Any]:
+    """What the page renders, by the effective role. The RSVP figure and the businesses with flyers are read live
+    (the event's people count, the Marketing Tracker's flyer count); the Marketing Tracker link shows only when that
+    card is open to the viewer. Organisers get Update this page: the two upload forms (``upload_form`` in place of
+    its slot's fresh one when it came back with errors) and the links form."""
+    member = viewer_member(request)
+    is_admin = renders_as_admin(request)
+    page = services.flyer_page(hub)
+    event = hub.event
+    can_organize = card.can_organize(member, is_admin=is_admin)
+    context: dict[str, Any] = {
+        **_flyer_share_context(hub, page),
+        "card": card,
+        "can_organize": can_organize,
+        "coming_soon": FLYER_COMING_SOON,
+        "last_year_note": FLYER_LAST_YEAR_NOTE,
+        "rsvp_count": services.rsvp_count(event) if event is not None else None,
+        "rsvp_url": f"{reverse('hub_event_detail', args=[event.pk])}#whos-coming" if event is not None else "",
+        "flyers_out": services.marketing_totals(hub)[MarketingKind.FLYER],
+        "marketing_url": _door_url(hub, HubCard.Kind.MARKETING, member, is_admin),
+    }
+    if can_organize:
+        uploads = []
+        for slot in FlyerSlot:
+            form = upload_form if upload_form is not None and upload_form.slot == slot else None
+            current = getattr(page, slot)
+            uploads.append(
+                FlyerUpload(
+                    slot=slot.value,
+                    label=slot.label,
+                    current=current if current else None,
+                    is_pdf=page.flyer_is_pdf if slot == FlyerSlot.THIS_YEAR else page.last_year_is_pdf,
+                    form=form if form is not None else FlyerUploadForm(slot=slot),
+                )
+            )
+        context.update(
+            {
+                "uploads": uploads,
+                "links_form": links_form if links_form is not None else FlyerLinksForm(instance=page),
+                "max_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
+                "max_pdf_bytes": settings.MAX_UPLOAD_DOCUMENT_BYTES,
+            }
+        )
+    return context
+
+
+@card_view(HubCard.Kind.FLYER)
+def flyer(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """The event flyer and sharing page: this year's flyer to view, download and print, the share buttons, the
+    links to the event, the RSVP and flyer figures read live, last year's flyer, and Update this page for
+    organisers."""
+    return render(request, "hq/flyer.html", _flyer_context(request, hub, card))
+
+
+def _flyer_slot(slot: str) -> FlyerSlot:
+    """The slot named in the URL; any other word is a 404."""
+    if slot not in FlyerSlot.values:
+        raise Http404("No such flyer.")
+    return FlyerSlot(slot)
+
+
+@require_POST
+@organizer_required(HubCard.Kind.FLYER)
+def flyer_upload(request: HttpRequest, *, hub: EventHub, card: HubCard, slot: str) -> HttpResponse:
+    """Upload or replace one flyer, by the actual role. A plain multipart post (the form opts out of hx-boost); a
+    refused file renders the page with the form's error."""
+    which = _flyer_slot(slot)
+    form = FlyerUploadForm(request.POST, request.FILES, slot=which)
+    if not form.is_valid():
+        return render(request, "hq/flyer.html", _flyer_context(request, hub, card, upload_form=form))
+    services.set_flyer(hub, which, form.cleaned_data["file"])
+    messages.success(request, f"{which.label} uploaded.")
+    return redirect(_flyer_url(hub))
+
+
+@require_POST
+@organizer_required(HubCard.Kind.FLYER)
+def flyer_remove(request: HttpRequest, *, hub: EventHub, card: HubCard, slot: str) -> HttpResponse:
+    """Take one flyer off the page and out of storage, by the actual role."""
+    which = _flyer_slot(slot)
+    if services.remove_flyer(hub, which):
+        messages.success(request, f"{which.label} removed.")
+    else:
+        messages.info(request, f"There was no {which.label} to remove.")
+    return redirect(_flyer_url(hub))
+
+
+@require_POST
+@organizer_required(HubCard.Kind.FLYER)
+def flyer_links(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Save the two links and the share message, by the actual role. Over htmx the form comes back with a toast,
+    and Help spread the word and Find the event out of band; a plain post lands back on the page with a message."""
+    form = FlyerLinksForm(request.POST, instance=services.flyer_page(hub))
+    fragment = wants_fragment(request)
+    if not form.is_valid():
+        if not fragment:
+            return render(request, "hq/flyer.html", _flyer_context(request, hub, card, links_form=form))
+        return render(request, "hq/partials/_flyer_links.html", {"hub": hub, "links_form": form})
+    page = services.save_flyer_links(hub, form.cleaned_data)
+    if not fragment:
+        messages.success(request, "Saved.")
+        return redirect(_flyer_url(hub))
+    context = {**_flyer_share_context(hub, page), "links_form": FlyerLinksForm(instance=page)}
+    response = render(request, "hq/partials/_flyer_links_answer.html", context)
+    trigger_toast(response, "Saved.", "success")
+    return response

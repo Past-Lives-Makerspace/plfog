@@ -10,7 +10,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
+from pathlib import Path
+
 from django import forms
+from django.conf import settings
+from django.core.validators import URLValidator
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.db.models import Prefetch
@@ -20,7 +24,9 @@ from django.utils import timezone
 from core.validators import validate_image_content, validate_image_size
 from hq.models import (
     EventHub,
+    FlyerSlot,
     HubCard,
+    HubFlyer,
     HOURS_MAX,
     HOURS_MIN,
     HOURS_STEP,
@@ -859,3 +865,93 @@ class VolunteerHoursForm(forms.ModelForm):
     def kept_for_next(self) -> dict[str, Any]:
         """What the next entry starts with after a save: the same date and task; the hours and note clear."""
         return {key: self.cleaned_data[key] for key in ("date", "task")}
+
+
+# ---- Event flyer and sharing (Track D, part 5) ----
+
+FLYER_TYPE_ERROR = "That file is not a flyer we can show. Choose a JPG, PNG or WEBP image, or a PDF."
+
+# What an image upload may be, by what Pillow found in the bytes, and the extension it is stored under.
+FLYER_IMAGE_TYPES: dict[str, str] = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+
+# The first bytes of every PDF.
+PDF_MAGIC = b"%PDF-"
+
+
+def _megabytes(limit: int) -> str:
+    return f"{limit / (1024 * 1024):.0f}"
+
+
+class FlyerUploadForm(forms.Form):
+    """Upload or replace one flyer: an image (JPG, PNG, WEBP; up to ``MAX_UPLOAD_IMAGE_BYTES``) or a PDF (up to
+    ``MAX_UPLOAD_DOCUMENT_BYTES``), told apart by the bytes, never the name or the declared type.
+
+    The cleaned file is renamed to the type found (``.pdf``, or the image's own extension), so the model can tell a
+    PDF from an image by its name: an image is re-encoded on save, a PDF is stored as it came. ``slot`` is the
+    :class:`hq.models.FlyerSlot` the form is for; it names the field and prefixes it, so the two forms on the page
+    keep distinct ids.
+    """
+
+    file = forms.FileField()
+
+    def __init__(self, *args: Any, slot: str, **kwargs: Any) -> None:
+        kwargs["prefix"] = str(slot)
+        super().__init__(*args, **kwargs)
+        self.slot = slot
+        self.fields["file"].label = FlyerSlot(slot).label
+
+    def clean_file(self) -> UploadedFile:
+        upload: UploadedFile = self.cleaned_data["file"]
+        assert upload.size is not None  # an uploaded file always reports its size
+        upload.seek(0)
+        head = upload.read(len(PDF_MAGIC))
+        upload.seek(0)
+        stem = Path(upload.name or "").stem or "flyer"
+        if head == PDF_MAGIC:
+            if upload.size > settings.MAX_UPLOAD_DOCUMENT_BYTES:
+                raise ValidationError(f"A PDF must be {_megabytes(settings.MAX_UPLOAD_DOCUMENT_BYTES)} MB or smaller.")
+            upload.name = f"{stem}.pdf"
+            upload.content_type = "application/pdf"
+            return upload
+        if upload.size > settings.MAX_UPLOAD_IMAGE_BYTES:
+            raise ValidationError(f"An image must be {_megabytes(settings.MAX_UPLOAD_IMAGE_BYTES)} MB or smaller.")
+        try:
+            # Opens the bytes with Pillow, sets the real content_type and rewinds the file.
+            forms.ImageField().to_python(upload)
+        except ValidationError:
+            raise ValidationError(FLYER_TYPE_ERROR) from None
+        extension = FLYER_IMAGE_TYPES.get(upload.content_type or "")
+        if extension is None:
+            raise ValidationError(FLYER_TYPE_ERROR)
+        upload.name = f"{stem}.{extension}"
+        return upload
+
+
+_WEB_LINK = [URLValidator(schemes=["http", "https"])]
+
+
+class FlyerLinksForm(forms.ModelForm):
+    """Update this page: the website and Eventbrite links (http or https, blank leaves the link off the page) and
+    the message members copy to send friends."""
+
+    website_url = forms.URLField(
+        required=False,
+        assume_scheme="https",
+        validators=_WEB_LINK,
+        label="Website event page link",
+        widget=forms.URLInput(attrs={"placeholder": "https://pastlives.space/..."}),
+    )
+    eventbrite_url = forms.URLField(
+        required=False,
+        assume_scheme="https",
+        validators=_WEB_LINK,
+        label="Eventbrite link",
+        widget=forms.URLInput(attrs={"placeholder": "https://www.eventbrite.com/e/..."}),
+    )
+
+    class Meta:
+        model = HubFlyer
+        fields = ["website_url", "eventbrite_url", "share_message"]
+        labels = {"share_message": "Message to send friends"}
+        help_texts = {"share_message": "The share link is added after it."}
+        widgets = {"share_message": forms.Textarea(attrs={"rows": 4})}

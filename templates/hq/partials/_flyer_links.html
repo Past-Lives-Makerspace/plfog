@@ -1,0 +1,20 @@
+{% comment %}
+The organisers' links form under Update this page: the website and Eventbrite links and the message to send
+friends, one Save. Posts over htmx and swaps itself; a plain post lands back on the page.
+
+  hub        — required, the EventHub
+  links_form — required, a FlyerLinksForm (bound when a save was refused)
+{% endcomment %}
+<form method="post" action="{% url 'hq:flyer_links' hub.slug %}" hx-post="{% url 'hq:flyer_links' hub.slug %}" hx-target="this" hx-swap="outerHTML" class="pl-hq-fl__form" data-hq-fl-links>
+  {% csrf_token %}
+  <h3 class="pl-hq-fl__h3">Links and Message</h3>
+  {% for error in links_form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+  <div class="pl-hq-fl__fields">
+    {% include "components/form_field.html" with field=links_form.website_url %}
+    {% include "components/form_field.html" with field=links_form.eventbrite_url %}
+  </div>
+  {% include "components/form_field.html" with field=links_form.share_message %}
+  <div class="pl-hq-fl__actions">
+    <button type="submit" class="pl-hq-fl__btn pl-hq-fl__btn--primary" data-hq-fl-links-save>Save</button>
+  </div>
+</form>

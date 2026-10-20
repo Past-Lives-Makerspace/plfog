@@ -67,7 +67,6 @@ def describe_the_door():
     @pytest.mark.parametrize(
         "kind",
         [
-            HubCard.Kind.FLYER,
             HubCard.Kind.LEDGER,
         ],
     )

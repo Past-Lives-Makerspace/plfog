@@ -3,7 +3,8 @@
 ``new/`` (Load Lee's HQ) sits before ``<slug>/`` so it is never read as a hub; ``hq.forms.RESERVED_SLUGS`` keeps
 a hub from taking that address. The volunteer pages live under ``<slug>/volunteers/`` and the
 wine wall under ``<slug>/wine/``, the Marketing Tracker under ``<slug>/marketing/``, the Sponsorship Tracker
-under ``<slug>/sponsors/``, Vendor Tables under ``<slug>/vendors/`` and the Market Check-in under ``<slug>/check-in/``.
+under ``<slug>/sponsors/``, Vendor Tables under ``<slug>/vendors/``, the Market Check-in under
+``<slug>/check-in/`` and the event flyer and sharing page under ``<slug>/flyer/``.
 """
 
 from __future__ import annotations
@@ -57,4 +58,8 @@ urlpatterns = [
     path("<slug:slug>/check-in/reports.csv", views.checkin_reports_csv, name="checkin_reports_csv"),
     path("<slug:slug>/check-in/hours/", views.checkin_hours, name="checkin_hours"),
     path("<slug:slug>/check-in/hours.csv", views.checkin_hours_csv, name="checkin_hours_csv"),
+    path("<slug:slug>/flyer/", views.flyer, name="flyer"),
+    path("<slug:slug>/flyer/links/", views.flyer_links, name="flyer_links"),
+    path("<slug:slug>/flyer/<slug:slot>/upload/", views.flyer_upload, name="flyer_upload"),
+    path("<slug:slug>/flyer/<slug:slot>/remove/", views.flyer_remove, name="flyer_remove"),
 ]

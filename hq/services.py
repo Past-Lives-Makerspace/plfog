@@ -14,7 +14,9 @@ received and committed), the Follow up list (:func:`follow_ups`), the pipeline's
 three writes (:func:`add_sponsor`, :func:`update_sponsor`, :func:`log_contact`). The Vendor Tables half holds
 the band (:func:`vendor_band`, the one source of the confirmed tables the Member tables goal and the ledger read),
 the list's filters and the three writes (:func:`add_vendor_table`, :func:`update_vendor_table`,
-:func:`set_vendor_floor`).
+:func:`set_vendor_floor`). The flyer half holds the page's content (:func:`flyer_page`), the link members share
+(:func:`share_link`, :func:`facebook_share_url`) and the three writes (:func:`set_flyer`, :func:`remove_flyer`,
+:func:`save_flyer_links`).
 """
 
 from __future__ import annotations
@@ -25,6 +27,9 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+from urllib.parse import quote
+
+from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.db.models import Count, DecimalField, F, IntegerField, Min, Q, QuerySet, Sum
@@ -35,6 +40,8 @@ from django.utils import timezone
 from hq.holiday_bizarre import CHECKIN_THANKS, GOALS
 from hq.models import (
     EventHub,
+    FlyerSlot,
+    HubFlyer,
     HubGoal,
     MarketingAction,
     MarketingKind,
@@ -1237,3 +1244,66 @@ def hours_by_email(hub: EventHub) -> dict[str, Decimal]:
         key = row["member__user__emailaddress__email"].strip().lower()
         totals[key] = totals.get(key, Decimal(0)) + row["total"]
     return totals
+
+
+# ---- Event flyer and sharing (Track D, part 5) ----
+
+# Facebook's share dialog: the link goes after ``u=``, percent-encoded. A plain link, no SDK.
+FACEBOOK_SHARER = "https://www.facebook.com/sharer/sharer.php?u="
+
+
+def flyer_page(hub: EventHub) -> HubFlyer:
+    """``hub``'s flyer page content, or an unsaved one carrying the defaults (no flyer, no links, Lee's message)
+    until an organiser first saves. Rendering never writes a row."""
+    page = HubFlyer.objects.filter(hub=hub).first()
+    return page if page is not None else HubFlyer(hub=hub)
+
+
+def share_link(hub: EventHub) -> str:
+    """The link members copy and share, absolute: the event's public page, or the HQ page with no event.
+
+    It is also the Member portal link under Find the event.
+    """
+    if hub.event is not None:
+        return hub.event.public_url
+    return f"{settings.MEMBER_BASE_URL}{hub.get_absolute_url()}"
+
+
+def facebook_share_url(link: str) -> str:
+    """Facebook's share dialog for ``link``, the whole link percent-encoded into ``u``."""
+    return f"{FACEBOOK_SHARER}{quote(link, safe='')}"
+
+
+def share_text(message: str, link: str) -> str:
+    """What Copy a message to send friends copies: the message, then the link."""
+    return f"{message.strip()} {link}".strip()
+
+
+def set_flyer(hub: EventHub, slot: str, upload: UploadedFile) -> HubFlyer:
+    """Store ``upload`` as ``hub``'s flyer in ``slot`` (a :class:`hq.models.FlyerSlot` value), making the page's row
+    on the first upload. The file it replaces is deleted from storage by :meth:`HubFlyer.save`."""
+    if slot not in FlyerSlot.values:
+        raise ValueError(f"Unknown flyer slot '{slot}'.")
+    with transaction.atomic():
+        page, _created = HubFlyer.objects.select_for_update().get_or_create(hub=hub)
+        setattr(page, slot, upload)
+        page.save()
+    return page
+
+
+def remove_flyer(hub: EventHub, slot: str) -> bool:
+    """Clear ``hub``'s flyer in ``slot`` and delete its file; False when there was none to remove."""
+    if slot not in FlyerSlot.values:
+        raise ValueError(f"Unknown flyer slot '{slot}'.")
+    page = HubFlyer.objects.filter(hub=hub).first()
+    if page is None or not getattr(page, slot):
+        return False
+    setattr(page, slot, "")
+    page.save(update_fields=[slot, "updated_at"])
+    return True
+
+
+def save_flyer_links(hub: EventHub, fields: Mapping[str, Any]) -> HubFlyer:
+    """Save the website and Eventbrite links and the share message (the form's cleaned fields) on ``hub``."""
+    page, _created = HubFlyer.objects.update_or_create(hub=hub, defaults=dict(fields))
+    return page

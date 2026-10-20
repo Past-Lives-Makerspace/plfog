@@ -22,7 +22,9 @@ is asking, and a :class:`SponsorLogEntry` one line in its contact log. Part 3 ad
 ``vendor_tables`` card: a :class:`VendorTable` is one member artist's table request, and a :class:`VendorFloor`
 the space map's capacity for the hub. Part 4 adds the Market Check-in behind the ``market_checkin`` card: a
 :class:`MarketReport` is one member artist's sales after the market (one per member), and a
-:class:`VolunteerHours` one stretch of prep or event time a member logged.
+:class:`VolunteerHours` one stretch of prep or event time a member logged. Part 5 adds the event flyer and sharing
+page behind the ``flyer`` card: a :class:`HubFlyer` holds this year's and last year's flyer, the website and Eventbrite
+links and the message members copy to send friends.
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -185,7 +188,8 @@ class EventHub(models.Model):
                     HubCard.objects.create(hub=self, sort_order=position, **door.fields())
                     result.created += 1
                     if not fresh and door.door in BUILT_DOORS:
-                        result.added_beside.append(door.title)
+                        beside = result.added_beside if door.audience == HubCard.Audience.ADMINS else result.added_open
+                        beside.append(door.title)
                 continue
             changed = door.refresh_words(card)
             if card.kind != door.kind:
@@ -217,6 +221,8 @@ class CardSeed:
     placeholders_skipped: bool = False
     # Live doors made on a hub that already had cards: admins only, and a renamed placeholder may sit beside them.
     added_beside: list[str] = field(default_factory=list)
+    # The same, for a door Lee opens to members from the start (the flyer).
+    added_open: list[str] = field(default_factory=list)
     # The labels of Lee's goals the same press added (``hq.services.seed_goals``), in the order they were added.
     goals_added: list[str] = field(default_factory=list)
 
@@ -236,10 +242,11 @@ class CardSeed:
             return "The doors are up to date."
         sentence = f"Doors updated: {'; '.join(parts)}."
         if self.added_beside:
-            sentence += (
-                f" New and admins only until you open it: {', '.join(self.added_beside)}."
-                " If an old Not shared yet card for it is still on the page, delete that one."
-            )
+            sentence += f" New and admins only until you open it: {', '.join(self.added_beside)}."
+        if self.added_open:
+            sentence += f" New and open to members: {', '.join(self.added_open)}."
+        if self.added_beside or self.added_open:
+            sentence += " If an old Not shared yet card for it is still on the page, delete that one."
         return sentence
 
 
@@ -362,6 +369,8 @@ class HubCard(models.Model):
             return reverse("hq:vendors", args=[self.hub.slug])
         if self.kind == self.Kind.MARKET_CHECKIN:
             return reverse("hq:checkin", args=[self.hub.slug])
+        if self.kind == self.Kind.FLYER:
+            return reverse("hq:flyer", args=[self.hub.slug])
         # A live kind whose page has not shipped yet renders like a placeholder: Not shared yet.
         return ""
 
@@ -431,7 +440,13 @@ class HubGoal(models.Model):
 # The doors whose page is built beyond the first three. The seed turns a placeholder titled as one of
 # these into its live kind; each later part of Track D adds its kind here and nowhere else.
 BUILT_DOORS: frozenset[str] = frozenset(
-    {HubCard.Kind.MARKETING, HubCard.Kind.SPONSORSHIP, HubCard.Kind.VENDOR_TABLES, HubCard.Kind.MARKET_CHECKIN}
+    {
+        HubCard.Kind.MARKETING,
+        HubCard.Kind.SPONSORSHIP,
+        HubCard.Kind.VENDOR_TABLES,
+        HubCard.Kind.MARKET_CHECKIN,
+        HubCard.Kind.FLYER,
+    }
 )
 
 # The three doors that were live from the start of Track C.
@@ -444,7 +459,9 @@ class DoorContent:
 
     ``door`` is the kind the card is once its page is built; until then it is seeded as a placeholder
     with the same words. ``old_bullets`` and ``old_button_text`` are the words the card was seeded with
-    before Lee's update: a card still carrying them takes the current ones.
+    before Lee's update: a card still carrying them takes the current ones. ``audience`` is who a newly made
+    live door is open to: admins only, but the flyer, which is for members from the start (Felix, 2026-10-20).
+    An adopted placeholder keeps its own audience.
     """
 
     door: str
@@ -454,6 +471,7 @@ class DoorContent:
     button_text: str
     old_bullets: str
     old_button_text: str
+    audience: str = HubCard.Audience.ADMINS
 
     @property
     def is_live(self) -> bool:
@@ -465,9 +483,11 @@ class DoorContent:
         return self.door if self.is_live else HubCard.Kind.PLACEHOLDER
 
     def fields(self) -> dict[str, str]:
-        """The card's fields for a new row (admins only, the model's default audience)."""
+        """The card's fields for a new row: a placeholder is admins only (the model's default), a live door its
+        :attr:`audience`."""
         return {
             "kind": self.kind,
+            "audience": self.audience if self.is_live else HubCard.Audience.ADMINS,
             "who_for": self.who_for,
             "title": self.title,
             "bullets": self.bullets,
@@ -615,6 +635,7 @@ DEFAULT_CARDS: tuple[DoorContent, ...] = (
             "The flyer to print and post\nGraphics to share on Instagram and by email\nWhere to drop flyers around town"
         ),
         old_button_text="Get the flyer",
+        audience=HubCard.Audience.MEMBERS,
     ),
     DoorContent(
         door=HubCard.Kind.MARKETING,
@@ -1505,3 +1526,91 @@ class VolunteerHours(models.Model):
     @property
     def hours_display(self) -> str:
         return format_hours(self.hours)
+
+
+# ---- Event flyer and sharing (Track D, part 5) ----
+
+
+class FlyerSlot(models.TextChoices):
+    """Which flyer an upload or a Remove is for: this year's or last year's. The values are the field names."""
+
+    THIS_YEAR = "flyer", "2026 flyer"
+    LAST_YEAR = "last_year_flyer", "2025 flyer"
+
+
+def default_share_message() -> str:
+    """Lee's "copy a message to send friends" text, the default for a new :class:`HubFlyer`.
+
+    A callable so the migration names it rather than freezing the words, and a lazy import because
+    :mod:`hq.holiday_bizarre` imports this module.
+    """
+    from hq.holiday_bizarre import FLYER_SHARE_MESSAGE
+
+    return FLYER_SHARE_MESSAGE
+
+
+def is_pdf_name(name: str) -> bool:
+    """Whether a stored flyer is a PDF, by its name: the upload form names a PDF ``.pdf`` and an image is
+    re-encoded to ``.jpg`` on save, so the extension is the type the content was checked as."""
+    return name.lower().endswith(".pdf")
+
+
+class HubFlyer(models.Model):
+    """The event flyer and sharing page's content for a hub (OneToOne, made on the first save).
+
+    This year's and last year's flyer are each an image (JPG, PNG or WEBP, re-encoded to a JPEG at the hero's long
+    edge on save) or a PDF (stored as it came); the upload form checks the content, not the name. A replaced or
+    cleared file is deleted from storage. The RSVP figure and the businesses with flyers are never stored here:
+    the page reads them live from the event and the Marketing Tracker.
+    """
+
+    Slot = FlyerSlot
+
+    hub = models.OneToOneField(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="hub_flyer",
+        help_text="The HQ whose flyer and sharing page this is.",
+    )
+    flyer = models.FileField(
+        upload_to="hq/flyers/",
+        blank=True,
+        help_text="This year's flyer: a JPG, PNG or WEBP image (resized on upload) or a PDF. Blank shows Coming soon.",
+    )
+    last_year_flyer = models.FileField(
+        upload_to="hq/flyers/",
+        blank=True,
+        help_text="Last year's flyer, shown under Last year: an image or a PDF. Optional.",
+    )
+    website_url = models.URLField(blank=True, help_text="The event page on the Past Lives website. Optional.")
+    eventbrite_url = models.URLField(blank=True, help_text="The event on Eventbrite. Optional.")
+    share_message = models.TextField(
+        max_length=600,
+        default=default_share_message,
+        help_text="The message members copy to send friends; the share link is added after it.",
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the page was last saved.")
+
+    def __str__(self) -> str:
+        return f"Flyer for {self.hub.title}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        for slot in FlyerSlot.values:
+            if not is_pdf_name(getattr(self, slot).name or ""):
+                normalize_field_if_uploaded(self, slot, settings.IMAGE_MAX_LONG_EDGE_HERO)
+            delete_orphan_on_replace(self, slot)
+        super().save(*args, **kwargs)
+
+    @property
+    def flyer_is_pdf(self) -> bool:
+        return is_pdf_name(self.flyer.name or "")
+
+    @property
+    def last_year_is_pdf(self) -> bool:
+        return is_pdf_name(self.last_year_flyer.name or "")
+
+    @property
+    def website_host(self) -> str:
+        """The website link's host for its card under Find the event, e.g. "pastlives.space" (``www.`` dropped)."""
+        host = urlsplit(self.website_url).hostname or ""
+        return host.removeprefix("www.")

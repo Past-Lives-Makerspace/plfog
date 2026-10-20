@@ -113,7 +113,13 @@ def describe_lees_content():
 
     def it_seeds_a_built_door_live_and_the_rest_as_placeholders():
         assert BUILT_DOORS == frozenset(
-            {HubCard.Kind.MARKETING, HubCard.Kind.SPONSORSHIP, HubCard.Kind.VENDOR_TABLES, HubCard.Kind.MARKET_CHECKIN}
+            {
+                HubCard.Kind.MARKETING,
+                HubCard.Kind.SPONSORSHIP,
+                HubCard.Kind.VENDOR_TABLES,
+                HubCard.Kind.MARKET_CHECKIN,
+                HubCard.Kind.FLYER,
+            }
         )
         assert [door.kind for door in CARDS] == [
             HubCard.Kind.RSVP,
@@ -123,7 +129,7 @@ def describe_lees_content():
             HubCard.Kind.SPONSORSHIP,
             HubCard.Kind.MARKET_CHECKIN,
             HubCard.Kind.VENDOR_TABLES,
-            HubCard.Kind.PLACEHOLDER,
+            HubCard.Kind.FLYER,
             HubCard.Kind.MARKETING,
         ]
         assert [door.door for door in CARDS][3:8] == [
@@ -161,7 +167,10 @@ def describe_seeding():
         assert [card.kind for card in cards] == [door.kind for door in CARDS]
         assert [card.title for card in cards] == [door.title for door in CARDS]
         assert [card.sort_order for card in cards] == list(range(9))
-        assert {card.audience for card in cards} == {HubCard.Audience.ADMINS}
+        # Every door starts admins only but the flyer, which Lee opens to members from the start.
+        assert {card.kind: card.audience for card in cards if card.audience != HubCard.Audience.ADMINS} == {
+            HubCard.Kind.FLYER: HubCard.Audience.MEMBERS
+        }
         goals = list(hub.goals.all())
         assert [(goal.label, goal.kind, goal.target, goal.is_money, goal.current_value) for goal in goals] == [
             ("Raised", HubGoal.Kind.MANUAL, 10_000, True, 0),
@@ -247,7 +256,7 @@ def describe_seeding():
         ) == (before[0], before[1], before[2] - {photo_pk})
         rsvp.refresh_from_db()
         assert (rsvp.title, rsvp.audience) == ("Renamed by Lee", HubCard.Audience.PUBLIC)
-        assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 2
+        assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 1
         assert not hub.cards.filter(title="PL Ledger").exists()
         assert sorted(hub.goals.values_list("label", flat=True)) == [
             "Member tables",
@@ -349,7 +358,6 @@ def describe_seeding():
     def it_adds_no_placeholder_once_the_hub_holds_any_even_renamed_or_deleted(event):
         _run("--event", str(event.pk))
         hub = EventHub.objects.get(slug=HUB.slug)
-        hub.cards.get(title="Event flyer and sharing").delete()
         ledger = hub.cards.get(title="PL Ledger")
         ledger.title = "The Ledger"
         ledger.sort_order = 40
@@ -361,9 +369,15 @@ def describe_seeding():
         out = _run("--event", str(event.pk))
 
         assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 1
-        assert not hub.cards.filter(title__in=["PL Ledger", "Event flyer and sharing"]).exists()
+        assert not hub.cards.filter(title="PL Ledger").exists()
         assert hub.cards.filter(kind=HubCard.Kind.RSVP).get().title == "Coming?"
-        assert "Cards: 0 created, 8 kept as edited. The hub already held its placeholders" in out
+        assert "Cards: 0 created, 9 kept as edited. The hub already held its placeholders" in out
+        ledger.delete()
+
+        again = _run("--event", str(event.pk))
+
+        assert not hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).exists()
+        assert "Cards: 0 created, 8 kept as edited. The hub already held its placeholders" in again
 
 
 def _track_c_hub(event: CommunityEvent) -> EventHub:
@@ -405,10 +419,10 @@ def describe_adopting_a_built_door():
         )
         assert list(card.named_members.all()) == [member]
         assert hub.cards.count() == 9
-        assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 2
+        assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 1
         assert (
-            "Cards: 0 created, 5 kept as edited. Opened as live doors: Sponsorship Tracker, Market Check-in, "
-            "Vendor Tables, Marketing Tracker." in out
+            "Cards: 0 created, 4 kept as edited. Opened as live doors: Sponsorship Tracker, Market Check-in, "
+            "Vendor Tables, Event flyer and sharing, Marketing Tracker." in out
         )
 
     def it_gives_every_untouched_door_lees_latest_words(event):
@@ -486,7 +500,7 @@ def describe_adopting_a_built_door():
             8,
         )
         assert hub.cards.count() == 9
-        assert "Cards: 1 created, 5 kept as edited." in out
+        assert "Cards: 1 created, 4 kept as edited." in out
 
     def it_does_not_adopt_a_renamed_placeholder_and_makes_the_live_door_beside_it(event):
         """A placeholder is matched by its title alone: one renamed is no longer the door's, so the door is made."""
