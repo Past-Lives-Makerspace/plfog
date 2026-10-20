@@ -16,4 +16,4 @@
 <!-- One line: migrations, breaking changes, or "None". -->
 
 ### Verification
-<!-- The exact command or check. Changes to templates, CSS or JS: embed the screenshot or mockup you added under mockups/screenshots/. -->
+<!-- The exact command or check. Changes to templates, CSS or JS: embed a screenshot uploaded with scripts/upload_screenshot.py. -->

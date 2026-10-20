@@ -231,7 +231,8 @@ multi call commands like `gh pr create` fail almost every time without it.
    (`CONTRIBUTING.md`): at most 300 words; `**Summary:**` (160 characters, for a non-technical reader) and
    `**Area:**`; then `### Problem` (`Closes #412`), `### Solution` (2 to 4 bullets), `### Impact / Risks` (one
    line) and `### Verification`. Verification holds the evidence, one line per criterion: a spec name for
-   backend, and for a screen a screenshot committed under `mockups/screenshots/` and embedded. Jo reads
+   backend, and for a screen a screenshot uploaded with `scripts/upload_screenshot.py` and embedded (never
+   committed). Jo reads
    evidence, not claims. CI's `description` check fails a body that breaks the shape; edit it and it re-runs.
    Aim under 400 changed lines of code; a bigger ticket ships as parts ("#412, part 1 of 2"). Only the
    last part closes the ticket ("Closes #412, part 2 of 2"): GitHub closes it on any merged PR that says
@@ -253,7 +254,7 @@ multi call commands like `gh pr create` fail almost every time without it.
 
    ### Verification
    - AC1 classes/spec/views_spec.py::it_returns
-   - AC2 ![Send back](mockups/screenshots/412-send-back-01.png)
+   - AC2 ![Send back](https://pub-10991d66419645cd89916024ee6bb62c.r2.dev/pr-screenshots/2026-10-20/412-send-back-01.png)
    - AC3 classes/spec/emails_spec.py::it_sends_reason
    ```
 4. **Code review is automatic.** `.github/workflows/bot-review.yml` fires on ready for review, reviews the

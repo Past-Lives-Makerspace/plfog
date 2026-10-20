@@ -166,10 +166,10 @@ def describe_description_errors():
 
 
 def describe_picture_link_errors():
-    def it_accepts_the_raw_file_on_the_branch(script):
+    def it_accepts_a_screenshot_uploaded_to_r2(script):
         body = (
             GOOD
-            + "\n![Reason](https://raw.githubusercontent.com/Past-Lives-Makerspace/plfog/fog/x/mockups/screenshots/412-review-01.png)\n"
+            + "\n![Reason](https://pub-10991d66419645cd89916024ee6bb62c.r2.dev/pr-screenshots/2026-10-20/412-review-01.png)\n"
         )
         assert script.description_errors(body) == []
 
@@ -181,7 +181,7 @@ def describe_picture_link_errors():
         body = GOOD + "\n![Reason](mockups/screenshots/412-review-01.png)\n"
         errors = script.description_errors(body)
         assert len(errors) == 1
-        assert "relative link" in errors[0] and "raw.githubusercontent.com" in errors[0]
+        assert "relative link" in errors[0] and "scripts/upload_screenshot.py" in errors[0]
 
     def it_names_each_broken_image(script):
         body = GOOD + "\n![A](mockups/screenshots/a.png)\n![B](./mockups/screenshots/b.png)\n"
@@ -214,12 +214,15 @@ def describe_needs_pictures():
         assert not script.needs_pictures(["classes/models.py", "static/help/guide/01-home.png"])
 
 
-def describe_adds_pictures():
-    def it_accepts_an_image_under_mockups(script):
-        assert script.adds_pictures(["mockups/screenshots/412-review-01.PNG"])
+def describe_committed_pictures():
+    def it_lists_images_under_mockups(script):
+        assert script.committed_pictures(["mockups/screenshots/412-review-01.PNG", "mockups/a.png"]) == [
+            "mockups/screenshots/412-review-01.PNG",
+            "mockups/a.png",
+        ]
 
-    def it_rejects_images_elsewhere_and_non_images(script):
-        assert not script.adds_pictures(["static/img/logo.png", "mockups/screenshots/README.md"])
+    def it_ignores_images_elsewhere_and_html_mockups(script):
+        assert script.committed_pictures(["static/img/logo.png", "mockups/748-approvals.html"]) == []
 
 
 def describe_counted_lines():
@@ -274,29 +277,41 @@ def describe_main():
             env.setattr(script, "_git", _fake_git(changed="templates/classes/detail.html"))
             with pytest.raises(SystemExit) as exit_info:
                 script.main()
-            assert "mockups/screenshots/" in str(exit_info.value)
+            assert "shows no screenshot" in str(exit_info.value)
+            assert "scripts/upload_screenshot.py" in str(exit_info.value)
 
-        def it_passes_with_a_picture_shown_by_its_raw_url(script, env, capsys):
-            shot = "mockups/screenshots/412-review-01.png"
+        def it_passes_with_a_screenshot_uploaded_to_r2(script, env, capsys):
             env.setenv(
                 "PR_BODY",
-                GOOD + f"\n![Reason](https://raw.githubusercontent.com/Past-Lives-Makerspace/plfog/fog/x/{shot})\n",
+                GOOD
+                + "\n![Reason](https://pub-10991d66419645cd89916024ee6bb62c.r2.dev/pr-screenshots/2026-10-20/412-review-01.png)\n",
             )
-            env.setattr(script, "_git", _fake_git(changed=f"templates/classes/detail.html\n{shot}", added=shot))
+            env.setattr(script, "_git", _fake_git(changed="templates/classes/detail.html"))
             script.main()
             assert "PR description OK" in capsys.readouterr().out
 
-        def it_fails_a_picture_that_is_added_but_not_shown(script, env):
+        def it_fails_a_committed_image_even_when_shown(script, env):
             shot = "mockups/screenshots/412-review-01.png"
+            env.setenv(
+                "PR_BODY",
+                GOOD
+                + "\n![Reason](https://pub-10991d66419645cd89916024ee6bb62c.r2.dev/pr-screenshots/2026-10-20/412-review-01.png)\n",
+            )
             env.setattr(script, "_git", _fake_git(changed=f"templates/classes/detail.html\n{shot}", added=shot))
             with pytest.raises(SystemExit) as exit_info:
                 script.main()
-            assert "does not show it" in str(exit_info.value)
+            assert f"commits `{shot}`" in str(exit_info.value)
+
+        def it_fails_a_committed_image_on_a_backend_pr_too(script, env):
+            shot = "mockups/screenshots/412-review-01.png"
+            env.setattr(script, "_git", _fake_git(changed=f"classes/models.py\n{shot}", added=shot))
+            with pytest.raises(SystemExit) as exit_info:
+                script.main()
+            assert "Images stay out of the repo" in str(exit_info.value)
 
         def it_fails_a_picture_shown_by_a_relative_link(script, env):
-            shot = "mockups/screenshots/412-review-01.png"
-            env.setenv("PR_BODY", GOOD + f"\n![Reason]({shot})\n")
-            env.setattr(script, "_git", _fake_git(changed=f"templates/classes/detail.html\n{shot}", added=shot))
+            env.setenv("PR_BODY", GOOD + "\n![Reason](mockups/screenshots/412-review-01.png)\n")
+            env.setattr(script, "_git", _fake_git(changed="templates/classes/detail.html"))
             with pytest.raises(SystemExit) as exit_info:
                 script.main()
             assert "relative link" in str(exit_info.value)
