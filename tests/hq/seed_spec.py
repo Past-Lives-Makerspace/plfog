@@ -460,6 +460,29 @@ def describe_adopting_a_built_door():
         assert renamed.kind == HubCard.Kind.PLACEHOLDER
         assert hub.cards.filter(kind=HubCard.Kind.MARKETING).count() == 1
 
+    def it_brings_back_no_placeholder_an_admin_deleted(event):
+        hub = _track_c_hub(event)
+        hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).delete()
+
+        hub.seed_default_cards()
+        result = hub.seed_default_cards()
+
+        assert not hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).exists()
+        assert hub.cards.filter(kind=HubCard.Kind.MARKETING).count() == 1
+        assert result.summary == "The doors are up to date."
+
+    def it_names_a_live_door_made_beside_a_renamed_placeholder(event):
+        hub = _track_c_hub(event)
+        hub.cards.filter(title="Marketing Tracker").update(title="Getting the word out")
+
+        summary = hub.seed_default_cards().summary
+
+        assert summary.startswith("Doors updated: added 1 door;")
+        assert summary.endswith(
+            "New and admins only until you open it: Marketing Tracker."
+            " If an old Not shared yet card for it is still on the page, delete that one."
+        )
+
     def it_leaves_a_live_door_alone_when_a_placeholder_shares_its_title(event):
         hub = _track_c_hub(event)
         _run("--event", str(event.pk))

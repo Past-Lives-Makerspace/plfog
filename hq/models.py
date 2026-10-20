@@ -162,20 +162,24 @@ class EventHub(models.Model):
         built (:data:`BUILT_DOORS`) that the hub still holds as a placeholder with the door's title is turned
         into the live kind in place, so its pk, audience, named members, hidden flag and order stay; it is made
         only when neither the kind nor that placeholder exists. A placeholder has no stable key, so
-        placeholders are made only on a hub that held none. On every card found, a field still carrying the
+        placeholders are made only on a hub with no cards at all. On every card found, a field still carrying the
         door's previous default words takes Lee's current ones; a field an admin edited is kept.
         """
         result = CardSeed()
-        held = self.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count()
-        result.placeholders_skipped = bool(held)
+        # Placeholders are made only on a hub with no cards at all: a hub whose admin deleted them keeps
+        # them deleted, however often Update the Doors is pressed.
+        fresh = not self.cards.exists()
+        result.placeholders_skipped = not fresh
         for position, door in enumerate(DEFAULT_CARDS):
             card = self.cards.filter(kind=door.kind).first() if door.is_live else None
             if card is None:
                 card = self.cards.filter(kind=HubCard.Kind.PLACEHOLDER, title=door.title).first()
             if card is None:
-                if door.is_live or not held:
+                if door.is_live or fresh:
                     HubCard.objects.create(hub=self, sort_order=position, **door.fields())
                     result.created += 1
+                    if not fresh and door.door in BUILT_DOORS:
+                        result.added_beside.append(door.title)
                 continue
             changed = door.refresh_words(card)
             if card.kind != door.kind:
@@ -187,7 +191,7 @@ class EventHub(models.Model):
             if changed:
                 card.save(update_fields=changed)
                 result.reworded += "bullets" in changed or "button_text" in changed
-        if held:
+        if not fresh:
             # Every placeholder the hub held and still holds, renamed ones too (an adopted one counts as adopted).
             result.kept += self.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count()
         return result
@@ -205,6 +209,8 @@ class CardSeed:
     adopted: list[str] = field(default_factory=list)
     reworded: int = 0
     placeholders_skipped: bool = False
+    # Live doors made on a hub that already had cards: admins only, and a renamed placeholder may sit beside them.
+    added_beside: list[str] = field(default_factory=list)
 
     @property
     def summary(self) -> str:
@@ -218,7 +224,13 @@ class CardSeed:
             parts.append(f"gave {self.reworded} card{'' if self.reworded == 1 else 's'} Lee's latest words")
         if not parts:
             return "The doors are up to date."
-        return f"Doors updated: {'; '.join(parts)}."
+        sentence = f"Doors updated: {'; '.join(parts)}."
+        if self.added_beside:
+            sentence += (
+                f" New and admins only until you open it: {', '.join(self.added_beside)}."
+                " If an old Not shared yet card for it is still on the page, delete that one."
+            )
+        return sentence
 
 
 class HubCard(models.Model):
