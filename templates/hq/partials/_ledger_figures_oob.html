@@ -1,13 +1,13 @@
 {% comment %}
-The running tally, the goals and the board paragraph, each out of band in a template tag, for an htmx answer whose
-post moved a figure they read (a door tap, a launch task, a staff entry, a guild row). Renders nothing unless
-figures_oob is set.
+The running tally, the goals and the board panel's figures (hq/partials/_ledger_board_figures.html), each out of band
+in a template tag, for an htmx answer whose post moved a figure they read (a door tap, a launch task, a staff entry, a
+guild row). Renders nothing unless figures_oob is set.
 
   figures_oob — optional, True sends the three
-  the tally's, the goals' and the board paragraph's context (hq.views._figures_context)
+  the tally's, the goals' and the board figures' context (hq.views._figures_context)
 {% endcomment %}
 {% if figures_oob %}
 <template>{% include "hq/partials/_ledger_tally.html" with oob=True %}</template>
 <template>{% include "hq/partials/_ledger_goals.html" with oob=True %}</template>
-<template>{% include "hq/partials/_ledger_board_text.html" with oob=True %}</template>
+<template>{% include "hq/partials/_ledger_board_figures.html" with oob=True %}</template>
 {% endif %}

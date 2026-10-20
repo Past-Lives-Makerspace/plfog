@@ -1076,46 +1076,6 @@ def _dollars_initial(cents: int) -> Decimal:
     return (Decimal(cents) / 100).quantize(Decimal("0.01"))
 
 
-class LedgerApprovalForm(forms.Form):
-    """The board's approval: the amount and the line under it (Lee's "Drinks budget, Oct 14 meeting").
-
-    The form carries the settings' ``updated_at`` (blank before the first save): :meth:`is_stale` is a Save from a
-    page older than the settings, refused whole."""
-
-    approved = _money("Board approval ($)")
-    approved_note = forms.CharField(
-        max_length=120,
-        required=False,
-        label="Note",
-        widget=forms.TextInput(attrs={"placeholder": "e.g. Drinks budget, Oct 14 meeting"}),
-    )
-    updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
-
-    @staticmethod
-    def stamp(found: LedgerSettings) -> str:
-        """The settings' ``updated_at`` as the form carries it; blank for the unsaved defaults."""
-        return found.updated_at.isoformat() if found.pk is not None else ""
-
-    @classmethod
-    def initial_for(cls, found: LedgerSettings) -> dict[str, Any]:
-        return {
-            "approved": _dollars_initial(found.approved_cents),
-            "approved_note": found.approved_note,
-            "updated_at": cls.stamp(found),
-        }
-
-    def is_stale(self, found: LedgerSettings | None) -> bool:
-        """Whether the posted stamp differs from the saved settings': someone saved them after this page loaded. A
-        first save, with no settings row yet (``found`` is None), is never stale."""
-        return found is not None and self.data.get("updated_at", "") != self.stamp(found)
-
-    def to_fields(self) -> dict[str, Any]:
-        return {
-            "approved_cents": _cents(self.cleaned_data["approved"]),
-            "approved_note": self.cleaned_data["approved_note"],
-        }
-
-
 class BudgetLineForm(forms.ModelForm):
     """Add a budget line: Lee's three fields, the budget in dollars and cents."""
 
@@ -1270,15 +1230,27 @@ def _count(label: str, *, maximum: int, minimum: int = 0, initial: int | None = 
     )
 
 
+class _SeenText(forms.CharField):
+    """A seen text figure (the approval's note), posted as is: blank stays blank so a blank note still matches, and
+    only a missing field is None, which never matches."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(required=False, strip=False, widget=forms.HiddenInput, **kwargs)
+
+    def to_python(self, value: Any) -> str | None:
+        return None if value is None else str(value)
+
+
 class _SeenFigures(forms.Form):
     """A settings form that carries the figures it was rendered with as hidden ``seen_*`` fields, so a save from an
     older page is refused (``hq.services.save_ledger_figures``) rather than overwriting what someone else saved.
 
-    ``FIGURES`` names the settings fields the form writes; each visible field's initial comes from them through
-    :meth:`initial_for`.
+    ``FIGURES`` names the whole number settings fields the form writes and ``TEXT_FIGURES`` the text ones (the
+    approval's note); each visible field's initial comes from them through :meth:`initial_for`.
     """
 
     FIGURES: tuple[str, ...] = ()
+    TEXT_FIGURES: tuple[str, ...] = ()
 
     def __init__(self, *args: Any, found: LedgerSettings, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -1286,13 +1258,46 @@ class _SeenFigures(forms.Form):
             self.fields[f"seen_{name}"] = forms.IntegerField(
                 required=False, widget=forms.HiddenInput, initial=getattr(found, name)
             )
+        for name in self.TEXT_FIGURES:
+            self.fields[f"seen_{name}"] = _SeenText(initial=getattr(found, name))
 
-    def seen(self) -> dict[str, int | None]:
+    def _seen_names(self) -> tuple[str, ...]:
+        return (*self.FIGURES, *self.TEXT_FIGURES)
+
+    def seen(self) -> dict[str, int | str | None]:
         """The figures this form was rendered with, as posted (None when missing, which never matches)."""
-        return {name: self.cleaned_data.get(f"seen_{name}") for name in self.FIGURES}
+        return {name: self.cleaned_data.get(f"seen_{name}") for name in self._seen_names()}
 
     def seen_fields(self) -> list[forms.BoundField]:
-        return [self[f"seen_{name}"] for name in self.FIGURES]
+        return [self[f"seen_{name}"] for name in self._seen_names()]
+
+
+class LedgerApprovalForm(_SeenFigures):
+    """The board's approval: the amount and the line under it (Lee's "Drinks budget, Oct 14 meeting").
+
+    It carries the approval it was rendered with, as the D6b settings forms carry theirs, so only someone else's
+    approval save makes it stale: a price or tickets save in between does not."""
+
+    FIGURES = ("approved_cents",)
+    TEXT_FIGURES = ("approved_note",)
+
+    approved = _money("Board approval ($)")
+    approved_note = forms.CharField(
+        max_length=120,
+        required=False,
+        label="Note",
+        widget=forms.TextInput(attrs={"placeholder": "e.g. Drinks budget, Oct 14 meeting"}),
+    )
+
+    @classmethod
+    def initial_for(cls, found: LedgerSettings) -> dict[str, Any]:
+        return {"approved": _dollars_initial(found.approved_cents), "approved_note": found.approved_note}
+
+    def to_fields(self) -> dict[str, Any]:
+        return {
+            "approved_cents": _cents(self.cleaned_data["approved"]),
+            "approved_note": self.cleaned_data["approved_note"],
+        }
 
 
 class DrinkPricesForm(_SeenFigures):

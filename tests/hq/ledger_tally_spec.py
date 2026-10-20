@@ -690,7 +690,7 @@ def describe_attendance():
             in body
         )
         assert 'id="hq-lg-goals" aria-labelledby="hq-lg-goals-title" data-hq-lg-goals hx-swap-oob="true"' in body
-        assert 'id="hq-lg-board-text" data-hq-lg-board-text hx-swap-oob="true"' in body
+        assert 'id="hq-lg-board-figures" data-hq-lg-board-figures hx-swap-oob="true"' in body
         assert body.count("<template>") == 4
         assert "0 checked in · 5 at the door · of 250 goal" in body
 
@@ -972,7 +972,7 @@ def describe_staff_time():
         assert 'value="lee ashworth"' in body and 'value="2026-11-20"' in body
         assert '<option value="board" selected>' in body
         assert 'name="staff-hours"' in body and 'value="1.5"' not in body.split('name="staff-hours"', 1)[1][:80]
-        assert 'id="hq-lg-board-text" data-hq-lg-board-text hx-swap-oob="true"' in body
+        assert 'id="hq-lg-board-figures" data-hq-lg-board-figures hx-swap-oob="true"' in body
         assert "Staff time: 1.5 hours (lee ashworth 1.5)" in body
 
     def it_says_one_hour_in_the_singular_and_links_no_member_for_a_name_off_the_team(hub, lee_client):

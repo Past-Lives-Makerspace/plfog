@@ -230,7 +230,8 @@ class CardSeed:
     added_beside: list[str] = field(default_factory=list)
     # The labels of Lee's goals the same press added (``hq.services.seed_goals``), in the order they were added.
     goals_added: list[str] = field(default_factory=list)
-    # The label of a typed in Raised goal the same press turned into the counted event cash (blank when none).
+    # The label of the typed in goal the same press turned into the counted event cash, Lee's Raised (blank when none;
+    # the sentence names it Raised whatever its label, since that is what it now counts).
     goals_adopted: str = ""
 
     @property
@@ -246,7 +247,7 @@ class CardSeed:
         if self.goals_added:
             parts.append(_goals_phrase(self.goals_added))
         if self.goals_adopted:
-            parts.append(f"{self.goals_adopted} now counts itself")
+            parts.append("Raised now counts itself")
         if not parts:
             return "The doors are up to date."
         sentence = f"Doors updated: {'; '.join(parts)}."

@@ -3,7 +3,9 @@ Drink sales (Track D, part 6b), Lee's section: the tiles (drinks sold, sales aga
 Drinks lines and the profit, with her break-even line), Quick add during the event (Paid by, then a large +1 button
 per drink at the hub's prices, Undo last, and Set drink prices), Log a batch, and the sales newest first with the CSV.
 A +1 tap and Undo last post over htmx and swap nothing in place: the tiles, the buttons' counts and the table come back
-out of band, so Paid by keeps its choice for the next tap. This is the bar on event night, on a phone.
+out of band with the board panel's figures, so Paid by keeps its choice for the next tap. While a tap or an undo is
+in flight its buttons are disabled (every +1 for a tap), so a double tap is one sale; the answer's buttons arrive
+enabled and htmx re-enables Undo last. This is the bar on event night, on a phone.
 
   hub          — required, the EventHub
   bar          — required, a hq.services.BarTotals
@@ -26,14 +28,14 @@ out of band, so Paid by keeps its choice for the next tap. This is the bar on ev
       <h3 class="pl-hq-lg__h3">Quick add during the event</h3>
       <span class="pl-hq-lg__muted pl-hq-lg__helper">Tap once per drink sold</span>
     </div>
-    <form method="post" action="{% url 'hq:ledger_bar_quick' hub.slug %}" hx-post="{% url 'hq:ledger_bar_quick' hub.slug %}" hx-swap="none" class="pl-hq-lg__form" data-hq-lg-quick-form>
+    <form method="post" action="{% url 'hq:ledger_bar_quick' hub.slug %}" hx-post="{% url 'hq:ledger_bar_quick' hub.slug %}" hx-swap="none" hx-disabled-elt="[data-hq-lg-quick]" class="pl-hq-lg__form" data-hq-lg-quick-form>
       {% csrf_token %}
       <div class="pl-hq-lg__kinds pl-hq-lg__pay" data-hq-lg-pay>
         {% include "components/radio_group.html" with field=quick_form.pay %}
       </div>
       {% include "hq/partials/_ledger_bar_buttons.html" %}
     </form>
-    <form method="post" action="{% url 'hq:ledger_bar_undo' hub.slug %}" hx-post="{% url 'hq:ledger_bar_undo' hub.slug %}" hx-swap="none" class="pl-hq-lg__undo" data-hq-lg-undo-form>
+    <form method="post" action="{% url 'hq:ledger_bar_undo' hub.slug %}" hx-post="{% url 'hq:ledger_bar_undo' hub.slug %}" hx-swap="none" hx-disabled-elt="find button" class="pl-hq-lg__undo" data-hq-lg-undo-form>
       {% csrf_token %}
       <button type="submit" class="pl-hq-lg__btn pl-hq-lg__btn--ghost" data-hq-lg-undo>Undo last</button>
       <span class="pl-hq-lg__muted pl-hq-lg__helper">Takes back your own newest tap.</span>
