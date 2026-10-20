@@ -132,8 +132,12 @@ def describe_updating_the_doors():
         assert placeholder.kind == HubCard.Kind.MARKETING
         assert placeholder.button_text == "Enter marketing"
         messages = [str(message) for message in response.context["messages"]]
-        assert messages == ["Doors updated: opened Marketing Tracker; added 3 doors; gave 1 card Lee's latest words."]
-        assert open_hub.cards.count() == 5
+        assert messages == [
+            "Doors updated: opened Marketing Tracker; added 4 doors; gave 1 card Lee's latest words."
+            " New and admins only until you open it: Sponsorship Tracker."
+            " If an old Not shared yet card for it is still on the page, delete that one."
+        ]
+        assert open_hub.cards.count() == 6
 
     def it_offers_the_button_on_edit_hq(open_hub, admin_client):
         body = admin_client.get(_edit(open_hub)).content.decode()

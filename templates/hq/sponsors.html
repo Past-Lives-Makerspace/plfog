@@ -1,0 +1,51 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+The Sponsorship Tracker (Track D, part 2), in the look of Lee's tracker: a header with the hub's
+name and "Cash sponsors · Team only", her guidance line on how to ask, then the board
+(hq/partials/_sponsor_board.html: the band, Follow up, + Add a sponsor and the pipeline), then
+her draft tier table. No login gate of its own: card_view decides who may open the page; who
+may add, edit, log or delete is the card's organisers.
+{% endcomment %}
+{% block title %}{{ card.title }}{% endblock %}
+{% block extra_head %}
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq-sp" data-hq-sponsors>
+  <header class="pl-hq-sp__header">
+    <div class="pl-hq-sp__heading">
+      <h1 class="pl-hq-sp__title">Sponsorship Tracker</h1>
+      <p class="pl-hq-sp__subline" data-hq-sp-subline>{{ hub.title }} · Cash sponsors · Team only</p>
+    </div>
+    <a href="{% url 'hq:page' hub.slug %}" class="pl-hq-sp__back" data-hq-sp-back>&larr; HQ</a>
+  </header>
+
+  <p class="pl-hq-sp__guide" data-hq-sp-guide><strong>When you ask:</strong> say sponsor, gift or in-kind support, not donate. Past Lives Makerspace is an Oregon nonprofit corporation. Gifts and sponsorships are not tax-deductible.</p>
+
+  {% include "hq/partials/_sponsor_board.html" %}
+
+  <details class="pl-disclosure pl-hq-sp__disclosure" data-hq-sp-tiers>
+    <summary class="pl-disclosure__summary">
+      <span class="pl-disclosure__title">Sponsor tiers (draft): what they get</span>
+      <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+    </summary>
+    <div class="pl-disclosure__body pl-hq-sp__tiers-body">
+      <table class="pl-hq-sp__tiers">
+        <thead><tr><th>Tier</th><th>Amount</th><th>How many</th><th>What they get</th></tr></thead>
+        <tbody>
+          {% for tier in tiers %}
+          <tr data-hq-sp-tier="{{ tier.name }}">
+            <td><strong>{{ tier.name }}</strong></td>
+            <td>{{ tier.amount }}</td>
+            <td>{{ tier.how_many }}</td>
+            <td>{% for benefit in tier.benefits %}{% if not forloop.first %} · {% endif %}{% if benefit == wine_benefit and wine_url %}<a href="{{ wine_url }}" data-hq-sp-wine-link>{{ benefit }}</a>{% else %}{{ benefit }}{% endif %}{% endfor %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+</div>
+{% endblock %}
