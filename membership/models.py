@@ -14778,6 +14778,14 @@ class OrientationSlot(models.Model):
         MANUAL = "manual", "Added manually"
         GENERATED = "generated", "From a recurring rule"
         FROM_BLOCK = "from_block", "Booked into an availability block"
+        #: A one-off made for one booking: a custom request's time, or the time a guild moved a
+        #: booking to (#853). Rows from before #853 that were made this way still read MANUAL.
+        CUSTOM = "custom", "Made for one booking"
+
+    #: The slots that belong to one booking rather than to the posted schedule: a custom or
+    #: moved time, and a segment carved out of an open window. When their booking leaves, they
+    #: never reopen to other members (``orientations._tidy_left_slot``).
+    OWN_SOURCES: ClassVar[tuple[str, ...]] = (Source.CUSTOM, Source.FROM_BLOCK)
 
     guild = models.ForeignKey(
         Guild,
@@ -15268,8 +15276,13 @@ class OrientationBooking(models.Model):
 
     @property
     def has_open_proposal(self) -> bool:
-        """Whether a proposed new time is waiting on the member's answer."""
-        return self.proposed_starts_at is not None
+        """Whether a proposed new time is waiting on the member's answer: one is recorded and still ahead."""
+        return self.proposed_starts_at is not None and self.proposed_starts_at > timezone.now()
+
+    @property
+    def proposal_has_passed(self) -> bool:
+        """Whether a recorded proposal's time has come and gone unanswered; it is no longer open."""
+        return self.proposed_starts_at is not None and self.proposed_starts_at <= timezone.now()
 
     @property
     def proposal_key(self) -> str:
@@ -15320,16 +15333,19 @@ class OrientationBooking(models.Model):
         """
         self.ensure_movable()
         now = timezone.now()
+        changed = ["slot", "moved_by_guild_at"]
         if self.status != self.Status.CONFIRMED:
             self.status = self.Status.CONFIRMED
             self.confirmed_at = now
             self.oriented_by = oriented_by or slot.orienter or self.orientation_type.default_runner()
+            changed += ["status", "confirmed_at", "oriented_by"]
+        if self.proposed_at is not None:
+            self._drop_proposal()
+            changed += list(self.PROPOSAL_FIELDS)
         self.slot = slot
         self.moved_by_guild_at = now
-        self._drop_proposal()
-        self.save(
-            update_fields=["slot", "status", "confirmed_at", "oriented_by", "moved_by_guild_at", *self.PROPOSAL_FIELDS]
-        )
+        # Only what changed, so a stale write can never put back a status someone else just set.
+        self.save(update_fields=changed)
 
     def propose_time(self, starts_at: datetime_type, *, proposed_by: Member | None) -> None:
         """Record a proposed new time for the member to accept or keep, replacing any open one."""

@@ -24,6 +24,7 @@ from hub.forms import OrientationMoveForm
 from membership import orientations
 from membership.models import Member, OrientationBooking, OrientationSlot
 from tests.membership.factories import (
+    EquipmentReservationFactory,
     EquipmentStaffMembershipFactory,
     GuildFactory,
     GuildOrientationSettingsFactory,
@@ -339,6 +340,19 @@ def describe_the_member_booking_card():
 
         assert "A manager asked to move this to" in content
 
+    def it_hides_a_proposal_whose_time_has_passed(client: Client):
+        lead, booking = _world(client)
+        orientations.propose_orientation_time(booking, _expected_start(), actor=lead)
+        OrientationBooking.objects.filter(pk=booking.pk).update(proposed_starts_at=timezone.now() - timedelta(hours=1))
+        _login(client, booking.member)
+
+        assert "data-orientation-proposal" not in client.get("/orientations/").content.decode()
+        _login(client, lead)
+        assert (
+            "data-booking-proposal"
+            not in client.get(reverse("hub_orientation_respond", args=[booking.pk])).content.decode()
+        )
+
     def it_shows_nothing_without_a_proposal(client: Client):
         _lead, booking = _world(client)
         _login(client, booking.member)
@@ -392,6 +406,33 @@ def describe_the_member_answer_endpoint():
         assert booking.has_open_proposal
         assert booking.moved_by_guild_at is None
         assert _messages(response) == ["That new time is no longer open. Your booking shows where things stand."]
+
+    def it_says_so_when_the_new_time_has_passed(client: Client):
+        booking = _proposed_world(client)
+        OrientationBooking.objects.filter(pk=booking.pk).update(proposed_starts_at=timezone.now() - timedelta(hours=1))
+
+        response = _answer(client, booking, "accept")
+
+        assert _messages(response) == [
+            "That new time has already passed, so your orientation stays at its current time."
+        ]
+
+    def it_says_so_when_the_new_time_cannot_be_had(client: Client):
+        member = _login(client, _user("mvv_unavail"))
+        booking = OrientationBookingFactory(equipment_owned=True, member=member)
+        orientations.propose_orientation_time(booking, _expected_start(), actor=None)
+        booking.refresh_from_db()
+        EquipmentReservationFactory(
+            equipment=booking.orientation_type.equipment,
+            starts_at=_expected_start(),
+            ends_at=_expected_start() + timedelta(hours=1),
+        )
+
+        response = _answer(client, booking, "accept")
+
+        assert _messages(response) == [
+            "That new time can't be booked anymore, so your orientation stays at its current time."
+        ]
 
     def it_answers_403_to_anyone_but_the_member(client: Client):
         booking = _proposed_world(client)
@@ -468,6 +509,29 @@ def describe_the_no_login_links():
         client.post(link)
 
         assert "This New Time Is No Longer Open" in client.post(link).content.decode()
+
+    def it_says_a_passed_new_time_has_passed_before_and_after_the_click(client: Client):
+        booking = _proposed_world(client)
+        link = _link(booking, "accept_time")
+        OrientationBooking.objects.filter(pk=booking.pk).update(proposed_starts_at=timezone.now() - timedelta(hours=1))
+        client.logout()
+
+        assert "That New Time Has Passed" in client.get(link).content.decode()
+        assert "That New Time Has Passed" in client.post(link).content.decode()
+
+    def it_says_an_unbookable_new_time_cannot_be_booked(client: Client):
+        member = _login(client, _user("mvv_link_unavail"))
+        booking = OrientationBookingFactory(equipment_owned=True, member=member)
+        orientations.propose_orientation_time(booking, _expected_start(), actor=None)
+        booking.refresh_from_db()
+        EquipmentReservationFactory(
+            equipment=booking.orientation_type.equipment,
+            starts_at=_expected_start(),
+            ends_at=_expected_start() + timedelta(hours=1),
+        )
+        client.logout()
+
+        assert "That New Time Can't Be Booked" in client.post(_link(booking, "accept_time")).content.decode()
 
     def it_lands_a_link_on_a_cancelled_booking_on_already_handled(client: Client):
         booking = _proposed_world(client)

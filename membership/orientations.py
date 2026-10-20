@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 import icalendar
@@ -124,8 +124,9 @@ def apply_token_action(
     Accept or Keep link answers (:func:`read_action_proposal`).
 
     Returns a short status: "confirmed", "declined", "cancelled", "accepted", "kept",
-    "stale" (an Accept or Keep link whose proposal was answered or replaced), or "already"
-    (when the booking was no longer in a state the action applies to).
+    an Accept or Keep link's refusal from :func:`answer_proposal` ("stale", "passed",
+    "unavailable"), or "already" (when the booking was no longer in a state the action
+    applies to).
     """
     from membership.models import OrientationBooking
 
@@ -183,9 +184,8 @@ def build_ics(booking: OrientationBooking, *, method: str, status: str) -> bytes
     event.add("dtstamp", timezone.now())
     if booking.moved_by_guild_at is not None:
         # A moved booking (#853) keeps its UID, so calendars update the event in place; a
-        # later SEQUENCE is what tells them this copy supersedes the one they hold. Minutes
-        # since the epoch only ever grow and stay inside iCalendar's 32 bit INTEGER.
-        event.add("sequence", int(booking.moved_by_guild_at.timestamp()) // 60)
+        # later SEQUENCE is what tells them this copy supersedes the one they hold.
+        event.add("sequence", ics_sequence(booking.moved_by_guild_at))
     event.add("status", status)
     if slot.location:
         event.add("location", slot.location)
@@ -196,6 +196,16 @@ def build_ics(booking: OrientationBooking, *, method: str, status: str) -> bytes
     event.add("description", description)
     cal.add_component(event)
     return cal.to_ical()
+
+
+#: The SEQUENCE epoch: seconds counted from here stay inside iCalendar's signed 32 bit
+#: INTEGER until 2094, and two moves a second apart still count up.
+_ICS_SEQUENCE_EPOCH = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+def ics_sequence(moved_at: datetime) -> int:
+    """The invite's SEQUENCE for a booking last moved at ``moved_at``: whole seconds since 2026."""
+    return int((moved_at - _ICS_SEQUENCE_EPOCH).total_seconds())
 
 
 def _context(booking: OrientationBooking, **extra: Any) -> dict[str, Any]:
@@ -354,14 +364,16 @@ def _ensure_custom_requestable(
 def _create_custom_slot(
     orientation_type: OrientationType, starts_at: datetime, *, orienter: Member | None = None, location: str = ""
 ) -> OrientationSlot:
-    """The one-off 1-seat MANUAL slot a custom request books — sized by ITS type.
+    """The one-off 1-seat CUSTOM slot a custom request books — sized by ITS type.
 
     The slot runs ``orientation_type.duration_minutes`` and sits at ``location``, else the
     type's ``default_location`` (issue #282: custom requests use the picked type's config).
     It carries the type's guild, which is empty for an equipment owned type, like every
     equipment slot. A custom request passes no ``orienter``, so it is a shared slot and the
     request reaches the owner's whole team; a guild move (#853) passes the booking's own
-    orienter and place, so the moved orientation runs with the same person.
+    orienter and place, so the moved orientation runs with the same person. CUSTOM marks it
+    as the booking's own (:attr:`OrientationSlot.OWN_SOURCES`), never part of the posted
+    schedule.
     """
     from membership.models import OrientationSlot
 
@@ -373,7 +385,7 @@ def _create_custom_slot(
         ends_at=starts_at + timedelta(minutes=orientation_type.duration_minutes),
         seats=1,
         location=location or orientation_type.default_location,
-        source=OrientationSlot.Source.MANUAL,
+        source=OrientationSlot.Source.CUSTOM,
     )
 
 
@@ -777,21 +789,32 @@ def _delete_hold(booking: OrientationBooking, *, expire_session: bool = True) ->
     _tidy_left_slot(slot)
 
 
+#: The cancel reason on a booking's own one-off that keeps booking history after its booking left.
+_OWN_SLOT_REASON = "Made for one booking, which moved or let it go."
+
+
 def _tidy_left_slot(slot: OrientationSlot) -> None:
     """Tidy a slot a booking just left: a released hold, or a booking the guild moved (#853).
 
-    A one-off 1-seat MANUAL / FROM_BLOCK slot with no booking row left is deleted: for a
-    block that is what frees the segment (a bookingless carved slot still occupies its span),
-    and a custom request's time must not reopen to every member. Anything else goes through
-    :func:`recap_orphaned_slot`, as a decline does.
+    A posted time (a leader's one-off, or one generated from hours) is treated exactly as a
+    decline treats it, :func:`recap_orphaned_slot`, and is never deleted. A slot that was the
+    booking's own (:attr:`OrientationSlot.OWN_SOURCES`: a custom or moved time, a carved
+    window segment) never reopens to other members once nothing holds a seat on it: with no
+    booking row left it is deleted (for a segment, that frees the window), and with history
+    rows left it is cancelled instead, since deleting would cascade that history away.
     """
     from membership.models import OrientationSlot
 
-    one_off_sources = (OrientationSlot.Source.MANUAL, OrientationSlot.Source.FROM_BLOCK)
-    if slot.seats == 1 and slot.source in one_off_sources and not slot.bookings.exists():
+    if slot.source not in OrientationSlot.OWN_SOURCES:
+        recap_orphaned_slot(slot)
+        return
+    if slot.bookings.seat_holding().exists():
+        return
+    if not slot.bookings.exists():
         slot.delete()
         return
-    recap_orphaned_slot(slot)
+    if not slot.is_cancelled:
+        slot.mark_cancelled(reason=_OWN_SLOT_REASON)
 
 
 # The cancel reason stamped on a generated slot its hours no longer justify (retirement
@@ -1151,32 +1174,44 @@ def _ensure_move_target(orientation_type: OrientationType, starts_at: datetime) 
         raise OrientationError("The equipment this orientation uses is reserved then. Pick another time.")
 
 
-def _move_to_new_time(booking: OrientationBooking, starts_at: datetime, *, oriented_by: Member | None) -> datetime:
-    """Move ``booking`` onto a fresh one-off slot at ``starts_at``; returns the old start.
+def _locked_booking(booking: OrientationBooking) -> OrientationBooking:
+    """``booking`` re-read under its row lock (:func:`locked_booking_queryset`).
 
-    The slot is the custom request's one-off (:func:`_create_custom_slot`), sized by the
-    type's length, with the old slot's orienter and place. The guard, the slot and the
-    booking's move commit together under the equipment locks, then the old slot is tidied
-    (:func:`_tidy_left_slot`). Money is never touched.
+    Every move, proposal and answer decides on this row, never on the caller's instance,
+    which may be stale: a cancel or another answer that committed first is seen here, and a
+    racing one waits for this transaction. Must run inside ``transaction.atomic()``.
+    """
+    return locked_booking_queryset().get(pk=booking.pk)
+
+
+def _move_locked(locked: OrientationBooking, starts_at: datetime, *, oriented_by: Member | None) -> datetime:
+    """Move the row-locked booking onto a fresh one-off at ``starts_at``; returns the old start.
+
+    Runs inside the caller's transaction, after :func:`_locked_booking`. The slot is the
+    custom request's one-off (:func:`_create_custom_slot`), sized by the type's length, with
+    the old slot's orienter and place. The guard, the slot, the move and the tidy of the slot
+    it left (:func:`_tidy_left_slot`) share one savepoint under the equipment locks, so a
+    refusal writes nothing and nobody can book a freed seat before the tidy decides on it.
+    Money is never touched.
 
     Raises:
         OrientationError: The booking cannot move, the time is past or the equipment is reserved.
     """
     from membership.models import OrientationBooking
 
-    booking.ensure_movable()
-    old_slot = booking.slot
-    was_request = booking.status == OrientationBooking.Status.REQUESTED
-    orientation_type = booking.orientation_type
+    locked.ensure_movable()
+    old_slot = locked.slot
+    was_request = locked.status == OrientationBooking.Status.REQUESTED
+    orientation_type = locked.orientation_type
     with transaction.atomic():
         _lock_used_equipment(orientation_type)
         _ensure_move_target(orientation_type, starts_at)
         slot = _create_custom_slot(orientation_type, starts_at, orienter=old_slot.orienter, location=old_slot.location)
-        booking.move_to(slot, oriented_by=oriented_by)
-    _tidy_left_slot(old_slot)
+        locked.move_to(slot, oriented_by=oriented_by)
+        _tidy_left_slot(old_slot)
     if was_request:
-        actor = booking.oriented_by.user if booking.oriented_by is not None else None
-        SiteActivity.log(SiteActivity.Kind.ORIENTATION_CONFIRMED, actor=actor, target=booking)
+        actor = locked.oriented_by.user if locked.oriented_by is not None else None
+        SiteActivity.log(SiteActivity.Kind.ORIENTATION_CONFIRMED, actor=actor, target=locked)
     return old_slot.starts_at
 
 
@@ -1196,46 +1231,61 @@ def _emit_moved(booking: OrientationBooking, old_starts_at: datetime) -> None:
     )
 
 
-def move_orientation(booking: OrientationBooking, starts_at: datetime, *, actor: Member | None) -> None:
+def move_orientation(booking: OrientationBooking, starts_at: datetime, *, actor: Member | None) -> OrientationBooking:
     """Move It Now: put ``booking`` at ``starts_at``, confirmed, and email the member.
 
-    The payment stays with the booking: nothing is refunded or charged, and a later cancel by
-    the member never carries a late fee (:attr:`OrientationBooking.moved_by_guild`).
+    Decides on the row-locked booking, so a cancel that landed first is refused, and the
+    email goes out only once the move has committed. The payment stays with the booking:
+    nothing is refunded or charged, and a later cancel by the member never carries a late
+    fee (:attr:`OrientationBooking.moved_by_guild`).
+
+    Returns:
+        The moved booking, as saved.
 
     Raises:
         OrientationError: The booking cannot move, the time is past or the equipment is reserved.
     """
-    old_starts_at = _move_to_new_time(booking, starts_at, oriented_by=actor)
-    _emit_moved(booking, old_starts_at)
+    with transaction.atomic():
+        locked = _locked_booking(booking)
+        old_starts_at = _move_locked(locked, starts_at, oriented_by=actor)
+    _emit_moved(locked, old_starts_at)
+    return locked
 
 
-def propose_orientation_time(booking: OrientationBooking, starts_at: datetime, *, actor: Member | None) -> None:
+def propose_orientation_time(
+    booking: OrientationBooking, starts_at: datetime, *, actor: Member | None
+) -> OrientationBooking:
     """Ask the Member First: record ``starts_at`` as a proposal and email the member Accept and Keep.
 
     The booking keeps its time and status until the member answers; a new proposal replaces
-    an open one (and its links go stale). The email links work without signing in, and the
-    member's booking card shows the same two buttons.
+    an open one (and its links go stale). Decides on the row-locked booking, so a booking
+    cancelled first gets no proposal and no email. The email links work without signing in,
+    and the member's booking card shows the same two buttons.
+
+    Returns:
+        The booking with its proposal, as saved.
 
     Raises:
         OrientationError: The booking cannot move, the time is past or the equipment is reserved.
     """
-    booking.ensure_movable()
     with transaction.atomic():
-        _lock_used_equipment(booking.orientation_type)
-        _ensure_move_target(booking.orientation_type, starts_at)
-        booking.propose_time(starts_at, proposed_by=actor)
-    member = booking.member
-    key = booking.proposal_key
-    owner_name = booking.orientation_type.owner_name
+        locked = _locked_booking(booking)
+        locked.ensure_movable()
+        _lock_used_equipment(locked.orientation_type)
+        _ensure_move_target(locked.orientation_type, starts_at)
+        locked.propose_time(starts_at, proposed_by=actor)
+    member = locked.member
+    key = locked.proposal_key
+    owner_name = locked.orientation_type.owner_name
     _emit_member_email(
-        booking,
+        locked,
         action=f"propose:{key}",
         subject=f"A new time for your {owner_name} orientation",
         template="orientation_time_proposed",
         extra_context={
             "proposed_starts_at": starts_at,
-            "accept_url": _action_url(booking, "accept_time", recipient=member, proposal=key),
-            "keep_url": _action_url(booking, "keep_time", recipient=member, proposal=key),
+            "accept_url": _action_url(locked, "accept_time", recipient=member, proposal=key),
+            "keep_url": _action_url(locked, "keep_time", recipient=member, proposal=key),
         },
         ics=None,
         in_app_title="A new time for your orientation",
@@ -1244,6 +1294,7 @@ def propose_orientation_time(booking: OrientationBooking, starts_at: datetime, *
             "Accept the new time or keep your current one."
         ),
     )
+    return locked
 
 
 def _tell_leaders_of_answer(booking: OrientationBooking, key: str, *, accepted: bool) -> None:
@@ -1271,58 +1322,67 @@ def _tell_leaders_of_answer(booking: OrientationBooking, key: str, *, accepted: 
     )
 
 
-def accept_proposed_time(booking: OrientationBooking) -> None:
-    """The member accepts the open proposal: the booking moves and confirms as Move It Now does.
+def proposal_verdict(booking: OrientationBooking, proposal: str) -> str:
+    """Whether an answer drawn for ``proposal`` may still act on ``booking``: "" when it may.
 
-    Raises:
-        OrientationError: No proposal is open, the time has passed, or the equipment is now reserved.
+    Otherwise ``"already"`` (the booking is no longer live), ``"stale"`` (that proposal was
+    answered or replaced, or none was named) or ``"passed"`` (its time came and went
+    unanswered). The one rule for the answer itself, on the locked row, and for the
+    no-login page before the click (:func:`proposal_link_verdict`).
     """
-    from membership.models import OrientationError
-
-    if booking.proposed_starts_at is None:
-        raise OrientationError("There's no new time waiting on your answer.")
-    key = booking.proposal_key
-    old_starts_at = _move_to_new_time(booking, booking.proposed_starts_at, oriented_by=booking.proposed_by)
-    _emit_moved(booking, old_starts_at)
-    _tell_leaders_of_answer(booking, key, accepted=True)
-
-
-def keep_current_time(booking: OrientationBooking) -> None:
-    """The member keeps their current time: the proposal is cleared and the leaders are told.
-
-    Raises:
-        OrientationError: No proposal is open.
-    """
-    from membership.models import OrientationError
-
-    if not booking.has_open_proposal:
-        raise OrientationError("There's no new time waiting on your answer.")
-    key = booking.proposal_key
-    booking.clear_proposal()
-    _tell_leaders_of_answer(booking, key, accepted=False)
-
-
-def answer_proposal(booking: OrientationBooking, *, accept: bool, proposal: str) -> str:
-    """Answer the proposal named by ``proposal`` (an emailed link or the booking card's buttons).
-
-    Returns ``"accepted"`` or ``"kept"``; ``"stale"`` when that proposal is no longer the open
-    one (answered, replaced, or its time passed before the accept); ``"already"`` when the
-    booking itself is no longer live.
-    """
-    from membership.models import OrientationBooking, OrientationError
+    from membership.models import OrientationBooking
 
     if booking.status not in (OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED):
         return "already"
     if not proposal or proposal != booking.proposal_key:
         return "stale"
-    if not accept:
-        keep_current_time(booking)
-        return "kept"
-    try:
-        accept_proposed_time(booking)
-    except OrientationError:
-        return "stale"
-    return "accepted"
+    if booking.proposal_has_passed:
+        return "passed"
+    return ""
+
+
+def proposal_link_verdict(booking: OrientationBooking, action: str, proposal: str) -> str:
+    """What the no-login page says before the click: "" for a live link or any other action's link."""
+    if action not in PROPOSAL_ACTIONS:
+        return ""
+    return proposal_verdict(booking, proposal)
+
+
+def answer_proposal(booking: OrientationBooking, *, accept: bool, proposal: str) -> str:
+    """Answer the proposal named by ``proposal`` (an emailed link or the booking card's buttons).
+
+    Accept moves and confirms the booking as Move It Now does; Keep clears the proposal. Both
+    decide on the row-locked booking (:func:`proposal_verdict`), so a second answer, a cancel
+    or a newer proposal that landed first wins and this one changes nothing. The member's
+    email and the leaders' bell go out once the answer has committed.
+
+    Returns:
+        ``"accepted"`` or ``"kept"``; a :func:`proposal_verdict` refusal (``"already"``,
+        ``"stale"``, ``"passed"``); or ``"unavailable"`` when the time can no longer be had
+        (the equipment was reserved since, or the orientation already happened).
+    """
+    from membership.models import OrientationError
+
+    old_starts_at: datetime | None = None
+    with transaction.atomic():
+        locked = _locked_booking(booking)
+        verdict = proposal_verdict(locked, proposal)
+        if verdict:
+            return verdict
+        key = locked.proposal_key
+        if accept:
+            try:
+                old_starts_at = _move_locked(
+                    locked, cast(datetime, locked.proposed_starts_at), oriented_by=locked.proposed_by
+                )
+            except OrientationError:
+                return "unavailable"
+        else:
+            locked.clear_proposal()
+    if old_starts_at is not None:
+        _emit_moved(locked, old_starts_at)
+    _tell_leaders_of_answer(locked, key, accepted=accept)
+    return "accepted" if accept else "kept"
 
 
 def cancel_slot(slot: OrientationSlot, *, reason: str = "") -> None:

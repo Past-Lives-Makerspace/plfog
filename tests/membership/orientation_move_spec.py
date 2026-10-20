@@ -154,7 +154,7 @@ def describe_move_orientation():
         assert slot.orienter == orienter
         assert slot.location == "Back room"
         assert slot.seats == 1
-        assert slot.source == OrientationSlot.Source.MANUAL
+        assert slot.source == OrientationSlot.Source.CUSTOM
         assert slot.guild_id == booking.guild_id
         assert booking.status == OrientationBooking.Status.CONFIRMED
         assert booking.confirmed_at is not None
@@ -245,13 +245,75 @@ def describe_move_orientation():
         assert old_slot.seats_taken == 0
         assert not old_slot.is_cancelled
 
-    def it_deletes_the_one_off_slot_the_booking_left():
-        booking, lead = _booking(seats=1)
+    def it_deletes_the_bookings_own_one_off_once_it_is_empty():
+        booking, lead = _booking(seats=1, source=OrientationSlot.Source.CUSTOM)
         old_pk = booking.slot.pk
 
         orientations.move_orientation(booking, _soon(), actor=lead)
 
         assert not OrientationSlot.objects.filter(pk=old_pk).exists()
+
+    def it_deletes_a_carved_window_segment_once_it_is_empty():
+        booking, lead = _booking(seats=1, source=OrientationSlot.Source.FROM_BLOCK)
+        old_pk = booking.slot.pk
+
+        orientations.move_orientation(booking, _soon(), actor=lead)
+
+        assert not OrientationSlot.objects.filter(pk=old_pk).exists()
+
+    def it_deletes_the_slot_an_earlier_move_made():
+        booking, lead = _booking()
+        orientations.move_orientation(booking, _soon(4), actor=lead)
+        booking.refresh_from_db()
+        first_move = booking.slot.pk
+
+        orientations.move_orientation(booking, _soon(6), actor=lead)
+
+        assert not OrientationSlot.objects.filter(pk=first_move).exists()
+
+    def it_keeps_a_one_seat_time_a_leader_posted_open_as_a_decline_would():
+        booking, lead = _booking(seats=1, source=OrientationSlot.Source.MANUAL)
+        old_slot = booking.slot
+
+        orientations.move_orientation(booking, _soon(), actor=lead)
+
+        old_slot.refresh_from_db()
+        assert not old_slot.is_cancelled
+        assert old_slot.seats_remaining == 1
+
+    def it_cancels_an_own_one_off_with_history_instead_of_deleting_it():
+        booking, lead = _booking(seats=1, source=OrientationSlot.Source.CUSTOM)
+        old_slot = booking.slot
+        earlier = OrientationBookingFactory(slot=old_slot, status=OrientationBooking.Status.DECLINED)
+
+        orientations.move_orientation(booking, _soon(), actor=lead)
+
+        old_slot.refresh_from_db()
+        assert old_slot.is_cancelled
+        assert old_slot.cancelled_reason == orientations._OWN_SLOT_REASON
+        assert OrientationBooking.objects.filter(pk=earlier.pk).exists()
+
+    def it_keeps_the_reason_on_an_own_one_off_already_cancelled():
+        booking, lead = _booking(seats=1, source=OrientationSlot.Source.CUSTOM)
+        old_slot = booking.slot
+        OrientationBookingFactory(slot=old_slot, status=OrientationBooking.Status.CANCELLED)
+        old_slot.mark_cancelled(reason="Called off by the guild")
+
+        orientations.move_orientation(booking, _soon(), actor=lead)
+
+        old_slot.refresh_from_db()
+        assert old_slot.cancelled_reason == "Called off by the guild"
+
+    def it_leaves_an_own_slot_that_still_holds_someone_alone():
+        booking, lead = _booking(seats=2, source=OrientationSlot.Source.CUSTOM)
+        old_slot = booking.slot
+        OrientationBookingFactory(slot=old_slot, status=OrientationBooking.Status.REQUESTED)
+
+        orientations.move_orientation(booking, _soon(), actor=lead)
+
+        old_slot.refresh_from_db()
+        assert not old_slot.is_cancelled
+        assert old_slot.seats_taken == 1
 
     def it_retires_a_generated_slot_whose_hours_are_paused():
         guild, lead = _guild_with_lead("mv_gen_lead")
@@ -486,12 +548,31 @@ def describe_answer_proposal():
         assert orientations.answer_proposal(booking, accept=True, proposal=key) == "stale"
         assert orientations.answer_proposal(booking, accept=False, proposal="") == "stale"
 
-    def it_reports_stale_when_the_proposed_time_has_passed():
+    def it_reports_passed_when_the_proposed_time_has_come_and_gone():
         booking, _lead = _proposed()
         booking.proposed_starts_at = timezone.now() - timedelta(minutes=1)
         booking.save(update_fields=["proposed_starts_at"])
 
-        assert orientations.answer_proposal(booking, accept=True, proposal=booking.proposal_key) == "stale"
+        assert not booking.has_open_proposal
+        assert booking.proposal_has_passed
+        assert orientations.answer_proposal(booking, accept=True, proposal=booking.proposal_key) == "passed"
+        assert orientations.answer_proposal(booking, accept=False, proposal=booking.proposal_key) == "passed"
+
+    def it_reports_unavailable_when_the_equipment_was_reserved_since():
+        booking = OrientationBookingFactory(equipment_owned=True, member=_member("mv_unavail"))
+        orientations.propose_orientation_time(booking, _soon(), actor=None)
+        booking.refresh_from_db()
+        EquipmentReservationFactory(
+            equipment=booking.orientation_type.equipment, starts_at=_soon(), ends_at=_soon() + timedelta(hours=1)
+        )
+        slot_pk = booking.slot_id
+
+        assert orientations.answer_proposal(booking, accept=True, proposal=booking.proposal_key) == "unavailable"
+
+        booking.refresh_from_db()
+        assert booking.slot_id == slot_pk
+        assert booking.proposed_starts_at == _soon()
+        assert not OrientationSlot.objects.filter(source=OrientationSlot.Source.CUSTOM).exists()
 
     def it_reports_already_for_a_booking_no_longer_live():
         booking, _lead = _proposed()
@@ -512,12 +593,94 @@ def describe_answer_proposal():
         assert _money(booking) == before
         refund.assert_not_called()
 
-    def it_refuses_accept_and_keep_with_no_open_proposal():
+    def it_reports_stale_when_no_proposal_is_open():
         booking = OrientationBookingFactory()
-        with pytest.raises(OrientationError, match="no new time"):
-            orientations.accept_proposed_time(booking)
-        with pytest.raises(OrientationError, match="no new time"):
-            orientations.keep_current_time(booking)
+        assert orientations.answer_proposal(booking, accept=True, proposal="1") == "stale"
+        assert orientations.answer_proposal(booking, accept=False, proposal="1") == "stale"
+
+
+def describe_proposal_link_verdict():
+    def it_says_nothing_about_another_actions_link():
+        booking = OrientationBookingFactory()
+        assert orientations.proposal_link_verdict(booking, "cancel", "") == ""
+
+    def it_says_nothing_about_a_live_link():
+        booking, _lead = _proposed()
+        assert orientations.proposal_link_verdict(booking, "accept_time", booking.proposal_key) == ""
+
+    def it_names_a_replaced_link_stale():
+        booking, _lead = _proposed()
+        assert orientations.proposal_link_verdict(booking, "keep_time", "99") == "stale"
+
+
+def describe_races_on_a_stale_instance():
+    """Two requests that loaded the booking before either wrote: the second decides on the locked row."""
+
+    def it_lets_only_the_first_of_two_accepts_move_the_booking():
+        booking, _lead = _proposed()
+        key = booking.proposal_key
+        first = OrientationBooking.objects.get(pk=booking.pk)
+        second = OrientationBooking.objects.get(pk=booking.pk)
+
+        assert orientations.answer_proposal(first, accept=True, proposal=key) == "accepted"
+        assert orientations.answer_proposal(second, accept=True, proposal=key) == "stale"
+
+        booking.refresh_from_db()
+        custom = OrientationSlot.objects.filter(source=OrientationSlot.Source.CUSTOM)
+        assert list(custom) == [booking.slot]
+        assert len([m for m in mail.outbox if "has a new time" in m.subject]) == 1
+
+    def it_never_revives_a_paid_booking_a_lead_cancelled_before_the_accept():
+        booking, _lead = _proposed(status=OrientationBooking.Status.CONFIRMED)
+        _paid(booking)
+        key = booking.proposal_key
+        stale = OrientationBooking.objects.get(pk=booking.pk)
+        slot_pk = booking.slot_id
+
+        with patch("billing.refunds.issue_refund") as refund:
+            orientations.cancel_orientation(booking, actor_label="the guild")
+            assert orientations.answer_proposal(stale, accept=True, proposal=key) == "already"
+
+        refund.assert_called_once()
+        booking.refresh_from_db()
+        assert booking.status == OrientationBooking.Status.CANCELLED
+        assert booking.slot_id == slot_pk
+        assert booking.moved_by_guild_at is None
+
+    def it_never_revives_a_booking_the_member_cancelled_before_a_move():
+        booking, lead = _booking(status=OrientationBooking.Status.CONFIRMED)
+        stale = OrientationBooking.objects.get(pk=booking.pk)
+        orientations.cancel_orientation(booking, actor_label="Member", self_cancel=True)
+
+        with pytest.raises(OrientationError):
+            orientations.move_orientation(stale, _soon(), actor=lead)
+
+        booking.refresh_from_db()
+        assert booking.status == OrientationBooking.Status.CANCELLED
+        assert booking.moved_by_guild_at is None
+        assert not OrientationSlot.objects.filter(source=OrientationSlot.Source.CUSTOM).exists()
+
+    def it_never_proposes_on_a_booking_cancelled_first():
+        booking, lead = _booking()
+        stale = OrientationBooking.objects.get(pk=booking.pk)
+        orientations.cancel_orientation(booking, actor_label="Member", self_cancel=True)
+        mail.outbox.clear()
+
+        with pytest.raises(OrientationError):
+            orientations.propose_orientation_time(stale, _soon(), actor=lead)
+
+        booking.refresh_from_db()
+        assert booking.proposed_at is None
+        assert mail.outbox == []
+
+    def it_keeps_only_once():
+        booking, lead = _proposed()
+        key = booking.proposal_key
+        stale = OrientationBooking.objects.get(pk=booking.pk)
+
+        assert orientations.answer_proposal(booking, accept=False, proposal=key) == "kept"
+        assert orientations.answer_proposal(stale, accept=False, proposal=key) == "stale"
+        assert Notification.objects.filter(user=lead.user, trigger="orientation_requested").count() == 1
 
 
 def describe_proposal_token_actions():
@@ -635,11 +798,17 @@ def describe_build_ics_for_a_moved_booking():
         booking = OrientationBookingFactory()
         assert b"SEQUENCE" not in orientations.build_ics(booking, method="REQUEST", status="CONFIRMED")
 
-    def it_adds_a_growing_sequence_after_a_move():
+    def it_adds_the_moves_sequence_after_a_move():
         booking = OrientationBookingFactory()
         booking.moved_by_guild_at = timezone.now()
-        stamp = int(booking.moved_by_guild_at.timestamp()) // 60
 
         ics = orientations.build_ics(booking, method="REQUEST", status="CONFIRMED")
 
-        assert f"SEQUENCE:{stamp}".encode() in ics
+        assert f"SEQUENCE:{orientations.ics_sequence(booking.moved_by_guild_at)}".encode() in ics
+
+    def it_counts_seconds_so_two_moves_in_one_minute_still_climb():
+        moved = timezone.now().replace(second=10, microsecond=0)
+        assert orientations.ics_sequence(moved + timedelta(seconds=20)) > orientations.ics_sequence(moved)
+
+    def it_stays_inside_a_32_bit_integer_for_decades():
+        assert orientations.ics_sequence(timezone.now() + timedelta(days=365 * 60)) < 2**31

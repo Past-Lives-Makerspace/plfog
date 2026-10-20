@@ -2570,6 +2570,10 @@ def orientation_proposal_answer(request: HttpRequest, booking_pk: int) -> HttpRe
         messages.success(request, "Your orientation moved to the new time. It's confirmed.")
     elif result == "kept":
         messages.success(request, "You kept your current time. We let the guild know.")
+    elif result == "passed":
+        messages.info(request, "That new time has already passed, so your orientation stays at its current time.")
+    elif result == "unavailable":
+        messages.info(request, "That new time can't be booked anymore, so your orientation stays at its current time.")
     else:
         messages.info(request, "That new time is no longer open. Your booking shows where things stand.")
     return _orientation_return(request, booking.orientation_type)
@@ -2979,9 +2983,9 @@ def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
         if request.method == "POST"
         else None
     )
-    # An Accept or Keep link (#853) whose proposal was answered or replaced says so before the click.
-    if result is None and action in orientations.PROPOSAL_ACTIONS and proposal != booking.proposal_key:
-        result = "stale"
+    # An Accept or Keep link (#853) that can no longer act says why before the click.
+    if result is None:
+        result = orientations.proposal_link_verdict(booking, action, proposal) or None
     return render(
         request,
         "hub/orientation_action.html",
