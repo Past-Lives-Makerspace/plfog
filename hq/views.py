@@ -590,6 +590,29 @@ def _log_prefix(sponsor: Sponsor) -> str:
     return f"log-{sponsor.pk}"
 
 
+def _sponsor_row(
+    sponsor: Sponsor,
+    *,
+    can_organize: bool,
+    is_open: bool,
+    edit_form: SponsorEditForm | None = None,
+    log_form: SponsorLogForm | None = None,
+) -> SponsorRow:
+    """``sponsor``'s pipeline row; an organiser's carries its edit and log forms, fresh unless refused ones are given."""
+    if not can_organize:
+        return SponsorRow(sponsor=sponsor, edit_form=None, log_form=None, is_open=is_open)
+    if edit_form is None:
+        edit_form = SponsorEditForm(initial=SponsorEditForm.initial_for(sponsor), prefix=_edit_prefix(sponsor))
+    if log_form is None:
+        log_form = SponsorLogForm(prefix=_log_prefix(sponsor))
+    return SponsorRow(sponsor=sponsor, edit_form=edit_form, log_form=log_form, is_open=is_open)
+
+
+def _organizes(request: HttpRequest, card: HubCard) -> bool:
+    """Whether the effective role renders as one of ``card``'s organisers."""
+    return card.can_organize(viewer_member(request), is_admin=renders_as_admin(request))
+
+
 @card_view(HubCard.Kind.SPONSORSHIP)
 def sponsors(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
     """The Sponsorship Tracker: the guidance line, the band, Follow up, + Add a Sponsor and the pipeline for
@@ -613,8 +636,8 @@ def _sponsors_context(
     """What the page and its board fragment render, by the effective role: an organiser gets the contact details,
     the forms, the log and the CSV; everyone else the band, the follow-up count, the names, tiers and statuses.
 
-    ``open_pk`` is the row to render open (the one just saved, logged or refused), with ``edit_form`` and
-    ``log_form`` in place of its fresh forms when they came back with errors.
+    ``open_pk`` is the row to render open (the one refused on a plain post), listed whatever the filter, with
+    ``edit_form`` and ``log_form`` in place of its fresh forms when they came back with errors.
     """
     member = viewer_member(request)
     is_admin = renders_as_admin(request)
@@ -623,22 +646,21 @@ def _sponsors_context(
     if not can_organize and show == services.SPONSOR_FILTER_DONORS:
         # Last year's gifts are the organisers' notes; the filter would list who gave.
         show = services.SPONSOR_FILTER_ALL
-    sponsors_qs = services.filtered_sponsors(hub, show)
+    sponsors_qs = services.filtered_sponsors(hub, show, keep_pk=open_pk)
     if can_organize:
         sponsors_qs = sponsors_qs.prefetch_related("log_entries")
     rows = []
     for sponsor in sponsors_qs:
         is_open = sponsor.pk == open_pk
-        row_edit: SponsorEditForm | None = None
-        row_log: SponsorLogForm | None = None
-        if can_organize:
-            row_edit = edit_form if is_open and edit_form is not None else None
-            if row_edit is None:
-                row_edit = SponsorEditForm(initial=SponsorEditForm.initial_for(sponsor), prefix=_edit_prefix(sponsor))
-            row_log = log_form if is_open and log_form is not None else None
-            if row_log is None:
-                row_log = SponsorLogForm(prefix=_log_prefix(sponsor))
-        rows.append(SponsorRow(sponsor=sponsor, edit_form=row_edit, log_form=row_log, is_open=is_open))
+        rows.append(
+            _sponsor_row(
+                sponsor,
+                can_organize=can_organize,
+                is_open=is_open,
+                edit_form=edit_form if is_open else None,
+                log_form=log_form if is_open else None,
+            )
+        )
     return {
         "hub": hub,
         "card": card,
@@ -666,10 +688,48 @@ def _sponsors_context(
 
 
 def _sponsor_board(request: HttpRequest, context: dict[str, Any], message: str = "") -> HttpResponse:
-    """The board over htmx (with a toast when ``message`` is set), or the whole page for a plain post that failed."""
+    """+ Add a sponsor's answer: the board over htmx (with a toast when ``message`` is set), or the whole page for
+    a plain post that failed."""
     if not wants_fragment(request):
         return render(request, "hq/sponsors.html", context)
     response = render(request, "hq/partials/_sponsor_board.html", context)
+    if message:
+        trigger_toast(response, message, "success")
+    return response
+
+
+def _sponsor_row_answer(
+    request: HttpRequest,
+    hub: EventHub,
+    card: HubCard,
+    sponsor: Sponsor,
+    *,
+    show: str,
+    edit_form: SponsorEditForm | None = None,
+    log_form: SponsorLogForm | None = None,
+    message: str = "",
+) -> HttpResponse:
+    """A row's Save or Add to log answer. Over htmx: that row, open, for its target, and the band and Follow up out
+    of band (with a toast when ``message`` is set), so the other rows and the add form keep what is typed in them.
+    A plain post that failed gets the whole page with the row open. Either way the row comes back even when it no
+    longer matches the filter ``show``, so a status change or a refused form stays where it was edited."""
+    if not wants_fragment(request):
+        context = _sponsors_context(
+            request, hub, card, show=show, open_pk=sponsor.pk, edit_form=edit_form, log_form=log_form
+        )
+        return render(request, "hq/sponsors.html", context)
+    can_organize = _organizes(request, card)
+    today = timezone.localdate()
+    context = {
+        "hub": hub,
+        "can_organize": can_organize,
+        "row": _sponsor_row(sponsor, can_organize=can_organize, is_open=True, edit_form=edit_form, log_form=log_form),
+        "today": today,
+        "show": show,
+        "band": services.sponsor_band(hub),
+        "follow_ups": services.follow_ups(hub, today=today),
+    }
+    response = render(request, "hq/partials/_sponsor_row_answer.html", context)
     if message:
         trigger_toast(response, message, "success")
     return response
@@ -704,14 +764,12 @@ def sponsor_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int)
     show = _posted_filter(request)
     form = SponsorEditForm(request.POST, prefix=_edit_prefix(sponsor))
     if not form.is_valid():
-        context = _sponsors_context(request, hub, card, show=show, open_pk=sponsor.pk, edit_form=form)
-        return _sponsor_board(request, context)
+        return _sponsor_row_answer(request, hub, card, sponsor, show=show, edit_form=form)
     services.update_sponsor(sponsor, form.to_fields())
     if not wants_fragment(request):
         messages.success(request, f"{sponsor.organization} saved.")
         return redirect(_sponsors_url(hub, show))
-    context = _sponsors_context(request, hub, card, show=show, open_pk=sponsor.pk)
-    return _sponsor_board(request, context, "Saved.")
+    return _sponsor_row_answer(request, hub, card, sponsor, show=show, message="Saved.")
 
 
 @require_POST
@@ -722,14 +780,12 @@ def sponsor_log(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) 
     show = _posted_filter(request)
     form = SponsorLogForm(request.POST, prefix=_log_prefix(sponsor))
     if not form.is_valid():
-        context = _sponsors_context(request, hub, card, show=show, open_pk=sponsor.pk, log_form=form)
-        return _sponsor_board(request, context)
+        return _sponsor_row_answer(request, hub, card, sponsor, show=show, log_form=form)
     services.log_contact(sponsor, text=form.cleaned_data["text"], by=form.cleaned_data["by"])
     if not wants_fragment(request):
         messages.success(request, "Added to the log.")
         return redirect(_sponsors_url(hub, show))
-    context = _sponsors_context(request, hub, card, show=show, open_pk=sponsor.pk)
-    return _sponsor_board(request, context, "Added to the log.")
+    return _sponsor_row_answer(request, hub, card, sponsor, show=show, message="Added to the log.")
 
 
 @require_POST

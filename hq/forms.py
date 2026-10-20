@@ -455,10 +455,16 @@ SPONSOR_TEAM_LIST_ID = "hq-sponsor-team"
 _DATE_PICKER = {"type": "date", "@click": "(() => { try { $el.showPicker() } catch (e) {} })()"}
 
 
+# The largest whole dollar amount a sponsor field takes. The cents columns are Postgres integers (at most
+# 2,147,483,647), so an unbounded figure would overflow on save as a server error rather than a form error.
+SPONSOR_MAX_DOLLARS = 1_000_000
+
+
 def _dollars(label: str) -> forms.IntegerField:
-    """A whole dollar amount, blank meaning none; the form stores it in cents."""
+    """A whole dollar amount up to :data:`SPONSOR_MAX_DOLLARS`, blank meaning none; the form stores it in cents."""
     return forms.IntegerField(
         min_value=0,
+        max_value=SPONSOR_MAX_DOLLARS,
         required=False,
         label=label,
         widget=forms.NumberInput(attrs={"min": "0", "step": "1"}),

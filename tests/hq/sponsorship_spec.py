@@ -124,12 +124,17 @@ def describe_the_door():
 
 def describe_who_may_open_it():
     def it_shows_a_signed_out_visitor_the_band_names_tiers_and_statuses_only(hub):
-        SponsorFactory(
+        sponsor = SponsorFactory(
             hub=hub,
             organization="Rocking Frog Cafe",
             tier=Sponsor.Tier.SILVER,
             status=S.ASKED,
+            amount_cents=123_400,
+            fit_note="Spec fit note",
+            benefits="Spec benefits promised",
+            owner="Spec Asker",
             contact_name="Pat Contact",
+            contact_role="Spec Role",
             email="pat@frog.example",
             phone="503-555-0199",
             note="Spec private note",
@@ -137,6 +142,7 @@ def describe_who_may_open_it():
             history="Spec gave a raffle prize",
             follow_up_by=timezone.localdate(),
         )
+        SponsorLogEntryFactory(sponsor=sponsor, text="Spec log line", by="Spec Logger")
 
         response = Client().get(_page(hub))
 
@@ -148,12 +154,20 @@ def describe_who_may_open_it():
         assert 'data-hq-sp-status="asked">Asked<' in body
         assert "data-hq-sp-due-count>1 follow-up scheduled with the team.</p>" in body
         for private in (
+            "$1,234",
+            "data-hq-sp-amount",
+            "Spec fit note",
+            "Spec benefits promised",
+            "Spec Asker",
             "Pat Contact",
+            "Spec Role",
             "pat@frog.example",
             "503-555-0199",
             "Spec private note",
             "Spec next step",
             "Spec gave a raffle prize",
+            "Spec log line",
+            "Spec Logger",
             "data-hq-sp-add",
             "data-hq-sp-edit-form",
             "data-hq-sp-log",
@@ -468,6 +482,20 @@ def describe_adding_a_sponsor():
             assert "HX-Trigger" not in response
         assert not Sponsor.objects.exists()
 
+    def it_refuses_an_ask_past_a_million_dollars_as_a_form_error_not_a_server_error(hub, admin_client):
+        # 30 million dollars is 3 billion cents, past the integer column's 2,147,483,647.
+        response = admin_client.post(_add(hub), _add_post(ask="30000000"), **HTMX)
+
+        body = response.content.decode()
+        assert response.status_code == 200
+        assert "Ensure this value is less than or equal to 1000000." in body
+        assert 'max="1000000"' in body
+        assert not Sponsor.objects.exists()
+
+        admin_client.post(_add(hub), _add_post(ask="1000000"))
+
+        assert Sponsor.objects.get().ask_cents == 100_000_000
+
     def it_renders_the_whole_page_again_for_a_plain_post_that_fails(hub, admin_client):
         response = admin_client.post(_add(hub), _add_post(organization=""))
 
@@ -635,9 +663,43 @@ def describe_editing_a_sponsor():
             "A $200 gift",
             Sponsor.Tier.IN_KIND,
         )
-        assert f'data-hq-sp-row="{sponsor.pk}" open>' in body
-        assert 'data-hq-sp-filter="prospect" aria-current="true"' in body
+        assert body.lstrip().startswith(f'<details class="pl-hq-sp__row" data-hq-sp-row="{sponsor.pk}" open>')
+        assert 'name="filter" value="prospect"' in body
+        assert 'hx-target="closest [data-hq-sp-row]" hx-swap="outerHTML"' in body
+        assert 'id="hq-sp-band" aria-label="Progress" data-hq-sp-band hx-swap-oob="true">' in body
+        assert 'id="hq-sp-due" aria-labelledby="hq-sp-due-title" data-hq-sp-due hx-swap-oob="true">' in body
+        for elsewhere in ("data-hq-sp-board", "data-hq-sp-add", "data-hq-sp-filters"):
+            assert elsewhere not in body, elsewhere
         assert not sponsor.log_entries.exists()
+
+    def it_moves_the_band_and_follow_up_with_the_saved_row(hub, admin_client):
+        sponsor = SponsorFactory(hub=hub, organization="Spec Bank", status=S.ASKED, ask_cents=50_000)
+
+        response = admin_client.post(
+            _edit(sponsor),
+            _edit_post(sponsor, status=S.RECEIVED, amount="400", follow_up_by=timezone.localdate().isoformat()),
+            **HTMX,
+        )
+
+        body = response.content.decode()
+        assert 'data-hq-sp-tile="received">' in body
+        assert "data-hq-sp-figure>$400</strong>" in body
+        assert "data-hq-sp-due-empty>" in body  # received closes the ask, so it leaves Follow up
+
+    def it_keeps_a_row_whose_new_status_leaves_the_filter_in_view(hub, admin_client):
+        sponsor = SponsorFactory(hub=hub, organization="Spec Bank", status=S.ASKED)
+        other = SponsorFactory(hub=hub, status=S.ASKED)
+
+        response = admin_client.post(
+            _edit(sponsor), _edit_post(sponsor, status=S.COMMITTED, amount="900", filter="asked"), **HTMX
+        )
+
+        body = response.content.decode()
+        assert _toast(response) == "Saved."
+        assert f'data-hq-sp-row="{sponsor.pk}" open>' in body
+        assert 'data-hq-sp-status="committed">Committed</span>' in body
+        assert 'name="filter" value="asked"' in body
+        assert f'data-hq-sp-row="{other.pk}"' not in body
 
     def it_logs_a_status_change_in_lees_words(hub, admin_client):
         sponsor = SponsorFactory(hub=hub, status=S.ASKED)
@@ -660,9 +722,39 @@ def describe_editing_a_sponsor():
         assert "HX-Trigger" not in response
         assert (sponsor.email, sponsor.status) == ("ok@bank.example", S.PROSPECT)
         assert f'data-hq-sp-row="{sponsor.pk}" open>' in body
-        assert f'data-hq-sp-row="{other.pk}">' in body
+        assert f'data-hq-sp-row="{other.pk}"' not in body  # the other rows keep what is typed in them
         assert 'class="pl-field-errors"' in body
         assert 'value="nope"' in body
+        assert 'hx-swap-oob="true"' in body
+
+    def it_brings_back_a_refused_edit_on_a_row_outside_the_filter(hub, admin_client):
+        sponsor = SponsorFactory(hub=hub, organization="Spec Outside", status=S.PROSPECT)
+        inside = SponsorFactory(hub=hub, organization="Spec Inside", status=S.ASKED)
+        outside = SponsorFactory(hub=hub, organization="Spec Also Outside", status=S.DECLINED)
+        data = _edit_post(sponsor, email="nope", filter="asked")
+
+        fragment = admin_client.post(_edit(sponsor), data, **HTMX).content.decode()
+        page = admin_client.post(_edit(sponsor), data).content.decode()
+
+        for body in (fragment, page):
+            assert f'data-hq-sp-row="{sponsor.pk}" open>' in body
+            assert 'class="pl-field-errors"' in body
+            assert 'value="nope"' in body
+        assert "data-hq-sp-subline" in page
+        assert 'data-hq-sp-filter="asked" aria-current="true"' in page
+        assert f'data-hq-sp-row="{inside.pk}">' in page
+        assert f'data-hq-sp-row="{outside.pk}"' not in page
+        assert page.index("Spec Inside") < page.index("Spec Outside")  # pipeline order: asked before prospect
+
+    def it_refuses_an_amount_past_a_million_dollars_as_a_form_error(hub, admin_client):
+        sponsor = SponsorFactory(hub=hub)
+
+        response = admin_client.post(_edit(sponsor), _edit_post(sponsor, amount="30000000", status=S.RECEIVED), **HTMX)
+
+        sponsor.refresh_from_db()
+        assert response.status_code == 200
+        assert "Ensure this value is less than or equal to 1000000." in response.content.decode()
+        assert (sponsor.amount_cents, sponsor.status) == (0, S.PROSPECT)
 
     def it_lands_a_plain_post_back_on_the_page_with_a_message(hub, admin_client):
         sponsor = SponsorFactory(hub=hub, organization="Spec Bank")
@@ -714,16 +806,42 @@ def describe_the_contact_log():
         ]
         assert body.index("Called, left voicemail") < body.index("Older line")
         assert '<span class="pl-hq-sp__muted">(Lee)</span>' in body
-        assert f'data-hq-sp-row="{sponsor.pk}" open>' in body
+        assert body.lstrip().startswith(f'<details class="pl-hq-sp__row" data-hq-sp-row="{sponsor.pk}" open>')
+        assert 'data-hq-sp-band hx-swap-oob="true">' in body
+        assert 'data-hq-sp-due hx-swap-oob="true">' in body
+        assert "data-hq-sp-board" not in body
 
     def it_refuses_a_blank_line(hub, admin_client):
         sponsor = SponsorFactory(hub=hub)
 
-        response = admin_client.post(_log(sponsor), {f"log-{sponsor.pk}-text": "  "}, **HTMX)
+        response = admin_client.post(
+            _log(sponsor), {f"log-{sponsor.pk}-text": "  ", f"log-{sponsor.pk}-by": "Spec Half Typed"}, **HTMX
+        )
 
+        body = response.content.decode()
         assert "HX-Trigger" not in response
-        assert 'class="pl-field-errors"' in response.content.decode()
+        assert 'class="pl-field-errors"' in body
+        assert f'data-hq-sp-row="{sponsor.pk}" open>' in body
+        assert 'value="Spec Half Typed"' in body
         assert not sponsor.log_entries.exists()
+
+    def it_renders_the_whole_page_with_the_row_open_for_a_plain_post_that_fails(hub, admin_client):
+        sponsor = SponsorFactory(hub=hub, status=S.DECLINED)
+
+        response = admin_client.post(_log(sponsor), {f"log-{sponsor.pk}-text": "", "filter": "asked"})
+
+        body = response.content.decode()
+        assert "data-hq-sp-subline" in body
+        assert f'data-hq-sp-row="{sponsor.pk}" open>' in body
+        assert 'class="pl-field-errors"' in body
+
+    def it_is_a_404_for_another_hubs_sponsor(hub, admin_client):
+        elsewhere = SponsorFactory()
+
+        url = reverse("hq:sponsor_log", args=[hub.slug, elsewhere.pk])
+
+        assert admin_client.post(url, {f"log-{elsewhere.pk}-text": "Called"}).status_code == 404
+        assert not SponsorLogEntry.objects.exists()
 
     def it_lands_a_plain_post_back_on_the_page(hub, admin_client):
         sponsor = SponsorFactory(hub=hub)
