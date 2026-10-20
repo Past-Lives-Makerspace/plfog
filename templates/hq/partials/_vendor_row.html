@@ -4,7 +4,7 @@ One table request as a row of its own edit form: every field is a control tied t
 row alone over htmx, with the band out of band; Delete goes through the confirm modal.
 
   hub  — required, the EventHub
-  row  — required, a hq.views.VendorRow (the request and its edit form)
+  row  — required, a hq.views.VendorRow (the request, its edit form, and any refusal the form lacks)
   show — required, the filter in view, carried by Save and Delete
 {% endcomment %}
 {% with table=row.table form=row.form %}
@@ -24,11 +24,13 @@ row alone over htmx, with the band out of band; Delete goes through the confirm 
     {% include "components/form_field.html" with field=form.phone field_hint_off=True %}
   </td>
   <td class="pl-hq-vt__cell pl-hq-vt__cell--actions">
+    {% if row.error %}<p class="pl-field-error" role="alert" data-hq-vt-row-error>{{ row.error }}</p>{% endif %}
     {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
     <form id="{{ form.form_id }}" method="post" action="{% url 'hq:vendor_edit' hub.slug table.pk %}" hx-post="{% url 'hq:vendor_edit' hub.slug table.pk %}" hx-target="closest [data-hq-vt-row]" hx-swap="outerHTML" data-hq-vt-edit-form>
       {% csrf_token %}
       <input type="hidden" name="filter" value="{{ show }}">
-      <button type="submit" class="pl-hq-vt__btn pl-hq-vt__btn--sm" data-hq-vt-save>Save</button>
+      {{ form.updated_at }}
+      <button type="submit" class="pl-hq-vt__btn pl-hq-vt__btn--sm" aria-label="Save {{ table.name }}" data-hq-vt-save>Save</button>
     </form>
     <button type="button" class="pl-hq-vt__delete" aria-label="Delete {{ table.name }}" @click="$dispatch('open-confirm', 'delete-vendor-{{ table.pk }}')" data-hq-vt-delete>Delete</button>
     {% url 'hq:vendor_delete' hub.slug table.pk as delete_url %}

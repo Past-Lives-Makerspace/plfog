@@ -85,6 +85,7 @@ def _row_post(table: VendorTable, **fields: Any) -> dict[str, Any]:
         "needs": table.needs,
         "status": table.status,
         "table_no": table.table_no,
+        "updated_at": table.updated_at.isoformat(),
     }
     show = fields.pop("filter", "all")
     values.update(fields)
@@ -165,6 +166,19 @@ def describe_the_door():
         card.named_members.clear()
 
         body = admin_client.get(_page(card.hub)).content.decode()
+
+        assert f"data-hq-vt-subline>{card.hub.title}</p>" in body
+        assert "data-hq-vt-helper>Waiting on the vendor team</span>" in body
+
+    def it_reads_the_first_named_member_by_pk_and_falls_back_on_a_blank_name(card, kate, make_member):
+        blank = make_member(preferred_name="   ", full_legal_name="   ")
+        card.named_members.add(blank)
+        later = make_member(preferred_name="Zed Ames")
+        card.named_members.add(later)
+        assert kate.pk < blank.pk < later.pk
+
+        card.named_members.remove(kate)
+        body = signed_in(blank).get(_page(card.hub)).content.decode()
 
         assert f"data-hq-vt-subline>{card.hub.title}</p>" in body
         assert "data-hq-vt-helper>Waiting on the vendor team</span>" in body
@@ -584,6 +598,19 @@ def describe_the_list():
         assert 'data-hq-vt-status="confirmed"' in body
         assert "pl-hq-vt__row--confirmed" in body
 
+    def it_names_the_row_in_every_label_and_on_save_and_delete(hub, kate_client):
+        table = VendorTableFactory(hub=hub, name="Spec O'Kiln")
+
+        body = kate_client.get(_page(hub)).content.decode()
+        row = body.split(f'data-hq-vt-row="{table.pk}"')[1].split("</tr>")[0]
+
+        name = "Spec O&#x27;Kiln"
+        labels = ("Artist or group", "Needs", "Guild", "What they sell", "Table size", "Status", "Table #", "Setup day")
+        for label in (*labels, "Email", "Phone"):
+            assert f"{label} for {name}" in row
+        assert f'aria-label="Save {name}"' in row
+        assert f'aria-label="Delete {name}"' in row
+
     def it_runs_a_fixed_number_of_queries_however_many_requests(hub, kate_client):
         def _count() -> int:
             with CaptureQueriesContext(connection) as queries:
@@ -709,6 +736,80 @@ def describe_editing_a_row():
         assert 'class="pl-field-errors"' in body
         table.refresh_from_db()
         assert table.email == ""
+
+
+def describe_a_stale_save():
+    def it_carries_the_rows_stamp_in_its_form(hub, kate_client):
+        table = VendorTableFactory(hub=hub)
+
+        body = kate_client.get(_page(hub)).content.decode()
+
+        assert (
+            f'<input type="hidden" name="vendor-{table.pk}-updated_at" value="{table.updated_at.isoformat()}"' in body
+        )
+
+    def it_refuses_a_save_from_an_older_page_and_brings_the_row_back_as_the_database_holds_it(hub, kate_client):
+        table = VendorTableFactory(hub=hub, name="Spec Original", needs="Power")
+        stale = _row_post(table, needs="Shade", status=S.CANCELLED)
+        other = VendorTable.objects.get(pk=table.pk)  # someone else saves the row after this page loaded
+        other.needs = "A wall"
+        other.save()
+
+        response = kate_client.post(_edit(table), stale, **HTMX)
+
+        body = response.content.decode()
+        table.refresh_from_db()
+        assert response.status_code == 200
+        assert "HX-Trigger" not in response
+        assert (table.needs, table.status) == ("A wall", S.REQUESTED)
+        assert (
+            "data-hq-vt-row-error>Someone else changed this table. Your page has been refreshed; "
+            "make your change again.</p>"
+        ) in body
+        assert f'<tr class="pl-hq-vt__row pl-hq-vt__row--requested" data-hq-vt-row="{table.pk}"' in body
+        assert 'value="A wall"' in body and 'value="Shade"' not in body
+        assert f'value="{table.updated_at.isoformat()}"' in body
+        assert 'id="hq-vt-band" aria-label="Table capacity" data-hq-vt-band hx-swap-oob="true"' in body
+
+    def it_refuses_a_save_with_no_stamp(hub, kate_client):
+        table = VendorTableFactory(hub=hub, needs="Power")
+        data = _row_post(table, needs="Shade")
+        del data[f"vendor-{table.pk}-updated_at"]
+
+        body = kate_client.post(_edit(table), data, **HTMX).content.decode()
+
+        table.refresh_from_db()
+        assert table.needs == "Power"
+        assert "data-hq-vt-row-error>Someone else changed this table." in body
+
+    def it_saves_again_from_the_row_it_sent_back(hub, kate_client):
+        table = VendorTableFactory(hub=hub, needs="Power")
+        first = kate_client.post(_edit(table), _row_post(table, needs="Shade"), **HTMX)
+        table.refresh_from_db()
+
+        second = kate_client.post(_edit(table), _row_post(table, needs="Shade and a wall"), **HTMX)
+
+        table.refresh_from_db()
+        assert _toast(first) == _toast(second) == "Saved."
+        assert table.needs == "Shade and a wall"
+        assert f'value="{table.updated_at.isoformat()}"' in second.content.decode()
+
+    def it_renders_the_page_with_the_row_as_saved_and_the_message_for_a_plain_post(hub, kate_client):
+        table = VendorTableFactory(hub=hub, name="Spec Plain", needs="Power", status=S.REQUESTED)
+        stale = _row_post(table, needs="Shade", filter="cancelled")
+        table.save()
+
+        response = kate_client.post(_edit(table), stale)
+
+        body = response.content.decode()
+        row = body.split(f'data-hq-vt-row="{table.pk}"')[1].split("</tr>")[0]
+        assert response.status_code == 200
+        assert "data-hq-vt-subline" in body
+        assert "data-hq-vt-row-error>Someone else changed this table." in row
+        assert 'value="Power"' in row
+        assert body.count("data-hq-vt-row-error") == 1
+        table.refresh_from_db()
+        assert table.needs == "Power"
 
 
 def describe_deleting_a_request():

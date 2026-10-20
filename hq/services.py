@@ -20,7 +20,7 @@ the list's filters and the three writes (:func:`add_vendor_table`, :func:`update
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -32,7 +32,7 @@ from django.db.models.functions import Coalesce, Lower
 from django.http import HttpRequest
 from django.utils import timezone
 
-from hq.holiday_bizarre import CHECKIN_THANKS
+from hq.holiday_bizarre import CHECKIN_THANKS, GOALS
 from hq.models import (
     EventHub,
     HubGoal,
@@ -139,6 +139,44 @@ def goal_rows(hub: EventHub) -> list[GoalRow]:
             current = counts[goal.kind]
         rows.append(GoalRow(label=goal.label, current=current, target=goal.target, is_money=goal.is_money))
     return rows
+
+
+@dataclass
+class GoalSeed:
+    """What :func:`seed_goals` did: the labels of the goals it made, in order, and how many the hub already held."""
+
+    added: list[str] = field(default_factory=list)
+    kept: int = 0
+
+
+def seed_goals(hub: EventHub) -> GoalSeed:
+    """Lee's goals (:data:`hq.holiday_bizarre.GOALS`) on ``hub``: the whole set on a hub with none, else each
+    counted goal whose kind the hub lacks, at the end of the hub's goal order.
+
+    A counted goal is keyed by its kind, so a renamed one is still found and a rerun adds nothing twice; one an
+    admin deleted comes back on the next run, which is the accepted price of reaching hubs seeded before it
+    existed. A typed in goal has no key, so it is made only on a hub with no goals at all. Callers that can race
+    (Update the doors) hold a row lock on the hub.
+    """
+    held = list(hub.goals.values_list("kind", "sort_order"))
+    if held:
+        kinds = {kind for kind, _order in held}
+        missing = [spec for spec in GOALS if spec.kind != HubGoal.Kind.MANUAL and spec.kind not in kinds]
+        start = max(order for _kind, order in held) + 1
+    else:
+        missing, start = list(GOALS), 0
+    HubGoal.objects.bulk_create(
+        HubGoal(
+            hub=hub,
+            label=spec.label,
+            kind=spec.kind,
+            target=spec.target,
+            is_money=spec.is_money,
+            sort_order=start + offset,
+        )
+        for offset, spec in enumerate(missing)
+    )
+    return GoalSeed(added=[spec.label for spec in missing], kept=len(held))
 
 
 # ---- Volunteer shifts ----
