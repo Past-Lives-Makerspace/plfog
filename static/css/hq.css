@@ -3633,6 +3633,10 @@ a.pl-hq-fl__figure:hover .pl-hq-fl__figure-link {
   background: radial-gradient(120% 140% at 0% 0%, #2A3C63 0%, #1E2D4E 55%, #17233F 100%);
   color: var(--pl-hq-vol-cream);
 }
+/* The board's figures are their own Alpine component (swapped out of band); contents keeps them in the panel's grid. */
+.pl-hq-lg__board-figures {
+  display: contents;
+}
 .pl-hq-lg__tiles {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

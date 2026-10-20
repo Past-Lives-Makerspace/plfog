@@ -1543,7 +1543,7 @@ def _ledger_url(hub: EventHub, show: str = services.LEDGER_FILTER_ALL) -> str:
 # A line's Save whose ``updated_at`` no longer matches the database: someone else saved it since the page loaded.
 LINE_STALE_SAVE = "Someone else changed this line. Your page has been refreshed; make your change again."
 
-# The approval's Save whose ``updated_at`` no longer matches the database: someone else saved it since the page loaded.
+# The approval's Save whose approval no longer matches the database: someone else saved it since the page loaded.
 APPROVAL_STALE_SAVE = "Someone else changed the approval. Your page has been refreshed; make your change again."
 
 
@@ -1692,7 +1692,7 @@ def _ledger_context(
         "receipt_hint": LEDGER_RECEIPT_HINT,
         "approval_form": approval_form
         if approval_form is not None
-        else LedgerApprovalForm(initial=LedgerApprovalForm.initial_for(found)),
+        else LedgerApprovalForm(found=found, initial=LedgerApprovalForm.initial_for(found)),
         "approval_error": approval_error,
         "line_form": line_form if line_form is not None else BudgetLineForm(),
         "line_open": line_open or line_form is not None,
@@ -1716,23 +1716,17 @@ def ledger_approval(request: HttpRequest, *, hub: EventHub, card: HubCard) -> Ht
     """Change the board's approval and its note, by the actual role. A plain post: the approval names the kinds, the
     filters and a column, so the page comes back whole. A refused one renders the page with the form open.
 
-    A Save from a page older than the settings (their ``updated_at`` no longer matches) is refused whole under a row
-    lock: the form comes back as the database holds it, with :data:`APPROVAL_STALE_SAVE`. A first save is never stale.
+    The form carries the approval it was rendered with (``seen_*``, as the D6b settings forms do): a Save after someone
+    else changed the approval is refused whole under a row lock, and the form comes back as the database holds it, with
+    :data:`APPROVAL_STALE_SAVE`. A price or tickets save in between never makes it stale.
     """
-    form = LedgerApprovalForm(request.POST)
-    with transaction.atomic():
-        found = LedgerSettings.objects.select_for_update().filter(hub=hub).first()
-        stale = form.is_stale(found)
-        valid = not stale and form.is_valid()
-        if valid:
-            services.save_approval(hub, **form.to_fields())
-    if stale:
-        context = _ledger_context(
-            request, hub, card, show=services.LEDGER_FILTER_ALL, approval_error=APPROVAL_STALE_SAVE
-        )
-        return render(request, "hq/ledger.html", context)
-    if not valid:
-        context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, approval_form=form)
+    form = LedgerApprovalForm(request.POST, found=services.ledger_settings(hub))
+    saved = services.save_approval(hub, **form.to_fields(), seen=form.seen()) if form.is_valid() else None
+    if saved is None:
+        refusal: dict[str, Any] = {"approval_form": form}
+        if form.is_valid():  # stale: someone else saved the approval since the page loaded
+            refusal = {"approval_error": APPROVAL_STALE_SAVE}
+        context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, **refusal)
         return render(request, "hq/ledger.html", context)
     messages.success(request, "Approval saved.")
     return redirect(_ledger_url(hub))
@@ -2015,15 +2009,16 @@ def _wine_ledger_context(
 
 
 def _bar_answer(request: HttpRequest, hub: EventHub, message: str, tone: str = "success") -> HttpResponse:
-    """The htmx answer to a +1 tap or Undo last: the tiles and the sales table out of band, and a toast. The buttons and
-    Paid by stay as they are, so the next tap keeps the chosen way to pay."""
+    """The htmx answer to a +1 tap or Undo last: the tiles, the buttons' counts, the sales table and the board panel's
+    figures out of band, and a toast. Paid by stays as it is, so the next tap keeps the chosen way to pay."""
     found = services.ledger_settings(hub)
-    bar = _bar_totals(hub)
+    band = services.ledger_band(hub, found)
+    doors = services.door_figures(hub, band, found)
     context = {
-        "hub": hub,
-        "bar": bar,
+        **_ledger_board_context(hub, band, doors),
+        "bar": doors.bar,
         "bar_sales": list(hub.bar_sales.all()),
-        "quick_buttons": services.quick_buttons(found, bar),
+        "quick_buttons": services.quick_buttons(found, doors.bar),
     }
     response = render(request, "hq/partials/_ledger_bar_answer.html", context)
     trigger_toast(response, message, tone)
@@ -2088,11 +2083,13 @@ def ledger_bar_batch(request: HttpRequest, *, hub: EventHub, card: HubCard) -> H
     if not fragment:
         messages.success(request, "Sales added.")
         return redirect(_bar_url(hub))
+    band = services.ledger_band(hub, found)
+    doors = services.door_figures(hub, band, found)
     context = {
-        "hub": hub,
+        **_ledger_board_context(hub, band, doors),
         "batch_form": _batch_form(found, initial={key: form.cleaned_data[key] for key in ("drink", "pay")}),
         "batch_open": True,
-        "bar": _bar_totals(hub),
+        "bar": doors.bar,
         "bar_sales": list(hub.bar_sales.all()),
     }
     response = render(request, "hq/partials/_ledger_bar_batch_answer.html", context)
@@ -2163,8 +2160,14 @@ def ledger_bar_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> Str
 
 
 def _wine_answer(request: HttpRequest, hub: EventHub, found: LedgerSettings, **forms: Any) -> HttpResponse:
-    context = {"hub": hub, **_wine_ledger_context(request, hub, found, services.wine_band(hub), **forms)}
-    return render(request, "hq/partials/_ledger_wine.html", context)
+    """The Wine Wall section with the board panel's figures out of band, since the paragraph names the tickets."""
+    band = services.ledger_band(hub, found)
+    doors = services.door_figures(hub, band, found)
+    context = {
+        **_ledger_board_context(hub, band, doors),
+        **_wine_ledger_context(request, hub, found, doors.wine, **forms),
+    }
+    return render(request, "hq/partials/_ledger_wine_answer.html", context)
 
 
 def _save_wine_figures(

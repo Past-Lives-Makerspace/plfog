@@ -98,7 +98,7 @@ class SeedReport:
         # A hub that held goals and gained some names them; a fresh set is just its count.
         topped_up = f" Added: {', '.join(self.goals_added)}." if self.goals.kept and self.goals_added else ""
         if self.goals_adopted:
-            topped_up += f" {self.goals_adopted} now counts itself."
+            topped_up += " Raised now counts itself."
         return [
             f"Hub {self.hub.slug} ({self.hub.title}): {self._hub_state()}.",
             f"Cards: {cards.created} created, {cards.kept} kept as edited.{adopted}{reworded}{skipped}",

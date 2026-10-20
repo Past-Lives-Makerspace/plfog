@@ -1,0 +1,8 @@
+{% comment %}
+The htmx answer to the tickets form and Set ticket prices: the Wine Wall section in place, and the board panel's
+figures out of band (its paragraph names the tickets sold and the event cash).
+
+  as hq/partials/_ledger_wine.html and _ledger_board_figures.html
+{% endcomment %}
+{% include "hq/partials/_ledger_wine.html" %}
+<template>{% include "hq/partials/_ledger_board_figures.html" with oob=True %}</template>

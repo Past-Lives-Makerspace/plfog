@@ -183,7 +183,7 @@ def goal_rows(hub: EventHub) -> list[GoalRow]:
 @dataclass
 class GoalSeed:
     """What :func:`seed_goals` did: the labels of the goals it made, in order, how many the hub already held, and the
-    label of a typed in Raised goal it turned into the counted event cash (blank when none)."""
+    label of the typed in goal it turned into the counted event cash (blank when none; :func:`_adopt_raised`)."""
 
     added: list[str] = field(default_factory=list)
     kept: int = 0
@@ -193,13 +193,19 @@ class GoalSeed:
 def _adopt_raised(hub: EventHub, kinds: set[str]) -> str:
     """Turn the hub's typed in Raised goal into the counted event cash, in place, so Lee's Raised is never doubled.
 
-    Only on a hub with no event cash goal: the first manual goal labelled Raised (any case) in band order becomes
-    :attr:`HubGoal.Kind.EVENT_CASH`, keeping its pk, label, target and place, and is marked money. Returns its label, or
-    "" when there was nothing to adopt.
+    Only on a hub with no event cash goal. The manual goal labelled Raised (any case, trimmed; the first in band order)
+    is adopted; failing that, the hub's one manual money goal, whatever its label ("Cash raised"), since it can only be
+    the money the event raised. Two or more money goals and none labelled Raised are ambiguous, so none is adopted and
+    the counted Raised is added beside them. The adopted goal becomes :attr:`HubGoal.Kind.EVENT_CASH`, keeping its pk,
+    label, target and place, and is marked money. Returns its label, or "" when there was nothing to adopt.
     """
     if HubGoal.Kind.EVENT_CASH in kinds:
         return ""
-    goal = hub.goals.filter(kind=HubGoal.Kind.MANUAL, label__iexact=RAISED_GOAL_LABEL).first()
+    manual = list(hub.goals.filter(kind=HubGoal.Kind.MANUAL))
+    goal = next((goal for goal in manual if goal.label.strip().lower() == RAISED_GOAL_LABEL.lower()), None)
+    if goal is None:
+        money = [goal for goal in manual if goal.is_money]
+        goal = money[0] if len(money) == 1 else None
     if goal is None:
         return ""
     goal.kind = HubGoal.Kind.EVENT_CASH
@@ -1891,18 +1897,14 @@ def receipt_entries(hub: EventHub) -> QuerySet[LedgerEntry]:
     return hub.ledger_entries.filter(kind__in=RECEIPT_KINDS).select_related("line").order_by("date", "created_at", "pk")
 
 
-def save_approval(hub: EventHub, *, approved_cents: int, approved_note: str) -> LedgerSettings:
-    """Record the board's approval and its note on ``hub``, making the settings row on the first save. Only those two
-    fields are written, so D6b's prices and tickets are never overwritten from an older page."""
-    with transaction.atomic():
-        found, created = LedgerSettings.objects.select_for_update().get_or_create(
-            hub=hub, defaults={"approved_cents": approved_cents, "approved_note": approved_note}
-        )
-        if not created:
-            found.approved_cents = approved_cents
-            found.approved_note = approved_note
-            found.save(update_fields=["approved_cents", "approved_note", "updated_at"])
-    return found
+def save_approval(
+    hub: EventHub, *, approved_cents: int, approved_note: str, seen: Mapping[str, int | str | None]
+) -> LedgerSettings | None:
+    """Record the board's approval and its note on ``hub`` through :func:`save_ledger_figures`: refused (None) when the
+    approval the form was rendered with (``seen``) is no longer what the database holds. Only those two fields are
+    written, so D6b's prices and tickets are never overwritten from an older page, and saving them never makes an
+    open approval form stale."""
+    return save_ledger_figures(hub, {"approved_cents": approved_cents, "approved_note": approved_note}, seen=seen)
 
 
 def add_budget_line(hub: EventHub, fields: Mapping[str, Any]) -> BudgetLine:
@@ -2304,16 +2306,28 @@ def add_bar_batch(hub: EventHub, fields: Mapping[str, Any], *, member: Member | 
 
 
 def save_ledger_figures(
-    hub: EventHub, fields: Mapping[str, int], *, seen: Mapping[str, int | None]
+    hub: EventHub, fields: Mapping[str, int | str], *, seen: Mapping[str, int | str | None]
 ) -> LedgerSettings | None:
     """Write ``fields`` on ``hub``'s ledger settings under a row lock, unless the figures the form was rendered with
     (``seen``) are no longer what the database holds: then nothing is written and None comes back (someone else saved
-    them since). Only ``fields`` are written, so the approval, the prices and the tickets never overwrite each other."""
+    them since). Only ``fields`` are written, so the approval, the prices and the tickets never overwrite each other.
+
+    Before the first save the form was rendered from Lee's defaults, so those are what ``seen`` is held to. The row is
+    made only when the save goes ahead, so a refusal writes nothing; a first save racing another is held to the row
+    the other made."""
     with transaction.atomic():
-        found, _created = LedgerSettings.objects.select_for_update().get_or_create(hub=hub)
-        if any(getattr(found, name) != value for name, value in seen.items()):
+        found = LedgerSettings.objects.select_for_update().filter(hub=hub).first()
+        if found is None and not _seen_differs(LedgerSettings(hub=hub), seen):
+            LedgerSettings.objects.bulk_create([LedgerSettings(hub=hub)], ignore_conflicts=True)
+            found = LedgerSettings.objects.select_for_update().get(hub=hub)
+        if found is None or _seen_differs(found, seen):
             return None
         for name, value in fields.items():
             setattr(found, name, value)
         found.save(update_fields=[*fields, "updated_at"])
     return found
+
+
+def _seen_differs(found: LedgerSettings, seen: Mapping[str, int | str | None]) -> bool:
+    """Whether any figure a form was rendered with differs from ``found``'s (a missing one, None, always does)."""
+    return any(getattr(found, name) != value for name, value in seen.items())

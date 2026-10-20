@@ -106,6 +106,16 @@ def _tickets(found: LedgerSettings, singles: Any = 3, pairs: Any = 2) -> dict[st
     }
 
 
+def _approval(found: LedgerSettings, approved: str = "950", note: str | None = None) -> dict[str, Any]:
+    """The approval form as it renders for ``found``, the amount changed (and the note, when given)."""
+    return {
+        "approved": approved,
+        "approved_note": found.approved_note if note is None else note,
+        "seen_approved_cents": found.approved_cents,
+        "seen_approved_note": found.approved_note,
+    }
+
+
 def _ticket_prices(found: LedgerSettings, ticket: Any = "20", pair: Any = "35") -> dict[str, Any]:
     return {
         "ticket-prices-ticket": ticket,
@@ -268,12 +278,37 @@ def describe_quick_add():
         assert sale.created_by == lee
         assert _toast(response) == {"message": "Added 1 Wine ($5 RSVP credit).", "type": "success"}
         body = response.content.decode()
-        for part in ("hq-lg-bar-tiles", "hq-lg-bar-buttons", "hq-lg-bar-table"):
+        for part in ("hq-lg-bar-tiles", "hq-lg-bar-buttons", "hq-lg-bar-table", "hq-lg-board-figures"):
             assert f'id="{part}"' in body
-        assert body.count('hx-swap-oob="true"') == 3
-        assert body.count("<template>") == 3
+        assert body.count('hx-swap-oob="true"') == 4
+        assert body.count("<template>") == 4
         assert "data-hq-lg-quick-form" not in body  # Paid by is never swapped, so it keeps its choice
         assert 'data-hq-lg-quick="wine"' in body and "data-hq-lg-quick-sold>1<" in body
+
+    def it_sends_the_board_paragraph_out_of_band_with_the_new_sales(hub, kegs, lee_client):
+        LedgerEntryFactory(hub=hub, line=kegs)  # the paragraph speaks once the ledger has an entry
+        BarSaleFactory(hub=hub, qty=2, amount_cents=1_200)
+
+        body = lee_client.post(_url("ledger_bar_quick", hub), _quick(), **HTMX).content.decode()
+        undone = lee_client.post(_url("ledger_bar_undo", hub), **HTMX).content.decode()
+
+        board = body.split('id="hq-lg-board-figures"', 1)[1]
+        assert board.lstrip().startswith('data-hq-lg-board-figures hx-swap-oob="true"')
+        assert "x-data=" in board.split(">", 1)[0]  # its own Alpine component, so Copy starts afresh on the new text
+        assert board.count("Drink sales: 3 drinks sold for $18.") == 2  # the paragraph and the box Copy copies
+        assert "Drink sales: 2 drinks sold for $12." in undone.split('id="hq-lg-board-figures"', 1)[1]
+        assert "data-hq-lg-approval" not in body  # a half typed approval is never reset by a tap
+
+    def it_disables_every_button_of_a_tap_and_undo_while_in_flight(hub, lee_client):
+        body = lee_client.get(_page(hub)).content.decode()
+
+        assert (
+            'hx-swap="none" hx-disabled-elt="[data-hq-lg-quick]" class="pl-hq-lg__form" data-hq-lg-quick-form' in body
+        )
+        assert 'hx-swap="none" hx-disabled-elt="find button" class="pl-hq-lg__undo" data-hq-lg-undo-form' in body
+        assert body.count('data-hq-lg-quick="') == 4  # the selector reaches all four +1 buttons
+        answer = lee_client.post(_url("ledger_bar_quick", hub), _quick(), **HTMX).content.decode()
+        assert "disabled" not in answer  # the buttons come back enabled
 
     def it_lands_a_plain_post_back_on_the_section(hub, lee_client):
         response = lee_client.post(_url("ledger_bar_quick", hub), _quick(D.NA, P.CASH), follow=True)
@@ -364,6 +399,7 @@ def describe_log_a_batch():
         assert '<option value="cash" selected>' in body
         assert 'id="hq-lg-bar-tiles" data-hq-lg-bar-tiles hx-swap-oob="true"' in body
         assert 'id="hq-lg-bar-table" data-hq-lg-bar-table hx-swap-oob="true"' in body
+        assert 'id="hq-lg-board-figures" data-hq-lg-board-figures hx-swap-oob="true"' in body
         assert "6 to 8 PM shift, Augustin" in body
 
     def it_takes_a_total_collected_over_the_price(hub, lee_client):
@@ -480,7 +516,7 @@ def describe_set_drink_prices():
         response = lee_client.post(_url("ledger_bar_prices", hub), data, **HTMX)
 
         assert services.SETTINGS_STALE_SAVE in response.content.decode()
-        assert LedgerSettings.objects.get(hub=hub).ipa_cents == 600  # nothing written
+        assert not LedgerSettings.objects.exists()  # a refusal writes nothing, not even the row
 
     @pytest.mark.parametrize(("field", "value"), [("ipa", "1000.01"), ("na", "-1"), ("last_year", "1000000.01")])
     def it_holds_the_prices_to_their_caps(hub, lee_client, field, value):
@@ -490,6 +526,65 @@ def describe_set_drink_prices():
         assert "Ensure this value is" in fragment.content.decode()
         assert "data-hq-ledger" in plain.content.decode() and "Ensure this value is" in plain.content.decode()
         assert not LedgerSettings.objects.exists()
+
+
+def describe_the_approval_beside_d6bs_figures():
+    @pytest.mark.parametrize("saved_in_between", ["prices", "tickets", "ticket prices"])
+    def it_saves_the_approval_from_a_page_older_than_a_price_or_tickets_save(hub, lee_client, saved_in_between):
+        LedgerSettingsFactory(hub=hub, approved_cents=90_000, approved_note="Oct 14")
+        page = _found(hub)
+        posts = {
+            "prices": ("ledger_bar_prices", _prices(page)),
+            "tickets": ("ledger_tickets", _tickets(page)),
+            "ticket prices": ("ledger_ticket_prices", _ticket_prices(page)),
+        }
+        name, data = posts[saved_in_between]
+        assert lee_client.post(_url(name, hub), data, **HTMX).status_code == 200
+
+        response = lee_client.post(_url("ledger_approval", hub), _approval(page, approved="1100"))
+
+        found = _found(hub)
+        assert response.status_code == 302
+        assert (found.approved_cents, found.approved_note) == (110_000, "Oct 14")
+
+    def it_still_refuses_the_approval_after_another_approval_save(hub, lee_client, admin_client):
+        LedgerSettingsFactory(hub=hub, approved_cents=90_000, approved_note="Oct 14")
+        page = _found(hub)
+        assert admin_client.post(_url("ledger_approval", hub), _approval(page, approved="1000")).status_code == 302
+
+        response = lee_client.post(_url("ledger_approval", hub), _approval(page, approved="1100", note="Mine"))
+
+        found = _found(hub)
+        assert response.status_code == 200
+        assert "Someone else changed the approval. Your page has been refreshed; make your change again." in (
+            response.content.decode()
+        )
+        assert (found.approved_cents, found.approved_note) == (100_000, "Oct 14")
+
+    def it_takes_a_first_approval_save_on_a_hub_whose_row_a_price_save_made(hub, lee_client):
+        page = _found(hub)
+        assert not LedgerSettings.objects.exists()
+        lee_client.post(_url("ledger_bar_prices", hub), _prices(page), **HTMX)
+
+        response = lee_client.post(_url("ledger_approval", hub), _approval(page, approved="1200", note="Nov vote"))
+
+        found = _found(hub)
+        assert response.status_code == 302
+        assert (found.approved_cents, found.approved_note, found.ipa_cents) == (120_000, "Nov vote", 700)
+
+    def it_holds_a_racing_first_save_to_the_row_the_other_made(hub, monkeypatch):
+        page = _found(hub)
+        create = LedgerSettings.objects.bulk_create
+
+        def _racing(objs: Any, **kwargs: Any) -> Any:  # another organiser's first save lands just before ours
+            LedgerSettingsFactory(hub=hub, ipa_cents=900)
+            return create(objs, **kwargs)
+
+        monkeypatch.setattr(LedgerSettings.objects, "bulk_create", _racing)
+        seen = {"ipa_cents": page.ipa_cents}
+
+        assert services.save_ledger_figures(hub, {"ipa_cents": 700}, seen=seen) is None
+        assert LedgerSettings.objects.get(hub=hub).ipa_cents == 900
 
 
 def describe_the_tiles():
@@ -744,6 +839,16 @@ def describe_the_tickets_form():
         body = response.content.decode()
         assert body.lstrip().startswith('<section class="pl-hq-lg__section" id="hq-lg-wine"')
         assert "data-hq-lg-figure>7</strong>" in body and "$155 raised" in body
+        assert 'id="hq-lg-board-figures" data-hq-lg-board-figures hx-swap-oob="true"' in body
+
+    def it_sends_the_board_paragraph_out_of_band_with_the_new_tickets(hub, kegs, lee_client):
+        LedgerEntryFactory(hub=hub, line=kegs)
+        WineBottleFactory(hub=hub)  # the tickets are said after the wine wall's bottles
+
+        body = lee_client.post(_url("ledger_tickets", hub), _tickets(_found(hub)), **HTMX).content.decode()
+
+        board = body.split('id="hq-lg-board-figures"', 1)[1]
+        assert board.count("7 tickets sold (3 singles at $25 + 2 deals at $40 for 2) raised $155.") == 2
 
     def it_labels_the_inputs_with_the_prices_and_follows_a_price_change(hub, lee_client):
         body = lee_client.get(_page(hub)).content.decode()
@@ -1006,7 +1111,7 @@ def describe_adopting_the_typed_in_raised():
         second = admin_client.post(_url("doors_update", open_hub), follow=True)
 
         assert [str(message) for message in first.context["messages"]] == [
-            "Doors updated: added the Volunteer spots, RSVPs and Member tables goals; raised now counts itself."
+            "Doors updated: added the Volunteer spots, RSVPs and Member tables goals; Raised now counts itself."
         ]
         assert [str(message) for message in second.context["messages"]] == ["The doors are up to date."]
         adopted = HubGoal.objects.get(pk=raised.pk)
@@ -1028,6 +1133,51 @@ def describe_adopting_the_typed_in_raised():
 
         assert seeded.adopted == ""
         assert HubGoal.objects.get(pk=typed.pk).kind == HubGoal.Kind.MANUAL
+
+    def it_adopts_the_goal_labelled_raised_trimmed_and_in_any_case_over_other_money_goals(open_hub):
+        HubGoalFactory(hub=open_hub, label="Pledges", kind=HubGoal.Kind.MANUAL, is_money=True, sort_order=0)
+        raised = HubGoalFactory(hub=open_hub, label="  RAISED ", kind=HubGoal.Kind.MANUAL, sort_order=1)
+
+        seeded = services.seed_goals(open_hub)
+
+        assert seeded.adopted == "  RAISED "
+        assert HubGoal.objects.get(pk=raised.pk).kind == HubGoal.Kind.EVENT_CASH
+        assert HubGoal.objects.get(label="Pledges").kind == HubGoal.Kind.MANUAL
+        assert open_hub.goals.filter(kind=HubGoal.Kind.EVENT_CASH).count() == 1
+
+    def it_adopts_the_one_manual_money_goal_in_place_whatever_its_label(open_hub, admin_client):
+        open_hub.seed_default_cards()
+        HubGoalFactory(hub=open_hub, label="Volunteer pizza", kind=HubGoal.Kind.MANUAL, sort_order=0)
+        cash = HubGoalFactory(
+            hub=open_hub, label="Cash raised", kind=HubGoal.Kind.MANUAL, target=9_000, is_money=True, sort_order=4
+        )
+
+        response = admin_client.post(_url("doors_update", open_hub), follow=True)
+
+        adopted = HubGoal.objects.get(pk=cash.pk)
+        assert (adopted.kind, adopted.label, adopted.target, adopted.sort_order, adopted.is_money) == (
+            HubGoal.Kind.EVENT_CASH,
+            "Cash raised",
+            9_000,
+            4,
+            True,
+        )
+        assert HubGoal.objects.get(label="Volunteer pizza").kind == HubGoal.Kind.MANUAL  # not money, never adopted
+        assert open_hub.goals.filter(kind=HubGoal.Kind.EVENT_CASH).count() == 1
+        assert not open_hub.goals.filter(label="Raised").exists()
+        [message] = [str(message) for message in response.context["messages"]]
+        assert message.endswith("; Raised now counts itself.")
+
+    def it_adopts_nothing_from_two_money_goals_with_none_labelled_raised(open_hub):
+        for position, label in enumerate(("Cash raised", "Pledges")):
+            HubGoalFactory(hub=open_hub, label=label, kind=HubGoal.Kind.MANUAL, is_money=True, sort_order=position)
+
+        seeded = services.seed_goals(open_hub)
+
+        assert seeded.adopted == ""
+        assert "Raised" in seeded.added
+        assert open_hub.goals.filter(kind=HubGoal.Kind.MANUAL).count() == 2
+        assert open_hub.goals.get(kind=HubGoal.Kind.EVENT_CASH).label == "Raised"
 
     def it_says_so_in_the_seed_command():
         event = CommunityEventFactory(community=True, title="Holiday Bizarre")
