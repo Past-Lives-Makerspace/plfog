@@ -39,7 +39,7 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.db.models import (
     Count,
     DecimalField,
@@ -50,7 +50,6 @@ from django.db.models import (
     OuterRef,
     Q,
     QuerySet,
-    RestrictedError,
     Subquery,
     Sum,
 )
@@ -1540,6 +1539,10 @@ class LineHasEntries(Exception):
     """A budget line with entries in the ledger cannot be deleted (``LedgerEntry.line`` is RESTRICT)."""
 
 
+class StaleSave(Exception):
+    """A Save from a page older than the record it edits: someone else saved it after the page loaded."""
+
+
 class ReceiptNotTaken(Exception):
     """A sponsored or donated entry takes no receipt: only money spent or refunded does."""
 
@@ -1992,11 +1995,15 @@ def receipt_entries(hub: EventHub) -> QuerySet[LedgerEntry]:
 
 def save_approval(
     hub: EventHub, *, approved_cents: int, approved_note: str, seen: Mapping[str, int | str | None]
-) -> LedgerSettings | None:
-    """Record the board's approval and its note on ``hub`` through :func:`save_ledger_figures`: refused (None) when the
-    approval the form was rendered with (``seen``) is no longer what the database holds. Only those two fields are
-    written, so D6b's prices and tickets are never overwritten from an older page, and saving them never makes an
-    open approval form stale."""
+) -> LedgerSettings:
+    """Record the board's approval and its note on ``hub`` through :func:`save_ledger_figures`, which locks the row
+    and refuses the save when the approval the form was rendered with (``seen``) is no longer what the database
+    holds. Only those two fields are written, so D6b's prices and tickets are never overwritten from an older page,
+    and saving them never makes an open approval form stale.
+
+    Raises:
+        StaleSave: someone else changed the approval after the page loaded.
+    """
     return save_ledger_figures(hub, {"approved_cents": approved_cents, "approved_note": approved_note}, seen=seen)
 
 
@@ -2006,20 +2013,28 @@ def add_budget_line(hub: EventHub, fields: Mapping[str, Any]) -> BudgetLine:
     return BudgetLine.objects.create(hub=hub, sort_order=0 if last is None else last + 1, **fields)
 
 
-def update_budget_line(line: BudgetLine, fields: Mapping[str, Any]) -> BudgetLine:
-    """Save the line's edited fields."""
-    for name, value in fields.items():
-        setattr(line, name, value)
-    line.save()
-    return line
+def update_budget_line(line: BudgetLine, fields: Mapping[str, Any], *, seen: str) -> BudgetLine:
+    """Save the line's edited fields under a row lock, unless the line was saved after the page loaded: ``seen`` is
+    its ``updated_at`` as the form was rendered with it, and a Save from an older page is refused whole.
+
+    Raises:
+        StaleSave: the line was saved after the page loaded.
+    """
+    with transaction.atomic():
+        locked = BudgetLine.objects.select_for_update().get(pk=line.pk)
+        if seen != locked.updated_at.isoformat():
+            raise StaleSave(f"Someone else changed {locked.name}.")
+        for name, value in fields.items():
+            setattr(locked, name, value)
+        locked.save()
+    return locked
 
 
 def delete_budget_line(line: BudgetLine) -> None:
     """Take a budget line off the budget.
 
     The line's row is locked first, so an entry logged against it (its insert takes a key share lock on the line)
-    waits for the delete rather than slipping in between the count and the delete. Should one land anyway, the
-    database's refusal (Django's ``RestrictedError``, or the foreign key's ``IntegrityError``) is answered by name.
+    waits for the delete rather than slipping in between the count and the delete.
 
     Raises:
         LineHasEntries: the line has entries in the ledger, named with how many when they were counted.
@@ -2032,11 +2047,7 @@ def delete_budget_line(line: BudgetLine) -> None:
                 f"A budget line with entries cannot be deleted: {line.name} has "
                 f"{_plural(count, 'entry', 'entries')} in the ledger. Delete those entries first."
             )
-        try:
-            with transaction.atomic():
-                line.delete()
-        except (RestrictedError, IntegrityError) as exc:  # an entry logged between the count and the delete
-            raise LineHasEntries(f"A budget line with entries cannot be deleted: {line.name} has entries.") from exc
+        line.delete()
 
 
 def add_ledger_entry(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> LedgerEntry:
@@ -2400,21 +2411,25 @@ def add_bar_batch(hub: EventHub, fields: Mapping[str, Any], *, member: Member | 
 
 def save_ledger_figures(
     hub: EventHub, fields: Mapping[str, int | str], *, seen: Mapping[str, int | str | None]
-) -> LedgerSettings | None:
+) -> LedgerSettings:
     """Write ``fields`` on ``hub``'s ledger settings under a row lock, unless the figures the form was rendered with
-    (``seen``) are no longer what the database holds: then nothing is written and None comes back (someone else saved
-    them since). Only ``fields`` are written, so the approval, the prices and the tickets never overwrite each other.
+    (``seen``) are no longer what the database holds: then nothing is written (someone else saved them since). Only
+    ``fields`` are written, so the approval, the prices and the tickets never overwrite each other.
 
     Before the first save the form was rendered from Lee's defaults, so those are what ``seen`` is held to. The row is
     made only when the save goes ahead, so a refusal writes nothing; a first save racing another is held to the row
-    the other made."""
+    the other made.
+
+    Raises:
+        StaleSave: the figures the form was rendered with are no longer what the database holds.
+    """
     with transaction.atomic():
         found = LedgerSettings.objects.select_for_update().filter(hub=hub).first()
         if found is None and not _seen_differs(LedgerSettings(hub=hub), seen):
             LedgerSettings.objects.bulk_create([LedgerSettings(hub=hub)], ignore_conflicts=True)
             found = LedgerSettings.objects.select_for_update().get(hub=hub)
         if found is None or _seen_differs(found, seen):
-            return None
+            raise StaleSave("Someone else changed these figures.")
         for name, value in fields.items():
             setattr(found, name, value)
         found.save(update_fields=[*fields, "updated_at"])

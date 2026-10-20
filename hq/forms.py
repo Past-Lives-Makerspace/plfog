@@ -1104,7 +1104,8 @@ class BudgetLineForm(forms.ModelForm):
 
 class BudgetLineEditForm(BudgetLineForm):
     """Edit one budget line, saved with one Save. Each label names the line ("Line name for Kegs"), and the form
-    carries the line's ``updated_at``: :attr:`is_stale` is a Save from a page older than the line, refused whole."""
+    carries the line's ``updated_at`` as :meth:`seen`, so :func:`hq.services.update_budget_line` can refuse a Save
+    from a page older than the line."""
 
     updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
 
@@ -1119,10 +1120,9 @@ class BudgetLineEditForm(BudgetLineForm):
     def _stamp(self) -> str:
         return self.instance.updated_at.isoformat()
 
-    @property
-    def is_stale(self) -> bool:
-        """Whether the posted stamp differs from the line's: someone saved it after this page loaded."""
-        return self.is_bound and self.data.get(self.add_prefix("updated_at"), "") != self._stamp
+    def seen(self) -> str:
+        """The line's ``updated_at`` as this page was rendered with it."""
+        return str(self.cleaned_data["updated_at"])
 
 
 def _receipt_field() -> forms.FileField:
