@@ -36,7 +36,7 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import (
     Count,
     DecimalField,
@@ -1922,19 +1922,26 @@ def update_budget_line(line: BudgetLine, fields: Mapping[str, Any]) -> BudgetLin
 def delete_budget_line(line: BudgetLine) -> None:
     """Take a budget line off the budget.
 
+    The line's row is locked first, so an entry logged against it (its insert takes a key share lock on the line)
+    waits for the delete rather than slipping in between the count and the delete. Should one land anyway, the
+    database's refusal (Django's ``RestrictedError``, or the foreign key's ``IntegrityError``) is answered by name.
+
     Raises:
-        LineHasEntries: the line has entries in the ledger, named with how many.
+        LineHasEntries: the line has entries in the ledger, named with how many when they were counted.
     """
-    count = line.entries.count()
-    if count:
-        raise LineHasEntries(
-            f"A budget line with entries cannot be deleted: {line.name} has "
-            f"{_plural(count, 'entry', 'entries')} in the ledger. Delete those entries first."
-        )
-    try:
-        line.delete()
-    except RestrictedError as exc:  # an entry logged between the count and the delete
-        raise LineHasEntries(f"A budget line with entries cannot be deleted: {line.name} has entries.") from exc
+    with transaction.atomic():
+        list(BudgetLine.objects.select_for_update().filter(pk=line.pk))
+        count = line.entries.count()
+        if count:
+            raise LineHasEntries(
+                f"A budget line with entries cannot be deleted: {line.name} has "
+                f"{_plural(count, 'entry', 'entries')} in the ledger. Delete those entries first."
+            )
+        try:
+            with transaction.atomic():
+                line.delete()
+        except (RestrictedError, IntegrityError) as exc:  # an entry logged between the count and the delete
+            raise LineHasEntries(f"A budget line with entries cannot be deleted: {line.name} has entries.") from exc
 
 
 def add_ledger_entry(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> LedgerEntry:

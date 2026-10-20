@@ -9,7 +9,8 @@ and a column).
   band          — required, a hq.services.LedgerBand
   board_line    — required, the paragraph shown (Lee's empty line until the ledger has an entry)
   board_summary — required, the paragraph Copy board summary copies
-  approval_form — required, a LedgerApprovalForm (bound when a save failed, which renders it open)
+  approval_form  — required, a LedgerApprovalForm (bound when a save failed, which renders it open)
+  approval_error — optional, a stale Save's refusal shown over a fresh form, which renders it open
 {% endcomment %}
 <section class="pl-hq-lg__board" id="hq-lg-board" aria-label="Board summary" data-hq-lg-board
          x-data="{ copy() { const box = this.$refs.summary; box.focus(); box.select(); if (window.isSecureContext && navigator.clipboard) { navigator.clipboard.writeText(box.value); } else { document.execCommand('copy'); } this.$dispatch('show-toast', { message: 'Board summary copied.', type: 'success' }); } }">
@@ -48,10 +49,12 @@ and a column).
     <button type="button" class="pl-hq-lg__btn pl-hq-lg__btn--panel" @click="copy()" data-hq-lg-copy>Copy board summary</button>
     <a href="{% url 'hq:ledger_csv' hub.slug %}" class="pl-hq-lg__btn pl-hq-lg__btn--panel" hx-boost="false" data-pl-download data-hq-lg-csv>Download ledger (CSV)</a>
   </div>
-  <details class="pl-hq-lg__approval" {% if approval_form.errors %}open{% endif %} data-hq-lg-approval>
+  <details class="pl-hq-lg__approval" {% if approval_form.errors or approval_error %}open{% endif %} data-hq-lg-approval>
     <summary class="pl-hq-lg__approval-summary">Change the approval</summary>
     <form method="post" action="{% url 'hq:ledger_approval' hub.slug %}" class="pl-hq-lg__form pl-hq-lg__approval-form" data-hq-lg-approval-form>
       {% csrf_token %}
+      {{ approval_form.updated_at }}
+      {% if approval_error %}<p class="pl-field-error" role="alert" data-hq-lg-approval-error>{{ approval_error }}</p>{% endif %}
       <div class="pl-hq-lg__fields">
         {% include "components/form_field.html" with field=approval_form.approved field_hint_off=True %}
         {% include "components/form_field.html" with field=approval_form.approved_note field_hint_off=True %}

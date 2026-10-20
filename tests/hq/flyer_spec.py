@@ -525,6 +525,30 @@ def describe_uploading():
         assert HubFlyer.objects.get(hub=hub).last_year_flyer.path == last
 
 
+def describe_deleting_the_hub():
+    def it_takes_both_flyers_out_of_storage_once_the_delete_commits(hub, django_capture_on_commit_callbacks):
+        this_year = _with_flyer(hub).flyer.path
+        last_year = _with_flyer(hub, LAST_YEAR, _pdf()).last_year_flyer.path
+
+        with django_capture_on_commit_callbacks() as pending:
+            hub.delete()
+
+        assert not HubFlyer.objects.exists()
+        assert os.path.exists(this_year) and os.path.exists(last_year)  # still there until the delete has committed
+        for callback in pending:
+            callback()
+        assert not os.path.exists(this_year)
+        assert not os.path.exists(last_year)
+
+    def it_touches_no_file_for_a_page_with_no_flyers(hub, django_capture_on_commit_callbacks):
+        HubFlyer.objects.create(hub=hub)
+
+        with django_capture_on_commit_callbacks() as pending:
+            hub.delete()
+
+        assert pending == []
+
+
 def describe_removing():
     def it_takes_the_flyer_off_the_page_and_out_of_storage(hub, lee_client, django_capture_on_commit_callbacks):
         path = _with_flyer(hub).flyer.path

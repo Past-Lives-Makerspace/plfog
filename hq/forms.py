@@ -6,7 +6,7 @@ and hours, the flyer page's upload and links, and the PL Ledger's: the approval,
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -902,6 +902,28 @@ def _megabytes(limit: int) -> str:
     return f"{limit / (1024 * 1024):.0f}"
 
 
+def checked_image_type(upload: UploadedFile, types: Mapping[str, str], type_error: str) -> str:
+    """The extension of the image in ``upload``, by what Pillow found in the bytes, if that is one of ``types``.
+
+    Opens the bytes with Pillow (:func:`validate_image_content`, which sets the real ``content_type`` and rewinds the
+    file), looks the type up in ``types`` (content type to extension), then refuses an image over the pixel cap before
+    anything decodes it (:func:`validate_image_pixels`). A file Pillow opens in any other format (a GIF, BMP, TIFF,
+    ICO or EPS) is refused like one it cannot open. The name and the declared type never decide.
+
+    Raises:
+        ValidationError: ``type_error`` for anything not in ``types``, or the pixel cap's own words.
+    """
+    try:
+        validate_image_content(upload)
+    except ValidationError:
+        raise ValidationError(type_error) from None
+    extension = types.get(upload.content_type or "")
+    if extension is None:
+        raise ValidationError(type_error)
+    validate_image_pixels(upload)
+    return extension
+
+
 class FlyerUploadForm(forms.Form):
     """Upload or replace one flyer: an image (JPG, PNG, WEBP; up to ``MAX_UPLOAD_IMAGE_BYTES``) or a PDF (up to
     ``MAX_UPLOAD_DOCUMENT_BYTES``), told apart by the bytes, never the name or the declared type. An image over
@@ -936,16 +958,7 @@ class FlyerUploadForm(forms.Form):
             return upload
         if upload.size > settings.MAX_UPLOAD_IMAGE_BYTES:
             raise ValidationError(f"An image must be {_megabytes(settings.MAX_UPLOAD_IMAGE_BYTES)} MB or smaller.")
-        try:
-            # Opens the bytes with Pillow, sets the real content_type and rewinds the file.
-            forms.ImageField().to_python(upload)
-        except ValidationError:
-            raise ValidationError(FLYER_TYPE_ERROR) from None
-        extension = FLYER_IMAGE_TYPES.get(upload.content_type or "")
-        if extension is None:
-            raise ValidationError(FLYER_TYPE_ERROR)
-        validate_image_pixels(upload)
-        upload.name = f"{stem}.{extension}"
+        upload.name = f"{stem}.{checked_image_type(upload, FLYER_IMAGE_TYPES, FLYER_TYPE_ERROR)}"
         return upload
 
 
@@ -986,13 +999,16 @@ class FlyerLinksForm(forms.ModelForm):
 LEDGER_MAX_DOLLARS = 1_000_000
 
 RECEIPT_TYPE_ERROR = "That file is not a receipt we can keep. Use a photo (JPG, PNG, WEBP or HEIC) or a PDF."
+
+# What a receipt photo may be: the flyer's three, and a phone's HEIC (Pillow names HEIC and HEIF alike ``image/heif``).
+RECEIPT_IMAGE_TYPES: dict[str, str] = {**FLYER_IMAGE_TYPES, "image/heif": "heic"}
 RECEIPT_NOT_TAKEN = "A sponsored or donated entry takes no receipt."
 
 
 def checked_receipt(upload: UploadedFile) -> UploadedFile:
-    """A receipt as uploaded: a PDF (its first bytes, held to ``MAX_UPLOAD_DOCUMENT_BYTES``) or a photo, checked by
-    the shared image validators (``core.validators``: the byte cap, the content Pillow can open, and the pixel cap
-    before anything decodes it). Never the name or the declared type.
+    """A receipt as uploaded: a PDF (its first bytes, held to ``MAX_UPLOAD_DOCUMENT_BYTES``) or a photo, held to
+    ``MAX_UPLOAD_IMAGE_BYTES`` and checked by :func:`checked_image_type` against :data:`RECEIPT_IMAGE_TYPES` (JPG,
+    PNG, WEBP or HEIC, and the pixel cap before anything decodes it). Never the name or the declared type.
 
     The file is renamed to what was found (``.pdf``, or the photo's format), so the entry tells a PDF from a photo by
     its name: a photo is re-encoded to a JPEG on save, a PDF is stored as it came.
@@ -1012,13 +1028,7 @@ def checked_receipt(upload: UploadedFile) -> UploadedFile:
         upload.content_type = "application/pdf"
         return upload
     validate_image_size(upload)
-    try:
-        validate_image_content(upload)
-    except ValidationError:
-        raise ValidationError(RECEIPT_TYPE_ERROR) from None
-    validate_image_pixels(upload)
-    image_format = (upload.image.format or "jpeg").lower()  # type: ignore[attr-defined]  # set by validate_image_content
-    upload.name = f"{stem}.{'jpg' if image_format == 'jpeg' else image_format}"
+    upload.name = f"{stem}.{checked_image_type(upload, RECEIPT_IMAGE_TYPES, RECEIPT_TYPE_ERROR)}"
     return upload
 
 
@@ -1047,7 +1057,10 @@ def _dollars_initial(cents: int) -> Decimal:
 
 
 class LedgerApprovalForm(forms.Form):
-    """The board's approval: the amount and the line under it (Lee's "Drinks budget, Oct 14 meeting")."""
+    """The board's approval: the amount and the line under it (Lee's "Drinks budget, Oct 14 meeting").
+
+    The form carries the settings' ``updated_at`` (blank before the first save): :meth:`is_stale` is a Save from a
+    page older than the settings, refused whole."""
 
     approved = _money("Board approval ($)")
     approved_note = forms.CharField(
@@ -1056,10 +1069,25 @@ class LedgerApprovalForm(forms.Form):
         label="Note",
         widget=forms.TextInput(attrs={"placeholder": "e.g. Drinks budget, Oct 14 meeting"}),
     )
+    updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
+
+    @staticmethod
+    def stamp(found: LedgerSettings) -> str:
+        """The settings' ``updated_at`` as the form carries it; blank for the unsaved defaults."""
+        return found.updated_at.isoformat() if found.pk is not None else ""
 
     @classmethod
     def initial_for(cls, found: LedgerSettings) -> dict[str, Any]:
-        return {"approved": _dollars_initial(found.approved_cents), "approved_note": found.approved_note}
+        return {
+            "approved": _dollars_initial(found.approved_cents),
+            "approved_note": found.approved_note,
+            "updated_at": cls.stamp(found),
+        }
+
+    def is_stale(self, found: LedgerSettings | None) -> bool:
+        """Whether the posted stamp differs from the saved settings': someone saved them after this page loaded. A
+        first save, with no settings row yet (``found`` is None), is never stale."""
+        return found is not None and self.data.get("updated_at", "") != self.stamp(found)
 
     def to_fields(self) -> dict[str, Any]:
         return {

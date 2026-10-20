@@ -1565,7 +1565,8 @@ class HubFlyer(models.Model):
 
     This year's and last year's flyer are each an image (JPG, PNG or WEBP, re-encoded to a JPEG at the hero's long
     edge on save) or a PDF (stored as it came); the upload form checks the content, not the name. A replaced or
-    cleared file is deleted from storage once the save that replaced it has committed. The RSVP figure and the businesses with flyers are never stored here:
+    cleared file is deleted from storage once the save that replaced it has committed, and both files once a delete
+    of the row commits (``hq.signals``, so a hub deleted with everything on it takes them too). The RSVP figure and the businesses with flyers are never stored here:
     the page reads them live from the event and the Marketing Tracker.
     """
 
@@ -1835,14 +1836,6 @@ class LedgerEntry(models.Model):
         super().save(*args, **kwargs)
         if old and old != (self.receipt.name or ""):
             transaction.on_commit(partial(delete_if_unreferenced, LedgerEntry, "receipt", old, exclude_pk=self.pk))
-
-    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
-        """Delete the row, then its receipt once the delete commits and no other entry points at the file."""
-        receipt = self.receipt.name or ""
-        result = super().delete(*args, **kwargs)
-        if receipt:
-            transaction.on_commit(partial(delete_if_unreferenced, LedgerEntry, "receipt", receipt))
-        return result
 
     @property
     def takes_receipt(self) -> bool:
