@@ -170,6 +170,22 @@ The hub's `<details>` pattern: a bordered summary row with a title, an optional 
 - Drop `.pl-disclosure__text` and put `.pl-disclosure__title` straight in the summary when there is no hint; a leading badge or icon span (`.pl-teach-faq__badge`, `.pl-teach-guide__icon`) goes first.
 - Add `open` to the first item of an accordion so the section never looks empty.
 
+### Tab row and section picker (`{% tab_picker %}`)
+
+A row of tabs is the shared `.pl-tabs` strip of `.vote-tab` links (`aria-current="page"` on the current one) or in-page Alpine buttons. On a phone a long row hid most of its tabs off the right edge, so every top level row is wrapped in `{% tab_picker "<eyebrow>" %}` (`core/templatetags/tab_picker.py`, `{% load tab_picker %}`): the row renders exactly as written for 640px and up, and below 640px it hides and `components/tab_picker.html` takes its place, one row naming the group (the eyebrow), the current section and "n of N" that opens a list of every section. The picker reads its sections out of the row it wraps, so the `{% if %}`s that decide who gets which tab stay on the row and the two can never disagree; a row with fewer than two tabs gets no picker.
+
+```html
+{% tab_picker "Guild Sections" %}
+<nav role="tablist" class="pl-tabs">…</nav>
+{% endtab_picker %}
+```
+
+- A row of links works with no script (`<details>`); a row of buttons is mirrored in the browser by `plTabPicker` (`static/js/tab_picker.js`), whose choices press the row's own button, so the pane switches as a desktop click would. Both close on Escape and on a tap outside.
+- Keep a count in the label as "Label (3)" or in a child whose class names a count (`pl-kiln-count`); the picker shows it apart.
+- Wrap only the row, not an `{% if %}` around it: the tag fails loudly when it wraps no `.pl-tabs` row.
+- A row nested under another (the per-class tabs under the Classes portal row) is not a picker: nested navigation must never look the same twice. The class screen's own tabs come from `{% class_sections %}` (`classes/_components/class_sections.html`), which on a phone shows a list of every other section with a one line hint on the Overview and a back row ("‹ Class Overview", where you are, "n of N") on every other tab.
+- Filter chips are not tabs: `.pl-wp-chiprow` scrolls by itself and never borrows `.pl-tabs`.
+
 ### Confirm Modal (`components/confirm_modal.html`)
 
 For destructive actions (delete, void, deactivate).
@@ -300,7 +316,7 @@ def add_to_cart(request, pk):
 | Script | Where | Why |
 |--------|-------|-----|
 | htmx, head-support, Alpine, `hub_boot.js`, `biometric-auth.js`, `pl_help.js` | `hub/base.html` `<head>`, `defer` | Run **once per document**. A second htmx replaces `window.onpopstate` and breaks Back; a second Alpine initialises the page before page scripts have registered their components. Never load either again from a page. |
-| **Every** static file that registers an `Alpine.data(...)` component (`hero_placement.js`, `session_calendar.js`, `card_focus.js`, `space_map.js`, `guild_autosave.js`, `list_calendar.js`, `orientation_row.js`, `equipment_ways.js`, `inquiry_member_picker.js`), even one only a single page uses | `hub/base.html` `<head>`, `defer`, **before** `alpine.min.js` | Alpine initialises a swapped page a microtask after htmx inserts it, before any script the page itself loads could arrive, so the component has to be registered before the navigation starts. A body or `extra_head` copy is dead on every in-app arrival (`cardFocus is not defined`). Register defensively, on whichever side of `alpine:init` the script lands: `if (window.Alpine) register(); else document.addEventListener('alpine:init', register);` |
+| **Every** static file that registers an `Alpine.data(...)` component (`hero_placement.js`, `session_calendar.js`, `card_focus.js`, `space_map.js`, `guild_autosave.js`, `list_calendar.js`, `orientation_row.js`, `equipment_ways.js`, `inquiry_member_picker.js`, `tab_picker.js`), even one only a single page uses | `hub/base.html` `<head>`, `defer`, **before** `alpine.min.js` | Alpine initialises a swapped page a microtask after htmx inserts it, before any script the page itself loads could arrive, so the component has to be registered before the navigation starts. A body or `extra_head` copy is dead on every in-app arrival (`cardFocus is not defined`). Register defensively, on whichever side of `alpine:init` the script lands: `if (window.Alpine) register(); else document.addEventListener('alpine:init', register);` |
 | An inline `<script>` in a page or partial that registers a component or defines a function `x-data` calls | In the body content, as today | htmx runs it synchronously as it inserts the page, before Alpine initialises anything. Use the same defensive registration (`hub/wiki_edit.html`, `hub/meeting_workspace.html`); a plain `alpine:init` listener never fires on a boosted arrival. |
 | Anything else in `<body>` (`_tour.html`, the toast and loading bar scripts, `hero_cropper.js`) | Body | Re-runs on **every** boosted arrival. Make it a guarded IIFE (`if (window.__x) return; window.__x = true;`) or delegate on `document`; per-page boot logic that needs the fresh DOM belongs here on purpose. |
 

@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static %}
+{% load static tab_picker %}
 {% block title %}Reservations{% endblock %}
 
 {% block extra_head %}
@@ -22,11 +22,13 @@
 
 {# The List / Calendar / Bookings panes (#502, #627): plListCalendar in static/js/list_calendar.js; each pane past List is built only when it opens. #}
 <div x-data="plListCalendar('{{ pane }}')">
+{% tab_picker "Reservations" %}
 <nav class="pl-tabs" role="tablist" aria-label="Reservations views">
   <button type="button" role="tab" class="vote-tab" :class="{ 'vote-tab--active': pane === 'list' }" :aria-selected="pane === 'list' ? 'true' : 'false'" @click="setPane('list')">List</button>
   <button type="button" role="tab" class="vote-tab" :class="{ 'vote-tab--active': pane === 'calendar' }" :aria-selected="pane === 'calendar' ? 'true' : 'false'" @click="setPane('calendar')">Calendar</button>
   <button type="button" role="tab" class="vote-tab" :class="{ 'vote-tab--active': pane === 'bookings' }" :aria-selected="pane === 'bookings' ? 'true' : 'false'" @click="setPane('bookings')">Bookings</button>
 </nav>
+{% endtab_picker %}
 
 <div x-ref="listPane" x-show="pane === 'list'" {% if pane != "list" %}x-cloak{% endif %}>
 {% if has_any_equipment %}

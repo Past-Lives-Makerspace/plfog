@@ -392,7 +392,16 @@ A tool's orientation works the same way. When none of its times are open, its ca
 
 ## Cancel Your Booking {#orientation-cancel-booking}
 
-On the guild page, your booking shows under **Your orientation** with a **Cancel my orientation** button. Click it and confirm with **Cancel orientation**. Every orientation email also carries a cancel link. You can cancel any time, before or after it's confirmed, and request a new time whenever you're ready. To reschedule, cancel and book again.
+On the guild page, your booking shows under **Your orientation** with a **Cancel my orientation** button. Click it and confirm with **Cancel orientation**. Every orientation email also carries a cancel link. You can cancel any time, before or after it's confirmed, and request a new time whenever you're ready. To change the time yourself, cancel and book again.
+
+## If Your Orientation Moves {#orientation-moved}
+
+Sometimes a guild lead or an equipment manager needs a different time. They move your booking one of two ways:
+
+1. **They move it for you.** You get an email with the old time, the new time and an updated calendar invite. Your booking is confirmed at the new time.
+2. **They ask you first.** You get an email and a notice with **Accept new time** and **Keep my current time**. The same two buttons show on your booking on the guild or equipment page. Your booking stays at its current time until you answer. Accepting moves and confirms it.
+
+Either way, your payment stays with the booking. Nothing is refunded and nothing is charged again. If the new time doesn't work, cancel it. A booking that was moved for you never costs a late cancellation fee.
 
 ## Good to Know
 
@@ -1690,6 +1699,15 @@ When a member requests a slot, the guild lead and every staff member get an emai
 
 Confirming emails the member a calendar invite. Declining emails them your note. If plans change after you've confirmed, **Cancel this orientation** notifies the member; members can also cancel their own bookings, and you'll see the status change.
 
+### Move a Booking to Another Time {#orientation-move-booking}
+
+**Move to Another Time**, on the request page and in a requested or confirmed row's **...** menu, picks a new date and start time. Choose how it moves:
+
+- **Move it now** confirms the new time and emails the member the old and new time with an updated calendar invite.
+- **Ask the member first** keeps their current time and emails them **Accept new time** and **Keep my current time**; their booking card shows the same buttons. You get a notice with their answer. A second ask replaces the first.
+
+The new time runs with the same orienter. The payment stays with the booking either way: nothing is refunded or charged. A member who cancels a booking you moved never pays a late cancellation fee.
+
 ### Manage Bookings {#manage-bookings}
 
 **Manage Bookings** in the left menu is the one place for everything you run. Leads, staff, equipment managers and admins see it; nobody else does. **Needs Attention** holds the orientation requests waiting on you and the reservation requests on equipment you manage, with their actions in each row's menu. **What You Run** is one card per guild and piece of equipment you run: whether booking is on, its orientations, and links to its Orientations page and its Bookings. **Your Hours** is your own recurring hours everywhere, with **Edit Hours**.
@@ -1702,7 +1720,7 @@ Click **Orientations** in the left menu, then the **Bookings** tab. Leads, staff
 
 The chips pick what you see: **Upcoming** (the default), **Needs a Reply** (requests waiting on you, with the count), **Past**, and **All**. Search by member or orientation, filter by guild, status, oriented, or date range, sort a column, and click **Export CSV** to download exactly what you've filtered.
 
-Each row's **...** menu holds what you can do with that booking: confirm or decline a request, **Mark Oriented** or **Undo Oriented**, cancel a confirmed orientation, waive a late cancellation fee, and, if you can issue refunds, **Refund**. You land back on the tab with your filters kept.
+Each row's **...** menu holds what you can do with that booking: confirm or decline a request, **Move to Another Time**, **Mark Oriented** or **Undo Oriented**, cancel a confirmed orientation, waive a late cancellation fee, and, if you can issue refunds, **Refund**. You land back on the tab with your filters kept.
 
 ![The Bookings tab: chips, filters, the table, and Export CSV.](/static/help/running-orientations/03-orientations-dashboard.png)
 

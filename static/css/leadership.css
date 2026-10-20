@@ -1,6 +1,6 @@
 /* Leadership Directory (#464, part 2; tabs #564): the Plate card treatment.
-   Under the hero, hub.css's shared .pl-tabs strip opens one pane per tab; it scrolls sideways
-   inside itself on a phone. A brass nameplate sits over the edge of each card's visual. The team card's visual is a
+   Under the hero, hub.css's shared .pl-tabs strip opens one pane per tab; on a phone the
+   section picker beside it takes its place (#852, components.css). A brass nameplate sits over the edge of each card's visual. The team card's visual is a
    round portrait in a gold ring (#476), cropped to its centre square like the Member
    Directory circle so a face is never cut off; a member with no visible photo gets their
    initials in the same ring. Guild cards carry the guild's SVG logo on the navy gradient.
@@ -50,7 +50,8 @@
 }
 
 /* The column's gap already spaces the strip from the hero and the pane. */
-.pl-leadership > .pl-tabs {
+.pl-leadership > .pl-tabs,
+.pl-leadership > .pl-tab-picker {
     margin-bottom: 0;
 }
 
@@ -366,7 +367,8 @@ a.pl-leader-card__row:focus-visible {
     margin-bottom: 1.25rem;
 }
 
-.pl-leadership-admin__strip > .pl-tabs {
+.pl-leadership-admin__strip > .pl-tabs,
+.pl-leadership-admin__strip > .pl-tab-picker {
     flex: 1 1 auto;
     min-width: 0;
     margin-bottom: 0;
@@ -375,6 +377,14 @@ a.pl-leader-card__row:focus-visible {
 .pl-leadership-admin__strip > .hub-btn {
     flex: 0 0 auto;
     margin-bottom: 0.4rem;
+}
+
+/* On a phone the strip is the section picker (#852), which needs the whole row to name a tab,
+   so + Add a tab moves under it. Same line as the picker's own (components.css). */
+@media (max-width: 639.98px) {
+    .pl-leadership-admin__strip { flex-wrap: wrap; }
+    .pl-leadership-admin__strip > .pl-tab-picker { flex-basis: 100%; }
+    .pl-leadership-admin__strip > .hub-btn { margin: 0 0 0 auto; }
 }
 
 /* Display lives in the class so Alpine's x-show only toggles display:none (FRONTEND.md Rule 12). */

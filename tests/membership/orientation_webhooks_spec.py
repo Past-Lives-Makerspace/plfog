@@ -212,7 +212,7 @@ def describe_handle_checkout_session_expired():
     def it_deletes_the_orphan_custom_slot_too():
         settings_obj = GuildOrientationSettingsFactory()
         OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
-        slot = OrientationSlotFactory(guild=settings_obj.guild, seats=1, source=OrientationSlot.Source.MANUAL)
+        slot = OrientationSlotFactory(guild=settings_obj.guild, seats=1, source=OrientationSlot.Source.CUSTOM)
         hold = OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT)
         webhook_handlers.handle_checkout_session_expired(_event(booking_id=hold.pk))
         assert not OrientationSlot.objects.filter(pk=slot.pk).exists()

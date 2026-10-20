@@ -21,6 +21,7 @@ is_staff_view (the staff columns) and viewer_has_refund_authority (the Paid colu
   <td{% if is_staff_view %} data-label="Status"{% endif %} class="pl-bookings-table__status">
     <span class="hub-pill {% if b.status == 'confirmed' %}hub-pill--ok{% elif b.status == 'requested' or b.status == 'pending_payment' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-booking-status="{{ b.status }}">{{ b.get_status_display }}</span>
     {% if b.is_completed %}<span class="hub-pill hub-pill--ok" data-booking-oriented>Oriented</span>{% endif %}
+    {% if b.has_open_proposal %}<span class="hub-pill hub-pill--warn" data-booking-proposal>New time asked</span>{% endif %}
     {% if row.fee_unpaid %}<span class="hub-pill hub-pill--danger" data-booking-fee>Fee unpaid</span>{% endif %}
     {% if not is_staff_view and b.amount_paid_cents %}
     <span class="pl-bookings-table__paid">{% if b.refund_state == "full" or b.refund_state == "partial" %}Refunded{% else %}Paid {{ b.amount_paid_cents|cents_as_price }}{% endif %}</span>

@@ -1,0 +1,15 @@
+{% extends "membership/emails/_base.html" %}
+{% block content %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">Your orientation has a new time</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">Your <strong><a href="{{ owner_url }}" style="color: #0d4876; text-decoration: none;">{{ owner_name }}</a></strong> orientation moved, and the new time is confirmed.</p>
+<p style="margin: 0 0 4px; font-size: 13px; color: #55697a;">Was {{ old_starts_at|date:"l, F j" }} at {{ old_starts_at|time:"g:i A" }}</p>
+{% include "membership/emails/_slot.html" %}
+{% if booking.amount_paid_cents %}<p style="margin: 0 0 8px; font-size: 13px; color: #55697a; line-height: 1.6;">Your payment stays with this booking. Nothing was refunded or charged.</p>{% endif %}
+<p style="margin: 0 0 16px; font-size: 13px; color: #55697a; line-height: 1.6;">We've attached an updated calendar invite. See you there!</p>
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ owner_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View the {{ owner_page_label }}</a>
+</div>
+<p style="margin: 16px 0 0; text-align: center; font-size: 12px; color: #55697a;">Can't make the new time? <a href="{{ cancel_url }}" style="color: #0d4876;">Cancel your orientation</a></p>
+<p style="margin: 8px 0 0; text-align: center; font-size: 12px; color: #55697a;">Because the time was moved for you, cancelling never costs a late fee.</p>
+{% endblock %}

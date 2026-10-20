@@ -121,7 +121,9 @@ def describe_filing_kiln_tickets():
         page.set_viewport_size({"width": 390, "height": 844})
         page.goto(f"{live_server.url}{reverse('hub_guild_detail', args=[guild.slug])}")
         expect(page.locator('.hub-sidebar a[data-nav="kiln"]')).to_have_count(0)
-        page.locator('[data-guild-tab="kiln"]').click()
+        # At phone width the guild's sections are behind the section picker (#852).
+        page.locator(".pl-tab-picker__summary").click()
+        page.locator(".pl-tab-picker__item", has_text="Kiln Tickets").click()
         pane = page.locator("[data-guild-kiln]")
         expect(pane.get_by_role("heading", level=2, name="Kiln Tickets")).to_be_visible()
 
