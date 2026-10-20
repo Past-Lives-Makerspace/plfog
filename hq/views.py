@@ -148,11 +148,14 @@ def _hub_editor(request: HttpRequest, hub: EventHub) -> HttpResponse:
 @fog_admin_required
 @require_POST
 def doors_update(request: HttpRequest, slug: str) -> HttpResponse:
-    """Bring Lee's doors up to date on this hub: built doors adopt their placeholders, untouched words take her latest."""
+    """Bring Lee's doors up to date on this hub: built doors adopt their placeholders, untouched words take her latest,
+    and a counted goal the hub lacks by kind is added (:func:`hq.services.seed_goals`)."""
     with transaction.atomic():
-        # The row lock makes a double-submit wait for the first, so it finds the doors made and adds none.
+        # The row lock makes a double-submit wait for the first, so it finds the doors and goals made and adds none.
         hub = get_object_or_404(EventHub.objects.select_for_update(), slug=slug)
-        summary = hub.seed_default_cards().summary
+        seeded = hub.seed_default_cards()
+        seeded.goals_added = services.seed_goals(hub).added
+        summary = seeded.summary
     messages.success(request, summary)
     return redirect(hub.get_absolute_url())
 
@@ -823,6 +826,12 @@ class VendorRow:
 
     table: VendorTable
     form: VendorTableEditForm
+    # A refusal the form does not carry: a Save from a page older than the row (``VENDOR_STALE_SAVE``).
+    error: str = ""
+
+
+# A row's Save whose ``updated_at`` no longer matches the database: someone else saved it since the page loaded.
+VENDOR_STALE_SAVE = "Someone else changed this table. Your page has been refreshed; make your change again."
 
 
 def _vendor_prefix(table: VendorTable) -> str:
@@ -840,13 +849,13 @@ def _vendor_edit_form(table: VendorTable, guilds: list[Guild], data: Any = None)
 
 
 def _vendor_team(card: HubCard) -> tuple[str, str]:
-    """Who manages the door, from its first named member: their display name for the header ("" for nobody) and
-    their first name for the Requested tile, else the vendor team."""
-    named = list(card.named_members.all())
-    if not named:
+    """Who manages the door, from its first named member by pk: their display name for the header ("" for nobody
+    or a blank name) and their first name for the Requested tile, else the vendor team."""
+    first = card.named_members.order_by("pk").first()
+    if first is None:
         return "", services.VENDOR_TEAM_FALLBACK
-    name = named[0].display_name
-    return name, name.split()[0]
+    name = first.display_name.strip()
+    return name, (name.split() or [services.VENDOR_TEAM_FALLBACK])[0]
 
 
 def _vendors_context(
@@ -860,19 +869,21 @@ def _vendors_context(
     floor_form: VendorFloorForm | None = None,
     keep_pk: int | None = None,
     row_form: VendorTableEditForm | None = None,
+    row_error: str = "",
 ) -> dict[str, Any]:
     """What the page and its board render. Organisers alone reach it, so every row carries its edit form.
 
-    ``keep_pk`` is a request kept in view whatever the filter (the one just added or refused), and
-    ``row_form`` that row's bound form when its Save was refused.
+    ``keep_pk`` is a request kept in view whatever the filter (the one just added or refused), ``row_form``
+    that row's bound form when its Save was refused, and ``row_error`` a refusal shown on that row.
     """
     guilds = services.active_guilds()
     band_context = _vendor_band_context(hub, card)
     band: services.VendorBand = band_context["band"]
     rows = []
     for table in services.filtered_vendor_tables(hub, show, keep_pk=keep_pk):
-        form = row_form if row_form is not None and table.pk == keep_pk else _vendor_edit_form(table, guilds)
-        rows.append(VendorRow(table=table, form=form))
+        kept = table.pk == keep_pk
+        form = row_form if row_form is not None and kept else _vendor_edit_form(table, guilds)
+        rows.append(VendorRow(table=table, form=form, error=row_error if kept else ""))
     return {
         **band_context,
         "hub": hub,
@@ -942,20 +953,32 @@ def vendor_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpRes
 @organizer_required(HubCard.Kind.VENDOR_TABLES)
 def vendor_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
     """Save one row, by the actual role. Over htmx only that row comes back (with the band out of band), so
-    what is typed in any other row stays put; a refused Save comes back with its errors and saves nothing."""
-    table = get_object_or_404(hub.vendor_tables.select_related("guild"), pk=pk)
+    what is typed in any other row stays put; a refused Save comes back with its errors and saves nothing.
+
+    A Save from a page older than the row (its ``updated_at`` no longer matches) is refused whole: the row comes
+    back as the database holds it, with :data:`VENDOR_STALE_SAVE`, so one organiser never overwrites another.
+    """
     show = _vendor_posted_filter(request)
     guilds = services.active_guilds()
-    form = _vendor_edit_form(table, guilds, request.POST)
     fragment = wants_fragment(request)
-    if not form.is_valid():
-        if not fragment:
-            context = _vendors_context(request, hub, card, show=show, keep_pk=table.pk, row_form=form)
-            return render(request, "hq/vendors.html", context)
-        # The refused form changed the row in memory; the row's own words come from the database.
-        saved = hub.vendor_tables.select_related("guild").get(pk=table.pk)
-        return _vendor_row_answer(request, hub, card, VendorRow(table=saved, form=form))
-    services.update_vendor_table(table, form.to_fields())
+    with transaction.atomic():
+        # The row lock holds a second Save until the first is in, so the second sees the new stamp and is refused.
+        table = get_object_or_404(hub.vendor_tables.select_related("guild").select_for_update(of=("self",)), pk=pk)
+        form = _vendor_edit_form(table, guilds, request.POST)
+        if form.is_stale:
+            if not fragment:
+                context = _vendors_context(request, hub, card, show=show, keep_pk=table.pk, row_error=VENDOR_STALE_SAVE)
+                return render(request, "hq/vendors.html", context)
+            fresh = VendorRow(table=table, form=_vendor_edit_form(table, guilds), error=VENDOR_STALE_SAVE)
+            return _vendor_row_answer(request, hub, card, fresh)
+        if not form.is_valid():
+            if not fragment:
+                context = _vendors_context(request, hub, card, show=show, keep_pk=table.pk, row_form=form)
+                return render(request, "hq/vendors.html", context)
+            # The refused form changed the row in memory; the row's own words come from the database.
+            saved = hub.vendor_tables.select_related("guild").get(pk=table.pk)
+            return _vendor_row_answer(request, hub, card, VendorRow(table=saved, form=form))
+        services.update_vendor_table(table, form.to_fields())
     if not fragment:
         messages.success(request, f"{table.name} saved.")
         return redirect(_vendors_url(hub, show))

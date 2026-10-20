@@ -655,8 +655,14 @@ class VendorTableEditForm(VendorTableForm):
     """One row of the list: every field of the add form plus the status and the table number, saved with one Save.
 
     Rendered across the row's cells, each control tied to the row's form by its ``form`` attribute
-    (``form_id``), since a form cannot wrap a table row.
+    (``form_id``), since a form cannot wrap a table row. Each label names the row ("Email for Riverbend
+    Ceramics"), so a screen reader moving through the cells hears whose field it is in.
+
+    ``updated_at`` carries the row's stamp as the page saw it; :attr:`is_stale` is a Save from a page older
+    than the row, which the view refuses whole.
     """
+
+    updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
 
     class Meta(VendorTableForm.Meta):
         fields = [*VendorTableForm.Meta.fields, "status", "table_no"]
@@ -674,8 +680,21 @@ class VendorTableEditForm(VendorTableForm):
     def __init__(self, *args: Any, form_id: str, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.form_id = form_id
-        for field in self.fields.values():
+        self.fields["updated_at"].initial = self._stamp
+        for name in self._meta.fields or ():
+            field = self.fields[name]
             field.widget.attrs["form"] = form_id
+            field.label = f"{field.label} for {self.instance.name}"
+
+    @property
+    def _stamp(self) -> str:
+        """The row's ``updated_at`` as the hidden field carries it; an edit form's row is always saved."""
+        return self.instance.updated_at.isoformat()
+
+    @property
+    def is_stale(self) -> bool:
+        """Whether the posted stamp differs from the row's: someone saved it after this page loaded."""
+        return self.is_bound and self.data.get(self.add_prefix("updated_at"), "") != self._stamp
 
 
 class VendorFloorForm(forms.Form):

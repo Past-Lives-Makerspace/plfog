@@ -184,6 +184,13 @@ class Migration(migrations.Migration):
                     models.DateTimeField(auto_now_add=True, help_text="When the request was entered."),
                 ),
                 (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="When the request was last saved; a row's Save older than this is refused.",
+                    ),
+                ),
+                (
                     "created_by",
                     models.ForeignKey(
                         blank=True,

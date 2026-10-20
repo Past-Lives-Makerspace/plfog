@@ -768,7 +768,7 @@ Admins see an **Edit HQ** button at the top of the page and an **Edit** link und
 
 The **Volunteer Sign-up** card's page also carries the shifts: add one, change what it says or how many people it needs, or delete one nobody has signed up for.
 
-When a new page is ready, **Update the doors** at the top of **Edit HQ** opens it: the greyed card becomes the live door, keeping who may open it, its named members and its place. Card words nobody has edited take Lee's latest; anything you edited stays.
+When a new page is ready, **Update the doors** at the top of **Edit HQ** opens it: the greyed card becomes the live door, keeping who may open it, its named members and its place. Card words nobody has edited take Lee's latest; anything you edited stays. It also adds any of Lee's counted goals the HQ is missing, such as **Member tables**, at the end of the goal row. A counted goal you deleted comes back the next time you press it; a goal you type in yourself, like **Raised**, is never added back.
 
 The sidebar entry's switch is at **Site Settings > Features**.
 """,

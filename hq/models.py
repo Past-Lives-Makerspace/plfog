@@ -214,6 +214,8 @@ class CardSeed:
     placeholders_skipped: bool = False
     # Live doors made on a hub that already had cards: admins only, and a renamed placeholder may sit beside them.
     added_beside: list[str] = field(default_factory=list)
+    # The labels of Lee's goals the same press added (``hq.services.seed_goals``), in the order they were added.
+    goals_added: list[str] = field(default_factory=list)
 
     @property
     def summary(self) -> str:
@@ -225,6 +227,8 @@ class CardSeed:
             parts.append(f"added {self.created} door{'' if self.created == 1 else 's'}")
         if self.reworded:
             parts.append(f"gave {self.reworded} card{'' if self.reworded == 1 else 's'} Lee's latest words")
+        if self.goals_added:
+            parts.append(_goals_phrase(self.goals_added))
         if not parts:
             return "The doors are up to date."
         sentence = f"Doors updated: {'; '.join(parts)}."
@@ -234,6 +238,13 @@ class CardSeed:
                 " If an old Not shared yet card for it is still on the page, delete that one."
             )
         return sentence
+
+
+def _goals_phrase(labels: list[str]) -> str:
+    """ "added the Member tables goal", or "added the RSVPs and Member tables goals" for several."""
+    if len(labels) == 1:
+        return f"added the {labels[0]} goal"
+    return f"added the {', '.join(labels[:-1])} and {labels[-1]} goals"
 
 
 class HubCard(models.Model):
@@ -1301,6 +1312,9 @@ class VendorTable(models.Model):
         help_text="The organiser who entered the request.",
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the request was entered.")
+    updated_at = models.DateTimeField(
+        auto_now=True, help_text="When the request was last saved; a row's Save older than this is refused."
+    )
 
     class Meta:
         ordering = [_VENDOR_STATUS_ORDER, Lower("name"), "pk"]

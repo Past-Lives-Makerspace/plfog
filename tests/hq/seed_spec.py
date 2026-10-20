@@ -302,17 +302,47 @@ def describe_seeding():
         assert not hub.cards.filter(title="PL Ledger").exists()
         assert "Cards: 1 created, 8 kept as edited." in out
 
-    def it_adds_goals_and_shifts_only_to_a_hub_that_holds_none(event):
+    def it_adds_only_the_counted_goals_to_a_hub_that_holds_some_and_no_shifts_to_one_that_holds_any(event):
         hub = EventHubFactory(slug=HUB.slug, title="Lee's HQ", event=event)
-        HubGoalFactory(hub=hub, label="Raised")
+        HubGoalFactory(hub=hub, label="Money in", kind=HubGoal.Kind.MANUAL, sort_order=7)
         VolunteerShiftFactory(hub=hub, role="Flyer runner")
 
         out = _run("--event", str(event.pk))
 
-        assert _counts() == (1, 9, 1, 1)
+        assert _counts() == (1, 9, 5, 1)
+        assert list(hub.goals.values_list("label", "sort_order")) == [
+            ("Money in", 7),
+            ("Wine wall bottles", 8),
+            ("Volunteer spots", 9),
+            ("RSVPs", 10),
+            ("Member tables", 11),
+        ]
+        assert not hub.goals.filter(label="Raised").exists()
         assert "Cards: 9 created, 0 kept as edited." in out
-        assert "Goals: 0 created, 1 kept as edited." in out
+        assert (
+            "Goals: 4 created, 1 kept as edited. Added: Wine wall bottles, Volunteer spots, RSVPs, Member tables."
+            in out
+        )
         assert "Shifts: 0 created, 1 kept as edited." in out
+
+    def it_gives_a_track_c_hub_its_member_tables_goal_once(event):
+        hub = EventHubFactory(slug=HUB.slug, title="Lee's HQ", event=event)
+        for position, spec in enumerate(GOALS[:4]):
+            HubGoalFactory(hub=hub, label=spec.label, kind=spec.kind, target=spec.target, sort_order=position)
+        hub.goals.filter(kind=HubGoal.Kind.RSVPS).update(label="People going")
+
+        out = _run("--event", str(event.pk))
+        again = _run("--event", str(event.pk))
+
+        assert list(hub.goals.values_list("label", flat=True)) == [
+            "Raised",
+            "Wine wall bottles",
+            "Volunteer spots",
+            "People going",
+            "Member tables",
+        ]
+        assert "Goals: 1 created, 4 kept as edited. Added: Member tables." in out
+        assert "Goals: 0 created, 5 kept as edited." in again
 
     def it_adds_no_placeholder_once_the_hub_holds_any_even_renamed_or_deleted(event):
         _run("--event", str(event.pk))
