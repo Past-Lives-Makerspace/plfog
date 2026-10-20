@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-20"
+title = "Face ID only asks when you sign in"
+changes = [
+  "In the iPhone app, Face ID no longer pops up as you move around the hub while you are already signed in.",
+  "It still offers to sign you in when you open the app to the sign in page.",
+]

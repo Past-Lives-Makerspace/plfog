@@ -181,6 +181,24 @@
     );
   }
 
+  // Whether this device is set up for biometric sign in, WITHOUT raising a biometric prompt.
+  //
+  // On iOS the plugin's isCredentialsSaved is not a quiet lookup: it queries the Face ID
+  // protected Keychain item without suppressing authentication UI, so iOS answers "does it
+  // exist?" with a Face ID prompt. Asking that on every signed-in page load is what made
+  // Face ID pop up while a member was already signed in. The credential id that enroll()
+  // writes to localStorage is the quiet answer: it is written in the same step as the secret
+  // and cleared with it, and has been since biometric sign in first shipped.
+  //
+  // Android's lookup checks for the stored entry without unlocking it, so it stays the source
+  // of truth there.
+  function isEnrolledHere() {
+    if (platform() === "ios") {
+      return Promise.resolve(storedCredentialId() !== null);
+    }
+    return hasStoredSecret();
+  }
+
   function storeSecret(secret) {
     return Bio.setCredentials({
       username: CREDENTIAL_USERNAME,
@@ -240,7 +258,17 @@
   // Resolves true when the member is signed in, false when the credential is dead and the
   // emailed login code is the way through. Rejects only on an unexpected failure.
   function unlock() {
-    return readSecret().then(function (secret) {
+    return readSecret().catch(function (err) {
+      // "21" is the plugin's "nothing stored" code. On iOS the login page trusts the
+      // localStorage id instead of probing the Keychain, so an id can outlive its secret;
+      // forget it so the button does not come back offering a sign in that cannot work.
+      if (err && err.code === "21") {
+        return forgetDevice().then(function () {
+          return null;
+        });
+      }
+      throw err;
+    }).then(function (secret) {
       if (!secret) {
         return false;
       }
@@ -407,7 +435,7 @@
       if (!state.available) {
         return; // never offer on a phone with no enrolled biometric
       }
-      return hasStoredSecret().then(function (stored) {
+      return isEnrolledHere().then(function (stored) {
         if (stored) {
           return;
         }
@@ -497,7 +525,7 @@
       if (!state.available) {
         return;
       }
-      return hasStoredSecret().then(function (stored) {
+      return isEnrolledHere().then(function (stored) {
         if (!stored) {
           return;
         }
@@ -541,7 +569,7 @@
         noteEl.hidden = false;
         return;
       }
-      return hasStoredSecret().then(function (stored) {
+      return isEnrolledHere().then(function (stored) {
         if (stored) {
           noteEl.textContent = "This device is set up. Revoking it below sends this phone back to emailed codes.";
           noteEl.hidden = false;
@@ -623,7 +651,7 @@
   // Exposed so a page can re-check this device without re-deriving any of the plugin work.
   window.PLBiometricAuth = {
     isAvailable: checkAvailable,
-    hasStoredSecret: hasStoredSecret,
+    hasStoredSecret: isEnrolledHere,
     enroll: enroll,
     clearSecret: clearSecret,
     refresh: paintSettingsCard,
