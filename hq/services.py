@@ -772,14 +772,19 @@ def sponsor_filter(value: str) -> str:
     return value if value in dict(SPONSOR_FILTERS) else SPONSOR_FILTER_ALL
 
 
-def filtered_sponsors(hub: EventHub, show: str) -> QuerySet[Sponsor]:
-    """``hub``'s sponsors in pipeline order under the filter ``show`` (a value from :data:`SPONSOR_FILTERS`)."""
+def filtered_sponsors(hub: EventHub, show: str, *, keep_pk: int | None = None) -> QuerySet[Sponsor]:
+    """``hub``'s sponsors in pipeline order under the filter ``show`` (a value from :data:`SPONSOR_FILTERS`).
+
+    ``keep_pk`` is a sponsor that stays in the list whatever the filter: the row just saved or refused, so a
+    status change or a form with errors does not vanish from the group it was edited in.
+    """
     sponsors = hub.sponsors.all()
     if show == SPONSOR_FILTER_ALL:
         return sponsors
-    if show == SPONSOR_FILTER_DONORS:
-        return sponsors.exclude(history="")
-    return sponsors.filter(status=show)
+    match = ~Q(history="") if show == SPONSOR_FILTER_DONORS else Q(status=show)
+    if keep_pk is not None:
+        match |= Q(pk=keep_pk)
+    return sponsors.filter(match)
 
 
 # The first line in every new sponsor's contact log.

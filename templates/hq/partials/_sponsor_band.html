@@ -1,0 +1,41 @@
+{% comment %}
+The Sponsorship Tracker's band: four tiles and the two-segment meter toward the event goal.
+
+  band — required, a hq.services.SponsorBand
+  oob  — True adds hx-swap-oob, so the htmx answer to a row's Save or Add to log refreshes the band
+         in place beside the row it swaps
+{% endcomment %}
+<section class="pl-hq-sp__band" id="hq-sp-band" aria-label="Progress" data-hq-sp-band{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="pl-hq-sp__tiles">
+    <div class="pl-hq-sp__tile" data-hq-sp-tile="received">
+      <span class="pl-hq-sp__tile-heading">Received</span>
+      <strong class="pl-hq-sp__tile-figure" data-hq-sp-figure>{{ band.received_display }}</strong>
+      <span class="pl-hq-sp__tile-helper" data-hq-sp-helper>{{ band.secured_display }} secured with commitments</span>
+    </div>
+    <div class="pl-hq-sp__tile" data-hq-sp-tile="committed">
+      <span class="pl-hq-sp__tile-heading">Committed</span>
+      <strong class="pl-hq-sp__tile-figure" data-hq-sp-figure>{{ band.committed_display }}</strong>
+      <span class="pl-hq-sp__tile-helper" data-hq-sp-helper>Said yes, not paid yet</span>
+    </div>
+    <div class="pl-hq-sp__tile" data-hq-sp-tile="asked">
+      <span class="pl-hq-sp__tile-heading">Asked, waiting</span>
+      <strong class="pl-hq-sp__tile-figure" data-hq-sp-figure>{{ band.asked_display }}</strong>
+      <span class="pl-hq-sp__tile-helper" data-hq-sp-helper>{{ band.open_asks }} open ask{{ band.open_asks|pluralize }}</span>
+    </div>
+    <div class="pl-hq-sp__tile" data-hq-sp-tile="prospects">
+      <span class="pl-hq-sp__tile-heading">Prospects</span>
+      <strong class="pl-hq-sp__tile-figure" data-hq-sp-figure>{{ band.prospects }}</strong>
+      <span class="pl-hq-sp__tile-helper" data-hq-sp-helper>Not asked yet</span>
+    </div>
+  </div>
+  <div>
+    <div class="pl-hq-sp__meter" data-hq-sp-meter>
+      <progress class="pl-hq-sp__meter-bar pl-hq-sp__meter-bar--committed" max="{{ band.goal_cents }}" value="{{ band.secured_meter_cents }}" aria-hidden="true" data-hq-sp-meter-committed></progress>
+      <progress class="pl-hq-sp__meter-bar pl-hq-sp__meter-bar--received" max="{{ band.goal_cents }}" value="{{ band.received_meter_cents }}" aria-label="Received {{ band.received_display }} and committed {{ band.committed_display }}, toward the {{ band.goal_display }} event goal" data-hq-sp-meter-received></progress>
+    </div>
+    <div class="pl-hq-sp__legend">
+      <span>Received <span class="pl-hq-sp__swatch" aria-hidden="true"></span> · Committed <span class="pl-hq-sp__swatch pl-hq-sp__swatch--committed" aria-hidden="true"></span></span>
+      <span data-hq-sp-goal>Toward the {{ band.goal_display }} event goal</span>
+    </div>
+  </div>
+</section>
