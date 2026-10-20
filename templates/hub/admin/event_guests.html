@@ -1,0 +1,97 @@
+{% extends "hub/admin/event_screen_base.html" %}
+{% comment %}
+The Guest list tab of one event's admin screen (#831, part 4), built by
+hub.event_admin_views.hub_admin_event_guests on the shared screen base: stat chips by door,
+the actions (Add a guest in a modal, Copy update emails, Download CSV), the search box and
+the roster, one _event_guest_row.html per RSVP, members and guests alike. Each row's Remove
+opens a confirm rendered here, outside the row the check-in toggle swaps. Copy update emails
+reads the opted-in addresses off a visually hidden textarea: the clipboard API in a secure
+context, the select-and-copy fallback off https, as components/qr_share_card.html does.
+{% endcomment %}
+{% block event_tab %}
+<div class="pl-guest-list" data-guest-list x-data="eventGuestList()">
+  <div class="pl-equip-chips pl-guest-list__stats" role="group" aria-label="Who is coming, by door">
+    <span class="pl-equip-chip" data-guest-stat="members">Members <strong>{{ stats.members }}</strong></span>
+    <span class="pl-equip-chip" data-guest-stat="site">Signed up here <strong>{{ stats.site }}</strong></span>
+    <span class="pl-equip-chip" data-guest-stat="staff">Added by staff <strong>{{ stats.staff }}</strong></span>
+    <span class="pl-equip-chip" data-guest-stat="eventbrite">Eventbrite <strong>{{ stats.eventbrite }}</strong></span>
+    <span class="pl-equip-chip" data-guest-stat="checked_in">Checked in <strong>{{ stats.checked_in }}</strong></span>
+  </div>
+
+  <div class="admin-toolbar">
+    {% include "components/table_search.html" with q=q placeholder="Search guests…" %}
+    <div class="pl-btn-row pl-guest-list__actions">
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="$dispatch('open-modal', 'add-guest')" data-add-guest>+ Add a guest</button>
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="copyEmails()" data-copy-update-emails{% if not update_email_count %} disabled{% endif %}>Copy update emails ({{ update_email_count }})</button>
+      {% url 'hub_admin_event_guests_csv' event.pk as csv_url %}
+      {# hx-boost="false": a boosted click swaps the CSV's text into the page instead of downloading it; data-pl-download hides it inside the native app (FRONTEND.md rule 24). #}
+      <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ csv_url }}" hx-boost="false" data-pl-download>Download CSV</a>
+    </div>
+  </div>
+  {# The clipboard source: every opted-in guest's email, comma separated, off screen. #}
+  <textarea class="sr-only" readonly tabindex="-1" aria-hidden="true" x-ref="emails" data-update-emails>{{ update_emails }}</textarea>
+
+  <div class="admin-table-wrap">
+    <table data-guest-table>
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">People</th>
+          <th scope="col">From</th>
+          <th scope="col">Email</th>
+          <th scope="col">Updates</th>
+          <th scope="col">Note</th>
+          <th scope="col">Check in</th>
+          <th scope="col"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for rsvp in page %}
+        {% include "hub/admin/_event_guest_row.html" %}
+      {% empty %}
+        <tr>
+          <td colspan="8">
+            <p class="hub-text-muted" data-guests-empty>{% if q %}No one matches "{{ q }}".{% else %}No RSVPs yet. Share the event page, or add a guest by hand.{% endif %}</p>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% include "components/table_pagination.html" with page=page base_params=base_params %}
+
+  {% for rsvp in page %}
+  {% if not rsvp.is_read_only %}
+  {% with pk_str=rsvp.pk|stringformat:"s" %}
+  {% url 'hub_admin_event_guest_remove' event.pk rsvp.pk as remove_url %}
+  {% include "components/confirm_modal.html" with confirm_id="remove-guest-"|add:pk_str confirm_title="Remove this RSVP?" confirm_message=rsvp.display_name|add:" comes off the list. They are not told." confirm_action_url=remove_url confirm_button_text="Remove" %}
+  {% endwith %}
+  {% endif %}
+  {% endfor %}
+</div>
+{% include "components/modal.html" with modal_id="add-guest" modal_title="Add A Guest" modal_size="sm" modal_body_include="hub/admin/_event_guest_add_form.html" %}
+<script>
+  // Copy update emails: the clipboard API needs a secure context, so off https select the
+  // hidden textarea and copy the selection instead (the Share & Print card's fallback).
+  function eventGuestList() {
+    return {
+      copyEmails() {
+        const el = this.$refs.emails;
+        const count = el.value ? el.value.split(',').length : 0;
+        const done = () => this.$dispatch('show-toast', {
+          message: 'Copied ' + count + ' email address' + (count === 1 ? '' : 'es') + '.',
+          type: 'success',
+        });
+        if (window.isSecureContext && navigator.clipboard) {
+          navigator.clipboard.writeText(el.value).then(done);
+          return;
+        }
+        el.focus();
+        el.select();
+        document.execCommand('copy');
+        done();
+      },
+    };
+  }
+</script>
+{% endblock %}

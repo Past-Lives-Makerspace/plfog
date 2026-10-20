@@ -7,18 +7,66 @@ Two flavors share the same `_bump` mechanics:
   total-sends cap on top so a single bad day can't drain the Resend daily quota.
 * **Keyed** per-actor counters (:func:`record_keyed_attempt` / :func:`keyed_within_limits`)
   for member-facing actions that need a per-person cap, e.g. the Discord ``/create``
-  command's events-per-member limit.
+  command's events-per-member limit. For an anonymous caller the actor is the address
+  :func:`client_rate_key` picks (the biometric unlock, the public event page's guest RSVP).
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from django.core.cache import cache
+
+if TYPE_CHECKING:
+    from django.http import HttpRequest
 
 HOUR_SECONDS = 3600
 DAY_SECONDS = 86400
 
 _HOURLY_KEY = "abuse:login_code:hourly"
 _DAILY_KEY = "abuse:login_code:daily"
+
+# A forwarded-for entry is an IP, so anything longer is junk; bound it before it becomes a
+# cache key.
+_RATE_LIMIT_KEY_MAX_CHARS = 64
+
+
+def client_rate_key(request: HttpRequest) -> str:
+    """The address to rate limit an unauthenticated caller by.
+
+    Deliberately NOT the leftmost ``X-Forwarded-For`` entry, which is what a "client IP"
+    helper normally reaches for (``classes.views._client_ip`` included). Proxies APPEND to
+    that header, so the leftmost value is whatever the client chose to send. On an
+    unauthenticated, csrf-exempt endpoint that makes the rate-limit key itself attacker
+    controlled: rotate one header value per request and every attempt lands in a fresh
+    bucket, so the cap never applies to the one caller it exists to bound.
+
+    ``CF-Connecting-IP`` is preferred because production is Cloudflare in front of Render
+    (a response carries both ``server: cloudflare`` and ``x-render-origin-server``). That is
+    TWO proxies, so the rightmost forwarded entry is Render's view of *Cloudflare*, not of
+    the member: keying on it would collapse every caller into one bucket, and a single
+    attacker could then spend the whole day's allowance and disable the guarded action for
+    everybody. Cloudflare overwrites ``CF-Connecting-IP`` on every request it forwards, so a
+    client cannot dictate it.
+
+    The fallbacks are the rightmost forwarded entry (one proxy, appended by it) and then
+    ``REMOTE_ADDR`` (a direct connection: local dev and tests).
+
+    Known gap, accepted: someone who reaches the Render origin directly, bypassing
+    Cloudflare, can send any ``CF-Connecting-IP`` they like. That is no weaker than the
+    leftmost-entry behavior this replaced, it requires knowing the origin address, and a
+    cap keyed this way is a cost ceiling rather than a defense against guessing a secret.
+
+    This keys on one address, so everyone behind a single NAT shares a bucket, which is why
+    a caller's caps are sized for a whole makerspace on one connection.
+    """
+    connecting = request.META.get("HTTP_CF_CONNECTING_IP", "").strip()
+    if connecting:
+        return connecting[:_RATE_LIMIT_KEY_MAX_CHARS]
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if forwarded:
+        return forwarded.rsplit(",", 1)[-1].strip()[:_RATE_LIMIT_KEY_MAX_CHARS]
+    return request.META.get("REMOTE_ADDR", "")
 
 
 def _bump(key: str, ttl_seconds: int) -> int:

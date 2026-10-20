@@ -36,6 +36,7 @@ from django.db.models import (
     F,
     Max,
     OuterRef,
+    Prefetch,
     Q,
     Subquery,
     Sum,
@@ -9831,24 +9832,70 @@ class CommunityEvent(HeroCropMixin, models.Model):
             parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
         return " ".join(parts)
 
-    def attendees_field(self) -> dict[str, str]:
-        """The **Attendees (N)** embed field: the first names in RSVP order, then 'and N more'.
+    def visible_rsvps(self) -> "list[EventRSVP]":
+        """Every RSVP row a members' surface may count: hidden members left out, guests kept.
 
-        Empty state names nobody and invites the first RSVP. Names are capped at
-        :data:`_DISCORD_ATTENDEE_CAP` and the whole value is defensively trimmed under Discord's
-        1024-char field cap. One query with ``select_related('member')``. Members under the
-        ``hide_from_directory`` override are left out of the names and the count (#614), as on
-        the hub event page.
+        Members under the ``hide_from_directory`` override are left out (#614). A guest row has
+        no member, so the exclusion keeps it: Django's ``exclude`` across a nullable relation
+        keeps the rows where the relation is NULL. One query with ``select_related('member')``,
+        in RSVP order.
         """
-        rsvps = list(self.rsvps.select_related("member").exclude(member__hide_from_directory=True))
-        count = len(rsvps)
-        name = f"Attendees ({count})"
+        return list(self.rsvps.select_related("member").exclude(member__hide_from_directory=True))
+
+    def rsvp_people_count(self) -> int:
+        """How many people are coming: ``party_size`` summed over every RSVP row (#831).
+
+        Members under the ``hide_from_directory`` override are excluded (#614); guest rows are
+        counted. These are the rows :meth:`visible_rsvps` lists, so the public page's count and
+        the Discord embed's agree, as one aggregate query.
+        """
+        total = self.rsvps.exclude(member__hide_from_directory=True).aggregate(total=Coalesce(Sum("party_size"), 0))[
+            "total"
+        ]
+        return cast(int, total)
+
+    def guest_list(self) -> "models.QuerySet[EventRSVP]":
+        """Every RSVP row for the Guest list tab and its CSV, in RSVP order, no query per row.
+
+        Staff see everything, hidden members included (the override hides a member from
+        other members, not from the people running the door). The member and their user ride
+        along, with the primary ``EmailAddress`` prefetched so :attr:`EventRSVP.contact_email`
+        reads it without a query (the ``Member.primary_email`` contract).
+        """
+        from allauth.account.models import EmailAddress
+
+        return self.rsvps.select_related("member__user").prefetch_related(
+            Prefetch(
+                "member__user__emailaddress_set",
+                queryset=EmailAddress.objects.filter(primary=True),
+                to_attr="_primary_emailaddresses",
+            )
+        )
+
+    def attendees_field(self) -> dict[str, str]:
+        """The **Attendees (N)** embed field: member names in RSVP order, then the guests folded.
+
+        ``N`` is the people count (party sizes summed), not the row count. The names are the
+        members' only, capped at :data:`_DISCORD_ATTENDEE_CAP` with "and N more" for the rest;
+        everyone else coming (guests, and the people a member brings) is folded into "and N
+        guests", so a guest's name never reaches the server (#831). Empty state names nobody
+        and invites the first RSVP. The whole value is defensively trimmed under Discord's
+        1024-char field cap. Hidden members are left out of the names and the count (#614), as
+        on the hub event page.
+        """
+        rsvps = self.visible_rsvps()
+        people = sum(rsvp.party_size for rsvp in rsvps)
+        name = f"Attendees ({people})"
         if not rsvps:
             return {"name": name, "value": "No RSVPs yet. Click RSVP below to be the first."}
-        names = [rsvp.member.display_name for rsvp in rsvps[:_DISCORD_ATTENDEE_CAP]]
-        value = ", ".join(names)
-        if count > _DISCORD_ATTENDEE_CAP:
-            value += f", and {count - _DISCORD_ATTENDEE_CAP} more"
+        members = [rsvp for rsvp in rsvps if not rsvp.is_guest]
+        parts = [rsvp.display_name for rsvp in members[:_DISCORD_ATTENDEE_CAP]]
+        if len(members) > _DISCORD_ATTENDEE_CAP:
+            parts.append(f"and {len(members) - _DISCORD_ATTENDEE_CAP} more")
+        guests = people - len(members)
+        if guests:
+            parts.append(f"{'and ' if parts else ''}{guests} guest{'s' if guests != 1 else ''}")
+        value = ", ".join(parts)
         if len(value) > _DISCORD_FIELD_VALUE_MAX:
             value = value[: _DISCORD_FIELD_VALUE_MAX - 1].rstrip() + "…"
         return {"name": name, "value": value}
@@ -9899,25 +9946,28 @@ class CommunityEvent(HeroCropMixin, models.Model):
             }
         ]
 
-    def toggle_rsvp(self, member: "Member", *, source: str = "") -> bool:
+    def toggle_rsvp(self, member: "Member", *, source: str = "", party_size: int = 1) -> bool:
         """Add this member's RSVP if absent, remove it if present. Pure DB, no HTTP.
 
         Returns ``True`` when the member is now going (a row was created), ``False`` when the
         RSVP was taken back (the row was deleted). A concurrent duplicate insert loses to the
         unique constraint's ``IntegrityError``, which is caught and treated as "already existed"
         so a lost race never 500s — the caller re-renders from the true DB state either way.
-        ``source`` stamps which door a NEW row came through (defaults to the Discord button);
-        toggling off deletes the row regardless of its source. The removal is durable for
-        button and hub rows; an ``interested``-sourced row returns on the next sweep if the
-        member's Discord Interested mark is still set (no API lets the bot clear it) — the
-        Events-tab bell is the place to take that one back.
+        ``source`` stamps which door a NEW row came through (defaults to the Discord button) and
+        ``party_size`` how many people it brings (the hub page's select; the Discord button
+        brings one); toggling off deletes the row regardless of its source. The removal is
+        durable for button and hub rows; an ``interested``-sourced row returns on the next
+        sweep if the member's Discord Interested mark is still set (no API lets the bot clear
+        it) — the Events-tab bell is the place to take that one back.
         """
         from django.db import IntegrityError, transaction
 
         try:
             with transaction.atomic():
                 _rsvp, created = EventRSVP.objects.get_or_create(
-                    event=self, member=member, defaults={"source": source or EventRSVP.Source.BUTTON}
+                    event=self,
+                    member=member,
+                    defaults={"source": source or EventRSVP.Source.BUTTON, "party_size": party_size},
                 )
         except IntegrityError:
             created = False
@@ -9926,19 +9976,87 @@ class CommunityEvent(HeroCropMixin, models.Model):
         EventRSVP.objects.filter(event=self, member=member).delete()
         return False
 
+    def set_member_party_size(self, member: "Member", party_size: int) -> bool:
+        """Change how many people a member's RSVP brings; False when the member has no RSVP.
+
+        One ``UPDATE``, so it never creates a row: a member who took their RSVP back in another
+        tab keeps it taken back, and the caller decides what that means (the hub view RSVPs
+        them again with the size they chose).
+        """
+        return bool(self.rsvps.filter(member=member).update(party_size=party_size))
+
+    def member_rsvp_for_email(self, email: str) -> "EventRSVP | None":
+        """The member RSVP on this event whose member's primary email is ``email``, if any.
+
+        Case-insensitive, read through :attr:`EventRSVP.contact_email` (the
+        ``Member.primary_email`` contract) over :meth:`guest_list`'s prefetch, so it costs two
+        queries however many members are going. The guest form uses it so a member who fills it
+        logged out resizes their own RSVP instead of being counted twice (#831).
+        """
+        wanted = EventRSVP.normalise_email(email)
+        if not wanted:
+            return None
+        members = self.guest_list().filter(member__isnull=False)
+        return next((rsvp for rsvp in members if EventRSVP.normalise_email(rsvp.contact_email) == wanted), None)
+
+    def rsvp_guest(
+        self,
+        *,
+        name: str,
+        email: str,
+        phone: str = "",
+        party_size: int = 1,
+        wants_updates: bool = False,
+        source: str = "",
+        note: str | None = None,
+    ) -> "EventRSVP":
+        """RSVP someone with no account, or update their RSVP: one row per email per event (#831).
+
+        The email is the dedupe: a repeat from the public page updates the row's name, phone,
+        party size and updates choice instead of adding a second person, so a guest who changes
+        their mind fills the form again. ``source`` stamps a NEW row's door (the public page,
+        ``SITE``, by default) and is kept on a repeat (the row still came through the door it
+        came through). ``note`` is the staff
+        note from Add a guest: ``None`` leaves whatever staff wrote, a string (blank included)
+        replaces it, so the public page never wipes a note. The partial unique constraint makes
+        a concurrent duplicate lose to the first insert, which ``update_or_create`` then updates.
+        """
+        person: dict[str, Any] = {
+            "name": name.strip(),
+            "phone": phone.strip(),
+            "party_size": party_size,
+            "wants_updates": wants_updates,
+        }
+        on_repeat = dict(person)
+        if note is not None:
+            on_repeat["note"] = note.strip()
+        rsvp, _created = EventRSVP.objects.update_or_create(
+            event=self,
+            member=None,
+            email=EventRSVP.normalise_email(email),
+            defaults=on_repeat,
+            create_defaults={
+                **person,
+                "source": source or EventRSVP.Source.SITE,
+                "note": "" if note is None else note.strip(),
+            },
+        )
+        return rsvp
+
     def reconcile_interested(self, interested_discord_ids: "set[str]") -> bool:
         """Reconcile Discord's Interested list into this event's RSVPs. Pure DB, no HTTP.
 
         Adds an ``interested``-sourced RSVP for every linked member on the list who has no
         RSVP yet, and removes ``interested``-sourced rows whose member is no longer on the
         list. Button and hub rows are never removed here — clearing an Interested mark can
-        only take back what the sync itself granted. Returns ``True`` when anything changed
-        (the caller then refreshes the announcement embed).
+        only take back what the sync itself granted — and guest rows (no member) are not the
+        sync's to touch at all. Returns ``True`` when anything changed (the caller then
+        refreshes the announcement embed).
         """
         from django.db import IntegrityError, transaction
 
         members = Member.objects.filter(discord_user_id__in=interested_discord_ids)
-        already = set(self.rsvps.values_list("member_id", flat=True))
+        already = set(self.rsvps.filter(member__isnull=False).values_list("member_id", flat=True))
         changed = False
         for member in members:
             if member.pk in already:
@@ -9950,7 +10068,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
             except IntegrityError:  # concurrent button/hub RSVP won the race — that row stands
                 continue
         removed, _ = (
-            self.rsvps.filter(source=EventRSVP.Source.INTERESTED)
+            self.rsvps.filter(source=EventRSVP.Source.INTERESTED, member__isnull=False)
             .exclude(member__discord_user_id__in=interested_discord_ids)
             .delete()
         )
@@ -10013,21 +10131,36 @@ class CommunityEvent(HeroCropMixin, models.Model):
             logger.warning("strip_discord_announcement_buttons failed for event %s", self.pk, exc_info=True)
 
 
-class EventRSVP(models.Model):
-    """One member's RSVP to a published :class:`CommunityEvent`.
+#: The most people one RSVP may bring, the guest form's and the member select's top choice.
+MAX_RSVP_PARTY_SIZE = 6
 
-    Created/deleted by :meth:`CommunityEvent.toggle_rsvp` (the ✅ Discord button and the hub
-    page button) or by the Interested sync (:mod:`membership.interested_sync`, which mirrors
-    Discord's native Scheduled-Event "Interested" list). Rendered live in the announcement
-    embed's Attendees field and on the public event page. The unique constraint makes the
-    toggle race-safe (a concurrent duplicate insert loses to it). ``source`` records which
-    door the RSVP came through — the sync may only remove rows it created, so a button or
-    hub RSVP can never be taken away by someone clearing their Interested mark."""
+
+class EventRSVP(models.Model):
+    """One RSVP to a published :class:`CommunityEvent`: a member's row or a guest's (#831).
+
+    A **member row** (``member`` set) is created and deleted by :meth:`CommunityEvent.toggle_rsvp`
+    (the ✅ Discord button and the hub page button) or by the Interested sync
+    (:mod:`membership.interested_sync`, which mirrors Discord's native Scheduled-Event
+    "Interested" list). A **guest row** (``member`` null, ``email`` set) is written by
+    :meth:`CommunityEvent.rsvp_guest` from the public event page, the Guest list tab's Add a
+    guest, or an Eventbrite order (track B). Both carry a ``party_size``, so the people count
+    is a sum, never a row count (:meth:`CommunityEvent.rsvp_people_count`).
+
+    The partial unique constraints make both doors race-safe: one row per member per event,
+    one row per guest email per event (the email is the dedupe, lowercased on save). The check
+    constraint refuses a row with neither. ``source`` records which door the RSVP came through
+    (the Interested sync may only remove its own rows, so a button or hub RSVP can never be
+    taken away by someone clearing their Interested mark). Rendered live in the announcement
+    embed's Attendees field, on the public event page and on the Guest list tab.
+    """
 
     class Source(models.TextChoices):
         BUTTON = "button", "Discord RSVP button"
         HUB = "hub", "Hub event page"
         INTERESTED = "interested", "Discord Interested sync"
+        SITE = "site", "Event page, no account"
+        STAFF = "staff", "Added by staff"
+        EVENTBRITE = "eventbrite", "Eventbrite"
 
     event = models.ForeignKey(
         "CommunityEvent",
@@ -10039,7 +10172,59 @@ class EventRSVP(models.Model):
         Member,
         on_delete=models.CASCADE,
         related_name="event_rsvps",
-        help_text="Who is coming.",
+        null=True,
+        blank=True,
+        help_text="The member who is coming; blank for a guest, who is named by name and email instead.",
+    )
+    name = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="A guest's name as they typed it; blank on a member's row, whose name is the member's.",
+    )
+    email = models.EmailField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text="A guest's email, stored lowercased; one row per email per event. Blank on a member's row.",
+    )
+    phone = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="A guest's phone, if they gave one.",
+    )
+    party_size = models.PositiveSmallIntegerField(
+        default=1,
+        db_default=1,
+        validators=[MinValueValidator(1), MaxValueValidator(MAX_RSVP_PARTY_SIZE)],
+        help_text="How many people this RSVP brings, the person included; the people count sums it.",
+    )
+    wants_updates = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="A guest ticked the box for email updates about this event (Copy update emails on the Guest list).",
+    )
+    checked_in_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When staff checked this RSVP in at the door, from the Guest list tab; blank until they do.",
+    )
+    note = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="A staff note on the Guest list (Add a guest); never shown to the guest.",
+    )
+    eventbrite_order_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="The Eventbrite order this row mirrors (source Eventbrite); blank for every other door.",
     )
     source = models.CharField(
         max_length=20,
@@ -10055,11 +10240,70 @@ class EventRSVP(models.Model):
     class Meta:
         ordering = ["created_at"]
         constraints = [
-            models.UniqueConstraint(fields=["event", "member"], name="uq_eventrsvp_event_member"),
+            models.UniqueConstraint(
+                fields=["event", "member"],
+                condition=Q(member__isnull=False),
+                name="uq_eventrsvp_event_member",
+            ),
+            models.UniqueConstraint(
+                fields=["event", "email"],
+                condition=Q(member__isnull=True) & ~Q(email=""),
+                name="uq_eventrsvp_event_email",
+            ),
+            models.CheckConstraint(
+                condition=Q(member__isnull=False) | ~Q(email=""),
+                name="ck_eventrsvp_member_or_email",
+            ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.member.display_name} → {self.event.title}"
+        return f"{self.display_name} → {self.event.title}"
+
+    @staticmethod
+    def normalise_email(email: str) -> str:
+        """The email as the row stores it: trimmed and lowercased, so a repeat finds its row."""
+        return email.strip().lower()
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Keep ``email`` normalised whichever door wrote it, so the per event dedupe holds."""
+        self.email = self.normalise_email(self.email)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_guest(self) -> bool:
+        """A row with no member: someone who RSVPed by name and email."""
+        return self.member_id is None
+
+    @property
+    def display_name(self) -> str:
+        """The member's display name, or the guest's name as they typed it."""
+        return self.member.display_name if self.member is not None else self.name
+
+    @property
+    def is_checked_in(self) -> bool:
+        """Whether staff have checked this RSVP in at the door."""
+        return self.checked_in_at is not None
+
+    @property
+    def is_read_only(self) -> bool:
+        """An Eventbrite row is Eventbrite's to change: it comes and goes with the order, never by hand."""
+        return self.source == self.Source.EVENTBRITE
+
+    @property
+    def contact_email(self) -> str:
+        """The email staff reach this person at: the guest's, or the member's primary email."""
+        return self.email if self.member is None else self.member.primary_email
+
+    @property
+    def contact_phone(self) -> str:
+        """The phone staff reach this person at: the guest's, or the member's on file."""
+        return self.phone if self.member is None else self.member.phone
+
+    def toggle_check_in(self) -> bool:
+        """Check this RSVP in, or undo the check-in; returns whether it is checked in now."""
+        self.checked_in_at = None if self.is_checked_in else timezone.now()
+        self.save(update_fields=["checked_in_at"])
+        return self.is_checked_in
 
 
 class CommunityEventDraftManager(models.Manager["CommunityEventDraft"]):

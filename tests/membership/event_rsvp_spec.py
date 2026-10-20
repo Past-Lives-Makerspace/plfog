@@ -4,7 +4,10 @@ Covers the ``EventRSVP`` row + unique constraint, ``CommunityEvent.toggle_rsvp``
 delete round-trip and the race backstop), ``attendees_field`` at 0 / 1 / 15 / 16+ (cap copy,
 count in the field name, 1024-char guard), the rich ``discord_announcement_embed`` field rules
 and footer fallback, the humanized duration, ``next_occurrence_start`` for a recurring series,
-``rsvps_closed``, and ``can_manage_from_discord`` per authority tier.
+``rsvps_closed``, and ``can_manage_from_discord`` per authority tier. Then the guest side
+(#831, part 4): the three constraints, ``rsvp_guest``'s upsert by email, finding a member's row by email, the people count,
+party sizes, a guest row's names and contact, ``guest_list``'s query count, the Attendees
+field folding guests, and the Interested sync leaving guest rows alone.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 import respx
+from allauth.account.models import EmailAddress
 from django.contrib.auth.models import User
 from django.core.files.base import ContentFile
 from django.db import IntegrityError
@@ -393,3 +397,241 @@ def describe_can_manage_from_discord():
     def it_refuses_a_userless_member_who_is_not_a_lead():
         member = MemberFactory()  # no linked user
         assert _future_event().can_manage_from_discord(member) is False
+
+
+# --- Guest RSVPs and party sizes (#831, part 4) ---------------------------------------------
+
+
+def _guest(event: CommunityEvent, **kwargs) -> EventRSVP:
+    """Someone with no account on the list: the factory's ``guest`` trait."""
+    return EventRSVPFactory(event=event, guest=True, **kwargs)
+
+
+def describe_the_guest_constraints():
+    def it_still_keeps_one_row_per_member_per_event():
+        event = _future_event()
+        member = MemberFactory()
+        EventRSVPFactory(event=event, member=member)
+        with pytest.raises(IntegrityError):
+            EventRSVP.objects.create(event=event, member=member)
+
+    def it_keeps_one_row_per_guest_email_per_event():
+        event = _future_event()
+        _guest(event, email="lee@example.com")
+        with pytest.raises(IntegrityError):
+            EventRSVP.objects.create(event=event, name="Lee again", email="Lee@Example.com")
+
+    def it_lets_the_same_guest_email_onto_two_events():
+        _guest(_future_event(), email="lee@example.com")
+        _guest(_future_event(), email="lee@example.com")
+        assert EventRSVP.objects.filter(email="lee@example.com").count() == 2
+
+    def it_lets_two_member_rows_on_one_event_share_a_blank_email():
+        event = _future_event()
+        EventRSVPFactory(event=event)
+        EventRSVPFactory(event=event)
+        assert event.rsvps.filter(email="").count() == 2
+
+    def it_refuses_a_row_with_neither_a_member_nor_an_email():
+        with pytest.raises(IntegrityError):
+            EventRSVP.objects.create(event=_future_event(), name="Nobody", email="")
+
+    def it_lowercases_and_trims_the_email_on_save():
+        rsvp = _guest(_future_event(), email="  Lee@Example.COM ")
+        rsvp.refresh_from_db()
+        assert rsvp.email == "lee@example.com"
+
+
+def describe_rsvp_guest():
+    def it_writes_a_site_row_with_the_email_normalised():
+        event = _future_event()
+        rsvp = event.rsvp_guest(
+            name=" Lee ", email=" Lee@Example.com ", phone=" 503 ", party_size=3, wants_updates=True
+        )
+        assert rsvp.is_guest and rsvp.member is None
+        assert (rsvp.name, rsvp.email, rsvp.phone, rsvp.party_size, rsvp.wants_updates) == (
+            "Lee",
+            "lee@example.com",
+            "503",
+            3,
+            True,
+        )
+        assert rsvp.source == EventRSVP.Source.SITE
+        assert rsvp.note == ""
+
+    def it_updates_the_row_on_a_repeat_email_and_keeps_its_door_and_note():
+        event = _future_event()
+        first = event.rsvp_guest(name="Lee", email="lee@example.com", source=EventRSVP.Source.STAFF, note="Plus one")
+        again = event.rsvp_guest(name="Lee P", email="LEE@example.com", phone="503", party_size=4, wants_updates=True)
+        assert again.pk == first.pk
+        assert event.rsvps.count() == 1
+        again.refresh_from_db()
+        assert (again.name, again.phone, again.party_size, again.wants_updates) == ("Lee P", "503", 4, True)
+        assert again.source == EventRSVP.Source.STAFF
+        assert again.note == "Plus one"
+
+    def it_replaces_the_note_when_staff_write_one_blank_included():
+        event = _future_event()
+        event.rsvp_guest(name="Lee", email="lee@example.com", note="Plus one")
+        rsvp = event.rsvp_guest(name="Lee", email="lee@example.com", source=EventRSVP.Source.STAFF, note=" ")
+        rsvp.refresh_from_db()
+        assert rsvp.note == ""
+
+
+def describe_member_rsvp_for_email():
+    def it_finds_an_unlinked_members_row_by_their_email_in_any_case():
+        event = _future_event()
+        rsvp = EventRSVPFactory(event=event, member=MemberFactory(_pre_signup_email="Sam@Example.com"))
+        assert event.member_rsvp_for_email(" SAM@example.COM ") == rsvp
+
+    def it_finds_a_linked_members_row_by_their_primary_email():
+        event = _future_event()
+        member = _linked_member()
+        EmailAddress.objects.create(user=member.user, email="Primary@Example.com", primary=True, verified=True)
+        rsvp = EventRSVPFactory(event=event, member=member)
+        assert event.member_rsvp_for_email("primary@example.com") == rsvp
+
+    def it_ignores_guest_rows_other_events_and_a_blank_email():
+        event = _future_event()
+        _guest(event, email="lee@example.com")
+        EventRSVPFactory(event=_future_event(), member=MemberFactory(_pre_signup_email="sam@example.com"))
+        assert event.member_rsvp_for_email("lee@example.com") is None
+        assert event.member_rsvp_for_email("sam@example.com") is None
+        assert event.member_rsvp_for_email("  ") is None
+
+
+def describe_rsvp_people_count():
+    def it_sums_party_sizes_across_members_and_guests():
+        event = _future_event()
+        EventRSVPFactory(event=event, party_size=2)
+        _guest(event, party_size=3)
+        assert event.rsvp_people_count() == 5
+
+    def it_is_zero_with_no_rsvps():
+        assert _future_event().rsvp_people_count() == 0
+
+    def it_leaves_a_hidden_member_out_and_keeps_the_guests():
+        event = _future_event()
+        EventRSVPFactory(event=event, member=MemberFactory(hide_from_directory=True), party_size=4)
+        _guest(event, party_size=2)
+        assert event.rsvp_people_count() == 2
+
+
+def describe_party_sizes():
+    def it_sizes_a_new_rsvp_from_the_toggle():
+        event = _future_event()
+        member = MemberFactory()
+        assert event.toggle_rsvp(member, party_size=4) is True
+        assert event.rsvps.get(member=member).party_size == 4
+
+    def it_brings_one_person_from_the_discord_button():
+        event = _future_event()
+        member = MemberFactory()
+        event.toggle_rsvp(member)
+        assert event.rsvps.get(member=member).party_size == 1
+
+    def it_resizes_a_members_rsvp():
+        event = _future_event()
+        member = MemberFactory()
+        event.toggle_rsvp(member)
+        assert event.set_member_party_size(member, 3) is True
+        assert event.rsvps.get(member=member).party_size == 3
+
+    def it_reports_no_rsvp_to_resize_and_creates_none():
+        event = _future_event()
+        assert event.set_member_party_size(MemberFactory(), 3) is False
+        assert not event.rsvps.exists()
+
+
+def describe_a_guest_row():
+    def it_displays_the_guests_own_name_and_contact():
+        rsvp = _guest(_future_event(title="Potluck"), name="Lee P", email="lee@example.com", phone="503")
+        assert rsvp.display_name == "Lee P"
+        assert str(rsvp) == "Lee P → Potluck"
+        assert rsvp.contact_email == "lee@example.com"
+        assert rsvp.contact_phone == "503"
+
+    def it_reads_a_members_contact_off_the_member():
+        member = _linked_member(full_legal_name="Sam K", phone="971")
+        EmailAddress.objects.create(user=member.user, email="sam@example.com", primary=True, verified=True)
+        rsvp = EventRSVPFactory(event=_future_event(), member=member)
+        assert rsvp.display_name == "Sam K"
+        assert rsvp.contact_email == "sam@example.com"
+        assert rsvp.contact_phone == "971"
+
+    def it_is_read_only_only_as_an_eventbrite_row():
+        eventbrite = _guest(_future_event(), source=EventRSVP.Source.EVENTBRITE, eventbrite_order_id="order-1")
+        assert eventbrite.is_read_only is True
+        assert _guest(_future_event()).is_read_only is False
+
+    def it_checks_in_and_undoes():
+        rsvp = _guest(_future_event())
+        assert rsvp.is_checked_in is False
+        assert rsvp.toggle_check_in() is True
+        rsvp.refresh_from_db()
+        assert rsvp.checked_in_at is not None
+        assert rsvp.toggle_check_in() is False
+        rsvp.refresh_from_db()
+        assert rsvp.checked_in_at is None
+
+
+def describe_guest_list():
+    def it_reads_every_contact_email_in_two_queries(django_assert_num_queries):
+        event = _future_event()
+        for i in range(3):
+            member = _linked_member()
+            EmailAddress.objects.create(user=member.user, email=f"m{i}@example.com", primary=True, verified=True)
+            EventRSVPFactory(event=event, member=member)
+        EventRSVPFactory(event=event, member=MemberFactory(hide_from_directory=True))
+        _guest(event, email="lee@example.com")
+        # The rows with their members and users, then the prefetched primary addresses.
+        with django_assert_num_queries(2):
+            emails = [rsvp.contact_email for rsvp in event.guest_list()]
+        assert len(emails) == 5
+        assert {"m0@example.com", "m1@example.com", "m2@example.com", "lee@example.com"} <= set(emails)
+
+
+def describe_attendees_field_with_guests():
+    def it_counts_people_and_folds_guests_without_naming_them():
+        event = _future_event()
+        EventRSVPFactory(event=event, member=MemberFactory(full_legal_name="Sam K"), party_size=3)
+        _guest(event, name="Zzytrix Guest", party_size=2)
+        field = event.attendees_field()
+        assert field == {"name": "Attendees (5)", "value": "Sam K, and 4 guests"}
+
+    def it_says_one_guest_in_the_singular():
+        event = _future_event()
+        EventRSVPFactory(event=event, member=MemberFactory(full_legal_name="Sam K"))
+        _guest(event)
+        assert event.attendees_field()["value"] == "Sam K, and 1 guest"
+
+    def it_names_only_the_guests_when_no_member_is_coming():
+        event = _future_event()
+        _guest(event, party_size=2)
+        assert event.attendees_field() == {"name": "Attendees (2)", "value": "2 guests"}
+
+    def it_puts_the_overflow_tail_before_the_guests():
+        event = _future_event()
+        for _ in range(16):
+            EventRSVPFactory(event=event)
+        _guest(event, party_size=2)
+        field = event.attendees_field()
+        assert field["name"] == "Attendees (18)"
+        assert field["value"].endswith(", and 1 more, and 2 guests")
+
+
+def describe_reconcile_interested_with_guests():
+    def it_leaves_guest_rows_alone():
+        event = _future_event()
+        MemberFactory(discord_user_id="111")
+        event.reconcile_interested({"111"})
+        guest = _guest(event)
+        assert event.reconcile_interested(set()) is True
+        assert list(event.rsvps.values_list("pk", flat=True)) == [guest.pk]
+
+    def it_adds_a_member_beside_an_existing_guest():
+        event = _future_event()
+        _guest(event)
+        member = MemberFactory(discord_user_id="111")
+        assert event.reconcile_interested({"111"}) is True
+        assert event.rsvps.filter(member=member, source=EventRSVP.Source.INTERESTED).exists()

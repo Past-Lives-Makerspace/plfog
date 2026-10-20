@@ -19,6 +19,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core import views as core_views
+from core.abuse_limits import client_rate_key
 from core.models import BIOMETRIC_ROTATION_GRACE_SECONDS, BiometricCredential
 
 pytestmark = pytest.mark.django_db
@@ -442,17 +443,17 @@ def describe_biometric_unlock():
             assert other_edge.status_code == 401
 
         def it_falls_back_to_the_connecting_address_with_no_proxy_header(client):
-            assert core_views._rate_limit_key(RequestFactory().post("/", REMOTE_ADDR="192.0.2.7")) == "192.0.2.7"
+            assert client_rate_key(RequestFactory().post("/", REMOTE_ADDR="192.0.2.7")) == "192.0.2.7"
 
         def it_takes_the_rightmost_forwarded_for_entry(client):
             request = RequestFactory().post("/", HTTP_X_FORWARDED_FOR="1.1.1.1, 2.2.2.2, 203.0.113.9")
 
-            assert core_views._rate_limit_key(request) == "203.0.113.9"
+            assert client_rate_key(request) == "203.0.113.9"
 
         def it_bounds_an_absurdly_long_header_before_it_becomes_a_cache_key(client):
             request = RequestFactory().post("/", HTTP_X_FORWARDED_FOR="x" * 5000)
 
-            assert len(core_views._rate_limit_key(request)) <= 64
+            assert len(client_rate_key(request)) <= 64
 
     def describe_the_login_csrf_guard():
         """csrf_exempt gives up login-CSRF protection as well as forgery protection. An

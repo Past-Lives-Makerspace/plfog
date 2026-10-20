@@ -66,13 +66,10 @@ def _figure(value: int, is_money: bool) -> str:
 
 
 def rsvp_count(event: CommunityEvent | None) -> int:
-    """How many are going: the event's RSVP rows, or 0 with no event.
-
-    A3b (guest RSVPs with a party size) switches this to ``event.rsvp_people_count``.
-    """
+    """How many people are going: the event's people count (party sizes summed), or 0 with no event."""
     if event is None:
         return 0
-    return event.rsvps.count()
+    return event.rsvp_people_count()
 
 
 def volunteer_spots_filled(hub: EventHub) -> int:

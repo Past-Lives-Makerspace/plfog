@@ -41,6 +41,7 @@ ATTACHMENT_SOURCES: dict[tuple[str, str], frozenset[str]] = {
     ("hub/views.py", "calendar_export_ics"): frozenset({"hub_calendar_export_ics"}),
     ("hub/views.py", "event_ics"): frozenset({"hub_event_ics"}),
     ("hub/views.py", "event_qr"): frozenset({"hub_event_qr"}),
+    ("hub/event_exports.py", "stream_event_guests_csv"): frozenset({"hub_admin_event_guests_csv"}),
     ("hub/wiki_views.py", "hub_wiki_qr_download"): frozenset({"hub_wiki_qr_download"}),
     ("classes/views.py", "class_qr_download"): frozenset({"classes:class_qr"}),
     ("classes/exports.py", "stream_registrations_query_csv"): frozenset({"classes:admin_registrations_export"}),

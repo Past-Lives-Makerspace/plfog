@@ -145,19 +145,19 @@ def describe_goal_rows():
         assert row.current_display == "$2,500"
         assert row.target_display == "$10,000"
 
-    def it_counts_rsvps_from_the_event(open_hub):
+    def it_counts_the_people_going_to_the_event(open_hub):
         event = CommunityEventFactory(community=True)
         EventRSVPFactory(event=event)
-        EventRSVPFactory(event=event)
+        EventRSVPFactory(event=event, party_size=3)
         open_hub.event = event
         open_hub.save()
         HubGoalFactory(hub=open_hub, label="Going", kind=HubGoal.Kind.RSVPS, target=250)
 
         (row,) = goal_rows(open_hub)
 
-        assert row.current == 2
-        assert row.percent == 1
-        assert row.current_display == "2"
+        assert row.current == 4  # people, not rows: party sizes 1 and 3
+        assert row.percent == 2
+        assert row.current_display == "4"
         assert row.target_display == "250"
 
     def it_counts_no_rsvps_without_an_event(open_hub):

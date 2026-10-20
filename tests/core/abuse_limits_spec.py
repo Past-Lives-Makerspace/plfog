@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from django.test import RequestFactory
 
 from core import abuse_limits
 
@@ -140,3 +141,25 @@ def describe_keyed_within_limits():
         for _ in range(2):
             abuse_limits.record_keyed_attempt("spec_g", "1", hourly_limit=100, daily_limit=2)
         assert abuse_limits.keyed_within_limits("spec_g", "1", hourly_limit=100, daily_limit=2) is False
+
+
+def describe_client_rate_key():
+    """The address an unauthenticated caller is limited by (promoted from the biometric unlock
+    view for the guest RSVP, #831): never one the caller chooses."""
+
+    def it_prefers_the_cloudflare_connecting_address():
+        request = RequestFactory().post(
+            "/", HTTP_CF_CONNECTING_IP=" 198.51.100.4 ", HTTP_X_FORWARDED_FOR="1.1.1.1, 203.0.113.9"
+        )
+        assert abuse_limits.client_rate_key(request) == "198.51.100.4"
+
+    def it_takes_the_rightmost_forwarded_entry_without_cloudflare():
+        request = RequestFactory().post("/", HTTP_X_FORWARDED_FOR="1.1.1.1, 2.2.2.2, 203.0.113.9")
+        assert abuse_limits.client_rate_key(request) == "203.0.113.9"
+
+    def it_falls_back_to_the_connecting_address():
+        assert abuse_limits.client_rate_key(RequestFactory().post("/", REMOTE_ADDR="192.0.2.7")) == "192.0.2.7"
+
+    def it_bounds_an_absurdly_long_header_before_it_becomes_a_cache_key():
+        assert len(abuse_limits.client_rate_key(RequestFactory().post("/", HTTP_CF_CONNECTING_IP="x" * 5000))) <= 64
+        assert len(abuse_limits.client_rate_key(RequestFactory().post("/", HTTP_X_FORWARDED_FOR="x" * 5000))) <= 64

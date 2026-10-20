@@ -1,0 +1,32 @@
+{% comment %}
+One Guest list row (#831, part 4): the <tr> the tab renders for every RSVP and the check-in
+toggle swaps back in place (hub.event_admin_views.hub_admin_event_guest_checkin returns this
+partial with a toast). Read from the including context: event and rsvp (an EventRSVP from
+CommunityEvent.guest_list, so contact_email costs no query). The Remove button only opens its
+confirm; the confirm modals live on the page, outside the swapped row, so a swap never leaves
+a second teleported copy behind. An Eventbrite row is read-only: no Remove, since the order
+is where it is cancelled; checking it in at the door still works.
+{% endcomment %}
+<tr data-guest-row="{{ rsvp.pk }}" data-guest-source="{{ rsvp.source }}"{% if rsvp.is_checked_in %} class="pl-guest-row--checked-in"{% endif %}>
+  <td data-label="Name">{{ rsvp.display_name }}</td>
+  <td data-label="People" data-guest-party="{{ rsvp.party_size }}">{{ rsvp.party_size }}</td>
+  <td data-label="From"><span class="hub-pill hub-pill--neutral" data-guest-source-label>{% if rsvp.member %}Member{% else %}{{ rsvp.get_source_display }}{% endif %}</span></td>
+  <td data-label="Email">{% if rsvp.contact_email %}<a href="mailto:{{ rsvp.contact_email }}">{{ rsvp.contact_email }}</a>{% else %}<span class="hub-text-muted">—</span>{% endif %}</td>
+  <td data-label="Updates">{% if rsvp.wants_updates %}<span data-guest-updates>Yes</span>{% else %}<span class="hub-text-muted">—</span>{% endif %}</td>
+  <td data-label="Note">{% if rsvp.note %}{{ rsvp.note }}{% else %}<span class="hub-text-muted">—</span>{% endif %}</td>
+  <td data-label="Check in">
+    <form method="post" action="{% url 'hub_admin_event_guest_checkin' event.pk rsvp.pk %}" hx-post="{% url 'hub_admin_event_guest_checkin' event.pk rsvp.pk %}" hx-target="closest tr" hx-swap="outerHTML" data-guest-checkin-form>
+      {% csrf_token %}
+      {% if rsvp.is_checked_in %}
+      <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost" hx-disabled-elt="this" data-guest-checked-in>Checked in · Undo</button>
+      {% else %}
+      <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary" hx-disabled-elt="this" data-guest-check-in>Check in</button>
+      {% endif %}
+    </form>
+  </td>
+  <td data-label="Actions">
+    {% if not rsvp.is_read_only %}
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="$dispatch('open-confirm', 'remove-guest-{{ rsvp.pk }}')" data-guest-remove>Remove</button>
+    {% endif %}
+  </td>
+</tr>

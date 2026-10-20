@@ -448,49 +448,6 @@ _BIOMETRIC_UNLOCK_DAILY_LIMIT = 2000
 # Platform neutral on purpose: an Android member unlocks with a fingerprint, not Face ID.
 _BIOMETRIC_UNLOCK_FAILED = "We could not sign you in. Use an emailed code instead."
 
-# A forwarded-for entry is an IP, so anything longer is junk; bound it before it becomes a
-# cache key.
-_RATE_LIMIT_KEY_MAX_CHARS = 64
-
-
-def _rate_limit_key(request: HttpRequest) -> str:
-    """The address to rate limit an unauthenticated caller by.
-
-    Deliberately NOT the leftmost ``X-Forwarded-For`` entry, which is what a "client IP"
-    helper normally reaches for (``classes.views._client_ip`` included). Proxies APPEND to
-    that header, so the leftmost value is whatever the client chose to send. On an
-    unauthenticated, csrf-exempt endpoint that makes the rate-limit key itself attacker
-    controlled: rotate one header value per request and every attempt lands in a fresh
-    bucket, so the cap never applies to the one caller it exists to bound.
-
-    ``CF-Connecting-IP`` is preferred because production is Cloudflare in front of Render
-    (a response carries both ``server: cloudflare`` and ``x-render-origin-server``). That is
-    TWO proxies, so the rightmost forwarded entry is Render's view of *Cloudflare*, not of
-    the member: keying on it would collapse every caller into one bucket, and a single
-    attacker could then spend the whole day's allowance and disable biometric unlock for
-    everybody. Cloudflare overwrites ``CF-Connecting-IP`` on every request it forwards, so a
-    client cannot dictate it.
-
-    The fallbacks are the rightmost forwarded entry (one proxy, appended by it) and then
-    ``REMOTE_ADDR`` (a direct connection: local dev and tests).
-
-    Known gap, accepted: someone who reaches the Render origin directly, bypassing
-    Cloudflare, can send any ``CF-Connecting-IP`` they like. That is no weaker than the
-    leftmost-entry behavior this replaced, it requires knowing the origin address, and the
-    cap is a cost ceiling rather than a defense against guessing the secret, which has 384
-    bits behind it.
-
-    This keys on one address, so everyone behind a single NAT shares a bucket, which is why
-    the caps above are sized for a whole makerspace on one connection.
-    """
-    connecting = request.META.get("HTTP_CF_CONNECTING_IP", "").strip()
-    if connecting:
-        return connecting[:_RATE_LIMIT_KEY_MAX_CHARS]
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    if forwarded:
-        return forwarded.rsplit(",", 1)[-1].strip()[:_RATE_LIMIT_KEY_MAX_CHARS]
-    return request.META.get("REMOTE_ADDR", "")
-
 
 @require_POST
 @login_required
@@ -559,7 +516,7 @@ def biometric_unlock(request: HttpRequest) -> JsonResponse:
     Expects a JSON body (``Content-Type: application/json``) with: secret.
     Returns ``{"ok": true, "secret": <new secret>}``.
     """
-    from core.abuse_limits import record_keyed_attempt
+    from core.abuse_limits import client_rate_key, record_keyed_attempt
     from core.models import BiometricCredential, InvalidBiometricCredential
 
     # Login-CSRF guard, checked before the limiter so a cross-site form cannot even spend
@@ -573,12 +530,12 @@ def biometric_unlock(request: HttpRequest) -> JsonResponse:
     # "Bounded", not "free": production CACHES.default is DatabaseCache, so this limiter is
     # itself several database round trips, and a refused attempt still pays them. That is
     # the honest cost, and it is why the key must not be attacker controlled — see
-    # _rate_limit_key. DatabaseCache also has no atomic incr (it inherits BaseCache's
+    # core.abuse_limits.client_rate_key. DatabaseCache also has no atomic incr (it inherits BaseCache's
     # get-then-set), so simultaneous attempts can undercount and the cap can overshoot
     # under concurrency. Acceptable here because the cap is a cost ceiling rather than a
     # guessing defense, and overshooting a generous ceiling by a few requests changes
     # nothing. It would NOT be acceptable for a limiter guarding something guessable.
-    rate_key = _rate_limit_key(request)
+    rate_key = client_rate_key(request)
     allowed, reason = record_keyed_attempt(
         _BIOMETRIC_UNLOCK_SCOPE,
         rate_key,

@@ -52,6 +52,8 @@ from hub.forms import (
     DeleteAccountConfirmForm,
     DiscordGuildEmojiFormSet,
     EventDateForm,
+    EventGuestRSVPForm,
+    EventMemberRSVPForm,
     GuildEditForm,
     GuildRoleFormSet,
     MeetingItemProposalForm,
@@ -109,6 +111,7 @@ from membership.models import (
     SpaceRequestQuerySet,
     VotePreference,
     WikiArticle,
+    MAX_RSVP_PARTY_SIZE,
 )
 from membership.ical import ical_escape, ical_timezone_lines
 from membership.permissions import (
@@ -7561,23 +7564,40 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     unknown pk) 404s identically via the themed ``404.html`` — no unreviewed proposal ever
     leaks onto a scannable URL, and a missing event never reveals its title.
     """
-    from hub.calendar_entries import google_calendar_event_url
     from membership.models import CommunityEvent
 
     event = get_object_or_404(CommunityEvent.objects.published().select_related("guild", "area"), pk=pk)
+    return _render_event_page(request, event)
+
+
+def _render_event_page(
+    request: HttpRequest, event: CommunityEvent, *, guest_form: EventGuestRSVPForm | None = None
+) -> HttpResponse:
+    """Render the public event page: the GET, and a guest RSVP that did not validate (#831).
+
+    "Who's coming" is a people count for everyone (party sizes summed) and, for a signed-in
+    member, the member names with everyone else folded into "and N guests", so a guest's name
+    never reaches other members. A hidden member (#614) is left out of the names and the
+    count, except to themselves; a guest row has no member, so the exclusion keeps it.
+    ``guest_form`` is the bound form the guest POST hands back with its errors; the GET renders
+    a blank one for an anonymous visitor and the party size select for a member.
+    """
+    from hub.calendar_entries import google_calendar_event_url
+    from membership.models import CommunityEvent
+
     ctx = _get_hub_context(request)
     on_member_surface = getattr(request, "surface", "members") == "members"
     edit_url = _event_edit_url(request, event)
     can_edit = on_member_surface and edit_url is not None
     is_recurring = event.recurrence != CommunityEvent.Recurrence.NONE
-    # "Who's coming": names for signed-in viewers, count only for an anonymous QR scan.
-    # A hidden member (#614) is left out of the names and the count, except to themselves.
     member = _get_member(request)
     hidden_rsvp = Q(member__hide_from_directory=True)
     if member is not None:
         hidden_rsvp &= ~Q(member=member)
     rsvps = list(event.rsvps.select_related("member").exclude(hidden_rsvp))
-    viewer_rsvped = member is not None and any(rsvp.member_id == member.pk for rsvp in rsvps)
+    viewer_rsvp = next((rsvp for rsvp in rsvps if member is not None and rsvp.member_id == member.pk), None)
+    member_rsvps = [rsvp for rsvp in rsvps if not rsvp.is_guest]
+    people_count = sum(rsvp.party_size for rsvp in rsvps)
     # The page speaks about one date: the one the link names, or else the next. Add to
     # calendar puts the event in the viewer's own calendar from that date. Its link back is the
     # plain page, which opens on the next date, because a series' entries carry it for every
@@ -7585,6 +7605,9 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     start = EventDateForm(request.GET).occurrence_start(event)
     date_query = event.date_query(start)
     google_event_url = google_calendar_event_url(event, start, request.build_absolute_uri(request.path))
+    if guest_form is None:
+        guest_form = EventGuestRSVPForm()
+    member_form = EventMemberRSVPForm(initial={"party_size": viewer_rsvp.party_size if viewer_rsvp else 1})
     return render(
         request,
         "hub/event_detail.html",
@@ -7602,8 +7625,16 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
             # "already taken place" note. A recurring series is ongoing, so never flag it.
             "show_past_note": not is_recurring and event.ends_at < dj_timezone.now(),
             "rsvps": rsvps,
-            "rsvp_count": len(rsvps),
-            "viewer_rsvped": viewer_rsvped,
+            "member_rsvps": member_rsvps,
+            "people_count": people_count,
+            # Everyone coming who is not named: guests, and the people a member brings.
+            "unnamed_count": people_count - len(member_rsvps),
+            "viewer_rsvp": viewer_rsvp,
+            "viewer_rsvped": viewer_rsvp is not None,
+            "member_form": member_form,
+            "guest_form": guest_form,
+            # A guest just RSVPed: the page says so from the URL, with no session to carry it.
+            "guest_going": not request.user.is_authenticated and request.GET.get("going") == "1",
         },
     )
 
@@ -7616,7 +7647,9 @@ def event_rsvp(request: HttpRequest, pk: int) -> HttpResponse:
     Thin orchestration: the toggle and the best-effort Discord refresh are model methods. An
     unlinked account or a finished non-recurring event is turned away with a friendly message
     (the same "already taken place" gate the page shows), never a 500. The member goes back to
-    the date the page was showing (``?date=`` on the form's action).
+    the date the page was showing (``?date=`` on the form's action). A bare POST is the one
+    tap; ``party_size`` sizes the RSVP and ``update`` resizes one the member already has
+    (``EventMemberRSVPForm``).
     """
     from membership.models import CommunityEvent, EventRSVP
 
@@ -7629,10 +7662,74 @@ def event_rsvp(request: HttpRequest, pk: int) -> HttpResponse:
     if event.rsvps_closed:
         messages.info(request, "This event has already taken place.")
         return redirect(page)
-    going = event.toggle_rsvp(member, source=EventRSVP.Source.HUB)
+    form = EventMemberRSVPForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, f"Pick how many people are coming, 1 to {MAX_RSVP_PARTY_SIZE}.")
+        return redirect(page)
+    party_size = form.cleaned_data["party_size"]
+    if form.cleaned_data["update"] and event.set_member_party_size(member, party_size):
+        messages.success(request, f"Updated: {party_size} {'person' if party_size == 1 else 'people'} coming.")
+    elif event.toggle_rsvp(member, source=EventRSVP.Source.HUB, party_size=party_size):
+        messages.success(request, "You're on the list. See you there.")
+    else:
+        messages.success(request, "You're no longer on the list.")
     event.refresh_discord_announcement()
-    messages.success(request, "You're on the list. See you there." if going else "You're no longer on the list.")
     return redirect(page)
+
+
+#: The guest RSVP's rate limit, keyed by ``core.abuse_limits.client_rate_key``: a cost ceiling
+#: per address on an unauthenticated write. Everyone on the shop wifi shares one address, so
+#: the caps leave room for a table of people signing up on their phones at once.
+_GUEST_RSVP_SCOPE = "event_guest_rsvp"
+_GUEST_RSVP_HOURLY_LIMIT = 10
+_GUEST_RSVP_DAILY_LIMIT = 30
+
+
+@require_POST
+def event_rsvp_guest(request: HttpRequest, pk: int) -> HttpResponse:
+    """Count me in on the public event page for someone with no account (#831, part 4).
+
+    No login, like the page: a scanned flyer leads here. The order is the cheap refusals first
+    (an unpublished event 404s, a signed-in user goes back to the page, where their RSVP is the
+    member one tap and never a guest row, an ended event is turned away with the page's own
+    note), then
+    one rate limit attempt per POST whatever follows, then the honeypot (a filled one is
+    answered exactly like a success and writes nothing), then the form. A valid form upserts
+    the guest by email (``EventGuestRSVPForm.save``: an email that is a member's already on the
+    list resizes that member's RSVP instead) and refreshes the Discord embed; the
+    redirect carries ``?going=1`` so the page's "You're on the list" state needs no session.
+    An invalid form re-renders the page with its errors.
+    """
+    from core.abuse_limits import client_rate_key, record_keyed_attempt
+    from membership.models import CommunityEvent
+
+    event = get_object_or_404(CommunityEvent.objects.published().select_related("guild", "area"), pk=pk)
+    date_query = event.date_query(EventDateForm(request.GET).occurrence_start(event))
+    page = reverse("hub_event_detail", args=[pk]) + date_query
+    if request.user.is_authenticated:
+        return redirect(page)
+    if event.rsvps_closed:
+        messages.info(request, "This event has already taken place.")
+        return redirect(page)
+    allowed, reason = record_keyed_attempt(
+        _GUEST_RSVP_SCOPE,
+        client_rate_key(request),
+        hourly_limit=_GUEST_RSVP_HOURLY_LIMIT,
+        daily_limit=_GUEST_RSVP_DAILY_LIMIT,
+    )
+    if not allowed:
+        logger.warning("Guest RSVP rate limited (%s) for event %s", reason, event.pk)
+        messages.error(request, "Too many sign-ups from this connection. Try again in an hour.")
+        return redirect(page)
+    going_page = f"{page}{'&' if date_query else '?'}going=1"
+    form = EventGuestRSVPForm(request.POST)
+    if form.honeypot_tripped:
+        return redirect(going_page)
+    if not form.is_valid():
+        return _render_event_page(request, event, guest_form=form)
+    form.save(event)
+    event.refresh_discord_announcement()
+    return redirect(going_page)
 
 
 def event_ics(request: HttpRequest, pk: int) -> HttpResponse:

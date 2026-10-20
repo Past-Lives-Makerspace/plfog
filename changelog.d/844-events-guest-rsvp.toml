@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-19"
+title = "Anyone can RSVP to an event, no account needed"
+changes = [
+  "A public event page takes an RSVP from anyone with a name and an email, for up to six people. Members still RSVP with one tap and can say how many they are bringing.",
+  "Signing up again with the same email updates the RSVP instead of adding a second one.",
+  "Manage Events has a Guest list tab: search, check guests in at the door, add someone by hand, copy the emails of guests who want updates, or download the list.",
+]
