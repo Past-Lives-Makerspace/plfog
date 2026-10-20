@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static %}
+{% load static tab_picker %}
 {% block title %}Leadership Directory{% endblock %}
 
 {% block extra_head %}
@@ -57,6 +57,7 @@ save of that line runs, and a line is never added twice.
 
   <section class="hub-card pl-leadership-admin__card">
     <div class="pl-leadership-admin__strip">
+      {% tab_picker "Leadership Tabs" %}
       <nav class="pl-tabs" role="tablist" aria-label="Leadership tabs" data-tab-strip data-order-url="{% url 'hub_admin_leadership_tab_order' %}">
         {% for pane in editor.panes %}
         <button type="button" role="tab" class="vote-tab{% if pane.tab == editor.open_tab %} vote-tab--active{% endif %}" data-tab-id="{{ pane.tab.pk }}"
@@ -65,6 +66,7 @@ save of that line runs, and a line is never added twice.
                 @click="show({{ pane.tab.pk }})">{{ pane.tab.title }}</button>
         {% endfor %}
       </nav>
+      {% endtab_picker %}
       <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'leadership-tab-add')">+ Add a tab</button>
     </div>
     {% for pane in editor.panes %}

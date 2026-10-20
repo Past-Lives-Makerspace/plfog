@@ -2,7 +2,7 @@
 Menu items for one Bookings tab row (#626), rendered inside components/row_actions.html, so it
 reads row (a hub.orientation_bookings.BookingRow) from the table loop. Every item shows only
 when the row's flag says its endpoint would take it. Staff rows (row.can_manage) get the staff
-menu in groups (Look, Reply, Oriented, Money, Stop) with a divider only between non empty
+menu in groups (Look, Reply and Move, Oriented, Money, Stop) with a divider only between non empty
 groups; the viewer's own row elsewhere gets the member menu. Confirms open the row's modal in
 orientation_booking_modals.html; the refunds load their form into the shared refund modal.
 {% endcomment %}
@@ -15,10 +15,15 @@ orientation_booking_modals.html; the refunds load their form into the shared ref
 {% if row.can_view_member %}
 <a href="{% url 'hub_admin_member_edit' b.member.pk %}?tab=orientations" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">View Member</a>
 {% endif %}
-{% if row.can_reply %}
+{% if row.can_reply or row.can_move %}
 <div class="pl-row-menu__divider" role="separator"></div>
+{% if row.can_reply %}
 <button type="button" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'booking-confirm-{{ pk }}')">Confirm Request</button>
 <button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'booking-decline-{{ pk }}')">Decline Request</button>
+{% endif %}
+{% if row.can_move %}
+<button type="button" class="pl-row-menu__item" role="menuitem" data-booking-move="{{ pk }}" @click="closeAndRefocus(); $dispatch('open-modal', 'booking-move-{{ pk }}')">Move to Another Time</button>
+{% endif %}
 {% endif %}
 {% if row.has_oriented_item %}
 <div class="pl-row-menu__divider" role="separator"></div>

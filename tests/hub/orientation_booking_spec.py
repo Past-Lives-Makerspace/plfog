@@ -191,7 +191,7 @@ def describe_orientation_request_custom():
         booking = OrientationBooking.objects.get(guild=guild, member=user.member)
         assert booking.status == OrientationBooking.Status.REQUESTED
         assert booking.orientation_type == orientation_type
-        assert booking.slot.source == "manual"
+        assert booking.slot.source == "custom"
         assert booking.slot.ends_at - booking.slot.starts_at == timedelta(minutes=45)
 
     def it_refuses_when_custom_requests_are_disabled(client: Client):
