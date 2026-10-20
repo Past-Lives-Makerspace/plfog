@@ -124,6 +124,86 @@ def describe_the_per_class_tab_strip():
         assert 'aria-label="This class"' not in html
 
 
+def _block(html: str, marker: str) -> str:
+    """The <nav> that carries ``marker``, from its start to its close."""
+    start = html.rindex("<nav", 0, html.index(marker))
+    return html[start : html.index("</nav>", start)]
+
+
+def _sections(html: str) -> list[str]:
+    """The section keys the phone's list offers, in order."""
+    block = _block(html, "data-class-sections")
+    return [chunk.split('"', 1)[0] for chunk in block.split('data-class-section="')[1:]]
+
+
+def describe_the_phone_section_list():
+    """#852: on a phone the per-class row gives way to a list on the Overview and a back row elsewhere."""
+
+    def it_lists_every_other_section_the_viewer_is_offered_on_the_overview(admin_user, guild_class, client):
+        client.force_login(admin_user)
+        html = _html(client, "classes:teach_class_detail", guild_class)
+        assert _sections(html) == ["registrations", "waitlist", "discount_codes", "emails", "eventbrite"]
+        assert "This Class · 5 more sections" in html
+        assert "data-class-section-back" not in html
+
+    def it_links_each_row_to_its_tab_with_a_one_line_hint(admin_user, guild_class, client):
+        client.force_login(admin_user)
+        block = _block(_html(client, "classes:teach_class_detail", guild_class), "data-class-sections")
+        eventbrite = reverse("classes:teach_class_eventbrite", kwargs={"pk": guild_class.pk})
+        assert f'href="{eventbrite}" class="pl-section-list__row" data-class-section="eventbrite"' in block
+        assert "List this class on Eventbrite" in block
+        assert "Who is coming and who has paid" in block
+        assert "People waiting for a seat" in block
+
+    def it_counts_registrations_and_the_waitlist_as_the_strip_does(admin_user, guild_class, client):
+        RegistrationFactory(class_offering=guild_class, status=Registration.Status.CONFIRMED)
+        RegistrationFactory(class_offering=guild_class, status=Registration.Status.CONFIRMED)
+        RegistrationFactory(class_offering=guild_class, status=Registration.Status.WAITLISTED)
+        client.force_login(admin_user)
+        block = _block(_html(client, "classes:teach_class_detail", guild_class), "data-class-sections")
+        assert block.count('class="pl-section-list__count"') == 2
+        assert '<span class="pl-section-list__count">2</span>' in block
+        assert '<span class="pl-section-list__count">1</span>' in block
+
+    def it_offers_an_instructor_their_own_tabs_and_no_more(instructor, guild_class, client):
+        client.force_login(instructor.user)
+        html = _html(client, "classes:teach_class_detail", guild_class)
+        strip = _block(html, 'aria-label="This class"')
+        offered = _sections(html)
+        for key in offered:
+            assert reverse(f"classes:teach_class_{key}", kwargs={"pk": guild_class.pk}) in strip
+        assert strip.count('class="vote-tab') == len(offered) + 1
+
+    def it_gives_a_lead_with_the_reviewer_grant_the_one_other_section(guild_lead, guild_class, client):
+        guild_lead.admin_capabilities.create(capability=AdminCapability.Capability.CLASS_APPROVER)
+        client.force_login(guild_lead.user)
+        html = _html(client, "classes:teach_class_detail", guild_class)
+        assert _sections(html) == ["emails"]
+        assert "This Class · 1 more section<" in html
+
+    def it_draws_nothing_for_a_viewer_with_one_tab(guild_lead, guild_class, client):
+        client.force_login(guild_lead.user)
+        html = _html(client, "classes:teach_class_emails", guild_class)
+        assert "data-class-sections" not in html
+        assert "data-class-section-back" not in html
+
+    def it_puts_a_back_row_with_n_of_n_on_every_other_tab(admin_user, guild_class, client):
+        client.force_login(admin_user)
+        overview = reverse("classes:teach_class_detail", kwargs={"pk": guild_class.pk})
+        for name, here in (
+            ("classes:teach_class_registrations", 'Registrations (0)<span class="pl-section-back__count"> · 2 of 6'),
+            ("classes:teach_class_waitlist", 'Waitlist (0)<span class="pl-section-back__count"> · 3 of 6'),
+            ("classes:teach_class_emails", 'Emails<span class="pl-section-back__count"> · 5 of 6'),
+            ("classes:teach_class_eventbrite", 'Eventbrite<span class="pl-section-back__count"> · 6 of 6'),
+        ):
+            html = _html(client, name, guild_class)
+            back = _block(html, "data-class-section-back")
+            assert f'<a href="{overview}" class="pl-section-back__link">' in back
+            assert "Class Overview</a>" in back
+            assert f'aria-current="page">{here}' in back
+            assert "data-class-sections" not in html
+
+
 def describe_the_class_header():
     def it_names_the_class_and_its_facts(admin_user, guild_class, client):
         client.force_login(admin_user)

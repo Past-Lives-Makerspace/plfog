@@ -16,27 +16,31 @@ img {
 
 [x-cloak] { display: none !important; }
 
-/* Shared tab strip — one row, horizontally scrollable on phones instead of
-   wrapping to a second line. Used by guild pages, settings, and voting.
+/* Shared tab strip: one row, scrolling sideways inside itself when it is wider than its box.
+   Used by the guild pages, settings, voting, equipment, orientations, leadership, kiln, the
+   event screen, wiki review, the Classes portal and the per-class screen.
 
-   Ruling 24: the strip scrolls, and now it says so. The merged per-class strip is seven
-   tabs (eight with the instructor discount-codes flag on), and at 390px the last three sit
-   off-screen — with the scrollbar hidden, nothing on the page suggested they were there.
-   The right-edge fade appears only when there IS more to the right, with no script and no
-   extra markup: two background layers, a "fade" pinned to the element
-   (background-attachment: scroll) and an opaque "cover" the same size pinned to the
-   *content* (background-attachment: local). The cover sits at the content's right edge, so
-   while there is more to scroll it is off-screen, and the moment you reach the end it
-   slides over the fade and hides it. A strip that does not overflow has its content edge at
-   its element edge, so the cover covers the fade from the start and nothing is ever drawn.
+   Below 640px a row wrapped in {% tab_picker %} hides and the section picker beside it takes
+   its place, and the per-class row gives way to its section list or back row (#852,
+   components.css), because a hidden scrollbar and an edge fade did not tell anyone that most
+   of the tabs were off screen. What is left of the scroll is for a desktop row longer than its
+   box, and for a one tab row, which gets no picker.
 
-   The cover has to paint whatever the strip sits on — the page ground on most pages, a card
-   on voting and wiki review — so it reads --pl-tabs-bg rather than a colour, and both
-   values are theme tokens, so it works in Obsidian and Slate alike (FRONTEND.md rule 7).
-   Give --pl-tabs-bg a new value on any future container with its own background.
+   Ruling 24's fade appears only when there IS more to the right, with no script and no extra
+   markup: two background layers, a "fade" pinned to the element (background-attachment:
+   scroll) and an opaque "cover" the same size pinned to the *content* (background-attachment:
+   local). The cover sits at the content's right edge, so while there is more to scroll it is
+   off screen, and the moment you reach the end it slides over the fade and hides it. A strip
+   that does not overflow has its content edge at its element edge, so the cover covers the
+   fade from the start and nothing is ever drawn.
 
-   This is a SHARED component — guilds, settings, voting, the wiki, equipment manage and now
-   the per-class screen all render it — so this has site-wide reach. */
+   The cover has to paint whatever the strip sits on (the page ground on most pages, a card on
+   voting and wiki review), so it reads --pl-tabs-bg rather than a colour, and both values are
+   theme tokens, so it works in Obsidian and Slate alike (FRONTEND.md rule 7). Give
+   --pl-tabs-bg a new value on any future container with its own background.
+
+   The wiki's filter chips are filters, not navigation, and carry their own scroll on
+   .pl-wp-chiprow, so nothing here reaches them. */
 .pl-tabs {
     --pl-tabs-bg: var(--hub-bg);
     display: flex;
@@ -10573,10 +10577,28 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 /* Filter chips are LINKS, so their active state has to be a class — .pl-chip gets its
    selected look from :has(input:checked) and there is no checkbox here. Same pill geometry
    and the same active colors, so the two read as one family side by side. */
-/* A chip row borrows .pl-tabs for its sideways scroll and edge fade, NOT its underline: the
-   rule is tab-strip language, and under 48px pills it sat flush against their bottom edge.
-   The vertical padding is room for the focus ring, which overflow-x:auto would otherwise clip. */
-.pl-wp-chiprow { margin-bottom: 0.5rem; padding: 0.2rem 0.1rem; gap: 0.5rem; border-bottom: 0; }
+/* A chip row is one line that scrolls sideways, with the shared tab strip's edge fade (the
+   cover and fade layers explained above .pl-tabs) and no underline. It used to borrow .pl-tabs
+   for this; it has its own rules since #852 so the tab strip's phone picker cannot reach a
+   filter row. The vertical padding is room for the focus ring, which overflow-x:auto would
+   otherwise clip. */
+.pl-wp-chiprow {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    padding: 0.2rem 0.1rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    background-image:
+        linear-gradient(to left, var(--hub-bg), var(--hub-bg)),
+        linear-gradient(to left, var(--hub-bg), transparent);
+    background-position: right center, right center;
+    background-repeat: no-repeat;
+    background-size: 2.5rem 100%, 2.5rem 100%;
+    background-attachment: local, scroll;
+}
+.pl-wp-chiprow::-webkit-scrollbar { display: none; }
 .pl-wp-chiprow + :not(.pl-wp-chiprow) { margin-top: 0.75rem; }
 .pl-wp-chip {
     display: inline-flex;
