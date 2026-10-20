@@ -10,12 +10,14 @@ from __future__ import annotations
 import csv
 import io
 import json
+import threading
+import time
 from io import StringIO
 from typing import Any
 
 import pytest
 from django.core.management import call_command
-from django.db import IntegrityError, connection, transaction
+from django.db import IntegrityError, connection, connections, transaction
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -572,19 +574,50 @@ def describe_the_approval_beside_d6bs_figures():
         assert response.status_code == 302
         assert (found.approved_cents, found.approved_note, found.ipa_cents) == (120_000, "Nov vote", 700)
 
-    def it_holds_a_racing_first_save_to_the_row_the_other_made(hub, monkeypatch):
+    @pytest.mark.django_db(transaction=True)
+    def it_holds_a_racing_first_save_to_the_row_the_other_made(hub):
+        """Another organiser's first save inserts the row on a second connection and commits only once ours is
+        waiting on it, so ours finds no row to lock, then is held to the row the other made."""
         page = _found(hub)
-        create = LedgerSettings.objects.bulk_create
+        ours = _backend_pid(connection)
+        inserted = threading.Event()
 
-        def _racing(objs: Any, **kwargs: Any) -> Any:  # another organiser's first save lands just before ours
-            LedgerSettingsFactory(hub=hub, ipa_cents=900)
-            return create(objs, **kwargs)
+        def _other_first_save() -> None:
+            try:
+                with transaction.atomic():
+                    LedgerSettingsFactory(hub=hub, ipa_cents=900)
+                    inserted.set()
+                    _wait_until_blocked(connections["default"], ours)
+            finally:
+                connections.close_all()
 
-        monkeypatch.setattr(LedgerSettings.objects, "bulk_create", _racing)
-        seen = {"ipa_cents": page.ipa_cents}
+        other = threading.Thread(target=_other_first_save)
+        other.start()
+        assert inserted.wait(timeout=10)
 
-        assert services.save_ledger_figures(hub, {"ipa_cents": 700}, seen=seen) is None
+        with pytest.raises(services.StaleSave):
+            services.save_ledger_figures(hub, {"ipa_cents": 700}, seen={"ipa_cents": page.ipa_cents})
+
+        other.join(timeout=10)
         assert LedgerSettings.objects.get(hub=hub).ipa_cents == 900
+
+
+def _backend_pid(conn: Any) -> int:
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT pg_backend_pid()")
+        return int(cursor.fetchone()[0])
+
+
+def _wait_until_blocked(conn: Any, pid: int) -> None:
+    """Return once backend ``pid`` waits on a lock (ours, held by this transaction), failing after ten seconds."""
+    deadline = time.monotonic() + 10
+    with conn.cursor() as cursor:
+        while time.monotonic() < deadline:
+            cursor.execute("SELECT wait_event_type FROM pg_stat_activity WHERE pid = %s", [pid])
+            if cursor.fetchone()[0] == "Lock":
+                return
+            time.sleep(0.01)
+    raise AssertionError(f"backend {pid} never waited on the row")
 
 
 def describe_the_tiles():

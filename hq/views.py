@@ -1717,16 +1717,19 @@ def ledger_approval(request: HttpRequest, *, hub: EventHub, card: HubCard) -> Ht
     filters and a column, so the page comes back whole. A refused one renders the page with the form open.
 
     The form carries the approval it was rendered with (``seen_*``, as the D6b settings forms do): a Save after someone
-    else changed the approval is refused whole under a row lock, and the form comes back as the database holds it, with
+    else changed the approval (:class:`hq.services.StaleSave`) comes back with the form as the database holds it, with
     :data:`APPROVAL_STALE_SAVE`. A price or tickets save in between never makes it stale.
     """
     form = LedgerApprovalForm(request.POST, found=services.ledger_settings(hub))
-    saved = services.save_approval(hub, **form.to_fields(), seen=form.seen()) if form.is_valid() else None
-    if saved is None:
-        refusal: dict[str, Any] = {"approval_form": form}
-        if form.is_valid():  # stale: someone else saved the approval since the page loaded
-            refusal = {"approval_error": APPROVAL_STALE_SAVE}
-        context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, **refusal)
+    if not form.is_valid():
+        context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, approval_form=form)
+        return render(request, "hq/ledger.html", context)
+    try:
+        services.save_approval(hub, **form.to_fields(), seen=form.seen())
+    except services.StaleSave:
+        context = _ledger_context(
+            request, hub, card, show=services.LEDGER_FILTER_ALL, approval_error=APPROVAL_STALE_SAVE
+        )
         return render(request, "hq/ledger.html", context)
     messages.success(request, "Approval saved.")
     return redirect(_ledger_url(hub))
@@ -1776,18 +1779,20 @@ def ledger_line_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: 
     """Save one budget line, by the actual role. Over htmx only that line comes back, with the totals, the log form's
     line select and the ledger out of band (they name the line); a refused Save comes back open with its errors.
 
-    A Save from a page older than the line (its ``updated_at`` no longer matches) is refused whole under a row lock:
-    the line comes back as the database holds it, with :data:`LINE_STALE_SAVE`.
+    A Save from a page older than the line (:class:`hq.services.StaleSave`) comes back with the line as the database
+    holds it, with :data:`LINE_STALE_SAVE`.
     """
     show = _ledger_posted_filter(request)
     fragment = wants_fragment(request)
-    with transaction.atomic():
-        line = get_object_or_404(hub.budget_lines.select_for_update(), pk=pk)
-        form = _line_edit_form(line, request.POST)
-        stale = form.is_stale
-        valid = not stale and form.is_valid()
-        if valid:
-            services.update_budget_line(line, form.to_fields())
+    line = get_object_or_404(hub.budget_lines, pk=pk)
+    form = _line_edit_form(line, request.POST)
+    valid = form.is_valid()
+    stale = False
+    if valid:
+        try:
+            line = services.update_budget_line(line, form.to_fields(), seen=form.seen())
+        except services.StaleSave:
+            valid, stale = False, True
     if not valid and not fragment:
         context = _ledger_context(
             request,
@@ -2097,6 +2102,22 @@ def ledger_bar_batch(request: HttpRequest, *, hub: EventHub, card: HubCard) -> H
     return response
 
 
+def _prices_refused(
+    request: HttpRequest, hub: EventHub, card: HubCard, form: DrinkPricesForm, *, error: str
+) -> HttpResponse:
+    """A refused Set drink prices: the page with the form open, or over htmx the form alone, with ``error`` (a stale
+    save's) or the form's own errors."""
+    if not wants_fragment(request):
+        bar = {"prices_form": form, "prices_error": error}
+        context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, bar=bar)
+        return render(request, "hq/ledger.html", context)
+    return render(
+        request,
+        "hq/partials/_ledger_bar_prices.html",
+        {"hub": hub, "prices_form": form, "prices_open": True, "prices_error": error},
+    )
+
+
 @require_POST
 @organizer_required(HubCard.Kind.LEDGER)
 def ledger_bar_prices(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
@@ -2106,25 +2127,13 @@ def ledger_bar_prices(request: HttpRequest, *, hub: EventHub, card: HubCard) -> 
     found = services.ledger_settings(hub)
     form = _prices_form(found, request.POST)
     fragment = wants_fragment(request)
-    saved = services.save_ledger_figures(hub, form.to_fields(), seen=form.seen()) if form.is_valid() else None
-    stale = form.is_valid() and saved is None
-    if saved is None:
-        refused = _prices_form(services.ledger_settings(hub)) if stale else form
-        error = services.SETTINGS_STALE_SAVE if stale else ""
-        if not fragment:
-            context = _ledger_context(
-                request,
-                hub,
-                card,
-                show=services.LEDGER_FILTER_ALL,
-                bar={"prices_form": refused, "prices_error": error},
-            )
-            return render(request, "hq/ledger.html", context)
-        return render(
-            request,
-            "hq/partials/_ledger_bar_prices.html",
-            {"hub": hub, "prices_form": refused, "prices_open": True, "prices_error": error},
-        )
+    if not form.is_valid():
+        return _prices_refused(request, hub, card, form, error="")
+    try:
+        saved = services.save_ledger_figures(hub, form.to_fields(), seen=form.seen())
+    except services.StaleSave:
+        refused = _prices_form(services.ledger_settings(hub))
+        return _prices_refused(request, hub, card, refused, error=services.SETTINGS_STALE_SAVE)
     if not fragment:
         messages.success(request, "Prices saved.")
         return redirect(_bar_url(hub))
@@ -2170,6 +2179,15 @@ def _wine_answer(request: HttpRequest, hub: EventHub, found: LedgerSettings, **f
     return render(request, "hq/partials/_ledger_wine_answer.html", context)
 
 
+def _wine_refused(request: HttpRequest, hub: EventHub, card: HubCard, refusal: dict[str, Any]) -> HttpResponse:
+    """A refused tickets or ticket prices save: the page, or over htmx the Wine Wall section, with ``refusal`` (the
+    form with its errors, or a stale save's error over the figures the database holds)."""
+    if not wants_fragment(request):
+        context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, wine=refusal)
+        return render(request, "hq/ledger.html", context)
+    return _wine_answer(request, hub, services.ledger_settings(hub), **refusal)
+
+
 def _save_wine_figures(
     request: HttpRequest,
     hub: EventHub,
@@ -2182,15 +2200,12 @@ def _save_wine_figures(
     """Save the tickets or the ticket prices (``key`` names which form), refusing one from an older page. Over htmx the
     Wine Wall section comes back whole with a toast; a plain post lands back on the section."""
     fragment = wants_fragment(request)
-    saved = services.save_ledger_figures(hub, form.to_fields(), seen=form.seen()) if form.is_valid() else None
-    if saved is None:
-        refusal: dict[str, Any] = {f"{key}_form": form}
-        if form.is_valid():  # stale: the figures changed since the page loaded; show what the database holds
-            refusal = {f"{key}_error": services.SETTINGS_STALE_SAVE}
-        if not fragment:
-            context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, wine=refusal)
-            return render(request, "hq/ledger.html", context)
-        return _wine_answer(request, hub, services.ledger_settings(hub), **refusal)
+    if not form.is_valid():
+        return _wine_refused(request, hub, card, {f"{key}_form": form})
+    try:
+        saved = services.save_ledger_figures(hub, form.to_fields(), seen=form.seen())
+    except services.StaleSave:  # the figures changed since the page loaded; show what the database holds
+        return _wine_refused(request, hub, card, {f"{key}_error": services.SETTINGS_STALE_SAVE})
     if not fragment:
         messages.success(request, saved_message)
         return redirect(_wine_section_url(hub))
