@@ -59,7 +59,8 @@ def describe_detail_edit_affordances():
         assert response.context["is_admin"] is True
         assert response.context["can_edit_offering"] is True
         assert response.context["can_edit_category"] is True
-        assert response.context["edit_url"] == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        # Edit leads to the class's Overview, where the editor's Cancel lands, not straight into the editor.
+        assert response.context["edit_url"] == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
 
     def it_offers_the_owning_instructor_class_editing(db, client):
         user = UserFactory(username="owner-instructor@example.com")
@@ -72,7 +73,7 @@ def describe_detail_edit_affordances():
         assert response.status_code == 200
         assert response.context["is_admin"] is False
         assert response.context["is_instructor"] is True
-        assert response.context["edit_url"] == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        assert response.context["edit_url"] == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
 
     def it_offers_guests_no_edit_controls(db, client):
         offering = _published_with_session(slug="guest-detail")
@@ -102,6 +103,7 @@ def describe_detail_edit_affordances():
         assert response.context["is_admin"] is False
         assert response.context["is_instructor"] is False
         assert response.context["can_edit_offering"] is True
+        # Guild staff on a class they do not teach have no Overview, so Edit still opens the editor.
         assert response.context["edit_url"] == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
 
     def it_hides_class_editing_from_a_lead_of_a_different_guild(db, client):

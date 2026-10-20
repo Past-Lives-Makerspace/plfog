@@ -1,5 +1,8 @@
 """End-to-end: on a phone, tab rows become a section picker and a class's tabs a section list (#852).
 
+The composers' step bars (``.pl-phase-tabs``) are pickers too, carrying each step's done tick
+and error dot into the list.
+
 Below 640px every top level ``.pl-tabs`` row gives way to the picker ``{% tab_picker %}`` draws
 beside it, and a class's own row to the list on its Overview or the back row on its other tabs.
 Opening and closing the picker, an in-page row's picker following and switching its Alpine pane,
@@ -209,6 +212,73 @@ def describe_the_section_picker_on_a_phone():
         expect(page.locator(f"{MENU} .pl-tab-picker__item-count").filter(has_text="2")).to_have_count(0)
 
 
+STEP_PICKER = ".pl-phase-tabs + .pl-tab-picker"
+COMPOSER_ROOT = "() => Alpine.$data(document.querySelector('[data-step-tab]').closest('[x-data]'))"
+
+
+def _draft_class() -> ClassOffering:
+    """The instructor's class as a draft, the state that edits in the step composer."""
+    offering = _instructor_class()
+    offering.status = ClassOffering.Status.DRAFT
+    offering.save(update_fields=["status"])
+    return offering
+
+
+def describe_the_composer_step_pickers_on_a_phone():
+    def it_moves_between_class_steps_and_shows_their_marks(live_server, page, login_via_code):
+        offering = _draft_class()
+        login_via_code(EMAIL)
+        page.set_viewport_size(PHONE)
+        _go(page, live_server, reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+
+        expect(page.locator(".pl-phase-tabs")).to_be_hidden()
+        summary = page.locator(f"{STEP_PICKER} {SUMMARY}")
+        expect(summary).to_have_attribute("aria-label", re.compile(r"^Class Steps: 1\. Basics, section 1 of 6$"))
+        summary.click()
+        items = page.locator(f"{STEP_PICKER} {MENU} .pl-tab-picker__item")
+        expect(items).to_have_count(6)
+        expect(items.first.locator(".pl-tab-picker__item-label")).to_have_text("1. Basics")
+        # A ready class has its steps done, so their ticks come across and stay out of the label.
+        expect(items.first.locator(".pl-tab-picker__item-mark")).to_have_text("\u2713")
+        _tall_enough(items)
+        assert page.evaluate(NO_H_SCROLL)
+
+        items.nth(2).click()
+        expect(page.locator(f"{STEP_PICKER} {MENU}")).to_be_hidden()
+        expect(page.locator(f"{STEP_PICKER} .pl-tab-picker__current")).to_have_text("3. Dates & Price")
+        expect(page.locator(f"{STEP_PICKER} .pl-tab-picker__count")).to_have_text("3 of 6")
+        assert page.evaluate(f"() => ({COMPOSER_ROOT})().phase") == 3
+
+        # A step that fails its check shows the error dot in the list, as the bar does in red.
+        page.evaluate(f"() => {{ ({COMPOSER_ROOT})().errorSteps = [2]; }}")
+        summary.click()
+        photos = items.nth(1).locator(".pl-tab-picker__item-mark")
+        expect(photos).to_have_text("\u25cf")
+        expect(photos).to_have_class(re.compile(r"pl-tab-picker__item-mark--error"))
+
+    def it_brings_the_page_back_up_to_the_picker_on_next(live_server, page, login_via_code):
+        offering = _draft_class()
+        login_via_code(EMAIL)
+        page.set_viewport_size(PHONE)
+        _go(page, live_server, reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+
+        page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+        page.get_by_role("button", name=re.compile(r"^Next")).click()
+        expect(page.locator(f"{STEP_PICKER} .pl-tab-picker__count")).to_have_text("2 of 6")
+        expect(page.locator(f"{STEP_PICKER} {SUMMARY}")).to_be_in_viewport()
+
+    def it_names_the_announcement_composers_two_steps(live_server, page, login_via_code):
+        _admin()
+        login_via_code(EMAIL)
+        page.set_viewport_size(PHONE)
+        _go(page, live_server, reverse("hub_compose"))
+
+        expect(page.locator(".pl-phase-tabs")).to_be_hidden()
+        expect(page.locator(f"{STEP_PICKER} {SUMMARY}")).to_have_attribute(
+            "aria-label", "Compose Steps: 1. Compose, section 1 of 2"
+        )
+
+
 def describe_the_desktop_rows():
     def it_shows_the_old_rows_and_no_picker_at_1280(live_server, page, login_via_code):
         offering = _instructor_class()
@@ -282,3 +352,24 @@ def describe_the_pr_pictures():
             page.locator(SUMMARY).click()
             page.wait_for_timeout(200)
             _shot(page, f"guild-picker-open-{theme}")
+
+    def it_captures_the_class_composers_step_picker(live_server, page, login_via_code):
+        SHOTS.mkdir(parents=True, exist_ok=True)
+        offering = _draft_class()
+        login_via_code(EMAIL)
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        page.set_viewport_size(PHONE)
+        for theme in ("light", "dark"):
+            _go(page, live_server, edit)
+            _theme(page, theme)
+            summary = page.locator(f"{STEP_PICKER} {SUMMARY}")
+            summary.scroll_into_view_if_needed()
+            page.evaluate(
+                "(el) => window.scrollTo(0, el.getBoundingClientRect().top + scrollY - 90)", summary.element_handle()
+            )
+            page.wait_for_timeout(200)
+            page.screenshot(path=str(SHOTS / f"composer-steps-closed-{theme}.png"))
+            page.evaluate(f"() => {{ ({COMPOSER_ROOT})().errorSteps = [2]; }}")
+            summary.click()
+            page.wait_for_timeout(200)
+            page.screenshot(path=str(SHOTS / f"composer-steps-open-{theme}.png"))

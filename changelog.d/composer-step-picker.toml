@@ -1,0 +1,9 @@
+bump = "patch"
+date = "2026-10-20"
+title = "Class and announcement steps fit your phone"
+changes = [
+  "On a phone, the steps along the top of the class builder and the announcement composer no longer slide off the side. They are one button showing which step you are on, like 3 of 6. Tap it to see every step.",
+  "Each step in that list keeps its tick when it is done and a red dot when it needs a fix.",
+  "Nothing else changes on a computer.",
+  "On a class page, Edit now takes the instructor to the class Overview, the same page Cancel in the class editor goes back to. Every section of the class is there, and its own Edit opens the editor.",
+]

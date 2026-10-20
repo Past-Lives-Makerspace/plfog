@@ -6,17 +6,32 @@
 // (data-tab-picker-buttons) also mirrors that row: the row's Alpine component decides which
 // tab is current, and the leadership editor reorders and renames its tabs in place, so the
 // picker re-reads the row whenever it changes and a choice presses the row's own button.
+// A composer's step bar (.pl-phase-tabs) is such a row; its done tick and error dot (a child
+// with a __mark class, shown or hidden by x-show) and aria-invalid come across as well.
 (function () {
+  function isRow(el) {
+    return el.classList.contains('pl-tabs') || el.classList.contains('pl-phase-tabs');
+  }
+
+  function isTab(el) {
+    return el.classList.contains('vote-tab') || el.classList.contains('pl-phase-tab');
+  }
+
   // The same reading as core/templatetags/tab_picker.py: text inside a direct child whose class
-  // names a count is the count (its aria-label says what it counts), the rest is the label.
+  // names a count is the count (its aria-label says what it counts), a shown mark is the mark,
+  // the rest is the label.
   // Only button rows come here, and their labels are often typed by a person ("Board (2)"),
   // so a "(n)" in the label stays part of it, as the server reads a button row too.
   function readTab(el) {
     var label = '';
     var count = '';
     var countLabel = '';
+    var mark = '';
     Array.prototype.forEach.call(el.childNodes, function (node) {
-      if (node.nodeType === 1 && /count/.test(node.getAttribute('class') || '')) {
+      var cls = node.nodeType === 1 ? node.getAttribute('class') || '' : '';
+      if (/__mark\b/.test(cls)) {
+        if (node.style.display !== 'none' && !node.hasAttribute('x-cloak')) mark += node.textContent;
+      } else if (/count/.test(cls)) {
         count += node.textContent;
         countLabel = countLabel || node.getAttribute('aria-label') || '';
       } else {
@@ -27,6 +42,8 @@
       label: label.replace(/\s+/g, ' ').trim(),
       count: count.trim(),
       countLabel: countLabel,
+      mark: mark.trim(),
+      error: el.getAttribute('aria-invalid') === 'true',
       active: el.classList.contains('vote-tab--active') ||
         el.getAttribute('aria-current') === 'page' ||
         el.getAttribute('aria-selected') === 'true',
@@ -41,8 +58,8 @@
         init() {
           if (!('tabPickerButtons' in this.$root.dataset)) return;
           var row = this.$root.previousElementSibling;
-          if (!row || !row.classList.contains('pl-tabs')) {
-            throw new Error('plTabPicker: no .pl-tabs row before the picker');
+          if (!row || !isRow(row)) {
+            throw new Error('plTabPicker: no .pl-tabs or .pl-phase-tabs row before the picker');
           }
           this.row = row;
           this.sync();
@@ -50,7 +67,7 @@
           this.observer = new MutationObserver(function () { self.sync(); });
           this.observer.observe(row, {
             subtree: true, childList: true, characterData: true,
-            attributes: true, attributeFilter: ['class', 'aria-selected', 'aria-current'],
+            attributes: true, attributeFilter: ['class', 'aria-selected', 'aria-current', 'aria-invalid', 'style', 'x-cloak'],
           });
         },
 
@@ -59,9 +76,7 @@
         },
 
         rowTabs() {
-          return Array.prototype.filter.call(this.row.children, function (el) {
-            return el.classList.contains('vote-tab');
-          });
+          return Array.prototype.filter.call(this.row.children, isTab);
         },
 
         sync() {

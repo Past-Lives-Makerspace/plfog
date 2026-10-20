@@ -486,6 +486,19 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
     }
 
 
+def _class_page_edit_url(request: HttpRequest, offering: ClassOffering) -> str:
+    """Where the class page's Edit button goes: the class's Overview, the screen the editor's Cancel returns to.
+
+    The Overview carries every section of the class (registrations, Eventbrite, emails) and its own
+    Edit, so the page leads there first rather than straight into the editor. Guild staff on a
+    class they do not teach have no Overview (``_leave_class_url``), so they still go to the editor.
+    """
+    access = class_access(request, offering)
+    if access is not None and access.can_view_overview:
+        return reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+    return reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+
+
 def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """Full class detail page — schedule, info grid, (future: registration form)."""
     offering = get_object_or_404(
@@ -495,7 +508,7 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
         slug=slug,
     )
     from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER
-    from membership.permissions import can_edit_class, is_effective_staff
+    from membership.permissions import can_edit_class
 
     view_as = getattr(request, "view_as", None)
     # is_admin reflects the *actual* role — used for banners/admin links on the page.
@@ -507,13 +520,7 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     # One shared rule decides edit rights: admin/officer, the lead of the
     # category's guild (FK only), or the instructor. view_as preview is honored.
     can_edit_offering = can_edit_class(request, offering)
-    edit_url = None
-    if can_edit_offering:
-        if is_effective_staff(request):
-            edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
-        else:
-            # Instructors and guild leads manage the class from the teaching portal.
-            edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+    edit_url = _class_page_edit_url(request, offering) if can_edit_offering else None
 
     context = _class_detail_context(request, offering)
     context.update(
@@ -3881,12 +3888,10 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
         return HttpResponseForbidden("You can only preview your own classes.")
 
     edit_url = None
-    if is_admin:
-        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
-    elif user_member is not None and user_member.can_edit_class(offering):
+    if is_admin or (user_member is not None and user_member.can_edit_class(offering)):
         # Instructors and guild leads manage the class from the teaching portal.
         # A CMS Administrator gets no edit link — they review, they don't edit.
-        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        edit_url = _class_page_edit_url(request, offering)
     return _render_class_preview(
         request,
         offering,

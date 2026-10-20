@@ -4,7 +4,9 @@ right after the row it was built from. Below 640px the row hides and this shows 
 A <details> so it opens with no script; plTabPicker (static/js/tab_picker.js) closes it on Escape
 and on a tap outside. A row of links lists links that keep aria-current="page". A row of in-page
 buttons lists buttons that press the row's own button, so the pane switches exactly as a desktop
-click would, and its label, count and list follow the row as Alpine changes it.
+click would, and its label, count, marks and list follow the row as Alpine changes it (a composer's
+step bar shows its done tick and error dot here too, in place of the current one's check, which
+the highlight already marks).
 
 Context: eyebrow, tabs (PickerTab), buttons, current, position, total.{% endcomment %}
 <details class="pl-tab-picker" x-data="plTabPicker"{% if buttons %} data-tab-picker-buttons{% endif %} @click.outside="close()" @keydown.escape.window="escape()">
@@ -23,7 +25,9 @@ Context: eyebrow, tabs (PickerTab), buttons, current, position, total.{% endcomm
                 <span class="pl-tab-picker__item-label" x-text="item.label"></span>
                 <span class="pl-tab-picker__item-count" x-show="item.count" x-text="item.count" :aria-hidden="item.countLabel ? 'true' : null"></span>
                 <span class="sr-only" x-show="item.countLabel" x-text="item.countLabel"></span>
-                <svg class="pl-tab-picker__check" x-show="item.active" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+                <span class="pl-tab-picker__item-mark" :class="{ 'pl-tab-picker__item-mark--error': item.error }" x-show="item.mark" x-text="item.mark" aria-hidden="true"></span>
+                <span class="sr-only" x-text="item.error ? ', needs a fix' : ''"></span>
+                <svg class="pl-tab-picker__check" x-show="item.active && !item.mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
             </button>
         </template>
     </div>

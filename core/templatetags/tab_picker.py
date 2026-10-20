@@ -15,6 +15,11 @@ mirrors the row from then on (``static/js/tab_picker.js``); what is read here is
 paint. A row with fewer than two tabs offers no choice and gets no picker, as the per-class
 strip already does.
 
+A composer's step bar (``.pl-phase-tabs`` of ``.pl-phase-tab`` buttons) is read the same way, so a
+step bar is a picker on a phone too rather than a row sliding off the edge. Its done and error
+marks (a direct child with a ``__mark`` class, ``pl-phase-tab__mark``) are not part of the label; the browser mirror
+carries them into the list.
+
 Usage::
 
     {% load tab_picker %}
@@ -41,6 +46,10 @@ register = template.Library()
 #: can show it apart. Never applied to a row of buttons, whose labels are often typed by a
 #: person ("Board (2)", an FAQ label "FAQ (2025)").
 _LABEL_COUNT = re.compile(r"^(?P<label>.+?)\s*\((?P<count>\d+)\)$")
+
+#: The classes that make an element a row, and a direct child of a row a tab.
+ROW_CLASSES = frozenset({"pl-tabs", "pl-phase-tabs"})
+TAB_CLASSES = frozenset({"vote-tab", "pl-phase-tab"})
 
 #: Elements with no end tag, which must not open a level of nesting.
 _VOID = frozenset(
@@ -72,11 +81,12 @@ class _Reading:
 
 
 class _RowReader(HTMLParser):
-    """Collects the ``.vote-tab`` children of the first ``.pl-tabs`` element in a fragment.
+    """Collects the tab children of the first row (``ROW_CLASSES``) in a fragment.
 
     Only the row's direct children are tabs. Text inside a direct child of a tab whose class names
     a count (``pl-kiln-count``, ``vote-tab__count``) is the tab's count, everything else its
-    label, the same reading as ``readTab`` in ``static/js/tab_picker.js``.
+    label, and text inside one with a ``__mark`` class (a step's done tick) is neither; the same
+    reading as ``readTab`` in ``static/js/tab_picker.js``.
     """
 
     def __init__(self) -> None:
@@ -89,6 +99,7 @@ class _RowReader(HTMLParser):
         self._tab: _Reading | None = None
         self._tab_depth = 0
         self._count_depth: int | None = None
+        self._mark_depth: int | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = {name: value or "" for name, value in attrs}
@@ -96,19 +107,19 @@ class _RowReader(HTMLParser):
         if tag not in _VOID:
             self._depth += 1
         if self._row_depth is None:
-            if not self.found_row and "pl-tabs" in classes:
+            if not self.found_row and ROW_CLASSES.intersection(classes):
                 self.found_row = True
                 self._row_depth = self._depth
             return
         if self._tab is None:
-            if self._depth == self._row_depth + 1 and "vote-tab" in classes:
+            if self._depth == self._row_depth + 1 and TAB_CLASSES.intersection(classes):
                 self._start_tab(tag, values, classes)
             return
-        if (
-            self._count_depth is None
-            and self._depth == self._tab_depth + 1
-            and any("count" in name for name in classes)
-        ):
+        if self._depth != self._tab_depth + 1 or self._count_depth is not None or self._mark_depth is not None:
+            return
+        if any(name.endswith("__mark") for name in classes):
+            self._mark_depth = self._depth
+        elif any("count" in name for name in classes):
             self._count_depth = self._depth
             self._tab.count_label = values.get("aria-label", "")
 
@@ -133,6 +144,8 @@ class _RowReader(HTMLParser):
             return
         if self._count_depth == self._depth:
             self._count_depth = None
+        if self._mark_depth == self._depth:
+            self._mark_depth = None
         if self._tab is not None and self._depth == self._tab_depth:
             self.tabs.append(_finish(self._tab))
             self._tab = None
@@ -141,7 +154,7 @@ class _RowReader(HTMLParser):
         self._depth -= 1
 
     def handle_data(self, data: str) -> None:
-        if self._tab is None:
+        if self._tab is None or self._mark_depth is not None:
             return
         (self._tab.label if self._count_depth is None else self._tab.count).append(data)
 
@@ -158,17 +171,17 @@ def _finish(reading: _Reading) -> PickerTab:
 
 
 def read_tabs(row_html: str) -> tuple[list[PickerTab], bool]:
-    """The tabs of the first ``.pl-tabs`` row in ``row_html``, and whether they are in-page buttons.
+    """The tabs of the first row (``.pl-tabs`` or ``.pl-phase-tabs``) in ``row_html``, and whether they are in-page buttons.
 
     Raises:
-        ValueError: when there is no ``.pl-tabs`` row, the row mixes links and buttons (the
+        ValueError: when there is no row, the row mixes links and buttons (the
             picker would not know whether to navigate or switch a pane), or a tab link has no href.
     """
     reader = _RowReader()
     reader.feed(row_html)
     reader.close()
     if not reader.found_row:
-        raise ValueError("{% tab_picker %} wraps no .pl-tabs row")
+        raise ValueError("{% tab_picker %} wraps no .pl-tabs or .pl-phase-tabs row")
     if reader.buttons not in (0, len(reader.tabs)):
         raise ValueError("{% tab_picker %} row mixes links and buttons")
     return reader.tabs, reader.buttons > 0

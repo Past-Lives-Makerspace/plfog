@@ -5694,20 +5694,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-phase-tab--error .pl-phase-tab__mark {
     color: var(--pl-lifecycle-cancelled);
 }
-@media (max-width: 640px) {
-    /* One scrolling row on phones; the composer's goTo() scrolls the active tab into view. */
-    .pl-phase-tabs {
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        scrollbar-width: none;
-        scroll-snap-type: x proximity;
-    }
-    .pl-phase-tabs::-webkit-scrollbar { display: none; }
-    .pl-phase-tab {
-        flex: 0 0 auto;
-        scroll-snap-align: start;
-    }
-}
+/* Below 640px the bar gives way to the section picker ({% tab_picker %}, components.css). */
 
 /* ── Class composer (teach + admin class form) ──────────────────────────────
    Five Alpine steps in one form (classes/_components/class_composer.html). Every step
@@ -5726,19 +5713,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-composer__footnote {
     margin: 0.75rem 0 0;
     color: var(--hub-text-muted);
-}
-/* "Step 3 of 5", phones only: the tab bar alone does not say where you are when half of it is off screen. */
-.pl-composer-count {
-    display: none;
-    margin: 0 0 0.5rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--hub-text-muted);
-}
-@media (max-width: 640px) {
-    .pl-composer-count { display: block; }
 }
 /* The description's live count (issue #425): a second hint line under the description box. It is
    rendered after form_field.html's group, outside it, so the group's 1rem bottom margin is pulled
