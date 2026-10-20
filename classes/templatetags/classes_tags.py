@@ -3,18 +3,89 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 from django import template
 from django.http import QueryDict
+from django.urls import reverse
 
+from classes.access import (
+    TAB_DISCOUNT_CODES,
+    TAB_EMAILS,
+    TAB_EVENTBRITE,
+    TAB_OVERVIEW,
+    TAB_REGISTRATIONS,
+    TAB_WAITLIST,
+    ClassAccess,
+)
 from classes.video_providers import YOUTUBE, VideoLink, recognize
 
 if TYPE_CHECKING:
     from classes.models import ClassApproval, ClassOffering, ClassSession, DiscountApprover, DiscountCode
 
 register = template.Library()
+
+#: Where each per-class tab lives; every one takes the class's pk.
+_CLASS_TAB_URLS = {
+    TAB_OVERVIEW: "classes:teach_class_detail",
+    TAB_REGISTRATIONS: "classes:teach_class_registrations",
+    TAB_WAITLIST: "classes:teach_class_waitlist",
+    TAB_DISCOUNT_CODES: "classes:teach_class_discount_codes",
+    TAB_EMAILS: "classes:teach_class_emails",
+    TAB_EVENTBRITE: "classes:teach_class_eventbrite",
+}
+
+
+@dataclass(frozen=True)
+class ClassSection:
+    """One per-class tab as the strip and the phone's section list draw it."""
+
+    key: str
+    label: str
+    hint: str
+    url: str
+    count: int | None
+    current: bool
+    position: int
+
+
+@register.inclusion_tag("classes/_components/class_sections.html", takes_context=True)
+def class_sections(context: template.Context) -> dict[str, Any]:
+    """The per-class tabs (#852): the desktop strip and, beside it, the phone's list or back row.
+
+    Reads ``access``, ``offering``, ``active_subtab``, ``seat_taken_count`` and
+    ``waitlist_count`` off the class screen's context (``_class_screen_context``), so a screen
+    that forgets one fails loudly. Only the tabs ``access.tabs`` offers are drawn, and a viewer
+    with fewer than two gets nothing (decision D2). Registrations and Waitlist carry their counts.
+    """
+    access: ClassAccess = context["access"]
+    counts = {TAB_REGISTRATIONS: context["seat_taken_count"], TAB_WAITLIST: context["waitlist_count"]}
+    pk = context["offering"].pk
+    active = context["active_subtab"]
+    sections = [
+        ClassSection(
+            key=tab.key,
+            label=tab.label,
+            hint=tab.hint,
+            url=reverse(_CLASS_TAB_URLS[tab.key], kwargs={"pk": pk}),
+            count=counts.get(tab.key),
+            current=tab.key == active,
+            position=index,
+        )
+        for index, tab in enumerate(access.tabs, start=1)
+    ]
+    if len(sections) < 2:
+        return {"sections": []}
+    by_key = {section.key: section for section in sections}
+    return {
+        "sections": sections,
+        "current": by_key[active],
+        "overview": by_key[TAB_OVERVIEW],
+        "others": [section for section in sections if section.key != TAB_OVERVIEW],
+        "total": len(sections),
+    }
 
 
 @register.inclusion_tag("classes/emails/_review_pipeline.html")

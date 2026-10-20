@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyAIWt3tUByYsYYZmQ-mEejbjx8-jxnXQ60</string>
+	<key>GCM_SENDER_ID</key>
+	<string>612054639844</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>app.pastlives.hub</string>
+	<key>PROJECT_ID</key>
+	<string>pastlives-fog</string>
+	<key>STORAGE_BUCKET</key>
+	<string>pastlives-fog.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:612054639844:ios:ba9ad3c0d9799b703978f1</string>
+</dict>
+</plist>

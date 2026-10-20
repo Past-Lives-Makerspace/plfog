@@ -25,6 +25,11 @@ Stripe. Context: booking_rows, bookings_next.
 {% endwith %}
 {% endif %}
 {% endif %}
+{% if row.can_move %}
+{% with move_booking=b move_form=row.move_form move_next=bookings_next move_modal_id="booking-move-"|add:pk %}
+{% include "components/modal.html" with modal_id=move_modal_id modal_title="Move to Another Time" modal_size="sm" modal_body_include="hub/partials/_orientation_move_form.html" %}
+{% endwith %}
+{% endif %}
 {% if row.has_oriented_item %}
 {% url 'hub_orientation_toggle_completed' b.pk as toggle_url %}
 {% if row.can_mark %}
