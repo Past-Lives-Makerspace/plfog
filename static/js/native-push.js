@@ -213,6 +213,9 @@
   // push is on when nothing can reach the device: null (fine), "conflict" (HTTP 409, the token
   // is still bound to whoever last used this device and never signed out), or "failed".
   var registerProblem = null;
+  // The plugin's own words for the last token failure, shown on the card so a member (or
+  // whoever is helping them) can tell an APNs problem from a network one. Not a secret.
+  var registerErrorText = "";
   var changeHandlers = [];
 
   function notifyChanged() {
@@ -228,6 +231,7 @@
         // success. Reading response.ok is the difference between "push is on" and a lie.
         if (response.ok) {
           registerProblem = null;
+          registerErrorText = "";
         } else {
           registerProblem = response.status === 409 ? "conflict" : "failed";
           console.error("[native-push] token register rejected", response.status);
@@ -257,6 +261,17 @@
 
   bridge.onTokenError(function (err) {
     console.error("[native-push] registration error", err);
+    // The OS can grant permission and still hand back no token (on iOS, getToken rejects when
+    // APNs has not answered yet, or Firebase cannot reach APNs). Logging alone left the card
+    // reading "Push is on" for a device the server has never heard of. A token that arrives
+    // later (iOS replays tokenReceived once APNs answers) goes through registerDevice, which
+    // clears this again.
+    if (lastToken !== null) {
+      return; // an earlier token already registered; one failed refresh does not undo that
+    }
+    registerProblem = "failed";
+    registerErrorText = (err && (err.message || err.error)) || String(err || "");
+    notifyChanged();
   });
 
   // Only navigate to a same-origin relative path or an http(s) URL. A push payload's
@@ -475,6 +490,11 @@
     // "failed". Pair it with checkPermissions: the OS can say granted while the server refused.
     registrationProblem: function () {
       return registerProblem;
+    },
+
+    // The plugin's error message behind a "failed", or "" when there is none to show.
+    registrationErrorText: function () {
+      return registerErrorText;
     },
 
     // Registration finishes after the settings card first paints, so the card subscribes here

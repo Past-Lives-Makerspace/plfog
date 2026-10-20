@@ -90,6 +90,12 @@ one place. Context: push_device_count (omitted for token-scoped viewers, who get
                 paint("conflict", "Push is not on for this device.");
               } else if (problem === "failed") {
                 paint("failed", "Push could not be turned on. Try again in a moment.");
+                // A detail only the token path has; the register round trip leaves it blank.
+                var detail = api.registrationErrorText ? api.registrationErrorText() : "";
+                if (detail) {
+                  helpEl.textContent = "Details: " + detail;
+                  helpEl.hidden = false;
+                }
               } else {
                 paint("on", "Push is on for this device.");
               }
