@@ -9,7 +9,7 @@
 .pl-kiln-head { margin-bottom: 1.25rem; }
 .pl-kiln-head .hub-page-title { margin-bottom: 0.25rem; }
 .pl-kiln-head__lead { margin: 0 0 1rem; color: var(--hub-text-muted); max-width: 60ch; }
-.pl-kiln-head .pl-tabs { margin-bottom: 0; }
+.pl-kiln-head .pl-tabs, .pl-kiln-head .pl-tab-picker { margin-bottom: 0; }
 .pl-kiln-count { display: inline-block; min-width: 1.4rem; padding: 0 0.35rem; margin-left: 0.35rem; border-radius: 999px; background: var(--hub-surface); font-size: 0.75rem; font-weight: 700; text-align: center; color: var(--hub-text); }
 
 /* The crew's kiln pages as a row of links on the Ceramics Guild's Kiln Tickets tab (#691). */

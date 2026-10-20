@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load hub_tags static %}
+{% load hub_tags static tab_picker %}
 {% block title %}{{ leadership_page.hero_title }}{% endblock %}
 
 {% block extra_head %}
@@ -39,6 +39,7 @@ the hero, which opens the editor on the open tab.
     </div>
 
     {% if tabs %}
+    {% tab_picker "Leadership" %}
     <nav class="pl-tabs pl-leadership__tabs" role="tablist" aria-label="Leadership groups">
         {% for tab in tabs %}
         <button type="button" role="tab" id="leadership-tab-{{ tab.pk }}" class="vote-tab{% if tab == open_tab %} vote-tab--active{% endif %}"
@@ -47,6 +48,7 @@ the hero, which opens the editor on the open tab.
                 @click="open = {{ tab.pk }}; history.replaceState(history.state, '', '{% url 'hub_leadership_directory' %}?tab={{ tab.pk }}')">{{ tab.title }}</button>
         {% endfor %}
     </nav>
+    {% endtab_picker %}
 
     {% for tab in tabs %}
     <section class="hub-card pl-leadership__pane" id="leadership-pane-{{ tab.pk }}" role="tabpanel" aria-labelledby="leadership-tab-{{ tab.pk }}"

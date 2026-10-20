@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static hub_tags %}
+{% load static hub_tags tab_picker %}
 {% block title %}Manage {{ equipment.name }}{% endblock %}
 {% block extra_head %}{{ block.super }}
 <link rel="stylesheet" href="{% static 'css/equipment-manage.css' %}">
@@ -15,6 +15,7 @@
 
 {# The server sanitizes ?tab= to a known pane (view whitelist), so render its value alone — reading the raw URL param here would let /manage/?tab=bogus blank both panes. #}
 <div x-data="{ section: '{{ active_tab }}' }">
+{% tab_picker "Manage" %}
 <nav role="tablist" class="pl-tabs">
   <button type="button" class="vote-tab" :class="section === 'details' ? 'vote-tab--active' : ''" @click="section = 'details'">Details</button>
   <button type="button" class="vote-tab" :class="section === 'staff' ? 'vote-tab--active' : ''" @click="section = 'staff'">Staff</button>
@@ -22,6 +23,7 @@
   <button type="button" class="vote-tab" :class="section === 'reservations' ? 'vote-tab--active' : ''" @click="section = 'reservations'">Reservations</button>
   <button type="button" class="vote-tab" :class="section === 'orientation' ? 'vote-tab--active' : ''" @click="section = 'orientation'">Orientation</button>
 </nav>
+{% endtab_picker %}
 
 {# ── Details tab — the same EquipmentForm as the add page (spec §7.4). ── #}
 <div x-show="section === 'details'" {% if active_tab != "details" %}x-cloak{% endif %}>
