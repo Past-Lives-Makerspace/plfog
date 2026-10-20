@@ -1,0 +1,39 @@
+{% comment %}
+The Drink sales tiles, Lee's four: drinks sold (by kind), sales (against 2025), the bar's cost (the ledger's Drinks
+lines, read, never typed) and the profit, then a meter of sales toward the cost with her break-even line. Swapped out
+of band after every sale, batch, undo, price change and budget line save.
+
+  bar — required, a hq.services.BarTotals
+  oob — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<div class="pl-hq-lg__money" id="hq-lg-bar-tiles" data-hq-lg-bar-tiles{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="pl-hq-lg__tiles">
+    <div class="pl-hq-lg__tile" data-hq-lg-bar-tile="count">
+      <span class="pl-hq-lg__tile-heading">Drinks sold</span>
+      <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ bar.count }}</strong>
+      <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{{ bar.count_line }}</span>
+    </div>
+    <div class="pl-hq-lg__tile" data-hq-lg-bar-tile="sales">
+      <span class="pl-hq-lg__tile-heading">Sales</span>
+      <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ bar.sales_display }}</strong>
+      <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{{ bar.sales_line }}</span>
+    </div>
+    <div class="pl-hq-lg__tile" data-hq-lg-bar-tile="cost">
+      <span class="pl-hq-lg__tile-heading">Bar cost</span>
+      <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ bar.cost_display }}</strong>
+      <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>From the Drinks budget lines</span>
+    </div>
+    <div class="pl-hq-lg__tile{% if bar.profit_tone %} pl-hq-lg__tile--{{ bar.profit_tone }}{% endif %}" data-hq-lg-bar-tile="profit">
+      <span class="pl-hq-lg__tile-heading">Bar profit</span>
+      <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ bar.profit_display }}</strong>
+      <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{{ bar.profit_line }}</span>
+    </div>
+  </div>
+  <div class="pl-hq-lg__meter-wrap">
+    <progress class="pl-hq-lg__meter pl-hq-lg__meter--fill" max="100" value="{{ bar.percent }}" aria-label="Sales toward covering the bar cost: {{ bar.percent }} percent" data-hq-lg-bar-meter></progress>
+    <div class="pl-hq-lg__meter-labels">
+      <span data-hq-lg-break-even>{% if not bar.cost_cents %}Break-even shows once costs are logged{% elif not bar.needed_cents %}<strong>Break-even reached</strong>{% elif bar.beers_to_break_even is None %}Break-even: <strong>{{ bar.needed_display }}</strong> to go{% else %}Break-even: about <strong>{{ bar.beers_to_break_even }}</strong> more beer{{ bar.beers_to_break_even|pluralize }} at {{ bar.ipa_display }}{% endif %}</span>
+      <span data-hq-lg-bar-meter-line>{{ bar.meter_line }}</span>
+    </div>
+  </div>
+</div>

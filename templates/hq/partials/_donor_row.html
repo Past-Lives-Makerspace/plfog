@@ -1,0 +1,26 @@
+{% comment %}
+One giver on the Wine Donors to Thank table. Thanked is a toggle (aria-pressed) that posts over htmx and swaps this row;
+Lee's Under $25 flag sits under the bottles when any of theirs is worth less than one wine wall ticket.
+
+  hub         — required, the EventHub
+  row         — required, a hq.services.DonorRow
+  donors_back — required, "wall" on the wall, else ""
+{% endcomment %}
+<tr data-hq-donor-row="{{ row.name }}">
+  <td data-label="Giver">{{ row.name }}</td>
+  <td data-label="Type">{{ row.giver_type }}</td>
+  <td data-label="Email">{{ row.email }}</td>
+  <td data-label="Sponsor listing">{{ row.listing }}</td>
+  <td data-label="Bottles">{{ row.bottles }} ({{ row.value_display }}){% if row.under_line %}<span class="pl-hq-wine__under" data-hq-donor-under>{{ row.under_line }}</span>{% endif %}</td>
+  <td data-label="Thanked">
+    <form method="post" action="{% url 'hq:wine_donor_thanked' hub.slug %}" hx-post="{% url 'hq:wine_donor_thanked' hub.slug %}" hx-target="closest tr" hx-swap="outerHTML" data-hq-donor-thanked-form>
+      {% csrf_token %}
+      <input type="hidden" name="giver" value="{{ row.name }}">
+      <input type="hidden" name="thanked" value="{{ row.thanked|yesno:',1' }}">
+      <input type="hidden" name="back" value="{{ donors_back }}">
+      <button type="submit" class="pl-hq-wine__thanked{% if row.thanked %} pl-hq-wine__thanked--on{% endif %}" aria-pressed="{{ row.thanked|yesno:'true,false' }}" aria-label="Thank-you sent to {{ row.name }}" data-hq-donor-thanked="{{ row.thanked|yesno:'yes,no' }}">{% if row.thanked %}&#10003; Thanked{% else %}Mark thanked{% endif %}</button>
+    </form>
+  </td>
+  <td data-label="Logged by">{{ row.logged_by|join:", " }}</td>
+  <td data-label="Notes" data-hq-donor-notes>{{ row.notes|join:" · " }}</td>
+</tr>

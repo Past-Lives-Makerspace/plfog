@@ -68,6 +68,8 @@ class SeedReport:
     goals: Tally = field(default_factory=Tally)
     # The goals a run added to a hub that already held some (counted kinds it lacked), by label.
     goals_added: list[str] = field(default_factory=list)
+    # The label of a typed in Raised goal the run turned into the counted event cash (blank when none).
+    goals_adopted: str = ""
     shifts: Tally = field(default_factory=Tally)
 
     @property
@@ -95,6 +97,8 @@ class SeedReport:
         )
         # A hub that held goals and gained some names them; a fresh set is just its count.
         topped_up = f" Added: {', '.join(self.goals_added)}." if self.goals.kept and self.goals_added else ""
+        if self.goals_adopted:
+            topped_up += " Raised now counts itself."
         return [
             f"Hub {self.hub.slug} ({self.hub.title}): {self._hub_state()}.",
             f"Cards: {cards.created} created, {cards.kept} kept as edited.{adopted}{reworded}{skipped}",
@@ -171,18 +175,19 @@ def seed(event: CommunityEvent | None = None) -> SeedReport:
             hub.event = event
             hub.save(update_fields=["event"])
     report.cards = hub.seed_default_cards()
-    report.goals_added = _seed_goals(hub, report.goals)
+    report.goals_added, report.goals_adopted = _seed_goals(hub, report.goals)
     _seed_shifts(hub, report.shifts)
     return report
 
 
-def _seed_goals(hub: EventHub, tally: Tally) -> list[str]:
+def _seed_goals(hub: EventHub, tally: Tally) -> tuple[list[str], str]:
     """Lee's goals by :func:`hq.services.seed_goals`: the whole set on a hub with none, else the counted goals whose
-    kind it lacks. Returns the labels added, for the line."""
+    kind it lacks, after turning a typed in Raised into the event cash. Returns the labels added and the label adopted
+    (blank when none), for the line."""
     seeded = seed_goals(hub)
     tally.created = len(seeded.added)
     tally.kept = seeded.kept
-    return seeded.added
+    return seeded.added, seeded.adopted
 
 
 def _seed_shifts(hub: EventHub, tally: Tally) -> None:

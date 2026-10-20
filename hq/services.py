@@ -19,7 +19,9 @@ the list's filters and the three writes (:func:`add_vendor_table`, :func:`update
 :func:`save_flyer_links`). The ledger half (D6a) holds the budget's figures (:func:`ledger_band`, the one source of
 the approval used and left, the sponsored value, each line's totals and the bar's cost), Lee's board summary
 (:func:`board_summary`), the ledger's filters and its writes (:func:`save_approval`, the budget lines',
-:func:`add_ledger_entry`, :func:`attach_receipt`).
+:func:`add_ledger_entry`, :func:`attach_receipt`). The money in (D6b) holds the bar (:func:`bar_totals`, the quick and batch
+writes and Undo last), the wine wall tickets (:func:`ticket_totals`), the event cash Raised counts (:func:`event_cash`)
+and the donors thanked (:func:`donor_thanks`, :func:`set_donor_thanked`).
 """
 
 from __future__ import annotations
@@ -54,7 +56,11 @@ from django.utils import timezone
 
 from hq.holiday_bizarre import CHECKIN_THANKS, GOALS
 from hq.models import (
+    PRICED_DRINKS,
     RECEIPT_KINDS,
+    BarDrink,
+    BarSale,
+    BarSaleSource,
     BudgetCategory,
     BudgetLine,
     EventHub,
@@ -78,8 +84,10 @@ from hq.models import (
     VolunteerHours,
     VolunteerShift,
     WineBottle,
+    WineDonorThanks,
     WineKind,
     WineryLogo,
+    donor_key,
     format_hours,
     format_money,
 )
@@ -136,6 +144,8 @@ _LIVE_COUNTS: dict[str, Callable[[EventHub], int]] = {
     HubGoal.Kind.RSVPS: lambda hub: rsvp_count(hub.event),
     HubGoal.Kind.VOLUNTEER_SPOTS: volunteer_spots_filled,
     HubGoal.Kind.MEMBER_TABLES: lambda hub: vendor_band(hub).confirmed,
+    # Whole dollars, as every money goal; cents left over never round up to a dollar not yet raised.
+    HubGoal.Kind.EVENT_CASH: lambda hub: event_cash(hub).total_cents // 100,
 }
 
 # The two wine wall kinds are read off one band, so a hub showing both pays for it once.
@@ -171,10 +181,36 @@ def goal_rows(hub: EventHub) -> list[GoalRow]:
 
 @dataclass
 class GoalSeed:
-    """What :func:`seed_goals` did: the labels of the goals it made, in order, and how many the hub already held."""
+    """What :func:`seed_goals` did: the labels of the goals it made, in order, how many the hub already held, and the
+    label of the typed in goal it turned into the counted event cash (blank when none; :func:`_adopt_raised`)."""
 
     added: list[str] = field(default_factory=list)
     kept: int = 0
+    adopted: str = ""
+
+
+def _adopt_raised(hub: EventHub, kinds: set[str]) -> str:
+    """Turn the hub's typed in Raised goal into the counted event cash, in place, so Lee's Raised is never doubled.
+
+    Only on a hub with no event cash goal. The manual goal labelled Raised (any case, trimmed; the first in band order)
+    is adopted; failing that, the hub's one manual money goal, whatever its label ("Cash raised"), since it can only be
+    the money the event raised. Two or more money goals and none labelled Raised are ambiguous, so none is adopted and
+    the counted Raised is added beside them. The adopted goal becomes :attr:`HubGoal.Kind.EVENT_CASH`, keeping its pk,
+    label, target and place, and is marked money. Returns its label, or "" when there was nothing to adopt.
+    """
+    if HubGoal.Kind.EVENT_CASH in kinds:
+        return ""
+    manual = list(hub.goals.filter(kind=HubGoal.Kind.MANUAL))
+    goal = next((goal for goal in manual if goal.label.strip().lower() == RAISED_GOAL_LABEL.lower()), None)
+    if goal is None:
+        money = [goal for goal in manual if goal.is_money]
+        goal = money[0] if len(money) == 1 else None
+    if goal is None:
+        return ""
+    goal.kind = HubGoal.Kind.EVENT_CASH
+    goal.is_money = True
+    goal.save(update_fields=["kind", "is_money"])
+    return goal.label
 
 
 def seed_goals(hub: EventHub) -> GoalSeed:
@@ -183,12 +219,17 @@ def seed_goals(hub: EventHub) -> GoalSeed:
 
     A counted goal is keyed by its kind, so a renamed one is still found and a rerun adds nothing twice; one an
     admin deleted comes back on the next run, which is the accepted price of reaching hubs seeded before it
-    existed. A typed in goal has no key, so it is made only on a hub with no goals at all. Callers that can race
-    (Update the doors) hold a row lock on the hub.
+    existed. A typed in goal has no key, so it is made only on a hub with no goals at all. Before that, a hub's typed
+    in Raised goal is adopted as the event cash goal (:func:`_adopt_raised`), so the counted Raised is not added beside
+    it. Callers that can race (Update the doors) hold a row lock on the hub.
     """
     held = list(hub.goals.values_list("kind", "sort_order"))
+    adopted = ""
     if held:
         kinds = {kind for kind, _order in held}
+        adopted = _adopt_raised(hub, kinds)
+        if adopted:
+            kinds.add(HubGoal.Kind.EVENT_CASH)
         missing = [spec for spec in GOALS if spec.kind != HubGoal.Kind.MANUAL and spec.kind not in kinds]
         start = max(order for _kind, order in held) + 1
     else:
@@ -204,7 +245,7 @@ def seed_goals(hub: EventHub) -> GoalSeed:
         )
         for offset, spec in enumerate(missing)
     )
-    return GoalSeed(added=[spec.label for spec in missing], kept=len(held))
+    return GoalSeed(added=[spec.label for spec in missing], kept=len(held), adopted=adopted)
 
 
 # ---- Volunteer shifts ----
@@ -479,6 +520,29 @@ class WineBand:
     def value_display(self) -> str:
         return format_money(self.value_cents)
 
+    @property
+    def goal_line(self) -> str:
+        """Lee's line under Bottles in: how many to go, the goal reached (and how many extra), or no goal yet."""
+        if self.goal == 0:
+            return "No bottles goal yet"
+        if self.bottles >= self.goal:
+            extra = self.bottles - self.goal
+            return f"Goal reached, {extra} extra" if extra else "Goal reached"
+        return f"{self.goal - self.bottles} to go"
+
+    @property
+    def half_goal(self) -> int:
+        """The meter's middle label, half the goal rounded half up (Lee's ``Math.round(goal / 2)``)."""
+        return (self.goal + 1) // 2
+
+    @property
+    def average_line(self) -> str:
+        """Lee's line under Donated value: the average per bottle to the cent, rounded half up."""
+        if not self.bottles:
+            return "Retail value of bottles"
+        average = (2 * self.value_cents + self.bottles) // (2 * self.bottles)
+        return f"Avg {format_money(average)} per bottle"
+
 
 def bottles_goal(hub: EventHub) -> int:
     """The target of the hub's first ``bottles`` goal in band order, or 0 while it has none."""
@@ -540,8 +604,13 @@ def wineries(hub: EventHub) -> list[WineryRow]:
 
 @dataclass(frozen=True)
 class DonorRow:
-    """One giver on the organisers' Wine Donors to Thank table, across every bottle they gave."""
+    """One giver on the organisers' Wine Donors to Thank table, across every bottle they gave.
 
+    ``key`` is how the giver is known (:func:`hq.models.donor_key`), ``thanked`` whether an organiser marked them
+    thanked, and ``under`` how many of their bottles are worth less than one wine wall ticket (``ticket_cents``).
+    """
+
+    key: str
     name: str
     giver_type: str
     email: str
@@ -550,23 +619,48 @@ class DonorRow:
     value_cents: int
     logged_by: list[str]
     notes: list[str]
+    thanked: bool = False
+    under: int = 0
+    ticket_cents: int = 0
 
     @property
     def value_display(self) -> str:
         return format_money(self.value_cents)
 
+    @property
+    def under_line(self) -> str:
+        """Lee's flag for bottles worth less than a ticket: "Under $25" when every bottle is, "2 under $25" when some
+        are, blank when none."""
+        if not self.under:
+            return ""
+        price = format_money(self.ticket_cents)
+        return f"Under {price}" if self.under == self.bottles else f"{self.under} under {price}"
+
+
+def ticket_price_cents(hub: EventHub) -> int:
+    """One wine wall ticket on ``hub``, in cents: the ledger settings' price (Lee's $25 until an organiser sets it)."""
+    return ledger_settings(hub).ticket_cents
+
+
+def thanked_keys(hub: EventHub) -> set[str]:
+    """The donors marked thanked on ``hub``, by :func:`hq.models.donor_key`. One query."""
+    return set(hub.wine_thanks.values_list("giver_key", flat=True))
+
 
 def donor_rows(hub: EventHub) -> list[DonorRow]:
-    """Every giver on ``hub``'s wall, one row per name (whatever the capitalisation), by name.
+    """Every giver on ``hub``'s wall, one row per name (whatever the capitalisation), by name, in three queries.
 
     Type and listing are read from the giver's newest bottle, as is the email unless the
     newest left it blank, so what a collector last typed is what the organisers see. Logged
     by lists everyone who logged one of their bottles, a guest as "Guest"; notes are every
     bottle's note, oldest first, since the wall itself keeps them to the logger and organisers.
+    Thanked reads the donor's :class:`WineDonorThanks`, and Under counts the bottles worth less than one ticket.
     """
+    thanked = thanked_keys(hub)
+    ticket = ticket_price_cents(hub)
     by_key: dict[str, DonorRow] = {}
     for bottle in hub.bottles.order_by("created_at", "pk"):
-        key = bottle.giver_name.strip().lower()
+        key = donor_key(bottle.giver_name)
         earlier = by_key.get(key)
         logged_by = earlier.logged_by if earlier is not None else []
         logger = bottle.logged_by_name or "Guest"
@@ -575,7 +669,9 @@ def donor_rows(hub: EventHub) -> list[DonorRow]:
         notes = earlier.notes if earlier is not None else []
         if bottle.note:
             notes.append(bottle.note)
+        under = bottle.qty if bottle.value_cents < ticket else 0
         by_key[key] = DonorRow(
+            key=key,
             name=bottle.giver_name,
             giver_type=bottle.get_giver_type_display(),
             email=bottle.giver_email or (earlier.email if earlier is not None else ""),
@@ -584,8 +680,47 @@ def donor_rows(hub: EventHub) -> list[DonorRow]:
             value_cents=(earlier.value_cents if earlier is not None else 0) + bottle.value_total_cents,
             logged_by=logged_by,
             notes=notes,
+            thanked=key in thanked,
+            under=(earlier.under if earlier is not None else 0) + under,
+            ticket_cents=ticket,
         )
     return sorted(by_key.values(), key=lambda row: (row.name.lower(), row.email))
+
+
+def donor_row(hub: EventHub, key: str) -> DonorRow | None:
+    """The one donor known by ``key`` on ``hub``'s table, or None when no bottle names them any more."""
+    return next((row for row in donor_rows(hub) if row.key == key), None)
+
+
+@dataclass(frozen=True)
+class DonorThanks:
+    """How many of the wall's donors are marked thanked: Lee's "N of M donors thanked"."""
+
+    thanked: int
+    donors: int
+
+    @property
+    def line(self) -> str:
+        return f"{self.thanked} of {self.donors} donor{'' if self.donors == 1 else 's'} thanked"
+
+
+def donor_thanks(hub: EventHub) -> DonorThanks:
+    """The ledger's count of donors thanked, in two queries. A thank-you kept for a giver whose bottles were all taken
+    off the wall counts nowhere."""
+    keys = hub.bottles.annotate(key=Lower(Trim("giver_name"))).values("key").distinct()
+    donors = keys.count()
+    thanked = hub.wine_thanks.filter(giver_key__in=Subquery(keys.values("key"))).count()
+    return DonorThanks(thanked=thanked, donors=donors)
+
+
+def set_donor_thanked(hub: EventHub, name: str, *, thanked: bool) -> None:
+    """Mark the donor named ``name`` thanked on ``hub`` (any capitalisation), or take the mark off. Saying the same
+    twice changes nothing."""
+    key = donor_key(name)
+    if thanked:
+        WineDonorThanks.objects.get_or_create(hub=hub, giver_key=key)
+    else:
+        hub.wine_thanks.filter(giver_key=key).delete()
 
 
 def donor_emails(rows: Sequence[DonorRow]) -> str:
@@ -771,18 +906,24 @@ class SponsorBand:
 
 
 def sponsor_goal(hub: EventHub) -> int:
-    """The meter's target in whole dollars: the hub's first Raised goal, else its first typed in money goal,
-    else :data:`DEFAULT_SPONSOR_GOAL`. A goal with no target is passed over. One query."""
+    """The meter's target in whole dollars: the hub's first event cash goal (D6b's counted Raised), else its first
+    goal labelled Raised, else its first typed in money goal, else :data:`DEFAULT_SPONSOR_GOAL`. A goal with no target
+    is passed over. One query."""
     candidates = list(
         hub.goals.filter(
-            Q(label__iexact=RAISED_GOAL_LABEL) | Q(kind=HubGoal.Kind.MANUAL, is_money=True), target__gt=0
-        ).values_list("label", "target")
+            Q(kind=HubGoal.Kind.EVENT_CASH)
+            | Q(label__iexact=RAISED_GOAL_LABEL)
+            | Q(kind=HubGoal.Kind.MANUAL, is_money=True),
+            target__gt=0,
+        ).values_list("kind", "label", "target")
     )
-    raised = [target for label, target in candidates if label.lower() == RAISED_GOAL_LABEL.lower()]
-    if raised:
-        return raised[0]
-    if candidates:
-        return candidates[0][1]
+    for chosen in (
+        [target for kind, _label, target in candidates if kind == HubGoal.Kind.EVENT_CASH],
+        [target for _kind, label, target in candidates if label.lower() == RAISED_GOAL_LABEL.lower()],
+        [target for _kind, _label, target in candidates],
+    ):
+        if chosen:
+            return chosen[0]
     return DEFAULT_SPONSOR_GOAL
 
 
@@ -1641,21 +1782,42 @@ def bar_cost_cents(hub: EventHub) -> int:
 
 @dataclass(frozen=True)
 class DoorFigures:
-    """What the board summary reads from the other doors, each from its one source, never a copy."""
+    """What the board summary reads from the other doors and the ledger's money in, each from its one source, never a
+    copy."""
 
     sponsors: SponsorBand
     flyers: int
     checkin: CheckinBand
     wine: WineBand
+    cash: EventCash
+    bar: BarTotals
+    tickets: TicketTotals
 
 
-def door_figures(hub: EventHub) -> DoorFigures:
-    """The other doors' figures the board summary says, in a fixed number of queries."""
+def door_figures(
+    hub: EventHub, band: LedgerBand | None = None, settings_row: LedgerSettings | None = None
+) -> DoorFigures:
+    """The other doors' figures and the money in the board summary says, in a fixed number of queries (fewer when the
+    page passes the ledger's band and settings in)."""
+    found = settings_row if settings_row is not None else ledger_settings(hub)
+    ledger = band if band is not None else ledger_band(hub, found)
+    sponsors = sponsor_band(hub)
+    wine = wine_band(hub)
+    bar = bar_totals(hub, found, cost_cents=ledger.bar_cost_cents)
+    tickets = ticket_totals(found, wine)
     return DoorFigures(
-        sponsors=sponsor_band(hub),
+        sponsors=sponsors,
         flyers=marketing_totals(hub)[MarketingKind.FLYER],
         checkin=checkin_band(hub),
-        wine=wine_band(hub),
+        wine=wine,
+        cash=EventCash(
+            sponsors_cents=sponsors.received_cents,
+            committed_cents=sponsors.committed_cents,
+            bar_cents=bar.sales_cents,
+            tickets_cents=tickets.revenue_cents,
+        ),
+        bar=bar,
+        tickets=tickets,
     )
 
 
@@ -1669,7 +1831,8 @@ def board_summary(band: LedgerBand, doors: DoorFigures) -> str:
     The drinks budget comes from the ledger; then, each only when it has something to say, the cash sponsorships
     (the Sponsorship Tracker), the flyers (the Marketing Tracker's businesses with flyers), the volunteers (the Market
     Check-in's hours) and the wine wall. D6b adds the event cash, the drink sales and the wine wall tickets, and D6c
-    the guild demos, the staff time and the attendance, each in the place Lee gives it (marked below).
+    the guild demos, the staff time and the attendance, each in the place Lee gives it (marked below). D6b's are here:
+    the event cash goal and the drink sales after the drinks budget, the tickets sold after the wine wall.
     """
     money = format_money
     parts = [f"Holiday Bizarre drinks: the board approved {money(band.approved_cents)}."]
@@ -1681,7 +1844,21 @@ def board_summary(band: LedgerBand, doors: DoorFigures) -> str:
     )
     if band.paid_other_cents > 0:
         parts.append(f"Another {money(band.paid_other_cents)} came from other PLM funds.")
-    # D6b: the event cash goal, then the drink sales.
+    cash = doors.cash
+    if cash.total_cents + cash.committed_cents > 0:
+        plus = f" (plus {money(cash.committed_cents)} committed)" if cash.committed_cents else ""
+        parts.append(f"Event cash goal: {money(cash.total_cents)} raised toward {doors.sponsors.goal_display}{plus}.")
+    bar = doors.bar
+    if bar.count > 0:
+        after = ""
+        if bar.cost_cents > 0:
+            result = (
+                f"a profit of {money(bar.profit_cents)}"
+                if bar.profit_cents >= 0
+                else f"{money(-bar.profit_cents)} short of break-even"
+            )
+            after = f", {result} after {money(bar.cost_cents)} in bar costs"
+        parts.append(f"Drink sales: {bar.count} drinks sold for {money(bar.sales_cents)}{after}.")
     sponsors = doors.sponsors
     if sponsors.received_cents + sponsors.committed_cents > 0:
         parts.append(
@@ -1701,7 +1878,9 @@ def board_summary(band: LedgerBand, doors: DoorFigures) -> str:
     if wine.bottles > 0:
         of = f" of {wine.goal}" if wine.goal else ""
         parts.append(f"Wine wall: {wine.bottles}{of} bottles donated, worth {money(wine.value_cents)}.")
-        # D6b: the tickets sold.
+        tickets = doors.tickets
+        if tickets.count > 0:
+            parts.append(f"{tickets.count} tickets sold ({tickets.description}) raised {money(tickets.revenue_cents)}.")
     return " ".join(parts)
 
 
@@ -1721,28 +1900,18 @@ def receipt_entries(hub: EventHub) -> QuerySet[LedgerEntry]:
     return hub.ledger_entries.filter(kind__in=RECEIPT_KINDS).select_related("line").order_by("date", "created_at", "pk")
 
 
-def save_approval(hub: EventHub, *, approved_cents: int, approved_note: str, seen: str) -> LedgerSettings:
-    """Record the board's approval and its note on ``hub``, making the settings row on the first save. Only those two
-    fields are written, so D6b's prices and tickets are never overwritten from an older page.
-
-    The settings row is locked for the check: ``seen`` is its ``updated_at`` as the form was rendered with it (blank
-    before the first save), and a Save after someone else saved the settings is refused whole. A first save, with no
-    row yet, is never stale.
+def save_approval(
+    hub: EventHub, *, approved_cents: int, approved_note: str, seen: Mapping[str, int | str | None]
+) -> LedgerSettings:
+    """Record the board's approval and its note on ``hub`` through :func:`save_ledger_figures`, which locks the row
+    and refuses the save when the approval the form was rendered with (``seen``) is no longer what the database
+    holds. Only those two fields are written, so D6b's prices and tickets are never overwritten from an older page,
+    and saving them never makes an open approval form stale.
 
     Raises:
-        StaleSave: the settings were saved after the page loaded.
+        StaleSave: someone else changed the approval after the page loaded.
     """
-    with transaction.atomic():
-        found, created = LedgerSettings.objects.select_for_update().get_or_create(
-            hub=hub, defaults={"approved_cents": approved_cents, "approved_note": approved_note}
-        )
-        if not created:
-            if seen != found.updated_at.isoformat():
-                raise StaleSave("Someone else changed the approval.")
-            found.approved_cents = approved_cents
-            found.approved_note = approved_note
-            found.save(update_fields=["approved_cents", "approved_note", "updated_at"])
-    return found
+    return save_ledger_figures(hub, {"approved_cents": approved_cents, "approved_note": approved_note}, seen=seen)
 
 
 def add_budget_line(hub: EventHub, fields: Mapping[str, Any]) -> BudgetLine:
@@ -1811,3 +1980,369 @@ def attach_receipt(entry: LedgerEntry, upload: UploadedFile) -> LedgerEntry:
         entry.receipt = upload  # type: ignore[assignment]  # a FieldFile takes an uploaded file
         entry.save(update_fields=["receipt", "updated_at"])
     return entry
+
+
+# ---- PL Ledger, money in (Track D, part 6b) ----
+
+# Lee's line under the batch form's two refusals.
+BAR_NOTHING_ENTERED = "Enter how many, or a total collected."
+BAR_MIXED_NEEDS_TOTAL = "For mixed sales, enter the total collected."
+# A settings form posted from a page older than the figures it shows: someone else saved them since.
+SETTINGS_STALE_SAVE = "Someone else changed these. Your page has been refreshed; make your change again."
+
+# The settings field that holds each priced drink's price, in Lee's order.
+DRINK_PRICE_FIELDS: dict[str, str] = {
+    BarDrink.IPA: "ipa_cents",
+    BarDrink.PILS: "pils_cents",
+    BarDrink.WINE: "wine_cents",
+    BarDrink.NA: "na_cents",
+}
+# Lee's short drink names, for the Drinks sold line ("3 IPA · 2 Pilsner"); a mixed batch is "Mixed".
+_DRINK_SHORT: dict[str, str] = {
+    **{drink: str(BarDrink(drink).label) for drink in PRICED_DRINKS},
+    BarDrink.MIXED: "Mixed",
+}
+
+
+def drink_price_cents(found: LedgerSettings, drink: str) -> int:
+    """What one ``drink`` costs at the bar in cents (a mixed batch has no price: 0)."""
+    field_name = DRINK_PRICE_FIELDS.get(drink)
+    return 0 if field_name is None else getattr(found, field_name)
+
+
+@dataclass(frozen=True)
+class QuickButton:
+    """One of the night's +1 buttons: the drink, its words, its price and how many have sold."""
+
+    drink: str
+    label: str
+    price_cents: int
+    sold: int
+
+    @property
+    def price_display(self) -> str:
+        return format_money(self.price_cents)
+
+
+def quick_buttons(found: LedgerSettings, bar: BarTotals) -> list[QuickButton]:
+    """The four +1 buttons in Lee's order, at the hub's prices, each with how many of that drink have sold."""
+    return [
+        QuickButton(
+            drink=drink,
+            label=str(BarDrink(drink).label),
+            price_cents=drink_price_cents(found, drink),
+            sold=bar.by_drink.get(drink, 0),
+        )
+        for drink in PRICED_DRINKS
+    ]
+
+
+@dataclass(frozen=True)
+class BarTotals:
+    """The Drink sales tiles: drinks sold, sales, the bar's cost and profit, and Lee's break-even line.
+
+    ``cost_cents`` is the ledger's (:attr:`LedgerBand.bar_cost_cents`, Drinks lines only), never a copy. These are the
+    one source of the bar's sales: the event cash (:func:`event_cash`) and the board summary read them.
+    """
+
+    count: int
+    sales_cents: int
+    cost_cents: int
+    last_year_cents: int
+    ipa_cents: int
+    by_drink: dict[str, int]
+    by_pay: dict[str, int]
+
+    @property
+    def profit_cents(self) -> int:
+        return self.sales_cents - self.cost_cents
+
+    @property
+    def sales_display(self) -> str:
+        return format_money(self.sales_cents)
+
+    @property
+    def cost_display(self) -> str:
+        return format_money(self.cost_cents)
+
+    @property
+    def profit_display(self) -> str:
+        """The profit, with Lee's minus sign when the bar is short."""
+        money = format_money(abs(self.profit_cents))
+        return f"\u2212{money}" if self.profit_cents < 0 else money
+
+    @property
+    def profit_tone(self) -> str:
+        """The profit figure's colour: "bad" when short, "ok" when ahead, plain at zero."""
+        if self.profit_cents < 0:
+            return "bad"
+        return "ok" if self.profit_cents > 0 else ""
+
+    @property
+    def count_line(self) -> str:
+        """Under Drinks sold: the drinks by kind in Lee's order ("3 IPA · 2 Pilsner"), or her empty line."""
+        parts = [f"{self.by_drink[drink]} {_DRINK_SHORT[drink]}" for drink in BarDrink if self.by_drink.get(drink)]
+        return " · ".join(parts) if parts else "No sales logged yet"
+
+    @property
+    def sales_line(self) -> str:
+        """Under Sales: "2025: about $500", or ahead of or behind it once there are sales."""
+        last_year = format_money(self.last_year_cents)
+        if self.sales_cents > 0 and self.last_year_cents:
+            side = "Ahead of" if self.sales_cents >= self.last_year_cents else "Behind"
+            return f"{side} 2025 (about {last_year})"
+        return f"2025: about {last_year}"
+
+    @property
+    def profit_line(self) -> str:
+        if self.cost_cents == 0:
+            return "No bar costs logged yet"
+        if self.profit_cents >= 0:
+            return "Bar has paid for itself"
+        return f"{format_money(-self.profit_cents)} to break even"
+
+    @property
+    def percent(self) -> int:
+        """The meter: sales toward covering the bar's cost, 0 to 100; full with sales and no cost."""
+        if self.cost_cents > 0:
+            return min(100, self.sales_cents * 100 // self.cost_cents)
+        return 100 if self.sales_cents > 0 else 0
+
+    @property
+    def needed_cents(self) -> int:
+        """What the bar still has to sell to cover its cost."""
+        return max(0, self.cost_cents - self.sales_cents)
+
+    @property
+    def needed_display(self) -> str:
+        return format_money(self.needed_cents)
+
+    @property
+    def beers_to_break_even(self) -> int | None:
+        """Lee's break-even: about how many more beers at the IPA price cover the cost (rounded up), or None when the
+        IPA is free and no number of beers would."""
+        if not self.ipa_cents:
+            return None
+        return -(-self.needed_cents // self.ipa_cents)
+
+    @property
+    def ipa_display(self) -> str:
+        return format_money(self.ipa_cents)
+
+    @property
+    def meter_line(self) -> str:
+        """The meter's right-hand label: "$120 of $300", blank until there is a cost."""
+        return f"{self.sales_display} of {self.cost_display}" if self.cost_cents > 0 else ""
+
+    def pay_cents(self, pay: str) -> int:
+        return self.by_pay.get(pay, 0)
+
+
+def bar_totals(hub: EventHub, found: LedgerSettings, *, cost_cents: int) -> BarTotals:
+    """The Drink sales tiles for ``hub`` in one query, against ``cost_cents`` (the ledger's bar cost)."""
+    by_drink: dict[str, int] = {}
+    by_pay: dict[str, int] = {}
+    count = sales = 0
+    for row in hub.bar_sales.values("drink", "pay").annotate(qty=Sum("qty"), amount=Sum("amount_cents")).order_by():
+        by_drink[row["drink"]] = by_drink.get(row["drink"], 0) + row["qty"]
+        by_pay[row["pay"]] = by_pay.get(row["pay"], 0) + row["amount"]
+        count += row["qty"]
+        sales += row["amount"]
+    return BarTotals(
+        count=count,
+        sales_cents=sales,
+        cost_cents=cost_cents,
+        last_year_cents=found.last_year_bar_cents,
+        ipa_cents=found.ipa_cents,
+        by_drink=by_drink,
+        by_pay=by_pay,
+    )
+
+
+def bar_sales_cents(hub: EventHub) -> int:
+    """Everything the bar took in on ``hub``, in cents. One query."""
+    total: int = hub.bar_sales.aggregate(total=Coalesce(Sum("amount_cents"), 0))["total"]
+    return total
+
+
+@dataclass(frozen=True)
+class TicketTotals:
+    """The wine wall's tickets: singles and two-ticket deals sold at the hub's prices, and Lee's revenue at goal.
+
+    ``goal`` and ``bottles`` are the wall's (:func:`wine_band`), read, never copied.
+    """
+
+    singles: int
+    pairs: int
+    ticket_cents: int
+    pair_cents: int
+    goal: int
+    bottles: int
+
+    @property
+    def count(self) -> int:
+        """Tickets sold: a two-ticket deal is two."""
+        return self.singles + 2 * self.pairs
+
+    @property
+    def revenue_cents(self) -> int:
+        """Lee's ``ticketRev``: singles at the ticket price plus deals at the deal price."""
+        return self.singles * self.ticket_cents + self.pairs * self.pair_cents
+
+    @property
+    def revenue_display(self) -> str:
+        return format_money(self.revenue_cents)
+
+    @property
+    def ticket_display(self) -> str:
+        return format_money(self.ticket_cents)
+
+    @property
+    def pair_display(self) -> str:
+        return format_money(self.pair_cents)
+
+    @property
+    def at_goal_tickets(self) -> int:
+        """The tickets the wall can sell at goal: one per bottle, the goal or the bottles in, whichever is more."""
+        return max(self.goal, self.bottles)
+
+    @property
+    def at_goal_low_cents(self) -> int:
+        """Lee's low end: every ticket sold in two-ticket deals, an odd one out as a single."""
+        tickets = self.at_goal_tickets
+        return tickets // 2 * self.pair_cents + tickets % 2 * self.ticket_cents
+
+    @property
+    def at_goal_high_cents(self) -> int:
+        """Lee's high end: every ticket sold as a single."""
+        return self.at_goal_tickets * self.ticket_cents
+
+    @property
+    def at_goal_display(self) -> str:
+        """Lee's Ticket revenue at goal: "$2,000 to $2,500", or one figure when the two ends meet."""
+        low, high = self.at_goal_low_cents, self.at_goal_high_cents
+        return format_money(high) if low == high else f"{format_money(low)} to {format_money(high)}"
+
+    @property
+    def at_goal_line(self) -> str:
+        return f"{self.at_goal_tickets} tickets at {self.ticket_display}, or 2 for {self.pair_display}"
+
+    @property
+    def description(self) -> str:
+        """Lee's ``ticketDesc``: "3 singles at $25 + 1 deal at $40 for 2"."""
+        singles = f"{self.singles} single{'' if self.singles == 1 else 's'} at {self.ticket_display}"
+        pairs = f"{self.pairs} deal{'' if self.pairs == 1 else 's'} at {self.pair_display} for 2"
+        return f"{singles} + {pairs}"
+
+    @property
+    def price_line(self) -> str:
+        """Lee's line beside the ticket inputs."""
+        return f"{self.ticket_display} a ticket or 2 for {self.pair_display}. Each ticket wins a bottle."
+
+
+def ticket_totals(found: LedgerSettings, wine: WineBand) -> TicketTotals:
+    """The wine wall's tickets from the ledger settings and the wall's band. No query."""
+    return TicketTotals(
+        singles=found.singles_sold,
+        pairs=found.pairs_sold,
+        ticket_cents=found.ticket_cents,
+        pair_cents=found.pair_cents,
+        goal=wine.goal,
+        bottles=wine.bottles,
+    )
+
+
+@dataclass(frozen=True)
+class EventCash:
+    """The event cash Raised counts (Felix, 2026-10-20): sponsors received, bar sales and wine wall tickets, each read
+    from its source. Committed sponsor money is carried for the board summary's "plus ... committed" but is not cash.
+    D6c's running tally reads it here."""
+
+    sponsors_cents: int
+    committed_cents: int
+    bar_cents: int
+    tickets_cents: int
+
+    @property
+    def total_cents(self) -> int:
+        return self.sponsors_cents + self.bar_cents + self.tickets_cents
+
+
+def event_cash(hub: EventHub) -> EventCash:
+    """The event cash on ``hub`` in four queries: the sponsor band (two), the bar's sales and the ledger settings."""
+    sponsors = sponsor_band(hub)
+    found = ledger_settings(hub)
+    return EventCash(
+        sponsors_cents=sponsors.received_cents,
+        committed_cents=sponsors.committed_cents,
+        bar_cents=bar_sales_cents(hub),
+        tickets_cents=found.singles_sold * found.ticket_cents + found.pairs_sold * found.pair_cents,
+    )
+
+
+def log_quick_sale(hub: EventHub, *, drink: str, pay: str, member: Member | None) -> BarSale:
+    """One +1 tap: one ``drink`` at the hub's price, paid by ``pay``, stamped with the organiser who tapped."""
+    found = ledger_settings(hub)
+    return BarSale.objects.create(
+        hub=hub,
+        drink=drink,
+        qty=1,
+        amount_cents=drink_price_cents(found, drink),
+        pay=pay,
+        source=BarSaleSource.QUICK,
+        created_by=member,
+    )
+
+
+def undo_quick_sale(hub: EventHub, member: Member | None) -> BarSale | None:
+    """Take back the newest quick sale ``member`` tapped on ``hub``, or None when they have none. Never anyone else's,
+    and never a batch."""
+    if member is None:
+        return None
+    with transaction.atomic():
+        sale = (
+            hub.bar_sales.select_for_update()
+            .filter(source=BarSaleSource.QUICK, created_by=member)
+            .order_by("-created_at", "-pk")
+            .first()
+        )
+        if sale is not None:
+            sale.delete()
+    return sale
+
+
+def add_bar_batch(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> BarSale:
+    """Log a batch from the form's fields (``amount_cents`` already defaulted to price times how many)."""
+    return BarSale.objects.create(hub=hub, source=BarSaleSource.BATCH, created_by=member, **fields)
+
+
+def save_ledger_figures(
+    hub: EventHub, fields: Mapping[str, int | str], *, seen: Mapping[str, int | str | None]
+) -> LedgerSettings:
+    """Write ``fields`` on ``hub``'s ledger settings under a row lock, unless the figures the form was rendered with
+    (``seen``) are no longer what the database holds: then nothing is written (someone else saved them since). Only
+    ``fields`` are written, so the approval, the prices and the tickets never overwrite each other.
+
+    Before the first save the form was rendered from Lee's defaults, so those are what ``seen`` is held to. The row is
+    made only when the save goes ahead, so a refusal writes nothing; a first save racing another is held to the row
+    the other made.
+
+    Raises:
+        StaleSave: the figures the form was rendered with are no longer what the database holds.
+    """
+    with transaction.atomic():
+        found = LedgerSettings.objects.select_for_update().filter(hub=hub).first()
+        if found is None and not _seen_differs(LedgerSettings(hub=hub), seen):
+            LedgerSettings.objects.bulk_create([LedgerSettings(hub=hub)], ignore_conflicts=True)
+            found = LedgerSettings.objects.select_for_update().get(hub=hub)
+        if found is None or _seen_differs(found, seen):
+            raise StaleSave("Someone else changed these figures.")
+        for name, value in fields.items():
+            setattr(found, name, value)
+        found.save(update_fields=[*fields, "updated_at"])
+    return found
+
+
+def _seen_differs(found: LedgerSettings, seen: Mapping[str, int | str | None]) -> bool:
+    """Whether any figure a form was rendered with differs from ``found``'s (a missing one, None, always does)."""
+    return any(getattr(found, name) != value for name, value in seen.items())

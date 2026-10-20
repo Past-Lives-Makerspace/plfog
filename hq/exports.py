@@ -1,5 +1,5 @@
-"""The volunteer roster, the wine donors, the sponsors, the vendor tables, the Market Check-in's reports and hours and
-the ledger as CSV, in the streaming shape of ``classes/exports.py``."""
+"""The volunteer roster, the wine donors, the sponsors, the vendor tables, the Market Check-in's reports and hours, the
+ledger and the drink sales as CSV, in the streaming shape of ``classes/exports.py``."""
 
 from __future__ import annotations
 
@@ -11,13 +11,14 @@ from typing import TYPE_CHECKING
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
+from hq.models import BarPay
 from hq.services import ledger_kind_short
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
-    from hq.models import LedgerEntry, MarketReport, ShiftSignup, Sponsor, VendorTable, VolunteerHours
-    from hq.services import DonorRow
+    from hq.models import BarSale, LedgerEntry, MarketReport, ShiftSignup, Sponsor, VendorTable, VolunteerHours
+    from hq.services import BarTotals, DonorRow
 
 ROSTER_CSV_HEADERS = [
     "Name",
@@ -88,11 +89,12 @@ def stream_roster_csv(
     return response
 
 
-DONORS_CSV_HEADERS = ["Giver", "Type", "Email", "Sponsor listing", "Bottles", "Value", "Logged by", "Notes"]
+DONORS_CSV_HEADERS = ["Giver", "Type", "Email", "Sponsor listing", "Bottles", "Value", "Thanked", "Logged by", "Notes"]
 
 
 def stream_donors_csv(donors: Sequence[DonorRow], *, filename_stem: str) -> StreamingHttpResponse:
-    """Stream the Wine Donors to Thank table as CSV, one row per giver, the value in dollars."""
+    """Stream the Wine Donors to Thank table as CSV, one row per giver, the value in dollars and whether they were
+    thanked."""
     pseudo = _Echo()
     writer = csv.writer(pseudo)
 
@@ -106,6 +108,7 @@ def stream_donors_csv(donors: Sequence[DonorRow], *, filename_stem: str) -> Stre
                 donor.listing,
                 str(donor.bottles),
                 f"{donor.value_cents / 100:.2f}",
+                "yes" if donor.thanked else "no",
                 "; ".join(donor.logged_by),
                 "; ".join(donor.notes),
             ]
@@ -305,4 +308,47 @@ def stream_ledger_csv(entries: QuerySet[LedgerEntry], *, approval: str, filename
     response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
     stamp = timezone.now().strftime("%Y%m%d")
     response["Content-Disposition"] = f'attachment; filename="{filename_stem}-ledger-{stamp}.csv"'
+    return response
+
+
+BAR_SALES_CSV_HEADERS = ["Time", "Drink", "Qty", "Amount", "Paid by", "Note", "Logged as"]
+
+
+def stream_bar_sales_csv(sales: QuerySet[BarSale], *, totals: BarTotals, filename_stem: str) -> StreamingHttpResponse:
+    """Stream the drink sales as CSV in Lee's columns, oldest first, the amount in dollars, then a blank row and her
+    totals row: the drinks, the sales, what each way to pay took in, the bar's cost and its profit."""
+    pseudo = _Echo()
+    writer = csv.writer(pseudo)
+
+    def iter_rows() -> Iterator[str]:
+        yield writer.writerow(BAR_SALES_CSV_HEADERS)
+        for sale in sales.iterator(chunk_size=500):
+            yield writer.writerow(
+                [
+                    timezone.localtime(sale.created_at).strftime("%Y-%m-%d %H:%M"),
+                    sale.get_drink_display(),
+                    str(sale.qty),
+                    f"{sale.amount_cents / 100:.2f}",
+                    sale.get_pay_display(),
+                    _neutralise_formula(sale.note),
+                    sale.get_source_display(),
+                ]
+            )
+        yield writer.writerow([])
+        by_pay = " / ".join(f"{pay.label} {totals.pay_cents(pay) / 100:.2f}" for pay in BarPay)
+        yield writer.writerow(
+            [
+                "Totals",
+                "",
+                str(totals.count),
+                f"{totals.sales_cents / 100:.2f}",
+                by_pay,
+                f"Bar cost {totals.cost_cents / 100:.2f}",
+                f"Profit {totals.profit_cents / 100:.2f}",
+            ]
+        )
+
+    response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
+    stamp = timezone.now().strftime("%Y%m%d")
+    response["Content-Disposition"] = f'attachment; filename="{filename_stem}-drink-sales-{stamp}.csv"'
     return response

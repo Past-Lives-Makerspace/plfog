@@ -85,12 +85,14 @@ def _entry_post(line: BudgetLine, **fields: Any) -> dict[str, Any]:
     return posted
 
 
-def _approval_post(found: LedgerSettings, **fields: str) -> dict[str, str]:
-    """The approval form as it renders for ``found``, with ``fields`` changed."""
-    data = {
+def _approval_post(found: LedgerSettings, **fields: Any) -> dict[str, Any]:
+    """The approval form as it renders for ``found`` (the unsaved defaults before a first save), with ``fields``
+    changed: the figures and the approval it was rendered with."""
+    data: dict[str, Any] = {
         "approved": f"{found.approved_cents / 100:.2f}",
         "approved_note": found.approved_note,
-        "updated_at": found.updated_at.isoformat(),
+        "seen_approved_cents": found.approved_cents,
+        "seen_approved_note": found.approved_note,
     }
     data.update(fields)
     return data
@@ -521,7 +523,15 @@ def _doors(**overrides: Any) -> services.DoorFigures:
     """No figures on any other door, with ``overrides`` in place."""
     hub = EventHubFactory()
     figures = services.door_figures(hub)
-    values = {"sponsors": figures.sponsors, "flyers": 0, "checkin": figures.checkin, "wine": figures.wine}
+    values = {
+        "sponsors": figures.sponsors,
+        "flyers": 0,
+        "checkin": figures.checkin,
+        "wine": figures.wine,
+        "cash": figures.cash,
+        "bar": figures.bar,
+        "tickets": figures.tickets,
+    }
     values.update(overrides)
     return services.DoorFigures(**values)
 
@@ -651,7 +661,9 @@ def describe_the_board_on_the_page():
 
 def describe_the_approval():
     def it_saves_the_amount_and_note_and_names_the_kinds_filters_and_column_with_it(hub, kegs, lee_client):
-        response = lee_client.post(_url("ledger_approval", hub), {"approved": "1200.50", "approved_note": "Nov 3 vote"})
+        posted = _approval_post(services.ledger_settings(hub), approved="1200.50", approved_note="Nov 3 vote")
+
+        response = lee_client.post(_url("ledger_approval", hub), posted)
 
         assert response.status_code == 302
         found = LedgerSettings.objects.get(hub=hub)
@@ -688,26 +700,40 @@ def describe_the_approval():
         assert "pl-field-error" in body
         assert not LedgerSettings.objects.exists()
 
-    def it_starts_from_the_saved_figures(hub, lee_client):
-        found = LedgerSettingsFactory(hub=hub, approved_cents=95_025, approved_note="Spec note")
+    def it_starts_from_the_saved_figures_and_carries_them_as_seen(hub, lee_client):
+        LedgerSettingsFactory(hub=hub, approved_cents=95_025, approved_note="Spec note")
 
         body = lee_client.get(_page(hub)).content.decode()
 
         assert 'value="950.25"' in body
         assert 'value="Spec note"' in body
         assert 'max="1000000"' in body
-        assert f'name="updated_at" value="{found.updated_at.isoformat()}"' in body
+        assert '<input type="hidden" name="seen_approved_cents" value="95025" id="id_seen_approved_cents">' in body
+        assert '<input type="hidden" name="seen_approved_note" value="Spec note" id="id_seen_approved_note">' in body
+        assert 'name="updated_at"' not in body
 
-    def it_carries_a_blank_stamp_before_the_first_save(hub, lee_client):
+    def it_carries_lees_defaults_as_seen_before_the_first_save(hub, lee_client):
         body = lee_client.get(_page(hub)).content.decode()
 
-        assert '<input type="hidden" name="updated_at" id="id_updated_at">' in body
+        assert 'name="seen_approved_cents" value="90000"' in body
+        assert 'name="seen_approved_note" value="Drinks budget, Oct 14 meeting"' in body
 
-    @pytest.mark.parametrize("stamp", ["older", ""])
-    def it_refuses_a_save_from_a_page_older_than_the_approval(hub, lee_client, stamp):
+    @pytest.mark.parametrize(
+        "seen",
+        [
+            {"seen_approved_cents": 70_000},
+            {"seen_approved_note": "An older note"},
+            {"seen_approved_note": ""},
+            {"seen_approved_cents": None},
+            {"seen_approved_note": None},
+        ],
+        ids=["older amount", "older note", "blank note", "no amount", "no note"],
+    )
+    def it_refuses_a_save_after_someone_else_changed_the_approval(hub, lee_client, seen):
         found = LedgerSettingsFactory(hub=hub, approved_cents=80_000, approved_note="Their note")
         posted = _approval_post(found, approved="1500", approved_note="Mine")
-        posted["updated_at"] = (found.updated_at - timedelta(seconds=5)).isoformat() if stamp else ""
+        posted.update(seen)
+        posted = {key: value for key, value in posted.items() if value is not None}
 
         response = lee_client.post(_url("ledger_approval", hub), posted)
 
@@ -721,44 +747,21 @@ def describe_the_approval():
         )
         assert "open data-hq-lg-approval" in body
         assert 'value="800.00"' in body and 'value="Their note"' in body
-        assert f'value="{found.updated_at.isoformat()}"' in body
+        assert 'name="seen_approved_cents" value="80000"' in body
 
-    def it_refuses_a_stale_save_in_the_service_by_name_and_writes_nothing(hub):
-        found = LedgerSettingsFactory(hub=hub, approved_cents=80_000, approved_note="Their note")
-        older = (found.updated_at - timedelta(seconds=5)).isoformat()
+    def it_matches_a_blank_note_with_a_blank_note(hub, lee_client):
+        found = LedgerSettingsFactory(hub=hub, approved_cents=80_000, approved_note="")
 
-        with pytest.raises(services.StaleSave, match="Someone else changed the approval."):
-            services.save_approval(hub, approved_cents=150_000, approved_note="Mine", seen=older)
+        response = lee_client.post(_url("ledger_approval", hub), _approval_post(found, approved="850"))
 
         found.refresh_from_db()
-        assert (found.approved_cents, found.approved_note) == (80_000, "Their note")
+        assert response.status_code == 302
+        assert (found.approved_cents, found.approved_note) == (85_000, "")
 
-    def it_never_holds_a_first_save_stale(hub):
-        found = services.save_approval(hub, approved_cents=150_000, approved_note="First", seen="from an old page")
-
-        assert (found.approved_cents, found.approved_note) == (150_000, "First")
-
-    def it_locks_the_settings_before_the_stale_check(hub):
-        found = LedgerSettingsFactory(hub=hub)
-
-        with CaptureQueriesContext(connection) as queries:
-            services.save_approval(hub, approved_cents=1, approved_note="", seen=found.updated_at.isoformat())
-
-        sql = [query["sql"] for query in queries.captured_queries]
-        assert any('"hq_ledgersettings"' in text and "FOR UPDATE" in text for text in sql)
-
-    def it_shows_a_bad_amount_before_a_stale_stamp(hub, lee_client):
-        found = LedgerSettingsFactory(hub=hub)
-        posted = _approval_post(found, approved="-1")
-        posted["updated_at"] = ""
-
-        body = lee_client.post(_url("ledger_approval", hub), posted).content.decode()
-
-        assert "pl-field-error" in body
-        assert "data-hq-lg-approval-error" not in body
-
-    def it_saves_again_with_the_stamp_the_page_was_given(hub, lee_client):
-        lee_client.post(_url("ledger_approval", hub), {"approved": "800", "approved_note": "First"})
+    def it_saves_again_from_the_page_it_was_given(hub, lee_client):
+        lee_client.post(
+            _url("ledger_approval", hub), _approval_post(services.ledger_settings(hub), approved_note="First")
+        )
         found = LedgerSettings.objects.get(hub=hub)
 
         response = lee_client.post(_url("ledger_approval", hub), _approval_post(found, approved="950"))
@@ -766,6 +769,35 @@ def describe_the_approval():
         found.refresh_from_db()
         assert response.status_code == 302
         assert (found.approved_cents, found.approved_note) == (95_000, "First")
+
+    def it_refuses_a_stale_save_in_the_service_by_name_and_writes_nothing(hub):
+        found = LedgerSettingsFactory(hub=hub, approved_cents=80_000, approved_note="Their note")
+        older = {"approved_cents": 70_000, "approved_note": "Their note"}
+
+        with pytest.raises(services.StaleSave, match="Someone else changed these figures."):
+            services.save_approval(hub, approved_cents=150_000, approved_note="Mine", seen=older)
+
+        found.refresh_from_db()
+        assert (found.approved_cents, found.approved_note) == (80_000, "Their note")
+
+    def it_locks_the_settings_before_the_stale_check(hub):
+        found = LedgerSettingsFactory(hub=hub)
+        seen = {"approved_cents": found.approved_cents, "approved_note": found.approved_note}
+
+        with CaptureQueriesContext(connection) as queries:
+            services.save_approval(hub, approved_cents=1, approved_note="", seen=seen)
+
+        sql = [query["sql"] for query in queries.captured_queries]
+        assert any('"hq_ledgersettings"' in text and "FOR UPDATE" in text for text in sql)
+
+    def it_shows_a_bad_amount_before_a_stale_approval(hub, lee_client):
+        found = LedgerSettingsFactory(hub=hub)
+        posted = _approval_post(found, approved="-1", seen_approved_cents=found.approved_cents + 1)
+
+        body = lee_client.post(_url("ledger_approval", hub), posted).content.decode()
+
+        assert "pl-field-error" in body
+        assert "data-hq-lg-approval-error" not in body
 
 
 def describe_the_budget_lines():

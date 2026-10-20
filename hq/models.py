@@ -26,7 +26,8 @@ the space map's capacity for the hub. Part 4 adds the Market Check-in behind the
 page behind the ``flyer`` card: a :class:`HubFlyer` holds this year's and last year's flyer, the website and Eventbrite
 links and the message members copy to send friends. Part 6a adds the PL Ledger's budget behind the ``ledger`` card: a
 :class:`LedgerSettings` holds the board's approval (and D6b's prices and tickets), a :class:`BudgetLine` one line of the
-budget, and a :class:`LedgerEntry` one gift, purchase or refund against a line, with its receipt.
+budget, and a :class:`LedgerEntry` one gift, purchase or refund against a line, with its receipt. Part 6b adds the money
+in: a :class:`BarSale` is one sale (or a batch) at the bar, and a :class:`WineDonorThanks` marks a wine donor thanked.
 """
 
 from __future__ import annotations
@@ -227,6 +228,9 @@ class CardSeed:
     added_beside: list[str] = field(default_factory=list)
     # The labels of Lee's goals the same press added (``hq.services.seed_goals``), in the order they were added.
     goals_added: list[str] = field(default_factory=list)
+    # The label of the typed in goal the same press turned into the counted event cash, Lee's Raised (blank when none;
+    # the sentence names it Raised whatever its label, since that is what it now counts).
+    goals_adopted: str = ""
 
     @property
     def summary(self) -> str:
@@ -240,6 +244,8 @@ class CardSeed:
             parts.append(f"gave {self.reworded} card{'' if self.reworded == 1 else 's'} Lee's latest words")
         if self.goals_added:
             parts.append(_goals_phrase(self.goals_added))
+        if self.goals_adopted:
+            parts.append("Raised now counts itself")
         if not parts:
             return "The doors are up to date."
         sentence = f"Doors updated: {'; '.join(parts)}."
@@ -401,7 +407,8 @@ class HubGoal(models.Model):
     """One chip in the goal band: a label, a target and where it stands.
 
     A ``manual`` goal's figure is typed in by an admin; the live kinds are counted from the
-    event's RSVPs, the volunteer shifts (C2), the wine wall (C3) and the confirmed vendor tables (D3)
+    event's RSVPs, the volunteer shifts (C2), the wine wall (C3), the confirmed vendor tables (D3)
+    and the event cash (D6b: sponsors received, bar sales and wine wall tickets, in whole dollars)
     by :func:`hq.services.goal_rows`. A goal with no target is a plain count.
     """
 
@@ -412,6 +419,7 @@ class HubGoal(models.Model):
         BOTTLES = "bottles", "Wine wall bottles"
         BOTTLE_VALUE = "bottle_value", "Wine wall value"
         MEMBER_TABLES = "member_tables", "Vendor tables confirmed"
+        EVENT_CASH = "event_cash", "Event cash"
 
     hub = models.ForeignKey(
         EventHub, on_delete=models.CASCADE, related_name="goals", help_text="The HQ this goal is on."
@@ -1634,8 +1642,9 @@ class LedgerSettings(models.Model):
     """The ledger's figures for a hub that are typed once rather than logged (OneToOne, made on the first save).
 
     D6a edits the board approval and its note. The drink prices, last year's bar sales, the wine wall's ticket
-    prices and the tickets sold are D6b's, made here so the table has one migration; until D6b they keep Lee's
-    defaults. ``hq.services.ledger_settings`` hands back an unsaved one with the defaults, so a GET never writes.
+    prices and the tickets sold are D6b's (Set drink prices, Set ticket prices and the tickets form, each writing only
+    its own fields). ``hq.services.ledger_settings`` hands back an unsaved one with the defaults, so a GET never
+    writes.
     """
 
     hub = models.OneToOneField(
@@ -1853,3 +1862,157 @@ class LedgerEntry(models.Model):
     def signed_cents(self) -> int:
         """The amount as the ledger counts it: a refund negative, everything else as logged."""
         return -self.amount_cents if self.kind == LedgerKind.REFUND else self.amount_cents
+
+
+# ---- PL Ledger, money in (Track D, part 6b) ----
+
+# The most drinks one bar sale or batch records. A night's bar is a few hundred; the cap keeps a typo (or a pasted
+# number) a form error rather than a Postgres integer overflow.
+BAR_QTY_MAX = 10_000
+# The most one bar sale or batch takes in, in cents ($1,000,000, the ledger's cap).
+BAR_AMOUNT_MAX_CENTS = 100_000_000
+
+
+class BarDrink(models.TextChoices):
+    """What was sold at the bar, Lee's four drinks and her total-only line. ``BarSale.Drink`` is this."""
+
+    IPA = "ipa", "IPA"
+    PILS = "pils", "Pilsner"
+    WINE = "wine", "Wine"
+    NA = "na", "N/A drink"
+    MIXED = "mixed", "Mixed / total only"
+
+
+# The four drinks with a price, in Lee's order: the quick-add buttons, the price form and the price fields' names.
+PRICED_DRINKS: tuple[str, ...] = (BarDrink.IPA, BarDrink.PILS, BarDrink.WINE, BarDrink.NA)
+
+
+class BarPay(models.TextChoices):
+    """How a bar sale was paid, Lee's four. ``BarSale.Pay`` is this."""
+
+    CARD = "card", "Card"
+    CASH = "cash", "Cash"
+    RSVP = "rsvp", "$5 RSVP credit"
+    OTHER = "other", "Other"
+
+
+class BarSaleSource(models.TextChoices):
+    """Where a sale was logged: a +1 tap on the night, or a batch (end of shift, tip jar, cash box)."""
+
+    QUICK = "quick", "Quick add"
+    BATCH = "batch", "Batch"
+
+
+class BarSale(models.Model):
+    """One sale at the event's bar: a +1 tap (one drink at its price) or a batch with its total.
+
+    A batch may be a tip jar or a cash box count with no drinks (``qty`` 0 and a total), or drinks given away (a total
+    of 0), but never both zero. The bar's profit is these sales less the Drinks lines' cost
+    (:func:`hq.services.bar_cost_cents`).
+    """
+
+    Drink = BarDrink
+    Pay = BarPay
+    Source = BarSaleSource
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="bar_sales",
+        help_text="The HQ whose bar this sale was at.",
+    )
+    drink = models.CharField(
+        max_length=10,
+        choices=BarDrink.choices,
+        default=BarDrink.IPA,
+        help_text="What was sold: IPA, Pilsner, wine, an N/A drink, or mixed (a total only).",
+    )
+    qty = models.PositiveIntegerField(
+        default=1,
+        validators=[MaxValueValidator(BAR_QTY_MAX)],
+        help_text="How many drinks; 0 for a total with no count, such as the tip jar.",
+    )
+    amount_cents = models.PositiveIntegerField(
+        validators=[MaxValueValidator(BAR_AMOUNT_MAX_CENTS)],
+        help_text="What was taken in, in cents.",
+    )
+    pay = models.CharField(
+        max_length=10,
+        choices=BarPay.choices,
+        default=BarPay.CARD,
+        help_text="How it was paid: card, cash, the $5 RSVP credit, or other.",
+    )
+    note = models.CharField(max_length=200, blank=True, help_text="Anything else, e.g. 6 to 8 PM shift, Augustin.")
+    source = models.CharField(
+        max_length=10,
+        choices=BarSaleSource.choices,
+        default=BarSaleSource.QUICK,
+        help_text="A +1 tap on the night, or a batch logged after.",
+    )
+    created_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="bar_sales_added",
+        help_text="The organiser who logged it. Undo last takes back only your own quick sales.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was logged.")
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(condition=Q(qty__gt=0) | Q(amount_cents__gt=0), name="ck_barsale_qty_or_amount"),
+            models.CheckConstraint(
+                condition=Q(qty__lte=BAR_QTY_MAX) & Q(amount_cents__lte=BAR_AMOUNT_MAX_CENTS), name="ck_barsale_caps"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.qty} {self.get_drink_display()} ({self.amount_display})"
+
+    @property
+    def amount_display(self) -> str:
+        return format_money(self.amount_cents)
+
+    @property
+    def summary(self) -> str:
+        """The sale as a toast says it, e.g. "1 IPA (Card)"."""
+        return f"{self.qty} {self.get_drink_display()} ({self.get_pay_display()})"
+
+
+def donor_key(name: str) -> str:
+    """The key a wine donor is known by: their name trimmed and lowercased, as the donors table groups them."""
+    return name.strip().lower()
+
+
+class WineDonorThanks(models.Model):
+    """A wine donor marked thanked on the Wine Donors to Thank table. Present means thanked; Unmark deletes it.
+
+    Keyed by the giver's name as the table groups it (:func:`donor_key`), one per hub whatever the capitalisation, so a
+    thank-you follows the donor across every bottle they gave.
+    """
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="wine_thanks",
+        help_text="The HQ whose wine wall the donor gave to.",
+    )
+    giver_key = models.CharField(
+        max_length=120, help_text="The donor's name, trimmed and lowercased, as the donors table groups it."
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the donor was marked thanked.")
+
+    class Meta:
+        ordering = ["giver_key"]
+        constraints = [
+            models.UniqueConstraint(Lower("giver_key"), "hub", name="uq_winedonorthanks_hub_key"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Thanked {self.giver_key}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.giver_key = donor_key(self.giver_key)
+        super().save(*args, **kwargs)

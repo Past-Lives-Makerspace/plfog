@@ -1,0 +1,91 @@
+{% comment %}
+The Wine Wall in the ledger (Track D, part 6b), Lee's section: the wall's bottles against its goal and the donated
+value, read from the wall's band (never typed here; bottles are logged on the wall's own door), Lee's ticket revenue at
+goal and the tickets sold, a meter of bottles, the donors thanked, links to the wall and the donors page when the viewer
+may open them, the tickets form (its labels follow the prices) and Set ticket prices. Both forms post over htmx and
+swap this section.
+
+  hub                 — required, the EventHub
+  approval            — required, the approval's words ("$900")
+  wine                — required, a hq.services.WineBand
+  tickets             — required, a hq.services.TicketTotals
+  donor_thanks        — required, a hq.services.DonorThanks
+  wall_url            — required, the wall's address, or "" when its card is not open to the viewer
+  donors_url          — required, the donors page, or "" when the viewer does not organise the wall
+  tickets_form        — required, a TicketsForm
+  tickets_error       — optional, a refusal the form does not carry (a stale save)
+  ticket_prices_form  — required, a TicketPricesForm
+  ticket_prices_open  — required, whether Set ticket prices renders open
+  ticket_prices_error — optional, as tickets_error
+{% endcomment %}
+<section class="pl-hq-lg__section" id="hq-lg-wine" aria-labelledby="hq-lg-wine-title" data-hq-lg-wine>
+  <div class="pl-hq-lg__section-head">
+    <h2 class="pl-hq-lg__h2" id="hq-lg-wine-title">Wine Wall</h2>
+    <span class="pl-hq-lg__muted pl-hq-lg__helper">Separate from the {{ approval }} drinks budget · Bottles are gifts, not tax-deductible</span>
+  </div>
+  <div class="pl-hq-lg__money" data-hq-lg-wine-tiles>
+    <div class="pl-hq-lg__tiles">
+      <div class="pl-hq-lg__tile" data-hq-lg-wine-tile="bottles">
+        <span class="pl-hq-lg__tile-heading">Bottles in</span>
+        <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ wine.bottles }}{% if wine.goal %} / {{ wine.goal }}{% endif %}</strong>
+        <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{{ wine.goal_line }}</span>
+      </div>
+      <div class="pl-hq-lg__tile" data-hq-lg-wine-tile="value">
+        <span class="pl-hq-lg__tile-heading">Donated value</span>
+        <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ wine.value_display }}</strong>
+        <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{{ wine.average_line }}</span>
+      </div>
+      <div class="pl-hq-lg__tile" data-hq-lg-wine-tile="at-goal">
+        <span class="pl-hq-lg__tile-heading">Ticket revenue at goal</span>
+        <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ tickets.at_goal_display }}</strong>
+        <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{{ tickets.at_goal_line }}</span>
+      </div>
+      <div class="pl-hq-lg__tile" data-hq-lg-wine-tile="sold">
+        <span class="pl-hq-lg__tile-heading">Tickets sold</span>
+        <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ tickets.count }}</strong>
+        <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{{ tickets.revenue_display }} raised</span>
+      </div>
+    </div>
+    {% if wine.goal %}
+    <div class="pl-hq-lg__meter-wrap">
+      <progress class="pl-hq-lg__meter pl-hq-lg__meter--fill" max="100" value="{{ wine.percent }}" aria-label="Bottles toward the goal: {{ wine.percent }} percent" data-hq-lg-wine-meter></progress>
+      <div class="pl-hq-lg__meter-labels" aria-hidden="true"><span>0</span><span>{{ wine.half_goal }}</span><span>{{ wine.goal }} bottles</span></div>
+    </div>
+    {% endif %}
+    <div class="pl-hq-lg__wine-links">
+      {% if donors_url %}<a href="{{ donors_url }}" class="pl-hq-lg__chip pl-hq-lg__chip--info" data-hq-lg-thanked>{{ donor_thanks.line }}</a>{% else %}<span class="pl-hq-lg__chip" data-hq-lg-thanked>{{ donor_thanks.line }}</span>{% endif %}
+      {% if wall_url %}<a href="{{ wall_url }}" class="pl-hq-lg__link" data-hq-lg-wall-link>Log bottles on the wine wall &rarr;</a>{% endif %}
+    </div>
+  </div>
+
+  <div class="pl-hq-lg__card pl-hq-lg__tickets">
+    {% if tickets_error %}<p class="pl-field-error" role="alert" data-hq-lg-tickets-error>{{ tickets_error }}</p>{% endif %}
+    <form method="post" action="{% url 'hq:ledger_tickets' hub.slug %}" hx-post="{% url 'hq:ledger_tickets' hub.slug %}" hx-target="closest [data-hq-lg-wine]" hx-swap="outerHTML" class="pl-hq-lg__form" data-hq-lg-tickets-form>
+      {% csrf_token %}
+      {% for field in tickets_form.seen_fields %}{{ field }}{% endfor %}
+      <div class="pl-hq-lg__fields pl-hq-lg__fields--narrow">
+        {% include "components/form_field.html" with field=tickets_form.singles_sold field_hint_off=True %}
+        {% include "components/form_field.html" with field=tickets_form.pairs_sold field_hint_off=True %}
+      </div>
+      <div class="pl-hq-lg__actions">
+        <button type="submit" class="pl-hq-lg__btn pl-hq-lg__btn--sm" data-hq-lg-tickets-save>Update</button>
+        <span class="pl-hq-lg__muted pl-hq-lg__helper" data-hq-lg-price-line>{{ tickets.price_line }}</span>
+      </div>
+    </form>
+    <details class="pl-hq-lg__prices" {% if ticket_prices_open %}open{% endif %} data-hq-lg-ticket-prices>
+      <summary class="pl-hq-lg__prices-summary">Set ticket prices</summary>
+      {% if ticket_prices_error %}<p class="pl-field-error" role="alert" data-hq-lg-ticket-prices-error>{{ ticket_prices_error }}</p>{% endif %}
+      <form method="post" action="{% url 'hq:ledger_ticket_prices' hub.slug %}" hx-post="{% url 'hq:ledger_ticket_prices' hub.slug %}" hx-target="closest [data-hq-lg-wine]" hx-swap="outerHTML" class="pl-hq-lg__form" data-hq-lg-ticket-prices-form>
+        {% csrf_token %}
+        {% for field in ticket_prices_form.seen_fields %}{{ field }}{% endfor %}
+        <div class="pl-hq-lg__fields pl-hq-lg__fields--narrow">
+          {% include "components/form_field.html" with field=ticket_prices_form.ticket field_hint_off=True %}
+          {% include "components/form_field.html" with field=ticket_prices_form.pair field_hint_off=True %}
+        </div>
+        <div class="pl-hq-lg__actions">
+          <button type="submit" class="pl-hq-lg__btn pl-hq-lg__btn--sm" data-hq-lg-ticket-prices-save>Save ticket prices</button>
+        </div>
+      </form>
+    </details>
+  </div>
+</section>

@@ -78,9 +78,14 @@ def describe_lees_content():
         spots = next(goal for goal in GOALS if goal.kind == HubGoal.Kind.VOLUNTEER_SPOTS)
         assert sum(shift.need for shift in SHIFTS) == spots.target == 82
 
-    def it_counts_the_raised_goal_in_whole_dollars():
+    def it_counts_the_raised_goal_itself_in_whole_dollars():
         raised = GOALS[0]
-        assert (raised.kind, raised.is_money, raised.target) == (HubGoal.Kind.MANUAL, True, 10_000)
+        assert (raised.label, raised.kind, raised.is_money, raised.target) == (
+            "Raised",
+            HubGoal.Kind.EVENT_CASH,
+            True,
+            10_000,
+        )
 
     def it_needs_a_permit_on_the_bartender_shifts_only():
         with_permit = [shift.role for shift in SHIFTS if shift.requires_olcc]
@@ -172,7 +177,7 @@ def describe_seeding():
         assert {card.audience for card in cards} == {HubCard.Audience.ADMINS}
         goals = list(hub.goals.all())
         assert [(goal.label, goal.kind, goal.target, goal.is_money, goal.current_value) for goal in goals] == [
-            ("Raised", HubGoal.Kind.MANUAL, 10_000, True, 0),
+            ("Raised", HubGoal.Kind.EVENT_CASH, 10_000, True, 0),
             ("Wine wall bottles", HubGoal.Kind.BOTTLES, 100, False, 0),
             ("Volunteer spots", HubGoal.Kind.VOLUNTEER_SPOTS, 82, False, 0),
             ("RSVPs", HubGoal.Kind.RSVPS, 250, False, 0),
@@ -320,20 +325,23 @@ def describe_seeding():
 
         out = _run("--event", str(event.pk))
 
-        assert _counts() == (1, 9, 5, 1)
+        assert _counts() == (1, 9, 6, 1)
         assert list(hub.goals.values_list("label", "sort_order")) == [
             ("Money in", 7),
-            ("Wine wall bottles", 8),
-            ("Volunteer spots", 9),
-            ("RSVPs", 10),
-            ("Member tables", 11),
+            ("Raised", 8),
+            ("Wine wall bottles", 9),
+            ("Volunteer spots", 10),
+            ("RSVPs", 11),
+            ("Member tables", 12),
         ]
-        assert not hub.goals.filter(label="Raised").exists()
+        # "Money in" is no Raised, so it is left typed in and the counted Raised is added beside it.
+        assert hub.goals.get(label="Money in").kind == HubGoal.Kind.MANUAL
+        assert hub.goals.get(label="Raised").kind == HubGoal.Kind.EVENT_CASH
         assert "Cards: 9 created, 0 kept as edited." in out
         assert (
-            "Goals: 4 created, 1 kept as edited. Added: Wine wall bottles, Volunteer spots, RSVPs, Member tables."
-            in out
-        )
+            "Goals: 5 created, 1 kept as edited. "
+            "Added: Raised, Wine wall bottles, Volunteer spots, RSVPs, Member tables."
+        ) in out
         assert "Shifts: 0 created, 1 kept as edited." in out
 
     def it_gives_a_track_c_hub_its_member_tables_goal_once(event):

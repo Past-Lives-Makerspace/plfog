@@ -829,8 +829,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "hq.goal-tracker": {
         "title": "Goal tracker",
         "short_text": (
-            "Where the event stands against its goals. People going, volunteer spots and bottles count "
-            "themselves from the pages behind the doors; the Raised goal is typed in by an admin."
+            "Where the event stands against its goals. Raised, people going, volunteer spots and bottles count "
+            "themselves from the pages behind the doors."
         ),
         "article_slug": "holiday-bizarre-hq",
         "anchor": "hq-goal-tracker",
@@ -906,6 +906,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         ),
         "article_slug": "holiday-bizarre-hq",
         "anchor": "hq-ledger",
+    },
+    "hq.ledger-bar": {
+        "title": "Drink sales on the night",
+        "short_text": (
+            "Pick how it was paid, then tap +1 for each drink sold. Undo last takes back your own newest tap. "
+            "Log a batch for a shift's total or the tip jar."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-ledger-bar",
     },
     "hq.edit-card": {
         "title": "Who may open a card",

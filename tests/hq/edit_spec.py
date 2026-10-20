@@ -145,11 +145,10 @@ def describe_updating_the_doors():
         assert open_hub.cards.count() == 9
         assert open_hub.goals.count() == 5
 
-    def it_gives_a_track_c_hub_its_member_tables_goal_once_and_never_a_typed_in_one(open_hub, admin_client):
+    def it_gives_a_track_c_hub_its_member_tables_goal_once(open_hub, admin_client):
         open_hub.seed_default_cards()
         for position, spec in enumerate(GOALS[:4]):
             HubGoalFactory(hub=open_hub, label=spec.label, kind=spec.kind, target=spec.target, sort_order=position)
-        open_hub.goals.filter(kind=HubGoal.Kind.MANUAL).delete()  # Raised, deleted by an admin, stays deleted
 
         first = admin_client.post(_url(open_hub), follow=True)
         second = admin_client.post(_url(open_hub), follow=True)
@@ -159,6 +158,7 @@ def describe_updating_the_doors():
         ]
         assert [str(message) for message in second.context["messages"]] == ["The doors are up to date."]
         assert list(open_hub.goals.values_list("label", "kind", "sort_order")) == [
+            ("Raised", HubGoal.Kind.EVENT_CASH, 0),
             ("Wine wall bottles", HubGoal.Kind.BOTTLES, 1),
             ("Volunteer spots", HubGoal.Kind.VOLUNTEER_SPOTS, 2),
             ("RSVPs", HubGoal.Kind.RSVPS, 3),
@@ -167,13 +167,13 @@ def describe_updating_the_doors():
 
     def it_adds_every_counted_kind_the_hub_lacks_beside_its_own(open_hub, admin_client):
         open_hub.seed_default_cards()
-        HubGoalFactory(hub=open_hub, label="Raised", kind=HubGoal.Kind.MANUAL, sort_order=0)
+        HubGoalFactory(hub=open_hub, label="Money in", kind=HubGoal.Kind.MANUAL, sort_order=0)
         HubGoalFactory(hub=open_hub, label="Bottles", kind=HubGoal.Kind.BOTTLES, sort_order=1)
 
         response = admin_client.post(_url(open_hub), follow=True)
 
         assert [str(message) for message in response.context["messages"]] == [
-            "Doors updated: added the Volunteer spots, RSVPs and Member tables goals."
+            "Doors updated: added the Raised, Volunteer spots, RSVPs and Member tables goals."
         ]
         assert open_hub.goals.filter(kind=HubGoal.Kind.MANUAL).count() == 1
         assert open_hub.goals.filter(kind=HubGoal.Kind.BOTTLES).get().label == "Bottles"

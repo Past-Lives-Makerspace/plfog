@@ -1,7 +1,8 @@
 """The HQ forms: the hub with its goals, one card with its shifts, a volunteer's Your Info step, the wine wall's Log a
 Bottle and winery logo, the Marketing Tracker's Log a Marketing Action, the Sponsorship Tracker's add form, inline
 edit and contact log line, Vendor Tables' add form, row edit and space map capacity, and the Market Check-in's report
-and hours."""
+and hours, the flyer page's upload and links, and the PL Ledger's: the approval, budget lines, entries and receipts
+(D6a), and the bar sales, drink prices and wine wall tickets (D6b)."""
 
 from __future__ import annotations
 
@@ -23,7 +24,12 @@ from django.utils import timezone
 
 from core.validators import validate_image_content, validate_image_pixels, validate_image_size
 from hq.models import (
+    BAR_AMOUNT_MAX_CENTS,
+    BAR_QTY_MAX,
+    PRICED_DRINKS,
     RECEIPT_KINDS,
+    BarDrink,
+    BarPay,
     BudgetLine,
     EventHub,
     FlyerSlot,
@@ -45,8 +51,16 @@ from hq.models import (
     VolunteerHours,
     VolunteerShift,
     WineBottle,
+    format_money,
 )
-from hq.services import VENDOR_CAPACITY_MAX, VolunteerInfo
+from hq.services import (
+    BAR_MIXED_NEEDS_TOTAL,
+    BAR_NOTHING_ENTERED,
+    DRINK_PRICE_FIELDS,
+    VENDOR_CAPACITY_MAX,
+    VolunteerInfo,
+    drink_price_cents,
+)
 from membership.models import CommunityEvent, Guild, Member
 
 # Path segments under /hq/ that are routes, not hubs.
@@ -1018,17 +1032,19 @@ def checked_receipt(upload: UploadedFile) -> UploadedFile:
     return upload
 
 
-def _money(label: str, *, minimum: str = "0") -> forms.DecimalField:
-    """A dollars and cents amount from ``minimum`` up to :data:`LEDGER_MAX_DOLLARS`; the form stores it in cents."""
+def _money(
+    label: str, *, minimum: str = "0", maximum: int = LEDGER_MAX_DOLLARS, required: bool = True
+) -> forms.DecimalField:
+    """A dollars and cents amount from ``minimum`` up to ``maximum`` (:data:`LEDGER_MAX_DOLLARS` unless a field sets a
+    smaller cap); the form stores it in cents."""
     return forms.DecimalField(
         min_value=Decimal(minimum),
-        max_value=Decimal(LEDGER_MAX_DOLLARS),
+        max_value=Decimal(maximum),
         max_digits=9,
         decimal_places=2,
         label=label,
-        widget=forms.NumberInput(
-            attrs={"min": minimum, "max": str(LEDGER_MAX_DOLLARS), "step": "0.01", "inputmode": "decimal"}
-        ),
+        required=required,
+        widget=forms.NumberInput(attrs={"min": minimum, "max": str(maximum), "step": "0.01", "inputmode": "decimal"}),
     )
 
 
@@ -1038,45 +1054,6 @@ def _cents(dollars: Decimal) -> int:
 
 def _dollars_initial(cents: int) -> Decimal:
     return (Decimal(cents) / 100).quantize(Decimal("0.01"))
-
-
-class LedgerApprovalForm(forms.Form):
-    """The board's approval: the amount and the line under it (Lee's "Drinks budget, Oct 14 meeting").
-
-    The form carries the settings' ``updated_at`` (blank before the first save) as :meth:`seen`, so
-    :func:`hq.services.save_approval` can refuse a Save from a page older than the settings."""
-
-    approved = _money("Board approval ($)")
-    approved_note = forms.CharField(
-        max_length=120,
-        required=False,
-        label="Note",
-        widget=forms.TextInput(attrs={"placeholder": "e.g. Drinks budget, Oct 14 meeting"}),
-    )
-    updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
-
-    @staticmethod
-    def stamp(found: LedgerSettings) -> str:
-        """The settings' ``updated_at`` as the form carries it; blank for the unsaved defaults."""
-        return found.updated_at.isoformat() if found.pk is not None else ""
-
-    @classmethod
-    def initial_for(cls, found: LedgerSettings) -> dict[str, Any]:
-        return {
-            "approved": _dollars_initial(found.approved_cents),
-            "approved_note": found.approved_note,
-            "updated_at": cls.stamp(found),
-        }
-
-    def seen(self) -> str:
-        """The settings' ``updated_at`` as this page was rendered with it; blank before the first save."""
-        return str(self.cleaned_data["updated_at"])
-
-    def to_fields(self) -> dict[str, Any]:
-        return {
-            "approved_cents": _cents(self.cleaned_data["approved"]),
-            "approved_note": self.cleaned_data["approved_note"],
-        }
 
 
 class BudgetLineForm(forms.ModelForm):
@@ -1211,3 +1188,215 @@ class ReceiptForm(forms.Form):
 
     def clean_receipt(self) -> UploadedFile:
         return checked_receipt(self.cleaned_data["receipt"])
+
+
+# ---- PL Ledger, money in (Track D, part 6b) ----
+
+# The highest price a drink or a wine wall ticket takes, in dollars: far above any bar's, low enough that a price times
+# the most drinks a batch takes still fits the cents column.
+PRICE_MAX_DOLLARS = 1_000
+# The most wine wall tickets of either kind the ticket form takes.
+TICKETS_MAX = 10_000
+BAR_TOTAL_TOO_BIG = "That comes to more than $1,000,000. Enter the total collected."
+
+
+def _count(label: str, *, maximum: int, minimum: int = 0, initial: int | None = None) -> forms.IntegerField:
+    return forms.IntegerField(
+        min_value=minimum,
+        max_value=maximum,
+        label=label,
+        initial=initial,
+        widget=forms.NumberInput(attrs={"min": str(minimum), "max": str(maximum), "step": "1", "inputmode": "numeric"}),
+    )
+
+
+class _SeenText(forms.CharField):
+    """A seen text figure (the approval's note), posted as is: blank stays blank so a blank note still matches, and
+    only a missing field is None, which never matches."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(required=False, strip=False, widget=forms.HiddenInput, **kwargs)
+
+    def to_python(self, value: Any) -> str | None:
+        return None if value is None else str(value)
+
+
+class _SeenFigures(forms.Form):
+    """A settings form that carries the figures it was rendered with as hidden ``seen_*`` fields, so a save from an
+    older page is refused (``hq.services.save_ledger_figures``) rather than overwriting what someone else saved.
+
+    ``FIGURES`` names the whole number settings fields the form writes and ``TEXT_FIGURES`` the text ones (the
+    approval's note); each visible field's initial comes from them through :meth:`initial_for`.
+    """
+
+    FIGURES: tuple[str, ...] = ()
+    TEXT_FIGURES: tuple[str, ...] = ()
+
+    def __init__(self, *args: Any, found: LedgerSettings, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        for name in self.FIGURES:
+            self.fields[f"seen_{name}"] = forms.IntegerField(
+                required=False, widget=forms.HiddenInput, initial=getattr(found, name)
+            )
+        for name in self.TEXT_FIGURES:
+            self.fields[f"seen_{name}"] = _SeenText(initial=getattr(found, name))
+
+    def _seen_names(self) -> tuple[str, ...]:
+        return (*self.FIGURES, *self.TEXT_FIGURES)
+
+    def seen(self) -> dict[str, int | str | None]:
+        """The figures this form was rendered with, as posted (None when missing, which never matches)."""
+        return {name: self.cleaned_data.get(f"seen_{name}") for name in self._seen_names()}
+
+    def seen_fields(self) -> list[forms.BoundField]:
+        return [self[f"seen_{name}"] for name in self._seen_names()]
+
+
+class LedgerApprovalForm(_SeenFigures):
+    """The board's approval: the amount and the line under it (Lee's "Drinks budget, Oct 14 meeting").
+
+    It carries the approval it was rendered with, as the D6b settings forms carry theirs, so only someone else's
+    approval save makes it stale: a price or tickets save in between does not."""
+
+    FIGURES = ("approved_cents",)
+    TEXT_FIGURES = ("approved_note",)
+
+    approved = _money("Board approval ($)")
+    approved_note = forms.CharField(
+        max_length=120,
+        required=False,
+        label="Note",
+        widget=forms.TextInput(attrs={"placeholder": "e.g. Drinks budget, Oct 14 meeting"}),
+    )
+
+    @classmethod
+    def initial_for(cls, found: LedgerSettings) -> dict[str, Any]:
+        return {"approved": _dollars_initial(found.approved_cents), "approved_note": found.approved_note}
+
+    def to_fields(self) -> dict[str, Any]:
+        return {
+            "approved_cents": _cents(self.cleaned_data["approved"]),
+            "approved_note": self.cleaned_data["approved_note"],
+        }
+
+
+class DrinkPricesForm(_SeenFigures):
+    """Lee's Set drink prices: the four drinks' prices and what the bar sold in 2025, in dollars and cents."""
+
+    FIGURES = (*DRINK_PRICE_FIELDS.values(), "last_year_bar_cents")
+
+    ipa = _money("IPA ($)", maximum=PRICE_MAX_DOLLARS)
+    pils = _money("Pilsner ($)", maximum=PRICE_MAX_DOLLARS)
+    wine = _money("Wine ($)", maximum=PRICE_MAX_DOLLARS)
+    na = _money("N/A drink ($)", maximum=PRICE_MAX_DOLLARS)
+    last_year = _money("2025 bar sales ($)")
+
+    @classmethod
+    def initial_for(cls, found: LedgerSettings) -> dict[str, Any]:
+        initial = {drink: _dollars_initial(drink_price_cents(found, drink)) for drink in PRICED_DRINKS}
+        return {**initial, "last_year": _dollars_initial(found.last_year_bar_cents)}
+
+    def to_fields(self) -> dict[str, int]:
+        fields = {DRINK_PRICE_FIELDS[drink]: _cents(self.cleaned_data[drink]) for drink in PRICED_DRINKS}
+        return {**fields, "last_year_bar_cents": _cents(self.cleaned_data["last_year"])}
+
+
+class TicketsForm(_SeenFigures):
+    """The wine wall's tickets sold: singles and two-ticket deals, each labelled with its price (Lee's "Single tickets
+    sold ($25)")."""
+
+    FIGURES = ("singles_sold", "pairs_sold")
+
+    singles_sold = _count("Single tickets sold", maximum=TICKETS_MAX)
+    pairs_sold = _count("2-ticket deals sold", maximum=TICKETS_MAX)
+
+    def __init__(self, *args: Any, found: LedgerSettings, **kwargs: Any) -> None:
+        super().__init__(*args, found=found, **kwargs)
+        self.fields["singles_sold"].label = f"Single tickets sold ({format_money(found.ticket_cents)})"
+        self.fields["pairs_sold"].label = f"2-ticket deals sold ({format_money(found.pair_cents)})"
+
+    @classmethod
+    def initial_for(cls, found: LedgerSettings) -> dict[str, Any]:
+        return {"singles_sold": found.singles_sold, "pairs_sold": found.pairs_sold}
+
+    def to_fields(self) -> dict[str, int]:
+        return {"singles_sold": self.cleaned_data["singles_sold"], "pairs_sold": self.cleaned_data["pairs_sold"]}
+
+
+class TicketPricesForm(_SeenFigures):
+    """The wine wall's two ticket prices (Lee's $25 a ticket or 2 for $40, until she confirms the year's)."""
+
+    FIGURES = ("ticket_cents", "pair_cents")
+
+    ticket = _money("One ticket ($)", maximum=PRICE_MAX_DOLLARS)
+    pair = _money("2-ticket deal ($)", maximum=PRICE_MAX_DOLLARS)
+
+    @classmethod
+    def initial_for(cls, found: LedgerSettings) -> dict[str, Any]:
+        return {"ticket": _dollars_initial(found.ticket_cents), "pair": _dollars_initial(found.pair_cents)}
+
+    def to_fields(self) -> dict[str, int]:
+        return {"ticket_cents": _cents(self.cleaned_data["ticket"]), "pair_cents": _cents(self.cleaned_data["pair"])}
+
+
+class BarQuickForm(forms.Form):
+    """One +1 tap: the drink (the button pressed) and Paid by (Lee's four, chosen once above the buttons)."""
+
+    drink = forms.ChoiceField(choices=[(drink, BarDrink(drink).label) for drink in PRICED_DRINKS])
+    pay = forms.ChoiceField(
+        choices=BarPay.choices, initial=BarPay.CARD, label="Paid by", widget=forms.RadioSelect, help_text=""
+    )
+
+
+class BarBatchForm(forms.Form):
+    """Lee's Log a batch (end of shift, tip jar, cash box count): the drink (Mixed for a total only), how many, the
+    total collected, Paid by and a note.
+
+    A blank total is the drink's price times how many; a mixed batch has no price, so it needs its total. A batch with
+    neither drinks nor money is refused in Lee's words.
+    """
+
+    drink = forms.ChoiceField(choices=BarDrink.choices, label="Drink", initial=BarDrink.IPA)
+    qty = _count("How many", maximum=BAR_QTY_MAX, initial=1)
+    total = _money("Total collected ($)", required=False)
+    pay = forms.ChoiceField(choices=BarPay.choices, label="Paid by", initial=BarPay.CARD)
+    note = forms.CharField(
+        max_length=200,
+        required=False,
+        label="Note (optional)",
+        widget=forms.TextInput(attrs={"placeholder": "e.g. 6 to 8 PM shift, Augustin"}),
+    )
+
+    def __init__(self, *args: Any, found: LedgerSettings, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._found = found
+        self.fields["total"].widget.attrs["placeholder"] = "Leave blank to use price × qty"
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        drink, qty, total = cleaned.get("drink"), cleaned.get("qty"), cleaned.get("total")
+        if drink is None or qty is None or self.has_error("total"):
+            return cleaned
+        if total is None:
+            if drink == BarDrink.MIXED:
+                self.add_error("total", BAR_MIXED_NEEDS_TOTAL)
+                return cleaned
+            amount = qty * drink_price_cents(self._found, drink)
+        else:
+            amount = _cents(total)
+        if qty == 0 and amount == 0:
+            self.add_error(None, BAR_NOTHING_ENTERED)
+        elif amount > BAR_AMOUNT_MAX_CENTS:
+            self.add_error("total", BAR_TOTAL_TOO_BIG)
+        cleaned["amount_cents"] = amount
+        return cleaned
+
+    def to_fields(self) -> dict[str, Any]:
+        """The sale's fields for ``hq.services.add_bar_batch``: the amount in cents, defaulted from the price."""
+        return {
+            "drink": self.cleaned_data["drink"],
+            "qty": self.cleaned_data["qty"],
+            "amount_cents": self.cleaned_data["amount_cents"],
+            "pay": self.cleaned_data["pay"],
+            "note": self.cleaned_data["note"],
+        }

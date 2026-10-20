@@ -8,6 +8,8 @@ list never shows it; organisers also read it on the donors table.
   bottle     — required, a WineBottle
   hub        — required, its EventHub
   manageable — required, the set of bottle pks this viewer logged or organises
+  can_organize, ticket_cents, ticket_display — for organisers, Lee's Under $25 flag on a bottle worth less than one
+               wine wall ticket (ticket_cents is 0 for anyone else, so nothing is flagged)
 {% endcomment %}
 <article class="pl-hq-wine__bottle" data-hq-bottle="{{ bottle.pk }}">
   {% if bottle.photo %}
@@ -20,7 +22,7 @@ list never shows it; organisers also read it on the donors table.
       <span class="pl-hq-wine__chip pl-hq-wine__chip--{{ bottle.kind }}" data-hq-bottle-kind="{{ bottle.kind }}">{{ bottle.get_kind_display }}</span>
       <span class="pl-hq-wine__bottle-name">{{ bottle.name }}</span>
     </div>
-    <p class="pl-hq-wine__bottle-line"><span data-hq-bottle-winery>{{ bottle.winery }}</span> · <span data-hq-bottle-value>{{ bottle.value_display }}{% if bottle.qty > 1 %} × {{ bottle.qty }}{% endif %}</span></p>
+    <p class="pl-hq-wine__bottle-line"><span data-hq-bottle-winery>{{ bottle.winery }}</span> · <span data-hq-bottle-value>{{ bottle.value_display }}{% if bottle.qty > 1 %} × {{ bottle.qty }}{% endif %}</span>{% if can_organize and bottle.value_cents < ticket_cents %} <span class="pl-hq-wine__under" data-hq-bottle-under>Under {{ ticket_display }}</span>{% endif %}</p>
     <p class="pl-hq-wine__bottle-line">Given by <span data-hq-bottle-giver>{{ bottle.giver_name }}</span>{% if bottle.credited_name %} · Collected by <span data-hq-bottle-credited>{{ bottle.credited_name }}</span>{% endif %}</p>
     {% if bottle.note and bottle.pk in manageable %}<p class="pl-hq-wine__bottle-note" data-hq-bottle-note>{{ bottle.note }}</p>{% endif %}
   </div>
