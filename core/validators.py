@@ -36,6 +36,25 @@ def validate_image_content(image: UploadedFile) -> None:
         raise ValidationError("That file is not a photo we can open. Choose a JPG, PNG, WEBP or HEIC image.") from None
 
 
+#: The most pixels an uploaded image may hold. A few kilobytes can declare a huge bitmap (a decompression bomb),
+#: and every resize decodes all of it, so a larger image is refused before it is decoded.
+MAX_IMAGE_PIXELS = 50_000_000
+
+
+def validate_image_pixels(image: UploadedFile) -> None:
+    """Reject an image whose width times height is over :data:`MAX_IMAGE_PIXELS`.
+
+    Call it after Django's form ``ImageField.to_python`` (or :func:`validate_image_content`), which leaves the
+    Pillow image it verified on ``image.image``. Only the header has been read by then, so the check is free.
+    """
+    width, height = image.image.size  # type: ignore[attr-defined]  # set by forms.ImageField.to_python
+    if width * height > MAX_IMAGE_PIXELS:
+        raise ValidationError(
+            f"That image is {width:,} by {height:,} pixels, too large to open. "
+            f"Choose one under {MAX_IMAGE_PIXELS // 1_000_000} million pixels."
+        )
+
+
 def validate_hex_color(value: str) -> None:
     """Reject a color that is not a six digit hex code with a leading #."""
     if not re.fullmatch(r"#[0-9A-Fa-f]{6}", value):

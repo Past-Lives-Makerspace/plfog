@@ -22,19 +22,23 @@ is asking, and a :class:`SponsorLogEntry` one line in its contact log. Part 3 ad
 ``vendor_tables`` card: a :class:`VendorTable` is one member artist's table request, and a :class:`VendorFloor`
 the space map's capacity for the hub. Part 4 adds the Market Check-in behind the ``market_checkin`` card: a
 :class:`MarketReport` is one member artist's sales after the market (one per member), and a
-:class:`VolunteerHours` one stretch of prep or event time a member logged.
+:class:`VolunteerHours` one stretch of prep or event time a member logged. Part 5 adds the event flyer and sharing
+page behind the ``flyer`` card: a :class:`HubFlyer` holds this year's and last year's flyer, the website and Eventbrite
+links and the message members copy to send friends.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import partial
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.db.models.functions import Lower
 from django.urls import reverse
@@ -362,6 +366,8 @@ class HubCard(models.Model):
             return reverse("hq:vendors", args=[self.hub.slug])
         if self.kind == self.Kind.MARKET_CHECKIN:
             return reverse("hq:checkin", args=[self.hub.slug])
+        if self.kind == self.Kind.FLYER:
+            return reverse("hq:flyer", args=[self.hub.slug])
         # A live kind whose page has not shipped yet renders like a placeholder: Not shared yet.
         return ""
 
@@ -431,7 +437,13 @@ class HubGoal(models.Model):
 # The doors whose page is built beyond the first three. The seed turns a placeholder titled as one of
 # these into its live kind; each later part of Track D adds its kind here and nowhere else.
 BUILT_DOORS: frozenset[str] = frozenset(
-    {HubCard.Kind.MARKETING, HubCard.Kind.SPONSORSHIP, HubCard.Kind.VENDOR_TABLES, HubCard.Kind.MARKET_CHECKIN}
+    {
+        HubCard.Kind.MARKETING,
+        HubCard.Kind.SPONSORSHIP,
+        HubCard.Kind.VENDOR_TABLES,
+        HubCard.Kind.MARKET_CHECKIN,
+        HubCard.Kind.FLYER,
+    }
 )
 
 # The three doors that were live from the start of Track C.
@@ -1505,3 +1517,99 @@ class VolunteerHours(models.Model):
     @property
     def hours_display(self) -> str:
         return format_hours(self.hours)
+
+
+# ---- Event flyer and sharing (Track D, part 5) ----
+
+
+class FlyerSlot(models.TextChoices):
+    """Which flyer an upload or a Remove is for: this year's or last year's. The values are the field names."""
+
+    THIS_YEAR = "flyer", "2026 flyer"
+    LAST_YEAR = "last_year_flyer", "2025 flyer"
+
+
+def default_share_message() -> str:
+    """Lee's "copy a message to send friends" text, the default for a new :class:`HubFlyer`.
+
+    A callable so the migration names it rather than freezing the words, and a lazy import because
+    :mod:`hq.holiday_bizarre` imports this module.
+    """
+    from hq.holiday_bizarre import FLYER_SHARE_MESSAGE
+
+    return FLYER_SHARE_MESSAGE
+
+
+def is_pdf_name(name: str) -> bool:
+    """Whether a stored flyer is a PDF, by its name: the upload form names a PDF ``.pdf`` and an image is
+    re-encoded to ``.jpg`` on save, so the extension is the type the content was checked as."""
+    return name.lower().endswith(".pdf")
+
+
+class HubFlyer(models.Model):
+    """The event flyer and sharing page's content for a hub (OneToOne, made on the first save).
+
+    This year's and last year's flyer are each an image (JPG, PNG or WEBP, re-encoded to a JPEG at the hero's long
+    edge on save) or a PDF (stored as it came); the upload form checks the content, not the name. A replaced or
+    cleared file is deleted from storage once the save that replaced it has committed. The RSVP figure and the businesses with flyers are never stored here:
+    the page reads them live from the event and the Marketing Tracker.
+    """
+
+    Slot = FlyerSlot
+
+    hub = models.OneToOneField(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="hub_flyer",
+        help_text="The HQ whose flyer and sharing page this is.",
+    )
+    flyer = models.FileField(
+        upload_to="hq/flyers/",
+        blank=True,
+        help_text="This year's flyer: a JPG, PNG or WEBP image (resized on upload) or a PDF. Blank shows Coming soon.",
+    )
+    last_year_flyer = models.FileField(
+        upload_to="hq/flyers/",
+        blank=True,
+        help_text="Last year's flyer, shown under Last year: an image or a PDF. Optional.",
+    )
+    website_url = models.URLField(blank=True, help_text="The event page on the Past Lives website. Optional.")
+    eventbrite_url = models.URLField(blank=True, help_text="The event on Eventbrite. Optional.")
+    share_message = models.TextField(
+        max_length=600,
+        default=default_share_message,
+        help_text="The message members copy to send friends; the share link is added after it.",
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the page was last saved.")
+
+    def __str__(self) -> str:
+        return f"Flyer for {self.hub.title}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Normalise a fresh image, store the row and its new file, and only then delete the file each slot held.
+
+        The old names are read before the save and deleted once the transaction commits, so a storage write or a
+        database error that fails the save leaves the old flyer in place rather than a row pointing at nothing.
+        """
+        stored = HubFlyer.objects.filter(pk=self.pk).values(*FlyerSlot.values).first() if self.pk else None
+        for slot in FlyerSlot.values:
+            if not is_pdf_name(getattr(self, slot).name or ""):
+                normalize_field_if_uploaded(self, slot, settings.IMAGE_MAX_LONG_EDGE_HERO)
+        super().save(*args, **kwargs)
+        for slot, old_name in (stored or {}).items():
+            if old_name and old_name != (getattr(self, slot).name or ""):
+                transaction.on_commit(partial(delete_if_unreferenced, HubFlyer, slot, old_name, exclude_pk=self.pk))
+
+    @property
+    def flyer_is_pdf(self) -> bool:
+        return is_pdf_name(self.flyer.name or "")
+
+    @property
+    def last_year_is_pdf(self) -> bool:
+        return is_pdf_name(self.last_year_flyer.name or "")
+
+    @property
+    def website_host(self) -> str:
+        """The website link's host for its card under Find the event, e.g. "pastlives.space" (``www.`` dropped)."""
+        host = urlsplit(self.website_url).hostname or ""
+        return host.removeprefix("www.")

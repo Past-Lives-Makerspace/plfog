@@ -1,0 +1,27 @@
+{% comment %}
+Find the event: the website and Eventbrite links when set (a blank one is left out) and the member portal, which is
+always there: the event's public page, or the HQ page when the hub has no event. Swapped out of band when the
+organisers save the links.
+
+  page       — required, the hub's HubFlyer (saved or the unsaved defaults)
+  share_link — required, the member portal link
+  oob        — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<section class="pl-hq-fl__card" aria-labelledby="hq-fl-find-title" id="hq-fl-find" data-hq-fl-find{% if oob %} hx-swap-oob="true"{% endif %}>
+  <h2 class="pl-hq-fl__h2" id="hq-fl-find-title">Find the Event</h2>
+  <div class="pl-hq-fl__links">
+    {% if page.website_url %}
+    <a href="{{ page.website_url }}" class="pl-hq-fl__link" target="_blank" rel="noopener" hx-boost="false" data-hq-fl-website>
+      <b>{{ page.website_host|default:"Website" }}</b><span>See the event page</span>
+    </a>
+    {% endif %}
+    {% if page.eventbrite_url %}
+    <a href="{{ page.eventbrite_url }}" class="pl-hq-fl__link" target="_blank" rel="noopener" hx-boost="false" data-hq-fl-eventbrite>
+      <b>Eventbrite</b><span>RSVP on Eventbrite</span>
+    </a>
+    {% endif %}
+    <a href="{{ share_link }}" class="pl-hq-fl__link" data-hq-fl-portal>
+      <b>Member portal</b><span>See it in the member portal</span>
+    </a>
+  </div>
+</section>

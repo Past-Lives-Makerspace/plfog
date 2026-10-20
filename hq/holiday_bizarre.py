@@ -1,5 +1,5 @@
 """Lee's Holiday Bizarre HQ as data: the hub, its nine doors, five goals, 21 volunteer shifts, the sponsor tiers, the
-vendor setup windows and the Market Check-in's words.
+vendor setup windows, the Market Check-in's words and the flyer page's.
 
 ``manage.py seed_holiday_bizarre`` writes these rows for a published calendar event; correcting
 a word here and re-running is the workflow, as with the help articles. Nothing in this module
@@ -15,7 +15,8 @@ need an Oregon OLCC service permit. The goals are her tracker: Raised is typed i
 counted live from the pages behind the doors; Member tables has no target, so it shows as a plain
 count. The sponsor tiers are her draft "what they get" table on the Sponsorship Tracker, row for
 row. The vendor setup windows are the Setup day choices on Vendor Tables and its band's note. The check-in
-words are the Market Check-in's thank-you line and footer.
+words are the Market Check-in's thank-you line and footer. The flyer words are her member event page's: the message
+to send friends (the default an organiser edits), Coming soon, the line under Help spread the word and last year's.
 """
 
 from __future__ import annotations
@@ -328,3 +329,18 @@ CHECKIN_THANKS = (
     "toward one goal!"
 )
 CHECKIN_FOOTER = "Questions? Email Lee at lee@pastlives.space."
+
+
+# The event flyer and sharing page's words, in Lee's (her member event page). The share message is the default of
+# ``HubFlyer.share_message``: an organiser edits it on the page, and the share link is added after it.
+FLYER_SHARE_MESSAGE = (
+    "You're invited to the Past Lives Holiday Bizarre! Friday, Dec 4, 5 to 10 PM at 2808 SE 9th Ave. Handmade gifts "
+    "from local artists, live demos, the wine wall, drinks and more. RSVP for $5 and get $5 off a drink, and every "
+    "dollar raised supports Past Lives' community programs."
+)
+FLYER_COMING_SOON = "Our 2026 flyer is being designed. Check back here to share and print it."
+FLYER_SHARE_LEDE = "The more friends you bring, the better the night is for every artist selling."
+FLYER_LAST_YEAR_NOTE = (
+    "Our first Holiday Bizarre on December 5, 2025 brought the community together with a silent auction, artists' "
+    "market and 36 donated items from local businesses."
+)

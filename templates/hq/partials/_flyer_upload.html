@@ -1,0 +1,45 @@
+{% comment %}
+One of the organisers' upload forms: this year's or last year's flyer. A multipart plain post (hx-boost="false",
+the wine wall's logo form's pattern) through a drag and drop zone that takes a JPG, PNG or WEBP image or a PDF
+(FRONTEND rule 16; components/image_field.html takes images only). Remove opens the confirm modal, which the page
+renders once per stored flyer.
+
+  hub             — required, the EventHub
+  upload          — required, a hq.views.FlyerUpload (slot, label, current file or None, is_pdf, form)
+  max_image_bytes — required, settings.MAX_UPLOAD_IMAGE_BYTES
+  max_pdf_bytes   — required, settings.MAX_UPLOAD_DOCUMENT_BYTES
+{% endcomment %}
+{% with form=upload.form field=upload.form.file %}
+<form method="post" action="{% url 'hq:flyer_upload' hub.slug upload.slot %}" enctype="multipart/form-data" hx-boost="false" class="pl-hq-fl__upload" x-data data-hq-fl-upload="{{ upload.slot }}">
+  {% csrf_token %}
+  <div class="pl-form-group">
+    <span class="pl-hq-fl__upload-head">
+      <label class="pl-form-label" for="{{ field.id_for_label }}">{{ upload.label }}</label>
+      <span class="pl-help">
+        <span class="pl-help__icon" tabindex="0" role="img" aria-label="Flyer files: a letter size flyer works best. A JPG, PNG or WEBP image up to {{ max_image_bytes|filesizeformat }}, resized to 2400 pixels on the long edge, or a PDF up to {{ max_pdf_bytes|filesizeformat }}.">?</span>
+        <span class="pl-help__bubble">A letter size flyer works best. A JPG, PNG or WEBP image up to {{ max_image_bytes|filesizeformat }}, resized to 2400 pixels on the long edge, or a PDF up to {{ max_pdf_bytes|filesizeformat }}.</span>
+      </span>
+    </span>
+    <p class="pl-hq-fl__now" data-hq-fl-now>
+      {% if upload.current %}Now up: <a href="{{ upload.current.url }}" target="_blank" rel="noopener" hx-boost="false">the {{ upload.label }}{% if upload.is_pdf %} (PDF){% endif %}</a>{% else %}None up yet{% endif %}
+    </p>
+    <label class="cls-image-upload-zone" data-hq-fl-zone data-max-image="{{ max_image_bytes }}" data-max-pdf="{{ max_pdf_bytes }}">
+      <input type="file" name="{{ field.html_name }}" id="{{ field.id_for_label }}" accept="image/jpeg,image/png,image/webp,application/pdf" required>
+      <span class="cls-image-upload-label" data-hq-fl-zone-label>{% if upload.current %}Replace the {{ upload.label }}{% else %}+ Upload the {{ upload.label }}{% endif %}</span>
+      <span class="cls-image-upload-hint">Click or drag a file here</span>
+    </label>
+    <p class="pl-field-error pl-hq-fl__zone-error" role="alert" data-hq-fl-zone-error hidden></p>
+    {% if field.errors %}
+    <ul class="pl-field-errors" data-hq-fl-upload-errors>
+      {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  <div class="pl-hq-fl__actions">
+    {% if upload.current %}
+    <button type="button" class="pl-hq-fl__btn pl-hq-fl__btn--danger" @click="$dispatch('open-confirm', 'hq-fl-remove-{{ upload.slot }}')" aria-label="Remove the {{ upload.label }}" data-hq-fl-remove>Remove</button>
+    {% endif %}
+    <button type="submit" class="pl-hq-fl__btn pl-hq-fl__btn--primary" aria-label="Upload the {{ upload.label }}" data-hq-fl-upload-submit>Upload</button>
+  </div>
+</form>
+{% endwith %}

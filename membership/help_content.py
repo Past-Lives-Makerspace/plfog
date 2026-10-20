@@ -666,6 +666,7 @@ Each card on the page is a door into one part of the event. A card says who it i
 - **Sponsorship Tracker** opens the sponsors the team is asking.
 - **Vendor Tables** opens the member artists' table requests, for the vendor team.
 - **Market Check-in** opens artists' market reports and volunteers' hours, for members.
+- **Event flyer and sharing** opens the flyer and the links to share the event.
 - A greyed card reading **Not shared yet** is a page the organisers have not opened. It links nowhere.
 
 You only see the doors that are open to you. Every card starts as admins only; an admin opens it to members, to everyone, or to the people who run that part (see Editing the HQ below). A door open to everyone needs no account for what is behind it: RSVP, shifts or bottles. If a door you expect is missing, sign in, or ask an admin.
@@ -771,6 +772,22 @@ Open the **Market Check-in** door and sign in. It is for Past Lives members: any
 Your entries are listed under the form with your total. **Delete** takes one off. The **Volunteer thank-you board** shows the 15 volunteers with the most hours.
 
 Organisers (admins and the people named on the card) also get **Market reports**, with the totals, sales by guild and every report, and **All hours**, with every entry and a Delete. Each has **Download CSV**. The volunteer roster shows each person's **Hours logged** beside their shifts.
+
+### Event Flyer and Sharing {#hq-flyer}
+
+Open the **Event flyer and sharing** door. Its top shows how many people have RSVP'd so far (click it for who is coming, on the event page) and how many businesses have the flyer up.
+
+- **This Year's Flyer**: click it, or **View full size**, to see it whole. **Download** saves it to your device and **Print** prints it on its own, one page. Until it is ready it reads Coming soon.
+- **Help Spread the Word**: **Copy the event link**, **Share on Facebook**, or **Copy a message to send friends**, which copies a short invitation with the link. Paste either anywhere.
+- **Find the Event**: the event on the Past Lives website and on Eventbrite, once the organisers add them, and in the member portal.
+- **Last Year: 2025** shows last year's flyer once it is up.
+
+Organisers (admins and the people named on the card) get **Update This Page** at the foot:
+
+1. Under **2026 flyer** or **2025 flyer**, click the box or drag a file onto it, then click **Upload**. A JPG, PNG or WEBP image (up to 10 MB) or a PDF (up to 25 MB) works. A new file replaces the old one; **Remove** takes it down.
+2. Under **Links and Message**, add the **Website event page link** and the **Eventbrite link**, change the **Message to send friends** if you like, and click **Save**. A link left blank is left off the page.
+
+The RSVP count and the businesses count are never typed here: they come from the event's RSVPs and the Marketing Tracker.
 
 ### Organiser Tools {#hq-organiser-tools}
 

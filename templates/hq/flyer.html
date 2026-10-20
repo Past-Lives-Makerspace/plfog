@@ -1,0 +1,117 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+Event flyer and sharing (Track D, part 5), in the look of Lee's member event page: a header with the hub's name
+and date line, the two figures read live (the event's RSVPs, linked to the Who's coming list on the event page,
+and the Marketing Tracker's businesses with flyers, linked to the tracker when that card is open to the viewer),
+This year's flyer with View full size, Download and Print beside Help spread the word, Find the event, Last
+year's flyer when one is up, and Update this page for organisers (by the effective role). No login gate of its
+own: card_view decides who may open the page.
+{% endcomment %}
+{% block title %}{{ card.title }}{% endblock %}
+{% block extra_head %}
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq-fl" data-hq-flyer>
+  <header class="pl-hq-fl__header">
+    <div class="pl-hq-fl__heading">
+      <h1 class="pl-hq-fl__title">Event flyer and sharing</h1>
+      <p class="pl-hq-fl__subline" data-hq-fl-subline>{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %}</p>
+    </div>
+    <a href="{% url 'hq:page' hub.slug %}" class="pl-hq-fl__back" data-hq-fl-back>&larr; HQ</a>
+  </header>
+
+  <section class="pl-hq-fl__figures" aria-label="So far" data-hq-fl-figures>
+    {% if rsvp_count is not None %}
+    <a href="{{ rsvp_url }}" class="pl-hq-fl__figure" data-hq-fl-rsvp>
+      <strong class="pl-hq-fl__big" data-hq-fl-figure>{{ rsvp_count }}</strong>
+      <span class="pl-hq-fl__figure-text">{{ rsvp_count|pluralize:"person has,people have" }} RSVP'd so far</span>
+      <span class="pl-hq-fl__figure-link">See who's coming</span>
+    </a>
+    {% endif %}
+    {% if marketing_url %}
+    <a href="{{ marketing_url }}" class="pl-hq-fl__figure" data-hq-fl-flyers>
+    {% else %}
+    <div class="pl-hq-fl__figure" data-hq-fl-flyers>
+    {% endif %}
+      <strong class="pl-hq-fl__big" data-hq-fl-figure>{{ flyers_out }}</strong>
+      <span class="pl-hq-fl__figure-text">{{ flyers_out|pluralize:"business has,businesses have" }} the flyer up</span>
+      {% if marketing_url %}<span class="pl-hq-fl__figure-link">See the Marketing Tracker</span>{% endif %}
+    {% if marketing_url %}</a>{% else %}</div>{% endif %}
+  </section>
+
+  <div class="pl-hq-fl__grid">
+    <section class="pl-hq-fl__card" aria-labelledby="hq-fl-flyer-title" x-data data-hq-fl-this-year>
+      <h2 class="pl-hq-fl__h2" id="hq-fl-flyer-title">This Year's Flyer</h2>
+      {% if page.flyer %}
+        {% if page.flyer_is_pdf %}
+        <a href="{{ page.flyer.url }}" class="pl-hq-fl__poster pl-hq-fl__poster--pdf" target="_blank" rel="noopener" hx-boost="false" data-hq-fl-pdf>
+          <span class="pl-hq-fl__soon-title">Flyer ready</span>
+          <span class="pl-hq-fl__soon-text">Open the PDF to view, print or share it.</span>
+        </a>
+        {% else %}
+        <a href="{{ page.flyer.url }}" class="pl-hq-fl__poster" target="_blank" rel="noopener" hx-boost="false" aria-label="Open the flyer full size" data-hq-fl-poster>
+          <img src="{{ page.flyer.url }}" alt="{{ hub.title }} flyer" data-hq-fl-image>
+        </a>
+        {% endif %}
+        <div class="pl-hq-fl__actions" data-hq-fl-flyer-actions>
+          <a href="{{ page.flyer.url }}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" target="_blank" rel="noopener" hx-boost="false" data-hq-fl-view>View full size</a>
+          <a href="{% url 'hq:flyer_download' hub.slug 'flyer' %}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" download hx-boost="false" data-pl-download data-hq-fl-download>Download</a>
+          {% if page.flyer_is_pdf %}
+          <a href="{{ page.flyer.url }}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" target="_blank" rel="noopener" hx-boost="false" aria-label="Open the PDF to print it" data-hq-fl-print>Print</a>
+          {% else %}
+          <button type="button" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" @click="window.print()" data-hq-fl-print>Print</button>
+          {% endif %}
+        </div>
+      {% else %}
+      <div class="pl-hq-fl__poster pl-hq-fl__poster--soon" data-hq-fl-soon>
+        <span class="pl-hq-fl__soon-title">Coming soon</span>
+        <span class="pl-hq-fl__soon-text">{{ coming_soon }}</span>
+      </div>
+      {% endif %}
+    </section>
+
+    {% include "hq/partials/_flyer_share.html" %}
+  </div>
+
+  {% include "hq/partials/_flyer_find.html" %}
+
+  {% if page.last_year_flyer %}
+  <section class="pl-hq-fl__card" aria-labelledby="hq-fl-last-title" data-hq-fl-last-year>
+    <h2 class="pl-hq-fl__h2" id="hq-fl-last-title">Last Year: 2025</h2>
+    <div class="pl-hq-fl__archive">
+      {% if page.last_year_is_pdf %}
+      <a href="{{ page.last_year_flyer.url }}" class="pl-hq-fl__thumb pl-hq-fl__thumb--pdf" target="_blank" rel="noopener" hx-boost="false" data-hq-fl-last-pdf>2025 flyer (PDF)</a>
+      {% else %}
+      <a href="{{ page.last_year_flyer.url }}" class="pl-hq-fl__thumb" target="_blank" rel="noopener" hx-boost="false" aria-label="Open the 2025 flyer full size" data-hq-fl-last-image>
+        <img src="{{ page.last_year_flyer.url }}" alt="2025 Holiday Bizarre flyer" loading="lazy">
+      </a>
+      {% endif %}
+      <p class="pl-hq-fl__muted" data-hq-fl-last-note>{{ last_year_note }}</p>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if can_organize %}
+  <section class="pl-hq-fl__card pl-hq-fl__admin" aria-labelledby="hq-fl-admin-title" data-hq-fl-organizers>
+    <h2 class="pl-hq-fl__h2" id="hq-fl-admin-title">Update This Page</h2>
+    <p class="pl-hq-fl__muted">Only the organisers of this page see this box.</p>
+    <div class="pl-hq-fl__uploads">
+      {% for upload in uploads %}
+      {% include "hq/partials/_flyer_upload.html" with upload=upload %}
+      {% endfor %}
+    </div>
+    {% include "hq/partials/_flyer_links.html" %}
+  </section>
+  {% for upload in uploads %}
+  {% if upload.current %}
+  {% url 'hq:flyer_remove' hub.slug upload.slot as remove_url %}
+  {% include "components/confirm_modal.html" with confirm_id="hq-fl-remove-"|add:upload.slot confirm_title="Remove the "|add:upload.label|add:"?" confirm_message="It comes off this page and out of our storage. You can upload another any time." confirm_action_url=remove_url confirm_button_text="Remove" %}
+  {% endif %}
+  {% endfor %}
+  {% include "hq/partials/_flyer_zone_script.html" %}
+  {% endif %}
+</div>
+{% endblock %}

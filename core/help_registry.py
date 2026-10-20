@@ -889,6 +889,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": "holiday-bizarre-hq",
         "anchor": "hq-market-checkin",
     },
+    "hq.flyer": {
+        "title": "Share the event",
+        "short_text": (
+            "Download the flyer, copy the event link, share it on Facebook, or copy a ready message to send friends. "
+            "Organisers upload the flyer and set the links under Update this page."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-flyer",
+    },
     "hq.edit-card": {
         "title": "Who may open a card",
         "short_text": (

@@ -93,7 +93,7 @@ rest via templates/404.html). Add-to-calendar works logged-out.
     ended (the show_past_note gate); ?date= rides on each action so a series' page keeps its
     date. With no member names to follow, the folded line reads "N guests are going".
     {% endcomment %}
-    <div class="pl-event-detail__attendees" data-event-rsvps>
+    <div class="pl-event-detail__attendees" id="whos-coming" data-event-rsvps>
       <h2 class="pl-event-detail__attendees-heading" data-people-count="{{ people_count }}">Who's coming ({{ people_count }})</h2>
       {% if user.is_authenticated %}
         {% if rsvps %}
