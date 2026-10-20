@@ -395,14 +395,16 @@
     var title = document.createElement("h2");
     title.className = "pl-biometric-offer__title";
     title.textContent = "Sign In Faster Next Time";
-    title.style.cssText = "margin:0 0 6px;font-size:16px;line-height:1.25;font-weight:700";
+    // The colors are set on the text itself, not inherited from the card: in light mode the
+    // page's own h2 and p rules paint them near black, which vanished on the navy card.
+    title.style.cssText = "margin:0 0 6px;font-size:16px;line-height:1.25;font-weight:700;color:#fff";
     card.appendChild(title);
 
     var body = document.createElement("p");
     body.className = "pl-biometric-offer__text";
     body.textContent =
       "Use " + name + " to sign in instead of waiting for an emailed code. You can turn this on or off later in Settings.";
-    body.style.cssText = "margin:0 0 14px;font-size:14px;line-height:1.4;opacity:0.92";
+    body.style.cssText = "margin:0 0 14px;font-size:14px;line-height:1.4;opacity:0.92;color:#fff";
     card.appendChild(body);
 
     var actions = document.createElement("div");
