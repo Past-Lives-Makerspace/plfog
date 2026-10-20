@@ -14,7 +14,7 @@ edits. A hub that already exists keeps its title, eyebrow, intro, footer note an
 only its event moves, and only when ``--event`` names a different one, which the output says;
 with no ``--event`` it is left alone. The doors are :meth:`hq.models.EventHub.seed_default_cards`:
 live doors keyed on kind, a built door's placeholder adopted in place, placeholders made only on
-a hub that held none, and words still at their old defaults given Lee's current ones. The four
+a hub with no cards at all, and words still at their old defaults given Lee's current ones. The four
 goals and the 21 shifts are each made only on a hub that holds none of that kind of row: both
 are editable and have no stable key, so a renamed or deleted row never grows a sibling on the
 next run. Sign-ups, bottles, logos and marketing actions are never read.

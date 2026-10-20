@@ -139,8 +139,11 @@ def _hub_editor(request: HttpRequest, hub: EventHub) -> HttpResponse:
 @require_POST
 def doors_update(request: HttpRequest, slug: str) -> HttpResponse:
     """Bring Lee's doors up to date on this hub: built doors adopt their placeholders, untouched words take her latest."""
-    hub = get_object_or_404(EventHub, slug=slug)
-    messages.success(request, hub.seed_default_cards().summary)
+    with transaction.atomic():
+        # The row lock makes a double-submit wait for the first, so it finds the doors made and adds none.
+        hub = get_object_or_404(EventHub.objects.select_for_update(), slug=slug)
+        summary = hub.seed_default_cards().summary
+    messages.success(request, summary)
     return redirect(hub.get_absolute_url())
 
 
