@@ -14,9 +14,26 @@ from django.test import Client
 from django.utils import timezone
 
 from hq.holiday_bizarre import CARDS, GOALS, HUB, SHIFTS
-from hq.models import DEFAULT_CARDS, EventHub, HubCard, HubGoal, ShiftPhase, ShiftSignup, VolunteerShift
+from hq.models import (
+    BUILT_DOORS,
+    DEFAULT_CARDS,
+    CardSeed,
+    EventHub,
+    HubCard,
+    HubGoal,
+    ShiftPhase,
+    ShiftSignup,
+    VolunteerShift,
+)
 from membership.models import CommunityEvent
-from tests.hq.factories import EventHubFactory, HubGoalFactory, ShiftSignupFactory, VolunteerShiftFactory
+from tests.hq.factories import (
+    EventHubFactory,
+    HubCardFactory,
+    HubGoalFactory,
+    MarketingActionFactory,
+    ShiftSignupFactory,
+    VolunteerShiftFactory,
+)
 from tests.membership.factories import CommunityEventFactory
 
 pytestmark = pytest.mark.django_db
@@ -67,6 +84,53 @@ def describe_lees_content():
         keys = [(shift.role, shift.when_text) for shift in SHIFTS]
         assert len(keys) == len(set(keys))
 
+    def it_carries_lees_current_words_on_every_door():
+        assert [(door.title, door.button_text) for door in CARDS] == [
+            ("Going to the Bizarre?", "I'm going"),
+            ("Volunteer Sign-up", "Sign up to volunteer"),
+            ("Log a wine bottle", "Enter a bottle"),
+            ("PL Ledger", "Enter the ledger"),
+            ("Sponsorship Tracker", "Enter sponsorships"),
+            ("Market Check-in", "Enter check-in"),
+            ("Vendor Tables", "Enter vendor tables"),
+            ("Event flyer and sharing", "See the flyer"),
+            ("Marketing Tracker", "Enter marketing"),
+        ]
+        marketing = CARDS[-1]
+        assert marketing.bullets.splitlines() == [
+            "Businesses with flyers",
+            "Instagram videos and posts",
+            "Emails and event listings",
+            "Every action, with views and links",
+        ]
+        assert all(len(door.bullets.splitlines()) <= HubCard.MAX_BULLETS for door in CARDS)
+
+    def it_seeds_a_built_door_live_and_the_rest_as_placeholders():
+        assert BUILT_DOORS == frozenset({HubCard.Kind.MARKETING})
+        assert [door.kind for door in CARDS] == [
+            HubCard.Kind.RSVP,
+            HubCard.Kind.VOLUNTEERS,
+            HubCard.Kind.WINE_WALL,
+            HubCard.Kind.PLACEHOLDER,
+            HubCard.Kind.PLACEHOLDER,
+            HubCard.Kind.PLACEHOLDER,
+            HubCard.Kind.PLACEHOLDER,
+            HubCard.Kind.PLACEHOLDER,
+            HubCard.Kind.MARKETING,
+        ]
+        assert [door.door for door in CARDS][3:8] == [
+            HubCard.Kind.LEDGER,
+            HubCard.Kind.SPONSORSHIP,
+            HubCard.Kind.MARKET_CHECKIN,
+            HubCard.Kind.VENDOR_TABLES,
+            HubCard.Kind.FLYER,
+        ]
+
+    def it_tells_a_new_hub_who_to_ask_for_a_way_in():
+        assert HUB.footer_note.endswith(
+            "Each page opens only for people Lee has added. Can't get in? Email lee@pastlives.space."
+        )
+
     def it_spreads_the_shifts_over_the_four_phases():
         by_phase = {phase: sum(1 for shift in SHIFTS if shift.phase == phase) for phase in ShiftPhase}
         assert by_phase == {ShiftPhase.BEFORE: 4, ShiftPhase.SETUP: 2, ShiftPhase.DURING: 13, ShiftPhase.AFTER: 2}
@@ -86,8 +150,8 @@ def describe_seeding():
         assert hub.event == event
         assert hub.is_open is True
         cards = list(hub.cards.all())
-        assert [card.kind for card in cards] == [spec["kind"] for spec in CARDS]
-        assert [card.title for card in cards] == [spec["title"] for spec in CARDS]
+        assert [card.kind for card in cards] == [door.kind for door in CARDS]
+        assert [card.title for card in cards] == [door.title for door in CARDS]
         assert [card.sort_order for card in cards] == list(range(9))
         assert {card.audience for card in cards} == {HubCard.Audience.ADMINS}
         goals = list(hub.goals.all())
@@ -174,7 +238,7 @@ def describe_seeding():
         ) == (before[0], before[1], before[2] - {photo_pk})
         rsvp.refresh_from_db()
         assert (rsvp.title, rsvp.audience) == ("Renamed by Lee", HubCard.Audience.PUBLIC)
-        assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 6
+        assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 5
         assert not hub.cards.filter(title="PL Ledger").exists()
         assert sorted(hub.goals.values_list("label", flat=True)) == [
             "People going",
@@ -245,7 +309,7 @@ def describe_seeding():
     def it_adds_no_placeholder_once_the_hub_holds_any_even_renamed_or_deleted(event):
         _run("--event", str(event.pk))
         hub = EventHub.objects.get(slug=HUB.slug)
-        hub.cards.get(title="Marketing Tracker").delete()
+        hub.cards.get(title="Vendor Tables").delete()
         ledger = hub.cards.get(title="PL Ledger")
         ledger.title = "The Ledger"
         ledger.sort_order = 40
@@ -256,10 +320,175 @@ def describe_seeding():
 
         out = _run("--event", str(event.pk))
 
-        assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 5
-        assert not hub.cards.filter(title__in=["PL Ledger", "Marketing Tracker"]).exists()
+        assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 4
+        assert not hub.cards.filter(title__in=["PL Ledger", "Vendor Tables"]).exists()
         assert hub.cards.filter(kind=HubCard.Kind.RSVP).get().title == "Coming?"
         assert "Cards: 0 created, 8 kept as edited. The hub already held its placeholders" in out
+
+
+def _track_c_hub(event: CommunityEvent) -> EventHub:
+    """Lee's hub as the Track C seed left it: three live doors and six placeholders, all in the old words."""
+    hub = EventHubFactory(slug=HUB.slug, title=HUB.title, footer_note="The old footer.", event=event, is_open=True)
+    first_doors = {HubCard.Kind.RSVP, HubCard.Kind.VOLUNTEERS, HubCard.Kind.WINE_WALL}
+    for position, door in enumerate(CARDS):
+        HubCardFactory(
+            hub=hub,
+            kind=door.door if door.door in first_doors else HubCard.Kind.PLACEHOLDER,
+            who_for=door.who_for,
+            title=door.title,
+            bullets=door.old_bullets,
+            button_text=door.old_button_text,
+            sort_order=position,
+        )
+    return hub
+
+
+def describe_adopting_a_built_door():
+    def it_turns_the_marketing_placeholder_into_the_live_door_in_place(event, member):
+        hub = _track_c_hub(event)
+        placeholder = hub.cards.get(title="Marketing Tracker")
+        placeholder.audience = HubCard.Audience.MEMBERS
+        placeholder.is_hidden = True
+        placeholder.sort_order = 2
+        placeholder.save(update_fields=["audience", "is_hidden", "sort_order"])
+        placeholder.named_members.set([member])
+
+        out = _run("--event", str(event.pk))
+
+        card = HubCard.objects.get(pk=placeholder.pk)
+        assert card.kind == HubCard.Kind.MARKETING
+        assert (card.title, card.audience, card.is_hidden, card.sort_order) == (
+            "Marketing Tracker",
+            HubCard.Audience.MEMBERS,
+            True,
+            2,
+        )
+        assert list(card.named_members.all()) == [member]
+        assert hub.cards.count() == 9
+        assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 5
+        assert "Cards: 0 created, 8 kept as edited. Opened as live doors: Marketing Tracker." in out
+
+    def it_gives_every_untouched_door_lees_latest_words(event):
+        hub = _track_c_hub(event)
+
+        out = _run("--event", str(event.pk))
+
+        for door in CARDS:
+            card = hub.cards.get(title=door.title)
+            assert (card.bullets, card.button_text) == (door.bullets, door.button_text), door.title
+        assert "9 took Lee's latest words." in out
+
+    def it_keeps_words_an_admin_edited_and_replaces_only_the_untouched_field(event):
+        hub = _track_c_hub(event)
+        marketing = hub.cards.get(title="Marketing Tracker")
+        marketing.bullets = "Lee's own bullet"
+        marketing.save(update_fields=["bullets"])
+        ledger = hub.cards.get(title="PL Ledger")
+        ledger.button_text = "Open it"
+        ledger.save(update_fields=["button_text"])
+        rsvp = hub.cards.get(kind=HubCard.Kind.RSVP)
+        rsvp.title = "Coming?"
+        rsvp.save(update_fields=["title"])
+
+        _run("--event", str(event.pk))
+
+        marketing.refresh_from_db()
+        ledger.refresh_from_db()
+        rsvp.refresh_from_db()
+        assert (marketing.kind, marketing.bullets, marketing.button_text) == (
+            HubCard.Kind.MARKETING,
+            "Lee's own bullet",
+            "Enter marketing",
+        )
+        assert (ledger.bullets, ledger.button_text) == (CARDS[3].bullets, "Open it")
+        assert (rsvp.title, rsvp.bullets) == ("Coming?", CARDS[0].bullets)
+
+    def it_matches_old_words_whatever_the_spacing_of_the_lines(event):
+        hub = _track_c_hub(event)
+        ledger = hub.cards.get(title="PL Ledger")
+        ledger.bullets = "\n  ".join(CARDS[3].old_bullets.splitlines()) + "\n\n"
+        ledger.save(update_fields=["bullets"])
+
+        _run("--event", str(event.pk))
+
+        ledger.refresh_from_db()
+        assert ledger.bullets == CARDS[3].bullets
+
+    def it_does_nothing_the_second_time(event):
+        hub = _track_c_hub(event)
+        _run("--event", str(event.pk))
+        pks = set(hub.cards.values_list("pk", flat=True))
+        MarketingActionFactory(hub=hub)
+
+        out = _run("--event", str(event.pk))
+
+        assert set(hub.cards.values_list("pk", flat=True)) == pks
+        assert hub.cards.filter(kind=HubCard.Kind.MARKETING).count() == 1
+        assert "Cards: 0 created, 9 kept as edited. The hub already held its placeholders" in out
+        assert "Opened as live doors" not in out
+        assert "latest words" not in out
+        assert hub.marketing_actions.count() == 1
+
+    def it_makes_the_live_door_when_neither_the_kind_nor_its_placeholder_exists(event):
+        hub = _track_c_hub(event)
+        hub.cards.get(title="Marketing Tracker").delete()
+
+        out = _run("--event", str(event.pk))
+
+        card = hub.cards.get(kind=HubCard.Kind.MARKETING)
+        assert (card.title, card.bullets, card.audience, card.sort_order) == (
+            "Marketing Tracker",
+            CARDS[-1].bullets,
+            HubCard.Audience.ADMINS,
+            8,
+        )
+        assert hub.cards.count() == 9
+        assert "Cards: 1 created, 8 kept as edited." in out
+
+    def it_does_not_adopt_a_renamed_placeholder_and_makes_the_live_door_beside_it(event):
+        """A placeholder is matched by its title alone: one renamed is no longer the door's, so the door is made."""
+        hub = _track_c_hub(event)
+        renamed = hub.cards.get(title="Marketing Tracker")
+        renamed.title = "Getting the word out"
+        renamed.save(update_fields=["title"])
+
+        _run("--event", str(event.pk))
+
+        renamed.refresh_from_db()
+        assert renamed.kind == HubCard.Kind.PLACEHOLDER
+        assert hub.cards.filter(kind=HubCard.Kind.MARKETING).count() == 1
+
+    def it_leaves_a_live_door_alone_when_a_placeholder_shares_its_title(event):
+        hub = _track_c_hub(event)
+        _run("--event", str(event.pk))
+        stray = HubCardFactory(hub=hub, kind=HubCard.Kind.PLACEHOLDER, title="Marketing Tracker")
+
+        _run("--event", str(event.pk))
+
+        stray.refresh_from_db()
+        assert stray.kind == HubCard.Kind.PLACEHOLDER
+        assert hub.cards.filter(kind=HubCard.Kind.MARKETING).count() == 1
+
+    def it_never_writes_the_footer_on_an_existing_hub(event):
+        hub = _track_c_hub(event)
+
+        _run("--event", str(event.pk))
+
+        hub.refresh_from_db()
+        assert hub.footer_note == "The old footer."
+
+
+def describe_the_card_seed_summary():
+    def it_says_the_doors_are_up_to_date_when_nothing_changed():
+        assert CardSeed(kept=9).summary == "The doors are up to date."
+
+    def it_names_what_opened_was_added_and_reworded():
+        assert CardSeed(adopted=["Marketing Tracker"], created=1, reworded=1).summary == (
+            "Doors updated: opened Marketing Tracker; added 1 door; gave 1 card Lee's latest words."
+        )
+        assert CardSeed(adopted=["A", "B"], created=2, reworded=9).summary == (
+            "Doors updated: opened A, B; added 2 doors; gave 9 cards Lee's latest words."
+        )
 
 
 def describe_refusals():

@@ -7,7 +7,8 @@ band over the shifts (:func:`volunteer_band`), the organisers' roster (:func:`ro
 and the rate key a guest's sign-ups are counted under. The wine wall half holds the band
 over the wall (:func:`wine_band`), the wineries grid (:func:`wineries`), the organisers'
 donors table (:func:`donor_rows`) and the three writes (:func:`log_bottle`,
-:func:`delete_bottle`, :func:`set_winery_logo`).
+:func:`delete_bottle`, :func:`set_winery_logo`). The Marketing Tracker half holds its totals
+(:func:`marketing_totals`, the one source of "Businesses with flyers") and its six tiles.
 """
 
 from __future__ import annotations
@@ -18,13 +19,15 @@ from typing import Any
 
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
-from django.db.models import F, IntegerField, Sum
-from django.db.models.functions import Lower
+from django.db.models import Count, F, IntegerField, Q, Sum
+from django.db.models.functions import Coalesce, Lower
 from django.http import HttpRequest
 
 from hq.models import (
     EventHub,
     HubGoal,
+    MarketingAction,
+    MarketingKind,
     ShiftPhase,
     ShiftSignup,
     VolunteerShift,
@@ -527,3 +530,60 @@ def set_winery_logo(hub: EventHub, name: str, logo: UploadedFile) -> WineryLogo:
     existing.logo = logo
     existing.save()
     return existing
+
+
+# ---- Marketing Tracker (Track D, part 1) ----
+
+# The key of the Total actions tile in :func:`marketing_totals`, beside each kind's value.
+MARKETING_ALL = "all"
+# The key of the reach summed over every action.
+MARKETING_REACH = "reach"
+
+# Lee's six tiles, in her order: the key :func:`marketing_totals` counts under, the heading and the
+# line under the figure. The last is every action; its line carries the reach so far.
+MARKETING_TILES: tuple[tuple[str, str, str], ...] = (
+    (MarketingKind.FLYER, "Businesses with flyers", "Places the flyer is posted"),
+    (MarketingKind.REEL, "Instagram videos", "Reels and video posts"),
+    (MarketingKind.POST, "Instagram posts", "Posts and stories"),
+    (MarketingKind.EMAIL, "Emails sent", "Member and community emails"),
+    (MarketingKind.LISTING, "Event listings", "Eventbrite, calendars, the portal"),
+    (MARKETING_ALL, "Total actions", "Reach so far: {reach}"),
+)
+
+
+@dataclass(frozen=True)
+class MarketingTile:
+    """One tile over the marketing log: the heading, the figure and the line under it."""
+
+    key: str
+    heading: str
+    figure: int
+    helper: str
+
+
+def marketing_totals(hub: EventHub) -> dict[str, int]:
+    """The marketing log counted in one aggregate query: one count per kind, ``"all"`` and the summed ``"reach"``.
+
+    ``marketing_totals(hub)["flyer"]`` is the one source of "Businesses with flyers": the ledger
+    and the goals read it here rather than keeping a copy.
+    """
+    counts = {kind.value: Count("pk", filter=Q(kind=kind.value)) for kind in MarketingKind}
+    totals: dict[str, int] = MarketingAction.objects.filter(hub=hub).aggregate(
+        **counts,
+        **{MARKETING_ALL: Count("pk"), MARKETING_REACH: Coalesce(Sum("reach"), 0)},
+    )
+    return totals
+
+
+def marketing_tiles(totals: Mapping[str, int]) -> list[MarketingTile]:
+    """Lee's six tiles from :func:`marketing_totals`, in her order."""
+    reach = f"{totals[MARKETING_REACH]:,}"
+    return [
+        MarketingTile(key=key, heading=heading, figure=totals[key], helper=helper.format(reach=reach))
+        for key, heading, helper in MARKETING_TILES
+    ]
+
+
+def log_marketing_action(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> MarketingAction:
+    """Add an action to ``hub``'s marketing log from the form's cleaned fields, stamped with who logged it."""
+    return MarketingAction.objects.create(hub=hub, logged_by=member, **fields)

@@ -1,0 +1,26 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+The Marketing Tracker (Track D, part 1), in the look of Lee's tracker: a header with the hub's
+name, its date line and her tagline, then the log (hq/partials/_marketing_log.html: the six
+totals, Log a Marketing Action for organisers, and every action newest first). No login gate of
+its own: card_view decides who may open the page; who may add or delete is the card's organisers.
+{% endcomment %}
+{% block title %}{{ card.title }}{% endblock %}
+{% block extra_head %}
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq-mk" data-hq-marketing>
+  <header class="pl-hq-mk__header">
+    <div class="pl-hq-mk__heading">
+      <h1 class="pl-hq-mk__title">Marketing Tracker</h1>
+      <p class="pl-hq-mk__subline" data-hq-mk-subline>{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %} · Everything we've done to get the word out</p>
+    </div>
+    <a href="{% url 'hq:page' hub.slug %}" class="pl-hq-mk__back" data-hq-mk-back>&larr; HQ</a>
+  </header>
+
+  {% include "hq/partials/_marketing_log.html" %}
+</div>
+{% endblock %}

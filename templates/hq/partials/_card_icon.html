@@ -1,7 +1,10 @@
 {% comment %}
 The door tile's icon, by card kind, in Lee's HQ's set: a ticket with a check for RSVP, two
-people for volunteers, a bottle for the wine wall, a clipboard for a placeholder. Stroked in
-currentColor, which the tile sets to the gold highlight (grey on a placeholder).
+people for volunteers, a bottle for the wine wall, a megaphone for marketing, a heart in a hand
+for sponsorship, a market stall for vendor tables, a checked list for the market check-in, a
+picture for the flyer, an open book for the ledger, a clipboard for a placeholder. Stroked in
+currentColor, which the tile sets to the gold highlight (grey on a placeholder and on a live
+kind whose page has not shipped, which renders as one).
 
   kind — required, a HubCard.Kind value
 {% endcomment %}
@@ -17,6 +20,30 @@ currentColor, which the tile sets to the gold highlight (grey on a placeholder).
 {% elif kind == "wine_wall" %}
   <path d="M10 2h4v4l1.5 3a3 3 0 0 1 .5 1.6V20a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-9.4a3 3 0 0 1 .5-1.6L10 6z"/>
   <path d="M8 14h8"/>
+{% elif kind == "marketing" %}
+  <path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z"/>
+  <path d="M15.5 8.5a5 5 0 0 1 0 7"/>
+  <path d="M18.5 5.5a9 9 0 0 1 0 13"/>
+{% elif kind == "sponsorship" %}
+  <path d="M12 9.5c-1-1.6-3.6-1.7-4.4.2-.6 1.4.3 2.8 1.5 3.8L12 16l2.9-2.5c1.2-1 2.1-2.4 1.5-3.8-.8-1.9-3.4-1.8-4.4-.2z"/>
+  <path d="M2 17l4 3h9l6-4.5a1.5 1.5 0 0 0-2-2.2L15 16"/>
+{% elif kind == "vendor_tables" %}
+  <path d="M3 9l1.5-5h15L21 9"/>
+  <path d="M3 9h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/>
+  <path d="M5 13v8h14v-8"/>
+{% elif kind == "market_checkin" %}
+  <rect x="4" y="3" width="16" height="18" rx="2"/>
+  <path d="M8 9l1.5 1.5L12 8"/>
+  <path d="M8 15l1.5 1.5L12 14"/>
+  <path d="M14 9h2"/>
+  <path d="M14 15h2"/>
+{% elif kind == "flyer" %}
+  <rect x="3" y="3" width="18" height="18" rx="2"/>
+  <circle cx="9" cy="9" r="2"/>
+  <path d="M21 15l-5-5L5 21"/>
+{% elif kind == "ledger" %}
+  <path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z"/>
+  <path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/>
 {% else %}
   <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
   <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>

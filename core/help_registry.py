@@ -853,6 +853,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": "holiday-bizarre-hq",
         "anchor": "hq-wine-wall",
     },
+    "hq.marketing": {
+        "title": "Log a marketing action",
+        "short_text": (
+            "Pick what it was, the date and who did it, add the details and a link, then Add to the log. "
+            "The totals count up as you go."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-marketing",
+    },
     "hq.edit-card": {
         "title": "Who may open a card",
         "short_text": (

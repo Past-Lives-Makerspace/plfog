@@ -1,4 +1,5 @@
-"""The HQ page and its edit pages (Track C, part 1), the volunteer sign-up page (part 2) and the wine wall (part 3)."""
+"""The HQ page and its edit pages (Track C, part 1), the volunteer sign-up page (part 2), the wine wall (part 3)
+and the Marketing Tracker (Track D, part 1)."""
 
 from __future__ import annotations
 
@@ -29,9 +30,11 @@ from hq.access import (
 )
 from hq.exports import stream_donors_csv, stream_roster_csv
 from hq.forms import (
+    MARKETING_TEAM_LIST_ID,
     HubCardForm,
     HubForm,
     HubGoalFormSet,
+    MarketingActionForm,
     VolunteerInfoForm,
     VolunteerShiftForm,
     VolunteerShiftFormSet,
@@ -130,6 +133,15 @@ def _hub_editor(request: HttpRequest, hub: EventHub) -> HttpResponse:
         "hq/edit.html",
         {"hub": hub, "form": form, "formset": formset, "max_upload_bytes": settings.MAX_UPLOAD_IMAGE_BYTES},
     )
+
+
+@fog_admin_required
+@require_POST
+def doors_update(request: HttpRequest, slug: str) -> HttpResponse:
+    """Bring Lee's doors up to date on this hub: built doors adopt their placeholders, untouched words take her latest."""
+    hub = get_object_or_404(EventHub, slug=slug)
+    messages.success(request, hub.seed_default_cards().summary)
+    return redirect(hub.get_absolute_url())
 
 
 @fog_admin_required
@@ -486,3 +498,59 @@ def wine_donors(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpRe
 def wine_donors_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
     """The donors table as a CSV download, one row per giver."""
     return stream_donors_csv(services.donor_rows(hub), filename_stem=hub.slug)
+
+
+# ---- Marketing Tracker (Track D, part 1) ----
+
+
+def _marketing_url(hub: EventHub) -> str:
+    return reverse("hq:marketing", args=[hub.slug])
+
+
+@card_view(HubCard.Kind.MARKETING)
+def marketing(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """The Marketing Tracker: the six totals, Log a Marketing Action for organisers, and the log, newest first."""
+    return render(request, "hq/marketing.html", _marketing_context(request, hub, card, MarketingActionForm()))
+
+
+def _marketing_context(request: HttpRequest, hub: EventHub, card: HubCard, form: MarketingActionForm) -> dict[str, Any]:
+    """What the page and its log fragment render. The form and Delete show by the effective role, so a preview hides them."""
+    return {
+        "hub": hub,
+        "card": card,
+        "form": form,
+        "can_organize": card.can_organize(viewer_member(request), is_admin=renders_as_admin(request)),
+        "tiles": services.marketing_tiles(services.marketing_totals(hub)),
+        "actions": list(hub.marketing_actions.all()),
+        "team": sorted({member.display_name for member in card.named_members.all()}),
+        "team_list_id": MARKETING_TEAM_LIST_ID,
+    }
+
+
+@require_POST
+@organizer_required(HubCard.Kind.MARKETING)
+def marketing_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Add one action to the log, by the actual role. Over htmx the log comes back with a toast, keeping the
+    kind, date and who for the next entry; a plain post lands back on the page with a message."""
+    form = MarketingActionForm(request.POST)
+    fragment = wants_fragment(request)
+    template = "hq/partials/_marketing_log.html" if fragment else "hq/marketing.html"
+    if not form.is_valid():
+        return render(request, template, _marketing_context(request, hub, card, form))
+    services.log_marketing_action(hub, form.cleaned_data, member=actual_member(request))
+    if not fragment:
+        messages.success(request, "Added.")
+        return redirect(_marketing_url(hub))
+    fresh = MarketingActionForm(initial=form.kept_for_next())
+    response = render(request, template, _marketing_context(request, hub, card, fresh))
+    trigger_toast(response, "Added.", "success")
+    return response
+
+
+@require_POST
+@organizer_required(HubCard.Kind.MARKETING)
+def marketing_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Take one action off the log (organisers, by the actual role)."""
+    get_object_or_404(hub.marketing_actions, pk=pk).delete()
+    messages.success(request, "Taken off the log.")
+    return redirect(_marketing_url(hub))

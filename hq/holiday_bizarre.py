@@ -5,8 +5,9 @@ a word here and re-running is the workflow, as with the help articles. Nothing i
 touches the database: it is frozen dataclasses over the models' choice values, so a spec or a
 doc can read Lee's sheet without one.
 
-The nine cards live beside the model that makes them for a hub created from the edit page
-(:data:`hq.models.DEFAULT_CARDS`); :data:`CARDS` is that same tuple, so the two never drift.
+The nine doors live beside the model that seeds them (:data:`hq.models.DEFAULT_CARDS`, with the
+words each was first seeded with, so a re-run can tell Lee's untouched words from an admin's);
+:data:`CARDS` is that same tuple, so the two never drift.
 The shifts are Lee's sign-up sheet, phase by phase, in her words; the two bartender shifts
 need an Oregon OLCC service permit. The goals are her tracker: Raised is typed in by an admin
 (a money goal, in whole dollars, as every ``HubGoal`` money figure is), the other three are
@@ -17,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hq.models import DEFAULT_CARDS, HubGoal, ShiftPhase
+from hq.models import DEFAULT_CARDS, DoorContent, HubGoal, ShiftPhase
 
 
 @dataclass(frozen=True)
@@ -59,13 +60,13 @@ HUB = HubContent(
     eyebrow="Past Lives Makerspace · 2nd Annual",
     intro="Friday, December 4, 5 to 10 PM. First Friday on the SE Art Walk.",
     footer_note=(
-        "Past Lives Makerspace is an Oregon nonprofit corporation. Gifts and sponsorships are not tax-deductible."
+        "Past Lives Makerspace is an Oregon nonprofit corporation. Gifts and sponsorships are not tax-deductible.\n"
+        "Each page opens only for people Lee has added. Can't get in? Email lee@pastlives.space."
     ),
 )
 
-# Lee's nine doors, in her order: the three live kinds, then the six placeholders. Kept on the
-# model so a hub made from the edit page starts with the same cards.
-CARDS: tuple[dict[str, str], ...] = DEFAULT_CARDS
+# Lee's nine doors, in her order. A door whose page is not built yet is seeded as a placeholder.
+CARDS: tuple[DoorContent, ...] = DEFAULT_CARDS
 
 GOALS: tuple[GoalContent, ...] = (
     GoalContent(label="Raised", kind=HubGoal.Kind.MANUAL, target=10_000, is_money=True),

@@ -1,0 +1,89 @@
+{% comment %}
+The Marketing Tracker's body, and the htmx answer to Add to the Log: the six totals, the
+organisers' Log a Marketing Action form, and the log as a table that stacks on a phone. The
+form posts over htmx and this whole block is swapped for the answer, so the tiles move with the
+list; the answer keeps the kind, date and who for the next entry. Delete is a plain post
+through the confirm modal.
+
+  hub          — required, the EventHub
+  card         — required, the marketing HubCard
+  form         — required, a MarketingActionForm (bound when a save failed)
+  can_organize — required, the effective role's organiser bit: the form and Delete show for it
+  tiles        — required, hq.services.marketing_tiles(...)
+  actions      — required, the hub's MarketingAction rows, newest first
+  team         — required, the card's named members' display names, for the Who suggestions
+  team_list_id — required, the datalist's id, which the Who field's list attribute names
+{% endcomment %}
+<div class="pl-hq-mk__body" data-hq-mk-log>
+  <section class="pl-hq-mk__section" aria-labelledby="hq-mk-totals-title" data-hq-mk-totals>
+    <h2 class="pl-hq-mk__h2" id="hq-mk-totals-title">Totals</h2>
+    <div class="pl-hq-mk__tiles">
+      {% for tile in tiles %}
+      <div class="pl-hq-mk__tile" data-hq-mk-tile="{{ tile.key }}">
+        <span class="pl-hq-mk__tile-heading">{{ tile.heading }}</span>
+        <strong class="pl-hq-mk__tile-figure" data-hq-mk-figure>{{ tile.figure }}</strong>
+        <span class="pl-hq-mk__tile-helper" data-hq-mk-helper>{{ tile.helper }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% if can_organize %}
+  <section class="pl-hq-mk__section" aria-labelledby="hq-mk-form-title" data-help-key="hq.marketing">
+    <form method="post" action="{% url 'hq:marketing_add' hub.slug %}" hx-post="{% url 'hq:marketing_add' hub.slug %}" hx-target="closest [data-hq-mk-log]" hx-swap="outerHTML" class="pl-hq-mk__card pl-hq-mk__form" data-hq-mk-form>
+      {% csrf_token %}
+      <h2 class="pl-hq-mk__card-title" id="hq-mk-form-title">Log a Marketing Action</h2>
+      {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+      <div class="pl-hq-mk__fields">
+        {% include "components/form_field.html" with field=form.kind field_hint_off=True %}
+        {% include "components/form_field.html" with field=form.date field_hint_off=True %}
+        {% include "components/form_field.html" with field=form.who field_hint_off=True %}
+        {% include "components/form_field.html" with field=form.reach field_hint_off=True %}
+      </div>
+      <div class="pl-hq-mk__fields">
+        {% include "components/form_field.html" with field=form.details field_hint_off=True %}
+        {% include "components/form_field.html" with field=form.link field_hint_off=True %}
+      </div>
+      <datalist id="{{ team_list_id }}" data-hq-mk-team>{% for name in team %}<option value="{{ name }}"></option>{% endfor %}</datalist>
+      <div class="pl-hq-mk__actions">
+        <button type="submit" class="pl-hq-mk__btn" data-hq-mk-add>Add to the log</button>
+      </div>
+    </form>
+  </section>
+  {% endif %}
+
+  <section class="pl-hq-mk__section" aria-labelledby="hq-mk-list-title" data-hq-mk-list>
+    <h2 class="pl-hq-mk__h2" id="hq-mk-list-title">The Log</h2>
+    <div class="pl-hq-mk__card">
+      {% if actions %}
+      <table class="pl-members-table pl-hq-mk__table">
+        <thead>
+          <tr><th>Date</th><th>What</th><th>Details</th><th>Who</th><th class="pl-hq-mk__num">Reach</th>{% if can_organize %}<th><span class="sr-only">Delete</span></th>{% endif %}</tr>
+        </thead>
+        <tbody>
+          {% for action in actions %}
+          <tr data-hq-mk-row="{{ action.pk }}">
+            <td data-label="Date" class="pl-hq-mk__date">{{ action.date|date:"M j, Y" }}</td>
+            <td data-label="What"><span class="pl-hq-mk__chip" data-hq-mk-kind="{{ action.kind }}">{{ action.get_kind_display }}</span></td>
+            <td data-label="Details" data-hq-mk-details>{% if action.href %}<a href="{{ action.href }}" target="_blank" rel="noopener" data-hq-mk-link>{{ action.details }}</a>{% else %}{{ action.details }}{% endif %}</td>
+            <td data-label="Who">{{ action.who }}</td>
+            <td data-label="Reach" class="pl-hq-mk__num" data-hq-mk-reach>{{ action.reach_display }}</td>
+            {% if can_organize %}
+            <td data-label="" class="pl-hq-mk__row-action">
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'delete-marketing-{{ action.pk }}')" data-hq-mk-delete>Delete</button>
+              {% url 'hq:marketing_delete' hub.slug action.pk as delete_url %}
+              {% with pk_text=action.pk|stringformat:"s" %}
+              {% include "components/confirm_modal.html" with confirm_id="delete-marketing-"|add:pk_text confirm_title="Take this off the log?" confirm_message="The action is removed and the totals go down. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" %}
+              {% endwith %}
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="pl-hq-mk__hint" data-hq-mk-empty>No marketing logged yet. Add the first action above.</p>
+      {% endif %}
+    </div>
+  </section>
+</div>

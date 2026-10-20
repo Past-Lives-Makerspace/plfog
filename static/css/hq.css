@@ -521,10 +521,12 @@ a.pl-hq-card:focus-visible {
    Lee's sheet on the portal: the page wrap, the navy band, the two steps and the roster. Every
    rule sits under .pl-hq-vol with its own palette as custom properties, so the HQ restyle and
    this page merge without touching each other. The portal's :root is dark, so the dark values
-   are the defaults and the light ones follow [data-theme="light"]. The wine wall (part 3)
-   declares the same properties on .pl-hq-wine, so the two pages read as one family. */
+   are the defaults and the light ones follow [data-theme="light"]. The wine wall (part 3) and
+   the Marketing Tracker (Track D) declare the same properties on .pl-hq-wine and .pl-hq-mk, so
+   the pages read as one family. */
 .pl-hq-vol,
-.pl-hq-wine {
+.pl-hq-wine,
+.pl-hq-mk {
   --pl-hq-vol-bg: #121B2F;
   --pl-hq-vol-surface: #1A2644;
   --pl-hq-vol-ink: #E7ECF3;
@@ -548,7 +550,8 @@ a.pl-hq-card:focus-visible {
   font-family: 'Lato', 'Inter', sans-serif;
 }
 [data-theme="light"] .pl-hq-vol,
-[data-theme="light"] .pl-hq-wine {
+[data-theme="light"] .pl-hq-wine,
+[data-theme="light"] .pl-hq-mk {
   --pl-hq-vol-bg: #ECEFF4;
   --pl-hq-vol-surface: #FFFFFF;
   --pl-hq-vol-ink: #1E2D4E;
@@ -1422,4 +1425,234 @@ a.pl-hq-card:focus-visible {
 }
 .pl-hq-wine__table tr {
   border-bottom: 1px solid var(--pl-hq-vol-rule);
+}
+
+/* ---- Marketing Tracker (Track D, part 1) ----
+   Lee's tracker on the portal, on the sign-up sheet's palette (declared above): the header and
+   back pill, six tiles (three across, two on a tablet, one on a phone), the organisers' log
+   form and the log table, which stacks on a phone through .pl-members-table. */
+.pl-hq-mk {
+  max-width: 1040px;
+}
+.pl-hq-mk__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.pl-hq-mk__heading {
+  min-width: 0;
+}
+.pl-hq-mk__title {
+  margin: 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-mk__subline {
+  margin: 0.5rem 0 0;
+  font-weight: 700;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-mk__back {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: var(--pl-hq-vol-navy);
+  color: #FFFFFF;
+  font-size: 0.88rem;
+  font-weight: 900;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.pl-hq-mk__back:hover {
+  color: #FFFFFF;
+  text-decoration: underline;
+}
+.pl-hq-mk__body,
+.pl-hq-mk__section {
+  display: grid;
+  gap: 14px;
+}
+.pl-hq-mk__body {
+  gap: 1.5rem;
+}
+.pl-hq-mk__h2 {
+  margin: 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.2rem;
+  font-weight: 800;
+  text-transform: capitalize;
+  color: var(--pl-hq-vol-ink);
+}
+
+/* Tiles: the gold heading, the Playfair figure and the muted line under it. */
+.pl-hq-mk__tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 820px) {
+  .pl-hq-mk__tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 420px) {
+  .pl-hq-mk__tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.pl-hq-mk__tile {
+  display: grid;
+  gap: 2px;
+  padding: 14px 16px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 14px;
+  background: var(--pl-hq-vol-surface);
+}
+.pl-hq-mk__tile-heading {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--pl-hq-vol-gold);
+}
+.pl-hq-mk__tile-figure {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 2rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-mk__tile-helper {
+  font-size: 0.85rem;
+  color: var(--pl-hq-vol-muted);
+}
+
+/* The form card and the list card. */
+.pl-hq-mk__card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 14px;
+  background: var(--pl-hq-vol-surface);
+}
+.pl-hq-mk__card-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 900;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-mk__hint {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-mk__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.pl-hq-mk .pl-form-group {
+  margin-bottom: 0;
+}
+.pl-hq-mk .pl-form-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-mk .pl-form-group input,
+.pl-hq-mk .pl-form-group select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 8px;
+  background: var(--pl-hq-vol-field);
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-mk .pl-form-group select option {
+  background: var(--pl-hq-vol-field);
+  color: var(--pl-hq-vol-ink);
+}
+/* The date picker's icon is black by default: light it on the dark palette (FRONTEND rule 14). */
+.pl-hq-mk input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+}
+[data-theme="light"] .pl-hq-mk input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: none;
+}
+.pl-hq-mk__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+.pl-hq-mk__btn {
+  padding: 10px 16px;
+  border: 1px solid var(--pl-hq-vol-btn-bg);
+  border-radius: 10px;
+  background: var(--pl-hq-vol-btn-bg);
+  color: var(--pl-hq-vol-btn-ink);
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+.pl-hq-mk__btn:hover {
+  filter: brightness(1.08);
+}
+.pl-hq-mk__btn:focus-visible {
+  outline: 2px solid var(--pl-hq-vol-gold-hi);
+  outline-offset: 2px;
+}
+
+/* The log. */
+.pl-hq-mk__table th {
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-mk__table td {
+  font-size: 0.95rem;
+  color: var(--pl-hq-vol-ink);
+  vertical-align: top;
+}
+.pl-hq-mk__table td a {
+  color: var(--pl-hq-vol-gold);
+}
+.pl-hq-mk__table tr {
+  border-bottom: 1px solid var(--pl-hq-vol-rule);
+}
+.pl-hq-mk__table tbody tr:last-child {
+  border-bottom: none;
+}
+.pl-hq-mk__date {
+  white-space: nowrap;
+}
+.pl-hq-mk__table .pl-hq-mk__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pl-hq-mk__chip {
+  display: inline-block;
+  padding: 2px 9px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 999px;
+  background: var(--pl-hq-vol-chip);
+  color: var(--pl-hq-vol-ink);
+  font-size: 0.78rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.pl-hq-mk__row-action {
+  text-align: right;
 }
