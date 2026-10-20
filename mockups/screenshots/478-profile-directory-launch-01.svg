@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Profile settings launch hotfix</title>
+  <desc id="desc">The Member Directory setting is hidden by default, has a Coming soon help tooltip, and says Members Only. The sidebar says Member Wiki.</desc>
+  <rect width="1600" height="900" fill="#0a0b10"/>
+  <text x="60" y="76" fill="#f4efdd" font-family="Arial, sans-serif" font-size="35" font-weight="700">Edit Your Profile</text>
+  <rect x="60" y="160" width="1180" height="192" rx="18" fill="#181b24" stroke="#303542" stroke-width="2"/>
+  <text x="92" y="215" fill="#f4efdd" font-family="Arial, sans-serif" font-size="27" font-weight="700">Member Directory</text>
+  <circle cx="360" cy="205" r="13" fill="#334155"/>
+  <text x="356" y="211" fill="#f4efdd" font-family="Arial, sans-serif" font-size="16" font-weight="700">?</text>
+  <rect x="337" y="228" width="160" height="50" rx="7" fill="#20242f" stroke="#4a5364"/>
+  <text x="357" y="260" fill="#f4efdd" font-family="Arial, sans-serif" font-size="18">Coming soon!</text>
+  <text x="92" y="256" fill="#9aa6b8" font-family="Arial, sans-serif" font-size="20">Decide what other members see when they look you up. Anything off stays private to staff.</text>
+  <rect x="969" y="191" width="237" height="66" rx="33" fill="#252a35" stroke="#454c5b" stroke-width="2"/>
+  <text x="996" y="232" fill="#8b97a8" font-family="Arial, sans-serif" font-size="19" font-weight="700">◉ HIDDEN</text>
+  <text x="92" y="313" fill="#9aa6b8" font-family="Arial, sans-serif" font-size="18">New profiles start hidden. Choose Members Only when you are ready to appear.</text>
+  <rect x="60" y="380" width="1180" height="140" rx="18" fill="#181b24" stroke="#303542" stroke-width="2"/>
+  <text x="92" y="432" fill="#f4efdd" font-family="Arial, sans-serif" font-size="27" font-weight="700">Spaces Map</text>
+  <text x="92" y="472" fill="#9aa6b8" font-family="Arial, sans-serif" font-size="20">Share your name on your studio or shelf on the Spaces map.</text>
+  <rect x="60" y="552" width="770" height="230" rx="18" fill="#181b24" stroke="#303542" stroke-width="2"/>
+  <text x="92" y="612" fill="#f4efdd" font-family="Arial, sans-serif" font-size="20" font-weight="700">EMAIL</text>
+  <rect x="92" y="638" width="706" height="62" rx="8" fill="#20242f" stroke="#343b48"/>
+  <text x="116" y="677" fill="#9aa6b8" font-family="Arial, sans-serif" font-size="20">member@pastlives.space</text>
+  <rect x="657" y="581" width="141" height="34" rx="17" fill="#153b2b" stroke="#45da8b"/>
+  <text x="674" y="604" fill="#45da8b" font-family="Arial, sans-serif" font-size="15" font-weight="700">◉ MEMBERS ONLY</text>
+  <rect x="1270" width="330" height="900" fill="#13151d"/>
+  <text x="1306" y="84" fill="#f4efdd" font-family="Arial, sans-serif" font-size="25" font-weight="700">Past Lives</text>
+  <text x="1306" y="164" fill="#8b97a8" font-family="Arial, sans-serif" font-size="20">Home</text>
+  <text x="1306" y="215" fill="#8b97a8" font-family="Arial, sans-serif" font-size="20">Member Directory</text>
+  <rect x="1294" y="252" width="282" height="48" rx="7" fill="#20242f"/>
+  <text x="1306" y="283" fill="#f4efdd" font-family="Arial, sans-serif" font-size="20">Member Wiki</text>
+</svg>
