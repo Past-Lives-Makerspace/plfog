@@ -182,7 +182,7 @@ def describe_the_section_picker_on_a_phone():
         link.click()
         expect(page.locator(f"{SECTIONS} .pl-section-list__row").first).to_be_visible()
 
-    def it_keeps_the_leadership_editors_picker_in_the_strips_order_after_a_move(live_server, page, login_via_code):
+    def it_keeps_the_leadership_editors_picker_in_step_with_a_move_and_a_rename(live_server, page, login_via_code):
         _admin()
         LeadershipTab.objects.all().delete()
         first = LeadershipTabFactory(title="Council", sort_order=0)
@@ -199,6 +199,14 @@ def describe_the_section_picker_on_a_phone():
         page.locator(SUMMARY).click()
         expect(items).to_have_text(["Stewards", "Council"])
         expect(page.locator(".pl-tab-picker__count")).to_have_text("2 of 2")
+        page.keyboard.press("Escape")
+
+        # A rename follows into the picker as it is typed, and a typed "(2)" stays part of the name.
+        page.locator(f"#id_tab-{first.pk}-title").fill("Council (2)")
+        expect(page.locator(".pl-tab-picker__current")).to_have_text("Council (2)")
+        page.locator(SUMMARY).click()
+        expect(items).to_have_text(["Stewards", "Council (2)"])
+        expect(page.locator(f"{MENU} .pl-tab-picker__item-count").filter(has_text="2")).to_have_count(0)
 
 
 def describe_the_desktop_rows():

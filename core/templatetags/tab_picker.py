@@ -37,7 +37,9 @@ from django.utils.safestring import SafeString
 
 register = template.Library()
 
-#: "Registrations (3)": a count written into the label, split off so the picker can show it apart.
+#: "Registrations (3)": a count a template writes into a link's label, split off so the picker
+#: can show it apart. Never applied to a row of buttons, whose labels are often typed by a
+#: person ("Board (2)", an FAQ label "FAQ (2025)").
 _LABEL_COUNT = re.compile(r"^(?P<label>.+?)\s*\((?P<count>\d+)\)$")
 
 #: Elements with no end tag, which must not open a level of nesting.
@@ -54,6 +56,8 @@ class PickerTab:
     count: str
     href: str
     active: bool
+    #: The count element's own aria-label ("3 waiting"), so a screen reader hears what it counts.
+    count_label: str = ""
 
 
 @dataclass
@@ -64,13 +68,15 @@ class _Reading:
     active: bool
     label: list[str] = field(default_factory=list)
     count: list[str] = field(default_factory=list)
+    count_label: str = ""
 
 
 class _RowReader(HTMLParser):
     """Collects the ``.vote-tab`` children of the first ``.pl-tabs`` element in a fragment.
 
-    Only the row's direct children are tabs. Text inside an element whose class names a count
-    (``pl-kiln-count``, ``vote-tab__count``) is the tab's count, everything else its label.
+    Only the row's direct children are tabs. Text inside a direct child of a tab whose class names
+    a count (``pl-kiln-count``, ``vote-tab__count``) is the tab's count, everything else its
+    label, the same reading as ``readTab`` in ``static/js/tab_picker.js``.
     """
 
     def __init__(self) -> None:
@@ -98,11 +104,18 @@ class _RowReader(HTMLParser):
             if self._depth == self._row_depth + 1 and "vote-tab" in classes:
                 self._start_tab(tag, values, classes)
             return
-        if self._count_depth is None and any("count" in name for name in classes):
+        if (
+            self._count_depth is None
+            and self._depth == self._tab_depth + 1
+            and any("count" in name for name in classes)
+        ):
             self._count_depth = self._depth
+            self._tab.count_label = values.get("aria-label", "")
 
     def _start_tab(self, tag: str, values: dict[str, str], classes: list[str]) -> None:
         if tag == "a":
+            if "href" not in values:
+                raise ValueError("{% tab_picker %} tab link has no href")
             href = values["href"]
         else:
             href = ""
@@ -136,18 +149,20 @@ class _RowReader(HTMLParser):
 def _finish(reading: _Reading) -> PickerTab:
     label = " ".join("".join(reading.label).split())
     count = "".join(reading.count).strip()
-    written = _LABEL_COUNT.match(label)
+    written = _LABEL_COUNT.match(label) if reading.href else None
     if written:
         label, count = written["label"], written["count"]
-    return PickerTab(label=label, count=count, href=reading.href, active=reading.active)
+    return PickerTab(
+        label=label, count=count, href=reading.href, active=reading.active, count_label=reading.count_label
+    )
 
 
 def read_tabs(row_html: str) -> tuple[list[PickerTab], bool]:
     """The tabs of the first ``.pl-tabs`` row in ``row_html``, and whether they are in-page buttons.
 
     Raises:
-        ValueError: when there is no ``.pl-tabs`` row, or the row mixes links and buttons
-            (the picker would not know whether to navigate or switch a pane).
+        ValueError: when there is no ``.pl-tabs`` row, the row mixes links and buttons (the
+            picker would not know whether to navigate or switch a pane), or a tab link has no href.
     """
     reader = _RowReader()
     reader.feed(row_html)

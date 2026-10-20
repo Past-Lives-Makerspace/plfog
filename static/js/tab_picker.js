@@ -7,27 +7,26 @@
 // tab is current, and the leadership editor reorders and renames its tabs in place, so the
 // picker re-reads the row whenever it changes and a choice presses the row's own button.
 (function () {
-  var LABEL_COUNT = /^(.+?)\s*\((\d+)\)$/;
-
-  // The same reading as core/templatetags/tab_picker.py: text inside an element whose class
-  // names a count is the count, the rest is the label, and "Label (3)" splits the same way.
+  // The same reading as core/templatetags/tab_picker.py: text inside a direct child whose class
+  // names a count is the count (its aria-label says what it counts), the rest is the label.
+  // Only button rows come here, and their labels are often typed by a person ("Board (2)"),
+  // so a "(n)" in the label stays part of it, as the server reads a button row too.
   function readTab(el) {
     var label = '';
     var count = '';
+    var countLabel = '';
     Array.prototype.forEach.call(el.childNodes, function (node) {
-      if (node.nodeType === 1 && /count/.test(node.getAttribute('class') || '')) count += node.textContent;
-      else label += node.textContent;
+      if (node.nodeType === 1 && /count/.test(node.getAttribute('class') || '')) {
+        count += node.textContent;
+        countLabel = countLabel || node.getAttribute('aria-label') || '';
+      } else {
+        label += node.textContent;
+      }
     });
-    label = label.replace(/\s+/g, ' ').trim();
-    count = count.trim();
-    var written = label.match(LABEL_COUNT);
-    if (written) {
-      label = written[1];
-      count = written[2];
-    }
     return {
-      label: label,
-      count: count,
+      label: label.replace(/\s+/g, ' ').trim(),
+      count: count.trim(),
+      countLabel: countLabel,
       active: el.classList.contains('vote-tab--active') ||
         el.getAttribute('aria-current') === 'page' ||
         el.getAttribute('aria-selected') === 'true',

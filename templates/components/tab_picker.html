@@ -21,7 +21,8 @@ Context: eyebrow, tabs (PickerTab), buttons, current, position, total.{% endcomm
         <template x-for="(item, i) in items" :key="i">
             <button type="button" class="pl-tab-picker__item" :aria-current="item.active ? 'true' : null" @click="choose(i)">
                 <span class="pl-tab-picker__item-label" x-text="item.label"></span>
-                <span class="pl-tab-picker__item-count" x-show="item.count" x-text="item.count"></span>
+                <span class="pl-tab-picker__item-count" x-show="item.count" x-text="item.count" :aria-hidden="item.countLabel ? 'true' : null"></span>
+                <span class="sr-only" x-show="item.countLabel" x-text="item.countLabel"></span>
                 <svg class="pl-tab-picker__check" x-show="item.active" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
             </button>
         </template>
@@ -31,7 +32,7 @@ Context: eyebrow, tabs (PickerTab), buttons, current, position, total.{% endcomm
         {% for tab in tabs %}
         <a href="{{ tab.href }}" class="pl-tab-picker__item"{% if tab.active %} aria-current="page"{% endif %} @click="close()">
             <span class="pl-tab-picker__item-label">{{ tab.label }}</span>
-            {% if tab.count %}<span class="pl-tab-picker__item-count">{{ tab.count }}</span>{% endif %}
+            {% if tab.count %}<span class="pl-tab-picker__item-count"{% if tab.count_label %} aria-hidden="true"{% endif %}>{{ tab.count }}</span>{% if tab.count_label %}<span class="sr-only">{{ tab.count_label }}</span>{% endif %}{% endif %}
             {% if tab.active %}<svg class="pl-tab-picker__check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>{% endif %}
         </a>
         {% endfor %}

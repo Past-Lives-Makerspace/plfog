@@ -35,13 +35,28 @@ def describe_read_tabs():
         assert buttons is False
         assert tabs == [
             PickerTab(label="My Tickets", count="", href="/kiln/", active=False),
-            PickerTab(label="Load the Kiln", count="3", href="/kiln/load/", active=True),
+            PickerTab(label="Load the Kiln", count="3", href="/kiln/load/", active=True, count_label="3 waiting"),
             PickerTab(label="Kiln Log", count="", href="/kiln/log/?a=1&b=2", active=False),
         ]
 
     def it_splits_a_count_written_into_the_label():
         tabs, _ = read_tabs('<nav class="pl-tabs"><a href="/r/" class="vote-tab">Registrations (12)</a></nav>')
         assert tabs == [PickerTab(label="Registrations", count="12", href="/r/", active=False)]
+
+    def it_never_splits_a_count_out_of_a_buttons_typed_label():
+        tabs, _ = read_tabs(
+            '<nav class="pl-tabs"><button class="vote-tab">Board (2)</button><button class="vote-tab">FAQ (2025)</button></nav>'
+        )
+        assert [(tab.label, tab.count) for tab in tabs] == [("Board (2)", ""), ("FAQ (2025)", "")]
+
+    def it_counts_only_a_direct_child_of_the_tab():
+        row = '<nav class="pl-tabs"><a href="/a/" class="vote-tab">A <em>new <span class="x-count">4</span></em></a></nav>'
+        tabs, _ = read_tabs(row)
+        assert tabs == [PickerTab(label="A new 4", count="", href="/a/", active=False)]
+
+    def it_refuses_a_tab_link_with_no_href():
+        with pytest.raises(ValueError, match="tab link has no href"):
+            read_tabs('<nav class="pl-tabs"><a class="vote-tab">A</a></nav>')
 
     def it_reads_in_page_buttons_and_collapses_their_whitespace():
         tabs, buttons = read_tabs(BUTTONS)
@@ -102,9 +117,31 @@ def describe_the_tab_picker_tag():
         assert menu.count('aria-current="page"') == 1
         assert menu.count('class="pl-tab-picker__check"') == 1
         assert 'href="/kiln/log/?a=1&amp;b=2"' in menu
-        assert '<span class="pl-tab-picker__item-count">3</span>' in menu
+        assert (
+            '<span class="pl-tab-picker__item-count" aria-hidden="true">3</span><span class="sr-only">3 waiting</span>'
+            in menu
+        )
         assert "data-tab-picker-buttons" not in html
         assert "x-for" not in html
+
+    def it_shows_a_count_with_no_label_as_it_is():
+        row = '<nav class="pl-tabs"><a href="/r/" class="vote-tab vote-tab--active">Registrations (2)</a><a href="/w/" class="vote-tab">Waitlist</a></nav>'
+        assert '<span class="pl-tab-picker__item-count">2</span>\n' in _render(row)
+
+    def it_escapes_what_the_row_carried_in_the_items_hrefs_and_trigger_name():
+        row = (
+            '<nav class="pl-tabs">'
+            '<a href="/a/?q=&quot;&gt;&lt;script&gt;" class="vote-tab vote-tab--active">&lt;script&gt;alert(1)&lt;/script&gt; &quot;x&quot;</a>'
+            '<a href="/b/" class="vote-tab">B</a></nav>'
+        )
+        picker = _render(row)[len(row) :]
+        assert "<script>" not in picker
+        assert 'aria-label="Kiln: &lt;script&gt;alert(1)&lt;/script&gt; &quot;x&quot;, section 1 of 2"' in picker
+        assert 'href="/a/?q=&quot;&gt;&lt;script&gt;"' in picker
+        assert (
+            '<span class="pl-tab-picker__item-label">&lt;script&gt;alert(1)&lt;/script&gt; &quot;x&quot;</span>'
+            in picker
+        )
 
     def it_says_choose_a_section_when_no_link_is_current():
         html = _render(

@@ -2466,7 +2466,7 @@ select[multiple] option:checked {
     top: calc(100% + 6px);
     left: 0;
     right: 0;
-    z-index: 50;
+    z-index: 40; /* under the sticky .pl-topbar (50, hub.css), so it scrolls beneath it */
     display: flex;
     flex-direction: column;
     gap: 2px;
