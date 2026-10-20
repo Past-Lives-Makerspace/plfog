@@ -69,6 +69,46 @@ _MARKUP_RE = re.compile(
 )
 
 
+# Elements with no end tag. They never open a level of nesting.
+_VOID_TAGS = frozenset("area base br col embed hr img input link meta source track wbr".split())
+#: How deep allowed elements may nest before the sanitizer flattens the rest. nh3's HTML parser
+#: does work per open element on every tag it reads, so 12,000 nested lists at the size limit
+#: took about a second to clean, and six on a slow CI runner (main, #849). Nothing a person
+#: writes nests this deep; the editors emit flat lists.
+MAX_NESTING = 20
+
+
+class _NestingCap:
+    """Tracks how deep allowed elements are open, for :func:`_strip_disallowed_tags`.
+
+    The open elements are a stack no deeper than :data:`MAX_NESTING`, so a close tag looks back
+    at most that far and the whole pass stays linear.
+    """
+
+    def __init__(self) -> None:
+        self.open_tags: list[str] = []
+        self.dropped: dict[str, int] = {}
+
+    def keeps(self, tag: str, *, closing: bool) -> bool:
+        """Track one allowed tag; False when it is past the cap, or closes one that was."""
+        if tag in _VOID_TAGS:
+            return True
+        if closing:
+            if self.dropped.get(tag):
+                self.dropped[tag] -= 1
+                return False
+            if tag in self.open_tags:
+                # Only its own element. One left unclosed inside it keeps counting: the parser
+                # reopens unclosed formatting (a <b>) in the next block, so it is still open.
+                del self.open_tags[len(self.open_tags) - 1 - self.open_tags[::-1].index(tag)]
+            return True
+        if len(self.open_tags) >= MAX_NESTING:
+            self.dropped[tag] = self.dropped.get(tag, 0) + 1
+            return False
+        self.open_tags.append(tag)
+        return True
+
+
 def _strip_disallowed_tags(html: str, allowed: frozenset[str], bare: frozenset[str]) -> str:
     """Remove every tag outside ``allowed`` from the markup before it is parsed.
 
@@ -81,8 +121,12 @@ def _strip_disallowed_tags(html: str, allowed: frozenset[str], bare: frozenset[s
 
     A tag in ``bare`` (allowed, but with no attribute it may keep) loses its attributes here,
     before parsing rather than after: the output is the same and the parser does less work.
+
+    Allowed elements nested deeper than :data:`MAX_NESTING` lose their tags and keep their
+    text, and so does the end tag of each one dropped (:class:`_NestingCap`).
     """
     seen_tag = False
+    nesting = _NestingCap()
 
     def replace(match: re.Match[str]) -> str:
         nonlocal seen_tag
@@ -94,6 +138,8 @@ def _strip_disallowed_tags(html: str, allowed: frozenset[str], bare: frozenset[s
             return token.replace("<", "&lt;")
         follows_tag, seen_tag = seen_tag, True
         tag = name.lower()
+        if tag in allowed and not nesting.keeps(tag, closing=bool(match.group(1))):
+            return ""
         if tag in bare:
             return f"</{tag}>" if match.group(1) else f"<{tag}>"
         if tag in allowed:

@@ -2380,3 +2380,212 @@ select[multiple] option:checked {
     text-transform: uppercase;
     color: var(--hub-text-muted);
 }
+
+/* ========================================
+   Tab picker and class sections (#852)
+   ======================================== */
+/* On a phone a .pl-tabs row hid most of its tabs off the right edge, so each top level row
+   gives way to a section picker (components/tab_picker.html, built by {% tab_picker %}) and a
+   class's own tabs to a section list on its Overview, or a back row on its other tabs
+   (classes/_components/class_sections.html). The two look different on purpose: on the class
+   screen they are nested, and nested navigation must never look the same twice. The desktop
+   row is untouched; whichever of the three follows it takes its place below 640px. Gold stays
+   the navigation colour, in tokens, so both themes follow. */
+.pl-tab-picker,
+.pl-section-list,
+.pl-section-back { display: none; }
+
+@media (max-width: 639.98px) {
+    .pl-tabs:has(+ .pl-tab-picker),
+    .pl-tabs:has(+ .pl-section-list),
+    .pl-tabs:has(+ .pl-section-back) { display: none; }
+
+    .pl-tab-picker { display: block; position: relative; margin-bottom: 1.5rem; }
+    .pl-section-list { display: block; }
+    .pl-section-back { display: flex; }
+}
+
+/* The picker's closed row: eyebrow, current section, "n of N", chevron. */
+.pl-tab-picker__summary {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 56px;
+    padding: 0.5rem 0.875rem 0.5rem 1rem;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 10px;
+    background: var(--hub-surface);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.pl-tab-picker__summary::-webkit-details-marker { display: none; }
+.pl-tab-picker__summary:focus-visible { outline: 2px solid var(--hub-blue); outline-offset: 2px; }
+.pl-tab-picker[open] > .pl-tab-picker__summary { border-color: var(--hub-link); }
+.pl-tab-picker__text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.pl-tab-picker__eyebrow {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+.pl-tab-picker__current {
+    overflow: hidden;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--hub-text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pl-tab-picker__count {
+    flex: 0 0 auto;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-tuscan-yellow) 16%, transparent);
+    color: var(--hub-link);
+    font-size: 0.8rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.pl-tab-picker__chevron {
+    flex: 0 0 auto;
+    width: 10px;
+    height: 10px;
+    margin: 0 0.25rem 4px 0;
+    border-right: 2px solid var(--hub-text-muted);
+    border-bottom: 2px solid var(--hub-text-muted);
+    transform: rotate(45deg);
+    transition: transform 0.15s ease;
+}
+.pl-tab-picker[open] .pl-tab-picker__chevron { transform: rotate(225deg); margin-bottom: -4px; }
+
+/* The open list: every section as a 48px row over the page, the current one tinted and ticked. */
+.pl-tab-picker__menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 40; /* under the sticky .pl-topbar (50, hub.css), so it scrolls beneath it */
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0.375rem;
+    border: 1px solid var(--hub-dropdown-border);
+    border-radius: 10px;
+    background: var(--hub-dropdown-bg);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+.pl-tab-picker__item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    min-height: 48px;
+    padding: 0 0.75rem;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--hub-text);
+    font: inherit;
+    font-size: 0.95rem;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+}
+.pl-tab-picker__item:hover { background: var(--hub-surface); color: var(--hub-text); }
+.pl-tab-picker__item[aria-current],
+.pl-tab-picker__item[aria-current]:hover {
+    background: color-mix(in srgb, var(--color-tuscan-yellow) 14%, transparent);
+    color: var(--hub-link);
+    font-weight: 700;
+}
+.pl-tab-picker__item-label { flex: 1; min-width: 0; }
+.pl-tab-picker__item-count { color: var(--hub-text-muted); font-size: 0.85rem; font-weight: 600; }
+.pl-tab-picker__check { flex: 0 0 auto; width: 18px; height: 18px; color: var(--hub-link); }
+
+/* A class's Overview: every other section as a 56px row with a one line hint. */
+.pl-section-list {
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 10px;
+    background: var(--hub-card-bg);
+    overflow: hidden;
+}
+.pl-section-list__title {
+    padding: 0.75rem 1rem 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+.pl-section-list__row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 56px;
+    padding: 0.5rem 1rem;
+    border-top: 1px solid var(--hub-border);
+    color: var(--hub-text);
+    text-decoration: none;
+}
+.pl-section-list__row:hover { background: var(--hub-surface); color: var(--hub-text); }
+.pl-section-list__text { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 0.1rem; }
+.pl-section-list__label { font-size: 0.95rem; font-weight: 600; }
+.pl-section-list__hint { font-size: 0.8rem; color: var(--hub-text-muted); }
+.pl-section-list__count {
+    flex: 0 0 auto;
+    min-width: 1.6rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: center;
+}
+.pl-section-list__chevron,
+.pl-section-back__chevron {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-top: 2px solid var(--hub-text-muted);
+    border-right: 2px solid var(--hub-text-muted);
+    transform: rotate(45deg);
+    margin-right: 0.25rem;
+}
+
+/* Any other class tab: back to the Overview on the left, where you are on the right. */
+.pl-section-back {
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    min-height: 48px;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--hub-border);
+}
+.pl-section-back__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-height: 44px;
+    color: var(--hub-link);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+.pl-section-back__chevron {
+    border-color: currentColor;
+    transform: rotate(-135deg);
+    margin: 0 0 0 0.2rem;
+}
+.pl-section-back__here {
+    overflow: hidden;
+    color: var(--hub-text);
+    font-size: 0.9rem;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pl-section-back__count { font-weight: 500; color: var(--hub-text-muted); }

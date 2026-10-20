@@ -15,12 +15,8 @@ to it (`.cms-admin .hub-card`, hub.css:1170) gives a NESTED card a visible dark-
 and nothing the per-class screen renders is a nested `.hub-card`, so the asymmetry costs
 nothing here.
 
-The tab strip is the shared `.pl-tabs` container. Decision D2: a one-item strip offers no
-choice, so a viewer with fewer than two tabs (the guild lead, who gets Emails alone) gets no
-strip at all. Plain anchors carry `aria-current="page"` and no `role="tablist"` — these are
-links to other pages, not ARIA tabs; `templates/hub/admin/_voting_tabs.html` is the reference
-implementation. `ClassAccess.tabs` carries labels without counts, so the two tabs that show a
-count get it here, off `tab.key`.{% endcomment %}
+The tab strip, and the section list or back row that takes its place on a phone, come from
+`{% class_sections %}` (classes/_components/class_sections.html), which says who gets which.{% endcomment %}
 {% block tab_content %}
 <div class="pl-class-header">
     <div class="pl-class-header__main">
@@ -49,19 +45,7 @@ count get it here, off `tab.key`.{% endcomment %}
         <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener">Preview ↗</a>
     </div>
 </div>
-{% if access.tabs|length > 1 %}
-<nav class="pl-tabs" aria-label="This class">
-    {% for tab in access.tabs %}
-        {% if tab.key == 'overview' %}{% url 'classes:teach_class_detail' pk=offering.pk as tab_url %}{% endif %}
-        {% if tab.key == 'registrations' %}{% url 'classes:teach_class_registrations' pk=offering.pk as tab_url %}{% endif %}
-        {% if tab.key == 'waitlist' %}{% url 'classes:teach_class_waitlist' pk=offering.pk as tab_url %}{% endif %}
-        {% if tab.key == 'discount_codes' %}{% url 'classes:teach_class_discount_codes' pk=offering.pk as tab_url %}{% endif %}
-        {% if tab.key == 'emails' %}{% url 'classes:teach_class_emails' pk=offering.pk as tab_url %}{% endif %}
-        {% if tab.key == 'eventbrite' %}{% url 'classes:teach_class_eventbrite' pk=offering.pk as tab_url %}{% endif %}
-        <a href="{{ tab_url }}" class="vote-tab{% if active_subtab == tab.key %} vote-tab--active{% endif %}"{% if active_subtab == tab.key %} aria-current="page"{% endif %}>{{ tab.label }}{% if tab.key == 'registrations' %} ({{ seat_taken_count }}){% endif %}{% if tab.key == 'waitlist' %} ({{ waitlist_count }}){% endif %}</a>
-    {% endfor %}
-</nav>
-{% endif %}
+{% class_sections %}
 {% if access.role == 'guild' %}
 {% comment %}Why this viewer can do some of it and not the rest. Keyed on the role rather than
 on a capability because the sentence is about the role: the guild leg is the only population

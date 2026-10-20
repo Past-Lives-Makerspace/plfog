@@ -1,0 +1,37 @@
+{% comment %}The per-class tabs, drawn by {% class_sections %} (classes/templatetags/classes_tags.py) off
+`access.tabs`. Decision D2: a one-item strip offers no choice, so a viewer with fewer than two
+tabs (the guild lead, who gets Emails alone) gets nothing here at all. Plain anchors carry
+`aria-current="page"` and no `role="tablist"`: these are links to other pages, not ARIA tabs;
+`templates/hub/admin/_voting_tabs.html` is the reference implementation.
+
+The strip is the desktop row. Below 640px it gives way (components.css) to the level beneath the
+Classes portal's section picker, drawn differently from it on purpose (#852): on the Overview a
+list of every other section with a one line hint, and on any other tab one row back to the
+Overview with where you are and "n of N".{% endcomment %}
+{% if sections %}
+<nav class="pl-tabs" aria-label="This class">
+    {% for section in sections %}
+        <a href="{{ section.url }}" class="vote-tab{% if section.current %} vote-tab--active{% endif %}"{% if section.current %} aria-current="page"{% endif %}>{{ section.label }}{% if section.count is not None %} ({{ section.count }}){% endif %}</a>
+    {% endfor %}
+</nav>
+{% if current.key == "overview" %}
+<nav class="pl-section-list" aria-label="This class" data-class-sections>
+    <div class="pl-section-list__title">This Class · {{ others|length }} more section{{ others|length|pluralize }}</div>
+    {% for section in others %}
+    <a href="{{ section.url }}" class="pl-section-list__row" data-class-section="{{ section.key }}">
+        <span class="pl-section-list__text">
+            <span class="pl-section-list__label">{{ section.label }}</span>
+            <span class="pl-section-list__hint">{{ section.hint }}</span>
+        </span>
+        {% if section.count is not None %}<span class="pl-section-list__count">{{ section.count }}</span>{% endif %}
+        <span class="pl-section-list__chevron" aria-hidden="true"></span>
+    </a>
+    {% endfor %}
+</nav>
+{% else %}
+<nav class="pl-section-back" aria-label="This class" data-class-section-back>
+    <a href="{{ overview.url }}" class="pl-section-back__link"><span class="pl-section-back__chevron" aria-hidden="true"></span>Class Overview</a>
+    <span class="pl-section-back__here" aria-current="page">{{ current.label }}{% if current.count is not None %} ({{ current.count }}){% endif %}<span class="pl-section-back__count"> · {{ current.position }} of {{ total }}</span></span>
+</nav>
+{% endif %}
+{% endif %}
