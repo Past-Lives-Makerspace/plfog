@@ -1,4 +1,5 @@
-"""The HQ forms: the hub with its goals, one card with its shifts, a volunteer's Your Info step, and the wine wall's Log a Bottle and winery logo."""
+"""The HQ forms: the hub with its goals, one card with its shifts, a volunteer's Your Info step, the wine wall's Log a
+Bottle and winery logo, and the Marketing Tracker's Log a Marketing Action."""
 
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.utils import timezone
 
 from core.validators import validate_image_content, validate_image_size
-from hq.models import EventHub, HubCard, HubGoal, ShiftSignup, VolunteerShift, WineBottle
+from hq.models import EventHub, HubCard, HubGoal, MarketingAction, ShiftSignup, VolunteerShift, WineBottle
 from hq.services import VolunteerInfo
 from membership.models import CommunityEvent, Member
 
@@ -385,3 +386,50 @@ class WineryLogoForm(forms.Form):
         logo: UploadedFile = self.cleaned_data["logo"]
         validate_image_size(logo)
         return logo
+
+
+# The datalist the Who field suggests from: the Marketing card's named members.
+MARKETING_TEAM_LIST_ID = "hq-marketing-team"
+
+
+class MarketingActionForm(forms.ModelForm):
+    """Log a Marketing Action: Lee's six fields. Views or reach is optional and stored as 0 when left blank."""
+
+    reach = forms.IntegerField(
+        min_value=0,
+        required=False,
+        label="Views or reach",
+        widget=forms.NumberInput(attrs={"min": "0", "step": "1", "placeholder": "optional"}),
+    )
+
+    class Meta:
+        model = MarketingAction
+        fields = ["kind", "date", "who", "reach", "details", "link"]
+        labels = {"kind": "What", "date": "Date", "who": "Who", "details": "Details", "link": "Link"}
+        help_texts = {
+            "kind": "",
+            "date": "",
+            "who": "",
+            "details": "",
+            "link": "",
+        }
+        widgets = {
+            # The whole field opens the picker, not just its icon (FRONTEND rule 14).
+            "date": forms.DateInput(
+                format="%Y-%m-%d",
+                attrs={"type": "date", "@click": "(() => { try { $el.showPicker() } catch (e) {} })()"},
+            ),
+            "who": forms.TextInput(
+                attrs={"list": MARKETING_TEAM_LIST_ID, "placeholder": "e.g. Anjali", "autocomplete": "off"}
+            ),
+            "details": forms.TextInput(attrs={"placeholder": "e.g. Reel: Metal Guild sparks demo teaser"}),
+            "link": forms.URLInput(attrs={"placeholder": "optional"}),
+        }
+
+    def clean_reach(self) -> int:
+        reach: int | None = self.cleaned_data["reach"]
+        return 0 if reach is None else reach
+
+    def kept_for_next(self) -> dict[str, Any]:
+        """What the next entry starts with after a save: the same kind, date and who; the rest clears."""
+        return {key: self.cleaned_data[key] for key in ("kind", "date", "who")}

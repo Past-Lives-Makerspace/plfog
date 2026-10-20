@@ -5,7 +5,16 @@ from __future__ import annotations
 import factory
 from factory.django import DjangoModelFactory
 
-from hq.models import EventHub, HubCard, HubGoal, ShiftSignup, VolunteerShift, WineBottle, WineryLogo
+from hq.models import (
+    EventHub,
+    HubCard,
+    HubGoal,
+    MarketingAction,
+    ShiftSignup,
+    VolunteerShift,
+    WineBottle,
+    WineryLogo,
+)
 
 
 class EventHubFactory(DjangoModelFactory):
@@ -112,3 +121,17 @@ class WineryLogoFactory(DjangoModelFactory):
     hub = factory.SubFactory(EventHubFactory)
     name = "Abacela"
     logo = factory.django.ImageField(filename="logo.png", width=64, height=64, color="white")
+
+
+class MarketingActionFactory(DjangoModelFactory):
+    """A flyer drop-off with no reach and no link, logged by nobody."""
+
+    class Meta:
+        model = MarketingAction
+
+    hub = factory.SubFactory(EventHubFactory)
+    kind = MarketingAction.Kind.FLYER
+    details = factory.Sequence(lambda n: f"Spec action {n}")
+    who = ""
+    reach = 0
+    link = ""

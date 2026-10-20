@@ -10,13 +10,14 @@ is for a shell or a Render job::
 calendar event later from Edit HQ.
 
 The acceptance criterion: it runs twice without duplicates and never touches an admin's
-edits. Everything is written on create only. A hub that already exists keeps its title,
-eyebrow, intro, footer note and open state; only its event moves, and only when ``--event``
-names a different one, which the output says; with no ``--event`` it is left alone. The three live doors are made one by one,
-keyed on kind (unique on a hub, so a renamed one is still found). The six placeholders, the
-four goals and the 21 shifts are each made only on a hub that holds none of that kind of
-row: all three are editable and have no stable key, so a renamed or deleted row never grows
-a sibling on the next run. Sign-ups, bottles and logos are never read.
+edits. A hub that already exists keeps its title, eyebrow, intro, footer note and open state;
+only its event moves, and only when ``--event`` names a different one, which the output says;
+with no ``--event`` it is left alone. The doors are :meth:`hq.models.EventHub.seed_default_cards`:
+live doors keyed on kind, a built door's placeholder adopted in place, placeholders made only on
+a hub with no cards at all, and words still at their old defaults given Lee's current ones. The four
+goals and the 21 shifts are each made only on a hub that holds none of that kind of row: both
+are editable and have no stable key, so a renamed or deleted row never grows a sibling on the
+next run. Sign-ups, bottles, logos and marketing actions are never read.
 ``--dry-run`` runs the whole seed inside a transaction and rolls it back, so the counts are
 the real ones and nothing is written.
 """
@@ -31,8 +32,8 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 from django.utils import timezone
 
-from hq.holiday_bizarre import CARDS, GOALS, HUB, SHIFTS
-from hq.models import EventHub, HubCard, HubGoal, VolunteerShift
+from hq.holiday_bizarre import GOALS, HUB, SHIFTS
+from hq.models import CardSeed, EventHub, HubGoal, VolunteerShift
 from membership.models import CommunityEvent
 
 # How many published upcoming events a refusal lists, so the right pk is a copy away.
@@ -45,12 +46,6 @@ class Tally:
 
     created: int = 0
     kept: int = 0
-
-    def count(self, created: bool) -> None:
-        if created:
-            self.created += 1
-        else:
-            self.kept += 1
 
 
 @dataclass
@@ -67,8 +62,7 @@ class SeedReport:
     hub_created: bool
     blocked_by: EventHub | None = None
     event_changed_to: CommunityEvent | None = None
-    placeholders_skipped: bool = False
-    cards: Tally = field(default_factory=Tally)
+    cards: CardSeed = field(default_factory=CardSeed)
     goals: Tally = field(default_factory=Tally)
     shifts: Tally = field(default_factory=Tally)
 
@@ -87,14 +81,17 @@ class SeedReport:
 
     def lines(self) -> list[str]:
         """One line per model, in seeding order."""
+        cards = self.cards
+        adopted = f" Opened as live doors: {', '.join(cards.adopted)}." if cards.adopted else ""
+        reworded = f" {cards.reworded} took Lee's latest words." if cards.reworded else ""
         skipped = (
             " The hub already held its placeholders, so none was added and they were left as edited."
-            if self.placeholders_skipped
+            if cards.placeholders_skipped
             else ""
         )
         return [
             f"Hub {self.hub.slug} ({self.hub.title}): {self._hub_state()}.",
-            f"Cards: {self.cards.created} created, {self.cards.kept} kept as edited.{skipped}",
+            f"Cards: {cards.created} created, {cards.kept} kept as edited.{adopted}{reworded}{skipped}",
             f"Goals: {self.goals.created} created, {self.goals.kept} kept as edited.",
             f"Shifts: {self.shifts.created} created, {self.shifts.kept} kept as edited.",
         ]
@@ -167,36 +164,10 @@ def seed(event: CommunityEvent | None = None) -> SeedReport:
         if changed:
             hub.event = event
             hub.save(update_fields=["event"])
-    _seed_cards(hub, report)
+    report.cards = hub.seed_default_cards()
     _seed_goals(hub, report.goals)
     _seed_shifts(hub, report.shifts)
     return report
-
-
-def _seed_cards(hub: EventHub, report: SeedReport) -> None:
-    """The live doors one by one, keyed on kind; the placeholders only on a hub that holds none.
-
-    An existing card is left as the admin edited it. A live kind is unique on a hub, so it is
-    matched whatever its title. A placeholder has no stable key (its title and order are both
-    editable), so once the hub holds any placeholder none is made: a renamed or deleted one
-    never grows a sibling.
-    """
-    held = hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count()
-    if held:
-        report.placeholders_skipped = True
-        report.cards.kept += held
-    for position, spec in enumerate(CARDS):
-        if spec["kind"] == HubCard.Kind.PLACEHOLDER:
-            if report.placeholders_skipped:
-                continue
-            HubCard.objects.create(hub=hub, **{**spec, "sort_order": position})
-            report.cards.created += 1
-            continue
-        defaults = {key: value for key, value in spec.items() if key != "kind"}
-        _card, created = HubCard.objects.get_or_create(
-            hub=hub, kind=spec["kind"], defaults={**defaults, "sort_order": position}
-        )
-        report.cards.count(created)
 
 
 def _seed_goals(hub: EventHub, tally: Tally) -> None:

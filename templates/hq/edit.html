@@ -4,6 +4,8 @@
 The hub form: the page's words, its event, the hero image, the goals as a
 formset in the Help editor's idiom (extra=0, a hidden template row, + Add goal, Delete that
 saves the page), the Open switch, and one plain Save last. Not boosted: it uploads a file.
+Above it, Lee's Doors: one button that brings her doors up to date (hq:doors_update), its own
+form so the page's Save stays last.
 {% endcomment %}
 {% block title %}Edit HQ{% endblock %}
 {% block extra_head %}
@@ -13,6 +15,13 @@ saves the page), the Open switch, and one plain Save last. Not boosted: it uploa
 <div class="pl-hq-edit" data-hq-edit-page>
   {% url 'hq:page' hub.slug as back_url %}
   {% include "components/page_header.html" with title="Edit HQ" description="The hero band, the goals and whether the HQ is open. Each door card has its own Edit link on the page." action_url=back_url action_label="View HQ" %}
+
+  <form method="post" action="{% url 'hq:doors_update' hub.slug %}" class="hub-card pl-hq-edit__card" data-hq-doors-update>
+    {% csrf_token %}
+    <h2 class="pl-hq-edit__title">Lee's Doors</h2>
+    <p class="hub-text-muted pl-hq-edit__lead">Bring in the doors that are ready. A greyed door whose page is built opens as that page, keeping who may open it. Words nobody has edited take Lee's latest. Nothing you edited changes.</p>
+    <button type="submit" class="pl-btn pl-btn--primary" data-hq-doors-update-submit>Update the doors</button>
+  </form>
 
   <form method="post" enctype="multipart/form-data" class="hub-form" hx-boost="false">
     {% csrf_token %}

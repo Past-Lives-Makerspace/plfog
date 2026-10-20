@@ -662,6 +662,7 @@ Each card on the page is a door into one part of the event. A card says who it i
 - **Going to the Bizarre?** opens the event's page on the Calendar, where you RSVP.
 - **Volunteer Sign-up** opens the shifts.
 - **Log a wine bottle** opens the wine wall.
+- **Marketing Tracker** opens the marketing log.
 - A greyed card reading **Not shared yet** is a page the organisers have not opened. It links nowhere.
 
 You only see the doors that are open to you. Every card starts as admins only; an admin opens it to members, to everyone, or to the people who run that part (see Editing the HQ below). A door open to everyone needs no account for what is behind it: RSVP, shifts or bottles. If a door you expect is missing, sign in, or ask an admin.
@@ -698,6 +699,21 @@ Open the **Log a wine bottle** door. It opens for the collectors an admin names,
 
 Your bottle joins **All Bottles**, and its winery joins **Wineries, Cideries and Breweries**. **Delete** on a bottle takes off one you logged; organisers can delete any bottle. As a guest, save your info on the volunteer page first so the wall knows a bottle is yours.
 
+### Marketing Tracker {#hq-marketing}
+
+Open the **Marketing Tracker** door. Everyone it is open to sees the totals and the log; the people named on the card, and admins, add to it.
+
+The six tiles at the top count what is in the log: businesses with flyers, Instagram videos, Instagram posts, emails sent, event listings, and every action with the views or reach added up.
+
+To log something:
+
+1. Under **Log a Marketing Action**, pick **What** it was (a flyer drop-off, a reel, a post, an email, a listing and so on) and the **Date**.
+2. Add **Who** did it. The names of the people on the card are suggested as you type.
+3. Add **Views or reach** if you know it, the **Details** (what went out, or which business took a flyer) and a **Link** if there is one.
+4. Click **Add to the log**.
+
+The action joins the top of the list and the tiles move. What, Date and Who stay filled in for the next one, so a run of flyer drop-offs is quick. **Delete** on a row takes it off the log.
+
 ### Organiser Tools {#hq-organiser-tools}
 
 Admins and the people named on a card run what is behind it.
@@ -722,6 +738,8 @@ Admins see an **Edit HQ** button at the top of the page and an **Edit** link und
 - **Move up** and **Move down** change the order on the page.
 
 The **Volunteer Sign-up** card's page also carries the shifts: add one, change what it says or how many people it needs, or delete one nobody has signed up for.
+
+When a new page is ready, **Update the doors** at the top of **Edit HQ** opens it: the greyed card becomes the live door, keeping who may open it, its named members and its place. Card words nobody has edited take Lee's latest; anything you edited stays.
 
 The sidebar entry's switch is at **Site Settings > Features**.
 """,

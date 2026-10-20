@@ -13,11 +13,15 @@ behind the ``volunteers`` card: a :class:`VolunteerShift` is one job on Lee's si
 without an account. Part 3 adds the wine wall behind the ``wine_wall`` card: a
 :class:`WineBottle` is one bottle (or a few of the same) logged with who gave it and a photo,
 and a :class:`WineryLogo` is the logo an organiser uploads for a winery named on those bottles.
+
+Track D turns the six placeholders into live doors, one part at a time; :data:`BUILT_DOORS` is
+the set built so far. Part 1 adds the Marketing Tracker behind the ``marketing`` card: a
+:class:`MarketingAction` is one thing the team did to get the word out.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -149,21 +153,82 @@ class EventHub(models.Model):
         when = self.event.when_display
         return f"{when} · {self.event.location}" if self.event.location else when
 
-    def seed_default_cards(self) -> list[HubCard]:
-        """The nine door cards a hub starts with (:data:`DEFAULT_CARDS`), all admins only.
+    def seed_default_cards(self) -> CardSeed:
+        """Lee's nine doors (:data:`DEFAULT_CARDS`) on this hub: made where missing, adopted, reworded, never doubled.
 
-        Idempotent: a live kind the hub already has, or a placeholder with that title, is left
-        as the admin edited it, so a second call adds nothing.
+        A live door is found by kind (unique on a hub, so a renamed one is still found). A door whose page is
+        built (:data:`BUILT_DOORS`) that the hub still holds as a placeholder with the door's title is turned
+        into the live kind in place, so its pk, audience, named members, hidden flag and order stay; it is made
+        only when neither the kind nor that placeholder exists. A placeholder has no stable key, so
+        placeholders are made only on a hub with no cards at all. On every card found, a field still carrying the
+        door's previous default words takes Lee's current ones; a field an admin edited is kept.
         """
-        cards: list[HubCard] = []
-        for position, spec in enumerate(DEFAULT_CARDS):
-            lookup = {"kind": spec["kind"]}
-            if spec["kind"] == HubCard.Kind.PLACEHOLDER:
-                lookup["title"] = spec["title"]
-            defaults = {key: value for key, value in spec.items() if key not in lookup}
-            card, _ = HubCard.objects.get_or_create(hub=self, **lookup, defaults={**defaults, "sort_order": position})
-            cards.append(card)
-        return cards
+        result = CardSeed()
+        # Placeholders are made only on a hub with no cards at all: a hub whose admin deleted them keeps
+        # them deleted, however often Update the Doors is pressed.
+        fresh = not self.cards.exists()
+        result.placeholders_skipped = not fresh
+        for position, door in enumerate(DEFAULT_CARDS):
+            card = self.cards.filter(kind=door.kind).first() if door.is_live else None
+            if card is None:
+                card = self.cards.filter(kind=HubCard.Kind.PLACEHOLDER, title=door.title).first()
+            if card is None:
+                if door.is_live or fresh:
+                    HubCard.objects.create(hub=self, sort_order=position, **door.fields())
+                    result.created += 1
+                    if not fresh and door.door in BUILT_DOORS:
+                        result.added_beside.append(door.title)
+                continue
+            changed = door.refresh_words(card)
+            if card.kind != door.kind:
+                card.kind = door.kind
+                changed.append("kind")
+                result.adopted.append(card.title)
+            elif door.is_live:
+                result.kept += 1
+            if changed:
+                card.save(update_fields=changed)
+                result.reworded += "bullets" in changed or "button_text" in changed
+        if not fresh:
+            # Every placeholder the hub held and still holds, renamed ones too (an adopted one counts as adopted).
+            result.kept += self.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count()
+        return result
+
+
+@dataclass
+class CardSeed:
+    """What :meth:`EventHub.seed_default_cards` did: cards made, kept as edited, adopted (by title) and reworded.
+
+    ``placeholders_skipped`` is set when the hub already held placeholders, so none was made.
+    """
+
+    created: int = 0
+    kept: int = 0
+    adopted: list[str] = field(default_factory=list)
+    reworded: int = 0
+    placeholders_skipped: bool = False
+    # Live doors made on a hub that already had cards: admins only, and a renamed placeholder may sit beside them.
+    added_beside: list[str] = field(default_factory=list)
+
+    @property
+    def summary(self) -> str:
+        """One sentence for the admin who pressed Update the Doors."""
+        parts: list[str] = []
+        if self.adopted:
+            parts.append(f"opened {', '.join(self.adopted)}")
+        if self.created:
+            parts.append(f"added {self.created} door{'' if self.created == 1 else 's'}")
+        if self.reworded:
+            parts.append(f"gave {self.reworded} card{'' if self.reworded == 1 else 's'} Lee's latest words")
+        if not parts:
+            return "The doors are up to date."
+        sentence = f"Doors updated: {'; '.join(parts)}."
+        if self.added_beside:
+            sentence += (
+                f" New and admins only until you open it: {', '.join(self.added_beside)}."
+                " If an old Not shared yet card for it is still on the page, delete that one."
+            )
+        return sentence
 
 
 class HubCard(models.Model):
@@ -173,6 +238,12 @@ class HubCard(models.Model):
         RSVP = "rsvp", "RSVP"
         VOLUNTEERS = "volunteers", "Volunteer shifts"
         WINE_WALL = "wine_wall", "Wine wall"
+        MARKETING = "marketing", "Marketing Tracker"
+        SPONSORSHIP = "sponsorship", "Sponsorship Tracker"
+        VENDOR_TABLES = "vendor_tables", "Vendor Tables"
+        MARKET_CHECKIN = "market_checkin", "Market Check-in"
+        FLYER = "flyer", "Event flyer and sharing"
+        LEDGER = "ledger", "PL Ledger"
         PLACEHOLDER = "placeholder", "Not shared yet"
 
     class Audience(models.TextChoices):
@@ -264,6 +335,9 @@ class HubCard(models.Model):
             return reverse("hq:volunteers", args=[self.hub.slug])
         if self.kind == self.Kind.WINE_WALL:
             return reverse("hq:wine", args=[self.hub.slug])
+        if self.kind == self.Kind.MARKETING:
+            return reverse("hq:marketing", args=[self.hub.slug])
+        # A live kind whose page has not shipped yet renders like a placeholder: Not shared yet.
         return ""
 
     def move(self, direction: str) -> None:
@@ -325,84 +399,206 @@ class HubGoal(models.Model):
         return f"{self.label} ({self.target})"
 
 
-# Lee's nine doors, in her order (plan Appendix). The three live kinds come first; the six
-# placeholders keep her who-for and titles so the page already reads as the whole event.
-DEFAULT_CARDS: tuple[dict[str, str], ...] = (
-    {
-        "kind": HubCard.Kind.RSVP,
-        "who_for": "Members and guests",
-        "title": "Going to the Bizarre?",
-        "bullets": (
+# The doors whose page is built beyond the first three. The seed turns a placeholder titled as one of
+# these into its live kind; each later part of Track D adds its kind here and nowhere else.
+BUILT_DOORS: frozenset[str] = frozenset({HubCard.Kind.MARKETING})
+
+# The three doors that were live from the start of Track C.
+_FIRST_DOORS: frozenset[str] = frozenset({HubCard.Kind.RSVP, HubCard.Kind.VOLUNTEERS, HubCard.Kind.WINE_WALL})
+
+
+@dataclass(frozen=True)
+class DoorContent:
+    """One of Lee's doors as the seed writes it.
+
+    ``door`` is the kind the card is once its page is built; until then it is seeded as a placeholder
+    with the same words. ``old_bullets`` and ``old_button_text`` are the words the card was seeded with
+    before Lee's update: a card still carrying them takes the current ones.
+    """
+
+    door: str
+    who_for: str
+    title: str
+    bullets: str
+    button_text: str
+    old_bullets: str
+    old_button_text: str
+
+    @property
+    def is_live(self) -> bool:
+        return self.door in _FIRST_DOORS or self.door in BUILT_DOORS
+
+    @property
+    def kind(self) -> str:
+        """The kind the seed writes: the door's own once its page is built, else a placeholder."""
+        return self.door if self.is_live else HubCard.Kind.PLACEHOLDER
+
+    def fields(self) -> dict[str, str]:
+        """The card's fields for a new row (admins only, the model's default audience)."""
+        return {
+            "kind": self.kind,
+            "who_for": self.who_for,
+            "title": self.title,
+            "bullets": self.bullets,
+            "button_text": self.button_text,
+        }
+
+    def refresh_words(self, card: HubCard) -> list[str]:
+        """Give ``card`` the current bullets and button where it still carries the old defaults; the fields changed."""
+        changed: list[str] = []
+        if card.bullet_lines == _lines(self.old_bullets) and card.bullet_lines != _lines(self.bullets):
+            card.bullets = self.bullets
+            changed.append("bullets")
+        if card.button_text == self.old_button_text and card.button_text != self.button_text:
+            card.button_text = self.button_text
+            changed.append("button_text")
+        return changed
+
+
+def _lines(text: str) -> list[str]:
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+# Lee's nine doors, in her order (plan Appendix): her who-for lines and titles, her current bullets
+# and buttons (her HQ as she shared it in October), and the words each was first seeded with.
+DEFAULT_CARDS: tuple[DoorContent, ...] = (
+    DoorContent(
+        door=HubCard.Kind.RSVP,
+        who_for="Members and guests",
+        title="Going to the Bizarre?",
+        bullets=(
+            "Tell us you're coming\n"
+            "Get event updates by email\n"
+            "Eventbrite RSVPs counted too\n"
+            "Staff can add guests and check people in"
+        ),
+        button_text="I'm going",
+        old_bullets=(
             "Tell us you're coming\n"
             "Get email updates before the night\n"
             "Eventbrite RSVPs are counted too\n"
             "Staff can add guests and check people in"
         ),
-        "button_text": "I'm going",
-    },
-    {
-        "kind": HubCard.Kind.VOLUNTEERS,
-        "who_for": "Volunteers",
-        "title": "Volunteer Sign-up",
-        "bullets": (
+        old_button_text="I'm going",
+    ),
+    DoorContent(
+        door=HubCard.Kind.VOLUNTEERS,
+        who_for="Volunteers",
+        title="Volunteer Sign-up",
+        bullets=(
+            "Bartend, door, security\n"
+            "Setup, teardown and cleanup\n"
+            "Wine wall, tour guides, guild demos\n"
+            "Flyer runs and decorating"
+        ),
+        button_text="Sign up to volunteer",
+        old_bullets=(
             "Bartend, work the door or keep an eye on things\n"
             "Setup, teardown and cleanup crews\n"
             "Wine wall, tour guides and guild demos\n"
             "Flyer runs and decorating"
         ),
-        "button_text": "Sign up to volunteer",
-    },
-    {
-        "kind": HubCard.Kind.WINE_WALL,
-        "who_for": "Wine wall collectors",
-        "title": "Log a wine bottle",
-        "bullets": (
-            "Log each bottle as it comes in\nSnap a photo of it\nSee the count and the supporters\nAdd winery logos"
+        old_button_text="Sign up to volunteer",
+    ),
+    DoorContent(
+        door=HubCard.Kind.WINE_WALL,
+        who_for="Wine wall collectors",
+        title="Log a wine bottle",
+        bullets=(
+            "Got a bottle? Log it here\n"
+            "Snap a photo of the bottle\n"
+            "See the bottle count and every supporter\n"
+            "Add winery logos for our website"
         ),
-        "button_text": "Enter a bottle",
-    },
-    {
-        "kind": HubCard.Kind.PLACEHOLDER,
-        "who_for": "Lee and the core team",
-        "title": "PL Ledger",
-        "bullets": "Money in and money out for the night\nSponsorships, the wine wall and the door\nKept by the core team",
-        "button_text": "Open the ledger",
-    },
-    {
-        "kind": HubCard.Kind.PLACEHOLDER,
-        "who_for": "Sponsorship team",
-        "title": "Sponsorship Tracker",
-        "bullets": "Who we asked and where it stands\nLevels and what each sponsor gets\nLogos for the flyer and the wall",
-        "button_text": "Track sponsors",
-    },
-    {
-        "kind": HubCard.Kind.PLACEHOLDER,
-        "who_for": "Artists and volunteers",
-        "title": "Market Check-in",
-        "bullets": "Artists and vendors checking in on the day\nTable numbers and who has arrived\nVolunteers check in here too",
-        "button_text": "Check in",
-    },
-    {
-        "kind": HubCard.Kind.PLACEHOLDER,
-        "who_for": "Kate and the vendor team",
-        "title": "Vendor Tables",
-        "bullets": "Every table and who is at it\nLoad in times and what each vendor needs\nA map of the floor",
-        "button_text": "See the tables",
-    },
-    {
-        "kind": HubCard.Kind.PLACEHOLDER,
-        "who_for": "Members",
-        "title": "Event flyer and sharing",
-        "bullets": "The flyer to print and post\nGraphics to share on Instagram and by email\nWhere to drop flyers around town",
-        "button_text": "Get the flyer",
-    },
-    {
-        "kind": HubCard.Kind.PLACEHOLDER,
-        "who_for": "Marketing team",
-        "title": "Marketing Tracker",
-        "bullets": "Posts, emails and press by date\nWho is doing what\nWhat went out and what is next",
-        "button_text": "Track marketing",
-    },
+        button_text="Enter a bottle",
+        old_bullets="Log each bottle as it comes in\nSnap a photo of it\nSee the count and the supporters\nAdd winery logos",
+        old_button_text="Enter a bottle",
+    ),
+    DoorContent(
+        door=HubCard.Kind.LEDGER,
+        who_for="Lee and the core team",
+        title="PL Ledger",
+        bullets=(
+            "Running tally and goals\n"
+            "$900 drinks budget and receipts\n"
+            "Drink sales, wine wall, vendors\n"
+            "Guild demos, flyers, board summary"
+        ),
+        button_text="Enter the ledger",
+        old_bullets=(
+            "Money in and money out for the night\nSponsorships, the wine wall and the door\nKept by the core team"
+        ),
+        old_button_text="Open the ledger",
+    ),
+    DoorContent(
+        door=HubCard.Kind.SPONSORSHIP,
+        who_for="Sponsorship team",
+        title="Sponsorship Tracker",
+        bullets=(
+            "Every business we're asking\n"
+            "Asks, commitments, money received\n"
+            "Follow-up dates and contact log\n"
+            "Sponsor tiers"
+        ),
+        button_text="Enter sponsorships",
+        old_bullets="Who we asked and where it stands\nLevels and what each sponsor gets\nLogos for the flyer and the wall",
+        old_button_text="Track sponsors",
+    ),
+    DoorContent(
+        door=HubCard.Kind.MARKET_CHECKIN,
+        who_for="Artists and volunteers",
+        title="Market Check-in",
+        bullets=("Artists: your market report\nVolunteers: log your prep hours\nVolunteer thank-you board"),
+        button_text="Enter check-in",
+        old_bullets=(
+            "Artists and vendors checking in on the day\nTable numbers and who has arrived\nVolunteers check in here too"
+        ),
+        old_button_text="Check in",
+    ),
+    DoorContent(
+        door=HubCard.Kind.VENDOR_TABLES,
+        who_for="Kate and the vendor team",
+        title="Vendor Tables",
+        bullets=(
+            "Every table request in one place\n"
+            "Requested, confirmed or waitlist\n"
+            "Table numbers and setup days\n"
+            "Capacity from the space map"
+        ),
+        button_text="Enter vendor tables",
+        old_bullets="Every table and who is at it\nLoad in times and what each vendor needs\nA map of the floor",
+        old_button_text="See the tables",
+    ),
+    DoorContent(
+        door=HubCard.Kind.FLYER,
+        who_for="Members",
+        title="Event flyer and sharing",
+        bullets=(
+            "This year's flyer to view, download and print\n"
+            "Copy the link or share on Facebook\n"
+            "Website, Eventbrite and member portal links\n"
+            "Last year's flyer"
+        ),
+        button_text="See the flyer",
+        old_bullets=(
+            "The flyer to print and post\nGraphics to share on Instagram and by email\nWhere to drop flyers around town"
+        ),
+        old_button_text="Get the flyer",
+    ),
+    DoorContent(
+        door=HubCard.Kind.MARKETING,
+        who_for="Marketing team",
+        title="Marketing Tracker",
+        bullets=(
+            "Businesses with flyers\n"
+            "Instagram videos and posts\n"
+            "Emails and event listings\n"
+            "Every action, with views and links"
+        ),
+        button_text="Enter marketing",
+        old_bullets="Posts, emails and press by date\nWho is doing what\nWhat went out and what is next",
+        old_button_text="Track marketing",
+    ),
 )
 
 
@@ -731,3 +927,74 @@ class WineryLogo(models.Model):
         result = super().delete(*args, **kwargs)
         delete_if_unreferenced(WineryLogo, "logo", logo)
         return result
+
+
+# ---- Marketing Tracker (Track D, part 1) ----
+
+
+class MarketingKind(models.TextChoices):
+    """What a marketing action was, in the order of Lee's What list. ``MarketingAction.Kind`` is this."""
+
+    FLYER = "flyer", "Flyer drop-off at a business"
+    REEL = "reel", "Instagram video or reel"
+    POST = "post", "Instagram post or story"
+    EMAIL = "email", "Email or newsletter"
+    LISTING = "listing", "Event listing (Eventbrite, calendars)"
+    DISCORD = "discord", "Discord or member portal post"
+    SOCIAL = "social", "Facebook or other social"
+    PRESS = "press", "Press or media outreach"
+    PARTNER = "partner", "Partner or business shout-out"
+    OTHER = "other", "Other"
+
+
+class MarketingAction(models.Model):
+    """One thing the team did to get the word out: a flyer left at a shop, a reel, an email, a listing.
+
+    The Marketing Tracker's totals count these rows by kind (:func:`hq.services.marketing_totals`);
+    its flyer count is the one figure "Businesses with flyers" that every other door reads.
+    """
+
+    Kind = MarketingKind
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="marketing_actions",
+        help_text="The HQ whose marketing log this is on.",
+    )
+    kind = models.CharField(
+        max_length=10,
+        choices=MarketingKind.choices,
+        default=MarketingKind.FLYER,
+        help_text="What it was: a flyer drop-off, a reel, a post, an email, a listing and so on.",
+    )
+    date = models.DateField(default=timezone.localdate, help_text="The day it happened, Portland time.")
+    who = models.CharField(max_length=120, blank=True, help_text="Who did it, as typed. Optional.")
+    reach = models.PositiveIntegerField(default=0, help_text="Views or reach, when known; 0 when not.")
+    details = models.CharField(max_length=300, help_text="What it was, e.g. Reel: Metal Guild sparks demo teaser.")
+    link = models.URLField(max_length=500, blank=True, help_text="A link to the post, listing or email. Optional.")
+    logged_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="marketing_actions",
+        help_text="The organiser who logged it.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was logged.")
+
+    class Meta:
+        ordering = ["-date", "-created_at", "-pk"]
+
+    def __str__(self) -> str:
+        return f"{self.get_kind_display()}: {self.details}"
+
+    @property
+    def reach_display(self) -> str:
+        """The reach with thousands separated, or a dash when it is not known (0)."""
+        return f"{self.reach:,}" if self.reach else "\u2013"
+
+    @property
+    def href(self) -> str:
+        """The link when it is a web address the list may open (http or https), else ""."""
+        return self.link if self.link.lower().startswith(("http://", "https://")) else ""

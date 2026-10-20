@@ -79,7 +79,7 @@ def describe_loading_lees_hq():
         assert hub.is_open
         assert hub.event is None
         cards = list(hub.cards.all())
-        assert [card.kind for card in cards] == [spec["kind"] for spec in DEFAULT_CARDS]
+        assert [card.kind for card in cards] == [door.kind for door in DEFAULT_CARDS]
         assert {card.audience for card in cards} == {HubCard.Audience.ADMINS}
         assert cards[0].title == "Going to the Bizarre?"
         assert hub.goals.count() == 4
@@ -93,15 +93,53 @@ def describe_loading_lees_hq():
 
     def it_adds_nothing_when_the_doors_are_seeded_again(open_hub):
         first = open_hub.seed_default_cards()
+        pks = set(open_hub.cards.values_list("pk", flat=True))
         rsvp = open_hub.cards.get(kind=HubCard.Kind.RSVP)
         rsvp.title = "Renamed by Lee"
         rsvp.save(update_fields=["title"])
 
         again = open_hub.seed_default_cards()
 
-        assert open_hub.cards.count() == 9
-        assert [card.pk for card in again] == [card.pk for card in first]
+        assert (first.created, first.kept) == (9, 0)
+        assert (again.created, again.kept, again.adopted, again.reworded) == (0, 9, [], 0)
+        assert set(open_hub.cards.values_list("pk", flat=True)) == pks
         assert open_hub.cards.get(kind=HubCard.Kind.RSVP).title == "Renamed by Lee"
+
+
+def describe_updating_the_doors():
+    def _url(hub: EventHub) -> str:
+        return reverse("hq:doors_update", args=[hub.slug])
+
+    def it_is_an_admins_post(open_hub, member_client, admin_client):
+        assert member_client.post(_url(open_hub)).status_code == 403
+        assert admin_client.get(_url(open_hub)).status_code == 405
+        assert not open_hub.cards.exists()
+
+    def it_adopts_the_built_door_and_says_what_changed(open_hub, admin_client):
+        placeholder = HubCardFactory(
+            hub=open_hub,
+            kind=HubCard.Kind.PLACEHOLDER,
+            title="Marketing Tracker",
+            bullets=DEFAULT_CARDS[-1].old_bullets,
+            button_text=DEFAULT_CARDS[-1].old_button_text,
+        )
+        HubCardFactory(hub=open_hub, kind=HubCard.Kind.PLACEHOLDER, title="PL Ledger")
+
+        response = admin_client.post(_url(open_hub), follow=True)
+
+        placeholder.refresh_from_db()
+        assert response.redirect_chain == [(open_hub.get_absolute_url(), 302)]
+        assert placeholder.kind == HubCard.Kind.MARKETING
+        assert placeholder.button_text == "Enter marketing"
+        messages = [str(message) for message in response.context["messages"]]
+        assert messages == ["Doors updated: opened Marketing Tracker; added 3 doors; gave 1 card Lee's latest words."]
+        assert open_hub.cards.count() == 5
+
+    def it_offers_the_button_on_edit_hq(open_hub, admin_client):
+        body = admin_client.get(_edit(open_hub)).content.decode()
+
+        assert f'action="{_url(open_hub)}"' in body
+        assert "data-hq-doors-update-submit" in body
 
 
 def describe_editing_a_hub():
