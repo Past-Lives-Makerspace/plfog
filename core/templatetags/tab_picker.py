@@ -17,7 +17,7 @@ strip already does.
 
 A composer's step bar (``.pl-phase-tabs`` of ``.pl-phase-tab`` buttons) is read the same way, so a
 step bar is a picker on a phone too rather than a row sliding off the edge. Its done and error
-marks (a direct child whose class names a ``mark``) are not part of the label; the browser mirror
+marks (a direct child with a ``__mark`` class, ``pl-phase-tab__mark``) are not part of the label; the browser mirror
 carries them into the list.
 
 Usage::
@@ -85,7 +85,7 @@ class _RowReader(HTMLParser):
 
     Only the row's direct children are tabs. Text inside a direct child of a tab whose class names
     a count (``pl-kiln-count``, ``vote-tab__count``) is the tab's count, everything else its
-    label, and text inside one whose class names a mark (a step's done tick) is neither; the same
+    label, and text inside one with a ``__mark`` class (a step's done tick) is neither; the same
     reading as ``readTab`` in ``static/js/tab_picker.js``.
     """
 
@@ -117,7 +117,7 @@ class _RowReader(HTMLParser):
             return
         if self._depth != self._tab_depth + 1 or self._count_depth is not None or self._mark_depth is not None:
             return
-        if any("mark" in name for name in classes):
+        if any(name.endswith("__mark") for name in classes):
             self._mark_depth = self._depth
         elif any("count" in name for name in classes):
             self._count_depth = self._depth

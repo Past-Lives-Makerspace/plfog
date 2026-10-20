@@ -256,6 +256,17 @@ def describe_the_composer_step_pickers_on_a_phone():
         expect(photos).to_have_text("\u25cf")
         expect(photos).to_have_class(re.compile(r"pl-tab-picker__item-mark--error"))
 
+    def it_brings_the_page_back_up_to_the_picker_on_next(live_server, page, login_via_code):
+        offering = _draft_class()
+        login_via_code(EMAIL)
+        page.set_viewport_size(PHONE)
+        _go(page, live_server, reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+
+        page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+        page.get_by_role("button", name=re.compile(r"^Next")).click()
+        expect(page.locator(f"{STEP_PICKER} .pl-tab-picker__count")).to_have_text("2 of 6")
+        expect(page.locator(f"{STEP_PICKER} {SUMMARY}")).to_be_in_viewport()
+
     def it_names_the_announcement_composers_two_steps(live_server, page, login_via_code):
         _admin()
         login_via_code(EMAIL)

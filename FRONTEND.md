@@ -185,7 +185,7 @@ A row of tabs is the shared `.pl-tabs` strip of `.vote-tab` links (`aria-current
 - A row of links works with no script (`<details>`); a row of buttons is mirrored in the browser by `plTabPicker` (`static/js/tab_picker.js`), whose choices press the row's own button, so the pane switches as a desktop click would. Both close on Escape and on a tap outside.
 - Keep a count in the label as "Label (3)" or in a child whose class names a count (`pl-kiln-count`); the picker shows it apart.
 - Wrap only the row, not an `{% if %}` around it: the tag fails loudly when it wraps no `.pl-tabs` or `.pl-phase-tabs` row.
-- A step's done tick and error dot are children whose class names a mark (`pl-phase-tab__mark`) with `aria-invalid` on the step; the picker lists them beside each step, never in its label.
+- A step's done tick and error dot are children with a `__mark` class (`pl-phase-tab__mark`) with `aria-invalid` on the step; the picker lists them beside each step, never in its label.
 - A row nested under another (the per-class tabs under the Classes portal row) is not a picker: nested navigation must never look the same twice. The class screen's own tabs come from `{% class_sections %}` (`classes/_components/class_sections.html`), which on a phone shows a list of every other section with a one line hint on the Overview and a back row ("‹ Class Overview", where you are, "n of N") on every other tab.
 - Filter chips are not tabs: `.pl-wp-chiprow` scrolls by itself and never borrows `.pl-tabs`.
 

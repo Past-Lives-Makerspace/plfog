@@ -7,7 +7,7 @@
 // tab is current, and the leadership editor reorders and renames its tabs in place, so the
 // picker re-reads the row whenever it changes and a choice presses the row's own button.
 // A composer's step bar (.pl-phase-tabs) is such a row; its done tick and error dot (a child
-// whose class names a mark, shown or hidden by x-show) and aria-invalid come across as well.
+// with a __mark class, shown or hidden by x-show) and aria-invalid come across as well.
 (function () {
   function isRow(el) {
     return el.classList.contains('pl-tabs') || el.classList.contains('pl-phase-tabs');
@@ -29,7 +29,7 @@
     var mark = '';
     Array.prototype.forEach.call(el.childNodes, function (node) {
       var cls = node.nodeType === 1 ? node.getAttribute('class') || '' : '';
-      if (/mark/.test(cls)) {
+      if (/__mark\b/.test(cls)) {
         if (node.style.display !== 'none' && !node.hasAttribute('x-cloak')) mark += node.textContent;
       } else if (/count/.test(cls)) {
         count += node.textContent;
