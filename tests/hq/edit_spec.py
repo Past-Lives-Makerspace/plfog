@@ -124,17 +124,19 @@ def describe_updating_the_doors():
             bullets=DEFAULT_CARDS[-1].old_bullets,
             button_text=DEFAULT_CARDS[-1].old_button_text,
         )
-        HubCardFactory(hub=open_hub, kind=HubCard.Kind.PLACEHOLDER, title="PL Ledger")
+        ledger = HubCardFactory(hub=open_hub, kind=HubCard.Kind.PLACEHOLDER, title="PL Ledger")
 
         response = admin_client.post(_url(open_hub), follow=True)
 
         placeholder.refresh_from_db()
+        ledger.refresh_from_db()
         assert response.redirect_chain == [(open_hub.get_absolute_url(), 302)]
         assert placeholder.kind == HubCard.Kind.MARKETING
         assert placeholder.button_text == "Enter marketing"
+        assert ledger.kind == HubCard.Kind.LEDGER
         messages = [str(message) for message in response.context["messages"]]
         assert messages == [
-            "Doors updated: opened Marketing Tracker; added 7 doors; gave 1 card Lee's latest words;"
+            "Doors updated: opened PL Ledger, Marketing Tracker; added 7 doors; gave 1 card Lee's latest words;"
             " added the Raised, Wine wall bottles, Volunteer spots, RSVPs and Member tables goals."
             " New and admins only until you open it: Sponsorship Tracker, Market Check-in, Vendor Tables,"
             " Event flyer and sharing."

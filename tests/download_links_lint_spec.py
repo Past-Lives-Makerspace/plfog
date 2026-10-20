@@ -53,6 +53,7 @@ ATTACHMENT_SOURCES: dict[tuple[str, str], frozenset[str]] = {
     ("hq/exports.py", "stream_vendor_tables_csv"): frozenset({"hq:vendors_csv"}),
     ("hq/exports.py", "stream_market_reports_csv"): frozenset({"hq:checkin_reports_csv"}),
     ("hq/exports.py", "stream_volunteer_hours_csv"): frozenset({"hq:checkin_hours_csv"}),
+    ("hq/exports.py", "stream_ledger_csv"): frozenset({"hq:ledger_csv"}),
     ("hq/views.py", "flyer_download"): frozenset({"hq:flyer_download"}),
     ("billing/reconciliation.py", "stream_reconciliation_csv"): frozenset({"billing_admin_reconciliation_csv"}),
     ("billing/payments_panel.py", "stream_payments_csv"): frozenset({"billing_admin_payments_csv"}),

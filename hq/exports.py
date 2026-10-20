@@ -1,5 +1,5 @@
-"""The volunteer roster, the wine donors, the sponsors, the vendor tables, and the Market Check-in's reports and hours
-as CSV, in the streaming shape of ``classes/exports.py``."""
+"""The volunteer roster, the wine donors, the sponsors, the vendor tables, the Market Check-in's reports and hours and
+the ledger as CSV, in the streaming shape of ``classes/exports.py``."""
 
 from __future__ import annotations
 
@@ -11,10 +11,12 @@ from typing import TYPE_CHECKING
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
+from hq.services import ledger_kind_short
+
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
-    from hq.models import MarketReport, ShiftSignup, Sponsor, VendorTable, VolunteerHours
+    from hq.models import LedgerEntry, MarketReport, ShiftSignup, Sponsor, VendorTable, VolunteerHours
     from hq.services import DonorRow
 
 ROSTER_CSV_HEADERS = [
@@ -271,4 +273,36 @@ def stream_volunteer_hours_csv(entries: QuerySet[VolunteerHours], *, filename_st
     response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
     stamp = timezone.now().strftime("%Y%m%d")
     response["Content-Disposition"] = f'attachment; filename="{filename_stem}-volunteer-hours-{stamp}.csv"'
+    return response
+
+
+LEDGER_CSV_HEADERS = ["Date", "Type", "Budget line", "Category", "Sponsor or vendor", "Amount", "Note"]
+
+
+def stream_ledger_csv(entries: QuerySet[LedgerEntry], *, approval: str, filename_stem: str) -> StreamingHttpResponse:
+    """Stream ``entries`` as CSV in Lee's columns, oldest first: the amount in dollars, a refund negative, and the Type
+    in her short words with the hub's approval ("From $900")."""
+    pseudo = _Echo()
+    writer = csv.writer(pseudo)
+
+    def iter_rows() -> Iterator[str]:
+        yield writer.writerow(LEDGER_CSV_HEADERS)
+        for entry in entries.iterator(chunk_size=500):
+            # The amount is ours, a number a spreadsheet must read as one (a refund starts with a minus); the names
+            # and the note are what organisers typed, so they are neutralised.
+            yield writer.writerow(
+                [
+                    entry.date.isoformat(),
+                    ledger_kind_short(entry.kind, approval),
+                    _neutralise_formula(entry.line.name),
+                    entry.line.get_category_display(),
+                    _neutralise_formula(entry.source),
+                    f"{entry.signed_cents / 100:.2f}",
+                    _neutralise_formula(entry.note),
+                ]
+            )
+
+    response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
+    stamp = timezone.now().strftime("%Y%m%d")
+    response["Content-Disposition"] = f'attachment; filename="{filename_stem}-ledger-{stamp}.csv"'
     return response

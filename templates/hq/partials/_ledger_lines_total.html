@@ -1,0 +1,18 @@
+{% comment %}
+The budget lines' Total row, Lee's tfoot. Swapped out of band when a line is saved, so the totals follow the edit.
+
+  band — required, a hq.services.LedgerBand
+  oob  — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+{% with totals=band.totals_row %}
+<tfoot id="hq-lg-lines-total" data-hq-lg-lines-total{% if oob %} hx-swap-oob="true"{% endif %}>
+  <tr>
+    <th scope="row">Total</th>
+    <td class="pl-hq-lg__num">{{ totals.0 }}</td>
+    <td class="pl-hq-lg__num">{{ totals.1 }}</td>
+    <td class="pl-hq-lg__num">{{ totals.2 }}</td>
+    <td class="pl-hq-lg__num">{{ totals.3 }}</td>
+    <td></td>
+  </tr>
+</tfoot>
+{% endwith %}

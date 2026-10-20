@@ -898,6 +898,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": "holiday-bizarre-hq",
         "anchor": "hq-flyer",
     },
+    "hq.ledger": {
+        "title": "Log a sponsor or expense",
+        "short_text": (
+            "Choose what happened, pick the budget line, and add the amount and date. A purchase or refund takes a "
+            "photo or PDF of its receipt; the board summary and the budget lines follow every entry."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-ledger",
+    },
     "hq.edit-card": {
         "title": "Who may open a card",
         "short_text": (

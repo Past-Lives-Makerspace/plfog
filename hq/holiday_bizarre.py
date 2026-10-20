@@ -1,5 +1,5 @@
 """Lee's Holiday Bizarre HQ as data: the hub, its nine doors, five goals, 21 volunteer shifts, the sponsor tiers, the
-vendor setup windows, the Market Check-in's words and the flyer page's.
+vendor setup windows, the Market Check-in's words, the flyer page's and the ledger's.
 
 ``manage.py seed_holiday_bizarre`` writes these rows for a published calendar event; correcting
 a word here and re-running is the workflow, as with the help articles. Nothing in this module
@@ -16,7 +16,8 @@ counted live from the pages behind the doors; Member tables has no target, so it
 count. The sponsor tiers are her draft "what they get" table on the Sponsorship Tracker, row for
 row. The vendor setup windows are the Setup day choices on Vendor Tables and its band's note. The check-in
 words are the Market Check-in's thank-you line and footer. The flyer words are her member event page's: the message
-to send friends (the default an organiser edits), Coming soon, the line under Help spread the word and last year's.
+to send friends (the default an organiser edits), Coming soon, the line under Help spread the word and last year's. The
+ledger words are her ledger page's title, the line under it and the hint under the receipt upload.
 """
 
 from __future__ import annotations
@@ -344,3 +345,12 @@ FLYER_LAST_YEAR_NOTE = (
     "Our first Holiday Bizarre on December 5, 2025 brought the community together with a silent auction, artists' "
     "market and 36 donated items from local businesses."
 )
+
+
+# The PL Ledger's words, in Lee's (her ledger page): the title, the line under it and the hint under the receipt.
+LEDGER_TITLE = "Holiday Bizarre Ledger"
+LEDGER_INTRO = (
+    "Here's our Holiday Bizarre ledger for tracking sponsors, wine wall donations, drink sales, volunteer hours and "
+    "receipts."
+)
+LEDGER_RECEIPT_HINT = "On your phone, tap to take a photo of the receipt."

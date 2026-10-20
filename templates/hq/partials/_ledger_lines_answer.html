@@ -1,0 +1,9 @@
+{% comment %}
+The htmx answer to Add a budget line: the lines section with the form open and empty, and the log form's Budget line
+select out of band with the new line chosen, so it can be logged against at once.
+
+  as hq/partials/_ledger_lines.html, and
+  entry_line_form — required, a LedgerEntryForm whose line select comes back
+{% endcomment %}
+{% include "hq/partials/_ledger_lines.html" %}
+{% include "hq/partials/_ledger_entry_line.html" with oob=True %}

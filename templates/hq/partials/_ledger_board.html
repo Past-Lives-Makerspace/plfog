@@ -1,0 +1,67 @@
+{% comment %}
+The ledger's board summary, Lee's navy panel: four tiles (Board approval with its note, Used from approval net of
+refunds, Left in approval, Sponsored value), a meter of the approval used, her board paragraph, Copy board summary
+(the roster's clipboard idiom: writeText in a secure context, else select the hidden box and execCommand, then a
+toast), Download ledger (CSV), and Change the approval (a plain post, since the approval names the kinds, the filters
+and a column).
+
+  hub           — required, the EventHub
+  band          — required, a hq.services.LedgerBand
+  board_line    — required, the paragraph shown (Lee's empty line until the ledger has an entry)
+  board_summary — required, the paragraph Copy board summary copies
+  approval_form  — required, a LedgerApprovalForm (bound when a save failed, which renders it open)
+  approval_error — optional, a stale Save's refusal shown over a fresh form, which renders it open
+{% endcomment %}
+<section class="pl-hq-lg__board" id="hq-lg-board" aria-label="Board summary" data-hq-lg-board
+         x-data="{ copy() { const box = this.$refs.summary; box.focus(); box.select(); if (window.isSecureContext && navigator.clipboard) { navigator.clipboard.writeText(box.value); } else { document.execCommand('copy'); } this.$dispatch('show-toast', { message: 'Board summary copied.', type: 'success' }); } }">
+  <div class="pl-hq-lg__tiles">
+    <div class="pl-hq-lg__tile" data-hq-lg-tile="approved">
+      <span class="pl-hq-lg__tile-heading">Board approval</span>
+      <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ band.approved_display }}</strong>
+      <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{{ band.approved_note }}</span>
+    </div>
+    <div class="pl-hq-lg__tile" data-hq-lg-tile="used">
+      <span class="pl-hq-lg__tile-heading">Used from approval</span>
+      <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ band.used_display }}</strong>
+      <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{{ band.used_line }}</span>
+    </div>
+    <div class="pl-hq-lg__tile{% if band.left_cents < 0 %} pl-hq-lg__tile--over{% endif %}" data-hq-lg-tile="left">
+      <span class="pl-hq-lg__tile-heading">Left in approval</span>
+      <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ band.left_display }}</strong>
+      <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{{ band.left_line }}</span>
+    </div>
+    <div class="pl-hq-lg__tile" data-hq-lg-tile="sponsored">
+      <span class="pl-hq-lg__tile-heading">Sponsored value</span>
+      <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ band.sponsored_display }}</strong>
+      <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{{ band.sponsored_line }}</span>
+    </div>
+  </div>
+  <div class="pl-hq-lg__meter-wrap">
+    <progress class="pl-hq-lg__meter" max="100" value="{{ band.used_percent }}" aria-label="Approval used: {{ band.used_percent }} percent" data-hq-lg-meter></progress>
+    <div class="pl-hq-lg__legend" aria-hidden="true">
+      <span class="pl-hq-lg__legend-item pl-hq-lg__legend-item--used">Used</span>
+      <span class="pl-hq-lg__legend-item pl-hq-lg__legend-item--left">Left</span>
+    </div>
+  </div>
+  <p class="pl-hq-lg__summary" data-hq-lg-summary>{{ board_line }}</p>
+  <textarea class="sr-only" readonly x-ref="summary" aria-label="The board summary">{{ board_summary }}</textarea>
+  <div class="pl-hq-lg__actions pl-hq-lg__actions--panel">
+    <button type="button" class="pl-hq-lg__btn pl-hq-lg__btn--panel" @click="copy()" data-hq-lg-copy>Copy board summary</button>
+    <a href="{% url 'hq:ledger_csv' hub.slug %}" class="pl-hq-lg__btn pl-hq-lg__btn--panel" hx-boost="false" data-pl-download data-hq-lg-csv>Download ledger (CSV)</a>
+  </div>
+  <details class="pl-hq-lg__approval" {% if approval_form.errors or approval_error %}open{% endif %} data-hq-lg-approval>
+    <summary class="pl-hq-lg__approval-summary">Change the approval</summary>
+    <form method="post" action="{% url 'hq:ledger_approval' hub.slug %}" class="pl-hq-lg__form pl-hq-lg__approval-form" data-hq-lg-approval-form>
+      {% csrf_token %}
+      {{ approval_form.updated_at }}
+      {% if approval_error %}<p class="pl-field-error" role="alert" data-hq-lg-approval-error>{{ approval_error }}</p>{% endif %}
+      <div class="pl-hq-lg__fields">
+        {% include "components/form_field.html" with field=approval_form.approved field_hint_off=True %}
+        {% include "components/form_field.html" with field=approval_form.approved_note field_hint_off=True %}
+      </div>
+      <div class="pl-hq-lg__actions">
+        <button type="submit" class="pl-hq-lg__btn pl-hq-lg__btn--panel-primary" data-hq-lg-approval-submit>Save</button>
+      </div>
+    </form>
+  </details>
+</section>

@@ -522,8 +522,8 @@ a.pl-hq-card:focus-visible {
    rule sits under .pl-hq-vol with its own palette as custom properties, so the HQ restyle and
    this page merge without touching each other. The portal's :root is dark, so the dark values
    are the defaults and the light ones follow [data-theme="light"]. The wine wall (part 3) and
-   the Marketing and Sponsorship Trackers, Vendor Tables, the Market Check-in and the flyer page (Track D) declare
-   the same properties on .pl-hq-wine, .pl-hq-mk, .pl-hq-sp, .pl-hq-vt, .pl-hq-ci and .pl-hq-fl, so the pages read
+   the Marketing and Sponsorship Trackers, Vendor Tables, the Market Check-in, the flyer page and the ledger (Track D) declare
+   the same properties on .pl-hq-wine, .pl-hq-mk, .pl-hq-sp, .pl-hq-vt, .pl-hq-ci, .pl-hq-fl and .pl-hq-lg, so the pages read
    as one family. */
 .pl-hq-vol,
 .pl-hq-wine,
@@ -531,7 +531,8 @@ a.pl-hq-card:focus-visible {
 .pl-hq-sp,
 .pl-hq-vt,
 .pl-hq-ci,
-.pl-hq-fl {
+.pl-hq-fl,
+.pl-hq-lg {
   --pl-hq-vol-bg: #121B2F;
   --pl-hq-vol-surface: #1A2644;
   --pl-hq-vol-ink: #E7ECF3;
@@ -560,7 +561,8 @@ a.pl-hq-card:focus-visible {
 [data-theme="light"] .pl-hq-sp,
 [data-theme="light"] .pl-hq-vt,
 [data-theme="light"] .pl-hq-ci,
-[data-theme="light"] .pl-hq-fl {
+[data-theme="light"] .pl-hq-fl,
+[data-theme="light"] .pl-hq-lg {
   --pl-hq-vol-bg: #ECEFF4;
   --pl-hq-vol-surface: #FFFFFF;
   --pl-hq-vol-ink: #1E2D4E;
@@ -3513,5 +3515,653 @@ a.pl-hq-fl__figure:hover .pl-hq-fl__figure-link {
     height: auto;
     max-height: 100vh;
     object-fit: contain;
+  }
+}
+
+/* ---- PL Ledger, budget (Track D, part 6a) ----
+   Lee's ledger page on the sign-up sheet's palette (declared above), with her chip colours on top: the header with
+   her intro, the board summary on the navy panel (four tiles, the approval meter, the board paragraph, its buttons
+   and the approval form), the budget lines and the ledger as tables scrolling sideways inside their cards on a phone,
+   each line its own tbody with an edit row, the log form with its kind radios and receipt zone, and the receipts
+   report, which prints alone. */
+.pl-hq-lg {
+  --pl-hq-lg-warn: #E9B565;
+  --pl-hq-lg-warn-bg: #3B2C14;
+  --pl-hq-lg-info: #94B8EA;
+  --pl-hq-lg-info-bg: #1E3152;
+  --pl-hq-lg-bad: #EE8B8B;
+  /* One track that may shrink below a table's width, so the table scrolls inside its card, never the page. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.5rem;
+  min-width: 0;
+  max-width: 1080px;
+}
+[data-theme="light"] .pl-hq-lg {
+  --pl-hq-lg-warn: #9A5F0E;
+  --pl-hq-lg-warn-bg: #FBEFD9;
+  --pl-hq-lg-info: #2F5B94;
+  --pl-hq-lg-info-bg: #E2EBF7;
+  --pl-hq-lg-bad: #A23B3B;
+}
+.pl-hq-lg__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.pl-hq-lg__heading {
+  min-width: 0;
+}
+.pl-hq-lg__title {
+  margin: 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-lg__subline {
+  margin: 0.5rem 0 0;
+  font-weight: 700;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-lg__intro {
+  margin: 0.5rem 0 0;
+  max-width: 62ch;
+}
+.pl-hq-lg__back {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: var(--pl-hq-vol-navy);
+  color: #FFFFFF;
+  font-size: 0.88rem;
+  font-weight: 900;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.pl-hq-lg__back:hover {
+  color: #FFFFFF;
+  text-decoration: underline;
+}
+.pl-hq-lg__section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+}
+.pl-hq-lg__section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.pl-hq-lg__h2 {
+  margin: 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.2rem;
+  font-weight: 800;
+  text-transform: capitalize;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-lg__muted {
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-lg__helper {
+  margin: 0;
+  font-size: 0.92rem;
+}
+.pl-hq-lg__strong {
+  font-weight: 900;
+}
+.pl-hq-lg__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pl-hq-lg__nowrap {
+  white-space: nowrap;
+}
+
+/* The board summary: the navy gradient, four tiles (two across on a phone), the meter, the paragraph and buttons. */
+.pl-hq-lg__board {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  border-radius: 16px;
+  background: radial-gradient(120% 140% at 0% 0%, #2A3C63 0%, #1E2D4E 55%, #17233F 100%);
+  color: var(--pl-hq-vol-cream);
+}
+.pl-hq-lg__tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+@media (max-width: 760px) {
+  .pl-hq-lg__tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.pl-hq-lg__tile {
+  display: grid;
+  gap: 2px;
+  align-content: start;
+  min-width: 0;
+}
+.pl-hq-lg__tile-heading {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #C9A44A;
+}
+.pl-hq-lg__tile-figure {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.pl-hq-lg__tile--over .pl-hq-lg__tile-figure {
+  color: #EE8B8B;
+}
+.pl-hq-lg__tile-helper {
+  font-size: 0.85rem;
+  color: #B8C2D4;
+}
+.pl-hq-lg__meter {
+  display: block;
+  width: 100%;
+  height: 10px;
+  border: none;
+  border-radius: 5px;
+  background: #C9A44A;
+  overflow: hidden;
+  appearance: none;
+}
+/* The used part is the muted bar on Lee's gold "left" track. */
+.pl-hq-lg__meter::-webkit-progress-bar {
+  background: #C9A44A;
+}
+.pl-hq-lg__meter::-webkit-progress-value {
+  background: #B8C2D4;
+}
+.pl-hq-lg__meter::-moz-progress-bar {
+  background: #B8C2D4;
+}
+.pl-hq-lg__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: #B8C2D4;
+}
+.pl-hq-lg__legend-item::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+.pl-hq-lg__legend-item--used::before {
+  background: #B8C2D4;
+}
+.pl-hq-lg__legend-item--left::before {
+  background: #C9A44A;
+}
+.pl-hq-lg__summary {
+  margin: 0;
+  max-width: 70ch;
+  font-size: 1.02rem;
+}
+.pl-hq-lg__approval {
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  padding-top: 12px;
+}
+.pl-hq-lg__approval-summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #D6DCE7;
+}
+.pl-hq-lg__approval-form {
+  margin-top: 12px;
+}
+.pl-hq-lg__board .pl-form-label {
+  color: #D6DCE7;
+}
+.pl-hq-lg__board .pl-form-group input {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.08);
+  color: #F6F3EA;
+}
+
+/* Cards and tables: the budget lines and the ledger scroll sideways inside their cards on a phone. */
+.pl-hq-lg__card {
+  min-width: 0;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 14px;
+  background: var(--pl-hq-vol-surface);
+}
+/* Positioned, so the visually hidden labels in the cells are clipped by the scroll, not left to widen the page. */
+.pl-hq-lg__scroll {
+  position: relative;
+  overflow-x: auto;
+}
+.pl-hq-lg__table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-lg__table--entries {
+  min-width: 860px;
+}
+.pl-hq-lg__table th,
+.pl-hq-lg__table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--pl-hq-vol-rule);
+  text-align: left;
+  vertical-align: top;
+}
+.pl-hq-lg__table th.pl-hq-lg__num,
+.pl-hq-lg__table td.pl-hq-lg__num {
+  text-align: right;
+}
+.pl-hq-lg__table thead th {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-lg__table tfoot th,
+.pl-hq-lg__table tfoot td {
+  border-top: 2px solid var(--pl-hq-vol-rule);
+  border-bottom: none;
+  font-weight: 900;
+}
+.pl-hq-lg__table--entries tbody tr:last-child td {
+  border-bottom: none;
+}
+.pl-hq-lg__line-name {
+  min-width: 180px;
+}
+.pl-hq-lg__cat {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-lg__edit-row td {
+  background: var(--pl-hq-vol-bg);
+}
+.pl-hq-lg__empty {
+  padding: 18px;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-lg__link {
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--pl-hq-vol-gold);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.pl-hq-lg__delete {
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  color: var(--pl-hq-lg-bad);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* Chips: Lee's status and Type colours. */
+.pl-hq-lg__chip {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--pl-hq-vol-chip);
+  color: var(--pl-hq-vol-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.pl-hq-lg__chip--ok,
+.pl-hq-lg__chip--sponsored {
+  background: var(--pl-hq-vol-ok-bg);
+  color: var(--pl-hq-vol-ok);
+}
+.pl-hq-lg__chip--info,
+.pl-hq-lg__chip--paid_approval {
+  background: var(--pl-hq-lg-info-bg);
+  color: var(--pl-hq-lg-info);
+}
+.pl-hq-lg__chip--warn,
+.pl-hq-lg__chip--paid_other {
+  background: var(--pl-hq-lg-warn-bg);
+  color: var(--pl-hq-lg-warn);
+}
+
+/* The receipt cell: a thumbnail, or Needs receipt with its Add form. */
+.pl-hq-lg__thumb {
+  display: inline-block;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 6px;
+  background: var(--pl-hq-vol-bg);
+}
+.pl-hq-lg__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pl-hq-lg__receipt-cell {
+  min-width: 170px;
+}
+.pl-hq-lg__attach-summary {
+  cursor: pointer;
+  list-style: none;
+}
+.pl-hq-lg__attach-summary::-webkit-details-marker {
+  display: none;
+}
+.pl-hq-lg__attach-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 0.75rem;
+}
+.pl-hq-lg .pl-hq-lg__zone--sm {
+  min-height: 0;
+  padding: 10px;
+}
+
+/* The disclosure (Add a budget line) in Lee's colours. */
+.pl-hq-lg .pl-hq-lg__disclosure > .pl-disclosure__summary {
+  padding: 14px 18px;
+  border-color: var(--pl-hq-vol-rule);
+  border-radius: 12px;
+  background: var(--pl-hq-vol-surface);
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-lg .pl-hq-lg__disclosure[open] > .pl-disclosure__summary {
+  border-radius: 12px 12px 0 0;
+}
+.pl-hq-lg .pl-hq-lg__disclosure .pl-disclosure__title {
+  font-weight: 900;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-lg .pl-hq-lg__disclosure > .pl-disclosure__body {
+  border-color: var(--pl-hq-vol-rule);
+  border-radius: 0 0 12px 12px;
+  background: var(--pl-hq-vol-surface);
+}
+.pl-hq-lg .pl-disclosure__chevron {
+  color: var(--pl-hq-vol-muted);
+}
+
+/* Forms: the portal's form_field markup in Lee's field colours. */
+.pl-hq-lg__form {
+  display: grid;
+  gap: 12px;
+}
+.pl-hq-lg__log {
+  padding: 18px;
+}
+.pl-hq-lg__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.pl-hq-lg .pl-form-group {
+  margin-bottom: 0;
+}
+.pl-hq-lg .pl-form-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-lg .pl-form-group input,
+.pl-hq-lg .pl-form-group select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 8px;
+  background: var(--pl-hq-vol-field);
+  color: var(--pl-hq-vol-ink);
+  font: inherit;
+}
+.pl-hq-lg .pl-form-group select option {
+  background: var(--pl-hq-vol-field);
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-lg .pl-form-group input[type="radio"] {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  accent-color: var(--pl-hq-vol-gold);
+}
+/* The date picker's icon is black by default: light it on the dark palette (FRONTEND rule 14). */
+.pl-hq-lg input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+[data-theme="light"] .pl-hq-lg input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: none;
+}
+/* What happened?: Lee's four kinds as chips in a row, the chosen one ringed in gold. */
+.pl-hq-lg__kinds .pl-radio-group {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pl-hq-lg__kinds .pl-radio-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 8px;
+  background: var(--pl-hq-vol-bg);
+  color: var(--pl-hq-vol-ink);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.pl-hq-lg__kinds .pl-radio-option:has(input:checked) {
+  border-color: var(--pl-hq-vol-gold);
+  box-shadow: inset 0 0 0 1px var(--pl-hq-vol-gold);
+}
+.pl-hq-lg__upload-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pl-hq-lg__receipt .cls-image-upload-zone {
+  margin-top: 6px;
+}
+.pl-hq-lg .pl-field-error {
+  color: var(--pl-hq-lg-bad);
+}
+
+/* Buttons: primary is navy on white (gold on navy in the dark theme), ghost is the rule as a border. */
+.pl-hq-lg__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.pl-hq-lg__form .pl-hq-lg__actions {
+  margin-top: 0.75rem;
+}
+.pl-hq-lg__btn {
+  display: inline-block;
+  padding: 9px 16px;
+  border: 1px solid var(--pl-hq-vol-btn-bg);
+  border-radius: 9px;
+  background: var(--pl-hq-vol-btn-bg);
+  color: var(--pl-hq-vol-btn-ink);
+  font: inherit;
+  font-weight: 900;
+  text-decoration: none;
+  cursor: pointer;
+}
+.pl-hq-lg__btn:hover {
+  filter: brightness(1.08);
+}
+.pl-hq-lg__btn--ghost {
+  border-color: var(--pl-hq-vol-rule);
+  background: transparent;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-lg__btn--sm {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+/* On the navy panel: ghost buttons in cream, and Save in gold. */
+.pl-hq-lg__btn--panel {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: transparent;
+  color: #F6F3EA;
+}
+.pl-hq-lg__btn--panel-primary {
+  border-color: #C9A44A;
+  background: #C9A44A;
+  color: #1E2D4E;
+}
+.pl-hq-lg__btn:focus-visible,
+.pl-hq-lg__filter:focus-visible,
+.pl-hq-lg__delete:focus-visible,
+.pl-hq-lg__link:focus-visible {
+  outline: 2px solid var(--pl-hq-vol-gold-hi);
+  outline-offset: 2px;
+}
+
+/* The ledger's filter buttons. */
+.pl-hq-lg__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pl-hq-lg__filter {
+  padding: 5px 12px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 9px;
+  background: var(--pl-hq-vol-surface);
+  color: var(--pl-hq-vol-muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.pl-hq-lg__filter[aria-current="true"] {
+  border-color: var(--pl-hq-vol-btn-bg);
+  background: var(--pl-hq-vol-btn-bg);
+  color: var(--pl-hq-vol-btn-ink);
+}
+
+/* The receipts report: the summary box, then one card per purchase with its facts and its receipt. */
+.pl-hq-lg--report {
+  max-width: 820px;
+}
+.pl-hq-lg__report-sum {
+  display: grid;
+  gap: 4px;
+  padding: 14px 18px;
+}
+.pl-hq-lg__report-sum p {
+  margin: 0;
+}
+.pl-hq-lg__report-entry {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+}
+.pl-hq-lg__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 18px;
+  margin: 0;
+}
+@media (max-width: 560px) {
+  .pl-hq-lg__facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.pl-hq-lg__facts div {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+.pl-hq-lg__facts dt {
+  flex: 0 0 90px;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-lg__facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.pl-hq-lg__report-img {
+  display: block;
+  max-width: 100%;
+  max-height: 900px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 6px;
+  background: #FFFFFF;
+}
+
+/* Print: the receipts report alone, black on white, one receipt to a page break where it can. */
+@media print {
+  body:has([data-hq-receipts]) .pl-hq-lg__no-print,
+  body:has([data-hq-receipts]) .pl-topbar,
+  body:has([data-hq-receipts]) .hub-sidebar-backdrop,
+  body:has([data-hq-receipts]) .pl-toast-container {
+    display: none !important;
+  }
+  body:has([data-hq-receipts]) .hub-main-wrapper {
+    margin: 0 !important;
+    padding: 0 !important;
+    transition: none !important;
+  }
+  body:has([data-hq-receipts]) [data-hq-receipts] {
+    max-width: none;
+    color: #000000;
+  }
+  body:has([data-hq-receipts]) [data-hq-receipts] .pl-hq-lg__card {
+    border-color: #CCCCCC;
+    background: #FFFFFF;
+    color: #000000;
+  }
+  body:has([data-hq-receipts]) .pl-hq-lg__report-entry {
+    break-inside: avoid;
+  }
+  /* A receipt fits on a Letter page with its facts above it. */
+  body:has([data-hq-receipts]) .pl-hq-lg__report-img {
+    max-height: 7.5in;
+  }
+  body:has([data-hq-receipts]) [data-hq-receipts] .pl-hq-lg__title,
+  body:has([data-hq-receipts]) [data-hq-receipts] .pl-hq-lg__facts dt,
+  body:has([data-hq-receipts]) [data-hq-receipts] .pl-hq-lg__muted,
+  body:has([data-hq-receipts]) [data-hq-receipts] .pl-hq-lg__subline {
+    color: #000000;
   }
 }

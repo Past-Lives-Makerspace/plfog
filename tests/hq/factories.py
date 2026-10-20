@@ -6,9 +6,12 @@ import factory
 from factory.django import DjangoModelFactory
 
 from hq.models import (
+    BudgetLine,
     EventHub,
     HubCard,
     HubGoal,
+    LedgerEntry,
+    LedgerSettings,
     MarketingAction,
     ShiftSignup,
     Sponsor,
@@ -177,3 +180,37 @@ class VendorFloorFactory(DjangoModelFactory):
 
     hub = factory.SubFactory(EventHubFactory)
     capacity = 24
+
+
+class LedgerSettingsFactory(DjangoModelFactory):
+    """A hub's ledger settings with Lee's defaults ($900 approved)."""
+
+    class Meta:
+        model = LedgerSettings
+
+    hub = factory.SubFactory(EventHubFactory)
+
+
+class BudgetLineFactory(DjangoModelFactory):
+    """A Drinks line with nothing budgeted."""
+
+    class Meta:
+        model = BudgetLine
+
+    hub = factory.SubFactory(EventHubFactory)
+    name = factory.Sequence(lambda n: f"Spec Line {n}")
+    category = BudgetLine.Category.DRINKS
+    sort_order = factory.Sequence(lambda n: n)
+
+
+class LedgerEntryFactory(DjangoModelFactory):
+    """A $25 sponsored gift on a line of the same hub, with no receipt."""
+
+    class Meta:
+        model = LedgerEntry
+
+    hub = factory.SubFactory(EventHubFactory)
+    line = factory.SubFactory(BudgetLineFactory, hub=factory.SelfAttribute("..hub"))
+    kind = LedgerEntry.Kind.SPONSORED
+    source = factory.Sequence(lambda n: f"Spec Source {n}")
+    amount_cents = 2_500

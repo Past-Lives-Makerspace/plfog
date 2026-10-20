@@ -24,7 +24,9 @@ the space map's capacity for the hub. Part 4 adds the Market Check-in behind the
 :class:`MarketReport` is one member artist's sales after the market (one per member), and a
 :class:`VolunteerHours` one stretch of prep or event time a member logged. Part 5 adds the event flyer and sharing
 page behind the ``flyer`` card: a :class:`HubFlyer` holds this year's and last year's flyer, the website and Eventbrite
-links and the message members copy to send friends.
+links and the message members copy to send friends. Part 6a adds the PL Ledger's budget behind the ``ledger`` card: a
+:class:`LedgerSettings` holds the board's approval (and D6b's prices and tickets), a :class:`BudgetLine` one line of the
+budget, and a :class:`LedgerEntry` one gift, purchase or refund against a line, with its receipt.
 """
 
 from __future__ import annotations
@@ -33,8 +35,10 @@ from dataclasses import dataclass, field
 from functools import partial
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -368,6 +372,8 @@ class HubCard(models.Model):
             return reverse("hq:checkin", args=[self.hub.slug])
         if self.kind == self.Kind.FLYER:
             return reverse("hq:flyer", args=[self.hub.slug])
+        if self.kind == self.Kind.LEDGER:
+            return reverse("hq:ledger", args=[self.hub.slug])
         # A live kind whose page has not shipped yet renders like a placeholder: Not shared yet.
         return ""
 
@@ -443,6 +449,7 @@ BUILT_DOORS: frozenset[str] = frozenset(
         HubCard.Kind.VENDOR_TABLES,
         HubCard.Kind.MARKET_CHECKIN,
         HubCard.Kind.FLYER,
+        HubCard.Kind.LEDGER,
     }
 )
 
@@ -1551,7 +1558,8 @@ class HubFlyer(models.Model):
 
     This year's and last year's flyer are each an image (JPG, PNG or WEBP, re-encoded to a JPEG at the hero's long
     edge on save) or a PDF (stored as it came); the upload form checks the content, not the name. A replaced or
-    cleared file is deleted from storage once the save that replaced it has committed. The RSVP figure and the businesses with flyers are never stored here:
+    cleared file is deleted from storage once the save that replaced it has committed, and both files once a delete
+    of the row commits (``hq.signals``, so a hub deleted with everything on it takes them too). The RSVP figure and the businesses with flyers are never stored here:
     the page reads them live from the event and the Marketing Tracker.
     """
 
@@ -1613,3 +1621,235 @@ class HubFlyer(models.Model):
         """The website link's host for its card under Find the event, e.g. "pastlives.space" (``www.`` dropped)."""
         host = urlsplit(self.website_url).hostname or ""
         return host.removeprefix("www.")
+
+
+# ---- PL Ledger (Track D, part 6a) ----
+
+# Lee's board approval for the drinks budget and its note, the defaults of a new :class:`LedgerSettings`.
+LEDGER_APPROVED_CENTS = 90_000
+LEDGER_APPROVED_NOTE = "Drinks budget, Oct 14 meeting"
+
+
+class LedgerSettings(models.Model):
+    """The ledger's figures for a hub that are typed once rather than logged (OneToOne, made on the first save).
+
+    D6a edits the board approval and its note. The drink prices, last year's bar sales, the wine wall's ticket
+    prices and the tickets sold are D6b's, made here so the table has one migration; until D6b they keep Lee's
+    defaults. ``hq.services.ledger_settings`` hands back an unsaved one with the defaults, so a GET never writes.
+    """
+
+    hub = models.OneToOneField(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="ledger_settings",
+        help_text="The HQ whose ledger this is.",
+    )
+    approved_cents = models.PositiveIntegerField(
+        default=LEDGER_APPROVED_CENTS, help_text="The board's approval for the drinks budget, in cents."
+    )
+    approved_note = models.CharField(
+        max_length=120,
+        blank=True,
+        default=LEDGER_APPROVED_NOTE,
+        help_text="The line under Board approval, e.g. Drinks budget, Oct 14 meeting.",
+    )
+    ipa_cents = models.PositiveIntegerField(default=600, help_text="The bar's IPA price, in cents (D6b).")
+    pils_cents = models.PositiveIntegerField(default=600, help_text="The bar's Pilsner price, in cents (D6b).")
+    wine_cents = models.PositiveIntegerField(default=800, help_text="The bar's wine price, in cents (D6b).")
+    na_cents = models.PositiveIntegerField(default=300, help_text="The bar's N/A drink price, in cents (D6b).")
+    last_year_bar_cents = models.PositiveIntegerField(
+        default=50_000, help_text="What the bar sold in 2025, in cents, to beat (D6b)."
+    )
+    ticket_cents = models.PositiveIntegerField(default=2_500, help_text="One wine wall ticket, in cents (D6b).")
+    pair_cents = models.PositiveIntegerField(default=4_000, help_text="The two ticket deal, in cents (D6b).")
+    singles_sold = models.PositiveIntegerField(default=0, help_text="Single wine wall tickets sold (D6b).")
+    pairs_sold = models.PositiveIntegerField(default=0, help_text="Two ticket deals sold (D6b).")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the settings were last saved.")
+
+    def __str__(self) -> str:
+        return f"Ledger settings for {self.hub.title}"
+
+    @property
+    def approval_words(self) -> str:
+        """The approval as the ledger's labels say it, e.g. "$900" in "Paid from board $900"."""
+        return format_money(self.approved_cents)
+
+
+class BudgetCategory(models.TextChoices):
+    """A budget line's category, Lee's five. Only Drinks lines count toward the bar's cost (D6b reads it)."""
+
+    DRINKS = "drinks", "Drinks"
+    EVENT_SUPPLIES = "event_supplies", "Event supplies"
+    MARKETING = "marketing", "Marketing"
+    STAFFING = "staffing", "Staffing"
+    DECOR = "decor", "Decor"
+
+
+class BudgetLine(models.Model):
+    """One line of the event's budget: what it is for, its category and what was budgeted.
+
+    How each line was covered (sponsored, paid from the approval, paid from other funds) is never stored: the
+    ledger's entries are summed per line by :func:`hq.services.ledger_band`. A line with entries cannot be deleted
+    (``LedgerEntry.line`` is RESTRICT).
+    """
+
+    Category = BudgetCategory
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="budget_lines",
+        help_text="The HQ whose budget this line is on.",
+    )
+    name = models.CharField(max_length=120, help_text="The line's name, e.g. Kegs or Wine wall tags.")
+    category = models.CharField(
+        max_length=20,
+        choices=BudgetCategory.choices,
+        default=BudgetCategory.DRINKS,
+        help_text="Which part of the budget the line is in. Drinks lines are the bar's cost.",
+    )
+    budget_cents = models.PositiveIntegerField(default=0, help_text="What was budgeted for the line, in cents.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Position in the table; lower comes first.")
+    updated_at = models.DateTimeField(
+        auto_now=True, help_text="When the line was last saved; a Save older than this is refused."
+    )
+
+    class Meta:
+        ordering = ["sort_order", Lower("name"), "pk"]
+
+    def __str__(self) -> str:
+        return self.name
+
+    @property
+    def budget_display(self) -> str:
+        return format_money(self.budget_cents)
+
+
+class LedgerKind(models.TextChoices):
+    """What a ledger entry is, Lee's four. ``LedgerEntry.Kind`` is this.
+
+    The labels name Lee's $900; the page and the CSV say the hub's approval instead
+    (:func:`hq.services.ledger_kind_label`).
+    """
+
+    SPONSORED = "sponsored", "Sponsored or donated"
+    PAID_APPROVAL = "paid_approval", "Paid from board $900"
+    PAID_OTHER = "paid_other", "Paid from other PLM funds"
+    REFUND = "refund", "Refund back to $900"
+
+
+# The kinds that are money spent or returned, and so take a receipt: everything but a sponsored gift.
+RECEIPT_KINDS: frozenset[str] = frozenset({LedgerKind.PAID_APPROVAL, LedgerKind.PAID_OTHER, LedgerKind.REFUND})
+
+
+def receipt_upload_to(instance: LedgerEntry, filename: str) -> str:
+    """Where a receipt is stored: a random name under ``hq/receipts/`` with the checked file's extension, so a
+    receipt's address cannot be guessed from what the phone called the photo."""
+    return f"hq/receipts/{uuid4().hex}{Path(filename).suffix.lower()}"
+
+
+class LedgerEntry(models.Model):
+    """One line in the ledger: a gift sponsored or donated, a purchase paid from the approval or from other funds,
+    or a refund back to the approval, against a budget line.
+
+    ``amount_cents`` is always above zero; a refund counts against what was used. A receipt (an image, re-encoded to
+    a JPEG at the hero's long edge on save, or a PDF as it came) is taken by every kind but a sponsored gift; the
+    file a replace, a clear or a delete leaves behind is deleted from storage once the database change commits.
+    """
+
+    Kind = LedgerKind
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="ledger_entries",
+        help_text="The HQ whose ledger this entry is in.",
+    )
+    line = models.ForeignKey(
+        BudgetLine,
+        # RESTRICT, not PROTECT: a line with entries cannot be deleted on its own, but deleting the hub takes the lines
+        # and the entries together (PROTECT would make a hub with a ledger undeletable).
+        on_delete=models.RESTRICT,
+        related_name="entries",
+        help_text="The budget line it covers. A line with entries cannot be deleted.",
+    )
+    kind = models.CharField(
+        max_length=20,
+        choices=LedgerKind.choices,
+        default=LedgerKind.SPONSORED,
+        help_text="Sponsored or donated, paid from the approval, paid from other funds, or refunded to the approval.",
+    )
+    source = models.CharField(
+        max_length=160, help_text="The sponsor, the vendor, or who refunded it, e.g. Cascade Brewing."
+    )
+    amount_cents = models.PositiveIntegerField(
+        help_text="The value or the amount, in cents, above zero. A refund counts back against what was used."
+    )
+    date = models.DateField(default=timezone.localdate, help_text="The day it happened, Portland time.")
+    note = models.CharField(max_length=200, blank=True, help_text="Anything else, e.g. 1 half-barrel IPA, in-kind.")
+    receipt = models.FileField(
+        upload_to=receipt_upload_to,
+        blank=True,
+        help_text="The receipt: a photo (resized on upload) or a PDF. Not taken by a sponsored gift.",
+    )
+    created_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="ledger_entries_added",
+        help_text="The organiser who logged it.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was logged.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When it was last saved.")
+
+    class Meta:
+        ordering = ["-date", "-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(condition=Q(amount_cents__gt=0), name="ck_ledgerentry_amount"),
+            models.CheckConstraint(
+                condition=~Q(kind=LedgerKind.SPONSORED) | Q(receipt=""),
+                name="ck_ledgerentry_receipt",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.source} ({self.get_kind_display()})"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Normalise a fresh photo, store the row and its new file, and only then delete the file it replaced.
+
+        The old name is read before the save and deleted once the transaction commits (``HubFlyer.save``'s order), so a
+        storage write or a database error that fails the save leaves the old receipt in place.
+        """
+        old = LedgerEntry.objects.filter(pk=self.pk).values_list("receipt", flat=True).first() if self.pk else None
+        if not is_pdf_name(self.receipt.name or ""):
+            normalize_field_if_uploaded(self, "receipt", settings.IMAGE_MAX_LONG_EDGE_HERO)
+        super().save(*args, **kwargs)
+        if old and old != (self.receipt.name or ""):
+            transaction.on_commit(partial(delete_if_unreferenced, LedgerEntry, "receipt", old, exclude_pk=self.pk))
+
+    @property
+    def takes_receipt(self) -> bool:
+        """Whether this kind of entry takes a receipt: money spent or returned, not a gift."""
+        return self.kind in RECEIPT_KINDS
+
+    @property
+    def needs_receipt(self) -> bool:
+        """Lee's Needs receipt chip: an entry that takes a receipt and has none yet."""
+        return self.takes_receipt and not self.receipt
+
+    @property
+    def receipt_is_pdf(self) -> bool:
+        return is_pdf_name(self.receipt.name or "")
+
+    @property
+    def amount_display(self) -> str:
+        """The amount as the ledger shows it: a refund with a minus in front, e.g. "\u2212$40"."""
+        money = format_money(self.amount_cents)
+        return f"\u2212{money}" if self.kind == LedgerKind.REFUND else money
+
+    @property
+    def signed_cents(self) -> int:
+        """The amount as the ledger counts it: a refund negative, everything else as logged."""
+        return -self.amount_cents if self.kind == LedgerKind.REFUND else self.amount_cents

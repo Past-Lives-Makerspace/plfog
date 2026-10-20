@@ -16,7 +16,10 @@ the band (:func:`vendor_band`, the one source of the confirmed tables the Member
 the list's filters and the three writes (:func:`add_vendor_table`, :func:`update_vendor_table`,
 :func:`set_vendor_floor`). The flyer half holds the page's content (:func:`flyer_page`), the link members share
 (:func:`share_link`, :func:`facebook_share_url`) and the three writes (:func:`set_flyer`, :func:`remove_flyer`,
-:func:`save_flyer_links`).
+:func:`save_flyer_links`). The ledger half (D6a) holds the budget's figures (:func:`ledger_band`, the one source of
+the approval used and left, the sponsored value, each line's totals and the bar's cost), Lee's board summary
+(:func:`board_summary`), the ledger's filters and its writes (:func:`save_approval`, the budget lines',
+:func:`add_ledger_entry`, :func:`attach_receipt`).
 """
 
 from __future__ import annotations
@@ -32,17 +35,35 @@ from urllib.parse import quote
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
-from django.db.models import Count, DecimalField, F, IntegerField, Min, OuterRef, Q, QuerySet, Subquery, Sum
-from django.db.models.functions import Coalesce, Lower
+from django.db.models import (
+    Count,
+    DecimalField,
+    F,
+    IntegerField,
+    Max,
+    Min,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Sum,
+)
+from django.db.models.functions import Coalesce, Lower, Trim
 from django.http import HttpRequest
 from django.utils import timezone
 
 from hq.holiday_bizarre import CHECKIN_THANKS, GOALS
 from hq.models import (
+    RECEIPT_KINDS,
+    BudgetCategory,
+    BudgetLine,
     EventHub,
     FlyerSlot,
     HubFlyer,
     HubGoal,
+    LedgerEntry,
+    LedgerKind,
+    LedgerSettings,
     MarketingAction,
     MarketingKind,
     MarketReport,
@@ -1320,3 +1341,473 @@ def save_flyer_links(hub: EventHub, fields: Mapping[str, Any]) -> HubFlyer:
     """Save the website and Eventbrite links and the share message (the form's cleaned fields) on ``hub``."""
     page, _created = HubFlyer.objects.update_or_create(hub=hub, defaults=dict(fields))
     return page
+
+
+# ---- PL Ledger, budget (Track D, part 6a) ----
+
+# The ledger's filters, in Lee's order: the query value and the button's words; ``all`` shows every entry. The From
+# filter names the hub's approval, so its words are made per page (:func:`ledger_filters`).
+LEDGER_FILTER_ALL = "all"
+
+# Lee's short names for each kind (the ledger's Type chip, the filters and the CSV); ``{approval}`` is the hub's.
+_LEDGER_KIND_SHORT: dict[str, str] = {
+    LedgerKind.SPONSORED: "Sponsored",
+    LedgerKind.PAID_APPROVAL: "From {approval}",
+    LedgerKind.PAID_OTHER: "Other PLM $",
+    LedgerKind.REFUND: "Refund",
+}
+_LEDGER_FILTER_WORDS: dict[str, str] = {**_LEDGER_KIND_SHORT, LedgerKind.REFUND: "Refunds"}
+
+# Lee's board line before anything is logged.
+LEDGER_EMPTY_SUMMARY = "Nothing logged yet. Every sponsor or purchase you add below shows up here."
+
+
+class LineHasEntries(Exception):
+    """A budget line with entries in the ledger cannot be deleted (``LedgerEntry.line`` is RESTRICT)."""
+
+
+class StaleSave(Exception):
+    """A Save from a page older than the record it edits: someone else saved it after the page loaded."""
+
+
+class ReceiptNotTaken(Exception):
+    """A sponsored or donated entry takes no receipt: only money spent or refunded does."""
+
+
+def ledger_settings(hub: EventHub) -> LedgerSettings:
+    """``hub``'s ledger settings, or an unsaved one carrying Lee's defaults until an organiser first saves the
+    approval. Rendering never writes a row."""
+    found = LedgerSettings.objects.filter(hub=hub).first()
+    return found if found is not None else LedgerSettings(hub=hub)
+
+
+def ledger_kind_label(kind: str, approval: str) -> str:
+    """A kind's full label with the hub's approval in place of Lee's $900, e.g. "Paid from board $1,200"."""
+    return str(LedgerKind(kind).label).replace("$900", approval)
+
+
+def ledger_kind_short(kind: str, approval: str) -> str:
+    """A kind's short name for the Type chip and the CSV: Sponsored, From $900, Other PLM $ or Refund."""
+    return _LEDGER_KIND_SHORT[kind].format(approval=approval)
+
+
+def ledger_filters(approval: str) -> list[tuple[str, str]]:
+    """The ledger's filter buttons, in Lee's order, the From filter naming the hub's approval."""
+    return [
+        (LEDGER_FILTER_ALL, "All"),
+        *((kind.value, _LEDGER_FILTER_WORDS[kind].format(approval=approval)) for kind in LedgerKind),
+    ]
+
+
+def ledger_filter(value: str) -> str:
+    """``value`` when it names a kind, else ``all``: a stale or typed address shows every entry."""
+    return value if value in LedgerKind.values else LEDGER_FILTER_ALL
+
+
+def signed_money(cents: int) -> str:
+    """Dollars with a minus in front when below zero, e.g. "-$50", as Lee's figures read when over the approval."""
+    return f"-{format_money(-cents)}" if cents < 0 else format_money(cents)
+
+
+def _dash_or_money(cents: int) -> str:
+    return "\u2013" if cents == 0 else signed_money(cents)
+
+
+@dataclass(frozen=True)
+class LineStatus:
+    """How a budget line was covered, by Lee's rules: the chip's words and its colour."""
+
+    label: str
+    tone: str
+
+
+LINE_OPEN = LineStatus("Open", "")
+LINE_SPONSORED = LineStatus("Sponsored", "ok")
+LINE_PURCHASED = LineStatus("Purchased", "info")
+LINE_MIXED = LineStatus("Mixed", "warn")
+
+
+@dataclass(frozen=True)
+class LineTotals:
+    """One budget line and what its entries add up to, by kind. ``paid_cents`` is net of refunds."""
+
+    line: BudgetLine
+    sponsored_cents: int
+    paid_approval_cents: int
+    refund_cents: int
+    paid_other_cents: int
+    entries: int
+
+    @property
+    def paid_cents(self) -> int:
+        """Paid from the approval less what was refunded back to it."""
+        return self.paid_approval_cents - self.refund_cents
+
+    @property
+    def covered_cents(self) -> int:
+        return self.sponsored_cents + self.paid_cents + self.paid_other_cents
+
+    @property
+    def sponsored_display(self) -> str:
+        """Each covered column as Lee's table reads it: the dollars, or a dash for nothing."""
+        return _dash_or_money(self.sponsored_cents)
+
+    @property
+    def paid_display(self) -> str:
+        return _dash_or_money(self.paid_cents)
+
+    @property
+    def paid_other_display(self) -> str:
+        return _dash_or_money(self.paid_other_cents)
+
+    @property
+    def status(self) -> LineStatus:
+        """Lee's rules: nothing covered is Open; sponsored alone is Sponsored; no sponsorship is Purchased; else
+        Mixed."""
+        if self.covered_cents <= 0:
+            return LINE_OPEN
+        if self.sponsored_cents > 0 and self.paid_cents <= 0 and self.paid_other_cents <= 0:
+            return LINE_SPONSORED
+        if self.sponsored_cents <= 0:
+            return LINE_PURCHASED
+        return LINE_MIXED
+
+
+@dataclass(frozen=True)
+class LedgerBand:
+    """The board summary and the budget lines' figures: the approval, what was used and is left, the sponsored
+    value, and every line's totals.
+
+    These are the one source of the ledger's figures: the hub's goals, the running tally (D6c) and the bar (D6b,
+    :attr:`bar_cost_cents`) read them here. ``used`` is paid from the approval less refunds, so it goes below zero
+    when more came back than went out, and ``left`` goes below zero when the approval is overspent.
+    """
+
+    approved_cents: int
+    approved_note: str
+    approval: str
+    sponsored_cents: int
+    paid_approval_cents: int
+    paid_other_cents: int
+    refund_cents: int
+    sponsors: int
+    entries: int
+    lines: tuple[LineTotals, ...]
+
+    @property
+    def used_cents(self) -> int:
+        return self.paid_approval_cents - self.refund_cents
+
+    @property
+    def approved_display(self) -> str:
+        return format_money(self.approved_cents)
+
+    @property
+    def used_display(self) -> str:
+        return signed_money(self.used_cents)
+
+    @property
+    def left_display(self) -> str:
+        return signed_money(self.left_cents)
+
+    @property
+    def sponsored_display(self) -> str:
+        return format_money(self.sponsored_cents)
+
+    @property
+    def paid_approval_display(self) -> str:
+        return format_money(self.paid_approval_cents)
+
+    @property
+    def refund_display(self) -> str:
+        return format_money(self.refund_cents)
+
+    @property
+    def paid_other_display(self) -> str:
+        return format_money(self.paid_other_cents)
+
+    @property
+    def left_cents(self) -> int:
+        return self.approved_cents - self.used_cents
+
+    @property
+    def used_percent(self) -> int:
+        """How much of the approval is used, 0 to 100, for the meter; a zero approval with anything used is full."""
+        if self.approved_cents == 0:
+            return 100 if self.used_cents > 0 else 0
+        return max(0, min(100, round(self.used_cents * 100 / self.approved_cents)))
+
+    @property
+    def used_line(self) -> str:
+        """The line under Used from approval, in Lee's words."""
+        if self.refund_cents > 0:
+            return f"{format_money(self.paid_approval_cents)} spent, {format_money(self.refund_cents)} refunded"
+        return "Net of keg deposit refunds"
+
+    @property
+    def left_line(self) -> str:
+        return "Over the approval" if self.left_cents < 0 else "Not yet spent"
+
+    @property
+    def sponsored_line(self) -> str:
+        if self.sponsors:
+            return f"{self.sponsors} sponsor{'s' if self.sponsors > 1 else ''}, cash + in-kind"
+        return "Cash + in-kind gifts"
+
+    @property
+    def budget_total_cents(self) -> int:
+        return sum(totals.line.budget_cents for totals in self.lines)
+
+    @property
+    def lines_sponsored_cents(self) -> int:
+        return sum(totals.sponsored_cents for totals in self.lines)
+
+    @property
+    def lines_paid_cents(self) -> int:
+        return sum(totals.paid_cents for totals in self.lines)
+
+    @property
+    def lines_paid_other_cents(self) -> int:
+        return sum(totals.paid_other_cents for totals in self.lines)
+
+    @property
+    def totals_row(self) -> tuple[str, str, str, str]:
+        """The budget lines' Total row: the budget, sponsored, paid from the approval (net) and other funds."""
+        return (
+            format_money(self.budget_total_cents),
+            format_money(self.lines_sponsored_cents),
+            signed_money(self.lines_paid_cents),
+            format_money(self.lines_paid_other_cents),
+        )
+
+    @property
+    def bar_cost_cents(self) -> int:
+        """What the bar cost: paid from the approval net of refunds plus paid from other funds, on Drinks lines only,
+        never below zero. Lee's page summed every line, which would charge decor and marketing to the bar."""
+        drinks = [totals for totals in self.lines if totals.line.category == BudgetCategory.DRINKS]
+        return max(0, sum(totals.paid_cents + totals.paid_other_cents for totals in drinks))
+
+
+def _kind_sum(kind: str, prefix: str = "") -> Coalesce:
+    return Coalesce(Sum(f"{prefix}amount_cents", filter=Q(**{f"{prefix}kind": kind})), 0)
+
+
+def ledger_band(hub: EventHub, settings_row: LedgerSettings | None = None) -> LedgerBand:
+    """The ledger's figures for ``hub`` in three queries (two when ``settings_row`` is passed): the settings, one
+    aggregate over the entries, and the lines with their sums by kind."""
+    found = settings_row if settings_row is not None else ledger_settings(hub)
+    totals = hub.ledger_entries.aggregate(
+        **{kind: _kind_sum(kind) for kind in LedgerKind.values},
+        entries=Count("pk"),
+        sponsors=Count(
+            Lower(Trim("source")),
+            filter=Q(kind=LedgerKind.SPONSORED) & ~Q(source=""),
+            distinct=True,
+        ),
+    )
+    # The order is spelled out: a GROUP BY query does not take the model's Meta.ordering.
+    lines = hub.budget_lines.annotate(
+        **{f"sum_{kind}": _kind_sum(kind, "entries__") for kind in LedgerKind.values},
+        entry_count=Count("entries"),
+    ).order_by("sort_order", Lower("name"), "pk")
+    return LedgerBand(
+        approved_cents=found.approved_cents,
+        approved_note=found.approved_note,
+        approval=found.approval_words,
+        sponsored_cents=totals[LedgerKind.SPONSORED],
+        paid_approval_cents=totals[LedgerKind.PAID_APPROVAL],
+        paid_other_cents=totals[LedgerKind.PAID_OTHER],
+        refund_cents=totals[LedgerKind.REFUND],
+        sponsors=totals["sponsors"],
+        entries=totals["entries"],
+        lines=tuple(
+            LineTotals(
+                line=line,
+                sponsored_cents=getattr(line, f"sum_{LedgerKind.SPONSORED}"),
+                paid_approval_cents=getattr(line, f"sum_{LedgerKind.PAID_APPROVAL}"),
+                refund_cents=getattr(line, f"sum_{LedgerKind.REFUND}"),
+                paid_other_cents=getattr(line, f"sum_{LedgerKind.PAID_OTHER}"),
+                entries=line.entry_count,
+            )
+            for line in lines
+        ),
+    )
+
+
+def bar_cost_cents(hub: EventHub) -> int:
+    """What the bar cost on ``hub``: :attr:`LedgerBand.bar_cost_cents`, the Drinks lines only. D6b reads it here."""
+    return ledger_band(hub).bar_cost_cents
+
+
+@dataclass(frozen=True)
+class DoorFigures:
+    """What the board summary reads from the other doors, each from its one source, never a copy."""
+
+    sponsors: SponsorBand
+    flyers: int
+    checkin: CheckinBand
+    wine: WineBand
+
+
+def door_figures(hub: EventHub) -> DoorFigures:
+    """The other doors' figures the board summary says, in a fixed number of queries."""
+    return DoorFigures(
+        sponsors=sponsor_band(hub),
+        flyers=marketing_totals(hub)[MarketingKind.FLYER],
+        checkin=checkin_band(hub),
+        wine=wine_band(hub),
+    )
+
+
+def _plural(count: int, one: str, many: str) -> str:
+    return f"{count} {one if count == 1 else many}"
+
+
+def board_summary(band: LedgerBand, doors: DoorFigures) -> str:
+    """Lee's board summary paragraph (her ``summaryText``), the sentences in her order.
+
+    The drinks budget comes from the ledger; then, each only when it has something to say, the cash sponsorships
+    (the Sponsorship Tracker), the flyers (the Marketing Tracker's businesses with flyers), the volunteers (the Market
+    Check-in's hours) and the wine wall. D6b adds the event cash, the drink sales and the wine wall tickets, and D6c
+    the guild demos, the staff time and the attendance, each in the place Lee gives it (marked below).
+    """
+    money = format_money
+    parts = [f"Holiday Bizarre drinks: the board approved {money(band.approved_cents)}."]
+    by = f" by {_plural(band.sponsors, 'sponsor', 'sponsors')}" if band.sponsors else ""
+    parts.append(f"So far {money(band.sponsored_cents)} in drinks and supplies has been sponsored{by}.")
+    after = f" (after {money(band.refund_cents)} in refunds)" if band.refund_cents > 0 else ""
+    parts.append(
+        f"We have used {signed_money(band.used_cents)} of the approval{after}, leaving {signed_money(band.left_cents)}."
+    )
+    if band.paid_other_cents > 0:
+        parts.append(f"Another {money(band.paid_other_cents)} came from other PLM funds.")
+    # D6b: the event cash goal, then the drink sales.
+    sponsors = doors.sponsors
+    if sponsors.received_cents + sponsors.committed_cents > 0:
+        parts.append(
+            f"Cash sponsorships: {money(sponsors.received_cents)} received and "
+            f"{money(sponsors.committed_cents)} committed."
+        )
+    # D6c: the guild demos.
+    if doors.flyers:
+        parts.append(f"Flyers are up at {_plural(doors.flyers, 'location', 'locations')}.")
+    # D6c: the staff time.
+    checkin = doors.checkin
+    if checkin.hours:
+        people = _plural(checkin.volunteers, "person", "people")
+        parts.append(f"Volunteers: {people} gave {checkin.hours_display} hours to event prep.")
+    # D6c: the attendance and the vendors.
+    wine = doors.wine
+    if wine.bottles > 0:
+        of = f" of {wine.goal}" if wine.goal else ""
+        parts.append(f"Wine wall: {wine.bottles}{of} bottles donated, worth {money(wine.value_cents)}.")
+        # D6b: the tickets sold.
+    return " ".join(parts)
+
+
+def board_line(band: LedgerBand, doors: DoorFigures) -> str:
+    """The paragraph under the board summary's meter: Lee's empty line until the ledger has an entry."""
+    return board_summary(band, doors) if band.entries else LEDGER_EMPTY_SUMMARY
+
+
+def filtered_entries(hub: EventHub, show: str) -> QuerySet[LedgerEntry]:
+    """``hub``'s ledger entries newest first under the filter ``show``, each with its line."""
+    entries = hub.ledger_entries.select_related("line")
+    return entries if show == LEDGER_FILTER_ALL else entries.filter(kind=show)
+
+
+def receipt_entries(hub: EventHub) -> QuerySet[LedgerEntry]:
+    """Every entry that takes a receipt, oldest first (Lee's receipts report order), each with its line."""
+    return hub.ledger_entries.filter(kind__in=RECEIPT_KINDS).select_related("line").order_by("date", "created_at", "pk")
+
+
+def save_approval(hub: EventHub, *, approved_cents: int, approved_note: str, seen: str) -> LedgerSettings:
+    """Record the board's approval and its note on ``hub``, making the settings row on the first save. Only those two
+    fields are written, so D6b's prices and tickets are never overwritten from an older page.
+
+    The settings row is locked for the check: ``seen`` is its ``updated_at`` as the form was rendered with it (blank
+    before the first save), and a Save after someone else saved the settings is refused whole. A first save, with no
+    row yet, is never stale.
+
+    Raises:
+        StaleSave: the settings were saved after the page loaded.
+    """
+    with transaction.atomic():
+        found, created = LedgerSettings.objects.select_for_update().get_or_create(
+            hub=hub, defaults={"approved_cents": approved_cents, "approved_note": approved_note}
+        )
+        if not created:
+            if seen != found.updated_at.isoformat():
+                raise StaleSave("Someone else changed the approval.")
+            found.approved_cents = approved_cents
+            found.approved_note = approved_note
+            found.save(update_fields=["approved_cents", "approved_note", "updated_at"])
+    return found
+
+
+def add_budget_line(hub: EventHub, fields: Mapping[str, Any]) -> BudgetLine:
+    """Put a budget line on ``hub`` from the form's fields, after the lines it has."""
+    last = hub.budget_lines.aggregate(last=Max("sort_order"))["last"]
+    return BudgetLine.objects.create(hub=hub, sort_order=0 if last is None else last + 1, **fields)
+
+
+def update_budget_line(line: BudgetLine, fields: Mapping[str, Any], *, seen: str) -> BudgetLine:
+    """Save the line's edited fields under a row lock, unless the line was saved after the page loaded: ``seen`` is
+    its ``updated_at`` as the form was rendered with it, and a Save from an older page is refused whole.
+
+    Raises:
+        StaleSave: the line was saved after the page loaded.
+    """
+    with transaction.atomic():
+        locked = BudgetLine.objects.select_for_update().get(pk=line.pk)
+        if seen != locked.updated_at.isoformat():
+            raise StaleSave(f"Someone else changed {locked.name}.")
+        for name, value in fields.items():
+            setattr(locked, name, value)
+        locked.save()
+    return locked
+
+
+def delete_budget_line(line: BudgetLine) -> None:
+    """Take a budget line off the budget.
+
+    The line's row is locked first, so an entry logged against it (its insert takes a key share lock on the line)
+    waits for the delete rather than slipping in between the count and the delete.
+
+    Raises:
+        LineHasEntries: the line has entries in the ledger, named with how many when they were counted.
+    """
+    with transaction.atomic():
+        list(BudgetLine.objects.select_for_update().filter(pk=line.pk))
+        count = line.entries.count()
+        if count:
+            raise LineHasEntries(
+                f"A budget line with entries cannot be deleted: {line.name} has "
+                f"{_plural(count, 'entry', 'entries')} in the ledger. Delete those entries first."
+            )
+        line.delete()
+
+
+def add_ledger_entry(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> LedgerEntry:
+    """Log an entry on ``hub`` from the form's cleaned fields, stamped with who logged it.
+
+    Raises:
+        ReceiptNotTaken: a receipt came with a sponsored or donated entry.
+    """
+    if fields.get("receipt") and fields["kind"] not in RECEIPT_KINDS:
+        raise ReceiptNotTaken("A sponsored or donated entry takes no receipt.")
+    return LedgerEntry.objects.create(hub=hub, created_by=member, **fields)
+
+
+def attach_receipt(entry: LedgerEntry, upload: UploadedFile) -> LedgerEntry:
+    """Store ``upload`` as ``entry``'s receipt, replacing any it had (the old file is deleted once this commits).
+
+    Raises:
+        ReceiptNotTaken: the entry is sponsored or donated.
+    """
+    if not entry.takes_receipt:
+        raise ReceiptNotTaken("A sponsored or donated entry takes no receipt.")
+    with transaction.atomic():
+        entry.receipt = upload  # type: ignore[assignment]  # a FieldFile takes an uploaded file
+        entry.save(update_fields=["receipt", "updated_at"])
+    return entry

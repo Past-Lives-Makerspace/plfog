@@ -667,6 +667,7 @@ Each card on the page is a door into one part of the event. A card says who it i
 - **Vendor Tables** opens the member artists' table requests, for the vendor team.
 - **Market Check-in** opens artists' market reports and volunteers' hours, for members.
 - **Event flyer and sharing** opens the flyer and the links to share the event.
+- **PL Ledger** opens the event's budget: sponsors, purchases, refunds and receipts, for the core team.
 - A greyed card reading **Not shared yet** is a page the organisers have not opened. It links nowhere.
 
 You only see the doors that are open to you. Every card starts as admins only; an admin opens it to members, to everyone, or to the people who run that part (see Editing the HQ below). A door open to everyone needs no account for what is behind it: RSVP, shifts or bottles. If a door you expect is missing, sign in, or ask an admin.
@@ -788,6 +789,24 @@ Organisers (admins and the people named on the card) get **Update This Page** at
 2. Under **Links and Message**, add the **Website event page link** and the **Eventbrite link**, change the **Message to send friends** if you like, and click **Save**. A link left blank is left off the page.
 
 The RSVP count and the businesses count are never typed here: they come from the event's RSVPs and the Marketing Tracker.
+
+### PL Ledger {#hq-ledger}
+
+The **PL Ledger** door is for the people who run it (admins and the people named on the card); anyone else gets a page saying it is for organisers only.
+
+- **The summary** at the top shows the **Board approval**, how much of it is **Used** (net of refunds), what is **Left**, and the **Sponsored value**, with a paragraph for the board. **Copy board summary** copies that paragraph; **Download ledger (CSV)** gives every entry. **Change the approval** sets the amount and the line under it.
+- **Budget Lines** shows each line's budget and how it was covered: sponsored, paid from the approval, or paid from other Past Lives funds, with a status of Open, Sponsored, Purchased or Mixed. **Add a budget line** adds one; **Edit** on a line changes its name, category or budget. A line with entries in the ledger cannot be deleted.
+
+To log a sponsor or an expense:
+
+1. Under **Log a Sponsor or Expense**, choose what happened: **Sponsored or donated**, **Paid from board $900**, **Paid from other PLM funds**, or **Refund back to $900** (the amount follows the approval).
+2. Pick the **Budget line**, type the sponsor, vendor or who refunded it, the value or amount, and the date.
+3. For a purchase or a refund, add the receipt: click the box or drag a photo or PDF onto it. On a phone, tap it to take a photo. A JPG, PNG, WEBP or HEIC photo (up to 10 MB) or a PDF (up to 25 MB) works.
+4. Click **Add to ledger**.
+
+The **Ledger** lists every entry, newest first, with filters for each kind. A purchase or refund with no receipt shows **Needs receipt**; click **Add** to upload it. **Delete** takes an entry out, receipt and all.
+
+**Download receipts report** opens every purchase and refund with its receipt on one page, oldest first, under the approval's totals. Click **Print or save as PDF** to print it or keep it for the books.
 
 ### Organiser Tools {#hq-organiser-tools}
 

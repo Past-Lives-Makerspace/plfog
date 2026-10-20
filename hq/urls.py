@@ -4,7 +4,8 @@
 a hub from taking that address. The volunteer pages live under ``<slug>/volunteers/`` and the
 wine wall under ``<slug>/wine/``, the Marketing Tracker under ``<slug>/marketing/``, the Sponsorship Tracker
 under ``<slug>/sponsors/``, Vendor Tables under ``<slug>/vendors/``, the Market Check-in under
-``<slug>/check-in/`` and the event flyer and sharing page under ``<slug>/flyer/``.
+``<slug>/check-in/``, the event flyer and sharing page under ``<slug>/flyer/`` and the PL Ledger under
+``<slug>/ledger/``.
 """
 
 from __future__ import annotations
@@ -63,4 +64,14 @@ urlpatterns = [
     path("<slug:slug>/flyer/<slug:slot>/download/", views.flyer_download, name="flyer_download"),
     path("<slug:slug>/flyer/<slug:slot>/upload/", views.flyer_upload, name="flyer_upload"),
     path("<slug:slug>/flyer/<slug:slot>/remove/", views.flyer_remove, name="flyer_remove"),
+    path("<slug:slug>/ledger/", views.ledger, name="ledger"),
+    path("<slug:slug>/ledger.csv", views.ledger_csv, name="ledger_csv"),
+    path("<slug:slug>/ledger/receipts/", views.ledger_receipts, name="ledger_receipts"),
+    path("<slug:slug>/ledger/approval/", views.ledger_approval, name="ledger_approval"),
+    path("<slug:slug>/ledger/lines/add/", views.ledger_line_add, name="ledger_line_add"),
+    path("<slug:slug>/ledger/lines/<int:pk>/edit/", views.ledger_line_edit, name="ledger_line_edit"),
+    path("<slug:slug>/ledger/lines/<int:pk>/delete/", views.ledger_line_delete, name="ledger_line_delete"),
+    path("<slug:slug>/ledger/entries/add/", views.ledger_entry_add, name="ledger_entry_add"),
+    path("<slug:slug>/ledger/entries/<int:pk>/receipt/", views.ledger_receipt, name="ledger_receipt"),
+    path("<slug:slug>/ledger/entries/<int:pk>/delete/", views.ledger_entry_delete, name="ledger_entry_delete"),
 ]

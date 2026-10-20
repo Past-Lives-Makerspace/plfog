@@ -1,0 +1,47 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+The PL Ledger (Track D, part 6a), in the look of Lee's ledger page and in her order: the header with her title and
+line, the board summary (the approval, used, left and sponsored, the meter, her board paragraph, Copy board summary,
+the CSV and the approval form), the budget lines, Log a sponsor or expense, the ledger with its filters, and the
+receipts report. Organisers only: the view's gate is the card's audience and then a 403 for anyone who does not
+organise it, because this is the event's money. D6b and D6c add their sections where the comments say.
+{% endcomment %}
+{% block title %}{{ title }}{% endblock %}
+{% block extra_head %}
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq-lg" data-hq-ledger>
+  <header class="pl-hq-lg__header">
+    <div class="pl-hq-lg__heading">
+      <h1 class="pl-hq-lg__title">{{ title }}</h1>
+      <p class="pl-hq-lg__subline" data-hq-lg-subline>{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %}</p>
+      <p class="pl-hq-lg__intro">{{ intro }}</p>
+    </div>
+    <a href="{% url 'hq:page' hub.slug %}" class="pl-hq-lg__back" data-hq-lg-back>&larr; HQ</a>
+  </header>
+
+  {# D6c: the running tally and the goals strip go here, above the board summary. #}
+
+  {% include "hq/partials/_ledger_board.html" %}
+
+  {% include "hq/partials/_ledger_lines.html" %}
+
+  {% include "hq/partials/_ledger_log.html" %}
+
+  {% include "hq/partials/_ledger_entries.html" %}
+
+  <section class="pl-hq-lg__section" aria-labelledby="hq-lg-receipts-title" data-hq-lg-receipts>
+    <h2 class="pl-hq-lg__h2" id="hq-lg-receipts-title">Receipts</h2>
+    <p class="pl-hq-lg__muted pl-hq-lg__helper">Every purchase and refund with its receipt on one page, to print or save as a PDF for the books.</p>
+    <div class="pl-hq-lg__actions">
+      <a href="{% url 'hq:ledger_receipts' hub.slug %}" class="pl-hq-lg__btn pl-hq-lg__btn--ghost" data-hq-lg-receipts-link>Download receipts report</a>
+    </div>
+  </section>
+
+  {# D6b: drink sales, then the wine wall tickets, go here. #}
+  {# D6c: staff time, guild demos and the launch checklist go here. #}
+</div>
+{% endblock %}

@@ -64,19 +64,14 @@ def describe_the_door():
         assert card.url == _page(card.hub)
         assert f'href="{_page(card.hub)}" class="pl-hq-card" data-hq-card-link' in body
 
-    @pytest.mark.parametrize(
-        "kind",
-        [
-            HubCard.Kind.LEDGER,
-        ],
-    )
-    def it_shows_a_live_kind_with_no_page_yet_as_not_shared(open_hub, kind):
-        HubCardFactory(hub=open_hub, kind=kind, audience=HubCard.Audience.PUBLIC)
+    def it_shows_a_door_with_no_page_as_not_shared(open_hub):
+        """Every Track D door has its page now (D6a built the last); a placeholder still opens nothing."""
+        HubCardFactory(hub=open_hub, kind=HubCard.Kind.PLACEHOLDER, audience=HubCard.Audience.PUBLIC)
 
         body = Client().get(open_hub.get_absolute_url()).content.decode()
 
-        assert open_hub.cards.get(kind=kind).url == ""
-        assert f'data-hq-card="{kind}"' in body
+        assert open_hub.cards.get().url == ""
+        assert f'data-hq-card="{HubCard.Kind.PLACEHOLDER}"' in body
         assert "data-hq-card-placeholder" in body
         assert "data-hq-card-link" not in body
 
