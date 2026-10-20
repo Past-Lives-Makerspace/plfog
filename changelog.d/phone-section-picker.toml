@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-20"
+title = "Tabs on your phone show every section at a glance"
+changes = [
+  "On a phone, rows of tabs that used to slide sideways are now one button showing where you are and how many sections there are, like 2 of 5. Tap it to see them all.",
+  "On a class you teach, the Overview lists every other section with a short note on what it holds, so the Eventbrite tab is easy to find. Other sections show a link back to the class Overview.",
+  "Nothing changes on a computer.",
+]

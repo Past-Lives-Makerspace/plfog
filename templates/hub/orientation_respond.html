@@ -92,6 +92,19 @@
   <p class="hub-text-muted">This request was {{ booking.get_status_display|lower }}.</p>
   {% endif %}
 
+  {% if move_form %}
+  {# Move to Another Time (#853): the open proposal, if any, and the button that opens the move modal. #}
+  <div class="hub-card pl-orient-move-panel" data-orientation-move-panel>
+    {% if booking.has_open_proposal %}
+    <p class="pl-orient-move-panel__proposal" data-booking-proposal>You asked {{ booking.member.display_name }} to move to {{ booking.proposed_starts_at|date:"l, F j" }} at {{ booking.proposed_starts_at|time:"g:i A" }}. Their time stays the same until they answer.</p>
+    {% endif %}
+    <button type="button" class="hub-btn hub-btn--sm" data-orientation-move-open @click="$dispatch('open-modal', 'respond-move')">Move to Another Time</button>
+  </div>
+  {% with move_booking=booking move_next="" move_modal_id="respond-move" %}
+  {% include "components/modal.html" with modal_id="respond-move" modal_title="Move to Another Time" modal_size="sm" modal_body_include="hub/partials/_orientation_move_form.html" %}
+  {% endwith %}
+  {% endif %}
+
   <p><a href="{{ booking.orientation_type.owner_page_path }}">← Back to {{ booking.orientation_type.owner_name }}</a></p>
 </div>
 {% endblock %}
