@@ -2633,16 +2633,18 @@ def ledger_launch_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> 
 @organizer_required(HubCard.Kind.LEDGER)
 def ledger_launch_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
     """Save one task, by the actual role. Over htmx only that row comes back, with the checklist's summary and the
-    figures out of band. A Save from a page older than the task is refused whole under a row lock, and the row comes
-    back as the database holds it with :data:`LAUNCH_STALE_SAVE`."""
+    figures out of band. A Save from a page older than the task (:class:`hq.services.StaleSave`) comes back as the
+    database holds it with :data:`LAUNCH_STALE_SAVE`."""
     fragment = wants_fragment(request)
-    with transaction.atomic():
-        task = get_object_or_404(hub.launch_tasks.select_for_update(), pk=pk)
-        form = _launch_form(task, request.POST)
-        stale = form.is_stale
-        valid = not stale and form.is_valid()
-        if valid:
-            services.update_launch_task(task, form.to_fields())
+    task = get_object_or_404(hub.launch_tasks, pk=pk)
+    form = _launch_form(task, request.POST)
+    valid = form.is_valid()
+    stale = False
+    if valid:
+        try:
+            task = services.update_launch_task(task, form.to_fields(), seen=form.seen())
+        except services.StaleSave:
+            valid, stale = False, True
     if valid and not fragment:
         messages.success(request, f"{task.task} saved.")
         return redirect(_ledger_section_url(hub, "hq-lg-launch"))
@@ -2794,16 +2796,18 @@ def ledger_guilds_add_all(request: HttpRequest, *, hub: EventHub, card: HubCard)
 @organizer_required(HubCard.Kind.LEDGER)
 def ledger_guild_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
     """Save one guild's row, by the actual role. Over htmx only that row comes back, with the summary and the figures
-    out of band. A Save from a page older than the row is refused whole under a row lock, and the row comes back as the
-    database holds it with :data:`GUILD_STALE_SAVE`."""
+    out of band. A Save from a page older than the row (:class:`hq.services.StaleSave`) comes back as the database
+    holds it with :data:`GUILD_STALE_SAVE`."""
     fragment = wants_fragment(request)
-    with transaction.atomic():
-        row = get_object_or_404(hub.guild_demos.select_related("guild").select_for_update(of=("self",)), pk=pk)
-        form = _guild_form(row, request.POST)
-        stale = form.is_stale
-        valid = not stale and form.is_valid()
-        if valid:
-            services.update_guild_demo(row, form.to_fields())
+    row = get_object_or_404(hub.guild_demos.select_related("guild"), pk=pk)
+    form = _guild_form(row, request.POST)
+    valid = form.is_valid()
+    stale = False
+    if valid:
+        try:
+            row = services.update_guild_demo(row, form.to_fields(), seen=form.seen())
+        except services.StaleSave:
+            valid, stale = False, True
     if valid and not fragment:
         messages.success(request, f"{row.guild.name} saved.")
         return redirect(_ledger_section_url(hub, "hq-lg-guilds"))

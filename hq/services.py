@@ -2564,12 +2564,21 @@ def add_launch_task(hub: EventHub, fields: Mapping[str, Any]) -> LaunchTask:
     return LaunchTask.objects.create(hub=hub, sort_order=0 if last is None else last + 1, **fields)
 
 
-def update_launch_task(task: LaunchTask, fields: Mapping[str, Any]) -> LaunchTask:
-    """Save the row's edited fields on ``task``."""
-    for name, value in fields.items():
-        setattr(task, name, value)
-    task.save()
-    return task
+def update_launch_task(task: LaunchTask, fields: Mapping[str, Any], *, seen: str) -> LaunchTask:
+    """Save the row's edited fields on ``task`` under a row lock, unless the task was saved after the page loaded:
+    ``seen`` is its ``updated_at`` as the form was rendered with it, and a Save from an older page is refused whole.
+
+    Raises:
+        StaleSave: the task was saved after the page loaded.
+    """
+    with transaction.atomic():
+        locked = LaunchTask.objects.select_for_update().get(pk=task.pk)
+        if seen != locked.updated_at.isoformat():
+            raise StaleSave(f"Someone else changed {locked.task}.")
+        for name, value in fields.items():
+            setattr(locked, name, value)
+        locked.save()
+    return locked
 
 
 # -- Staff time --
@@ -2727,8 +2736,9 @@ class GuildAlreadyListed(Exception):
 def add_guild_demo(hub: EventHub, guild: Guild, *, lead: str) -> GuildDemo:
     """Put ``guild`` on ``hub``'s list (its lead as typed, else the guild's lead).
 
-    The hub's row is locked first, as :func:`add_every_active_guild` locks it, so the two never both add one guild;
-    a row that landed anyway (an admin's insert holds no lock) is answered by the one-per-guild constraint.
+    The hub's row is locked first, as :func:`add_every_active_guild` locks it, so the two never both add one guild.
+    Any other insert of a row for the hub needs a key share lock on the hub's row to commit (its foreign key check),
+    so none lands between the check and the insert.
 
     Raises:
         GuildAlreadyListed: the guild is on the list already, named.
@@ -2738,11 +2748,7 @@ def add_guild_demo(hub: EventHub, guild: Guild, *, lead: str) -> GuildDemo:
         list(EventHub.objects.select_for_update().filter(pk=hub.pk))
         if hub.guild_demos.filter(guild=guild).exists():
             raise GuildAlreadyListed(refusal)
-        try:
-            with transaction.atomic():
-                return GuildDemo.objects.create(hub=hub, guild=guild, lead=lead or _lead_name(guild))
-        except IntegrityError as exc:  # a row that landed between the check and the insert
-            raise GuildAlreadyListed(refusal) from exc
+        return GuildDemo.objects.create(hub=hub, guild=guild, lead=lead or _lead_name(guild))
 
 
 def add_every_active_guild(hub: EventHub) -> int:
@@ -2759,12 +2765,21 @@ def add_every_active_guild(hub: EventHub) -> int:
     return len(made)
 
 
-def update_guild_demo(row: GuildDemo, fields: Mapping[str, Any]) -> GuildDemo:
-    """Save the row's edited fields on ``row``."""
-    for name, value in fields.items():
-        setattr(row, name, value)
-    row.save()
-    return row
+def update_guild_demo(row: GuildDemo, fields: Mapping[str, Any], *, seen: str) -> GuildDemo:
+    """Save the row's edited fields on ``row`` under a row lock, unless the row was saved after the page loaded:
+    ``seen`` is its ``updated_at`` as the form was rendered with it, and a Save from an older page is refused whole.
+
+    Raises:
+        StaleSave: the row was saved after the page loaded.
+    """
+    with transaction.atomic():
+        locked = GuildDemo.objects.select_related("guild").select_for_update(of=("self",)).get(pk=row.pk)
+        if seen != locked.updated_at.isoformat():
+            raise StaleSave(f"Someone else changed {locked.guild.name}.")
+        for name, value in fields.items():
+            setattr(locked, name, value)
+        locked.save()
+    return locked
 
 
 # -- The running tally --

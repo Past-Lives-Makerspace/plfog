@@ -33,6 +33,7 @@ from hq.models import (
     BarSale,
     BudgetLine,
     DoorCount,
+    EventHub,
     GuildDemo,
     HubCard,
     HubFlyer,
@@ -46,7 +47,7 @@ from hq.models import (
     hours_words,
 )
 from hub.view_as import ROLE_MEMBER
-from tests.hq.conftest import photo_upload, signed_in
+from tests.hq.conftest import committed_once_we_wait, photo_upload, signed_in
 from tests.hq.factories import (
     BarSaleFactory,
     BudgetLineFactory,
@@ -855,6 +856,28 @@ def describe_the_launch_checklist():
         assert 'id="hq-lg-launch-summary" data-hq-lg-launch-summary hx-swap-oob="true">1 of 1 done</span>' in body
         assert 'href="https://pastlives.space/bizarre" target="_blank" rel="noopener"' in body
 
+    def it_refuses_a_stale_task_in_the_service_by_name_and_writes_nothing(hub):
+        task = LaunchTaskFactory(hub=hub, task="Website live", owner="Someone")
+        older = (task.updated_at - timedelta(seconds=5)).isoformat()
+
+        with pytest.raises(services.StaleSave, match="Someone else changed Website live."):
+            services.update_launch_task(task, {"owner": "Me"}, seen=older)
+
+        assert LaunchTask.objects.get(pk=task.pk).owner == "Someone"
+
+    def it_saves_a_task_in_the_service_under_its_lock(hub):
+        task = LaunchTaskFactory(hub=hub, owner="Someone")
+
+        with CaptureQueriesContext(connection) as queries:
+            saved = services.update_launch_task(task, {"owner": "Me"}, seen=task.updated_at.isoformat())
+
+        sql = [query["sql"] for query in queries.captured_queries]
+        lock = next(i for i, text in enumerate(sql) if "FOR UPDATE" in text)
+        assert '"hq_launchtask"' in sql[lock]
+        assert lock < next(i for i, text in enumerate(sql) if text.startswith("UPDATE"))
+        assert saved.owner == "Me"
+        assert LaunchTask.objects.get(pk=task.pk).owner == "Me"
+
     def it_refuses_a_stale_save_whole_and_shows_the_row_as_saved(hub, lee_client):
         task = LaunchTaskFactory(hub=hub, task="Website live")
         posted = _task_post(task, owner="Me")
@@ -1177,6 +1200,28 @@ def describe_guild_demos():
 
         row.refresh_from_db()
         assert (row.contacted, row.demo) == (False, False)
+
+    def it_refuses_a_stale_row_in_the_service_by_name_and_writes_nothing(hub):
+        row = GuildDemoFactory(hub=hub, guild=GuildFactory(name="Glass Guild"), lead="Theirs")
+        older = (row.updated_at - timedelta(seconds=5)).isoformat()
+
+        with pytest.raises(services.StaleSave, match="Someone else changed Glass Guild."):
+            services.update_guild_demo(row, {"lead": "Mine"}, seen=older)
+
+        assert GuildDemo.objects.get(pk=row.pk).lead == "Theirs"
+
+    def it_saves_a_row_in_the_service_under_its_lock(hub):
+        row = GuildDemoFactory(hub=hub, lead="Theirs")
+
+        with CaptureQueriesContext(connection) as queries:
+            saved = services.update_guild_demo(row, {"lead": "Mine"}, seen=row.updated_at.isoformat())
+
+        sql = [query["sql"] for query in queries.captured_queries]
+        lock = next(i for i, text in enumerate(sql) if "FOR UPDATE" in text)
+        assert '"hq_guilddemo"' in sql[lock]
+        assert lock < next(i for i, text in enumerate(sql) if text.startswith("UPDATE"))
+        assert saved.lead == "Mine"
+        assert GuildDemo.objects.get(pk=row.pk).lead == "Mine"
 
     def it_refuses_a_stale_save_whole(hub, lee_client):
         from hq.views import GUILD_STALE_SAVE
@@ -1772,30 +1817,26 @@ def describe_the_add_guild_race():
         assert lock < insert
         assert row.guild == guild
 
-    def it_refuses_a_guild_another_add_listed_after_the_form_was_read(hub, lee_client, monkeypatch):
-        listed = GuildDemoFactory(hub=hub, guild=GuildFactory(name="Glass Guild"), lead="Kept")
-        # The race: the form read the choices before Add every active guild listed the guild.
-        monkeypatch.setattr(services, "guilds_to_add", lambda hub: [listed.guild])
+    @pytest.mark.django_db(transaction=True)
+    def it_refuses_a_guild_another_add_listed_after_the_form_was_read(hub, lee_client):
+        """Add every active guild holds the hub's row and lists the guild while our form, which still offered it,
+        waits on that lock; ours then finds it listed."""
+        glass, wood = GuildFactory(name="Glass Guild"), GuildFactory(name="Wood Guild")
 
-        response = lee_client.post(_url("ledger_guild_add", hub), {"guild-add-guild": str(listed.guild.pk)}, **HTMX)
-        plain = lee_client.post(_url("ledger_guild_add", hub), {"guild-add-guild": str(listed.guild.pk)}, follow=True)
+        def _listed_by_another(guild: Any) -> Any:
+            def _list() -> None:
+                list(EventHub.objects.select_for_update().filter(pk=hub.pk))
+                GuildDemoFactory(hub=hub, guild=guild, lead="Kept")
+
+            return _list
+
+        with committed_once_we_wait(_listed_by_another(glass)):
+            response = lee_client.post(_url("ledger_guild_add", hub), {"guild-add-guild": str(glass.pk)}, **HTMX)
+        with committed_once_we_wait(_listed_by_another(wood)):
+            plain = lee_client.post(_url("ledger_guild_add", hub), {"guild-add-guild": str(wood.pk)}, follow=True)
 
         assert response.status_code == 200
         assert _toast(response) == {"message": "Glass Guild is already on the list.", "type": "error"}
         assert plain.redirect_chain[-1][0] == f"{_page(hub)}#hq-lg-guilds"
-        assert "Glass Guild is already on the list." in [str(message) for message in plain.context["messages"]]
-        assert list(hub.guild_demos.values_list("lead", flat=True)) == ["Kept"]
-
-    def it_refuses_by_name_when_a_row_lands_between_the_check_and_the_insert(hub, monkeypatch):
-        guild = GuildFactory(name="Glass Guild")
-        clash = IntegrityError('duplicate key value violates unique constraint "uq_guilddemo_hub_guild"')
-
-        def _late_row(*args: Any, **kwargs: Any) -> None:
-            raise clash
-
-        monkeypatch.setattr(GuildDemo.objects, "create", _late_row)
-        with pytest.raises(services.GuildAlreadyListed, match="Glass Guild is already on the list.") as raised:
-            services.add_guild_demo(hub, guild, lead="")
-
-        assert raised.value.__cause__ is clash
-        assert not hub.guild_demos.exists()  # the connection is still usable
+        assert "Wood Guild is already on the list." in [str(message) for message in plain.context["messages"]]
+        assert list(hub.guild_demos.values_list("lead", flat=True)) == ["Kept", "Kept"]

@@ -1438,7 +1438,8 @@ class DoorCountForm(forms.Form):
 class _RowStamp(forms.ModelForm):
     """A row's edit form that carries the row's ``updated_at`` as the page saw it and ties every control to the row's
     ``<form>`` by its ``form`` attribute (``form_id``), since a form cannot wrap a table row. Each label names the row
-    (``row_name``). :attr:`is_stale` is a Save from a page older than the row, which the view refuses whole."""
+    (``row_name``). :meth:`seen` is the stamp its service holds a Save to, refusing one from a page older than the
+    row."""
 
     updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
 
@@ -1456,10 +1457,9 @@ class _RowStamp(forms.ModelForm):
     def _stamp(self) -> str:
         return self.instance.updated_at.isoformat()
 
-    @property
-    def is_stale(self) -> bool:
-        """Whether the posted stamp differs from the row's: someone saved it after this page loaded."""
-        return self.is_bound and self.data.get(self.add_prefix("updated_at"), "") != self._stamp
+    def seen(self) -> str:
+        """The row's ``updated_at`` as this page was rendered with it."""
+        return str(self.cleaned_data["updated_at"])
 
     def to_fields(self) -> dict[str, Any]:
         return {name: self.cleaned_data[name] for name in self._meta.fields or ()}
