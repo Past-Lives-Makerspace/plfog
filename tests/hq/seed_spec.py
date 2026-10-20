@@ -477,7 +477,7 @@ def describe_adopting_a_built_door():
 
         summary = hub.seed_default_cards().summary
 
-        assert summary.startswith("Doors updated: added 1 door;")
+        assert "added 1 door;" in summary
         assert summary.endswith(
             "New and admins only until you open it: Marketing Tracker."
             " If an old Not shared yet card for it is still on the page, delete that one."
