@@ -1,5 +1,6 @@
 """The HQ forms: the hub with its goals, one card with its shifts, a volunteer's Your Info step, the wine wall's Log a
-Bottle and winery logo, and the Marketing Tracker's Log a Marketing Action."""
+Bottle and winery logo, the Marketing Tracker's Log a Marketing Action, and the Sponsorship Tracker's add form, inline
+edit and contact log line."""
 
 from __future__ import annotations
 
@@ -16,7 +17,17 @@ from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.utils import timezone
 
 from core.validators import validate_image_content, validate_image_size
-from hq.models import EventHub, HubCard, HubGoal, MarketingAction, ShiftSignup, VolunteerShift, WineBottle
+from hq.models import (
+    EventHub,
+    HubCard,
+    HubGoal,
+    MarketingAction,
+    ShiftSignup,
+    Sponsor,
+    SponsorTier,
+    VolunteerShift,
+    WineBottle,
+)
 from hq.services import VolunteerInfo
 from membership.models import CommunityEvent, Member
 
@@ -433,3 +444,141 @@ class MarketingActionForm(forms.ModelForm):
     def kept_for_next(self) -> dict[str, Any]:
         """What the next entry starts with after a save: the same kind, date and who; the rest clears."""
         return {key: self.cleaned_data[key] for key in ("kind", "date", "who")}
+
+
+# ---- Sponsorship Tracker (Track D, part 2) ----
+
+# The datalist Who's asking and the log's By suggest from: the Sponsorship card's named members.
+SPONSOR_TEAM_LIST_ID = "hq-sponsor-team"
+
+# The whole field opens the date picker, not just its icon (FRONTEND rule 14).
+_DATE_PICKER = {"type": "date", "@click": "(() => { try { $el.showPicker() } catch (e) {} })()"}
+
+
+def _dollars(label: str) -> forms.IntegerField:
+    """A whole dollar amount, blank meaning none; the form stores it in cents."""
+    return forms.IntegerField(
+        min_value=0,
+        required=False,
+        label=label,
+        widget=forms.NumberInput(attrs={"min": "0", "step": "1"}),
+    )
+
+
+class SponsorForm(forms.ModelForm):
+    """+ Add a Sponsor: Lee's eleven fields, the ask in whole dollars. Every new sponsor starts as a prospect."""
+
+    ask = _dollars("Ask amount ($)")
+
+    class Meta:
+        model = Sponsor
+        fields = [
+            "organization",
+            "tier",
+            "owner",
+            "contact_name",
+            "contact_role",
+            "email",
+            "phone",
+            "next_step",
+            "follow_up_by",
+            "fit_note",
+        ]
+        labels = {
+            "organization": "Business or organization",
+            "tier": "Tier",
+            "owner": "Who's asking",
+            "contact_name": "Contact name",
+            "contact_role": "Their role",
+            "email": "Email",
+            "phone": "Phone",
+            "next_step": "Next step",
+            "follow_up_by": "Follow up by",
+            "fit_note": "Why they're a fit",
+        }
+        widgets: dict[str, forms.Widget] = {
+            "organization": forms.TextInput(attrs={"placeholder": "e.g. OnPoint Community Credit Union"}),
+            "owner": forms.TextInput(
+                attrs={"list": SPONSOR_TEAM_LIST_ID, "placeholder": "e.g. Augustin", "autocomplete": "off"}
+            ),
+            "contact_role": forms.TextInput(attrs={"placeholder": "e.g. Branch manager"}),
+            "email": forms.EmailInput(attrs={"autocomplete": "off"}),
+            "phone": forms.TextInput(attrs={"type": "tel", "autocomplete": "off"}),
+            "next_step": forms.TextInput(attrs={"placeholder": "e.g. Send sponsor deck"}),
+            "follow_up_by": forms.DateInput(format="%Y-%m-%d", attrs=_DATE_PICKER),
+            "fit_note": forms.TextInput(attrs={"placeholder": "e.g. PLM and 16 guild accounts bank with them"}),
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["tier"].choices = [("", "Not set"), *SponsorTier.choices]  # type: ignore[attr-defined]  # a ChoiceField
+        for field in self.fields.values():
+            field.help_text = ""
+
+    def to_fields(self) -> dict[str, Any]:
+        """The sponsor's fields for ``hq.services``: the cleaned data with each dollar amount in cents."""
+        fields = {name: self.cleaned_data[name] for name in self._meta.fields or ()}
+        for dollars, cents in self.MONEY:
+            amount: int | None = self.cleaned_data[dollars]
+            fields[cents] = 0 if amount is None else amount * 100
+        return fields
+
+    # The dollar fields and the model fields they fill.
+    MONEY: tuple[tuple[str, str], ...] = (("ask", "ask_cents"),)
+
+
+class SponsorEditForm(SponsorForm):
+    """The inline edit on a pipeline row: the add form's fields plus the status, the money in, the thank-you,
+    what was promised, the notes and last year's gift. Built with ``initial_for(sponsor)``, never bound to the
+    row itself, so the old status is still on the row when ``hq.services.update_sponsor`` compares."""
+
+    ask = _dollars("Ask ($)")
+    amount = _dollars("Committed or received ($)")
+
+    MONEY = (("ask", "ask_cents"), ("amount", "amount_cents"))
+
+    class Meta(SponsorForm.Meta):
+        fields = [*SponsorForm.Meta.fields, "status", "thanked", "benefits", "note", "history"]
+        labels = {
+            **SponsorForm.Meta.labels,
+            "contact_role": "Role",
+            "status": "Status",
+            "thanked": "Thank-you sent",
+            "benefits": "Benefits promised",
+            "note": "Notes",
+            "history": "Last year (2025)",
+        }
+        widgets: dict[str, forms.Widget] = {
+            **SponsorForm.Meta.widgets,
+            "organization": forms.TextInput(),
+            "contact_role": forms.TextInput(),
+            "next_step": forms.TextInput(),
+            "fit_note": forms.TextInput(),
+            "benefits": forms.TextInput(attrs={"placeholder": "e.g. Logo on flyer, 4 drink tickets"}),
+            "note": forms.Textarea(attrs={"rows": 2}),
+            "history": forms.Textarea(attrs={"rows": 2, "placeholder": "What they gave in 2025, if anything"}),
+        }
+
+    @classmethod
+    def initial_for(cls, sponsor: Sponsor) -> dict[str, Any]:
+        """What the row's form starts with: the sponsor's fields, the money in whole dollars."""
+        initial: dict[str, Any] = {name: getattr(sponsor, name) for name in cls._meta.fields or ()}
+        initial["ask"] = sponsor.ask_cents // 100 or None
+        initial["amount"] = sponsor.amount_cents // 100 or None
+        return initial
+
+
+class SponsorLogForm(forms.Form):
+    """One line for a sponsor's contact log: what happened, and who."""
+
+    text = forms.CharField(
+        max_length=300,
+        label="What happened",
+        widget=forms.TextInput(attrs={"placeholder": "e.g. Called, left voicemail"}),
+    )
+    by = forms.CharField(
+        max_length=120,
+        required=False,
+        label="By",
+        widget=forms.TextInput(attrs={"list": SPONSOR_TEAM_LIST_ID, "placeholder": "By", "autocomplete": "off"}),
+    )

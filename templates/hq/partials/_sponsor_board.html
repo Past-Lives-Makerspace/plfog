@@ -1,0 +1,212 @@
+{% comment %}
+The Sponsorship Tracker's board, and the htmx answer to every form on it: the band (four tiles
+and the two-segment meter toward the event goal), Follow up, the organisers' + Add a sponsor,
+and the pipeline with its filters. Each form posts over htmx and this whole block is swapped
+for the answer, so the band and Follow up move with the edit; the row just saved comes back
+open. Each form carries the filter, so the answer keeps the group in view. Delete is a plain
+post through the confirm modal.
+
+  hub          — required, the EventHub
+  can_organize — required, the effective role's organiser bit: contact details, the forms, the log, the CSV
+  band         — required, a hq.services.SponsorBand
+  follow_ups   — required, a hq.services.FollowUps
+  today        — required, the Portland date, for the pipeline's due highlight
+  add_form     — required, a SponsorForm (bound when an add failed)
+  add_open     — required, whether + Add a sponsor renders open
+  rows         — required, the pipeline's hq.views.SponsorRow list in pipeline order
+  has_sponsors — required, whether the hub has any sponsor at all (picks the empty text)
+  show         — required, the filter in view
+  filters      — required, the (value, label) filter buttons this viewer gets
+  team         — required, the card's named members' display names, for Who's asking and By
+  team_list_id — required, the datalist's id
+{% endcomment %}
+{% url 'hq:sponsors' hub.slug as page_url %}
+<div class="pl-hq-sp__board" data-hq-sp-board>
+  <section class="pl-hq-sp__band" aria-label="Progress" data-hq-sp-band>
+    <div class="pl-hq-sp__tiles">
+      <div class="pl-hq-sp__tile" data-hq-sp-tile="received">
+        <span class="pl-hq-sp__tile-heading">Received</span>
+        <strong class="pl-hq-sp__tile-figure" data-hq-sp-figure>{{ band.received_display }}</strong>
+        <span class="pl-hq-sp__tile-helper" data-hq-sp-helper>{{ band.secured_display }} secured with commitments</span>
+      </div>
+      <div class="pl-hq-sp__tile" data-hq-sp-tile="committed">
+        <span class="pl-hq-sp__tile-heading">Committed</span>
+        <strong class="pl-hq-sp__tile-figure" data-hq-sp-figure>{{ band.committed_display }}</strong>
+        <span class="pl-hq-sp__tile-helper" data-hq-sp-helper>Said yes, not paid yet</span>
+      </div>
+      <div class="pl-hq-sp__tile" data-hq-sp-tile="asked">
+        <span class="pl-hq-sp__tile-heading">Asked, waiting</span>
+        <strong class="pl-hq-sp__tile-figure" data-hq-sp-figure>{{ band.asked_display }}</strong>
+        <span class="pl-hq-sp__tile-helper" data-hq-sp-helper>{{ band.open_asks }} open ask{{ band.open_asks|pluralize }}</span>
+      </div>
+      <div class="pl-hq-sp__tile" data-hq-sp-tile="prospects">
+        <span class="pl-hq-sp__tile-heading">Prospects</span>
+        <strong class="pl-hq-sp__tile-figure" data-hq-sp-figure>{{ band.prospects }}</strong>
+        <span class="pl-hq-sp__tile-helper" data-hq-sp-helper>Not asked yet</span>
+      </div>
+    </div>
+    <div>
+      <div class="pl-hq-sp__meter" data-hq-sp-meter>
+        <progress class="pl-hq-sp__meter-bar pl-hq-sp__meter-bar--committed" max="{{ band.goal_cents }}" value="{{ band.secured_meter_cents }}" aria-hidden="true" data-hq-sp-meter-committed></progress>
+        <progress class="pl-hq-sp__meter-bar pl-hq-sp__meter-bar--received" max="{{ band.goal_cents }}" value="{{ band.received_meter_cents }}" aria-label="Received {{ band.received_display }} and committed {{ band.committed_display }}, toward the {{ band.goal_display }} event goal" data-hq-sp-meter-received></progress>
+      </div>
+      <div class="pl-hq-sp__legend">
+        <span>Received <span class="pl-hq-sp__swatch" aria-hidden="true"></span> · Committed <span class="pl-hq-sp__swatch pl-hq-sp__swatch--committed" aria-hidden="true"></span></span>
+        <span data-hq-sp-goal>Toward the {{ band.goal_display }} event goal</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="pl-hq-sp__section" aria-labelledby="hq-sp-due-title" data-hq-sp-due>
+    <h2 class="pl-hq-sp__h2" id="hq-sp-due-title">Follow Up</h2>
+    <div class="pl-hq-sp__card pl-hq-sp__card--flush">
+      {% if can_organize %}
+        {% for row in follow_ups.rows %}
+        <div class="pl-hq-sp__due-row" data-hq-sp-follow-up="{{ row.sponsor.pk }}">
+          <span><strong>{{ row.sponsor.organization }}</strong> · {{ row.sponsor.next_step|default:"Follow up" }}{% if row.sponsor.owner %} <span class="pl-hq-sp__muted">({{ row.sponsor.owner }})</span>{% endif %}</span>
+          <span class="{% if row.is_due %}pl-hq-sp__due{% else %}pl-hq-sp__muted{% endif %}" data-hq-sp-follow-up-date>{{ row.prefix }}{{ row.sponsor.follow_up_by|date:"M j" }}</span>
+        </div>
+        {% empty %}
+        <p class="pl-hq-sp__empty" data-hq-sp-due-empty>Nothing scheduled. Add a "follow up by" date to any sponsor.</p>
+        {% endfor %}
+      {% elif follow_ups.count %}
+      <p class="pl-hq-sp__empty" data-hq-sp-due-count>{{ follow_ups.count }} follow-up{{ follow_ups.count|pluralize }} scheduled with the team.</p>
+      {% else %}
+      <p class="pl-hq-sp__empty" data-hq-sp-due-empty>Nothing scheduled.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if can_organize %}
+  <datalist id="{{ team_list_id }}" data-hq-sp-team>{% for name in team %}<option value="{{ name }}"></option>{% endfor %}</datalist>
+  <details class="pl-disclosure pl-hq-sp__disclosure" {% if add_open %}open{% endif %} data-hq-sp-add data-help-key="hq.sponsorship">
+    <summary class="pl-disclosure__summary">
+      <span class="pl-disclosure__title">+ Add a sponsor</span>
+      <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+    </summary>
+    <form method="post" action="{% url 'hq:sponsor_add' hub.slug %}" hx-post="{% url 'hq:sponsor_add' hub.slug %}" hx-target="closest [data-hq-sp-board]" hx-swap="outerHTML" class="pl-disclosure__body pl-hq-sp__form" data-hq-sp-add-form>
+      {% csrf_token %}
+      <input type="hidden" name="filter" value="{{ show }}">
+      {% for error in add_form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+      <div class="pl-hq-sp__fields">
+        {% include "components/form_field.html" with field=add_form.organization field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.tier field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.ask field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.owner field_hint_off=True %}
+      </div>
+      <div class="pl-hq-sp__fields">
+        {% include "components/form_field.html" with field=add_form.contact_name field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.contact_role field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.email field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.phone field_hint_off=True %}
+      </div>
+      <div class="pl-hq-sp__fields">
+        {% include "components/form_field.html" with field=add_form.next_step field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.follow_up_by field_hint_off=True %}
+      </div>
+      {% include "components/form_field.html" with field=add_form.fit_note field_hint_off=True %}
+      <div class="pl-hq-sp__actions">
+        <button type="submit" class="pl-hq-sp__btn" data-hq-sp-add-submit>Add sponsor</button>
+      </div>
+    </form>
+  </details>
+  {% endif %}
+
+  <section class="pl-hq-sp__section" aria-labelledby="hq-sp-pipe-title" data-hq-sp-pipeline>
+    <div class="pl-hq-sp__pipe-head">
+      <h2 class="pl-hq-sp__h2" id="hq-sp-pipe-title">Pipeline</h2>
+      {% if can_organize %}<a href="{% url 'hq:sponsors_csv' hub.slug %}" class="pl-hq-sp__csv" hx-boost="false" data-pl-download data-hq-sp-csv>Download CSV</a>{% endif %}
+    </div>
+    <nav class="pl-hq-sp__filters" aria-label="Filter the pipeline" data-hq-sp-filters>
+      {% for value, label in filters %}
+      <a href="{{ page_url }}{% if value != 'all' %}?filter={{ value }}{% endif %}" class="pl-hq-sp__filter" data-hq-sp-filter="{{ value }}"{% if value == show %} aria-current="true"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </nav>
+    <div class="pl-hq-sp__card pl-hq-sp__card--flush">
+      {% for row in rows %}
+      {% with sponsor=row.sponsor %}
+      {% if can_organize %}
+      <details class="pl-hq-sp__row" data-hq-sp-row="{{ sponsor.pk }}"{% if row.is_open %} open{% endif %}>
+        <summary class="pl-hq-sp__summary">
+          <span class="pl-hq-sp__name">{{ sponsor.organization }}{% if sponsor.history %} <span class="pl-hq-sp__chip pl-hq-sp__chip--asked" data-hq-sp-donor>2025 donor</span>{% endif %}{% if sponsor.organiser_line %}<small data-hq-sp-line>{{ sponsor.organiser_line }}</small>{% endif %}</span>
+          <span class="pl-hq-sp__chip pl-hq-sp__chip--{{ sponsor.status }}" data-hq-sp-status="{{ sponsor.status }}">{{ sponsor.get_status_display }}</span>
+          <span class="pl-hq-sp__next">{% if sponsor.next_step %}{{ sponsor.next_step }}{% else %}<span class="pl-hq-sp__muted">No next step</span>{% endif %}{% if sponsor.follow_up_by %}<small class="{% if sponsor.is_following_up and sponsor.follow_up_by <= today %}pl-hq-sp__due{% endif %}" data-hq-sp-row-due>by {{ sponsor.follow_up_by|date:"M j" }}</small>{% endif %}</span>
+          <span class="pl-hq-sp__amount" data-hq-sp-amount>{{ sponsor.figure_display }}<small>{{ sponsor.figure_label }}</small></span>
+          <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="pl-hq-sp__row-body">
+          {% if sponsor.history %}<p class="pl-hq-sp__history" data-hq-sp-history><strong>Last year (2025, as a donation):</strong> {{ sponsor.history }}</p>{% endif %}
+          {% with form=row.edit_form %}
+          <form method="post" action="{% url 'hq:sponsor_edit' hub.slug sponsor.pk %}" hx-post="{% url 'hq:sponsor_edit' hub.slug sponsor.pk %}" hx-target="closest [data-hq-sp-board]" hx-swap="outerHTML" class="pl-hq-sp__form" data-hq-sp-edit-form>
+            {% csrf_token %}
+            <input type="hidden" name="filter" value="{{ show }}">
+            {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+            <div class="pl-hq-sp__fields">
+              {% include "components/form_field.html" with field=form.status field_hint_off=True %}
+              {% include "components/form_field.html" with field=form.ask field_hint_off=True %}
+              {% include "components/form_field.html" with field=form.amount field_hint_off=True %}
+              {% include "components/form_field.html" with field=form.owner field_hint_off=True %}
+            </div>
+            <div class="pl-hq-sp__fields">
+              {% include "components/form_field.html" with field=form.contact_name field_hint_off=True %}
+              {% include "components/form_field.html" with field=form.contact_role field_hint_off=True %}
+              {% include "components/form_field.html" with field=form.email field_hint_off=True %}
+              {% include "components/form_field.html" with field=form.phone field_hint_off=True %}
+            </div>
+            <div class="pl-hq-sp__fields">
+              {% include "components/form_field.html" with field=form.next_step field_hint_off=True %}
+              {% include "components/form_field.html" with field=form.follow_up_by field_hint_off=True %}
+              {% include "components/form_field.html" with field=form.tier field_hint_off=True %}
+              {% include "components/form_field.html" with field=form.organization field_hint_off=True %}
+            </div>
+            {% include "components/form_field.html" with field=form.thanked field_hint_off=True %}
+            {% include "components/form_field.html" with field=form.fit_note field_hint_off=True %}
+            {% include "components/form_field.html" with field=form.benefits field_hint_off=True %}
+            {% include "components/form_field.html" with field=form.note field_hint_off=True %}
+            {% include "components/form_field.html" with field=form.history field_hint_off=True %}
+            <div class="pl-hq-sp__actions">
+              <button type="submit" class="pl-hq-sp__btn" data-hq-sp-save>Save</button>
+            </div>
+          </form>
+          {% endwith %}
+
+          <div class="pl-hq-sp__log" data-hq-sp-log>
+            <h3 class="pl-hq-sp__h3">Contact Log</h3>
+            {% for entry in sponsor.log_entries.all %}
+            <p class="pl-hq-sp__log-line" data-hq-sp-log-line><span class="pl-hq-sp__when">{{ entry.date|date:"M j" }}</span><span>{{ entry.text }}{% if entry.by %} <span class="pl-hq-sp__muted">({{ entry.by }})</span>{% endif %}</span></p>
+            {% empty %}
+            <p class="pl-hq-sp__muted" data-hq-sp-log-empty>No contact logged yet.</p>
+            {% endfor %}
+            {% with form=row.log_form %}
+            <form method="post" action="{% url 'hq:sponsor_log' hub.slug sponsor.pk %}" hx-post="{% url 'hq:sponsor_log' hub.slug sponsor.pk %}" hx-target="closest [data-hq-sp-board]" hx-swap="outerHTML" class="pl-hq-sp__log-form" data-hq-sp-log-form>
+              {% csrf_token %}
+              <input type="hidden" name="filter" value="{{ show }}">
+              {% include "components/form_field.html" with field=form.text field_hint_off=True %}
+              {% include "components/form_field.html" with field=form.by field_hint_off=True %}
+              <button type="submit" class="pl-hq-sp__btn pl-hq-sp__btn--ghost" data-hq-sp-log-submit>Add to log</button>
+            </form>
+            {% endwith %}
+          </div>
+
+          <div class="pl-hq-sp__row-foot">
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'delete-sponsor-{{ sponsor.pk }}')" data-hq-sp-delete>Delete sponsor</button>
+            {% url 'hq:sponsor_delete' hub.slug sponsor.pk as delete_url %}
+            {% with pk_text=sponsor.pk|stringformat:"s" %}
+            {% include "components/confirm_modal.html" with confirm_id="delete-sponsor-"|add:pk_text confirm_title="Delete this sponsor?" confirm_message="The sponsor and its contact log are removed and the totals change. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" confirm_field_name="filter" confirm_field_value=show %}
+            {% endwith %}
+          </div>
+        </div>
+      </details>
+      {% else %}
+      <div class="pl-hq-sp__row pl-hq-sp__row--plain" data-hq-sp-row="{{ sponsor.pk }}">
+        <span class="pl-hq-sp__name">{{ sponsor.organization }}{% if sponsor.tier %}<small>{{ sponsor.get_tier_display }}</small>{% endif %}</span>
+        <span class="pl-hq-sp__chip pl-hq-sp__chip--{{ sponsor.status }}" data-hq-sp-status="{{ sponsor.status }}">{{ sponsor.get_status_display }}</span>
+      </div>
+      {% endif %}
+      {% endwith %}
+      {% empty %}
+      <p class="pl-hq-sp__empty" data-hq-sp-empty>{% if has_sponsors %}No sponsors in this group.{% elif can_organize %}No sponsors yet. Add your first one above.{% else %}No sponsors yet.{% endif %}</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>

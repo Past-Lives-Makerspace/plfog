@@ -654,6 +654,7 @@ Each card on the page is a door into one part of the event. A card says who it i
 - **Volunteer Sign-up** opens the shifts.
 - **Log a wine bottle** opens the wine wall.
 - **Marketing Tracker** opens the marketing log.
+- **Sponsorship Tracker** opens the sponsors the team is asking.
 - A greyed card reading **Not shared yet** is a page the organisers have not opened. It links nowhere.
 
 You only see the doors that are open to you. Every card starts as admins only; an admin opens it to members, to everyone, or to the people who run that part (see Editing the HQ below). A door open to everyone needs no account for what is behind it: RSVP, shifts or bottles. If a door you expect is missing, sign in, or ask an admin.
@@ -704,6 +705,25 @@ To log something:
 4. Click **Add to the log**.
 
 The action joins the top of the list and the tiles move. What, Date and Who stay filled in for the next one, so a run of flyer drop-offs is quick. **Delete** on a row takes it off the log.
+
+### Sponsorship Tracker {#hq-sponsorship}
+
+Open the **Sponsorship Tracker** door. Everyone it is open to sees the totals, the sponsors' names, tiers and where each ask stands; the people named on the card, and admins, see the contact details, notes and log, and make the changes.
+
+The band at the top adds up the sponsors: **Received** (money in), **Committed** (said yes, not paid yet), **Asked, waiting** and the **Prospects** not asked yet. A declined sponsor counts nowhere. The bar fills toward the event's Raised goal: solid for received, faded for committed.
+
+To add a sponsor:
+
+1. Open **+ Add a sponsor**.
+2. Fill in the **Business or organization**, and the tier, the ask in whole dollars and **Who's asking** if you know them. The names of the people on the card are suggested as you type.
+3. Add the contact, a **Next step** and a **Follow up by** date if there is one.
+4. Click **Add sponsor**. It joins the pipeline as a prospect.
+
+Click a sponsor in the **Pipeline** to open it. Change its status, the amount committed or received, the contact and the rest, then click **Save**. A new status adds a line to its **Contact log**; add your own lines there too (a call, an email) with **Add to log**. **Delete sponsor** takes it off the tracker with its log.
+
+**Follow up** lists the sponsors with a follow-up date whose ask is still open, soonest first; one due today or overdue is marked. The buttons over the pipeline show one group at a time, and **2025 donors** shows the sponsors with last year's gift filled in. **Download CSV** gives every sponsor as a spreadsheet.
+
+When you ask, say sponsor, gift or in-kind support, not donate: gifts and sponsorships to Past Lives are not tax-deductible.
 
 ### Organiser Tools {#hq-organiser-tools}
 
