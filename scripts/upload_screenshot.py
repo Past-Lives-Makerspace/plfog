@@ -24,6 +24,7 @@ import os
 import pathlib
 import subprocess
 import sys
+from typing import Any
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 PREFIX = "pr-screenshots"
@@ -77,7 +78,7 @@ def markdown(path: pathlib.Path, url: str) -> str:
     return f"![{path.stem}]({url})"
 
 
-def _exists(client, bucket: str, key: str) -> bool:
+def _exists(client: Any, bucket: str, key: str) -> bool:
     from botocore.exceptions import ClientError
 
     try:
