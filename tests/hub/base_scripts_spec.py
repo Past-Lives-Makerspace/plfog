@@ -38,6 +38,7 @@ HEAD_ORDER = (
     "js/orientation_row.js",
     "js/equipment_ways.js",
     "js/inquiry_member_picker.js",
+    "js/tab_picker.js",
     "js/alpine.min.js",
     "js/biometric-auth.js",
     "js/app-store-badges.js",

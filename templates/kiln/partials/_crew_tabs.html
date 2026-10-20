@@ -1,4 +1,6 @@
+{% load tab_picker %}
 {# The crew's tab row on the kiln pages. Only the crew and admins see it; My Tickets is the Ceramics Guild's Kiln Tickets tab (a guest's /kiln/). Expects kiln_tab, waiting_count and unload_count. #}
+{% tab_picker "Kiln" %}
 <nav class="pl-tabs" aria-label="Kiln pages">
     <a href="{{ kiln_nav.home_url }}" class="vote-tab{% if kiln_tab == 'mine' %} vote-tab--active{% endif %}"{% if kiln_tab == 'mine' %} aria-current="page"{% endif %}>My Tickets</a>
     <a href="{% url 'kiln:load' %}" class="vote-tab{% if kiln_tab == 'load' %} vote-tab--active{% endif %}"{% if kiln_tab == 'load' %} aria-current="page"{% endif %} data-kiln-tab="load">Load the Kiln<span class="pl-kiln-count" aria-label="{{ waiting_count }} waiting">{{ waiting_count }}</span></a>
@@ -6,3 +8,4 @@
     <a href="{% url 'kiln:log' %}" class="vote-tab{% if kiln_tab == 'log' %} vote-tab--active{% endif %}"{% if kiln_tab == 'log' %} aria-current="page"{% endif %} data-kiln-tab="log">Kiln Log</a>
     <a href="{% url 'kiln:lists' %}" class="vote-tab{% if kiln_tab == 'lists' %} vote-tab--active{% endif %}"{% if kiln_tab == 'lists' %} aria-current="page"{% endif %}>Lists</a>
 </nav>
+{% endtab_picker %}

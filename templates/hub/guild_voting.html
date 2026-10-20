@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static hub_tags %}
+{% load static hub_tags tab_picker %}
 {% block title %}Guild Voting{% endblock %}
 
 {% block content %}
@@ -135,6 +135,7 @@
 
 {# --- Tabbed Standings / New Votes / Last Month --- #}
 <div class="hub-card" style="margin-bottom: 1.5rem;" x-data="{ tab: 'standings' }" data-help-key="voting.live-standings">
+    {% tab_picker "Votes" %}
     <div class="vote-tab-nav pl-tabs">
         <button type="button"
                 @click="tab = 'standings'"
@@ -155,6 +156,7 @@
             Last Month's Results
         </button>
     </div>
+    {% endtab_picker %}
 
     {# --- Current Standings tab --- #}
     <div x-show="tab === 'standings'" x-cloak>

@@ -1,3 +1,4 @@
+{% load tab_picker %}
 {% comment %}The Classes portal's one tab strip, rendered by the instructor shell and the admin
 shell alike (ruling 13). Ruling 14: every tab decides for itself whether it is offered, so an
 admin who also teaches gets all of them, and a plain admin gets no empty "My Classes" and no
@@ -19,6 +20,7 @@ Catalog Activity sits inside the admin group even though Registrations, which a 
 catalog access can reach, renders above it: the feed spans the whole catalog. The view's own
 permission decorator is the real gate; this only decides whether the tab is offered.{% endcomment %}
 {% with actually_admin=request.view_as.actual_is_admin teaches=request.user.member.can_create_classes settings_tabs="categories discount_codes questions settings teaching_page instructor_resources" %}
+{% tab_picker "Classes" %}
 <nav class="pl-tabs" aria-label="Class management sections">
     <a href="{% if actually_admin %}{% url 'classes:admin_overview' %}{% else %}{% url 'classes:teach_overview' %}{% endif %}" class="vote-tab{% if active_tab == 'overview' %} vote-tab--active{% endif %}"{% if active_tab == 'overview' %} aria-current="page"{% endif %}>Overview</a>
     {% if teaches %}
@@ -37,4 +39,5 @@ permission decorator is the real gate; this only decides whether the tab is offe
     <a href="{% url 'classes:admin_settings_hub' %}" class="vote-tab{% if active_tab in settings_tabs.split %} vote-tab--active{% endif %}"{% if active_tab in settings_tabs.split %} aria-current="page"{% endif %}>Settings</a>
     {% endif %}
 </nav>
+{% endtab_picker %}
 {% endwith %}

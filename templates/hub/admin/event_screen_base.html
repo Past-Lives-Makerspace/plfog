@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static %}
+{% load static tab_picker %}
 {% block title %}{{ event.title }} · Manage Events{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/events-admin.css' %}">
@@ -42,11 +42,13 @@ listing (track B), shown only once an event is listed.
     </div>
   </div>
 
+  {% tab_picker "This Event" %}
   <nav class="pl-tabs" aria-label="This event">
     <a href="{{ detail_url }}" class="vote-tab{% if active_tab == 'overview' %} vote-tab--active{% endif %}"{% if active_tab == 'overview' %} aria-current="page"{% endif %} data-overview-tab>Overview</a>
     <a href="{{ guests_url }}" class="vote-tab{% if active_tab == 'guests' %} vote-tab--active{% endif %}"{% if active_tab == 'guests' %} aria-current="page"{% endif %} data-guests-tab>Guest list</a>
     {% if event.eventbrite_listed %}<a href="{{ detail_url }}" class="vote-tab" data-eventbrite-tab>Eventbrite</a>{% endif %}
   </nav>
+  {% endtab_picker %}
 
   {% block event_tab %}{% endblock %}
 </div>

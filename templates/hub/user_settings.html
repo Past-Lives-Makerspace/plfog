@@ -1,4 +1,5 @@
 {% extends "hub/base.html" %}
+{% load tab_picker %}
 {% block title %}User Settings{% endblock %}
 
 {% block content %}
@@ -7,6 +8,7 @@
 <div id="pl-settings-root"
      x-data="plSettingsRoot('{{ active_tab|default:"guilds" }}')"
      @pl-settings-discard.window="discard()">
+    {% tab_picker "Settings" %}
     <div class="pl-tabs">
         <button type="button"
                 @click="go('guilds')"
@@ -41,6 +43,7 @@
         </button>
         {% endif %}
     </div>
+    {% endtab_picker %}
 
     {# -------- Profile tab -------- #}
     <div x-show="tab === 'profile'" x-cloak>
