@@ -1,0 +1,88 @@
+{% comment %}
+Vendor Tables' board, and the htmx answer to + Add a table request: the band, the add form, the
+table requests with their filters, and the space map's capacity. A row's Save and the capacity
+form swap only themselves and send the band out of band, so what is typed in another row is never
+lost; only an add redraws the list. Each form carries the filter, so the answer keeps the group in
+view. Delete is a plain post through the confirm modal.
+
+  hub          — required, the EventHub
+  band         — required, a hq.services.VendorBand
+  setup_note   — required, the setup windows in full
+  waiting_on   — required, who the requests wait on
+  add_form     — required, a VendorTableForm (bound when an add failed)
+  add_open     — required, whether + Add a table request renders open
+  rows         — required, the hq.views.VendorRow list in list order
+  has_tables   — required, whether the hub has any request at all (picks the empty text)
+  show         — required, the filter in view
+  filters      — required, the (value, label) filter buttons
+  floor_form   — required, a VendorFloorForm
+{% endcomment %}
+{% url 'hq:vendors' hub.slug as page_url %}
+<div class="pl-hq-vt__board" data-hq-vt-board>
+  {% include "hq/partials/_vendor_band.html" %}
+
+  <details class="pl-disclosure pl-hq-vt__disclosure" {% if add_open %}open{% endif %} data-hq-vt-add data-help-key="hq.vendor-tables">
+    <summary class="pl-disclosure__summary">
+      <span class="pl-disclosure__title">+ Add a table request</span>
+      <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+    </summary>
+    <form method="post" action="{% url 'hq:vendor_add' hub.slug %}" hx-post="{% url 'hq:vendor_add' hub.slug %}" hx-target="closest [data-hq-vt-board]" hx-swap="outerHTML" class="pl-disclosure__body pl-hq-vt__form" data-hq-vt-add-form>
+      {% csrf_token %}
+      <input type="hidden" name="filter" value="{{ show }}">
+      {% for error in add_form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+      <div class="pl-hq-vt__fields">
+        {% include "components/form_field.html" with field=add_form.name field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.guild field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.sells field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.size field_hint_off=True %}
+      </div>
+      <div class="pl-hq-vt__fields">
+        {% include "components/form_field.html" with field=add_form.email field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.phone field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.setup field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.needs field_hint_off=True %}
+      </div>
+      <div class="pl-hq-vt__actions">
+        <button type="submit" class="pl-hq-vt__btn" data-hq-vt-add-submit>Add request</button>
+      </div>
+    </form>
+  </details>
+
+  <section class="pl-hq-vt__section" aria-labelledby="hq-vt-list-title" data-hq-vt-list>
+    <div class="pl-hq-vt__list-head">
+      <h2 class="pl-hq-vt__h2" id="hq-vt-list-title">Table Requests</h2>
+      <a href="{% url 'hq:vendors_csv' hub.slug %}" class="pl-hq-vt__csv" hx-boost="false" data-pl-download data-hq-vt-csv>Download CSV</a>
+    </div>
+    <nav class="pl-hq-vt__filters" aria-label="Filter the table requests" data-hq-vt-filters>
+      {% for value, label in filters %}
+      <a href="{{ page_url }}{% if value != 'all' %}?filter={{ value }}{% endif %}" class="pl-hq-vt__filter" data-hq-vt-filter="{{ value }}"{% if value == show %} aria-current="true"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </nav>
+    <div class="pl-hq-vt__card pl-hq-vt__scroll">
+      <table class="pl-hq-vt__table">
+        <thead>
+          <tr>
+            <th scope="col">Artist or group</th>
+            <th scope="col">Guild</th>
+            <th scope="col">Sells</th>
+            <th scope="col">Size</th>
+            <th scope="col">Status</th>
+            <th scope="col">Table #</th>
+            <th scope="col">Setup</th>
+            <th scope="col">Contact</th>
+            <th scope="col"><span class="pl-hq-vt__sr">Save or delete</span></th>
+          </tr>
+        </thead>
+        <tbody data-hq-vt-rows>
+          {% for row in rows %}
+          {% include "hq/partials/_vendor_row.html" %}
+          {% empty %}
+          <tr><td colspan="9" class="pl-hq-vt__empty" data-hq-vt-empty>{% if has_tables %}Nothing in this group.{% else %}No table requests yet. Add the first one above.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% include "hq/partials/_vendor_floor.html" %}
+</div>

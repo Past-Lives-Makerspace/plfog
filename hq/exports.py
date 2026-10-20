@@ -1,4 +1,4 @@
-"""The volunteer roster, the wine donors and the sponsors as CSV, in the streaming shape of ``classes/exports.py``."""
+"""The volunteer roster, the wine donors, the sponsors and the vendor tables as CSV, in the streaming shape of ``classes/exports.py``."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from django.utils import timezone
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
-    from hq.models import ShiftSignup, Sponsor
+    from hq.models import ShiftSignup, Sponsor, VendorTable
     from hq.services import DonorRow
 
 ROSTER_CSV_HEADERS = ["Name", "Email", "Phone", "OLCC permit", "Shift", "Phase", "When", "Note", "Signed up"]
@@ -150,4 +150,50 @@ def stream_sponsors_csv(sponsors: QuerySet[Sponsor], *, filename_stem: str) -> S
     response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
     stamp = timezone.now().strftime("%Y%m%d")
     response["Content-Disposition"] = f'attachment; filename="{filename_stem}-sponsors-{stamp}.csv"'
+    return response
+
+
+VENDOR_TABLES_CSV_HEADERS = [
+    "Artist or group",
+    "Guild",
+    "What they sell",
+    "Table size",
+    "Status",
+    "Table #",
+    "Setup day",
+    "Email",
+    "Phone",
+    "Needs",
+    "Added by",
+    "Added",
+]
+
+
+def stream_vendor_tables_csv(tables: QuerySet[VendorTable], *, filename_stem: str) -> StreamingHttpResponse:
+    """Stream ``tables`` as CSV, one row per table request in list order."""
+    pseudo = _Echo()
+    writer = csv.writer(pseudo)
+
+    def iter_rows() -> Iterator[str]:
+        yield writer.writerow(VENDOR_TABLES_CSV_HEADERS)
+        for table in tables.iterator(chunk_size=500):
+            row = [
+                table.name,
+                table.guild_display,
+                table.sells,
+                table.get_size_display(),
+                table.get_status_display(),
+                table.table_no,
+                table.get_setup_display(),
+                table.email,
+                table.phone,
+                table.needs,
+                table.created_by.display_name if table.created_by is not None else "",
+                timezone.localtime(table.created_at).strftime("%Y-%m-%d %H:%M"),
+            ]
+            yield writer.writerow([_neutralise_formula(cell) for cell in row])
+
+    response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
+    stamp = timezone.now().strftime("%Y%m%d")
+    response["Content-Disposition"] = f'attachment; filename="{filename_stem}-vendor-tables-{stamp}.csv"'
     return response

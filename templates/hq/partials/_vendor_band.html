@@ -1,0 +1,36 @@
+{% comment %}
+Vendor Tables' band: Confirmed, Requested, Waitlist and Space left over a meter of the space map,
+then Lee's setup note and the map's note. Swapped out of band when a row or the capacity is saved,
+so the counts follow the edit without the list being redrawn.
+
+  band       — required, a hq.services.VendorBand
+  setup_note — required, the setup windows in full (hq.holiday_bizarre.VENDOR_SETUP_NOTE)
+  waiting_on — required, who the requests wait on: the first named member's first name, or the vendor team
+  oob        — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<section class="pl-hq-vt__band" id="hq-vt-band" aria-label="Table capacity" data-hq-vt-band{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="pl-hq-vt__tiles">
+    <div class="pl-hq-vt__tile" data-hq-vt-tile="confirmed">
+      <span class="pl-hq-vt__tile-heading">Confirmed</span>
+      <strong class="pl-hq-vt__tile-figure" data-hq-vt-figure>{{ band.confirmed }}</strong>
+      <span class="pl-hq-vt__tile-helper" data-hq-vt-helper>Tables locked in</span>
+    </div>
+    <div class="pl-hq-vt__tile" data-hq-vt-tile="requested">
+      <span class="pl-hq-vt__tile-heading">Requested</span>
+      <strong class="pl-hq-vt__tile-figure" data-hq-vt-figure>{{ band.requested }}</strong>
+      <span class="pl-hq-vt__tile-helper" data-hq-vt-helper>Waiting on {{ waiting_on }}</span>
+    </div>
+    <div class="pl-hq-vt__tile" data-hq-vt-tile="waitlist">
+      <span class="pl-hq-vt__tile-heading">Waitlist</span>
+      <strong class="pl-hq-vt__tile-figure" data-hq-vt-figure>{{ band.waitlist }}</strong>
+      <span class="pl-hq-vt__tile-helper" data-hq-vt-helper>If space opens up</span>
+    </div>
+    <div class="pl-hq-vt__tile" data-hq-vt-tile="space">
+      <span class="pl-hq-vt__tile-heading">Space left</span>
+      <strong class="pl-hq-vt__tile-figure" data-hq-vt-figure>{{ band.space_left_display }}</strong>
+      <span class="pl-hq-vt__tile-helper" data-hq-vt-helper>{{ band.space_left_line }}</span>
+    </div>
+  </div>
+  <progress class="pl-hq-vt__meter" max="100" value="{{ band.percent }}" aria-hidden="true" data-hq-vt-meter></progress>
+  <p class="pl-hq-vt__note" data-hq-vt-note>{{ setup_note }}{% if band.map_note %} <span data-hq-vt-map-note>Map: {{ band.map_note }}</span>{% endif %}</p>
+</section>

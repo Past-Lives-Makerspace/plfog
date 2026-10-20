@@ -1,6 +1,6 @@
 """The HQ forms: the hub with its goals, one card with its shifts, a volunteer's Your Info step, the wine wall's Log a
-Bottle and winery logo, the Marketing Tracker's Log a Marketing Action, and the Sponsorship Tracker's add form, inline
-edit and contact log line."""
+Bottle and winery logo, the Marketing Tracker's Log a Marketing Action, the Sponsorship Tracker's add form, inline
+edit and contact log line, and Vendor Tables' add form, row edit and space map capacity."""
 
 from __future__ import annotations
 
@@ -25,11 +25,12 @@ from hq.models import (
     ShiftSignup,
     Sponsor,
     SponsorTier,
+    VendorTable,
     VolunteerShift,
     WineBottle,
 )
-from hq.services import VolunteerInfo
-from membership.models import CommunityEvent, Member
+from hq.services import VENDOR_CAPACITY_MAX, VolunteerInfo
+from membership.models import CommunityEvent, Guild, Member
 
 # Path segments under /hq/ that are routes, not hubs.
 RESERVED_SLUGS: frozenset[str] = frozenset({"new"})
@@ -587,4 +588,130 @@ class SponsorLogForm(forms.Form):
         required=False,
         label="By",
         widget=forms.TextInput(attrs={"list": SPONSOR_TEAM_LIST_ID, "placeholder": "By", "autocomplete": "off"}),
+    )
+
+
+# ---- Vendor Tables (Track D, part 3) ----
+
+# The empty choice of the guild select: a request with no guild.
+NO_GUILD_LABEL = "Not in a guild"
+
+
+class VendorTableForm(forms.ModelForm):
+    """+ Add a Table Request: Lee's eight fields. The guild is one of the active guilds (``guilds``), or none.
+
+    The guild select takes its choices from the list the view read once, so a page of rows asks the
+    database for the guilds a single time. Every new request starts as requested, or on the waitlist
+    while the space map is full (``hq.services.add_vendor_table`` decides).
+    """
+
+    guild = forms.TypedChoiceField(required=False, coerce=int, empty_value=None, label="Guild")
+
+    class Meta:
+        model = VendorTable
+        fields = ["name", "guild", "sells", "size", "email", "phone", "setup", "needs"]
+        labels = {
+            "name": "Artist or group",
+            "sells": "What they sell",
+            "size": "Table size",
+            "email": "Email",
+            "phone": "Phone",
+            "setup": "Setup day",
+            "needs": "Needs",
+        }
+        widgets: dict[str, forms.Widget] = {
+            "name": forms.TextInput(attrs={"placeholder": "e.g. Riverbend Ceramics"}),
+            "sells": forms.TextInput(attrs={"placeholder": "e.g. Mugs and planters"}),
+            "email": forms.EmailInput(attrs={"autocomplete": "off"}),
+            "phone": forms.TextInput(attrs={"type": "tel", "autocomplete": "off"}),
+            "needs": forms.TextInput(attrs={"placeholder": "e.g. Power, near a wall"}),
+        }
+
+    def __init__(self, *args: Any, guilds: Sequence[Guild], **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        offered = list(guilds)
+        current = self.instance.guild if self.instance.guild_id is not None else None
+        if current is not None and all(guild.pk != current.pk for guild in offered):
+            # A guild made inactive after the request named it stays on that row, so a Save does not drop it.
+            offered.append(current)
+        self._guilds = {guild.pk: guild for guild in offered}
+        self.fields["guild"].choices = [  # type: ignore[attr-defined]  # a TypedChoiceField
+            ("", NO_GUILD_LABEL),
+            *((guild.pk, guild.name) for guild in offered),
+        ]
+        for name in self._meta.fields or ():
+            self.fields[name].help_text = ""
+
+    def clean_guild(self) -> Guild | None:
+        pk: int | None = self.cleaned_data["guild"]
+        return None if pk is None else self._guilds[pk]
+
+    def to_fields(self) -> dict[str, Any]:
+        """The request's fields for ``hq.services``, as cleaned (the text fields arrive trimmed)."""
+        return {name: self.cleaned_data[name] for name in self._meta.fields or ()}
+
+
+class VendorTableEditForm(VendorTableForm):
+    """One row of the list: every field of the add form plus the status and the table number, saved with one Save.
+
+    Rendered across the row's cells, each control tied to the row's form by its ``form`` attribute
+    (``form_id``), since a form cannot wrap a table row. Each label names the row ("Email for Riverbend
+    Ceramics"), so a screen reader moving through the cells hears whose field it is in.
+
+    ``updated_at`` carries the row's stamp as the page saw it; :attr:`is_stale` is a Save from a page older
+    than the row, which the view refuses whole.
+    """
+
+    updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
+
+    class Meta(VendorTableForm.Meta):
+        fields = [*VendorTableForm.Meta.fields, "status", "table_no"]
+        labels = {**VendorTableForm.Meta.labels, "status": "Status", "table_no": "Table #"}
+        widgets: dict[str, forms.Widget] = {
+            **VendorTableForm.Meta.widgets,
+            "name": forms.TextInput(),
+            "sells": forms.TextInput(attrs={"placeholder": "What"}),
+            "needs": forms.TextInput(attrs={"placeholder": "Needs"}),
+            "email": forms.EmailInput(attrs={"autocomplete": "off", "placeholder": "Email"}),
+            "phone": forms.TextInput(attrs={"type": "tel", "autocomplete": "off", "placeholder": "Phone"}),
+            "table_no": forms.TextInput(attrs={"placeholder": "#"}),
+        }
+
+    def __init__(self, *args: Any, form_id: str, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.form_id = form_id
+        self.fields["updated_at"].initial = self._stamp
+        for name in self._meta.fields or ():
+            field = self.fields[name]
+            field.widget.attrs["form"] = form_id
+            field.label = f"{field.label} for {self.instance.name}"
+
+    @property
+    def _stamp(self) -> str:
+        """The row's ``updated_at`` as the hidden field carries it; an edit form's row is always saved."""
+        return self.instance.updated_at.isoformat()
+
+    @property
+    def is_stale(self) -> bool:
+        """Whether the posted stamp differs from the row's: someone saved it after this page loaded."""
+        return self.is_bound and self.data.get(self.add_prefix("updated_at"), "") != self._stamp
+
+
+class VendorFloorForm(forms.Form):
+    """Space Map Capacity: how many tables fit (blank while the map is not ready) and the mapper's note."""
+
+    capacity = forms.IntegerField(
+        min_value=1,
+        max_value=VENDOR_CAPACITY_MAX,
+        required=False,
+        label="Tables that fit",
+        widget=forms.NumberInput(
+            attrs={"min": "1", "max": str(VENDOR_CAPACITY_MAX), "step": "1", "placeholder": "e.g. 24"}
+        ),
+    )
+    map_note = forms.CharField(
+        max_length=200,
+        required=False,
+        label="Map notes",
+        widget=forms.TextInput(attrs={"placeholder": "e.g. 18 in the gallery, 6 in the shop"}),
     )

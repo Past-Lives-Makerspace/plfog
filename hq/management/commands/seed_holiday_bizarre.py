@@ -1,4 +1,4 @@
-"""Seed Lee's Holiday Bizarre HQ from :mod:`hq.holiday_bizarre`: the hub, its nine doors, four goals and 21 shifts.
+"""Seed Lee's Holiday Bizarre HQ from :mod:`hq.holiday_bizarre`: the hub, its nine doors, five goals and 21 shifts.
 
 A command, never a migration (STANDARDS §3 and §10): deploys do not run it. An admin loads the
 same content from ``/hq/new/`` (the Load Lee's HQ button, :func:`hq.views.setup`), so the command
@@ -14,10 +14,11 @@ edits. A hub that already exists keeps its title, eyebrow, intro, footer note an
 only its event moves, and only when ``--event`` names a different one, which the output says;
 with no ``--event`` it is left alone. The doors are :meth:`hq.models.EventHub.seed_default_cards`:
 live doors keyed on kind, a built door's placeholder adopted in place, placeholders made only on
-a hub with no cards at all, and words still at their old defaults given Lee's current ones. The four
-goals and the 21 shifts are each made only on a hub that holds none of that kind of row: both
-are editable and have no stable key, so a renamed or deleted row never grows a sibling on the
-next run. Sign-ups, bottles, logos and marketing actions are never read.
+a hub with no cards at all, and words still at their old defaults given Lee's current ones. The five
+goals are :func:`hq.services.seed_goals`: the whole set on a hub with none, else each counted goal
+whose kind the hub lacks (a counted goal is keyed by its kind, so one an admin deleted comes back).
+The 21 shifts are made only on a hub that holds none: they are editable and have no stable key,
+so a renamed or deleted shift never grows a sibling on the next run. Sign-ups, bottles, logos and marketing actions are never read.
 ``--dry-run`` runs the whole seed inside a transaction and rolls it back, so the counts are
 the real ones and nothing is written.
 """
@@ -32,8 +33,9 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 from django.utils import timezone
 
-from hq.holiday_bizarre import GOALS, HUB, SHIFTS
-from hq.models import CardSeed, EventHub, HubGoal, VolunteerShift
+from hq.holiday_bizarre import HUB, SHIFTS
+from hq.models import CardSeed, EventHub, VolunteerShift
+from hq.services import seed_goals
 from membership.models import CommunityEvent
 
 # How many published upcoming events a refusal lists, so the right pk is a copy away.
@@ -64,6 +66,8 @@ class SeedReport:
     event_changed_to: CommunityEvent | None = None
     cards: CardSeed = field(default_factory=CardSeed)
     goals: Tally = field(default_factory=Tally)
+    # The goals a run added to a hub that already held some (counted kinds it lacked), by label.
+    goals_added: list[str] = field(default_factory=list)
     shifts: Tally = field(default_factory=Tally)
 
     @property
@@ -89,10 +93,12 @@ class SeedReport:
             if cards.placeholders_skipped
             else ""
         )
+        # A hub that held goals and gained some names them; a fresh set is just its count.
+        topped_up = f" Added: {', '.join(self.goals_added)}." if self.goals.kept and self.goals_added else ""
         return [
             f"Hub {self.hub.slug} ({self.hub.title}): {self._hub_state()}.",
             f"Cards: {cards.created} created, {cards.kept} kept as edited.{adopted}{reworded}{skipped}",
-            f"Goals: {self.goals.created} created, {self.goals.kept} kept as edited.",
+            f"Goals: {self.goals.created} created, {self.goals.kept} kept as edited.{topped_up}",
             f"Shifts: {self.shifts.created} created, {self.shifts.kept} kept as edited.",
         ]
 
@@ -165,29 +171,18 @@ def seed(event: CommunityEvent | None = None) -> SeedReport:
             hub.event = event
             hub.save(update_fields=["event"])
     report.cards = hub.seed_default_cards()
-    _seed_goals(hub, report.goals)
+    report.goals_added = _seed_goals(hub, report.goals)
     _seed_shifts(hub, report.shifts)
     return report
 
 
-def _seed_goals(hub: EventHub, tally: Tally) -> None:
-    """The four goals, only on a hub that holds none; goals are editable, so an existing set is kept as it is."""
-    held = hub.goals.count()
-    if held:
-        tally.kept = held
-        return
-    HubGoal.objects.bulk_create(
-        HubGoal(
-            hub=hub,
-            label=spec.label,
-            kind=spec.kind,
-            target=spec.target,
-            is_money=spec.is_money,
-            sort_order=position,
-        )
-        for position, spec in enumerate(GOALS)
-    )
-    tally.created = len(GOALS)
+def _seed_goals(hub: EventHub, tally: Tally) -> list[str]:
+    """Lee's goals by :func:`hq.services.seed_goals`: the whole set on a hub with none, else the counted goals whose
+    kind it lacks. Returns the labels added, for the line."""
+    seeded = seed_goals(hub)
+    tally.created = len(seeded.added)
+    tally.kept = seeded.kept
+    return seeded.added
 
 
 def _seed_shifts(hub: EventHub, tally: Tally) -> None:
@@ -218,7 +213,7 @@ def _seed_shifts(hub: EventHub, tally: Tally) -> None:
 
 class Command(BaseCommand):
     help = (
-        "Create the Holiday Bizarre HQ (hub, nine doors, four goals, 21 shifts), linked to a published "
+        "Create the Holiday Bizarre HQ (hub, nine doors, five goals, 21 shifts), linked to a published "
         "calendar event when --event names one. Runs twice without duplicates and never touches an admin's edits; --dry-run rolls everything "
         "back and writes nothing."
     )
