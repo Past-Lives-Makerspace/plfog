@@ -1,4 +1,4 @@
-"""Lee's Holiday Bizarre HQ as data: the hub, its nine doors, four goals and 21 volunteer shifts.
+"""Lee's Holiday Bizarre HQ as data: the hub, its nine doors, four goals, 21 volunteer shifts and the sponsor tiers.
 
 ``manage.py seed_holiday_bizarre`` writes these rows for a published calendar event; correcting
 a word here and re-running is the workflow, as with the help articles. Nothing in this module
@@ -11,7 +11,8 @@ words each was first seeded with, so a re-run can tell Lee's untouched words fro
 The shifts are Lee's sign-up sheet, phase by phase, in her words; the two bartender shifts
 need an Oregon OLCC service permit. The goals are her tracker: Raised is typed in by an admin
 (a money goal, in whole dollars, as every ``HubGoal`` money figure is), the other three are
-counted live from the pages behind the doors.
+counted live from the pages behind the doors. The sponsor tiers are her draft "what they get"
+table on the Sponsorship Tracker, row for row.
 """
 
 from __future__ import annotations
@@ -225,5 +226,82 @@ SHIFTS: tuple[ShiftContent, ...] = (
         when_text="Sat Dec 5, 10 AM to 1 PM",
         need=4,
         description="Sweep, mop, return borrowed items, reset the shop for members.",
+    ),
+)
+
+
+@dataclass(frozen=True)
+class SponsorTierContent:
+    """One row of the sponsor tiers table: the tier, its amount and how many, and what they get, one item each."""
+
+    name: str
+    amount: str
+    how_many: str
+    benefits: tuple[str, ...]
+
+
+# The In-kind row's last benefit; the page links it to the wine wall when that door is open to the viewer.
+WINE_WALL_BENEFIT = "Wine counts toward the wine wall"
+
+# Lee's draft tiers, in her words: what each sponsor gets.
+SPONSOR_TIERS: tuple[SponsorTierContent, ...] = (
+    SponsorTierContent(
+        name="Presenting",
+        amount="$5,000",
+        how_many="1",
+        benefits=(
+            '"Holiday Bizarre presented by" on the flyer, adventure map, signage and website',
+            "Top logo placement",
+            "Private team-building workshop at PLM for up to 12",
+            "10 wine wall tickets",
+            "Instagram reel and member newsletter feature",
+            "Thank-you from the stage",
+        ),
+    ),
+    SponsorTierContent(
+        name="Gold",
+        amount="$2,500",
+        how_many="2",
+        benefits=(
+            "Logo on flyer, adventure map and signage",
+            'Name a demo or zone (e.g. "Sparks Stage presented by")',
+            "6 wine wall tickets",
+            "Instagram feature post and newsletter mention",
+            "25% off a team workshop",
+        ),
+    ),
+    SponsorTierContent(
+        name="Silver",
+        amount="$1,000",
+        how_many="3",
+        benefits=(
+            "Logo on signage and the adventure map",
+            "4 wine wall tickets",
+            "Group Instagram thank-you",
+            "Newsletter mention",
+        ),
+    ),
+    SponsorTierContent(
+        name="Bar sponsor",
+        amount="$900",
+        how_many="1",
+        benefits=(
+            '"Drinks courtesy of" at the bar',
+            "Logo at the bar",
+            "4 wine wall tickets",
+            "Group Instagram thank-you",
+        ),
+    ),
+    SponsorTierContent(
+        name="Community",
+        amount="$500",
+        how_many="4",
+        benefits=("Name on the sponsor board and adventure map", "Group Instagram thank-you"),
+    ),
+    SponsorTierContent(
+        name="In-kind",
+        amount="Goods",
+        how_many="Any",
+        benefits=("Wine, kegs, gift cards and products", "Name on the sponsor board", WINE_WALL_BENEFIT),
     ),
 )

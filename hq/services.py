@@ -8,18 +8,22 @@ and the rate key a guest's sign-ups are counted under. The wine wall half holds 
 over the wall (:func:`wine_band`), the wineries grid (:func:`wineries`), the organisers'
 donors table (:func:`donor_rows`) and the three writes (:func:`log_bottle`,
 :func:`delete_bottle`, :func:`set_winery_logo`). The Marketing Tracker half holds its totals
-(:func:`marketing_totals`, the one source of "Businesses with flyers") and its six tiles.
+(:func:`marketing_totals`, the one source of "Businesses with flyers") and its six tiles. The
+Sponsorship Tracker half holds the band (:func:`sponsor_band`, the one source of the sponsor money
+received and committed), the Follow up list (:func:`follow_ups`), the pipeline's filters and the
+three writes (:func:`add_sponsor`, :func:`update_sponsor`, :func:`log_contact`).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
+from datetime import date
 from typing import Any
 
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
-from django.db.models import Count, F, IntegerField, Q, Sum
+from django.db.models import Count, F, IntegerField, Q, QuerySet, Sum
 from django.db.models.functions import Coalesce, Lower
 from django.http import HttpRequest
 
@@ -30,6 +34,9 @@ from hq.models import (
     MarketingKind,
     ShiftPhase,
     ShiftSignup,
+    Sponsor,
+    SponsorLogEntry,
+    SponsorStatus,
     VolunteerShift,
     WineBottle,
     WineKind,
@@ -587,3 +594,212 @@ def marketing_tiles(totals: Mapping[str, int]) -> list[MarketingTile]:
 def log_marketing_action(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> MarketingAction:
     """Add an action to ``hub``'s marketing log from the form's cleaned fields, stamped with who logged it."""
     return MarketingAction.objects.create(hub=hub, logged_by=member, **fields)
+
+
+# ---- Sponsorship Tracker (Track D, part 2) ----
+
+# The meter's target when the hub has no Raised goal and no other money goal, in whole dollars (Lee's default).
+DEFAULT_SPONSOR_GOAL = 10_000
+# The label of the goal the meter reads first.
+RAISED_GOAL_LABEL = "Raised"
+# How many rows the Follow up list shows.
+FOLLOW_UP_LIMIT = 8
+
+# The pipeline's filters, in Lee's order: the query value and the button's words. ``donor2025`` is every
+# sponsor with last year's gift filled in; ``all`` shows everyone.
+SPONSOR_FILTER_ALL = "all"
+SPONSOR_FILTER_DONORS = "donor2025"
+SPONSOR_FILTERS: tuple[tuple[str, str], ...] = (
+    (SPONSOR_FILTER_ALL, "All"),
+    (SponsorStatus.PROSPECT, "Prospects"),
+    (SponsorStatus.ASKED, "Asked"),
+    (SponsorStatus.COMMITTED, "Committed"),
+    (SponsorStatus.RECEIVED, "Received"),
+    (SponsorStatus.DECLINED, "Declined"),
+    (SPONSOR_FILTER_DONORS, "2025 donors"),
+)
+
+
+@dataclass(frozen=True)
+class SponsorBand:
+    """The strip over the tracker: the money received, committed and asked for, the prospects, and the goal.
+
+    ``received_cents`` and ``committed_cents`` are the one source of the sponsor money: the goals' Raised and
+    the ledger read them here. A declined sponsor counts nowhere. ``goal`` is whole dollars, like every
+    ``HubGoal`` money figure.
+    """
+
+    received_cents: int
+    committed_cents: int
+    asked_cents: int
+    open_asks: int
+    prospects: int
+    goal: int
+
+    @property
+    def secured_cents(self) -> int:
+        """Received plus committed: what is in hand or promised."""
+        return self.received_cents + self.committed_cents
+
+    @property
+    def goal_cents(self) -> int:
+        return self.goal * 100
+
+    @property
+    def received_meter_cents(self) -> int:
+        """The solid segment's value, capped at the goal."""
+        return min(self.received_cents, self.goal_cents)
+
+    @property
+    def secured_meter_cents(self) -> int:
+        """Where the faded committed segment ends (received plus committed), capped at the goal."""
+        return min(self.secured_cents, self.goal_cents)
+
+    @property
+    def received_display(self) -> str:
+        return format_money(self.received_cents)
+
+    @property
+    def committed_display(self) -> str:
+        return format_money(self.committed_cents)
+
+    @property
+    def asked_display(self) -> str:
+        return format_money(self.asked_cents)
+
+    @property
+    def secured_display(self) -> str:
+        return format_money(self.secured_cents)
+
+    @property
+    def goal_display(self) -> str:
+        return f"${self.goal:,}"
+
+
+def sponsor_goal(hub: EventHub) -> int:
+    """The meter's target in whole dollars: the hub's first Raised goal, else its first typed in money goal,
+    else :data:`DEFAULT_SPONSOR_GOAL`. A goal with no target is passed over. One query."""
+    candidates = list(
+        hub.goals.filter(
+            Q(label__iexact=RAISED_GOAL_LABEL) | Q(kind=HubGoal.Kind.MANUAL, is_money=True), target__gt=0
+        ).values_list("label", "target")
+    )
+    raised = [target for label, target in candidates if label.lower() == RAISED_GOAL_LABEL.lower()]
+    if raised:
+        return raised[0]
+    if candidates:
+        return candidates[0][1]
+    return DEFAULT_SPONSOR_GOAL
+
+
+def sponsor_band(hub: EventHub) -> SponsorBand:
+    """The band for ``hub`` in two queries: one aggregate over its sponsors, and the goal."""
+
+    def _sum(field: str, status: str) -> Coalesce:
+        return Coalesce(Sum(field, filter=Q(status=status)), 0)
+
+    totals = hub.sponsors.aggregate(
+        received=_sum("amount_cents", SponsorStatus.RECEIVED),
+        committed=_sum("amount_cents", SponsorStatus.COMMITTED),
+        asked=_sum("ask_cents", SponsorStatus.ASKED),
+        open_asks=Count("pk", filter=Q(status=SponsorStatus.ASKED)),
+        prospects=Count("pk", filter=Q(status=SponsorStatus.PROSPECT)),
+    )
+    return SponsorBand(
+        received_cents=totals["received"],
+        committed_cents=totals["committed"],
+        asked_cents=totals["asked"],
+        open_asks=totals["open_asks"],
+        prospects=totals["prospects"],
+        goal=sponsor_goal(hub),
+    )
+
+
+@dataclass(frozen=True)
+class FollowUp:
+    """One row on the Follow up list: the sponsor, and "Overdue " or "Today " when it is due."""
+
+    sponsor: Sponsor
+    prefix: str
+
+    @property
+    def is_due(self) -> bool:
+        """Due on or before today: the row is highlighted."""
+        return bool(self.prefix)
+
+
+@dataclass(frozen=True)
+class FollowUps:
+    """The Follow up list: how many sponsors have an open follow-up date, and the first few, soonest first."""
+
+    count: int
+    rows: list[FollowUp]
+
+
+def follow_ups(hub: EventHub, *, today: date) -> FollowUps:
+    """Every sponsor on ``hub`` with a follow-up date whose ask is still open, soonest first, in one query.
+
+    ``today`` is the Portland date (``timezone.localdate()``): a date before it is overdue, on it is today.
+    ``rows`` is the first :data:`FOLLOW_UP_LIMIT`; ``count`` is them all.
+    """
+    open_rows = list(
+        hub.sponsors.filter(follow_up_by__isnull=False)
+        .exclude(status__in=[SponsorStatus.RECEIVED, SponsorStatus.DECLINED])
+        .order_by("follow_up_by", Lower("organization"), "pk")
+    )
+    rows = []
+    for sponsor in open_rows[:FOLLOW_UP_LIMIT]:
+        due: date = sponsor.follow_up_by  # type: ignore[assignment]  # the filter above excludes null
+        prefix = "Overdue " if due < today else "Today " if due == today else ""
+        rows.append(FollowUp(sponsor=sponsor, prefix=prefix))
+    return FollowUps(count=len(open_rows), rows=rows)
+
+
+def sponsor_filter(value: str) -> str:
+    """``value`` when it names one of :data:`SPONSOR_FILTERS`, else ``all``: a stale or typed address shows everyone."""
+    return value if value in dict(SPONSOR_FILTERS) else SPONSOR_FILTER_ALL
+
+
+def filtered_sponsors(hub: EventHub, show: str, *, keep_pk: int | None = None) -> QuerySet[Sponsor]:
+    """``hub``'s sponsors in pipeline order under the filter ``show`` (a value from :data:`SPONSOR_FILTERS`).
+
+    ``keep_pk`` is a sponsor that stays in the list whatever the filter: the row just saved or refused, so a
+    status change or a form with errors does not vanish from the group it was edited in.
+    """
+    sponsors = hub.sponsors.all()
+    if show == SPONSOR_FILTER_ALL:
+        return sponsors
+    match = ~Q(history="") if show == SPONSOR_FILTER_DONORS else Q(status=show)
+    if keep_pk is not None:
+        match |= Q(pk=keep_pk)
+    return sponsors.filter(match)
+
+
+# The first line in every new sponsor's contact log.
+ADDED_LOG_TEXT = "Added to tracker"
+
+
+def add_sponsor(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> Sponsor:
+    """Put a sponsor on ``hub``'s tracker from the form's fields; its log starts with "Added to tracker" by the asker."""
+    with transaction.atomic():
+        sponsor = Sponsor.objects.create(hub=hub, created_by=member, **fields)
+        SponsorLogEntry.objects.create(sponsor=sponsor, text=ADDED_LOG_TEXT, by=sponsor.owner)
+    return sponsor
+
+
+def update_sponsor(sponsor: Sponsor, fields: Mapping[str, Any]) -> Sponsor:
+    """Save the inline edit's fields on ``sponsor``; a new status adds "Status changed to {label}" to its log."""
+    old_status = sponsor.status
+    for name, value in fields.items():
+        setattr(sponsor, name, value)
+    with transaction.atomic():
+        sponsor.save()
+        if sponsor.status != old_status:
+            label = SponsorStatus(sponsor.status).label
+            SponsorLogEntry.objects.create(sponsor=sponsor, text=f"Status changed to {label}")
+    return sponsor
+
+
+def log_contact(sponsor: Sponsor, *, text: str, by: str) -> SponsorLogEntry:
+    """Add one line to ``sponsor``'s contact log, dated Portland today."""
+    return SponsorLogEntry.objects.create(sponsor=sponsor, text=text, by=by)

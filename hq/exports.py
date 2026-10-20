@@ -1,4 +1,4 @@
-"""The volunteer roster and the wine donors as CSV, in the streaming shape of ``classes/exports.py``."""
+"""The volunteer roster, the wine donors and the sponsors as CSV, in the streaming shape of ``classes/exports.py``."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from django.utils import timezone
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
-    from hq.models import ShiftSignup
+    from hq.models import ShiftSignup, Sponsor
     from hq.services import DonorRow
 
 ROSTER_CSV_HEADERS = ["Name", "Email", "Phone", "OLCC permit", "Shift", "Phase", "When", "Note", "Signed up"]
@@ -92,4 +92,62 @@ def stream_donors_csv(donors: Sequence[DonorRow], *, filename_stem: str) -> Stre
     response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
     stamp = timezone.now().strftime("%Y%m%d")
     response["Content-Disposition"] = f'attachment; filename="{filename_stem}-wine-donors-{stamp}.csv"'
+    return response
+
+
+SPONSORS_CSV_HEADERS = [
+    "Organization",
+    "Tier",
+    "Status",
+    "Ask",
+    "Committed or received",
+    "Who's asking",
+    "Contact name",
+    "Role",
+    "Email",
+    "Phone",
+    "Next step",
+    "Follow up by",
+    "Thank-you sent",
+    "Why they're a fit",
+    "Benefits promised",
+    "Notes",
+    "Last year (2025)",
+    "Added",
+]
+
+
+def stream_sponsors_csv(sponsors: QuerySet[Sponsor], *, filename_stem: str) -> StreamingHttpResponse:
+    """Stream ``sponsors`` as CSV, one row per sponsor in pipeline order, the money in dollars."""
+    pseudo = _Echo()
+    writer = csv.writer(pseudo)
+
+    def iter_rows() -> Iterator[str]:
+        yield writer.writerow(SPONSORS_CSV_HEADERS)
+        for sponsor in sponsors.iterator(chunk_size=500):
+            row = [
+                sponsor.organization,
+                sponsor.get_tier_display(),
+                sponsor.get_status_display(),
+                f"{sponsor.ask_cents / 100:.2f}",
+                f"{sponsor.amount_cents / 100:.2f}",
+                sponsor.owner,
+                sponsor.contact_name,
+                sponsor.contact_role,
+                sponsor.email,
+                sponsor.phone,
+                sponsor.next_step,
+                sponsor.follow_up_by.isoformat() if sponsor.follow_up_by is not None else "",
+                "yes" if sponsor.thanked else "no",
+                sponsor.fit_note,
+                sponsor.benefits,
+                sponsor.note,
+                sponsor.history,
+                timezone.localtime(sponsor.created_at).strftime("%Y-%m-%d %H:%M"),
+            ]
+            yield writer.writerow([_neutralise_formula(cell) for cell in row])
+
+    response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
+    stamp = timezone.now().strftime("%Y%m%d")
+    response["Content-Disposition"] = f'attachment; filename="{filename_stem}-sponsors-{stamp}.csv"'
     return response

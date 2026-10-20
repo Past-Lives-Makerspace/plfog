@@ -1,6 +1,6 @@
 """The hq.* help keys (Track C, part 4, and Track D): registered against the Holiday Bizarre HQ article's anchors,
-and stamped on the seeded HQ's door grid, goal band, shift list, bottle form, the marketing log form and the card
-edit page's audience block."""
+and stamped on the seeded HQ's door grid, goal band, shift list, bottle form, the marketing log form, the add a sponsor
+form and the card edit page's audience block."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ HQ_KEYS = {
     "hq.volunteer-shifts": "hq-volunteer-shifts",
     "hq.wine-wall": "hq-wine-wall",
     "hq.marketing": "hq-marketing",
+    "hq.sponsorship": "hq-sponsorship",
     "hq.edit-card": "hq-edit",
 }
 
@@ -86,6 +87,11 @@ def describe_the_stamps():
         body = admin_client.get(reverse("hq:marketing", args=[hub.slug])).content.decode()
 
         assert 'aria-labelledby="hq-mk-form-title" data-help-key="hq.marketing"' in body
+
+    def it_marks_the_add_form_on_the_sponsorship_tracker(hub, admin_client: Client):
+        body = admin_client.get(reverse("hq:sponsors", args=[hub.slug])).content.decode()
+
+        assert 'data-hq-sp-add data-help-key="hq.sponsorship"' in body
 
     def it_marks_who_may_open_it_on_the_card_edit_page(hub, admin_client: Client):
         card = hub.cards.get(kind=HubCard.Kind.VOLUNTEERS)

@@ -1,0 +1,83 @@
+{% comment %}
+The Sponsorship Tracker's board: the band (_sponsor_band.html), Follow up
+(_sponsor_follow_up.html), the organisers' + Add a sponsor, and the pipeline with its filters,
+one _sponsor_row.html per sponsor. This whole block is the htmx answer to + Add a sponsor, so the
+new row lands in its place in the pipeline. A row's Save and Add to log swap that row only and
+send the band and Follow up out of band (_sponsor_row_answer.html), so typing in other open rows
+and in the add form survives. Each form carries the filter, so a plain post lands back on the
+group. Delete is a plain post through the confirm modal.
+
+  hub          — required, the EventHub
+  can_organize — required, the effective role's organiser bit: contact details, the forms, the log, the CSV
+  band         — required, a hq.services.SponsorBand
+  follow_ups   — required, a hq.services.FollowUps
+  today        — required, the Portland date, for the pipeline's due highlight
+  add_form     — required, a SponsorForm (bound when an add failed)
+  add_open     — required, whether + Add a sponsor renders open
+  rows         — required, the pipeline's hq.views.SponsorRow list in pipeline order
+  has_sponsors — required, whether the hub has any sponsor at all (picks the empty text)
+  show         — required, the filter in view
+  filters      — required, the (value, label) filter buttons this viewer gets
+  team         — required, the card's named members' display names, for Who's asking and By
+  team_list_id — required, the datalist's id
+{% endcomment %}
+{% url 'hq:sponsors' hub.slug as page_url %}
+<div class="pl-hq-sp__board" data-hq-sp-board>
+  {% include "hq/partials/_sponsor_band.html" %}
+
+  {% include "hq/partials/_sponsor_follow_up.html" %}
+
+  {% if can_organize %}
+  <datalist id="{{ team_list_id }}" data-hq-sp-team>{% for name in team %}<option value="{{ name }}"></option>{% endfor %}</datalist>
+  <details class="pl-disclosure pl-hq-sp__disclosure" {% if add_open %}open{% endif %} data-hq-sp-add data-help-key="hq.sponsorship">
+    <summary class="pl-disclosure__summary">
+      <span class="pl-disclosure__title">+ Add a sponsor</span>
+      <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+    </summary>
+    <form method="post" action="{% url 'hq:sponsor_add' hub.slug %}" hx-post="{% url 'hq:sponsor_add' hub.slug %}" hx-target="closest [data-hq-sp-board]" hx-swap="outerHTML" class="pl-disclosure__body pl-hq-sp__form" data-hq-sp-add-form>
+      {% csrf_token %}
+      <input type="hidden" name="filter" value="{{ show }}">
+      {% for error in add_form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+      <div class="pl-hq-sp__fields">
+        {% include "components/form_field.html" with field=add_form.organization field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.tier field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.ask field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.owner field_hint_off=True %}
+      </div>
+      <div class="pl-hq-sp__fields">
+        {% include "components/form_field.html" with field=add_form.contact_name field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.contact_role field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.email field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.phone field_hint_off=True %}
+      </div>
+      <div class="pl-hq-sp__fields">
+        {% include "components/form_field.html" with field=add_form.next_step field_hint_off=True %}
+        {% include "components/form_field.html" with field=add_form.follow_up_by field_hint_off=True %}
+      </div>
+      {% include "components/form_field.html" with field=add_form.fit_note field_hint_off=True %}
+      <div class="pl-hq-sp__actions">
+        <button type="submit" class="pl-hq-sp__btn" data-hq-sp-add-submit>Add sponsor</button>
+      </div>
+    </form>
+  </details>
+  {% endif %}
+
+  <section class="pl-hq-sp__section" aria-labelledby="hq-sp-pipe-title" data-hq-sp-pipeline>
+    <div class="pl-hq-sp__pipe-head">
+      <h2 class="pl-hq-sp__h2" id="hq-sp-pipe-title">Pipeline</h2>
+      {% if can_organize %}<a href="{% url 'hq:sponsors_csv' hub.slug %}" class="pl-hq-sp__csv" hx-boost="false" data-pl-download data-hq-sp-csv>Download CSV</a>{% endif %}
+    </div>
+    <nav class="pl-hq-sp__filters" aria-label="Filter the pipeline" data-hq-sp-filters>
+      {% for value, label in filters %}
+      <a href="{{ page_url }}{% if value != 'all' %}?filter={{ value }}{% endif %}" class="pl-hq-sp__filter" data-hq-sp-filter="{{ value }}"{% if value == show %} aria-current="true"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </nav>
+    <div class="pl-hq-sp__card pl-hq-sp__card--flush">
+      {% for row in rows %}
+      {% include "hq/partials/_sponsor_row.html" %}
+      {% empty %}
+      <p class="pl-hq-sp__empty" data-hq-sp-empty>{% if has_sponsors %}No sponsors in this group.{% elif can_organize %}No sponsors yet. Add your first one above.{% else %}No sponsors yet.{% endif %}</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>

@@ -1,9 +1,9 @@
-"""The HQ page and its edit pages (Track C, part 1), the volunteer sign-up page (part 2), the wine wall (part 3)
-and the Marketing Tracker (Track D, part 1)."""
+"""The HQ page and its edit pages (Track C, part 1), the volunteer sign-up page (part 2), the wine wall (part 3),
+the Marketing Tracker (Track D, part 1) and the Sponsorship Tracker (Track D, part 2)."""
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -28,20 +28,25 @@ from hq.access import (
     renders_as_admin,
     viewer_member,
 )
-from hq.exports import stream_donors_csv, stream_roster_csv
+from hq.exports import stream_donors_csv, stream_roster_csv, stream_sponsors_csv
 from hq.forms import (
     MARKETING_TEAM_LIST_ID,
+    SPONSOR_TEAM_LIST_ID,
     HubCardForm,
     HubForm,
     HubGoalFormSet,
     MarketingActionForm,
+    SponsorEditForm,
+    SponsorForm,
+    SponsorLogForm,
     VolunteerInfoForm,
     VolunteerShiftForm,
     VolunteerShiftFormSet,
     WineBottleForm,
     WineryLogoForm,
 )
-from hq.models import EventHub, HubCard, ShiftSignup, VolunteerShift
+from hq.holiday_bizarre import SPONSOR_TIERS, WINE_WALL_BENEFIT
+from hq.models import EventHub, HubCard, ShiftSignup, Sponsor, VolunteerShift
 from hq.services import VolunteerBand, VolunteerInfo, goal_rows
 from hub.toast import trigger_toast
 from hub.view_as import fog_admin_required
@@ -557,3 +562,243 @@ def marketing_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: 
     get_object_or_404(hub.marketing_actions, pk=pk).delete()
     messages.success(request, "Taken off the log.")
     return redirect(_marketing_url(hub))
+
+
+# ---- Sponsorship Tracker (Track D, part 2) ----
+
+
+def _sponsors_url(hub: EventHub, show: str = services.SPONSOR_FILTER_ALL) -> str:
+    url = reverse("hq:sponsors", args=[hub.slug])
+    return url if show == services.SPONSOR_FILTER_ALL else f"{url}?filter={show}"
+
+
+@dataclass(frozen=True)
+class SponsorRow:
+    """One row in the pipeline: the sponsor, and for an organiser its edit and log forms and whether it opens."""
+
+    sponsor: Sponsor
+    edit_form: SponsorEditForm | None
+    log_form: SponsorLogForm | None
+    is_open: bool
+
+
+def _edit_prefix(sponsor: Sponsor) -> str:
+    return f"sponsor-{sponsor.pk}"
+
+
+def _log_prefix(sponsor: Sponsor) -> str:
+    return f"log-{sponsor.pk}"
+
+
+def _sponsor_row(
+    sponsor: Sponsor,
+    *,
+    can_organize: bool,
+    is_open: bool,
+    edit_form: SponsorEditForm | None = None,
+    log_form: SponsorLogForm | None = None,
+) -> SponsorRow:
+    """``sponsor``'s pipeline row; an organiser's carries its edit and log forms, fresh unless refused ones are given."""
+    if not can_organize:
+        return SponsorRow(sponsor=sponsor, edit_form=None, log_form=None, is_open=is_open)
+    if edit_form is None:
+        edit_form = SponsorEditForm(initial=SponsorEditForm.initial_for(sponsor), prefix=_edit_prefix(sponsor))
+    if log_form is None:
+        log_form = SponsorLogForm(prefix=_log_prefix(sponsor))
+    return SponsorRow(sponsor=sponsor, edit_form=edit_form, log_form=log_form, is_open=is_open)
+
+
+def _organizes(request: HttpRequest, card: HubCard) -> bool:
+    """Whether the effective role renders as one of ``card``'s organisers."""
+    return card.can_organize(viewer_member(request), is_admin=renders_as_admin(request))
+
+
+@card_view(HubCard.Kind.SPONSORSHIP)
+def sponsors(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """The Sponsorship Tracker: the guidance line, the band, Follow up, + Add a Sponsor and the pipeline for
+    organisers, and the tiers. ``?filter=`` picks the pipeline's group."""
+    show = services.sponsor_filter(request.GET.get("filter", ""))
+    return render(request, "hq/sponsors.html", _sponsors_context(request, hub, card, show=show))
+
+
+def _sponsors_context(
+    request: HttpRequest,
+    hub: EventHub,
+    card: HubCard,
+    *,
+    show: str,
+    add_form: SponsorForm | None = None,
+    add_open: bool = False,
+    open_pk: int | None = None,
+    edit_form: SponsorEditForm | None = None,
+    log_form: SponsorLogForm | None = None,
+) -> dict[str, Any]:
+    """What the page and its board fragment render, by the effective role: an organiser gets the contact details,
+    the forms, the log and the CSV; everyone else the band, the follow-up count, the names, tiers and statuses.
+
+    ``open_pk`` is the row to render open (the one refused on a plain post), listed whatever the filter, with
+    ``edit_form`` and ``log_form`` in place of its fresh forms when they came back with errors.
+    """
+    member = viewer_member(request)
+    is_admin = renders_as_admin(request)
+    can_organize = card.can_organize(member, is_admin=is_admin)
+    today = timezone.localdate()
+    if not can_organize and show == services.SPONSOR_FILTER_DONORS:
+        # Last year's gifts are the organisers' notes; the filter would list who gave.
+        show = services.SPONSOR_FILTER_ALL
+    sponsors_qs = services.filtered_sponsors(hub, show, keep_pk=open_pk)
+    if can_organize:
+        sponsors_qs = sponsors_qs.prefetch_related("log_entries")
+    rows = []
+    for sponsor in sponsors_qs:
+        is_open = sponsor.pk == open_pk
+        rows.append(
+            _sponsor_row(
+                sponsor,
+                can_organize=can_organize,
+                is_open=is_open,
+                edit_form=edit_form if is_open else None,
+                log_form=log_form if is_open else None,
+            )
+        )
+    return {
+        "hub": hub,
+        "card": card,
+        "can_organize": can_organize,
+        "band": services.sponsor_band(hub),
+        "follow_ups": services.follow_ups(hub, today=today),
+        "today": today,
+        "add_form": add_form if add_form is not None else SponsorForm(),
+        # A refused add comes back open with its errors; a saved one stays open for the next.
+        "add_open": add_open or add_form is not None,
+        "rows": rows,
+        "has_sponsors": bool(rows) or hub.sponsors.exists(),
+        "show": show,
+        "filters": [
+            (value, label)
+            for value, label in services.SPONSOR_FILTERS
+            if can_organize or value != services.SPONSOR_FILTER_DONORS
+        ],
+        "team": sorted({named.display_name for named in card.named_members.all()}),
+        "team_list_id": SPONSOR_TEAM_LIST_ID,
+        "tiers": SPONSOR_TIERS,
+        "wine_benefit": WINE_WALL_BENEFIT,
+        "wine_url": _wine_url(hub, member, is_admin),
+    }
+
+
+def _sponsor_board(request: HttpRequest, context: dict[str, Any], message: str = "") -> HttpResponse:
+    """+ Add a sponsor's answer: the board over htmx (with a toast when ``message`` is set), or the whole page for
+    a plain post that failed."""
+    if not wants_fragment(request):
+        return render(request, "hq/sponsors.html", context)
+    response = render(request, "hq/partials/_sponsor_board.html", context)
+    if message:
+        trigger_toast(response, message, "success")
+    return response
+
+
+def _sponsor_row_answer(
+    request: HttpRequest,
+    hub: EventHub,
+    card: HubCard,
+    sponsor: Sponsor,
+    *,
+    show: str,
+    edit_form: SponsorEditForm | None = None,
+    log_form: SponsorLogForm | None = None,
+    message: str = "",
+) -> HttpResponse:
+    """A row's Save or Add to log answer. Over htmx: that row, open, for its target, and the band and Follow up out
+    of band (with a toast when ``message`` is set), so the other rows and the add form keep what is typed in them.
+    A plain post that failed gets the whole page with the row open. Either way the row comes back even when it no
+    longer matches the filter ``show``, so a status change or a refused form stays where it was edited."""
+    if not wants_fragment(request):
+        context = _sponsors_context(
+            request, hub, card, show=show, open_pk=sponsor.pk, edit_form=edit_form, log_form=log_form
+        )
+        return render(request, "hq/sponsors.html", context)
+    can_organize = _organizes(request, card)
+    today = timezone.localdate()
+    context = {
+        "hub": hub,
+        "can_organize": can_organize,
+        "row": _sponsor_row(sponsor, can_organize=can_organize, is_open=True, edit_form=edit_form, log_form=log_form),
+        "today": today,
+        "show": show,
+        "band": services.sponsor_band(hub),
+        "follow_ups": services.follow_ups(hub, today=today),
+    }
+    response = render(request, "hq/partials/_sponsor_row_answer.html", context)
+    if message:
+        trigger_toast(response, message, "success")
+    return response
+
+
+def _posted_filter(request: HttpRequest) -> str:
+    return services.sponsor_filter(request.POST.get("filter", ""))
+
+
+@require_POST
+@organizer_required(HubCard.Kind.SPONSORSHIP)
+def sponsor_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """+ Add a Sponsor, by the actual role. Over htmx the board comes back with the form open and empty and a
+    "Sponsor added." toast; a plain post lands back on the page with a message."""
+    show = _posted_filter(request)
+    form = SponsorForm(request.POST)
+    if not form.is_valid():
+        return _sponsor_board(request, _sponsors_context(request, hub, card, show=show, add_form=form))
+    services.add_sponsor(hub, form.to_fields(), member=actual_member(request))
+    if not wants_fragment(request):
+        messages.success(request, "Sponsor added.")
+        return redirect(_sponsors_url(hub, show))
+    context = _sponsors_context(request, hub, card, show=show, add_open=True)
+    return _sponsor_board(request, context, "Sponsor added.")
+
+
+@require_POST
+@organizer_required(HubCard.Kind.SPONSORSHIP)
+def sponsor_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Save one row's inline edit, by the actual role; a new status adds its line to the contact log."""
+    sponsor = get_object_or_404(hub.sponsors, pk=pk)
+    show = _posted_filter(request)
+    form = SponsorEditForm(request.POST, prefix=_edit_prefix(sponsor))
+    if not form.is_valid():
+        return _sponsor_row_answer(request, hub, card, sponsor, show=show, edit_form=form)
+    services.update_sponsor(sponsor, form.to_fields())
+    if not wants_fragment(request):
+        messages.success(request, f"{sponsor.organization} saved.")
+        return redirect(_sponsors_url(hub, show))
+    return _sponsor_row_answer(request, hub, card, sponsor, show=show, message="Saved.")
+
+
+@require_POST
+@organizer_required(HubCard.Kind.SPONSORSHIP)
+def sponsor_log(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Add one line to a sponsor's contact log, by the actual role."""
+    sponsor = get_object_or_404(hub.sponsors, pk=pk)
+    show = _posted_filter(request)
+    form = SponsorLogForm(request.POST, prefix=_log_prefix(sponsor))
+    if not form.is_valid():
+        return _sponsor_row_answer(request, hub, card, sponsor, show=show, log_form=form)
+    services.log_contact(sponsor, text=form.cleaned_data["text"], by=form.cleaned_data["by"])
+    if not wants_fragment(request):
+        messages.success(request, "Added to the log.")
+        return redirect(_sponsors_url(hub, show))
+    return _sponsor_row_answer(request, hub, card, sponsor, show=show, message="Added to the log.")
+
+
+@require_POST
+@organizer_required(HubCard.Kind.SPONSORSHIP)
+def sponsor_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Take a sponsor and its contact log off the tracker (organisers, by the actual role)."""
+    sponsor = get_object_or_404(hub.sponsors, pk=pk)
+    sponsor.delete()
+    messages.success(request, f"{sponsor.organization} is off the tracker.")
+    return redirect(_sponsors_url(hub, _posted_filter(request)))
+
+
+@organizer_required(HubCard.Kind.SPONSORSHIP)
+def sponsors_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
+    """Every sponsor on the tracker as a CSV download, one row each, in pipeline order."""
+    return stream_sponsors_csv(hub.sponsors.all(), filename_stem=hub.slug)
