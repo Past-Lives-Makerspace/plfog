@@ -70,23 +70,25 @@ TAB_EVENTBRITE = "eventbrite"
 
 #: The per-class tab strip, in render order, each paired with the capability that
 #: reveals it. A tab a viewer may not use is not rendered at all — never rendered and
-#: then 404'd on the click.
-_TAB_STRIP: tuple[tuple[str, str, str], ...] = (
-    (TAB_OVERVIEW, "Overview", "can_view_overview"),
-    (TAB_REGISTRATIONS, "Registrations", "can_view_registrations"),
-    (TAB_WAITLIST, "Waitlist", "can_view_waitlist"),
-    (TAB_DISCOUNT_CODES, "Discount Codes", "can_view_discount_codes"),
-    (TAB_EMAILS, "Emails", "can_view_emails"),
-    (TAB_EVENTBRITE, "Eventbrite", "can_manage_eventbrite"),
+#: then 404'd on the click. The hint is the line under the label in the phone's section
+#: list on the Overview (#852), so it is member copy: plain words, no dashes.
+_TAB_STRIP: tuple[tuple[str, str, str, str], ...] = (
+    (TAB_OVERVIEW, "Overview", "Sessions, price and capacity", "can_view_overview"),
+    (TAB_REGISTRATIONS, "Registrations", "Who is coming and who has paid", "can_view_registrations"),
+    (TAB_WAITLIST, "Waitlist", "People waiting for a seat", "can_view_waitlist"),
+    (TAB_DISCOUNT_CODES, "Discount Codes", "Codes that take money off this class", "can_view_discount_codes"),
+    (TAB_EMAILS, "Emails", "The welcome email students get", "can_view_emails"),
+    (TAB_EVENTBRITE, "Eventbrite", "List this class on Eventbrite", "can_manage_eventbrite"),
 )
 
 
 @dataclass(frozen=True)
 class ClassTab:
-    """One visible tab in the per-class strip: its url segment and its label."""
+    """One visible tab in the per-class strip: its url segment, its label and its one line hint."""
 
     key: str
     label: str
+    hint: str
 
 
 @dataclass(frozen=True)
@@ -122,7 +124,9 @@ class ClassAccess:
     def tabs(self) -> tuple[ClassTab, ...]:
         """The visible tabs in order, so a template loops once instead of branching five times."""
         return tuple(
-            ClassTab(key=key, label=label) for key, label, capability in _TAB_STRIP if getattr(self, capability)
+            ClassTab(key=key, label=label, hint=hint)
+            for key, label, hint, capability in _TAB_STRIP
+            if getattr(self, capability)
         )
 
 

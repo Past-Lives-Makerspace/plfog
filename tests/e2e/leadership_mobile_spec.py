@@ -3,15 +3,17 @@
 Cards sit two across at 393px (the Plate treatment picked on #464), so a long, space-less
 address inside a half-width card is the exact token that would push the page wider than the
 screen. Since #564 the cards sit in tabs, and a strip of long tab names is the other thing
-that could: it has to scroll sideways inside itself while the page never does. This drives
-the real browser at a phone viewport with such an address on a person card and on a guild
-card, opening each tab, proving the page never scrolls sideways and that every email and
-Discord row is at least 44px tall and inside the viewport. Run with ``pytest -m e2e``.
+that could; since #852 a phone gets the section picker in the strip's place, whose long
+names must ellipsize rather than widen the page. This drives the real browser at a phone
+viewport with such an address on a person card and on a guild card, opening each tab through
+the picker, proving the page never scrolls sideways and that every email and Discord row is
+at least 44px tall and inside the viewport. Run with ``pytest -m e2e``.
 """
 
 from __future__ import annotations
 
 from django.urls import reverse
+from playwright.sync_api import expect
 
 from membership.models import LeadershipTab
 from tests.membership.factories import (
@@ -25,9 +27,6 @@ from tests.membership.factories import (
 
 PHONE = {"width": 393, "height": 852}
 NO_H_SCROLL = "() => document.documentElement.scrollWidth === document.documentElement.clientWidth"
-STRIP_SCROLLS = (
-    "() => { const s = document.querySelector('.pl-leadership__tabs'); return s.scrollWidth > s.clientWidth; }"
-)
 MEMBER_EMAIL = "leadership-mobile-member@example.com"
 
 # No whitespace to wrap on: only overflow-wrap inside the row keeps these within a half-width card.
@@ -84,18 +83,29 @@ def _assert_rows_are_tap_targets(page, pane_id: str) -> None:
         assert box["x"] >= 0 and box["x"] + box["width"] <= PHONE["width"], f"contact row {index} leaves the viewport"
 
 
+def _pick(page, title: str) -> None:
+    """Open the section picker that stands in for the strip on a phone and choose ``title``."""
+    page.locator(".pl-tab-picker__summary").click()
+    page.locator(".pl-tab-picker__item", has_text=title).click()
+
+
 def describe_leadership_directory_mobile():
-    def it_scrolls_the_strip_inside_itself_and_never_the_page(live_server, page, login_via_code):
+    def it_puts_the_strip_behind_the_picker_and_never_scrolls_the_page(live_server, page, login_via_code):
         leadership, guild_leads = _open(live_server, page, login_via_code)
-        assert page.evaluate(STRIP_SCROLLS), "five long tab names should overflow a phone's strip"
+        expect(page.locator(".pl-leadership__tabs")).to_be_hidden()
+        expect(page.locator(".pl-tab-picker__current")).to_have_text("Leadership and Admin Team")
         assert page.evaluate(NO_H_SCROLL), f"the directory scrolls sideways at {PHONE['width']}px"
-        page.locator(f"#leadership-tab-{guild_leads.pk}").click()
+        page.locator(".pl-tab-picker__summary").click()
+        expect(page.locator(".pl-tab-picker__item")).to_have_count(5)
+        assert page.evaluate(NO_H_SCROLL), f"the open picker scrolls sideways at {PHONE['width']}px"
+        page.locator(".pl-tab-picker__item", has_text="Guild Leads").click()
         page.locator(f"#leadership-pane-{guild_leads.pk} .pl-leader-card--guild").wait_for()
+        expect(page.locator(".pl-tab-picker__current")).to_have_text("Guild Leads")
         assert page.evaluate(NO_H_SCROLL), f"the Guild Leads tab scrolls sideways at {PHONE['width']}px"
 
     def it_keeps_every_contact_row_a_tap_target_inside_the_viewport(live_server, page, login_via_code):
         leadership, guild_leads = _open(live_server, page, login_via_code)
         _assert_rows_are_tap_targets(page, f"leadership-pane-{leadership.pk}")
-        page.locator(f"#leadership-tab-{guild_leads.pk}").click()
+        _pick(page, "Guild Leads")
         page.locator(f"#leadership-pane-{guild_leads.pk} .pl-leader-card--guild").wait_for()
         _assert_rows_are_tap_targets(page, f"leadership-pane-{guild_leads.pk}")

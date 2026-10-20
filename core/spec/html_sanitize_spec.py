@@ -341,6 +341,69 @@ def describe_allowlist_cleaner():
         assert "javascript" not in out
 
 
+def describe_the_nesting_cap():
+    def _cleaner():
+        from core.html_sanitize import AllowlistCleaner
+
+        return AllowlistCleaner(["ul", "li", "b", "br", "p"], {})
+
+    def it_keeps_nesting_up_to_the_cap():
+        from core.html_sanitize import MAX_NESTING
+
+        source = "<b>" * MAX_NESTING + "x" + "</b>" * MAX_NESTING
+        assert _cleaner().clean(source) == source
+
+    def it_drops_tags_past_the_cap_and_keeps_their_text():
+        from core.html_sanitize import MAX_NESTING
+
+        source = "<b>" * (MAX_NESTING + 3) + "deep" + "</b>" * (MAX_NESTING + 3) + "<p>after</p>"
+        assert _cleaner().clean(source) == "<b>" * MAX_NESTING + "deep" + "</b>" * MAX_NESTING + "<p>after</p>"
+
+    def it_frees_a_level_when_an_element_closes():
+        from core.html_sanitize import MAX_NESTING
+
+        siblings = "<ul><li>a</li></ul>" * (MAX_NESTING * 3)
+        assert _cleaner().clean(siblings) == siblings
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            # Unclosed <b>s the parser reopens in each next paragraph.
+            ("<p>" + "<b>" * 10 + "x</p>") * 5,
+            "<ul><li>" * 200,
+            "<b><ul><li>" * 100,
+            ("<ul><li>a" + "</b>" * 3) * 100,
+            "<p><b>" * 100 + "x" + "</b></p>" * 100,
+        ],
+    )
+    def it_never_lets_the_output_nest_past_the_cap(source):
+        import re
+
+        from core.html_sanitize import MAX_NESTING
+
+        depth = deepest = 0
+        for closing, _tag in re.findall(r"<(/?)(ul|li|b|p)\b", _cleaner().clean(source)):
+            depth += -1 if closing else 1
+            deepest = max(deepest, depth)
+        assert deepest <= MAX_NESTING
+
+    def it_never_counts_void_tags_as_nesting():
+        from core.html_sanitize import MAX_NESTING
+
+        assert _cleaner().clean("<b>" + "<br>" * (MAX_NESTING * 2) + "x</b>").count("<br>") == MAX_NESTING * 2
+
+    def it_leaves_a_stray_close_tag_to_the_parser():
+        assert _cleaner().clean("<p>a</b>b</p>") == "<p>ab</p>"
+
+    def it_cleans_deep_nesting_at_the_size_limit_quickly():
+        from core.html_sanitize import RICH_TEXT_MAX_CHARS, clean_rich_body
+
+        started = time.perf_counter()
+        clean_rich_body("<ul><li>" * (RICH_TEXT_MAX_CHARS // 8))
+        # About 0.75s before the cap, quadratic in the depth; linear now.
+        assert time.perf_counter() - started < 0.5
+
+
 def describe_the_rich_text_size_limit():
     def it_passes_text_at_the_limit_through_unchanged():
         from core.html_sanitize import RICH_TEXT_MAX_CHARS, limit_rich_text

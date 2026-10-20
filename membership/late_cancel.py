@@ -147,11 +147,14 @@ def cancel_sentence(policy: LateCancelPolicy) -> str:
 def booking_cancel_warning(booking: OrientationBooking, policy: LateCancelPolicy) -> str:
     """The cancel modal's fee line for a member's own orientation booking, or "" when none applies.
 
-    Only a CONFIRMED booking can carry a fee, and only while a cancel right now would be late.
-    The Orientations page's cards and its Bookings tab both ask here, so the two never disagree.
+    Only a CONFIRMED booking can carry a fee, and only while a cancel right now would be late;
+    a booking the guild moved to another time (#853) never does. The Orientations page's
+    cards, its Bookings tab and the emailed cancel link all ask here, so they never disagree.
     """
     from membership.models import OrientationBooking
 
-    if booking.status != OrientationBooking.Status.CONFIRMED or not policy.is_late(booking.slot.starts_at):
+    if booking.status != OrientationBooking.Status.CONFIRMED or booking.moved_by_guild:
+        return ""
+    if not policy.is_late(booking.slot.starts_at):
         return ""
     return cancel_sentence(policy)

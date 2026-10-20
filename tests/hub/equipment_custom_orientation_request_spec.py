@@ -362,7 +362,7 @@ def describe_the_equipment_road():
         assert booking.guild is None
         assert booking.member_note == "evenings"
         slot = booking.slot
-        assert slot.source == OrientationSlot.Source.MANUAL
+        assert slot.source == OrientationSlot.Source.CUSTOM
         assert slot.seats == 1
         assert slot.guild is None
         assert slot.orienter is None
