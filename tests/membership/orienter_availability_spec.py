@@ -1220,8 +1220,9 @@ def describe_hold_expiry_recap():
         assert slot.seats == 4
         assert slot.is_cancelled is False
 
-    def it_deletes_an_orphan_one_seat_manual_slot_instead_of_recapping():
-        slot = OrientationSlotFactory(equipment_owned=True, seats=1)
+    def it_deletes_an_orphan_custom_slot_instead_of_recapping():
+        # Since #857 only a booking's own slot is deleted; a leader's posted one-off is recapped.
+        slot = OrientationSlotFactory(equipment_owned=True, seats=1, source=OrientationSlot.Source.CUSTOM)
         hold = OrientationBookingFactory(
             slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id=""
         )
