@@ -95,7 +95,6 @@ from hq.models import (
     FlyerSlot,
     HubCard,
     LedgerEntry,
-    LedgerSettings,
     MarketingKind,
     MarketReport,
     ShiftSignup,
@@ -1659,23 +1658,19 @@ def ledger_approval(request: HttpRequest, *, hub: EventHub, card: HubCard) -> Ht
     """Change the board's approval and its note, by the actual role. A plain post: the approval names the kinds, the
     filters and a column, so the page comes back whole. A refused one renders the page with the form open.
 
-    A Save from a page older than the settings (their ``updated_at`` no longer matches) is refused whole under a row
-    lock: the form comes back as the database holds it, with :data:`APPROVAL_STALE_SAVE`. A first save is never stale.
+    A Save from a page older than the settings (:class:`hq.services.StaleSave`) comes back with the form as the
+    database holds it, with :data:`APPROVAL_STALE_SAVE`.
     """
     form = LedgerApprovalForm(request.POST)
-    with transaction.atomic():
-        found = LedgerSettings.objects.select_for_update().filter(hub=hub).first()
-        stale = form.is_stale(found)
-        valid = not stale and form.is_valid()
-        if valid:
-            services.save_approval(hub, **form.to_fields())
-    if stale:
+    if not form.is_valid():
+        context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, approval_form=form)
+        return render(request, "hq/ledger.html", context)
+    try:
+        services.save_approval(hub, **form.to_fields(), seen=form.seen())
+    except services.StaleSave:
         context = _ledger_context(
             request, hub, card, show=services.LEDGER_FILTER_ALL, approval_error=APPROVAL_STALE_SAVE
         )
-        return render(request, "hq/ledger.html", context)
-    if not valid:
-        context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, approval_form=form)
         return render(request, "hq/ledger.html", context)
     messages.success(request, "Approval saved.")
     return redirect(_ledger_url(hub))
@@ -1725,18 +1720,20 @@ def ledger_line_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: 
     """Save one budget line, by the actual role. Over htmx only that line comes back, with the totals, the log form's
     line select and the ledger out of band (they name the line); a refused Save comes back open with its errors.
 
-    A Save from a page older than the line (its ``updated_at`` no longer matches) is refused whole under a row lock:
-    the line comes back as the database holds it, with :data:`LINE_STALE_SAVE`.
+    A Save from a page older than the line (:class:`hq.services.StaleSave`) comes back with the line as the database
+    holds it, with :data:`LINE_STALE_SAVE`.
     """
     show = _ledger_posted_filter(request)
     fragment = wants_fragment(request)
-    with transaction.atomic():
-        line = get_object_or_404(hub.budget_lines.select_for_update(), pk=pk)
-        form = _line_edit_form(line, request.POST)
-        stale = form.is_stale
-        valid = not stale and form.is_valid()
-        if valid:
-            services.update_budget_line(line, form.to_fields())
+    line = get_object_or_404(hub.budget_lines, pk=pk)
+    form = _line_edit_form(line, request.POST)
+    valid = form.is_valid()
+    stale = False
+    if valid:
+        try:
+            line = services.update_budget_line(line, form.to_fields(), seen=form.seen())
+        except services.StaleSave:
+            valid, stale = False, True
     if not valid and not fragment:
         context = _ledger_context(
             request,

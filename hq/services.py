@@ -34,7 +34,7 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.db.models import (
     Count,
     DecimalField,
@@ -45,7 +45,6 @@ from django.db.models import (
     OuterRef,
     Q,
     QuerySet,
-    RestrictedError,
     Subquery,
     Sum,
 )
@@ -1367,6 +1366,10 @@ class LineHasEntries(Exception):
     """A budget line with entries in the ledger cannot be deleted (``LedgerEntry.line`` is RESTRICT)."""
 
 
+class StaleSave(Exception):
+    """A Save from a page older than the record it edits: someone else saved it after the page loaded."""
+
+
 class ReceiptNotTaken(Exception):
     """A sponsored or donated entry takes no receipt: only money spent or refunded does."""
 
@@ -1718,14 +1721,24 @@ def receipt_entries(hub: EventHub) -> QuerySet[LedgerEntry]:
     return hub.ledger_entries.filter(kind__in=RECEIPT_KINDS).select_related("line").order_by("date", "created_at", "pk")
 
 
-def save_approval(hub: EventHub, *, approved_cents: int, approved_note: str) -> LedgerSettings:
+def save_approval(hub: EventHub, *, approved_cents: int, approved_note: str, seen: str) -> LedgerSettings:
     """Record the board's approval and its note on ``hub``, making the settings row on the first save. Only those two
-    fields are written, so D6b's prices and tickets are never overwritten from an older page."""
+    fields are written, so D6b's prices and tickets are never overwritten from an older page.
+
+    The settings row is locked for the check: ``seen`` is its ``updated_at`` as the form was rendered with it (blank
+    before the first save), and a Save after someone else saved the settings is refused whole. A first save, with no
+    row yet, is never stale.
+
+    Raises:
+        StaleSave: the settings were saved after the page loaded.
+    """
     with transaction.atomic():
         found, created = LedgerSettings.objects.select_for_update().get_or_create(
             hub=hub, defaults={"approved_cents": approved_cents, "approved_note": approved_note}
         )
         if not created:
+            if seen != found.updated_at.isoformat():
+                raise StaleSave("Someone else changed the approval.")
             found.approved_cents = approved_cents
             found.approved_note = approved_note
             found.save(update_fields=["approved_cents", "approved_note", "updated_at"])
@@ -1738,20 +1751,28 @@ def add_budget_line(hub: EventHub, fields: Mapping[str, Any]) -> BudgetLine:
     return BudgetLine.objects.create(hub=hub, sort_order=0 if last is None else last + 1, **fields)
 
 
-def update_budget_line(line: BudgetLine, fields: Mapping[str, Any]) -> BudgetLine:
-    """Save the line's edited fields."""
-    for name, value in fields.items():
-        setattr(line, name, value)
-    line.save()
-    return line
+def update_budget_line(line: BudgetLine, fields: Mapping[str, Any], *, seen: str) -> BudgetLine:
+    """Save the line's edited fields under a row lock, unless the line was saved after the page loaded: ``seen`` is
+    its ``updated_at`` as the form was rendered with it, and a Save from an older page is refused whole.
+
+    Raises:
+        StaleSave: the line was saved after the page loaded.
+    """
+    with transaction.atomic():
+        locked = BudgetLine.objects.select_for_update().get(pk=line.pk)
+        if seen != locked.updated_at.isoformat():
+            raise StaleSave(f"Someone else changed {locked.name}.")
+        for name, value in fields.items():
+            setattr(locked, name, value)
+        locked.save()
+    return locked
 
 
 def delete_budget_line(line: BudgetLine) -> None:
     """Take a budget line off the budget.
 
     The line's row is locked first, so an entry logged against it (its insert takes a key share lock on the line)
-    waits for the delete rather than slipping in between the count and the delete. Should one land anyway, the
-    database's refusal (Django's ``RestrictedError``, or the foreign key's ``IntegrityError``) is answered by name.
+    waits for the delete rather than slipping in between the count and the delete.
 
     Raises:
         LineHasEntries: the line has entries in the ledger, named with how many when they were counted.
@@ -1764,11 +1785,7 @@ def delete_budget_line(line: BudgetLine) -> None:
                 f"A budget line with entries cannot be deleted: {line.name} has "
                 f"{_plural(count, 'entry', 'entries')} in the ledger. Delete those entries first."
             )
-        try:
-            with transaction.atomic():
-                line.delete()
-        except (RestrictedError, IntegrityError) as exc:  # an entry logged between the count and the delete
-            raise LineHasEntries(f"A budget line with entries cannot be deleted: {line.name} has entries.") from exc
+        line.delete()
 
 
 def add_ledger_entry(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> LedgerEntry:

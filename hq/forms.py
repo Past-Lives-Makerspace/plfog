@@ -1043,8 +1043,8 @@ def _dollars_initial(cents: int) -> Decimal:
 class LedgerApprovalForm(forms.Form):
     """The board's approval: the amount and the line under it (Lee's "Drinks budget, Oct 14 meeting").
 
-    The form carries the settings' ``updated_at`` (blank before the first save): :meth:`is_stale` is a Save from a
-    page older than the settings, refused whole."""
+    The form carries the settings' ``updated_at`` (blank before the first save) as :meth:`seen`, so
+    :func:`hq.services.save_approval` can refuse a Save from a page older than the settings."""
 
     approved = _money("Board approval ($)")
     approved_note = forms.CharField(
@@ -1068,10 +1068,9 @@ class LedgerApprovalForm(forms.Form):
             "updated_at": cls.stamp(found),
         }
 
-    def is_stale(self, found: LedgerSettings | None) -> bool:
-        """Whether the posted stamp differs from the saved settings': someone saved them after this page loaded. A
-        first save, with no settings row yet (``found`` is None), is never stale."""
-        return found is not None and self.data.get("updated_at", "") != self.stamp(found)
+    def seen(self) -> str:
+        """The settings' ``updated_at`` as this page was rendered with it; blank before the first save."""
+        return str(self.cleaned_data["updated_at"])
 
     def to_fields(self) -> dict[str, Any]:
         return {
@@ -1108,7 +1107,8 @@ class BudgetLineForm(forms.ModelForm):
 
 class BudgetLineEditForm(BudgetLineForm):
     """Edit one budget line, saved with one Save. Each label names the line ("Line name for Kegs"), and the form
-    carries the line's ``updated_at``: :attr:`is_stale` is a Save from a page older than the line, refused whole."""
+    carries the line's ``updated_at`` as :meth:`seen`, so :func:`hq.services.update_budget_line` can refuse a Save
+    from a page older than the line."""
 
     updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
 
@@ -1123,10 +1123,9 @@ class BudgetLineEditForm(BudgetLineForm):
     def _stamp(self) -> str:
         return self.instance.updated_at.isoformat()
 
-    @property
-    def is_stale(self) -> bool:
-        """Whether the posted stamp differs from the line's: someone saved it after this page loaded."""
-        return self.is_bound and self.data.get(self.add_prefix("updated_at"), "") != self._stamp
+    def seen(self) -> str:
+        """The line's ``updated_at`` as this page was rendered with it."""
+        return str(self.cleaned_data["updated_at"])
 
 
 def _receipt_field() -> forms.FileField:

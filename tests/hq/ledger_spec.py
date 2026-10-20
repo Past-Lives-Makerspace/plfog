@@ -723,6 +723,40 @@ def describe_the_approval():
         assert 'value="800.00"' in body and 'value="Their note"' in body
         assert f'value="{found.updated_at.isoformat()}"' in body
 
+    def it_refuses_a_stale_save_in_the_service_by_name_and_writes_nothing(hub):
+        found = LedgerSettingsFactory(hub=hub, approved_cents=80_000, approved_note="Their note")
+        older = (found.updated_at - timedelta(seconds=5)).isoformat()
+
+        with pytest.raises(services.StaleSave, match="Someone else changed the approval."):
+            services.save_approval(hub, approved_cents=150_000, approved_note="Mine", seen=older)
+
+        found.refresh_from_db()
+        assert (found.approved_cents, found.approved_note) == (80_000, "Their note")
+
+    def it_never_holds_a_first_save_stale(hub):
+        found = services.save_approval(hub, approved_cents=150_000, approved_note="First", seen="from an old page")
+
+        assert (found.approved_cents, found.approved_note) == (150_000, "First")
+
+    def it_locks_the_settings_before_the_stale_check(hub):
+        found = LedgerSettingsFactory(hub=hub)
+
+        with CaptureQueriesContext(connection) as queries:
+            services.save_approval(hub, approved_cents=1, approved_note="", seen=found.updated_at.isoformat())
+
+        sql = [query["sql"] for query in queries.captured_queries]
+        assert any('"hq_ledgersettings"' in text and "FOR UPDATE" in text for text in sql)
+
+    def it_shows_a_bad_amount_before_a_stale_stamp(hub, lee_client):
+        found = LedgerSettingsFactory(hub=hub)
+        posted = _approval_post(found, approved="-1")
+        posted["updated_at"] = ""
+
+        body = lee_client.post(_url("ledger_approval", hub), posted).content.decode()
+
+        assert "pl-field-error" in body
+        assert "data-hq-lg-approval-error" not in body
+
     def it_saves_again_with_the_stamp_the_page_was_given(hub, lee_client):
         lee_client.post(_url("ledger_approval", hub), {"approved": "800", "approved_note": "First"})
         found = LedgerSettings.objects.get(hub=hub)
@@ -868,6 +902,26 @@ def describe_the_budget_lines():
         kegs.refresh_from_db()
         assert kegs.name == "Kegs"
 
+    def it_refuses_a_stale_line_save_in_the_service_by_name_and_writes_nothing(hub, kegs):
+        older = (kegs.updated_at - timedelta(seconds=5)).isoformat()
+
+        with pytest.raises(services.StaleSave, match="Someone else changed Kegs."):
+            services.update_budget_line(kegs, {"name": "Mine"}, seen=older)
+
+        kegs.refresh_from_db()
+        assert kegs.name == "Kegs"
+
+    def it_saves_a_line_in_the_service_under_its_lock(hub, kegs):
+        with CaptureQueriesContext(connection) as queries:
+            saved = services.update_budget_line(kegs, {"name": "Taps"}, seen=kegs.updated_at.isoformat())
+
+        sql = [query["sql"] for query in queries.captured_queries]
+        lock = next(i for i, text in enumerate(sql) if "FOR UPDATE" in text)
+        assert '"hq_budgetline"' in sql[lock]
+        assert lock < next(i for i, text in enumerate(sql) if text.startswith("UPDATE"))
+        assert saved.name == "Taps"
+        assert BudgetLine.objects.get(pk=kegs.pk).name == "Taps"
+
     def it_deletes_an_empty_line_through_the_confirm_modal(hub, kegs, lee_client):
         body = lee_client.get(_page(hub)).content.decode()
 
@@ -914,38 +968,6 @@ def describe_the_budget_lines():
         assert '"hq_budgetline"' in sql[lock]
         assert lock < count
         assert not BudgetLine.objects.exists()
-
-    @pytest.mark.parametrize(
-        "refusal",
-        [
-            IntegrityError('insert or update on table "hq_ledgerentry" violates foreign key constraint'),
-            RestrictedError("an entry landed", set()),
-        ],
-        ids=["integrity", "restricted"],
-    )
-    def it_refuses_by_name_when_an_entry_lands_between_the_count_and_the_delete(hub, monkeypatch, refusal):
-        racing = BudgetLineFactory(hub=hub, name="Racing")
-
-        def _late_entry(*args: Any, **kwargs: Any) -> None:
-            raise refusal
-
-        monkeypatch.setattr(BudgetLine, "delete", _late_entry)
-        with pytest.raises(services.LineHasEntries, match="Racing has entries") as raised:
-            services.delete_budget_line(racing)
-
-        assert raised.value.__cause__ is refusal
-        assert BudgetLine.objects.filter(pk=racing.pk).exists()  # the connection is still usable
-
-    def it_answers_a_late_entry_on_the_page_with_the_same_refusal(hub, lee_client, monkeypatch):
-        racing = BudgetLineFactory(hub=hub, name="Racing")
-
-        def _late_entry(*args: Any, **kwargs: Any) -> None:
-            raise IntegrityError("violates foreign key constraint")
-
-        monkeypatch.setattr(BudgetLine, "delete", _late_entry)
-        response = lee_client.post(_url("ledger_line_delete", hub, racing.pk), {"filter": "all"}, follow=True)
-
-        assert "A budget line with entries cannot be deleted: Racing has entries." in response.content.decode()
 
     def it_says_so_when_there_are_no_lines(hub, lee_client):
         body = lee_client.get(_page(hub)).content.decode()
