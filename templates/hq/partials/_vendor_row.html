@@ -1,0 +1,42 @@
+{% comment %}
+One table request as a row of its own edit form: every field is a control tied to the row's form
+(in the last cell) by its form attribute, since a form cannot wrap a table row. Save swaps this
+row alone over htmx, with the band out of band; Delete goes through the confirm modal.
+
+  hub  — required, the EventHub
+  row  — required, a hq.views.VendorRow (the request, its edit form, and any refusal the form lacks)
+  show — required, the filter in view, carried by Save and Delete
+{% endcomment %}
+{% with table=row.table form=row.form %}
+<tr class="pl-hq-vt__row pl-hq-vt__row--{{ table.status }}" data-hq-vt-row="{{ table.pk }}" data-hq-vt-status="{{ table.status }}">
+  <td class="pl-hq-vt__cell pl-hq-vt__cell--name">
+    {% include "components/form_field.html" with field=form.name field_hint_off=True %}
+    {% include "components/form_field.html" with field=form.needs field_hint_off=True %}
+  </td>
+  <td class="pl-hq-vt__cell">{% include "components/form_field.html" with field=form.guild field_hint_off=True %}</td>
+  <td class="pl-hq-vt__cell">{% include "components/form_field.html" with field=form.sells field_hint_off=True %}</td>
+  <td class="pl-hq-vt__cell">{% include "components/form_field.html" with field=form.size field_hint_off=True %}</td>
+  <td class="pl-hq-vt__cell">{% include "components/form_field.html" with field=form.status field_hint_off=True %}</td>
+  <td class="pl-hq-vt__cell pl-hq-vt__cell--no">{% include "components/form_field.html" with field=form.table_no field_hint_off=True %}</td>
+  <td class="pl-hq-vt__cell pl-hq-vt__cell--setup">{% include "components/form_field.html" with field=form.setup field_hint_off=True %}</td>
+  <td class="pl-hq-vt__cell pl-hq-vt__cell--contact">
+    {% include "components/form_field.html" with field=form.email field_hint_off=True %}
+    {% include "components/form_field.html" with field=form.phone field_hint_off=True %}
+  </td>
+  <td class="pl-hq-vt__cell pl-hq-vt__cell--actions">
+    {% if row.error %}<p class="pl-field-error" role="alert" data-hq-vt-row-error>{{ row.error }}</p>{% endif %}
+    {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+    <form id="{{ form.form_id }}" method="post" action="{% url 'hq:vendor_edit' hub.slug table.pk %}" hx-post="{% url 'hq:vendor_edit' hub.slug table.pk %}" hx-target="closest [data-hq-vt-row]" hx-swap="outerHTML" data-hq-vt-edit-form>
+      {% csrf_token %}
+      <input type="hidden" name="filter" value="{{ show }}">
+      {{ form.updated_at }}
+      <button type="submit" class="pl-hq-vt__btn pl-hq-vt__btn--sm" aria-label="Save {{ table.name }}" data-hq-vt-save>Save</button>
+    </form>
+    <button type="button" class="pl-hq-vt__delete" aria-label="Delete {{ table.name }}" @click="$dispatch('open-confirm', 'delete-vendor-{{ table.pk }}')" data-hq-vt-delete>Delete</button>
+    {% url 'hq:vendor_delete' hub.slug table.pk as delete_url %}
+    {% with pk_text=table.pk|stringformat:"s" %}
+    {% include "components/confirm_modal.html" with confirm_id="delete-vendor-"|add:pk_text confirm_title="Delete this table request?" confirm_message="The request is removed and the counts change. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" confirm_field_name="filter" confirm_field_value=show %}
+    {% endwith %}
+  </td>
+</tr>
+{% endwith %}

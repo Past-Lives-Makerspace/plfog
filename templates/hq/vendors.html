@@ -1,0 +1,26 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+Vendor Tables (Track D, part 3), in the look of Lee's page: a header with the hub's name, its date
+and who manages the door, then the board (hq/partials/_vendor_board.html: the band, + Add a table
+request, the table requests and the space map's capacity). Organisers only: the view's gate is the
+card's audience and then a 403 for anyone who does not organise it, because every row is a contact.
+{% endcomment %}
+{% block title %}{{ card.title }}{% endblock %}
+{% block extra_head %}
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq-vt" data-hq-vendors>
+  <header class="pl-hq-vt__header">
+    <div class="pl-hq-vt__heading">
+      <h1 class="pl-hq-vt__title">Vendor Tables</h1>
+      <p class="pl-hq-vt__subline" data-hq-vt-subline>{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %}{% if managed_by %} · Managed by {{ managed_by }}{% endif %}</p>
+    </div>
+    <a href="{% url 'hq:page' hub.slug %}" class="pl-hq-vt__back" data-hq-vt-back>&larr; HQ</a>
+  </header>
+
+  {% include "hq/partials/_vendor_board.html" %}
+</div>
+{% endblock %}

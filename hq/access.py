@@ -125,6 +125,29 @@ def card_view(kind: str) -> Callable[[Callable[..., HttpResponseBase]], Callable
     return decorator
 
 
+def organizer_page(kind: str) -> Callable[[Callable[..., HttpResponseBase]], Callable[..., HttpResponseBase]]:
+    """A page for the ``kind`` card's organisers only: :func:`card_view`'s gate, then a 403 for anyone it lets
+    through who does not organise the card.
+
+    A hidden or closed door is still the 404 :func:`card_or_404` gives, so it never reveals itself; a viewer
+    the card is open to who is not an organiser gets the 403 the volunteer roster gives. The check reads the
+    effective role, as the page renders: an admin previewing as a member sees the 403 that member would.
+    Vendor Tables (D3) is such a page, because every row on it is a contact.
+    """
+
+    def decorator(view: Callable[..., HttpResponseBase]) -> Callable[..., HttpResponseBase]:
+        @card_view(kind)
+        @wraps(view)
+        def wrapped(request: HttpRequest, *args: Any, hub: EventHub, card: HubCard, **kwargs: Any) -> HttpResponseBase:
+            if not card.can_organize(viewer_member(request), is_admin=renders_as_admin(request)):
+                raise PermissionDenied("Only the organisers of this part of the event can open this page.")
+            return view(request, *args, hub=hub, card=card, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
 def organizer_required(kind: str) -> Callable[[Callable[..., HttpResponseBase]], Callable[..., HttpResponseBase]]:
     """Admit admins and the ``kind`` card's named members, by their actual roles, on the hub at ``slug``.
 

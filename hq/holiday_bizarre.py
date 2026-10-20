@@ -1,4 +1,5 @@
-"""Lee's Holiday Bizarre HQ as data: the hub, its nine doors, four goals and 21 volunteer shifts.
+"""Lee's Holiday Bizarre HQ as data: the hub, its nine doors, five goals, 21 volunteer shifts, the sponsor tiers and the
+vendor setup windows.
 
 ``manage.py seed_holiday_bizarre`` writes these rows for a published calendar event; correcting
 a word here and re-running is the workflow, as with the help articles. Nothing in this module
@@ -10,8 +11,10 @@ words each was first seeded with, so a re-run can tell Lee's untouched words fro
 :data:`CARDS` is that same tuple, so the two never drift.
 The shifts are Lee's sign-up sheet, phase by phase, in her words; the two bartender shifts
 need an Oregon OLCC service permit. The goals are her tracker: Raised is typed in by an admin
-(a money goal, in whole dollars, as every ``HubGoal`` money figure is), the other three are
-counted live from the pages behind the doors.
+(a money goal, in whole dollars, as every ``HubGoal`` money figure is), the other four are
+counted live from the pages behind the doors; Member tables has no target, so it shows as a plain
+count. The sponsor tiers are her draft "what they get" table on the Sponsorship Tracker, row for
+row. The vendor setup windows are the Setup day choices on Vendor Tables and its band's note.
 """
 
 from __future__ import annotations
@@ -73,6 +76,7 @@ GOALS: tuple[GoalContent, ...] = (
     GoalContent(label="Wine wall bottles", kind=HubGoal.Kind.BOTTLES, target=100),
     GoalContent(label="Volunteer spots", kind=HubGoal.Kind.VOLUNTEER_SPOTS, target=82),
     GoalContent(label="RSVPs", kind=HubGoal.Kind.RSVPS, target=250),
+    GoalContent(label="Member tables", kind=HubGoal.Kind.MEMBER_TABLES, target=0),
 )
 
 # The 21 shifts of Lee's sheet. Their needs add up to the Volunteer spots goal (82).
@@ -227,3 +231,89 @@ SHIFTS: tuple[ShiftContent, ...] = (
         description="Sweep, mop, return borrowed items, reset the shop for members.",
     ),
 )
+
+
+@dataclass(frozen=True)
+class SponsorTierContent:
+    """One row of the sponsor tiers table: the tier, its amount and how many, and what they get, one item each."""
+
+    name: str
+    amount: str
+    how_many: str
+    benefits: tuple[str, ...]
+
+
+# The In-kind row's last benefit; the page links it to the wine wall when that door is open to the viewer.
+WINE_WALL_BENEFIT = "Wine counts toward the wine wall"
+
+# Lee's draft tiers, in her words: what each sponsor gets.
+SPONSOR_TIERS: tuple[SponsorTierContent, ...] = (
+    SponsorTierContent(
+        name="Presenting",
+        amount="$5,000",
+        how_many="1",
+        benefits=(
+            '"Holiday Bizarre presented by" on the flyer, adventure map, signage and website',
+            "Top logo placement",
+            "Private team-building workshop at PLM for up to 12",
+            "10 wine wall tickets",
+            "Instagram reel and member newsletter feature",
+            "Thank-you from the stage",
+        ),
+    ),
+    SponsorTierContent(
+        name="Gold",
+        amount="$2,500",
+        how_many="2",
+        benefits=(
+            "Logo on flyer, adventure map and signage",
+            'Name a demo or zone (e.g. "Sparks Stage presented by")',
+            "6 wine wall tickets",
+            "Instagram feature post and newsletter mention",
+            "25% off a team workshop",
+        ),
+    ),
+    SponsorTierContent(
+        name="Silver",
+        amount="$1,000",
+        how_many="3",
+        benefits=(
+            "Logo on signage and the adventure map",
+            "4 wine wall tickets",
+            "Group Instagram thank-you",
+            "Newsletter mention",
+        ),
+    ),
+    SponsorTierContent(
+        name="Bar sponsor",
+        amount="$900",
+        how_many="1",
+        benefits=(
+            '"Drinks courtesy of" at the bar',
+            "Logo at the bar",
+            "4 wine wall tickets",
+            "Group Instagram thank-you",
+        ),
+    ),
+    SponsorTierContent(
+        name="Community",
+        amount="$500",
+        how_many="4",
+        benefits=("Name on the sponsor board and adventure map", "Group Instagram thank-you"),
+    ),
+    SponsorTierContent(
+        name="In-kind",
+        amount="Goods",
+        how_many="Any",
+        benefits=("Wine, kegs, gift cards and products", "Name on the sponsor board", WINE_WALL_BENEFIT),
+    ),
+)
+
+
+# The two windows a vendor can set up in, keyed by ``VendorTable.Setup`` value: the Setup day choices read their
+# labels here (``hq.models.VendorSetup``), and the band's note says the same in full.
+VENDOR_SETUP_WINDOWS: dict[str, str] = {
+    "thu": "Thu Dec 3, 3 to 7 PM",
+    "fri": "Fri Dec 4, 3 to 5 PM",
+}
+VENDOR_SETUP_NOTE = "Setup: Thursday Dec 3, 3 to 7 PM, or Friday Dec 4, 3 to 5 PM. Sale runs Friday 5 to 10 PM."

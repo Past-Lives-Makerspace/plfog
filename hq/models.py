@@ -16,7 +16,11 @@ and a :class:`WineryLogo` is the logo an organiser uploads for a winery named on
 
 Track D turns the six placeholders into live doors, one part at a time; :data:`BUILT_DOORS` is
 the set built so far. Part 1 adds the Marketing Tracker behind the ``marketing`` card: a
-:class:`MarketingAction` is one thing the team did to get the word out.
+:class:`MarketingAction` is one thing the team did to get the word out. Part 2 adds the
+Sponsorship Tracker behind the ``sponsorship`` card: a :class:`Sponsor` is one business the team
+is asking, and a :class:`SponsorLogEntry` one line in its contact log. Part 3 adds Vendor Tables behind the
+``vendor_tables`` card: a :class:`VendorTable` is one member artist's table request, and a :class:`VendorFloor`
+the space map's capacity for the hub.
 """
 
 from __future__ import annotations
@@ -32,10 +36,11 @@ from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.db.models.functions import Lower
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.functional import lazy
 
 from core.files import delete_if_unreferenced, delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
-from membership.models import CommunityEvent, Member
+from membership.models import CommunityEvent, Guild, Member
 
 
 @dataclass(frozen=True)
@@ -209,6 +214,8 @@ class CardSeed:
     placeholders_skipped: bool = False
     # Live doors made on a hub that already had cards: admins only, and a renamed placeholder may sit beside them.
     added_beside: list[str] = field(default_factory=list)
+    # The labels of Lee's goals the same press added (``hq.services.seed_goals``), in the order they were added.
+    goals_added: list[str] = field(default_factory=list)
 
     @property
     def summary(self) -> str:
@@ -220,6 +227,8 @@ class CardSeed:
             parts.append(f"added {self.created} door{'' if self.created == 1 else 's'}")
         if self.reworded:
             parts.append(f"gave {self.reworded} card{'' if self.reworded == 1 else 's'} Lee's latest words")
+        if self.goals_added:
+            parts.append(_goals_phrase(self.goals_added))
         if not parts:
             return "The doors are up to date."
         sentence = f"Doors updated: {'; '.join(parts)}."
@@ -229,6 +238,13 @@ class CardSeed:
                 " If an old Not shared yet card for it is still on the page, delete that one."
             )
         return sentence
+
+
+def _goals_phrase(labels: list[str]) -> str:
+    """ "added the Member tables goal", or "added the RSVPs and Member tables goals" for several."""
+    if len(labels) == 1:
+        return f"added the {labels[0]} goal"
+    return f"added the {', '.join(labels[:-1])} and {labels[-1]} goals"
 
 
 class HubCard(models.Model):
@@ -337,6 +353,10 @@ class HubCard(models.Model):
             return reverse("hq:wine", args=[self.hub.slug])
         if self.kind == self.Kind.MARKETING:
             return reverse("hq:marketing", args=[self.hub.slug])
+        if self.kind == self.Kind.SPONSORSHIP:
+            return reverse("hq:sponsors", args=[self.hub.slug])
+        if self.kind == self.Kind.VENDOR_TABLES:
+            return reverse("hq:vendors", args=[self.hub.slug])
         # A live kind whose page has not shipped yet renders like a placeholder: Not shared yet.
         return ""
 
@@ -364,7 +384,8 @@ class HubGoal(models.Model):
     """One chip in the goal band: a label, a target and where it stands.
 
     A ``manual`` goal's figure is typed in by an admin; the live kinds are counted from the
-    event's RSVPs, the volunteer shifts (C2) and the wine wall (C3) by :func:`hq.services.goal_rows`.
+    event's RSVPs, the volunteer shifts (C2), the wine wall (C3) and the confirmed vendor tables (D3)
+    by :func:`hq.services.goal_rows`. A goal with no target is a plain count.
     """
 
     class Kind(models.TextChoices):
@@ -373,6 +394,7 @@ class HubGoal(models.Model):
         VOLUNTEER_SPOTS = "volunteer_spots", "Volunteer spots filled"
         BOTTLES = "bottles", "Wine wall bottles"
         BOTTLE_VALUE = "bottle_value", "Wine wall value"
+        MEMBER_TABLES = "member_tables", "Vendor tables confirmed"
 
     hub = models.ForeignKey(
         EventHub, on_delete=models.CASCADE, related_name="goals", help_text="The HQ this goal is on."
@@ -384,7 +406,9 @@ class HubGoal(models.Model):
         default=Kind.MANUAL,
         help_text="Where the figure comes from: typed in, or counted live from one part of the event.",
     )
-    target = models.PositiveIntegerField(default=0, help_text="The goal, a whole number (dollars for a money goal).")
+    target = models.PositiveIntegerField(
+        default=0, help_text="The goal, a whole number (dollars for a money goal). 0 shows a plain count."
+    )
     current_value = models.PositiveIntegerField(
         default=0,
         help_text="Where a typed in goal stands. Ignored for the counted kinds.",
@@ -401,7 +425,7 @@ class HubGoal(models.Model):
 
 # The doors whose page is built beyond the first three. The seed turns a placeholder titled as one of
 # these into its live kind; each later part of Track D adds its kind here and nowhere else.
-BUILT_DOORS: frozenset[str] = frozenset({HubCard.Kind.MARKETING})
+BUILT_DOORS: frozenset[str] = frozenset({HubCard.Kind.MARKETING, HubCard.Kind.SPONSORSHIP, HubCard.Kind.VENDOR_TABLES})
 
 # The three doors that were live from the start of Track C.
 _FIRST_DOORS: frozenset[str] = frozenset({HubCard.Kind.RSVP, HubCard.Kind.VOLUNTEERS, HubCard.Kind.WINE_WALL})
@@ -998,3 +1022,333 @@ class MarketingAction(models.Model):
     def href(self) -> str:
         """The link when it is a web address the list may open (http or https), else ""."""
         return self.link if self.link.lower().startswith(("http://", "https://")) else ""
+
+
+# ---- Sponsorship Tracker (Track D, part 2) ----
+
+
+class SponsorTier(models.TextChoices):
+    """The tier a sponsor is asked at, one list for the add form and the inline edit. ``Sponsor.Tier`` is this."""
+
+    PRESENTING = "presenting", "Presenting ($5,000)"
+    GOLD = "gold", "Gold ($2,500)"
+    SILVER = "silver", "Silver ($1,000)"
+    BAR = "bar", "Bar sponsor ($900)"
+    COMMUNITY = "community", "Community ($500)"
+    FRIEND = "friend", "Friend (under $500)"
+    IN_KIND = "in_kind", "In-kind"
+
+
+class SponsorStatus(models.TextChoices):
+    """Where a sponsor stands, prospect to received (or declined). ``Sponsor.Status`` is this."""
+
+    PROSPECT = "prospect", "Prospect"
+    ASKED = "asked", "Asked"
+    COMMITTED = "committed", "Committed"
+    RECEIVED = "received", "Received"
+    DECLINED = "declined", "Declined"
+
+
+# The pipeline's order: commitments to chase first, then open asks, prospects, the money in, and the noes last.
+_SPONSOR_STATUS_ORDER = Case(
+    *(
+        When(status=value, then=Value(position))
+        for position, value in enumerate(
+            (
+                SponsorStatus.COMMITTED,
+                SponsorStatus.ASKED,
+                SponsorStatus.PROSPECT,
+                SponsorStatus.RECEIVED,
+                SponsorStatus.DECLINED,
+            )
+        )
+    ),
+    default=Value(len(SponsorStatus.values)),
+    output_field=IntegerField(),
+)
+
+# A follow-up date stops counting once the money is in or the answer is no.
+SPONSOR_CLOSED: frozenset[str] = frozenset({SponsorStatus.RECEIVED, SponsorStatus.DECLINED})
+
+
+class Sponsor(models.Model):
+    """One business or organisation the sponsorship team is asking, with where the ask stands.
+
+    ``ask_cents`` is what was asked for; ``amount_cents`` what they committed to or paid, read by
+    the status: committed money while ``committed``, money in the bank once ``received``.
+    :func:`hq.services.sponsor_band` sums them; its received and committed figures are the one
+    source every other door (the goals' Raised, the ledger) reads.
+    """
+
+    Tier = SponsorTier
+    Status = SponsorStatus
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="sponsors",
+        help_text="The HQ whose tracker this sponsor is on.",
+    )
+    organization = models.CharField(
+        max_length=160, help_text="The business or organisation, e.g. OnPoint Community Credit Union."
+    )
+    tier = models.CharField(
+        max_length=12,
+        choices=SponsorTier.choices,
+        blank=True,
+        help_text="The tier they are asked at. Blank while not set.",
+    )
+    ask_cents = models.PositiveIntegerField(default=0, help_text="What was asked for, in cents; 0 while not set.")
+    amount_cents = models.PositiveIntegerField(
+        default=0, help_text="What they committed to or paid, in cents: committed or received by the status."
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=SponsorStatus.choices,
+        default=SponsorStatus.PROSPECT,
+        help_text="Where the ask stands: prospect, asked, committed, received or declined.",
+    )
+    owner = models.CharField(max_length=120, blank=True, help_text="Who on the team is asking, as typed.")
+    contact_name = models.CharField(max_length=120, blank=True, help_text="Who we talk to there. Organisers only.")
+    contact_role = models.CharField(
+        max_length=120, blank=True, help_text="Their role, e.g. Branch manager. Organisers only."
+    )
+    email = models.EmailField(blank=True, help_text="The contact's email, lowercased. Organisers only.")
+    phone = models.CharField(max_length=40, blank=True, help_text="The contact's phone. Organisers only.")
+    next_step = models.CharField(max_length=200, blank=True, help_text="What happens next, e.g. Send sponsor deck.")
+    follow_up_by = models.DateField(
+        null=True, blank=True, help_text="When to follow up, Portland time; the Follow up list reads it."
+    )
+    fit_note = models.CharField(
+        max_length=300, blank=True, help_text="Why they're a fit, e.g. PLM and 16 guild accounts bank with them."
+    )
+    benefits = models.CharField(
+        max_length=300, blank=True, help_text="What we promised them, e.g. Logo on flyer, 4 drink tickets."
+    )
+    note = models.TextField(blank=True, help_text="Anything else the team should know. Organisers only.")
+    thanked = models.BooleanField(default=False, help_text="Whether the thank-you has gone out.")
+    history = models.TextField(
+        blank=True, help_text="What they gave last year (2025, as a donation), as typed. Blank for a new sponsor."
+    )
+    created_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="sponsors_added",
+        help_text="The organiser who added the sponsor.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the sponsor was added.")
+
+    class Meta:
+        ordering = [_SPONSOR_STATUS_ORDER, Lower("organization"), "pk"]
+
+    def __str__(self) -> str:
+        return self.organization
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.email = self.email.strip().lower()
+        super().save(*args, **kwargs)
+
+    @property
+    def is_following_up(self) -> bool:
+        """Whether the sponsor belongs on the Follow up list: a date, and the ask still open."""
+        return self.follow_up_by is not None and self.status not in SPONSOR_CLOSED
+
+    @property
+    def organiser_line(self) -> str:
+        """The small line under the name for organisers: the tier, the contact and their role, and who is asking."""
+        contact = (
+            f"{self.contact_name}, {self.contact_role}"
+            if self.contact_name and self.contact_role
+            else self.contact_name
+        )
+        parts = [self.get_tier_display() if self.tier else "", contact, f"Asking: {self.owner}" if self.owner else ""]
+        return " · ".join(part for part in parts if part)
+
+    @property
+    def figure_display(self) -> str:
+        """The row's figure: what they committed or paid when set, else the ask, else a dash."""
+        if self.amount_cents:
+            return format_money(self.amount_cents)
+        if self.ask_cents:
+            return format_money(self.ask_cents)
+        return "–"
+
+    @property
+    def figure_label(self) -> str:
+        """The word under the figure: received or committed for an amount, ask for an ask, else nothing."""
+        if self.amount_cents:
+            return "received" if self.status == SponsorStatus.RECEIVED else "committed"
+        return "ask" if self.ask_cents else ""
+
+
+class SponsorLogEntry(models.Model):
+    """One line in a sponsor's contact log: a call, an email, a status change. Newest first."""
+
+    sponsor = models.ForeignKey(
+        Sponsor, on_delete=models.CASCADE, related_name="log_entries", help_text="The sponsor this line is about."
+    )
+    date = models.DateField(default=timezone.localdate, help_text="The day it happened, Portland time.")
+    text = models.CharField(max_length=300, help_text="What happened, e.g. Called, left voicemail.")
+    by = models.CharField(max_length=120, blank=True, help_text="Who did it, as typed. Optional.")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the line was logged.")
+
+    class Meta:
+        ordering = ["-date", "-created_at", "-pk"]
+
+    def __str__(self) -> str:
+        return f"{self.sponsor.organization}: {self.text}"
+
+
+# ---- Vendor Tables (Track D, part 3) ----
+
+
+class VendorTableSize(models.TextChoices):
+    """The table a vendor asks for, in the order of Lee's list. ``VendorTable.Size`` is this."""
+
+    SIX_FT = "six_ft", "6 ft"
+    EIGHT_FT = "eight_ft", "8 ft"
+    FOUR_FT = "four_ft", "4 ft"
+    HALF = "half", "Half table (share)"
+    OWN = "own", "Bringing their own"
+    UNSURE = "unsure", "Not sure"
+
+
+def _setup_window(key: str) -> str:
+    """One setup window's words from :data:`hq.holiday_bizarre.VENDOR_SETUP_WINDOWS`, the labels' one source.
+
+    Read when the label renders, not at import: ``hq.holiday_bizarre`` imports this module.
+    """
+    from hq.holiday_bizarre import VENDOR_SETUP_WINDOWS
+
+    return VENDOR_SETUP_WINDOWS[key]
+
+
+_setup_label = lazy(_setup_window, str)
+
+
+class VendorSetup(models.TextChoices):
+    """The setup window a vendor picked, blank while not chosen. ``VendorTable.Setup`` is this."""
+
+    NOT_CHOSEN = "", "Not chosen"
+    THU = "thu", _setup_label("thu")
+    FRI = "fri", _setup_label("fri")
+
+
+class VendorTableStatus(models.TextChoices):
+    """Where a table request stands, in the list's order. ``VendorTable.Status`` is this."""
+
+    REQUESTED = "requested", "Requested"
+    CONFIRMED = "confirmed", "Confirmed"
+    WAITLIST = "waitlist", "Waitlist"
+    CANCELLED = "cancelled", "Cancelled"
+
+
+# The list's order: requests waiting on the vendor team first, then the confirmed tables, the waitlist, the cancelled.
+_VENDOR_STATUS_ORDER = Case(
+    *(When(status=value, then=Value(position)) for position, value in enumerate(VendorTableStatus.values)),
+    default=Value(len(VendorTableStatus.values)),
+    output_field=IntegerField(),
+)
+
+
+class VendorTable(models.Model):
+    """One member artist's (or group's) table request for the market, entered by the vendor team.
+
+    :func:`hq.services.vendor_band` counts these by status; its ``confirmed`` is the one source of the
+    Member tables goal and the ledger's vendor figure.
+    """
+
+    Size = VendorTableSize
+    Setup = VendorSetup
+    Status = VendorTableStatus
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="vendor_tables",
+        help_text="The HQ whose market this table request is for.",
+    )
+    name = models.CharField(max_length=160, help_text="The artist or group, e.g. Riverbend Ceramics.")
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="hq_vendor_tables",
+        help_text="The guild they sell with. Blank means not in a guild.",
+    )
+    sells = models.CharField(max_length=200, blank=True, help_text="What they sell, e.g. Mugs and planters.")
+    size = models.CharField(
+        max_length=10,
+        choices=VendorTableSize.choices,
+        default=VendorTableSize.SIX_FT,
+        help_text="The table they asked for.",
+    )
+    email = models.EmailField(blank=True, help_text="Their email, lowercased. Organisers only.")
+    phone = models.CharField(max_length=40, blank=True, help_text="Their phone. Organisers only.")
+    setup = models.CharField(
+        max_length=3,
+        choices=VendorSetup.choices,
+        blank=True,
+        default=VendorSetup.NOT_CHOSEN,
+        help_text="The setup window they picked; blank while not chosen.",
+    )
+    needs = models.CharField(max_length=200, blank=True, help_text="What they need, e.g. Power, near a wall.")
+    status = models.CharField(
+        max_length=10,
+        choices=VendorTableStatus.choices,
+        default=VendorTableStatus.REQUESTED,
+        help_text="Where the request stands: requested, confirmed, waitlist or cancelled.",
+    )
+    table_no = models.CharField(max_length=10, blank=True, help_text="The table number on the floor, once given.")
+    created_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="vendor_tables_added",
+        help_text="The organiser who entered the request.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the request was entered.")
+    updated_at = models.DateTimeField(
+        auto_now=True, help_text="When the request was last saved; a row's Save older than this is refused."
+    )
+
+    class Meta:
+        ordering = [_VENDOR_STATUS_ORDER, Lower("name"), "pk"]
+
+    def __str__(self) -> str:
+        return self.name
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.email = self.email.strip().lower()
+        super().save(*args, **kwargs)
+
+    @property
+    def guild_display(self) -> str:
+        """The guild's name, or "Not in a guild" for none."""
+        return self.guild.name if self.guild is not None else "Not in a guild"
+
+
+class VendorFloor(models.Model):
+    """How many tables the space map fits on a hub, and the mapper's note. One per hub, made on first save."""
+
+    hub = models.OneToOneField(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="vendor_floor",
+        help_text="The HQ whose market floor this is.",
+    )
+    capacity = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="How many tables fit, from the space map. Blank while the map is not ready.",
+    )
+    map_note = models.CharField(
+        max_length=200, blank=True, help_text="The mapper's note, e.g. 18 in the gallery, 6 in the shop."
+    )
+
+    def __str__(self) -> str:
+        return f"{self.hub.title}: {self.capacity if self.capacity is not None else 'not mapped'}"

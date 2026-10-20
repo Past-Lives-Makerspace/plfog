@@ -11,6 +11,10 @@ from hq.models import (
     HubGoal,
     MarketingAction,
     ShiftSignup,
+    Sponsor,
+    SponsorLogEntry,
+    VendorFloor,
+    VendorTable,
     VolunteerShift,
     WineBottle,
     WineryLogo,
@@ -135,3 +139,41 @@ class MarketingActionFactory(DjangoModelFactory):
     who = ""
     reach = 0
     link = ""
+
+
+class SponsorFactory(DjangoModelFactory):
+    """A prospect with no tier, no ask and no follow-up date, added by nobody."""
+
+    class Meta:
+        model = Sponsor
+
+    hub = factory.SubFactory(EventHubFactory)
+    organization = factory.Sequence(lambda n: f"Spec Sponsor {n}")
+    status = Sponsor.Status.PROSPECT
+
+
+class SponsorLogEntryFactory(DjangoModelFactory):
+    class Meta:
+        model = SponsorLogEntry
+
+    sponsor = factory.SubFactory(SponsorFactory)
+    text = factory.Sequence(lambda n: f"Spec contact {n}")
+
+
+class VendorTableFactory(DjangoModelFactory):
+    """A requested 6 ft table with no guild, no contact and no setup day, entered by nobody."""
+
+    class Meta:
+        model = VendorTable
+
+    hub = factory.SubFactory(EventHubFactory)
+    name = factory.Sequence(lambda n: f"Spec Vendor {n}")
+    status = VendorTable.Status.REQUESTED
+
+
+class VendorFloorFactory(DjangoModelFactory):
+    class Meta:
+        model = VendorFloor
+
+    hub = factory.SubFactory(EventHubFactory)
+    capacity = 24

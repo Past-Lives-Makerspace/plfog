@@ -11,6 +11,7 @@ from django.test import Client
 from django.urls import reverse
 from PIL import Image
 
+from hq.holiday_bizarre import GOALS
 from hq.models import DEFAULT_CARDS, EventHub, HubCard, HubGoal
 from membership.models import CommunityEvent, Member
 from tests.hq.conftest import photo_upload
@@ -82,7 +83,7 @@ def describe_loading_lees_hq():
         assert [card.kind for card in cards] == [door.kind for door in DEFAULT_CARDS]
         assert {card.audience for card in cards} == {HubCard.Audience.ADMINS}
         assert cards[0].title == "Going to the Bizarre?"
-        assert hub.goals.count() == 4
+        assert hub.goals.count() == 5
         assert hub.shifts.count() == 21
 
     def it_sends_an_admin_to_the_hq_once_one_exists(open_hub, admin_client):
@@ -132,8 +133,47 @@ def describe_updating_the_doors():
         assert placeholder.kind == HubCard.Kind.MARKETING
         assert placeholder.button_text == "Enter marketing"
         messages = [str(message) for message in response.context["messages"]]
-        assert messages == ["Doors updated: opened Marketing Tracker; added 3 doors; gave 1 card Lee's latest words."]
-        assert open_hub.cards.count() == 5
+        assert messages == [
+            "Doors updated: opened Marketing Tracker; added 5 doors; gave 1 card Lee's latest words;"
+            " added the Raised, Wine wall bottles, Volunteer spots, RSVPs and Member tables goals."
+            " New and admins only until you open it: Sponsorship Tracker, Vendor Tables."
+            " If an old Not shared yet card for it is still on the page, delete that one."
+        ]
+        assert open_hub.cards.count() == 7
+        assert open_hub.goals.count() == 5
+
+    def it_gives_a_track_c_hub_its_member_tables_goal_once_and_never_a_typed_in_one(open_hub, admin_client):
+        open_hub.seed_default_cards()
+        for position, spec in enumerate(GOALS[:4]):
+            HubGoalFactory(hub=open_hub, label=spec.label, kind=spec.kind, target=spec.target, sort_order=position)
+        open_hub.goals.filter(kind=HubGoal.Kind.MANUAL).delete()  # Raised, deleted by an admin, stays deleted
+
+        first = admin_client.post(_url(open_hub), follow=True)
+        second = admin_client.post(_url(open_hub), follow=True)
+
+        assert [str(message) for message in first.context["messages"]] == [
+            "Doors updated: added the Member tables goal."
+        ]
+        assert [str(message) for message in second.context["messages"]] == ["The doors are up to date."]
+        assert list(open_hub.goals.values_list("label", "kind", "sort_order")) == [
+            ("Wine wall bottles", HubGoal.Kind.BOTTLES, 1),
+            ("Volunteer spots", HubGoal.Kind.VOLUNTEER_SPOTS, 2),
+            ("RSVPs", HubGoal.Kind.RSVPS, 3),
+            ("Member tables", HubGoal.Kind.MEMBER_TABLES, 4),
+        ]
+
+    def it_adds_every_counted_kind_the_hub_lacks_beside_its_own(open_hub, admin_client):
+        open_hub.seed_default_cards()
+        HubGoalFactory(hub=open_hub, label="Raised", kind=HubGoal.Kind.MANUAL, sort_order=0)
+        HubGoalFactory(hub=open_hub, label="Bottles", kind=HubGoal.Kind.BOTTLES, sort_order=1)
+
+        response = admin_client.post(_url(open_hub), follow=True)
+
+        assert [str(message) for message in response.context["messages"]] == [
+            "Doors updated: added the Volunteer spots, RSVPs and Member tables goals."
+        ]
+        assert open_hub.goals.filter(kind=HubGoal.Kind.MANUAL).count() == 1
+        assert open_hub.goals.filter(kind=HubGoal.Kind.BOTTLES).get().label == "Bottles"
 
     def it_offers_the_button_on_edit_hq(open_hub, admin_client):
         body = admin_client.get(_edit(open_hub)).content.decode()

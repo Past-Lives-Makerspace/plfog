@@ -8,21 +8,29 @@ and the rate key a guest's sign-ups are counted under. The wine wall half holds 
 over the wall (:func:`wine_band`), the wineries grid (:func:`wineries`), the organisers'
 donors table (:func:`donor_rows`) and the three writes (:func:`log_bottle`,
 :func:`delete_bottle`, :func:`set_winery_logo`). The Marketing Tracker half holds its totals
-(:func:`marketing_totals`, the one source of "Businesses with flyers") and its six tiles.
+(:func:`marketing_totals`, the one source of "Businesses with flyers") and its six tiles. The
+Sponsorship Tracker half holds the band (:func:`sponsor_band`, the one source of the sponsor money
+received and committed), the Follow up list (:func:`follow_ups`), the pipeline's filters and the
+three writes (:func:`add_sponsor`, :func:`update_sponsor`, :func:`log_contact`). The Vendor Tables half holds
+the band (:func:`vendor_band`, the one source of the confirmed tables the Member tables goal and the ledger read),
+the list's filters and the three writes (:func:`add_vendor_table`, :func:`update_vendor_table`,
+:func:`set_vendor_floor`).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
+from datetime import date
 from typing import Any
 
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
-from django.db.models import Count, F, IntegerField, Q, Sum
+from django.db.models import Count, F, IntegerField, Q, QuerySet, Sum
 from django.db.models.functions import Coalesce, Lower
 from django.http import HttpRequest
 
+from hq.holiday_bizarre import GOALS
 from hq.models import (
     EventHub,
     HubGoal,
@@ -30,13 +38,19 @@ from hq.models import (
     MarketingKind,
     ShiftPhase,
     ShiftSignup,
+    Sponsor,
+    SponsorLogEntry,
+    SponsorStatus,
+    VendorFloor,
+    VendorTable,
+    VendorTableStatus,
     VolunteerShift,
     WineBottle,
     WineKind,
     WineryLogo,
     format_money,
 )
-from membership.models import CommunityEvent, Member
+from membership.models import CommunityEvent, Guild, Member
 
 
 @dataclass(frozen=True)
@@ -47,6 +61,11 @@ class GoalRow:
     current: int
     target: int
     is_money: bool
+
+    @property
+    def has_target(self) -> bool:
+        """Whether the chip measures against a target; with none it is a plain count, no "of 0" and no meter."""
+        return self.target > 0
 
     @property
     def percent(self) -> int:
@@ -83,6 +102,7 @@ def volunteer_spots_filled(hub: EventHub) -> int:
 _LIVE_COUNTS: dict[str, Callable[[EventHub], int]] = {
     HubGoal.Kind.RSVPS: lambda hub: rsvp_count(hub.event),
     HubGoal.Kind.VOLUNTEER_SPOTS: volunteer_spots_filled,
+    HubGoal.Kind.MEMBER_TABLES: lambda hub: vendor_band(hub).confirmed,
 }
 
 # The two wine wall kinds are read off one band, so a hub showing both pays for it once.
@@ -114,6 +134,44 @@ def goal_rows(hub: EventHub) -> list[GoalRow]:
             current = counts[goal.kind]
         rows.append(GoalRow(label=goal.label, current=current, target=goal.target, is_money=goal.is_money))
     return rows
+
+
+@dataclass
+class GoalSeed:
+    """What :func:`seed_goals` did: the labels of the goals it made, in order, and how many the hub already held."""
+
+    added: list[str] = field(default_factory=list)
+    kept: int = 0
+
+
+def seed_goals(hub: EventHub) -> GoalSeed:
+    """Lee's goals (:data:`hq.holiday_bizarre.GOALS`) on ``hub``: the whole set on a hub with none, else each
+    counted goal whose kind the hub lacks, at the end of the hub's goal order.
+
+    A counted goal is keyed by its kind, so a renamed one is still found and a rerun adds nothing twice; one an
+    admin deleted comes back on the next run, which is the accepted price of reaching hubs seeded before it
+    existed. A typed in goal has no key, so it is made only on a hub with no goals at all. Callers that can race
+    (Update the doors) hold a row lock on the hub.
+    """
+    held = list(hub.goals.values_list("kind", "sort_order"))
+    if held:
+        kinds = {kind for kind, _order in held}
+        missing = [spec for spec in GOALS if spec.kind != HubGoal.Kind.MANUAL and spec.kind not in kinds]
+        start = max(order for _kind, order in held) + 1
+    else:
+        missing, start = list(GOALS), 0
+    HubGoal.objects.bulk_create(
+        HubGoal(
+            hub=hub,
+            label=spec.label,
+            kind=spec.kind,
+            target=spec.target,
+            is_money=spec.is_money,
+            sort_order=start + offset,
+        )
+        for offset, spec in enumerate(missing)
+    )
+    return GoalSeed(added=[spec.label for spec in missing], kept=len(held))
 
 
 # ---- Volunteer shifts ----
@@ -587,3 +645,342 @@ def marketing_tiles(totals: Mapping[str, int]) -> list[MarketingTile]:
 def log_marketing_action(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> MarketingAction:
     """Add an action to ``hub``'s marketing log from the form's cleaned fields, stamped with who logged it."""
     return MarketingAction.objects.create(hub=hub, logged_by=member, **fields)
+
+
+# ---- Sponsorship Tracker (Track D, part 2) ----
+
+# The meter's target when the hub has no Raised goal and no other money goal, in whole dollars (Lee's default).
+DEFAULT_SPONSOR_GOAL = 10_000
+# The label of the goal the meter reads first.
+RAISED_GOAL_LABEL = "Raised"
+# How many rows the Follow up list shows.
+FOLLOW_UP_LIMIT = 8
+
+# The pipeline's filters, in Lee's order: the query value and the button's words. ``donor2025`` is every
+# sponsor with last year's gift filled in; ``all`` shows everyone.
+SPONSOR_FILTER_ALL = "all"
+SPONSOR_FILTER_DONORS = "donor2025"
+SPONSOR_FILTERS: tuple[tuple[str, str], ...] = (
+    (SPONSOR_FILTER_ALL, "All"),
+    (SponsorStatus.PROSPECT, "Prospects"),
+    (SponsorStatus.ASKED, "Asked"),
+    (SponsorStatus.COMMITTED, "Committed"),
+    (SponsorStatus.RECEIVED, "Received"),
+    (SponsorStatus.DECLINED, "Declined"),
+    (SPONSOR_FILTER_DONORS, "2025 donors"),
+)
+
+
+@dataclass(frozen=True)
+class SponsorBand:
+    """The strip over the tracker: the money received, committed and asked for, the prospects, and the goal.
+
+    ``received_cents`` and ``committed_cents`` are the one source of the sponsor money: the goals' Raised and
+    the ledger read them here. A declined sponsor counts nowhere. ``goal`` is whole dollars, like every
+    ``HubGoal`` money figure.
+    """
+
+    received_cents: int
+    committed_cents: int
+    asked_cents: int
+    open_asks: int
+    prospects: int
+    goal: int
+
+    @property
+    def secured_cents(self) -> int:
+        """Received plus committed: what is in hand or promised."""
+        return self.received_cents + self.committed_cents
+
+    @property
+    def goal_cents(self) -> int:
+        return self.goal * 100
+
+    @property
+    def received_meter_cents(self) -> int:
+        """The solid segment's value, capped at the goal."""
+        return min(self.received_cents, self.goal_cents)
+
+    @property
+    def secured_meter_cents(self) -> int:
+        """Where the faded committed segment ends (received plus committed), capped at the goal."""
+        return min(self.secured_cents, self.goal_cents)
+
+    @property
+    def received_display(self) -> str:
+        return format_money(self.received_cents)
+
+    @property
+    def committed_display(self) -> str:
+        return format_money(self.committed_cents)
+
+    @property
+    def asked_display(self) -> str:
+        return format_money(self.asked_cents)
+
+    @property
+    def secured_display(self) -> str:
+        return format_money(self.secured_cents)
+
+    @property
+    def goal_display(self) -> str:
+        return f"${self.goal:,}"
+
+
+def sponsor_goal(hub: EventHub) -> int:
+    """The meter's target in whole dollars: the hub's first Raised goal, else its first typed in money goal,
+    else :data:`DEFAULT_SPONSOR_GOAL`. A goal with no target is passed over. One query."""
+    candidates = list(
+        hub.goals.filter(
+            Q(label__iexact=RAISED_GOAL_LABEL) | Q(kind=HubGoal.Kind.MANUAL, is_money=True), target__gt=0
+        ).values_list("label", "target")
+    )
+    raised = [target for label, target in candidates if label.lower() == RAISED_GOAL_LABEL.lower()]
+    if raised:
+        return raised[0]
+    if candidates:
+        return candidates[0][1]
+    return DEFAULT_SPONSOR_GOAL
+
+
+def sponsor_band(hub: EventHub) -> SponsorBand:
+    """The band for ``hub`` in two queries: one aggregate over its sponsors, and the goal."""
+
+    def _sum(field: str, status: str) -> Coalesce:
+        return Coalesce(Sum(field, filter=Q(status=status)), 0)
+
+    totals = hub.sponsors.aggregate(
+        received=_sum("amount_cents", SponsorStatus.RECEIVED),
+        committed=_sum("amount_cents", SponsorStatus.COMMITTED),
+        asked=_sum("ask_cents", SponsorStatus.ASKED),
+        open_asks=Count("pk", filter=Q(status=SponsorStatus.ASKED)),
+        prospects=Count("pk", filter=Q(status=SponsorStatus.PROSPECT)),
+    )
+    return SponsorBand(
+        received_cents=totals["received"],
+        committed_cents=totals["committed"],
+        asked_cents=totals["asked"],
+        open_asks=totals["open_asks"],
+        prospects=totals["prospects"],
+        goal=sponsor_goal(hub),
+    )
+
+
+@dataclass(frozen=True)
+class FollowUp:
+    """One row on the Follow up list: the sponsor, and "Overdue " or "Today " when it is due."""
+
+    sponsor: Sponsor
+    prefix: str
+
+    @property
+    def is_due(self) -> bool:
+        """Due on or before today: the row is highlighted."""
+        return bool(self.prefix)
+
+
+@dataclass(frozen=True)
+class FollowUps:
+    """The Follow up list: how many sponsors have an open follow-up date, and the first few, soonest first."""
+
+    count: int
+    rows: list[FollowUp]
+
+
+def follow_ups(hub: EventHub, *, today: date) -> FollowUps:
+    """Every sponsor on ``hub`` with a follow-up date whose ask is still open, soonest first, in one query.
+
+    ``today`` is the Portland date (``timezone.localdate()``): a date before it is overdue, on it is today.
+    ``rows`` is the first :data:`FOLLOW_UP_LIMIT`; ``count`` is them all.
+    """
+    open_rows = list(
+        hub.sponsors.filter(follow_up_by__isnull=False)
+        .exclude(status__in=[SponsorStatus.RECEIVED, SponsorStatus.DECLINED])
+        .order_by("follow_up_by", Lower("organization"), "pk")
+    )
+    rows = []
+    for sponsor in open_rows[:FOLLOW_UP_LIMIT]:
+        due: date = sponsor.follow_up_by  # type: ignore[assignment]  # the filter above excludes null
+        prefix = "Overdue " if due < today else "Today " if due == today else ""
+        rows.append(FollowUp(sponsor=sponsor, prefix=prefix))
+    return FollowUps(count=len(open_rows), rows=rows)
+
+
+def sponsor_filter(value: str) -> str:
+    """``value`` when it names one of :data:`SPONSOR_FILTERS`, else ``all``: a stale or typed address shows everyone."""
+    return value if value in dict(SPONSOR_FILTERS) else SPONSOR_FILTER_ALL
+
+
+def filtered_sponsors(hub: EventHub, show: str, *, keep_pk: int | None = None) -> QuerySet[Sponsor]:
+    """``hub``'s sponsors in pipeline order under the filter ``show`` (a value from :data:`SPONSOR_FILTERS`).
+
+    ``keep_pk`` is a sponsor that stays in the list whatever the filter: the row just saved or refused, so a
+    status change or a form with errors does not vanish from the group it was edited in.
+    """
+    sponsors = hub.sponsors.all()
+    if show == SPONSOR_FILTER_ALL:
+        return sponsors
+    match = ~Q(history="") if show == SPONSOR_FILTER_DONORS else Q(status=show)
+    if keep_pk is not None:
+        match |= Q(pk=keep_pk)
+    return sponsors.filter(match)
+
+
+# The first line in every new sponsor's contact log.
+ADDED_LOG_TEXT = "Added to tracker"
+
+
+def add_sponsor(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> Sponsor:
+    """Put a sponsor on ``hub``'s tracker from the form's fields; its log starts with "Added to tracker" by the asker."""
+    with transaction.atomic():
+        sponsor = Sponsor.objects.create(hub=hub, created_by=member, **fields)
+        SponsorLogEntry.objects.create(sponsor=sponsor, text=ADDED_LOG_TEXT, by=sponsor.owner)
+    return sponsor
+
+
+def update_sponsor(sponsor: Sponsor, fields: Mapping[str, Any]) -> Sponsor:
+    """Save the inline edit's fields on ``sponsor``; a new status adds "Status changed to {label}" to its log."""
+    old_status = sponsor.status
+    for name, value in fields.items():
+        setattr(sponsor, name, value)
+    with transaction.atomic():
+        sponsor.save()
+        if sponsor.status != old_status:
+            label = SponsorStatus(sponsor.status).label
+            SponsorLogEntry.objects.create(sponsor=sponsor, text=f"Status changed to {label}")
+    return sponsor
+
+
+def log_contact(sponsor: Sponsor, *, text: str, by: str) -> SponsorLogEntry:
+    """Add one line to ``sponsor``'s contact log, dated Portland today."""
+    return SponsorLogEntry.objects.create(sponsor=sponsor, text=text, by=by)
+
+
+# ---- Vendor Tables (Track D, part 3) ----
+
+# The longest capacity the space map form takes: far past any floor, well inside a database integer.
+VENDOR_CAPACITY_MAX = 1_000
+
+# The list's filters, in Lee's order: the query value and the button's words; ``all`` shows every request.
+VENDOR_FILTER_ALL = "all"
+VENDOR_FILTERS: tuple[tuple[str, str], ...] = (
+    (VENDOR_FILTER_ALL, "All"),
+    *((status.value, str(status.label)) for status in VendorTableStatus),
+)
+
+# Who the Requested tile says the requests wait on when the card names nobody.
+VENDOR_TEAM_FALLBACK = "the vendor team"
+
+
+@dataclass(frozen=True)
+class VendorBand:
+    """The strip over the table requests: confirmed, requested and waitlist counts, and the space map.
+
+    ``confirmed`` is the one source of the confirmed vendor tables: the Member tables goal and the ledger read
+    it here. ``capacity`` is None while the space map is not ready; space left is the capacity less the
+    confirmed tables and goes below zero when more are confirmed than fit.
+    """
+
+    confirmed: int
+    requested: int
+    waitlist: int
+    cancelled: int
+    capacity: int | None
+    map_note: str
+
+    @property
+    def total(self) -> int:
+        """Every request on the list, whatever its status."""
+        return self.confirmed + self.requested + self.waitlist + self.cancelled
+
+    @property
+    def space_left(self) -> int | None:
+        """Tables still free on the map (negative when over), or None while it is not mapped."""
+        return None if self.capacity is None else self.capacity - self.confirmed
+
+    @property
+    def is_full(self) -> bool:
+        """Whether a new request goes to the waitlist: the map is in and the confirmed tables fill it."""
+        return self.capacity is not None and self.confirmed >= self.capacity
+
+    @property
+    def space_left_display(self) -> str:
+        """The Space left figure: the number, or a dash while the map is not ready."""
+        return "\u2013" if self.space_left is None else str(self.space_left)
+
+    @property
+    def space_left_line(self) -> str:
+        """The line under Space left, in Lee's words."""
+        if self.capacity is None:
+            return "Waiting on the space map"
+        if self.is_full:
+            return "Full: new requests go to the waitlist"
+        return f"of {self.capacity} tables on the map"
+
+    @property
+    def percent(self) -> int:
+        """How much of the map the confirmed tables fill, 0 to 100; empty while not mapped."""
+        if self.capacity is None:
+            return 0
+        if self.capacity == 0:
+            return 100
+        return min(100, round(self.confirmed * 100 / self.capacity))
+
+
+def vendor_band(hub: EventHub) -> VendorBand:
+    """The band for ``hub`` in two queries: one aggregate over its table requests, and the space map."""
+    totals = hub.vendor_tables.aggregate(
+        **{status: Count("pk", filter=Q(status=status)) for status in VendorTableStatus.values}
+    )
+    floor = VendorFloor.objects.filter(hub=hub).values("capacity", "map_note").first()
+    return VendorBand(
+        confirmed=totals[VendorTableStatus.CONFIRMED],
+        requested=totals[VendorTableStatus.REQUESTED],
+        waitlist=totals[VendorTableStatus.WAITLIST],
+        cancelled=totals[VendorTableStatus.CANCELLED],
+        capacity=floor["capacity"] if floor is not None else None,
+        map_note=floor["map_note"] if floor is not None else "",
+    )
+
+
+def active_guilds() -> list[Guild]:
+    """The guilds a table request may name, by name: every active guild, in one query."""
+    return list(Guild.objects.filter(is_active=True).order_by("name"))
+
+
+def vendor_filter(value: str) -> str:
+    """``value`` when it names one of :data:`VENDOR_FILTERS`, else ``all``: a stale or typed address shows everyone."""
+    return value if value in dict(VENDOR_FILTERS) else VENDOR_FILTER_ALL
+
+
+def filtered_vendor_tables(hub: EventHub, show: str, *, keep_pk: int | None = None) -> QuerySet[VendorTable]:
+    """``hub``'s table requests in list order under the filter ``show``, with each one's guild.
+
+    ``keep_pk`` is a request kept in view whatever the filter (the one just added), so it never vanishes.
+    """
+    tables = hub.vendor_tables.select_related("guild")
+    if show == VENDOR_FILTER_ALL:
+        return tables
+    return tables.filter(Q(status=show) | Q(pk=keep_pk)) if keep_pk is not None else tables.filter(status=show)
+
+
+def add_vendor_table(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> VendorTable:
+    """Put a table request on ``hub`` from the form's fields: requested, or waitlisted while the map is full."""
+    status = VendorTableStatus.WAITLIST if vendor_band(hub).is_full else VendorTableStatus.REQUESTED
+    return VendorTable.objects.create(hub=hub, created_by=member, status=status, **fields)
+
+
+def update_vendor_table(table: VendorTable, fields: Mapping[str, Any]) -> VendorTable:
+    """Save the row's edited fields on ``table``."""
+    for name, value in fields.items():
+        setattr(table, name, value)
+    table.save()
+    return table
+
+
+def set_vendor_floor(hub: EventHub, *, capacity: int | None, map_note: str) -> VendorFloor:
+    """Record how many tables the space map fits on ``hub`` (None clears it) and the mapper's note."""
+    floor, _created = VendorFloor.objects.update_or_create(
+        hub=hub, defaults={"capacity": capacity, "map_note": map_note}
+    )
+    return floor

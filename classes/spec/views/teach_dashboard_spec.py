@@ -393,13 +393,12 @@ def describe_instructor_registrations():
         mine = ClassOfferingFactory(instructor=instructor_fixture, slug="m")
         theirs = ClassOfferingFactory(instructor=other_instructor, slug="t")
         r1 = RegistrationFactory(class_offering=mine, first_name="Mine", last_name="Guest")
-        # A name no page copy holds: the changelog renders on every page, and a word like "Other" turns up in it.
-        RegistrationFactory(class_offering=theirs, first_name="Zebulon", last_name="Quaggard")
+        RegistrationFactory(class_offering=theirs, first_name="Theirsby", last_name="Guest")
         client.force_login(instructor_fixture.user)
         response = client.get(reverse("classes:teach_registrations"))
         assert response.status_code == 200
         assert r1.first_name.encode() in response.content
-        assert b"Zebulon" not in response.content
+        assert b"Theirsby" not in response.content
 
 
 def describe_instructor_profile():

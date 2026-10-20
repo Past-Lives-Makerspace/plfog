@@ -522,11 +522,13 @@ a.pl-hq-card:focus-visible {
    rule sits under .pl-hq-vol with its own palette as custom properties, so the HQ restyle and
    this page merge without touching each other. The portal's :root is dark, so the dark values
    are the defaults and the light ones follow [data-theme="light"]. The wine wall (part 3) and
-   the Marketing Tracker (Track D) declare the same properties on .pl-hq-wine and .pl-hq-mk, so
-   the pages read as one family. */
+   the Marketing and Sponsorship Trackers and Vendor Tables (Track D) declare the same properties on
+   .pl-hq-wine, .pl-hq-mk, .pl-hq-sp and .pl-hq-vt, so the pages read as one family. */
 .pl-hq-vol,
 .pl-hq-wine,
-.pl-hq-mk {
+.pl-hq-mk,
+.pl-hq-sp,
+.pl-hq-vt {
   --pl-hq-vol-bg: #121B2F;
   --pl-hq-vol-surface: #1A2644;
   --pl-hq-vol-ink: #E7ECF3;
@@ -551,7 +553,9 @@ a.pl-hq-card:focus-visible {
 }
 [data-theme="light"] .pl-hq-vol,
 [data-theme="light"] .pl-hq-wine,
-[data-theme="light"] .pl-hq-mk {
+[data-theme="light"] .pl-hq-mk,
+[data-theme="light"] .pl-hq-sp,
+[data-theme="light"] .pl-hq-vt {
   --pl-hq-vol-bg: #ECEFF4;
   --pl-hq-vol-surface: #FFFFFF;
   --pl-hq-vol-ink: #1E2D4E;
@@ -1655,4 +1659,926 @@ a.pl-hq-card:focus-visible {
 }
 .pl-hq-mk__row-action {
   text-align: right;
+}
+
+/* ---- Sponsorship Tracker (Track D, part 2) ----
+   Lee's tracker on the sign-up sheet's palette (declared above), with her three status colours
+   on top: the guidance line, the band's four tiles and two-segment meter, Follow up, the add
+   form and the tiers as the portal's .pl-disclosure in her colours, and the pipeline rows, each
+   a <details> whose summary is a four-column line that wraps on a phone. */
+.pl-hq-sp {
+  --pl-hq-sp-warn: #E9B565;
+  --pl-hq-sp-warn-bg: #3B2C14;
+  --pl-hq-sp-info: #94B8EA;
+  --pl-hq-sp-info-bg: #1E3152;
+  --pl-hq-sp-bad: #EE8B8B;
+  max-width: 1040px;
+}
+[data-theme="light"] .pl-hq-sp {
+  --pl-hq-sp-warn: #9A5F0E;
+  --pl-hq-sp-warn-bg: #FBEFD9;
+  --pl-hq-sp-info: #2F5B94;
+  --pl-hq-sp-info-bg: #E2EBF7;
+  --pl-hq-sp-bad: #A23B3B;
+}
+.pl-hq-sp__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.pl-hq-sp__heading {
+  min-width: 0;
+}
+.pl-hq-sp__title {
+  margin: 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-sp__subline {
+  margin: 0.5rem 0 0;
+  font-weight: 700;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-sp__back {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: var(--pl-hq-vol-navy);
+  color: #FFFFFF;
+  font-size: 0.88rem;
+  font-weight: 900;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.pl-hq-sp__back:hover {
+  color: #FFFFFF;
+  text-decoration: underline;
+}
+.pl-hq-sp__guide {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--pl-hq-sp-warn-bg);
+  color: var(--pl-hq-vol-ink);
+  font-size: 0.92rem;
+}
+.pl-hq-sp__board,
+.pl-hq-sp__section {
+  display: grid;
+  gap: 12px;
+}
+.pl-hq-sp__board {
+  gap: 1.5rem;
+}
+.pl-hq-sp__h2 {
+  margin: 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.2rem;
+  font-weight: 800;
+  text-transform: capitalize;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-sp__h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 900;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-sp__muted {
+  color: var(--pl-hq-vol-muted);
+}
+
+/* The band: the navy gradient, four tiles (two across on a phone) and the meter toward the event goal. */
+.pl-hq-sp__band {
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+  border-radius: 16px;
+  background: radial-gradient(120% 140% at 0% 0%, #2A3C63 0%, #1E2D4E 55%, #17233F 100%);
+  color: var(--pl-hq-vol-cream);
+}
+.pl-hq-sp__tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 760px) {
+  .pl-hq-sp__tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.pl-hq-sp__tile {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.pl-hq-sp__tile-heading {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #C9A44A;
+}
+.pl-hq-sp__tile-figure {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.pl-hq-sp__tile-helper {
+  font-size: 0.85rem;
+  color: #B8C2D4;
+}
+/* Two <progress> bars on one track: received + committed faded underneath, received solid on top. */
+.pl-hq-sp__meter {
+  position: relative;
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.pl-hq-sp__meter-bar {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  appearance: none;
+}
+.pl-hq-sp__meter-bar::-webkit-progress-bar {
+  background: transparent;
+}
+.pl-hq-sp__meter-bar--received::-webkit-progress-value {
+  background: #C9A44A;
+}
+.pl-hq-sp__meter-bar--received::-moz-progress-bar {
+  background: #C9A44A;
+}
+.pl-hq-sp__meter-bar--committed::-webkit-progress-value {
+  background: rgba(201, 164, 74, 0.45);
+}
+.pl-hq-sp__meter-bar--committed::-moz-progress-bar {
+  background: rgba(201, 164, 74, 0.45);
+}
+.pl-hq-sp__legend {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #B8C2D4;
+}
+.pl-hq-sp__swatch {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 2px;
+  background: #C9A44A;
+}
+.pl-hq-sp__swatch--committed {
+  background: rgba(201, 164, 74, 0.45);
+}
+
+/* Cards: Follow up and the pipeline sit on a flush card whose rows carry their own padding. */
+.pl-hq-sp__card {
+  min-width: 0;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 14px;
+  background: var(--pl-hq-vol-surface);
+}
+.pl-hq-sp__empty {
+  margin: 0;
+  padding: 18px;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-sp__due-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--pl-hq-vol-rule);
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-sp__due-row:last-child {
+  border-bottom: none;
+}
+.pl-hq-sp__due {
+  color: var(--pl-hq-sp-bad);
+  font-weight: 900;
+}
+
+/* The add form and the tiers: the portal's disclosure in Lee's colours. */
+.pl-hq-sp .pl-hq-sp__disclosure > .pl-disclosure__summary {
+  padding: 18px;
+  border-color: var(--pl-hq-vol-rule);
+  border-radius: 14px;
+  background: var(--pl-hq-vol-surface);
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-sp .pl-hq-sp__disclosure[open] > .pl-disclosure__summary {
+  border-radius: 14px 14px 0 0;
+}
+.pl-hq-sp .pl-hq-sp__disclosure .pl-disclosure__title {
+  font-weight: 900;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-sp .pl-hq-sp__disclosure > .pl-disclosure__body {
+  border-color: var(--pl-hq-vol-rule);
+  border-radius: 0 0 14px 14px;
+  background: var(--pl-hq-vol-surface);
+}
+.pl-hq-sp .pl-disclosure__chevron {
+  color: var(--pl-hq-vol-muted);
+}
+
+/* Forms: the portal's form_field markup in Lee's field colours. */
+.pl-hq-sp__form {
+  display: grid;
+  gap: 12px;
+}
+.pl-hq-sp__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.pl-hq-sp .pl-form-group {
+  margin-bottom: 0;
+}
+.pl-hq-sp .pl-form-label,
+.pl-hq-sp .pl-toggle-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-sp .pl-form-group input,
+.pl-hq-sp .pl-form-group select,
+.pl-hq-sp .pl-form-group textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 8px;
+  background: var(--pl-hq-vol-field);
+  color: var(--pl-hq-vol-ink);
+  font: inherit;
+}
+.pl-hq-sp .pl-form-group textarea {
+  resize: vertical;
+}
+.pl-hq-sp .pl-form-group select option {
+  background: var(--pl-hq-vol-field);
+  color: var(--pl-hq-vol-ink);
+}
+/* The date picker's icon is black by default: light it on the dark palette (FRONTEND rule 14). */
+.pl-hq-sp input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+}
+[data-theme="light"] .pl-hq-sp input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: none;
+}
+.pl-hq-sp__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+.pl-hq-sp__btn {
+  padding: 9px 16px;
+  border: 1px solid var(--pl-hq-vol-btn-bg);
+  border-radius: 9px;
+  background: var(--pl-hq-vol-btn-bg);
+  color: var(--pl-hq-vol-btn-ink);
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+.pl-hq-sp__btn:hover {
+  filter: brightness(1.08);
+}
+.pl-hq-sp__btn:focus-visible,
+.pl-hq-sp__filter:focus-visible,
+.pl-hq-sp__summary:focus-visible {
+  outline: 2px solid var(--pl-hq-vol-gold-hi);
+  outline-offset: 2px;
+}
+.pl-hq-sp__btn--ghost {
+  border-color: var(--pl-hq-vol-rule);
+  background: transparent;
+  color: var(--pl-hq-vol-ink);
+}
+
+/* The pipeline: its heading with the CSV link, the filter buttons, and the rows. */
+.pl-hq-sp__pipe-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.pl-hq-sp__csv {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--pl-hq-vol-gold);
+}
+.pl-hq-sp__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pl-hq-sp__filter {
+  padding: 5px 12px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 9px;
+  background: var(--pl-hq-vol-surface);
+  color: var(--pl-hq-vol-muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.pl-hq-sp__filter[aria-current="true"] {
+  border-color: var(--pl-hq-vol-btn-bg);
+  background: var(--pl-hq-vol-btn-bg);
+  color: var(--pl-hq-vol-btn-ink);
+}
+.pl-hq-sp__row {
+  border-bottom: 1px solid var(--pl-hq-vol-rule);
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-sp__row:last-child {
+  border-bottom: none;
+}
+.pl-hq-sp__summary,
+.pl-hq-sp__row--plain {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) auto minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 18px;
+}
+.pl-hq-sp__row--plain {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.pl-hq-sp__summary {
+  cursor: pointer;
+  list-style: none;
+}
+.pl-hq-sp__summary::-webkit-details-marker {
+  display: none;
+}
+.pl-hq-sp__summary::marker {
+  content: "";
+}
+.pl-hq-sp__row[open] > .pl-hq-sp__summary .pl-disclosure__chevron {
+  transform: rotate(-135deg);
+}
+.pl-hq-sp__name {
+  min-width: 0;
+  font-weight: 900;
+}
+.pl-hq-sp__name small,
+.pl-hq-sp__next small,
+.pl-hq-sp__amount small {
+  display: block;
+  overflow: hidden;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--pl-hq-vol-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pl-hq-sp__next {
+  min-width: 0;
+  font-size: 0.88rem;
+}
+.pl-hq-sp__next small.pl-hq-sp__due {
+  color: var(--pl-hq-sp-bad);
+  font-weight: 900;
+}
+.pl-hq-sp__amount {
+  text-align: right;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 760px) {
+  .pl-hq-sp__summary {
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    gap: 8px 10px;
+  }
+  .pl-hq-sp__summary > * {
+    grid-row: 1;
+  }
+  .pl-hq-sp__summary > .pl-hq-sp__amount {
+    grid-column: 2;
+  }
+  .pl-hq-sp__summary > .pl-hq-sp__chip {
+    grid-column: 3;
+  }
+  .pl-hq-sp__summary > .pl-disclosure__chevron {
+    grid-column: 4;
+  }
+  .pl-hq-sp__summary > .pl-hq-sp__next {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+.pl-hq-sp__chip {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--pl-hq-vol-chip);
+  color: var(--pl-hq-vol-muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.pl-hq-sp__name .pl-hq-sp__chip {
+  font-size: 0.7rem;
+  vertical-align: 2px;
+}
+.pl-hq-sp__chip--asked {
+  background: var(--pl-hq-sp-info-bg);
+  color: var(--pl-hq-sp-info);
+}
+.pl-hq-sp__chip--committed {
+  background: var(--pl-hq-sp-warn-bg);
+  color: var(--pl-hq-sp-warn);
+}
+.pl-hq-sp__chip--received {
+  background: var(--pl-hq-vol-ok-bg);
+  color: var(--pl-hq-vol-ok);
+}
+.pl-hq-sp__row-body {
+  display: grid;
+  gap: 1.25rem;
+  padding: 0 18px 18px;
+}
+.pl-hq-sp__history {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--pl-hq-sp-info-bg);
+  color: var(--pl-hq-vol-ink);
+  font-size: 0.92rem;
+}
+.pl-hq-sp__log {
+  display: grid;
+  gap: 8px;
+  padding-top: 1rem;
+  border-top: 1px solid var(--pl-hq-vol-rule);
+}
+.pl-hq-sp__log > p {
+  margin: 0;
+}
+.pl-hq-sp__log-line {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  font-size: 0.9rem;
+}
+.pl-hq-sp__when {
+  color: var(--pl-hq-vol-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pl-hq-sp__log-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 10rem) auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 0.5rem;
+}
+@media (max-width: 560px) {
+  .pl-hq-sp__log-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.pl-hq-sp__row-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* The tiers table, scrolling sideways inside its card on a phone. */
+.pl-hq-sp__tiers-body {
+  overflow-x: auto;
+}
+.pl-hq-sp__tiers {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-sp__tiers th,
+.pl-hq-sp__tiers td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--pl-hq-vol-rule);
+  text-align: left;
+  vertical-align: top;
+}
+.pl-hq-sp__tiers th {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-sp__tiers a {
+  color: var(--pl-hq-vol-gold);
+}
+
+/* ---- Vendor Tables (Track D, part 3) ----
+   Lee's page on the sign-up sheet's palette (declared above), with her row colours on top: the
+   band's four tiles, the meter and the setup note, the add form and the capacity form as the
+   portal's .pl-disclosure in her colours, and the table requests as a wide table whose every cell
+   is a control, scrolling sideways inside its card on a phone. */
+.pl-hq-vt {
+  --pl-hq-vt-info: #94B8EA;
+  --pl-hq-vt-bad: #EE8B8B;
+  /* One track that may shrink below the table's width, so the table scrolls inside its card, never the page. */
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  max-width: 1280px;
+}
+[data-theme="light"] .pl-hq-vt {
+  --pl-hq-vt-info: #2F5B94;
+  --pl-hq-vt-bad: #A23B3B;
+}
+.pl-hq-vt__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.pl-hq-vt__heading {
+  min-width: 0;
+}
+.pl-hq-vt__title {
+  margin: 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vt__subline {
+  margin: 0.5rem 0 0;
+  font-weight: 700;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vt__back {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: var(--pl-hq-vol-navy);
+  color: #FFFFFF;
+  font-size: 0.88rem;
+  font-weight: 900;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.pl-hq-vt__back:hover {
+  color: #FFFFFF;
+  text-decoration: underline;
+}
+.pl-hq-vt__board,
+.pl-hq-vt__section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+}
+.pl-hq-vt__board {
+  gap: 1.5rem;
+}
+.pl-hq-vt__h2 {
+  margin: 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.2rem;
+  font-weight: 800;
+  text-transform: capitalize;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vt__muted {
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vt__helper {
+  margin: 0;
+  font-size: 0.92rem;
+}
+.pl-hq-vt__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* The band: the navy gradient, four tiles (two across on a phone), the meter and the setup note. */
+.pl-hq-vt__band {
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+  border-radius: 16px;
+  background: radial-gradient(120% 140% at 0% 0%, #2A3C63 0%, #1E2D4E 55%, #17233F 100%);
+  color: var(--pl-hq-vol-cream);
+}
+.pl-hq-vt__tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 760px) {
+  .pl-hq-vt__tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.pl-hq-vt__tile {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.pl-hq-vt__tile-heading {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #C9A44A;
+}
+.pl-hq-vt__tile-figure {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.pl-hq-vt__tile-helper {
+  font-size: 0.85rem;
+  color: #B8C2D4;
+}
+.pl-hq-vt__meter {
+  display: block;
+  width: 100%;
+  height: 12px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+  appearance: none;
+}
+.pl-hq-vt__meter::-webkit-progress-bar {
+  background: rgba(255, 255, 255, 0.14);
+}
+.pl-hq-vt__meter::-webkit-progress-value {
+  background: #C9A44A;
+}
+.pl-hq-vt__meter::-moz-progress-bar {
+  background: #C9A44A;
+}
+.pl-hq-vt__note {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #D6DCE7;
+}
+
+/* The add form and the capacity form: the portal's disclosure in Lee's colours. */
+.pl-hq-vt .pl-hq-vt__disclosure > .pl-disclosure__summary {
+  padding: 18px;
+  border-color: var(--pl-hq-vol-rule);
+  border-radius: 14px;
+  background: var(--pl-hq-vol-surface);
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vt .pl-hq-vt__disclosure[open] > .pl-disclosure__summary {
+  border-radius: 14px 14px 0 0;
+}
+.pl-hq-vt .pl-hq-vt__disclosure .pl-disclosure__title {
+  font-weight: 900;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vt .pl-hq-vt__disclosure > .pl-disclosure__body {
+  border-color: var(--pl-hq-vol-rule);
+  border-radius: 0 0 14px 14px;
+  background: var(--pl-hq-vol-surface);
+}
+.pl-hq-vt .pl-disclosure__chevron {
+  color: var(--pl-hq-vol-muted);
+}
+
+/* Forms: the portal's form_field markup in Lee's field colours. */
+.pl-hq-vt__form {
+  display: grid;
+  gap: 12px;
+}
+.pl-hq-vt__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+.pl-hq-vt .pl-form-group {
+  margin-bottom: 0;
+}
+.pl-hq-vt .pl-form-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vt .pl-form-group input,
+.pl-hq-vt .pl-form-group select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 8px;
+  background: var(--pl-hq-vol-field);
+  color: var(--pl-hq-vol-ink);
+  font: inherit;
+}
+.pl-hq-vt .pl-form-group select option {
+  background: var(--pl-hq-vol-field);
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vt__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+.pl-hq-vt__btn {
+  padding: 9px 16px;
+  border: 1px solid var(--pl-hq-vol-btn-bg);
+  border-radius: 9px;
+  background: var(--pl-hq-vol-btn-bg);
+  color: var(--pl-hq-vol-btn-ink);
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+.pl-hq-vt__btn:hover {
+  filter: brightness(1.08);
+}
+.pl-hq-vt__btn--ghost {
+  border-color: var(--pl-hq-vol-rule);
+  background: transparent;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vt__btn--sm {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+.pl-hq-vt__btn:focus-visible,
+.pl-hq-vt__filter:focus-visible,
+.pl-hq-vt__delete:focus-visible {
+  outline: 2px solid var(--pl-hq-vol-gold-hi);
+  outline-offset: 2px;
+}
+
+/* The list: its heading with the CSV link, the filter buttons, and the table. */
+.pl-hq-vt__list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.pl-hq-vt__csv {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--pl-hq-vol-gold);
+}
+.pl-hq-vt__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pl-hq-vt__filter {
+  padding: 5px 12px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 9px;
+  background: var(--pl-hq-vol-surface);
+  color: var(--pl-hq-vol-muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.pl-hq-vt__filter[aria-current="true"] {
+  border-color: var(--pl-hq-vol-btn-bg);
+  background: var(--pl-hq-vol-btn-bg);
+  color: var(--pl-hq-vol-btn-ink);
+}
+.pl-hq-vt__card {
+  min-width: 0;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 14px;
+  background: var(--pl-hq-vol-surface);
+}
+/* Positioned, so the visually hidden labels in the cells are clipped by the scroll, not left to widen the page. */
+.pl-hq-vt__scroll {
+  position: relative;
+  overflow-x: auto;
+}
+.pl-hq-vt__table {
+  width: 100%;
+  min-width: 1240px;
+  border-collapse: collapse;
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-vt__table th,
+.pl-hq-vt__table td {
+  padding: 9px 8px;
+  border-bottom: 1px solid var(--pl-hq-vol-rule);
+  text-align: left;
+  vertical-align: top;
+}
+.pl-hq-vt__table th {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vt__table tbody tr:last-child td {
+  border-bottom: none;
+}
+/* Every cell is a control: the labels are kept for screen readers; the column headings say them on screen. */
+.pl-hq-vt__table .pl-form-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.pl-hq-vt__table .pl-form-group input,
+.pl-hq-vt__table .pl-form-group select {
+  min-width: 130px;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+}
+.pl-hq-vt__table .pl-form-group + .pl-form-group {
+  margin-top: 0.5rem;
+}
+.pl-hq-vt__cell--name {
+  min-width: 190px;
+}
+.pl-hq-vt__cell--name .pl-form-group:first-child input {
+  font-weight: 900;
+}
+.pl-hq-vt__cell--setup .pl-form-group select {
+  min-width: 170px;
+}
+.pl-hq-vt__cell--no .pl-form-group input {
+  min-width: 56px;
+  max-width: 70px;
+}
+.pl-hq-vt__cell--contact {
+  min-width: 190px;
+}
+.pl-hq-vt__cell--actions {
+  white-space: nowrap;
+}
+.pl-hq-vt__cell--actions form {
+  display: inline;
+}
+/* Lee's status stripe down the first cell: green confirmed, gold requested, blue waitlist; cancelled fades. */
+.pl-hq-vt__row--confirmed td:first-child {
+  box-shadow: inset 4px 0 0 var(--pl-hq-vol-ok);
+}
+.pl-hq-vt__row--requested td:first-child {
+  box-shadow: inset 4px 0 0 var(--pl-hq-vol-gold-hi);
+}
+.pl-hq-vt__row--waitlist td:first-child {
+  box-shadow: inset 4px 0 0 var(--pl-hq-vt-info);
+}
+.pl-hq-vt__row--cancelled td {
+  opacity: 0.55;
+}
+.pl-hq-vt__row--cancelled td:last-child {
+  opacity: 1;
+}
+.pl-hq-vt__delete {
+  margin-left: 8px;
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  color: var(--pl-hq-vt-bad);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.pl-hq-vt__empty {
+  padding: 18px;
+  color: var(--pl-hq-vol-muted);
 }

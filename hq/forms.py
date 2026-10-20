@@ -1,5 +1,6 @@
 """The HQ forms: the hub with its goals, one card with its shifts, a volunteer's Your Info step, the wine wall's Log a
-Bottle and winery logo, and the Marketing Tracker's Log a Marketing Action."""
+Bottle and winery logo, the Marketing Tracker's Log a Marketing Action, the Sponsorship Tracker's add form, inline
+edit and contact log line, and Vendor Tables' add form, row edit and space map capacity."""
 
 from __future__ import annotations
 
@@ -16,9 +17,20 @@ from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.utils import timezone
 
 from core.validators import validate_image_content, validate_image_size
-from hq.models import EventHub, HubCard, HubGoal, MarketingAction, ShiftSignup, VolunteerShift, WineBottle
-from hq.services import VolunteerInfo
-from membership.models import CommunityEvent, Member
+from hq.models import (
+    EventHub,
+    HubCard,
+    HubGoal,
+    MarketingAction,
+    ShiftSignup,
+    Sponsor,
+    SponsorTier,
+    VendorTable,
+    VolunteerShift,
+    WineBottle,
+)
+from hq.services import VENDOR_CAPACITY_MAX, VolunteerInfo
+from membership.models import CommunityEvent, Guild, Member
 
 # Path segments under /hq/ that are routes, not hubs.
 RESERVED_SLUGS: frozenset[str] = frozenset({"new"})
@@ -433,3 +445,273 @@ class MarketingActionForm(forms.ModelForm):
     def kept_for_next(self) -> dict[str, Any]:
         """What the next entry starts with after a save: the same kind, date and who; the rest clears."""
         return {key: self.cleaned_data[key] for key in ("kind", "date", "who")}
+
+
+# ---- Sponsorship Tracker (Track D, part 2) ----
+
+# The datalist Who's asking and the log's By suggest from: the Sponsorship card's named members.
+SPONSOR_TEAM_LIST_ID = "hq-sponsor-team"
+
+# The whole field opens the date picker, not just its icon (FRONTEND rule 14).
+_DATE_PICKER = {"type": "date", "@click": "(() => { try { $el.showPicker() } catch (e) {} })()"}
+
+
+# The largest whole dollar amount a sponsor field takes. The cents columns are Postgres integers (at most
+# 2,147,483,647), so an unbounded figure would overflow on save as a server error rather than a form error.
+SPONSOR_MAX_DOLLARS = 1_000_000
+
+
+def _dollars(label: str) -> forms.IntegerField:
+    """A whole dollar amount up to :data:`SPONSOR_MAX_DOLLARS`, blank meaning none; the form stores it in cents."""
+    return forms.IntegerField(
+        min_value=0,
+        max_value=SPONSOR_MAX_DOLLARS,
+        required=False,
+        label=label,
+        widget=forms.NumberInput(attrs={"min": "0", "step": "1"}),
+    )
+
+
+class SponsorForm(forms.ModelForm):
+    """+ Add a Sponsor: Lee's eleven fields, the ask in whole dollars. Every new sponsor starts as a prospect."""
+
+    ask = _dollars("Ask amount ($)")
+
+    class Meta:
+        model = Sponsor
+        fields = [
+            "organization",
+            "tier",
+            "owner",
+            "contact_name",
+            "contact_role",
+            "email",
+            "phone",
+            "next_step",
+            "follow_up_by",
+            "fit_note",
+        ]
+        labels = {
+            "organization": "Business or organization",
+            "tier": "Tier",
+            "owner": "Who's asking",
+            "contact_name": "Contact name",
+            "contact_role": "Their role",
+            "email": "Email",
+            "phone": "Phone",
+            "next_step": "Next step",
+            "follow_up_by": "Follow up by",
+            "fit_note": "Why they're a fit",
+        }
+        widgets: dict[str, forms.Widget] = {
+            "organization": forms.TextInput(attrs={"placeholder": "e.g. OnPoint Community Credit Union"}),
+            "owner": forms.TextInput(
+                attrs={"list": SPONSOR_TEAM_LIST_ID, "placeholder": "e.g. Augustin", "autocomplete": "off"}
+            ),
+            "contact_role": forms.TextInput(attrs={"placeholder": "e.g. Branch manager"}),
+            "email": forms.EmailInput(attrs={"autocomplete": "off"}),
+            "phone": forms.TextInput(attrs={"type": "tel", "autocomplete": "off"}),
+            "next_step": forms.TextInput(attrs={"placeholder": "e.g. Send sponsor deck"}),
+            "follow_up_by": forms.DateInput(format="%Y-%m-%d", attrs=_DATE_PICKER),
+            "fit_note": forms.TextInput(attrs={"placeholder": "e.g. PLM and 16 guild accounts bank with them"}),
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["tier"].choices = [("", "Not set"), *SponsorTier.choices]  # type: ignore[attr-defined]  # a ChoiceField
+        for field in self.fields.values():
+            field.help_text = ""
+
+    def to_fields(self) -> dict[str, Any]:
+        """The sponsor's fields for ``hq.services``: the cleaned data with each dollar amount in cents."""
+        fields = {name: self.cleaned_data[name] for name in self._meta.fields or ()}
+        for dollars, cents in self.MONEY:
+            amount: int | None = self.cleaned_data[dollars]
+            fields[cents] = 0 if amount is None else amount * 100
+        return fields
+
+    # The dollar fields and the model fields they fill.
+    MONEY: tuple[tuple[str, str], ...] = (("ask", "ask_cents"),)
+
+
+class SponsorEditForm(SponsorForm):
+    """The inline edit on a pipeline row: the add form's fields plus the status, the money in, the thank-you,
+    what was promised, the notes and last year's gift. Built with ``initial_for(sponsor)``, never bound to the
+    row itself, so the old status is still on the row when ``hq.services.update_sponsor`` compares."""
+
+    ask = _dollars("Ask ($)")
+    amount = _dollars("Committed or received ($)")
+
+    MONEY = (("ask", "ask_cents"), ("amount", "amount_cents"))
+
+    class Meta(SponsorForm.Meta):
+        fields = [*SponsorForm.Meta.fields, "status", "thanked", "benefits", "note", "history"]
+        labels = {
+            **SponsorForm.Meta.labels,
+            "contact_role": "Role",
+            "status": "Status",
+            "thanked": "Thank-you sent",
+            "benefits": "Benefits promised",
+            "note": "Notes",
+            "history": "Last year (2025)",
+        }
+        widgets: dict[str, forms.Widget] = {
+            **SponsorForm.Meta.widgets,
+            "organization": forms.TextInput(),
+            "contact_role": forms.TextInput(),
+            "next_step": forms.TextInput(),
+            "fit_note": forms.TextInput(),
+            "benefits": forms.TextInput(attrs={"placeholder": "e.g. Logo on flyer, 4 drink tickets"}),
+            "note": forms.Textarea(attrs={"rows": 2}),
+            "history": forms.Textarea(attrs={"rows": 2, "placeholder": "What they gave in 2025, if anything"}),
+        }
+
+    @classmethod
+    def initial_for(cls, sponsor: Sponsor) -> dict[str, Any]:
+        """What the row's form starts with: the sponsor's fields, the money in whole dollars."""
+        initial: dict[str, Any] = {name: getattr(sponsor, name) for name in cls._meta.fields or ()}
+        initial["ask"] = sponsor.ask_cents // 100 or None
+        initial["amount"] = sponsor.amount_cents // 100 or None
+        return initial
+
+
+class SponsorLogForm(forms.Form):
+    """One line for a sponsor's contact log: what happened, and who."""
+
+    text = forms.CharField(
+        max_length=300,
+        label="What happened",
+        widget=forms.TextInput(attrs={"placeholder": "e.g. Called, left voicemail"}),
+    )
+    by = forms.CharField(
+        max_length=120,
+        required=False,
+        label="By",
+        widget=forms.TextInput(attrs={"list": SPONSOR_TEAM_LIST_ID, "placeholder": "By", "autocomplete": "off"}),
+    )
+
+
+# ---- Vendor Tables (Track D, part 3) ----
+
+# The empty choice of the guild select: a request with no guild.
+NO_GUILD_LABEL = "Not in a guild"
+
+
+class VendorTableForm(forms.ModelForm):
+    """+ Add a Table Request: Lee's eight fields. The guild is one of the active guilds (``guilds``), or none.
+
+    The guild select takes its choices from the list the view read once, so a page of rows asks the
+    database for the guilds a single time. Every new request starts as requested, or on the waitlist
+    while the space map is full (``hq.services.add_vendor_table`` decides).
+    """
+
+    guild = forms.TypedChoiceField(required=False, coerce=int, empty_value=None, label="Guild")
+
+    class Meta:
+        model = VendorTable
+        fields = ["name", "guild", "sells", "size", "email", "phone", "setup", "needs"]
+        labels = {
+            "name": "Artist or group",
+            "sells": "What they sell",
+            "size": "Table size",
+            "email": "Email",
+            "phone": "Phone",
+            "setup": "Setup day",
+            "needs": "Needs",
+        }
+        widgets: dict[str, forms.Widget] = {
+            "name": forms.TextInput(attrs={"placeholder": "e.g. Riverbend Ceramics"}),
+            "sells": forms.TextInput(attrs={"placeholder": "e.g. Mugs and planters"}),
+            "email": forms.EmailInput(attrs={"autocomplete": "off"}),
+            "phone": forms.TextInput(attrs={"type": "tel", "autocomplete": "off"}),
+            "needs": forms.TextInput(attrs={"placeholder": "e.g. Power, near a wall"}),
+        }
+
+    def __init__(self, *args: Any, guilds: Sequence[Guild], **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        offered = list(guilds)
+        current = self.instance.guild if self.instance.guild_id is not None else None
+        if current is not None and all(guild.pk != current.pk for guild in offered):
+            # A guild made inactive after the request named it stays on that row, so a Save does not drop it.
+            offered.append(current)
+        self._guilds = {guild.pk: guild for guild in offered}
+        self.fields["guild"].choices = [  # type: ignore[attr-defined]  # a TypedChoiceField
+            ("", NO_GUILD_LABEL),
+            *((guild.pk, guild.name) for guild in offered),
+        ]
+        for name in self._meta.fields or ():
+            self.fields[name].help_text = ""
+
+    def clean_guild(self) -> Guild | None:
+        pk: int | None = self.cleaned_data["guild"]
+        return None if pk is None else self._guilds[pk]
+
+    def to_fields(self) -> dict[str, Any]:
+        """The request's fields for ``hq.services``, as cleaned (the text fields arrive trimmed)."""
+        return {name: self.cleaned_data[name] for name in self._meta.fields or ()}
+
+
+class VendorTableEditForm(VendorTableForm):
+    """One row of the list: every field of the add form plus the status and the table number, saved with one Save.
+
+    Rendered across the row's cells, each control tied to the row's form by its ``form`` attribute
+    (``form_id``), since a form cannot wrap a table row. Each label names the row ("Email for Riverbend
+    Ceramics"), so a screen reader moving through the cells hears whose field it is in.
+
+    ``updated_at`` carries the row's stamp as the page saw it; :attr:`is_stale` is a Save from a page older
+    than the row, which the view refuses whole.
+    """
+
+    updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
+
+    class Meta(VendorTableForm.Meta):
+        fields = [*VendorTableForm.Meta.fields, "status", "table_no"]
+        labels = {**VendorTableForm.Meta.labels, "status": "Status", "table_no": "Table #"}
+        widgets: dict[str, forms.Widget] = {
+            **VendorTableForm.Meta.widgets,
+            "name": forms.TextInput(),
+            "sells": forms.TextInput(attrs={"placeholder": "What"}),
+            "needs": forms.TextInput(attrs={"placeholder": "Needs"}),
+            "email": forms.EmailInput(attrs={"autocomplete": "off", "placeholder": "Email"}),
+            "phone": forms.TextInput(attrs={"type": "tel", "autocomplete": "off", "placeholder": "Phone"}),
+            "table_no": forms.TextInput(attrs={"placeholder": "#"}),
+        }
+
+    def __init__(self, *args: Any, form_id: str, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.form_id = form_id
+        self.fields["updated_at"].initial = self._stamp
+        for name in self._meta.fields or ():
+            field = self.fields[name]
+            field.widget.attrs["form"] = form_id
+            field.label = f"{field.label} for {self.instance.name}"
+
+    @property
+    def _stamp(self) -> str:
+        """The row's ``updated_at`` as the hidden field carries it; an edit form's row is always saved."""
+        return self.instance.updated_at.isoformat()
+
+    @property
+    def is_stale(self) -> bool:
+        """Whether the posted stamp differs from the row's: someone saved it after this page loaded."""
+        return self.is_bound and self.data.get(self.add_prefix("updated_at"), "") != self._stamp
+
+
+class VendorFloorForm(forms.Form):
+    """Space Map Capacity: how many tables fit (blank while the map is not ready) and the mapper's note."""
+
+    capacity = forms.IntegerField(
+        min_value=1,
+        max_value=VENDOR_CAPACITY_MAX,
+        required=False,
+        label="Tables that fit",
+        widget=forms.NumberInput(
+            attrs={"min": "1", "max": str(VENDOR_CAPACITY_MAX), "step": "1", "placeholder": "e.g. 24"}
+        ),
+    )
+    map_note = forms.CharField(
+        max_length=200,
+        required=False,
+        label="Map notes",
+        widget=forms.TextInput(attrs={"placeholder": "e.g. 18 in the gallery, 6 in the shop"}),
+    )

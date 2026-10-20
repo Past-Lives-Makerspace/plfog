@@ -1,0 +1,27 @@
+{% comment %}
+The Sponsorship Tracker's Follow up: the organisers get the rows, everyone else the count.
+
+  can_organize — required, the effective role's organiser bit
+  follow_ups   — required, a hq.services.FollowUps
+  oob          — True adds hx-swap-oob, so the htmx answer to a row's Save or Add to log refreshes
+                 Follow up in place beside the row it swaps
+{% endcomment %}
+<section class="pl-hq-sp__section" id="hq-sp-due" aria-labelledby="hq-sp-due-title" data-hq-sp-due{% if oob %} hx-swap-oob="true"{% endif %}>
+  <h2 class="pl-hq-sp__h2" id="hq-sp-due-title">Follow Up</h2>
+  <div class="pl-hq-sp__card pl-hq-sp__card--flush">
+    {% if can_organize %}
+      {% for row in follow_ups.rows %}
+      <div class="pl-hq-sp__due-row" data-hq-sp-follow-up="{{ row.sponsor.pk }}">
+        <span><strong>{{ row.sponsor.organization }}</strong> · {{ row.sponsor.next_step|default:"Follow up" }}{% if row.sponsor.owner %} <span class="pl-hq-sp__muted">({{ row.sponsor.owner }})</span>{% endif %}</span>
+        <span class="{% if row.is_due %}pl-hq-sp__due{% else %}pl-hq-sp__muted{% endif %}" data-hq-sp-follow-up-date>{{ row.prefix }}{{ row.sponsor.follow_up_by|date:"M j" }}</span>
+      </div>
+      {% empty %}
+      <p class="pl-hq-sp__empty" data-hq-sp-due-empty>Nothing scheduled. Add a "follow up by" date to any sponsor.</p>
+      {% endfor %}
+    {% elif follow_ups.count %}
+    <p class="pl-hq-sp__empty" data-hq-sp-due-count>{{ follow_ups.count }} follow-up{{ follow_ups.count|pluralize }} scheduled with the team.</p>
+    {% else %}
+    <p class="pl-hq-sp__empty" data-hq-sp-due-empty>Nothing scheduled.</p>
+    {% endif %}
+  </div>
+</section>

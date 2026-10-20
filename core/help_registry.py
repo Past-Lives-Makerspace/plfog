@@ -862,6 +862,24 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": "holiday-bizarre-hq",
         "anchor": "hq-marketing",
     },
+    "hq.sponsorship": {
+        "title": "Add a sponsor",
+        "short_text": (
+            "Name the business, the tier, the ask and who's asking, then Add sponsor. "
+            "Open a sponsor in the pipeline to change its status and log each contact."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-sponsorship",
+    },
+    "hq.vendor-tables": {
+        "title": "Add a table request",
+        "short_text": (
+            "Name the artist or group, their guild, what they sell and the table size, then Add request. "
+            "Change a row's status or table number and click Save on that row."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-vendor-tables",
+    },
     "hq.edit-card": {
         "title": "Who may open a card",
         "short_text": (

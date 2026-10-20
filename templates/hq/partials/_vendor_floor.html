@@ -1,0 +1,26 @@
+{% comment %}
+Space Map Capacity: how many tables fit and the mapper's note, with Lee's line on who is mapping.
+Posts over htmx and swaps only itself, sending the band out of band. Closed on the page unless a
+plain post came back with errors; the htmx answer keeps it open.
+
+  hub        — required, the EventHub
+  floor_form — required, a VendorFloorForm
+  floor_open — optional, True renders it open
+{% endcomment %}
+<details class="pl-disclosure pl-hq-vt__disclosure" {% if floor_open or floor_form.errors %}open{% endif %} data-hq-vt-floor>
+  <summary class="pl-disclosure__summary">
+    <span class="pl-disclosure__title">Space map capacity</span>
+    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+  </summary>
+  <form method="post" action="{% url 'hq:vendor_floor' hub.slug %}" hx-post="{% url 'hq:vendor_floor' hub.slug %}" hx-target="closest [data-hq-vt-floor]" hx-swap="outerHTML" class="pl-disclosure__body pl-hq-vt__form" data-hq-vt-floor-form>
+    {% csrf_token %}
+    <p class="pl-hq-vt__muted pl-hq-vt__helper" data-hq-vt-floor-helper>Damon and Dixie are mapping how many tables fit. Enter the number when it's ready and this page will show space left and start a waitlist.</p>
+    <div class="pl-hq-vt__fields">
+      {% include "components/form_field.html" with field=floor_form.capacity field_hint_off=True %}
+      {% include "components/form_field.html" with field=floor_form.map_note field_hint_off=True %}
+    </div>
+    <div class="pl-hq-vt__actions">
+      <button type="submit" class="pl-hq-vt__btn pl-hq-vt__btn--ghost" data-hq-vt-floor-submit>Save capacity</button>
+    </div>
+  </form>
+</details>
