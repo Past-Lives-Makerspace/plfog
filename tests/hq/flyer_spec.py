@@ -786,7 +786,7 @@ def describe_the_links_form():
             "See you there!",
         )
         assert body.lstrip().startswith("<form")
-        assert 'id="hq-fl-share" data-hq-fl-share data-help-key="hq.flyer" hx-swap-oob="true"' in body
+        assert 'id="hq-fl-share" data-hq-fl-share hx-swap-oob="true"' in body
         assert 'id="hq-fl-find" data-hq-fl-find hx-swap-oob="true"' in body
         assert f"See you there! {event.public_url}" in body
         assert 'href="https://pastlives.space/b" class="pl-hq-fl__link"' in body

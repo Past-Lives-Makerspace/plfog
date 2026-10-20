@@ -1159,7 +1159,6 @@ def describe_logging_an_entry():
         assert 'enctype="multipart/form-data" hx-boost="false"' in body
         assert f'value="{timezone.localdate():%Y-%m-%d}"' in body
         assert f'max="{LEDGER_MAX_DOLLARS}"' in body
-        assert 'data-help-key="hq.ledger"' in body
 
     def it_labels_a_refused_refund_in_its_own_words_with_the_receipt_open(hub, kegs, lee_client):
         response = lee_client.post(_url("ledger_entry_add", hub), _entry_post(kegs, kind=K.REFUND, source=""))

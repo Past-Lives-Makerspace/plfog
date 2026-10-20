@@ -20,7 +20,7 @@ note with the two doors, and the artists' reports with their experience. No form
 
   <div class="pl-hq-lg__money">
     {% include "hq/partials/_ledger_people_stats.html" %}
-    <form method="post" action="{% url 'hq:ledger_door' hub.slug %}" hx-post="{% url 'hq:ledger_door' hub.slug %}" hx-swap="none" hx-disabled-elt="[data-hq-lg-door-step]" class="pl-hq-lg__door" data-hq-lg-door data-help-key="hq.ledger-door">
+    <form method="post" action="{% url 'hq:ledger_door' hub.slug %}" hx-post="{% url 'hq:ledger_door' hub.slug %}" hx-swap="none" hx-disabled-elt="[data-hq-lg-door-step]" class="pl-hq-lg__door" data-hq-lg-door>
       {% csrf_token %}
       <div class="pl-hq-lg__door-head">
         <h3 class="pl-hq-lg__h3">Door Count</h3>

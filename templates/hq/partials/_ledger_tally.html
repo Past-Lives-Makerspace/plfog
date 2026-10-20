@@ -8,7 +8,7 @@ Sent back out of band after every write that moves a figure on it.
   tally_eyebrow, tally_title, tally_title_gold — required, Lee's words
   oob              — optional, True renders the hx-swap-oob attribute
 {% endcomment %}
-<section class="pl-hq-lg__tally" id="hq-lg-tally" aria-labelledby="hq-lg-tally-title" data-hq-lg-tally data-help-key="hq.ledger-tally"{% if oob %} hx-swap-oob="true"{% endif %}>
+<section class="pl-hq-lg__tally" id="hq-lg-tally" aria-labelledby="hq-lg-tally-title" data-hq-lg-tally{% if oob %} hx-swap-oob="true"{% endif %}>
   <div class="pl-hq-lg__tally-top">
     <div>
       <p class="pl-hq-lg__tally-eyebrow">{{ tally_eyebrow }}</p>

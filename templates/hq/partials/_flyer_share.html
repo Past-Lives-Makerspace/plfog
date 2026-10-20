@@ -12,7 +12,7 @@ Swapped out of band when the organisers save a new message.
   share_lede   — required, Lee's line under the heading
   oob          — optional, True renders the hx-swap-oob attribute
 {% endcomment %}
-<section class="pl-hq-fl__card" aria-labelledby="hq-fl-share-title" id="hq-fl-share" data-hq-fl-share data-help-key="hq.flyer"{% if oob %} hx-swap-oob="true"{% endif %}
+<section class="pl-hq-fl__card" aria-labelledby="hq-fl-share-title" id="hq-fl-share" data-hq-fl-share{% if oob %} hx-swap-oob="true"{% endif %}
          x-data="{ copy(ref, message) { const box = this.$refs[ref]; box.focus(); box.select(); if (window.isSecureContext && navigator.clipboard) { navigator.clipboard.writeText(box.value); } else { document.execCommand('copy'); } this.$dispatch('show-toast', { message: message, type: 'success' }); } }">
   <h2 class="pl-hq-fl__h2" id="hq-fl-share-title">Help Spread the Word</h2>
   <p class="pl-hq-fl__muted">{{ share_lede }}</p>

@@ -454,7 +454,7 @@ def describe_adding_a_sponsor():
         ]
         assert "data-hq-sp-board" in body
         assert "data-hq-sp-subline" not in body
-        assert 'open data-hq-sp-add data-help-key="hq.sponsorship"' in body
+        assert "open data-hq-sp-add" in body
         assert 'name="organization" placeholder="e.g. OnPoint Community Credit Union"' in body
         assert 'value="OnPoint Community Credit Union"' in body  # the new row's edit form, not the add form
 

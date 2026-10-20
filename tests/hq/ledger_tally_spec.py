@@ -689,10 +689,7 @@ def describe_attendance():
         assert _toast(response) == {"message": "Added 5 at the door.", "type": "success"}
         assert DoorCount.objects.get().created_by == lee
         assert 'id="hq-lg-people-stats" data-hq-lg-people-stats hx-swap-oob="true"' in body
-        assert (
-            'id="hq-lg-tally" aria-labelledby="hq-lg-tally-title" data-hq-lg-tally data-help-key="hq.ledger-tally" hx-swap-oob="true"'
-            in body
-        )
+        assert 'id="hq-lg-tally" aria-labelledby="hq-lg-tally-title" data-hq-lg-tally hx-swap-oob="true"' in body
         assert 'id="hq-lg-goals" aria-labelledby="hq-lg-goals-title" data-hq-lg-goals hx-swap-oob="true"' in body
         assert 'id="hq-lg-board-figures" data-hq-lg-board-figures hx-swap-oob="true"' in body
         assert 'id="hq-lg-staff-figures" data-hq-lg-staff-figures hx-swap-oob="true"' in body

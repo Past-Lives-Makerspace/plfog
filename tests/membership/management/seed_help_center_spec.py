@@ -168,6 +168,18 @@ def describe_seed_help_center():
         def it_counts_the_retired_guides_in_the_report(legacy_rows):
             assert "5 retired." in _run()
 
+        def it_unpublishes_the_holiday_bizarre_hq_guide_without_deleting_it(db):
+            # Seeded until 2026-10-20, so production holds a published row that
+            # dropping it from ARTICLES alone would leave live.
+            row = WikiArticleFactory(
+                page=OrgInfoPage.load(), slug="holiday-bizarre-hq", body="Old HQ body", is_published=True
+            )
+            report = _run()
+            row.refresh_from_db()
+            assert not row.is_published
+            assert row.body == "Old HQ body"
+            assert "1 retired." in report
+
         def it_retires_nothing_on_a_second_pass(legacy_rows):
             _run()
             assert "0 retired." in _run()

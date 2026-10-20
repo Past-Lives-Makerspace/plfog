@@ -36,7 +36,7 @@ list) and Add every active guild. A row's Save swaps that row alone with the sum
       {% endfor %}
     </table>
   </div>
-  <div class="pl-hq-lg__actions" data-help-key="hq.ledger-guilds">
+  <div class="pl-hq-lg__actions">
     {% if guilds_missing %}
     <form method="post" action="{% url 'hq:ledger_guilds_add_all' hub.slug %}" hx-post="{% url 'hq:ledger_guilds_add_all' hub.slug %}" hx-target="closest [data-hq-lg-guilds]" hx-swap="outerHTML" hx-disabled-elt="find button" data-hq-lg-guilds-add-all>
       {% csrf_token %}
