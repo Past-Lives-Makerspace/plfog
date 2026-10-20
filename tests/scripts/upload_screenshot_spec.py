@@ -9,6 +9,9 @@ from __future__ import annotations
 import datetime
 import importlib.util
 import pathlib
+import runpy
+import subprocess
+import sys
 from types import ModuleType
 
 import pytest
@@ -137,3 +140,72 @@ def describe_uploading():
             upload.main([str(shot)])
         assert "never overwrites" in str(exit_info.value)
         assert client.uploads == []
+
+
+def _git_common_dir(monkeypatch, common: str) -> None:
+    """Answer the script's one git call, ``rev-parse --git-common-dir``, with ``common``."""
+
+    def fake_run(args, **kwargs):
+        assert args == ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"]
+        return subprocess.CompletedProcess(args, 0, stdout=f"{common}\n", stderr="")
+
+    monkeypatch.setattr(upload.subprocess, "run", fake_run)
+
+
+@pytest.fixture
+def clean_env(monkeypatch):
+    for key in upload._KEYS:
+        monkeypatch.delenv(key, raising=False)
+    return monkeypatch
+
+
+def describe_env_files():
+    def it_reads_this_checkout_then_the_main_checkout_of_a_worktree(tmp_path, monkeypatch):
+        worktree, main = tmp_path / "wt", tmp_path / "main"
+        worktree.mkdir()
+        (main / ".git").mkdir(parents=True)
+        (worktree / ".env").write_text("")
+        (main / ".env").write_text("")
+        monkeypatch.setattr(upload, "_REPO_ROOT", worktree)
+        _git_common_dir(monkeypatch, str(main / ".git"))
+        assert upload._env_files() == [worktree / ".env", main / ".env"]
+
+    def it_skips_files_that_do_not_exist_and_an_empty_git_answer(tmp_path, monkeypatch):
+        monkeypatch.setattr(upload, "_REPO_ROOT", tmp_path)
+        _git_common_dir(monkeypatch, "")
+        assert upload._env_files() == []
+
+
+def describe_settings():
+    def it_lets_this_checkout_beat_the_main_one_and_the_environment_beat_both(tmp_path, clean_env):
+        worktree, main = tmp_path / "wt", tmp_path / "main"
+        worktree.mkdir()
+        main.mkdir()
+        (main / ".env").write_text("\n".join(f"{key}=main" for key in upload._KEYS))
+        (worktree / ".env").write_text("R2_BUCKET_NAME=worktree\n")
+        clean_env.setattr(upload, "_env_files", lambda: [worktree / ".env", main / ".env"])
+        clean_env.setenv("R2_PUBLIC_URL", "https://from-env")
+        found = upload.settings()
+        assert found["R2_ACCOUNT_ID"] == "main"
+        assert found["R2_BUCKET_NAME"] == "worktree"
+        assert found["R2_PUBLIC_URL"] == "https://from-env"
+
+    def it_exits_naming_every_missing_key(clean_env):
+        clean_env.setattr(upload, "_env_files", lambda: [])
+        clean_env.setenv("R2_BUCKET_NAME", "plfog")
+        with pytest.raises(SystemExit) as exit_info:
+            upload.settings()
+        message = str(exit_info.value)
+        assert "R2_ACCOUNT_ID" in message and "R2_PUBLIC_URL" in message
+        assert "R2_BUCKET_NAME" not in message
+        assert "drag the image" in message
+
+
+def describe_running_the_file():
+    def it_runs_main_from_the_command_line(tmp_path, monkeypatch):
+        notes = tmp_path / "notes.txt"
+        notes.write_text("hi")
+        monkeypatch.setattr(sys, "argv", ["upload_screenshot.py", str(notes)])
+        with pytest.raises(SystemExit) as exit_info:
+            runpy.run_path(str(_SCRIPT), run_name="__main__")
+        assert "not an image file" in str(exit_info.value)
