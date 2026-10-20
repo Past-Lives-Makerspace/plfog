@@ -223,6 +223,30 @@
     });
   }
 
+  // One scan before turning sign in on, so the member sees it work. Android needs no extra
+  // step: storeSecret already raises its BiometricPrompt to bind the key. iOS stores the
+  // protected item silently, which left the member tapping Turn It On and seeing nothing.
+  function confirmIdentity(name) {
+    if (platform() !== "ios") {
+      return Promise.resolve();
+    }
+    return Bio.verifyIdentity({
+      reason: "Turn on " + name + " sign in for Past Lives",
+      title: "Turn on " + name + " sign in",
+      negativeButtonText: "Cancel",
+    });
+  }
+
+  // The plugin's codes for a member backing out of the prompt rather than it failing: app
+  // and system cancel, user cancel (Android's negative button maps here too), and the
+  // fallback button. Capacitor hands the code back as a string on iOS and a number on
+  // Android, hence String().
+  var DISMISSED_CODES = ["11", "15", "16", "17"];
+
+  function wasDismissed(err) {
+    return !!err && DISMISSED_CODES.indexOf(String(err.code)) !== -1;
+  }
+
   function clearSecret() {
     return Bio.deleteCredentials({ server: SERVER }).catch(function () {
       /* nothing stored, or the plugin refused: there is nothing left to clean up */
@@ -262,7 +286,7 @@
       // "21" is the plugin's "nothing stored" code. On iOS the login page trusts the
       // localStorage id instead of probing the Keychain, so an id can outlive its secret;
       // forget it so the button does not come back offering a sign in that cannot work.
-      if (err && err.code === "21") {
+      if (err && String(err.code) === "21") {
         return forgetDevice().then(function () {
           return null;
         });
@@ -407,10 +431,29 @@
       }
     }
 
+    // Turning it on must say so: the card vanishing on its own read as nothing happening.
+    function showEnabled() {
+      title.textContent = "You're All Set";
+      body.textContent =
+        "Next time you sign in, use " + name + " instead of an emailed code. You can turn it off in Settings.";
+      enableBtn.remove();
+      laterBtn.disabled = false;
+      laterBtn.textContent = "Done";
+      laterBtn.style.cssText = offerButtonStyle(true);
+      laterBtn.removeEventListener("click", onLater);
+      laterBtn.addEventListener("click", close);
+    }
+
     enableBtn.addEventListener("click", function () {
       enableBtn.disabled = true;
       laterBtn.disabled = true;
-      onEnable().then(close, function () {
+      onEnable().then(showEnabled, function (err) {
+        if (wasDismissed(err)) {
+          // Backing out of the scan is not a failure; leave the offer as it was.
+          enableBtn.disabled = false;
+          laterBtn.disabled = false;
+          return;
+        }
         body.textContent = "That did not work. You can try again from Settings.";
         enableBtn.remove();
         laterBtn.disabled = false;
@@ -418,10 +461,11 @@
       });
     });
 
-    laterBtn.addEventListener("click", function () {
+    function onLater() {
       onDecline();
       close();
-    });
+    }
+    laterBtn.addEventListener("click", onLater);
 
     document.body.appendChild(card);
     return card;
@@ -439,10 +483,11 @@
         if (stored) {
           return;
         }
+        var name = biometryName(state.biometryType);
         buildOffer(
-          biometryName(state.biometryType),
+          name,
           function () {
-            return enroll().then(function () {
+            return confirmIdentity(name).then(enroll).then(function () {
               setDeclined(false);
               if (document.getElementById("biometric-devices")) {
                 // The settings card is server rendered, so the new row only appears on a
@@ -510,9 +555,12 @@
         // that can only fail, and let the login-code form below it do the work.
         mount.hidden = true;
       })
-      .catch(function () {
+      .catch(function (err) {
         button.disabled = false;
-        statusEl.textContent = "That did not work. Use the emailed code below.";
+        // Cancelling the scan is a choice, not an error, so it is not answered like one.
+        statusEl.textContent = wasDismissed(err)
+          ? "Tap the button to try again, or sign in with an emailed code below."
+          : "That did not work. Use the emailed code below.";
       });
   }
 
@@ -570,27 +618,39 @@
         return;
       }
       return isEnrolledHere().then(function (stored) {
+        var name = biometryName(state.biometryType);
         if (stored) {
-          noteEl.textContent = "This device is set up. Revoking it below sends this phone back to emailed codes.";
+          noteEl.textContent =
+            "Sign in with " + name + " is on for this phone. Revoking it below sends this phone back to emailed codes.";
           noteEl.hidden = false;
           return;
         }
-        enableBtn.textContent = "Turn on " + biometryName(state.biometryType) + " sign in";
+        enableBtn.textContent = "Turn on " + name + " sign in";
         enableBtn.hidden = false;
-        enableBtn.addEventListener("click", function onEnable() {
-          enableBtn.removeEventListener("click", onEnable);
+        // Guarded by disabled rather than unbinding, so a cancelled scan or a failed
+        // attempt leaves a button that still works.
+        enableBtn.addEventListener("click", function () {
+          if (enableBtn.disabled) {
+            return;
+          }
           enableBtn.disabled = true;
-          enroll().then(
-            function () {
-              setDeclined(false);
-              window.location.reload(); // the card is server rendered, so re-render the list
-            },
-            function () {
-              enableBtn.disabled = false;
-              noteEl.textContent = "That did not work. Try again in a moment.";
-              noteEl.hidden = false;
-            }
-          );
+          noteEl.hidden = true;
+          confirmIdentity(name)
+            .then(enroll)
+            .then(
+              function () {
+                setDeclined(false);
+                window.location.reload(); // the card is server rendered, so re-render the list
+              },
+              function (err) {
+                enableBtn.disabled = false;
+                if (wasDismissed(err)) {
+                  return;
+                }
+                noteEl.textContent = "That did not work. Try again in a moment.";
+                noteEl.hidden = false;
+              }
+            );
         });
       });
     });

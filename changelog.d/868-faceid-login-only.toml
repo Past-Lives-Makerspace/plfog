@@ -3,5 +3,6 @@ date = "2026-10-20"
 title = "Face ID only asks when you sign in"
 changes = [
   "In the iPhone app, Face ID no longer pops up as you move around the hub while you are already signed in.",
-  "It still offers to sign you in when you open the app to the sign in page.",
+  "Turning on Face ID sign in now checks your face once and tells you it is on.",
+  "If you cancel Face ID on the sign in page, it lets you try again or use an emailed code, instead of saying something went wrong.",
 ]
