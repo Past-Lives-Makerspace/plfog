@@ -860,7 +860,8 @@ class VolunteerHoursForm(forms.ModelForm):
             raise ValidationError(HOURS_ERROR)
         if hours % HOURS_STEP:
             raise ValidationError(HOURS_STEP_ERROR)
-        return hours
+        # A quarter hour typed with trailing zeros ("2.500") is the same figure; the column holds two places.
+        return hours.quantize(Decimal("0.01"))
 
     def kept_for_next(self) -> dict[str, Any]:
         """What the next entry starts with after a save: the same date and task; the hours and note clear."""

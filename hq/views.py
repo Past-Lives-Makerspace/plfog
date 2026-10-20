@@ -1174,6 +1174,20 @@ def _checkin_context(
     return context
 
 
+def _refused_page(
+    request: HttpRequest, hub: EventHub, card: HubCard, form: MarketReportForm | VolunteerHoursForm, **forms: Any
+) -> HttpResponse:
+    """A plain post the form refused: the page again with the bound form, or, when the page would not show that
+    form (an admin previewing as Guest acts as themselves but sees the page as the preview), a redirect back with
+    the form's errors as a message so they are not lost."""
+    context = _checkin_context(request, hub, card, **forms)
+    if context["may_check_in"]:
+        return render(request, "hq/checkin.html", context)
+    errors = " ".join(str(error) for field_errors in form.errors.values() for error in field_errors)
+    messages.error(request, errors)
+    return redirect(_checkin_url(hub))
+
+
 @card_view(HubCard.Kind.MARKET_CHECKIN)
 def checkin(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
     """The Market Check-in: the hero, Artists: your market report and Volunteers: log your hours for a member,
@@ -1192,7 +1206,7 @@ def checkin_report(request: HttpRequest, *, hub: EventHub, card: HubCard, member
     fragment = wants_fragment(request)
     if not form.is_valid():
         if not fragment:
-            return render(request, "hq/checkin.html", _checkin_context(request, hub, card, report_form=form))
+            return _refused_page(request, hub, card, form, report_form=form)
         return render(request, "hq/partials/_checkin_report.html", _report_context(hub, member, form=form))
     message = _report_message(services.save_report(hub, member, form.to_fields()))
     if not fragment:
@@ -1210,7 +1224,7 @@ def checkin_hours_log(request: HttpRequest, *, hub: EventHub, card: HubCard, mem
     fragment = wants_fragment(request)
     if not form.is_valid():
         if not fragment:
-            return render(request, "hq/checkin.html", _checkin_context(request, hub, card, hours_form=form))
+            return _refused_page(request, hub, card, form, hours_form=form)
         return render(request, "hq/partials/_checkin_hours.html", _hours_context(hub, member, form=form))
     message = _hours_message(services.log_hours(hub, member, form.cleaned_data))
     if not fragment:

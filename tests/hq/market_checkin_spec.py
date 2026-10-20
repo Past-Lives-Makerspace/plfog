@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 from allauth.account.models import EmailAddress
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError, connection, transaction
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
@@ -32,6 +33,7 @@ from tests.membership.factories import CommunityEventFactory, GuildFactory, Guil
 
 pytestmark = pytest.mark.django_db
 
+User = get_user_model()
 HTMX = {"HTTP_HX_REQUEST": "true"}
 T = VolunteerHours.Task
 
@@ -235,6 +237,24 @@ def describe_who_may_check_in():
         _preview(admin_client, ROLE_MEMBER)
         body = admin_client.get(_page(hub)).content.decode()
         assert "data-hq-ci-report-form" in body and "data-hq-ci-staff" not in body
+
+    def it_keeps_a_previewing_admins_errors_on_a_refused_plain_post(hub, admin_client):
+        _preview(admin_client, ROLE_GUEST)
+
+        hours = admin_client.post(_log(hub), _hours_post(hours="1.3"), follow=True)
+        report = admin_client.post(_report(hub), _report_post(name=""), follow=True)
+
+        assert hours.redirect_chain == [(_page(hub), 302)]
+        assert HOURS_STEP_ERROR in _messages(hours)
+        assert report.redirect_chain == [(_page(hub), 302)]
+        assert "This field is required." in _messages(report)
+        assert not VolunteerHours.objects.exists() and not MarketReport.objects.exists()
+
+    def it_renders_a_members_refused_plain_post_on_the_page_with_its_form(hub, artist_client):
+        response = artist_client.post(_log(hub), _hours_post(hours="1.3"))
+
+        assert response.status_code == 200
+        assert HOURS_STEP_ERROR in response.content.decode()
 
     def it_sends_a_signed_out_visitor_through_login_on_a_members_card(card):
         card.audience = HubCard.Audience.MEMBERS
@@ -520,15 +540,26 @@ def describe_the_vendor_table_link():
         assert 'value="My Own Name"' in body and 'value="Table Name"' not in body
         assert "You're at table 2" in body
 
-    def it_finds_the_table_in_one_query_and_never_matches_a_blank_address(hub):
-        member = MemberFactory(_pre_signup_email="solo@studio.example")
+    def it_finds_a_signed_in_members_table_in_two_queries_and_never_matches_a_blank_address(hub, make_member):
+        signed = make_member(_pre_signup_email="solo@studio.example")
+        assert EmailAddress.objects.filter(user=signed.user, primary=True, email="solo@studio.example").exists()
         table = VendorTableFactory(hub=hub, email="solo@studio.example", status=VendorTable.Status.CONFIRMED)
         VendorTableFactory(hub=hub, email="", status=VendorTable.Status.CONFIRMED)
+        # As a request has it: the member read off the signed in user, so the user is already loaded.
+        member = User.objects.get(pk=signed.user_id).member
 
         with CaptureQueriesContext(connection) as queries:
             assert services.confirmed_table(hub, member) == table
-        assert len(queries) == 1
-        assert services.confirmed_table(hub, MemberFactory(_pre_signup_email="")) is None
+        # The member's primary EmailAddress, then the table.
+        assert len(queries) == 2
+        blank = make_member()
+        blank.user.email = ""
+        blank.user.save(update_fields=["email"])
+        EmailAddress.objects.filter(user=blank.user).delete()
+        blank = User.objects.get(pk=blank.user_id).member
+        with CaptureQueriesContext(connection) as queries:
+            assert services.confirmed_table(hub, blank) is None
+        assert "vendortable" not in " ".join(query["sql"] for query in queries.captured_queries)
 
 
 def describe_the_hours_log():
@@ -589,6 +620,14 @@ def describe_the_hours_log():
         assert "data-hq-ci-hours-msg" not in body
         assert not VolunteerHours.objects.exists()
         assert HOURS_ERROR == "Enter hours between 0.25 and 24."
+
+    @pytest.mark.parametrize(("hours", "saved"), [("2.500", Decimal("2.50")), ("24.000", Decimal("24.00"))])
+    def it_takes_a_quarter_hour_typed_with_trailing_zeros(hub, artist_client, hours, saved):
+        response = artist_client.post(_log(hub), _hours_post(hours=hours), **HTMX)
+
+        assert "data-hq-ci-hours-msg" in response.content.decode()
+        assert VolunteerHours.objects.get().hours == saved
+        assert VolunteerHoursForm(_hours_post(hours=hours)).is_valid()
 
     def it_refuses_a_task_not_on_lees_list(hub, artist_client):
         artist_client.post(_log(hub), _hours_post(task="napping"), **HTMX)
@@ -949,21 +988,82 @@ def describe_the_roster_hours():
         assert 'data-label="Hours logged" data-hq-roster-hours>6.25</td>' in body
         assert rows.decode().splitlines()[1].endswith(",6.25")
 
-    def it_keeps_the_roster_page_to_a_fixed_number_of_queries(hub, roster_card, admin_client, make_member):
-        def _count() -> int:
-            with CaptureQueriesContext(connection) as queries:
-                assert admin_client.get(reverse("hq:volunteer_roster", args=[hub.slug])).status_code == 200
-            return len(queries)
+    def it_falls_back_to_the_users_email_without_a_primary_address_like_the_table_lookup(hub, roster_card, make_member):
+        member = make_member(_pre_signup_email="kit@example.com")
+        EmailAddress.objects.filter(user=member.user).delete()
+        ShiftSignupFactory(shift=VolunteerShiftFactory(hub=hub), name="Kit", email="kit@example.com")
+        _hours(hub, member, "3")
+        VendorTableFactory(hub=hub, email="kit@example.com", status=VendorTable.Status.CONFIRMED)
 
+        assert services.hours_by_email(hub) == {"kit@example.com": Decimal("3")}
+        assert services.roster_rows(hub)[0].hours_display == "3"
+        assert services.confirmed_table(hub, Member.objects.get(pk=member.pk)) is not None
+
+    def it_reads_an_unlinked_members_stored_address_and_leaves_out_a_member_with_none(hub, make_member):
+        unlinked = MemberFactory(_pre_signup_email="Una@Example.com")
+        _hours(hub, unlinked, "1.5")
+        blank = make_member()
+        EmailAddress.objects.filter(user=blank.user).delete()
+        blank.user.email = ""
+        blank.user.save(update_fields=["email"])
+        _hours(hub, blank, "2")
+
+        assert services.hours_by_email(hub) == {"una@example.com": Decimal("1.5")}
+
+    def it_keeps_the_roster_page_to_a_fixed_number_of_queries(hub, roster_card, admin_client, make_member):
         shift = VolunteerShiftFactory(hub=hub, need=20)
-        _count()
-        few = _count()
-        for position in range(4):
-            member = make_member(_pre_signup_email=f"helper{position}@example.com")
-            ShiftSignupFactory(shift=shift, email=f"helper{position}@example.com")
+
+        def _helper(position: int) -> None:
+            email = f"helper{position}@example.com"
+            member = make_member(_pre_signup_email=email)
+            assert EmailAddress.objects.filter(user=member.user, primary=True, email=email).exists()
+            ShiftSignupFactory(shift=shift, email=email)
             _hours(hub, member, "2")
 
+        def _count() -> int:
+            with CaptureQueriesContext(connection) as queries:
+                response = admin_client.get(reverse("hq:volunteer_roster", args=[hub.slug]))
+            assert response.status_code == 200
+            # Every helper's hours matched their sign-up.
+            assert response.content.decode().count("data-hq-roster-hours>2</td>") == shift.signups.count()
+            return len(queries)
+
+        _helper(0)
+        _count()
+        few = _count()
+        for position in range(1, 5):
+            _helper(position)
+
         assert _count() == few
+
+
+def describe_the_page_queries():
+    def it_keeps_the_check_in_page_to_a_fixed_number_of_queries_as_reports_hours_and_the_board_grow(
+        hub, artist, artist_client, make_member
+    ):
+        def _grow(position: int) -> None:
+            helper = make_member(_pre_signup_email=f"grow{position}@example.com")
+            MarketReport.objects.create(hub=hub, member=helper, name=f"Studio {position}", sales_cents=1000)
+            _hours(hub, helper, "1.25")
+            _hours(hub, helper, "2")
+
+        def _count() -> int:
+            with CaptureQueriesContext(connection) as queries:
+                response = artist_client.get(_page(hub))
+            assert response.status_code == 200
+            assert "data-hq-ci-report-form" in response.content.decode()
+            return len(queries)
+
+        _grow(0)
+        _hours(hub, artist, "1")
+        _count()
+        few = _count()
+        for position in range(1, 6):
+            _grow(position)
+        _hours(hub, artist, "3")
+
+        assert _count() == few
+        assert len(services.thank_you_board(hub).rows) == 7
 
 
 def describe_adopting_the_placeholder():

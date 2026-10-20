@@ -32,7 +32,7 @@ from urllib.parse import quote
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
-from django.db.models import Count, DecimalField, F, IntegerField, Min, Q, QuerySet, Sum
+from django.db.models import Count, DecimalField, F, IntegerField, Min, OuterRef, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import Coalesce, Lower
 from django.http import HttpRequest
 from django.utils import timezone
@@ -373,7 +373,7 @@ def roster_rows(hub: EventHub) -> list[RosterRow]:
 
     A person's name, phone, permit and note are read from their newest sign-up, so what they
     last typed on Your Info is what the organisers see. Hours logged is the Market Check-in's figure for the
-    member whose primary email is the sign-up's (:func:`hours_by_email`).
+    member whose email (``Member.primary_email``'s rule, :func:`hours_by_email`) is the sign-up's.
     """
     hours = hours_by_email(hub)
     by_email: dict[str, RosterRow] = {}
@@ -1174,8 +1174,10 @@ def save_report(hub: EventHub, member: Member, fields: Mapping[str, Any]) -> Mar
 def confirmed_table(hub: EventHub, member: Member) -> VendorTable | None:
     """The confirmed table request on ``hub`` whose email is ``member``'s primary email, with its guild.
 
-    One query for the table (the address is the member's own, read as everywhere else); an address left blank
-    on both sides never matches. The first confirmed request entered wins if two share the address.
+    The address is ``Member.primary_email`` (the rule :func:`hours_by_email` keys on): for a signed in member whose
+    user is already loaded, one query for the primary ``EmailAddress`` and one for the table. A blank address
+    returns None before the table query, so it never matches a request left blank. The first confirmed request
+    entered wins if two share the address.
     """
     email = member.primary_email.strip().lower()
     if not email:
@@ -1228,21 +1230,32 @@ def sales_by_guild(hub: EventHub) -> list[GuildSales]:
 
 
 def hours_by_email(hub: EventHub) -> dict[str, Decimal]:
-    """Each member's hours on ``hub`` keyed by their primary email, lowercased, in one query.
+    """Each member's hours on ``hub`` keyed by their email as ``Member.primary_email`` reads it, lowercased, in one
+    query.
 
-    The volunteer roster reads it to put "Hours logged" beside a sign-up whose email is that address. A member
-    with no primary address on file (never signed in) logs no hours, so the join loses nobody.
+    The rule is ``Member.primary_email``'s: the primary ``EmailAddress`` of a linked user, else ``User.email``, and
+    the stored pre-signup address for a member with no user; it is the rule :func:`confirmed_table` matches on. The
+    volunteer roster reads it to put "Hours logged" beside a sign-up whose email is that address. A member with no
+    address under that rule is left out (a blank key would match nothing real).
     """
+    from allauth.account.models import EmailAddress
+
+    primary = EmailAddress.objects.filter(user_id=OuterRef("member__user_id"), primary=True).values("email")[:1]
     rows = (
-        hub.volunteer_hours.filter(member__user__emailaddress__primary=True)
-        .values("member__user__emailaddress__email")
+        hub.volunteer_hours.annotate(primary=Subquery(primary))
+        .values("member", "member__user_id", "member__user__email", "member___pre_signup_email", "primary")
         .annotate(total=Sum("hours"))
         .order_by()
     )
     totals: dict[str, Decimal] = {}
     for row in rows:
-        key = row["member__user__emailaddress__email"].strip().lower()
-        totals[key] = totals.get(key, Decimal(0)) + row["total"]
+        if row["member__user_id"] is None:
+            email = row["member___pre_signup_email"]
+        else:
+            email = row["primary"] or row["member__user__email"]
+        key = (email or "").strip().lower()
+        if key:
+            totals[key] = totals.get(key, Decimal(0)) + row["total"]
     return totals
 
 
