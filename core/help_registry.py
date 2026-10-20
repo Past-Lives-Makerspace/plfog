@@ -880,6 +880,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": "holiday-bizarre-hq",
         "anchor": "hq-vendor-tables",
     },
+    "hq.market-checkin": {
+        "title": "Your market report and hours",
+        "short_text": (
+            "Fill in your name and guild now and Save my report; come back after the market to add your sales. "
+            "Log each stretch of volunteer time under Log my hours."
+        ),
+        "article_slug": "holiday-bizarre-hq",
+        "anchor": "hq-market-checkin",
+    },
     "hq.edit-card": {
         "title": "Who may open a card",
         "short_text": (

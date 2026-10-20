@@ -1,5 +1,6 @@
 """The HQ page and its edit pages (Track C, part 1), the volunteer sign-up page (part 2), the wine wall (part 3),
-the Marketing Tracker (Track D, part 1), the Sponsorship Tracker (Track D, part 2) and Vendor Tables (Track D, part 3).
+the Marketing Tracker (Track D, part 1), the Sponsorship Tracker (Track D, part 2), Vendor Tables (Track D, part 3)
+and the Market Check-in (Track D, part 4).
 """
 
 from __future__ import annotations
@@ -9,12 +10,14 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import REDIRECT_FIELD_NAME
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, StreamingHttpResponse
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import get_object_or_404, redirect, render, resolve_url
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import urlencode
 from django.views.decorators.http import require_POST
 
 from core.abuse_limits import record_keyed_attempt
@@ -22,7 +25,9 @@ from core.htmx import wants_fragment
 from hq import services
 from hq.access import (
     actual_member,
+    can_check_in,
     card_view,
+    check_in_required,
     hub_or_404,
     is_actual_admin,
     organizer_page,
@@ -30,7 +35,14 @@ from hq.access import (
     renders_as_admin,
     viewer_member,
 )
-from hq.exports import stream_donors_csv, stream_roster_csv, stream_sponsors_csv, stream_vendor_tables_csv
+from hq.exports import (
+    stream_donors_csv,
+    stream_market_reports_csv,
+    stream_roster_csv,
+    stream_sponsors_csv,
+    stream_vendor_tables_csv,
+    stream_volunteer_hours_csv,
+)
 from hq.forms import (
     MARKETING_TEAM_LIST_ID,
     SPONSOR_TEAM_LIST_ID,
@@ -38,20 +50,33 @@ from hq.forms import (
     HubForm,
     HubGoalFormSet,
     MarketingActionForm,
+    MarketReportForm,
     SponsorEditForm,
     SponsorForm,
     SponsorLogForm,
     VendorFloorForm,
     VendorTableEditForm,
     VendorTableForm,
+    VolunteerHoursForm,
     VolunteerInfoForm,
     VolunteerShiftForm,
     VolunteerShiftFormSet,
     WineBottleForm,
     WineryLogoForm,
 )
-from hq.holiday_bizarre import SPONSOR_TIERS, VENDOR_SETUP_NOTE, WINE_WALL_BENEFIT
-from hq.models import EventHub, HubCard, ShiftSignup, Sponsor, VendorTable, VolunteerShift
+from hq.holiday_bizarre import CHECKIN_FOOTER, SPONSOR_TIERS, VENDOR_SETUP_NOTE, WINE_WALL_BENEFIT
+from hq.models import (
+    EventHub,
+    HubCard,
+    MarketReport,
+    ShiftSignup,
+    Sponsor,
+    VendorTable,
+    VolunteerHours,
+    VolunteerShift,
+    format_hours,
+    format_money,
+)
 from hq.services import VolunteerBand, VolunteerInfo, goal_rows
 from hub.toast import trigger_toast
 from hub.view_as import fog_admin_required
@@ -272,7 +297,12 @@ def _volunteers_page(
 
 def _wine_url(hub: EventHub, member: Member | None, is_admin: bool) -> str:
     """Where the Wine Wall link goes, or "" when that card is not open to this viewer (or has no page yet)."""
-    card = hub.cards.prefetch_related("named_members").filter(kind=HubCard.Kind.WINE_WALL).first()
+    return _door_url(hub, HubCard.Kind.WINE_WALL, member, is_admin)
+
+
+def _door_url(hub: EventHub, kind: str, member: Member | None, is_admin: bool) -> str:
+    """Where a link to the ``kind`` door goes, or "" when that card is missing, hidden or not open to this viewer."""
+    card = hub.cards.prefetch_related("named_members").filter(kind=kind).first()
     if card is None or (card.is_hidden and not is_admin) or not card.is_open_to(member, is_admin=is_admin):
         return ""
     return card.url
@@ -377,7 +407,9 @@ def volunteer_roster(request: HttpRequest, *, hub: EventHub, card: HubCard) -> H
 @organizer_required(HubCard.Kind.VOLUNTEERS)
 def volunteer_roster_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
     """The roster as a CSV download, one row per person per shift."""
-    return stream_roster_csv(ShiftSignup.objects.filter(shift__hub=hub), filename_stem=hub.slug)
+    return stream_roster_csv(
+        ShiftSignup.objects.filter(shift__hub=hub), hours=services.hours_by_email(hub), filename_stem=hub.slug
+    )
 
 
 # ---- Wine wall (part 3) ----
@@ -1019,3 +1051,204 @@ def _vendor_floor_answer(
 def vendors_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
     """Every table request as a CSV download, one row each, in list order."""
     return stream_vendor_tables_csv(hub.vendor_tables.select_related("guild", "created_by"), filename_stem=hub.slug)
+
+
+# ---- Market Check-in (Track D, part 4) ----
+
+
+def _checkin_url(hub: EventHub) -> str:
+    return reverse("hq:checkin", args=[hub.slug])
+
+
+def _report_message(report: MarketReport) -> str:
+    """Lee's line beside the button once a report is saved: the sales when there are any."""
+    if report.sales_cents:
+        return f"Saved! {format_money(report.sales_cents)} in sales. Congratulations!"
+    return "Saved! Come back after the market to add your sales."
+
+
+def _hours_message(entry: VolunteerHours) -> str:
+    unit = "hour" if entry.hours == 1 else "hours"
+    return f"Logged {entry.hours_display} {unit}. Thank you!"
+
+
+def _report_context(
+    hub: EventHub, member: Member, *, form: MarketReportForm | None = None, message: str = ""
+) -> dict[str, Any]:
+    """What the report section renders for ``member``: their report (the Saved chip), the confirmed table that is
+    theirs, and the form, bound to the report, else starting from the table's name and guild or their own."""
+    report = services.report_for(hub, member)
+    table = services.confirmed_table(hub, member)
+    if form is None:
+        guilds = services.active_guilds()
+        if report is not None:
+            form = MarketReportForm(instance=report, guilds=guilds)
+        else:
+            initial = services.report_initial(member, table)
+            form = MarketReportForm(instance=MarketReport(hub=hub, member=member), initial=initial, guilds=guilds)
+    return {"hub": hub, "report": report, "vendor_table": table, "report_form": form, "report_message": message}
+
+
+def _hours_context(
+    hub: EventHub, member: Member, *, form: VolunteerHoursForm | None = None, message: str = ""
+) -> dict[str, Any]:
+    """What the hours section renders for ``member``: the form and their own entries, newest date first."""
+    entries = services.member_hours(hub, member)
+    return {
+        "hub": hub,
+        "hours_form": form if form is not None else VolunteerHoursForm(),
+        "entries": entries,
+        "my_total": format_hours(services.total_hours(entries)),
+        "hours_message": message,
+    }
+
+
+def _checkin_context(
+    request: HttpRequest,
+    hub: EventHub,
+    card: HubCard,
+    *,
+    report_form: MarketReportForm | None = None,
+    hours_form: VolunteerHoursForm | None = None,
+) -> dict[str, Any]:
+    """What the page renders, by the effective role: the hero and the thank-you board for everyone the card is
+    open to; the report and the hours forms for a member who may check in (:func:`hq.access.can_check_in`); a
+    sign in link for a signed out visitor; the organisers' links for organisers."""
+    member = viewer_member(request)
+    is_admin = renders_as_admin(request)
+    login = f"{resolve_url(settings.LOGIN_URL)}?{urlencode({REDIRECT_FIELD_NAME: _checkin_url(hub)})}"
+    context: dict[str, Any] = {
+        "hub": hub,
+        "card": card,
+        "countdown": hub.countdown_parts(timezone.now()),
+        "thanks": services.checkin_thanks(hub),
+        "footer": CHECKIN_FOOTER,
+        "band": services.checkin_band(hub),
+        "board": services.thank_you_board(hub),
+        "me_pk": member.pk if member is not None else None,
+        "signed_in": request.user.is_authenticated,
+        "login_url": login,
+        "may_check_in": False,
+        "can_organize": card.can_organize(member, is_admin=is_admin),
+        "volunteer_url": _door_url(hub, HubCard.Kind.VOLUNTEERS, member, is_admin),
+    }
+    if member is not None and can_check_in(card, member, is_admin=is_admin):
+        context["may_check_in"] = True
+        context.update(_report_context(hub, member, form=report_form))
+        context.update(_hours_context(hub, member, form=hours_form))
+    return context
+
+
+@card_view(HubCard.Kind.MARKET_CHECKIN)
+def checkin(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """The Market Check-in: the hero, Artists: your market report and Volunteers: log your hours for a member,
+    and the volunteer thank-you board for everyone the card is open to."""
+    return render(request, "hq/checkin.html", _checkin_context(request, hub, card))
+
+
+@require_POST
+@check_in_required(HubCard.Kind.MARKET_CHECKIN)
+def checkin_report(request: HttpRequest, *, hub: EventHub, card: HubCard, member: Member) -> HttpResponse:
+    """Save my report (or Update my report): the member's one report on the hub, by the actual member. Over htmx
+    the report section comes back with Lee's message; a plain post lands back on the page with it."""
+    report = services.report_for(hub, member)
+    instance = report if report is not None else MarketReport(hub=hub, member=member)
+    form = MarketReportForm(request.POST, instance=instance, guilds=services.active_guilds())
+    fragment = wants_fragment(request)
+    if not form.is_valid():
+        if not fragment:
+            return render(request, "hq/checkin.html", _checkin_context(request, hub, card, report_form=form))
+        return render(request, "hq/partials/_checkin_report.html", _report_context(hub, member, form=form))
+    message = _report_message(services.save_report(hub, member, form.to_fields()))
+    if not fragment:
+        messages.success(request, message)
+        return redirect(_checkin_url(hub))
+    return render(request, "hq/partials/_checkin_report.html", _report_context(hub, member, message=message))
+
+
+@require_POST
+@check_in_required(HubCard.Kind.MARKET_CHECKIN)
+def checkin_hours_log(request: HttpRequest, *, hub: EventHub, card: HubCard, member: Member) -> HttpResponse:
+    """Log my hours, by the actual member. Over htmx the hours section comes back (keeping the date and task) with
+    the hero's figures and the thank-you board out of band; a plain post lands back on the page with a message."""
+    form = VolunteerHoursForm(request.POST)
+    fragment = wants_fragment(request)
+    if not form.is_valid():
+        if not fragment:
+            return render(request, "hq/checkin.html", _checkin_context(request, hub, card, hours_form=form))
+        return render(request, "hq/partials/_checkin_hours.html", _hours_context(hub, member, form=form))
+    message = _hours_message(services.log_hours(hub, member, form.cleaned_data))
+    if not fragment:
+        messages.success(request, message)
+        return redirect(_checkin_url(hub))
+    fresh = VolunteerHoursForm(initial=form.kept_for_next())
+    context = {
+        **_hours_context(hub, member, form=fresh, message=message),
+        "countdown": hub.countdown_parts(timezone.now()),
+        "band": services.checkin_band(hub),
+        "board": services.thank_you_board(hub),
+        "me_pk": member.pk,
+    }
+    return render(request, "hq/partials/_checkin_hours_answer.html", context)
+
+
+@require_POST
+@check_in_required(HubCard.Kind.MARKET_CHECKIN)
+def checkin_hours_delete(
+    request: HttpRequest, *, hub: EventHub, card: HubCard, member: Member, pk: int
+) -> HttpResponse:
+    """Delete one hours entry: the member's own, or any for an organiser (by the actual role); 403 otherwise.
+    Lands on the organisers' hours page when the delete came from there, else on the check-in page."""
+    entry = get_object_or_404(hub.volunteer_hours, pk=pk)
+    is_organizer = card.can_organize(member, is_admin=is_actual_admin(request))
+    try:
+        services.delete_hours(entry, member=member, is_organizer=is_organizer)
+    except services.NotYourHours as exc:
+        raise PermissionDenied(str(exc)) from exc
+    messages.success(request, f"Deleted {entry.hours_display} h on {entry.date:%b} {entry.date.day}.")
+    if is_organizer and request.POST.get("back") == "hours":
+        return redirect("hq:checkin_hours", slug=hub.slug)
+    return redirect(_checkin_url(hub))
+
+
+@organizer_page(HubCard.Kind.MARKET_CHECKIN)
+def checkin_reports(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """The organisers' market reports: the totals, sales by guild, and every report (Lee's "staff can see")."""
+    return render(
+        request,
+        "hq/checkin_reports.html",
+        {
+            "hub": hub,
+            "card": card,
+            "band": services.checkin_band(hub),
+            "by_guild": services.sales_by_guild(hub),
+            "reports": list(hub.market_reports.select_related("member", "guild")),
+        },
+    )
+
+
+@organizer_page(HubCard.Kind.MARKET_CHECKIN)
+def checkin_hours(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """The organisers' volunteer hours: the totals and every entry, newest date first, each with a Delete."""
+    return render(
+        request,
+        "hq/checkin_hours.html",
+        {
+            "hub": hub,
+            "card": card,
+            "band": services.checkin_band(hub),
+            "entries": list(hub.volunteer_hours.select_related("member")),
+        },
+    )
+
+
+@organizer_required(HubCard.Kind.MARKET_CHECKIN)
+def checkin_reports_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
+    """Every market report as a CSV download, one row each, by name."""
+    return stream_market_reports_csv(hub.market_reports.select_related("member", "guild"), filename_stem=hub.slug)
+
+
+@organizer_required(HubCard.Kind.MARKET_CHECKIN)
+def checkin_hours_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
+    """Every hours entry as a CSV download, newest date first."""
+    return stream_volunteer_hours_csv(hub.volunteer_hours.select_related("member"), filename_stem=hub.slug)

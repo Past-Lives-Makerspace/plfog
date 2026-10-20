@@ -1,6 +1,7 @@
 """The HQ forms: the hub with its goals, one card with its shifts, a volunteer's Your Info step, the wine wall's Log a
 Bottle and winery logo, the Marketing Tracker's Log a Marketing Action, the Sponsorship Tracker's add form, inline
-edit and contact log line, and Vendor Tables' add form, row edit and space map capacity."""
+edit and contact log line, Vendor Tables' add form, row edit and space map capacity, and the Market Check-in's report
+and hours."""
 
 from __future__ import annotations
 
@@ -20,12 +21,17 @@ from core.validators import validate_image_content, validate_image_size
 from hq.models import (
     EventHub,
     HubCard,
+    HOURS_MAX,
+    HOURS_MIN,
+    HOURS_STEP,
     HubGoal,
     MarketingAction,
+    MarketReport,
     ShiftSignup,
     Sponsor,
     SponsorTier,
     VendorTable,
+    VolunteerHours,
     VolunteerShift,
     WineBottle,
 )
@@ -597,6 +603,23 @@ class SponsorLogForm(forms.Form):
 NO_GUILD_LABEL = "Not in a guild"
 
 
+def _offer_guilds(form: forms.ModelForm, guilds: Sequence[Guild]) -> dict[int, Guild]:
+    """Give ``form``'s ``guild`` select the active ``guilds`` (read once by the view) and Not in a guild.
+
+    A guild made inactive after the row named it stays offered on that row, so a Save does not drop it. Returns
+    the offered guilds by pk, for ``clean_guild``.
+    """
+    offered = list(guilds)
+    current = form.instance.guild if form.instance.guild_id is not None else None
+    if current is not None and all(guild.pk != current.pk for guild in offered):
+        offered.append(current)
+    form.fields["guild"].choices = [  # type: ignore[attr-defined]  # a TypedChoiceField
+        ("", NO_GUILD_LABEL),
+        *((guild.pk, guild.name) for guild in offered),
+    ]
+    return {guild.pk: guild for guild in offered}
+
+
 class VendorTableForm(forms.ModelForm):
     """+ Add a Table Request: Lee's eight fields. The guild is one of the active guilds (``guilds``), or none.
 
@@ -629,16 +652,7 @@ class VendorTableForm(forms.ModelForm):
 
     def __init__(self, *args: Any, guilds: Sequence[Guild], **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        offered = list(guilds)
-        current = self.instance.guild if self.instance.guild_id is not None else None
-        if current is not None and all(guild.pk != current.pk for guild in offered):
-            # A guild made inactive after the request named it stays on that row, so a Save does not drop it.
-            offered.append(current)
-        self._guilds = {guild.pk: guild for guild in offered}
-        self.fields["guild"].choices = [  # type: ignore[attr-defined]  # a TypedChoiceField
-            ("", NO_GUILD_LABEL),
-            *((guild.pk, guild.name) for guild in offered),
-        ]
+        self._guilds = _offer_guilds(self, guilds)
         for name in self._meta.fields or ():
             self.fields[name].help_text = ""
 
@@ -696,3 +710,133 @@ class VendorFloorForm(forms.Form):
         label="Map notes",
         widget=forms.TextInput(attrs={"placeholder": "e.g. 18 in the gallery, 6 in the shop"}),
     )
+
+
+# ---- Market Check-in (Track D, part 4) ----
+
+# The most a report takes. The columns are Postgres integers, so an unbounded figure would overflow on save as a
+# server error rather than a form error; these are far past any table at the market.
+REPORT_ITEMS_MAX = 100_000
+REPORT_SALES_MAX_DOLLARS = 1_000_000
+
+
+class MarketReportForm(forms.ModelForm):
+    """Artists: your market report. Lee's five fields, the sales in dollars and cents; the guild is one of the active
+    guilds or none. Bound to the member's report when they have one (Update my report), else to a new one."""
+
+    guild = forms.TypedChoiceField(required=False, coerce=int, empty_value=None, label="Your guild")
+    items_sold = forms.IntegerField(
+        min_value=0,
+        max_value=REPORT_ITEMS_MAX,
+        required=False,
+        label="Items sold",
+        widget=forms.NumberInput(
+            attrs={
+                "min": "0",
+                "max": str(REPORT_ITEMS_MAX),
+                "step": "1",
+                "inputmode": "numeric",
+                "placeholder": "After the market",
+            }
+        ),
+    )
+    sales = forms.DecimalField(
+        min_value=Decimal(0),
+        max_value=Decimal(REPORT_SALES_MAX_DOLLARS),
+        max_digits=9,
+        decimal_places=2,
+        required=False,
+        label="Total sales ($)",
+        widget=forms.NumberInput(
+            attrs={
+                "min": "0",
+                "max": str(REPORT_SALES_MAX_DOLLARS),
+                "step": "0.01",
+                "inputmode": "decimal",
+                "placeholder": "After the market",
+            }
+        ),
+    )
+
+    class Meta:
+        model = MarketReport
+        fields = ["name", "guild", "items_sold", "experience"]
+        labels = {"name": "Your name or shop name", "experience": "Your experience at the market, in a sentence"}
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "e.g. Riverbend Ceramics"}),
+            "experience": forms.TextInput(
+                attrs={"placeholder": "e.g. Steady crowd all night, and two people asked about classes!"}
+            ),
+        }
+
+    def __init__(self, *args: Any, guilds: Sequence[Guild], **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._guilds = _offer_guilds(self, guilds)
+        if self.instance.pk is not None and self.instance.sales_cents:
+            self.initial.setdefault("sales", (Decimal(self.instance.sales_cents) / 100).quantize(Decimal("0.01")))
+        for field in self.fields.values():
+            field.help_text = ""
+
+    def clean_guild(self) -> Guild | None:
+        pk: int | None = self.cleaned_data["guild"]
+        return None if pk is None else self._guilds[pk]
+
+    def to_fields(self) -> dict[str, Any]:
+        """The report's fields for ``hq.services.save_report``: the cleaned data with the sales in cents."""
+        fields = {name: self.cleaned_data[name] for name in self._meta.fields or ()}
+        sales: Decimal | None = self.cleaned_data["sales"]
+        fields["sales_cents"] = 0 if sales is None else int((sales * 100).to_integral_value())
+        return fields
+
+
+# Lee's words when the hours are out of range, and when they are not in quarter hours.
+HOURS_ERROR = "Enter hours between 0.25 and 24."
+HOURS_STEP_ERROR = "Enter hours in quarter hours, like 1.25 or 2.5."
+
+
+class VolunteerHoursForm(forms.ModelForm):
+    """Volunteers: log your hours. The date (Portland today), the hours in quarter hours, the task and a note.
+
+    The hours are held to :data:`hq.models.HOURS_MIN` to :data:`hq.models.HOURS_MAX` in ``clean_hours`` rather
+    than by the field's own validators, so one bad figure reads as one message, in Lee's words.
+    """
+
+    hours = forms.DecimalField(
+        label="Hours",
+        error_messages={"required": HOURS_ERROR, "invalid": HOURS_ERROR},
+        widget=forms.NumberInput(
+            attrs={
+                "min": str(HOURS_MIN),
+                "max": str(HOURS_MAX),
+                "step": str(HOURS_STEP),
+                "inputmode": "decimal",
+                "placeholder": "e.g. 2.5",
+            }
+        ),
+    )
+
+    class Meta:
+        model = VolunteerHours
+        fields = ["date", "hours", "task", "note"]
+        labels = {"date": "Date", "task": "What you worked on", "note": "Note (optional)"}
+        widgets = {
+            "date": forms.DateInput(format="%Y-%m-%d", attrs=_DATE_PICKER),
+            "note": forms.TextInput(attrs={"placeholder": "e.g. Dropped flyers on Division St"}),
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.help_text = ""
+
+    def clean_hours(self) -> Decimal:
+        hours: Decimal = self.cleaned_data["hours"]
+        if not HOURS_MIN <= hours <= HOURS_MAX:
+            raise ValidationError(HOURS_ERROR)
+        if hours % HOURS_STEP:
+            raise ValidationError(HOURS_STEP_ERROR)
+        return hours
+
+    def kept_for_next(self) -> dict[str, Any]:
+        """What the next entry starts with after a save: the same date and task; the hours and note clear."""
+        return {key: self.cleaned_data[key] for key in ("date", "task")}

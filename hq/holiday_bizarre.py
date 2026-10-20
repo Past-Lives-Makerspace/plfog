@@ -1,5 +1,5 @@
-"""Lee's Holiday Bizarre HQ as data: the hub, its nine doors, five goals, 21 volunteer shifts, the sponsor tiers and the
-vendor setup windows.
+"""Lee's Holiday Bizarre HQ as data: the hub, its nine doors, five goals, 21 volunteer shifts, the sponsor tiers, the
+vendor setup windows and the Market Check-in's words.
 
 ``manage.py seed_holiday_bizarre`` writes these rows for a published calendar event; correcting
 a word here and re-running is the workflow, as with the help articles. Nothing in this module
@@ -14,7 +14,8 @@ need an Oregon OLCC service permit. The goals are her tracker: Raised is typed i
 (a money goal, in whole dollars, as every ``HubGoal`` money figure is), the other four are
 counted live from the pages behind the doors; Member tables has no target, so it shows as a plain
 count. The sponsor tiers are her draft "what they get" table on the Sponsorship Tracker, row for
-row. The vendor setup windows are the Setup day choices on Vendor Tables and its band's note.
+row. The vendor setup windows are the Setup day choices on Vendor Tables and its band's note. The check-in
+words are the Market Check-in's thank-you line and footer.
 """
 
 from __future__ import annotations
@@ -317,3 +318,13 @@ VENDOR_SETUP_WINDOWS: dict[str, str] = {
     "fri": "Fri Dec 4, 3 to 5 PM",
 }
 VENDOR_SETUP_NOTE = "Setup: Thursday Dec 3, 3 to 7 PM, or Friday Dec 4, 3 to 5 PM. Sale runs Friday 5 to 10 PM."
+
+
+# The Market Check-in's words, in Lee's: the hero's thank-you (``{on_date}`` is " on December 4" from the hub's
+# event, blank without one) and the line at the foot of the page.
+CHECKIN_THANKS = (
+    "Thank you for being part of the 2nd Annual Holiday Bizarre{on_date}. Artists, add your market report. "
+    "Volunteers, log your prep hours. Every entry helps us show what's possible when a community works together "
+    "toward one goal!"
+)
+CHECKIN_FOOTER = "Questions? Email Lee at lee@pastlives.space."

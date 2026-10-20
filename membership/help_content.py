@@ -656,6 +656,7 @@ Each card on the page is a door into one part of the event. A card says who it i
 - **Marketing Tracker** opens the marketing log.
 - **Sponsorship Tracker** opens the sponsors the team is asking.
 - **Vendor Tables** opens the member artists' table requests, for the vendor team.
+- **Market Check-in** opens artists' market reports and volunteers' hours, for members.
 - A greyed card reading **Not shared yet** is a page the organisers have not opened. It links nowhere.
 
 You only see the doors that are open to you. Every card starts as admins only; an admin opens it to members, to everyone, or to the people who run that part (see Editing the HQ below). A door open to everyone needs no account for what is behind it: RSVP, shifts or bottles. If a door you expect is missing, sign in, or ask an admin.
@@ -742,6 +743,25 @@ To add a table request:
 Every field in a row can be changed: confirm a table, give it a **Table #**, move it to the waitlist. Click **Save** on that row. **Delete** takes a request off the list. The buttons over the list show one group at a time, and **Download CSV** gives every request as a spreadsheet.
 
 When the space map is ready, open **Space map capacity**, enter the **Tables that fit** and any **Map notes**, and click **Save capacity**. Space left then counts down as tables are confirmed, and new requests go to the waitlist once it reaches zero. The **Member tables** goal on the HQ page counts the confirmed tables.
+
+### Market Check-in {#hq-market-checkin}
+
+Open the **Market Check-in** door and sign in. It is for Past Lives members: anyone the door is open to can read the hours and the thank-you board, but only a signed in member can add a report or log hours.
+
+**Artists: your market report.** Only you and the organisers see it.
+
+1. Fill in **Your name or shop name** and **Your guild**. If the vendor team confirmed your table under your email, both start filled in and the card says your table number.
+2. Click **Save my report**.
+3. After the market, come back, add **Items sold**, **Total sales** and a sentence about your night, and click **Update my report**.
+
+**Volunteers: log your hours.** Flyering, outreach, setup and event night all count.
+
+1. Pick the **Date**, enter the **Hours** (quarter hours, from 0.25 to 24) and **What you worked on**, and add a note if you like.
+2. Click **Log my hours**.
+
+Your entries are listed under the form with your total. **Delete** takes one off. The **Volunteer thank-you board** shows the 15 volunteers with the most hours.
+
+Organisers (admins and the people named on the card) also get **Market reports**, with the totals, sales by guild and every report, and **All hours**, with every entry and a Delete. Each has **Download CSV**. The volunteer roster shows each person's **Hours logged** beside their shifts.
 
 ### Organiser Tools {#hq-organiser-tools}
 

@@ -585,10 +585,11 @@ def describe_the_roster():
         assert response.status_code == 200
         assert response["Content-Disposition"].startswith(f'attachment; filename="{card.hub.slug}-volunteers-')
         rows = b"".join(response.streaming_content).decode().splitlines()
-        assert rows[0] == "Name,Email,Phone,OLCC permit,Shift,Phase,When,Note,Signed up"
+        assert rows[0] == "Name,Email,Phone,OLCC permit,Shift,Phase,When,Note,Signed up,Hours logged"
         assert rows[1].startswith("Zed Last,zed@example.com,555,yes,A,Before the event,,New,")
         assert rows[2].startswith("Amy First,amy@example.com,,no,A,Before the event,,,")
         assert rows[3].startswith("Zed Last,zed@example.com,,no,B,During the event,Late,Old note,")
+        assert {row.rsplit(",", 1)[1] for row in rows[1:]} == {"0"}
         assert member_client.get(_csv_url(card.hub)).status_code == 403
         assert Client().get(_csv_url(card.hub)).status_code == 403
 

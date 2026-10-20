@@ -20,17 +20,20 @@ the set built so far. Part 1 adds the Marketing Tracker behind the ``marketing``
 Sponsorship Tracker behind the ``sponsorship`` card: a :class:`Sponsor` is one business the team
 is asking, and a :class:`SponsorLogEntry` one line in its contact log. Part 3 adds Vendor Tables behind the
 ``vendor_tables`` card: a :class:`VendorTable` is one member artist's table request, and a :class:`VendorFloor`
-the space map's capacity for the hub.
+the space map's capacity for the hub. Part 4 adds the Market Check-in behind the ``market_checkin`` card: a
+:class:`MarketReport` is one member artist's sales after the market (one per member), and a
+:class:`VolunteerHours` one stretch of prep or event time a member logged.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.db.models.functions import Lower
@@ -346,6 +349,8 @@ class HubCard(models.Model):
             return reverse("hq:sponsors", args=[self.hub.slug])
         if self.kind == self.Kind.VENDOR_TABLES:
             return reverse("hq:vendors", args=[self.hub.slug])
+        if self.kind == self.Kind.MARKET_CHECKIN:
+            return reverse("hq:checkin", args=[self.hub.slug])
         # A live kind whose page has not shipped yet renders like a placeholder: Not shared yet.
         return ""
 
@@ -414,7 +419,9 @@ class HubGoal(models.Model):
 
 # The doors whose page is built beyond the first three. The seed turns a placeholder titled as one of
 # these into its live kind; each later part of Track D adds its kind here and nowhere else.
-BUILT_DOORS: frozenset[str] = frozenset({HubCard.Kind.MARKETING, HubCard.Kind.SPONSORSHIP, HubCard.Kind.VENDOR_TABLES})
+BUILT_DOORS: frozenset[str] = frozenset(
+    {HubCard.Kind.MARKETING, HubCard.Kind.SPONSORSHIP, HubCard.Kind.VENDOR_TABLES, HubCard.Kind.MARKET_CHECKIN}
+)
 
 # The three doors that were live from the start of Track C.
 _FIRST_DOORS: frozenset[str] = frozenset({HubCard.Kind.RSVP, HubCard.Kind.VOLUNTEERS, HubCard.Kind.WINE_WALL})
@@ -1338,3 +1345,149 @@ class VendorFloor(models.Model):
 
     def __str__(self) -> str:
         return f"{self.hub.title}: {self.capacity if self.capacity is not None else 'not mapped'}"
+
+
+# ---- Market Check-in (Track D, part 4) ----
+
+
+def format_hours(hours: Decimal) -> str:
+    """Hours as Lee's page writes them: "2.5", "3", "0.25", with no trailing zeros, thousands separated."""
+    whole = f"{hours:,.2f}".rstrip("0").rstrip(".")
+    return whole or "0"
+
+
+class MarketReport(models.Model):
+    """One member artist's market report: who they sell as, their guild, and after the market what they sold.
+
+    One per member on a hub (an upsert: Save my report the second time updates it). Private to the member and
+    the card's organisers. :func:`hq.services.checkin_band` sums the reports; its sales and item figures are the
+    one source the ledger (D6) reads.
+
+    ``member`` is CASCADE: the report is the member's own words and figures, so it goes when the person's row
+    does, rather than a PROTECT that would stop an admin erasing someone over a three-line report. Members are
+    retired by status, not deleted, so the totals do not move in practice.
+    """
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="market_reports",
+        help_text="The HQ whose market this report is for.",
+    )
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="hq_market_reports",
+        help_text="The member who filed it; one report per member on a hub.",
+    )
+    name = models.CharField(max_length=160, help_text="Their name or shop name, e.g. Riverbend Ceramics.")
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="hq_market_reports",
+        help_text="The guild they sell with. Blank means not in a guild.",
+    )
+    items_sold = models.PositiveIntegerField(
+        null=True, blank=True, help_text="How many items they sold; blank until after the market."
+    )
+    sales_cents = models.PositiveIntegerField(default=0, help_text="Their total sales, in cents; 0 until reported.")
+    experience = models.CharField(
+        max_length=280, blank=True, help_text="Their experience at the market, in a sentence."
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the report was last saved.")
+
+    class Meta:
+        ordering = [Lower("name"), "pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["hub", "member"], name="uq_marketreport_hub_member"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.hub.title})"
+
+    @property
+    def sales_display(self) -> str:
+        """The sales as dollars, e.g. "$420" or "$420.50"."""
+        return format_money(self.sales_cents)
+
+    @property
+    def guild_display(self) -> str:
+        """The guild's name, or "Not in a guild" for none."""
+        return self.guild.name if self.guild is not None else "Not in a guild"
+
+
+class VolunteerTask(models.TextChoices):
+    """What a volunteer worked on, in the order of Lee's list. ``VolunteerHours.Task`` is this."""
+
+    FLYERING = "flyering", "Flyering"
+    SPONSOR_OUTREACH = "sponsor_outreach", "Sponsor outreach"
+    WINE_WALL = "wine_wall", "Wine wall"
+    GUILD_OUTREACH = "guild_outreach", "Guild outreach"
+    SETUP = "setup", "Setup and decor"
+    ADMIN = "admin", "Admin and planning"
+    SOCIAL = "social", "Social media"
+    EVENT_NIGHT = "event_night", "Event night"
+    TEARDOWN = "teardown", "Teardown"
+    OTHER = "other", "Other"
+
+
+# The bounds of one hours entry: a quarter hour up to a whole day, in quarter hours.
+HOURS_MIN = Decimal("0.25")
+HOURS_MAX = Decimal("24")
+HOURS_STEP = Decimal("0.25")
+
+
+class VolunteerHours(models.Model):
+    """One stretch of time a member gave the event: a date, how long, what on and a note.
+
+    Not linked to the volunteer shifts (a shift is a sign-up for the night; these are hours given, before or on
+    it). :func:`hq.services.checkin_band` sums them for the hero, the thank-you board and the ledger. ``member``
+    is CASCADE for the reason :class:`MarketReport` gives.
+    """
+
+    Task = VolunteerTask
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="volunteer_hours",
+        help_text="The HQ these hours were given to.",
+    )
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="hq_hours",
+        help_text="The member who gave the time and logged it.",
+    )
+    date = models.DateField(default=timezone.localdate, help_text="The day the work was done, Portland time.")
+    hours = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        validators=[MinValueValidator(HOURS_MIN), MaxValueValidator(HOURS_MAX)],
+        help_text="How long, from 0.25 to 24 in quarter hours.",
+    )
+    task = models.CharField(
+        max_length=20,
+        choices=VolunteerTask.choices,
+        default=VolunteerTask.FLYERING,
+        help_text="What they worked on, from Lee's list.",
+    )
+    note = models.CharField(max_length=200, blank=True, help_text="A note, e.g. Dropped flyers on Division St.")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was logged.")
+
+    class Meta:
+        ordering = ["-date", "-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(hours__gte=HOURS_MIN) & Q(hours__lte=HOURS_MAX), name="ck_volunteerhours_range"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member} {format_hours(self.hours)} h on {self.date}"
+
+    @property
+    def hours_display(self) -> str:
+        return format_hours(self.hours)
