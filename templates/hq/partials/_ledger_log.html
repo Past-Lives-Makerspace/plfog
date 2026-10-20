@@ -3,7 +3,7 @@ Log a sponsor or expense, Lee's form: What happened? (her four kinds, the approv
 line, the source (its label follows the kind: Sponsor, Vendor or Refunded by), the value or amount, the date, a note
 and, for money spent or refunded only, the receipt with her phone hint. The receipt box is hidden and disabled for a
 sponsored gift, so a file chosen before switching kinds is never sent. A multipart plain post (hx-boost="false", the
-flyer upload's pattern) through a drag and drop zone that takes a JPG, PNG or WEBP photo or a PDF.
+flyer upload's pattern) through a drag and drop zone that takes a JPG, PNG, WEBP or HEIC photo or a PDF.
 
   hub             — required, the EventHub
   entry_form      — required, a LedgerEntryForm (bound when a save failed)
@@ -36,8 +36,8 @@ flyer upload's pattern) through a drag and drop zone that takes a JPG, PNG or WE
       <span class="pl-hq-lg__upload-head">
         <label class="pl-form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
         <span class="pl-help">
-          <span class="pl-help__icon" tabindex="0" role="img" aria-label="Receipt files: a JPG, PNG or WEBP photo up to {{ max_image_bytes|filesizeformat }}, resized to 2400 pixels on the long edge, or a PDF up to {{ max_pdf_bytes|filesizeformat }}.">?</span>
-          <span class="pl-help__bubble">A JPG, PNG, WEBP or HEIC photo up to {{ max_image_bytes|filesizeformat }}, resized to 2400 pixels on the long edge, or a PDF up to {{ max_pdf_bytes|filesizeformat }}.</span>
+          <span class="pl-help__icon" tabindex="0" role="img" aria-label="Receipt files: a JPG, PNG, WEBP or HEIC photo up to {{ max_image_bytes|filesizeformat }}, resized to 2400 pixels on the long edge, or a PDF up to {{ max_pdf_bytes|filesizeformat }}.">?</span>
+          <span class="pl-help__bubble">Receipt files: a JPG, PNG, WEBP or HEIC photo up to {{ max_image_bytes|filesizeformat }}, resized to 2400 pixels on the long edge, or a PDF up to {{ max_pdf_bytes|filesizeformat }}.</span>
         </span>
       </span>
       <label class="cls-image-upload-zone" data-hq-lg-zone data-max-image="{{ max_image_bytes }}" data-max-pdf="{{ max_pdf_bytes }}">

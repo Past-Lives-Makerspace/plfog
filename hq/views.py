@@ -95,6 +95,7 @@ from hq.models import (
     FlyerSlot,
     HubCard,
     LedgerEntry,
+    LedgerSettings,
     MarketingKind,
     MarketReport,
     ShiftSignup,
@@ -1493,6 +1494,9 @@ def _ledger_url(hub: EventHub, show: str = services.LEDGER_FILTER_ALL) -> str:
 # A line's Save whose ``updated_at`` no longer matches the database: someone else saved it since the page loaded.
 LINE_STALE_SAVE = "Someone else changed this line. Your page has been refreshed; make your change again."
 
+# The approval's Save whose ``updated_at`` no longer matches the database: someone else saved it since the page loaded.
+APPROVAL_STALE_SAVE = "Someone else changed the approval. Your page has been refreshed; make your change again."
+
 
 @dataclass(frozen=True)
 class LedgerLineRow:
@@ -1605,6 +1609,7 @@ def _ledger_context(
     *,
     show: str,
     approval_form: LedgerApprovalForm | None = None,
+    approval_error: str = "",
     line_form: BudgetLineForm | None = None,
     line_open: bool = False,
     entry_form: LedgerEntryForm | None = None,
@@ -1616,7 +1621,8 @@ def _ledger_context(
     """What the page renders. Organisers alone reach it, so every section carries its forms.
 
     ``keep_line`` is a line whose refused edit (``line_edit``, or ``line_error`` for a stale Save) renders open in its
-    row; ``receipt_form`` a refused receipt upload shown on its entry's row.
+    row; ``receipt_form`` a refused receipt upload shown on its entry's row; ``approval_error`` a stale approval Save,
+    shown over a fresh approval form that renders open.
     """
     found = services.ledger_settings(hub)
     band = services.ledger_band(hub, found)
@@ -1630,6 +1636,7 @@ def _ledger_context(
         "approval_form": approval_form
         if approval_form is not None
         else LedgerApprovalForm(initial=LedgerApprovalForm.initial_for(found)),
+        "approval_error": approval_error,
         "line_form": line_form if line_form is not None else BudgetLineForm(),
         "line_open": line_open or line_form is not None,
         "line_rows": _line_rows(band, keep_pk=keep_line, form=line_edit, error=line_error),
@@ -1650,12 +1657,26 @@ def ledger(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpRespons
 @organizer_required(HubCard.Kind.LEDGER)
 def ledger_approval(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
     """Change the board's approval and its note, by the actual role. A plain post: the approval names the kinds, the
-    filters and a column, so the page comes back whole. A refused one renders the page with the form open."""
+    filters and a column, so the page comes back whole. A refused one renders the page with the form open.
+
+    A Save from a page older than the settings (their ``updated_at`` no longer matches) is refused whole under a row
+    lock: the form comes back as the database holds it, with :data:`APPROVAL_STALE_SAVE`. A first save is never stale.
+    """
     form = LedgerApprovalForm(request.POST)
-    if not form.is_valid():
+    with transaction.atomic():
+        found = LedgerSettings.objects.select_for_update().filter(hub=hub).first()
+        stale = form.is_stale(found)
+        valid = not stale and form.is_valid()
+        if valid:
+            services.save_approval(hub, **form.to_fields())
+    if stale:
+        context = _ledger_context(
+            request, hub, card, show=services.LEDGER_FILTER_ALL, approval_error=APPROVAL_STALE_SAVE
+        )
+        return render(request, "hq/ledger.html", context)
+    if not valid:
         context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, approval_form=form)
         return render(request, "hq/ledger.html", context)
-    services.save_approval(hub, **form.to_fields())
     messages.success(request, "Approval saved.")
     return redirect(_ledger_url(hub))
 

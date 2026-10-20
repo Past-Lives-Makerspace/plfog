@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
+from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, connection, transaction
@@ -22,10 +23,11 @@ from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
+from PIL import Image
 
 from hq import services
 from hq.exports import LEDGER_CSV_HEADERS
-from hq.forms import LEDGER_MAX_DOLLARS, RECEIPT_NOT_TAKEN, RECEIPT_TYPE_ERROR
+from hq.forms import LEDGER_MAX_DOLLARS, RECEIPT_NOT_TAKEN, RECEIPT_TYPE_ERROR, checked_receipt
 from hq.holiday_bizarre import LEDGER_INTRO, LEDGER_RECEIPT_HINT, LEDGER_TITLE
 from hq.models import BUILT_DOORS, BudgetLine, HubCard, LedgerEntry, LedgerSettings, MarketingKind, receipt_upload_to
 from hub.view_as import ROLE_GUEST, ROLE_MEMBER
@@ -81,6 +83,28 @@ def _entry_post(line: BudgetLine, **fields: Any) -> dict[str, Any]:
     posted = {f"entry-{key}": value for key, value in data.items()}
     posted["filter"] = show
     return posted
+
+
+def _approval_post(found: LedgerSettings, **fields: str) -> dict[str, str]:
+    """The approval form as it renders for ``found``, with ``fields`` changed."""
+    data = {
+        "approved": f"{found.approved_cents / 100:.2f}",
+        "approved_note": found.approved_note,
+        "updated_at": found.updated_at.isoformat(),
+    }
+    data.update(fields)
+    return data
+
+
+def _receipt_image(fmt: str) -> SimpleUploadedFile:
+    """A small image in ``fmt`` that Pillow opens, named and declared as a JPEG whatever it is."""
+    buffer = io.BytesIO()
+    Image.new("RGB", (16, 16), (9, 46, 76)).save(buffer, format=fmt)
+    return SimpleUploadedFile("receipt.jpg", buffer.getvalue(), content_type="image/jpeg")
+
+
+# An EPS file Pillow opens and verifies from its header alone, without Ghostscript.
+_EPS = b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 4 4\n%%EndComments\nshowpage\n%%EOF\n"
 
 
 def _line_post(line: BudgetLine, **fields: Any) -> dict[str, Any]:
@@ -641,9 +665,9 @@ def describe_the_approval():
         assert "$900" not in body.split("data-hq-lg-board", 1)[1].split("data-hq-lg-receipts", 1)[0]
 
     def it_writes_only_the_approval_so_d6bs_figures_stay(hub, lee_client):
-        LedgerSettingsFactory(hub=hub, ipa_cents=700, singles_sold=12)
+        found = LedgerSettingsFactory(hub=hub, ipa_cents=700, singles_sold=12)
 
-        lee_client.post(_url("ledger_approval", hub), {"approved": "800", "approved_note": ""})
+        lee_client.post(_url("ledger_approval", hub), _approval_post(found, approved="800", approved_note=""))
 
         found = LedgerSettings.objects.get(hub=hub)
         assert (found.approved_cents, found.approved_note, found.ipa_cents, found.singles_sold) == (80_000, "", 700, 12)
@@ -665,13 +689,49 @@ def describe_the_approval():
         assert not LedgerSettings.objects.exists()
 
     def it_starts_from_the_saved_figures(hub, lee_client):
-        LedgerSettingsFactory(hub=hub, approved_cents=95_025, approved_note="Spec note")
+        found = LedgerSettingsFactory(hub=hub, approved_cents=95_025, approved_note="Spec note")
 
         body = lee_client.get(_page(hub)).content.decode()
 
         assert 'value="950.25"' in body
         assert 'value="Spec note"' in body
         assert 'max="1000000"' in body
+        assert f'name="updated_at" value="{found.updated_at.isoformat()}"' in body
+
+    def it_carries_a_blank_stamp_before_the_first_save(hub, lee_client):
+        body = lee_client.get(_page(hub)).content.decode()
+
+        assert '<input type="hidden" name="updated_at" id="id_updated_at">' in body
+
+    @pytest.mark.parametrize("stamp", ["older", ""])
+    def it_refuses_a_save_from_a_page_older_than_the_approval(hub, lee_client, stamp):
+        found = LedgerSettingsFactory(hub=hub, approved_cents=80_000, approved_note="Their note")
+        posted = _approval_post(found, approved="1500", approved_note="Mine")
+        posted["updated_at"] = (found.updated_at - timedelta(seconds=5)).isoformat() if stamp else ""
+
+        response = lee_client.post(_url("ledger_approval", hub), posted)
+
+        body = response.content.decode()
+        found.refresh_from_db()
+        assert response.status_code == 200
+        assert (found.approved_cents, found.approved_note) == (80_000, "Their note")
+        assert (
+            '<p class="pl-field-error" role="alert" data-hq-lg-approval-error>Someone else changed the approval. '
+            "Your page has been refreshed; make your change again.</p>" in body
+        )
+        assert "open data-hq-lg-approval" in body
+        assert 'value="800.00"' in body and 'value="Their note"' in body
+        assert f'value="{found.updated_at.isoformat()}"' in body
+
+    def it_saves_again_with_the_stamp_the_page_was_given(hub, lee_client):
+        lee_client.post(_url("ledger_approval", hub), {"approved": "800", "approved_note": "First"})
+        found = LedgerSettings.objects.get(hub=hub)
+
+        response = lee_client.post(_url("ledger_approval", hub), _approval_post(found, approved="950"))
+
+        found.refresh_from_db()
+        assert response.status_code == 302
+        assert (found.approved_cents, found.approved_note) == (95_000, "First")
 
 
 def describe_the_budget_lines():
@@ -838,20 +898,54 @@ def describe_the_budget_lines():
         with pytest.raises(RestrictedError):
             kegs.delete()
 
-    def it_names_one_entry_in_the_singular_and_catches_a_late_entry(hub, kegs, monkeypatch):
+    def it_names_one_entry_in_the_singular(hub, kegs):
         LedgerEntryFactory(hub=hub, line=kegs)
 
         with pytest.raises(services.LineHasEntries, match="Kegs has 1 entry in the ledger"):
             services.delete_budget_line(kegs)
 
-        empty = BudgetLineFactory(hub=hub, name="Racing")
+    def it_locks_the_line_before_counting_its_entries(hub, kegs):
+        with CaptureQueriesContext(connection) as queries:
+            services.delete_budget_line(kegs)
+
+        sql = [query["sql"] for query in queries.captured_queries]
+        lock = next(i for i, text in enumerate(sql) if "FOR UPDATE" in text)
+        count = next(i for i, text in enumerate(sql) if "COUNT(" in text)
+        assert '"hq_budgetline"' in sql[lock]
+        assert lock < count
+        assert not BudgetLine.objects.exists()
+
+    @pytest.mark.parametrize(
+        "refusal",
+        [
+            IntegrityError('insert or update on table "hq_ledgerentry" violates foreign key constraint'),
+            RestrictedError("an entry landed", set()),
+        ],
+        ids=["integrity", "restricted"],
+    )
+    def it_refuses_by_name_when_an_entry_lands_between_the_count_and_the_delete(hub, monkeypatch, refusal):
+        racing = BudgetLineFactory(hub=hub, name="Racing")
 
         def _late_entry(*args: Any, **kwargs: Any) -> None:
-            raise RestrictedError("an entry landed", set())
+            raise refusal
 
         monkeypatch.setattr(BudgetLine, "delete", _late_entry)
-        with pytest.raises(services.LineHasEntries, match="Racing has entries"):
-            services.delete_budget_line(empty)
+        with pytest.raises(services.LineHasEntries, match="Racing has entries") as raised:
+            services.delete_budget_line(racing)
+
+        assert raised.value.__cause__ is refusal
+        assert BudgetLine.objects.filter(pk=racing.pk).exists()  # the connection is still usable
+
+    def it_answers_a_late_entry_on_the_page_with_the_same_refusal(hub, lee_client, monkeypatch):
+        racing = BudgetLineFactory(hub=hub, name="Racing")
+
+        def _late_entry(*args: Any, **kwargs: Any) -> None:
+            raise IntegrityError("violates foreign key constraint")
+
+        monkeypatch.setattr(BudgetLine, "delete", _late_entry)
+        response = lee_client.post(_url("ledger_line_delete", hub, racing.pk), {"filter": "all"}, follow=True)
+
+        assert "A budget line with entries cannot be deleted: Racing has entries." in response.content.decode()
 
     def it_says_so_when_there_are_no_lines(hub, lee_client):
         body = lee_client.get(_page(hub)).content.decode()
@@ -927,6 +1021,50 @@ def describe_logging_an_entry():
 
         assert RECEIPT_TYPE_ERROR in response.content.decode()
         assert not LedgerEntry.objects.exists()
+
+    @pytest.mark.parametrize(
+        "upload",
+        [
+            pytest.param(lambda: _receipt_image("GIF"), id="gif"),
+            pytest.param(lambda: _receipt_image("TIFF"), id="tiff"),
+            pytest.param(lambda: _receipt_image("BMP"), id="bmp"),
+            pytest.param(
+                lambda: SimpleUploadedFile("receipt.jpg", _EPS, content_type="image/jpeg"),
+                id="eps",
+            ),
+        ],
+    )
+    def it_refuses_an_image_pillow_opens_in_a_format_we_do_not_keep(hub, kegs, lee_client, upload):
+        response = lee_client.post(
+            _url("ledger_entry_add", hub), {**_entry_post(kegs, kind=K.PAID_OTHER), "entry-receipt": upload()}
+        )
+
+        assert RECEIPT_TYPE_ERROR in response.content.decode().replace("&#x27;", "'")
+        assert not LedgerEntry.objects.exists()
+
+    def it_refuses_an_eps_through_the_form_helper_too():
+        with pytest.raises(ValidationError, match="not a receipt we can keep"):
+            checked_receipt(SimpleUploadedFile("scan.eps", _EPS, content_type="application/postscript"))
+
+    @pytest.mark.parametrize("fmt", ["JPEG", "PNG", "WEBP", "HEIF"])
+    def it_keeps_a_jpg_png_webp_or_heic_photo_as_a_jpeg(hub, kegs, lee_client, fmt):
+        lee_client.post(
+            _url("ledger_entry_add", hub),
+            {**_entry_post(kegs, kind=K.PAID_OTHER), "entry-receipt": _receipt_image(fmt)},
+        )
+
+        entry = LedgerEntry.objects.get()
+        assert entry.receipt.name.endswith(".jpg")
+        assert not entry.receipt_is_pdf
+
+    def it_names_the_same_formats_in_the_help_bubble_and_its_label(hub, kegs, lee_client):
+        body = lee_client.get(_page(hub)).content.decode()
+
+        help_box = body.split("data-hq-lg-receipt>", 1)[1].split("data-hq-lg-zone", 1)[0]
+        label = help_box.split('aria-label="', 1)[1].split('"', 1)[0]
+        bubble = help_box.split('<span class="pl-help__bubble">', 1)[1].split("</span>", 1)[0]
+        assert label == bubble
+        assert "a JPG, PNG, WEBP or HEIC photo up to" in label
 
     def it_refuses_a_photo_over_the_pixel_cap(hub, kegs, lee_client, monkeypatch):
         monkeypatch.setattr("core.validators.MAX_IMAGE_PIXELS", 1_000)
@@ -1311,6 +1449,19 @@ def describe_the_model():
         hub.delete()
 
         assert not (BudgetLine.objects.exists() or LedgerEntry.objects.exists() or LedgerSettings.objects.exists())
+
+    def it_takes_the_receipts_out_of_storage_when_the_hub_goes(hub, kegs, django_capture_on_commit_callbacks):
+        entry = LedgerEntryFactory(hub=hub, line=kegs, kind=K.PAID_OTHER, receipt=_pdf())
+        name = entry.receipt.name
+
+        with django_capture_on_commit_callbacks() as pending:
+            hub.delete()
+
+        assert not LedgerEntry.objects.exists()
+        assert default_storage.exists(name)  # still there until the delete has committed
+        for callback in pending:
+            callback()
+        assert not default_storage.exists(name)
 
     def it_keeps_a_receipt_another_entry_still_points_at(hub, kegs, django_capture_on_commit_callbacks):
         first = LedgerEntryFactory(hub=hub, line=kegs, kind=K.PAID_OTHER, receipt=_pdf())
