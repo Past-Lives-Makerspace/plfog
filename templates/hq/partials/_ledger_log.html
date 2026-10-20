@@ -1,0 +1,60 @@
+{% comment %}
+Log a sponsor or expense, Lee's form: What happened? (her four kinds, the approval named in their labels), the budget
+line, the source (its label follows the kind: Sponsor, Vendor or Refunded by), the value or amount, the date, a note
+and, for money spent or refunded only, the receipt with her phone hint. The receipt box is hidden and disabled for a
+sponsored gift, so a file chosen before switching kinds is never sent. A multipart plain post (hx-boost="false", the
+flyer upload's pattern) through a drag and drop zone that takes a JPG, PNG or WEBP photo or a PDF.
+
+  hub             — required, the EventHub
+  entry_form      — required, a LedgerEntryForm (bound when a save failed)
+  receipt_hint    — required, Lee's line under the receipt
+  receipt_kinds   — required, the kinds that take a receipt
+  show            — required, the ledger's filter in view
+  max_image_bytes — required, settings.MAX_UPLOAD_IMAGE_BYTES
+  max_pdf_bytes   — required, settings.MAX_UPLOAD_DOCUMENT_BYTES
+{% endcomment %}
+{% with form=entry_form field=entry_form.receipt %}
+<section class="pl-hq-lg__section" aria-labelledby="hq-lg-log-title" data-hq-lg-log data-help-key="hq.ledger">
+  <h2 class="pl-hq-lg__h2" id="hq-lg-log-title">Log a Sponsor or Expense</h2>
+  <form method="post" action="{% url 'hq:ledger_entry_add' hub.slug %}" enctype="multipart/form-data" hx-boost="false" class="pl-hq-lg__card pl-hq-lg__form pl-hq-lg__log" x-data="{ kind: '{{ form.kind.value|default:'sponsored'|escapejs }}' }" data-hq-lg-log-form>
+    {% csrf_token %}
+    <input type="hidden" name="filter" value="{{ show }}">
+    {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+    <div class="pl-hq-lg__kinds" data-hq-lg-kinds>
+      {% include "components/radio_group.html" with field=form.kind %}
+    </div>
+    <div class="pl-hq-lg__fields">
+      {% include "hq/partials/_ledger_entry_line.html" with entry_line_form=form %}
+      {% if form.kind.value == "sponsored" or not form.kind.value %}{% firstof "Sponsor" as source_label %}{% elif form.kind.value == "refund" %}{% firstof "Refunded by" as source_label %}{% else %}{% firstof "Vendor" as source_label %}{% endif %}
+      {% include "components/form_field.html" with field=form.source field_label=source_label field_label_x_text="kind === 'sponsored' ? 'Sponsor' : (kind === 'refund' ? 'Refunded by' : 'Vendor')" field_hint_off=True %}
+      {% if form.kind.value == "sponsored" or not form.kind.value %}{% firstof "Value ($)" as amount_label %}{% else %}{% firstof "Amount ($)" as amount_label %}{% endif %}
+      {% include "components/form_field.html" with field=form.amount field_label=amount_label field_label_x_text="kind === 'sponsored' ? 'Value ($)' : 'Amount ($)'" field_hint_off=True %}
+      {% include "components/form_field.html" with field=form.date field_hint_off=True %}
+    </div>
+    {% include "components/form_field.html" with field=form.note field_hint_off=True %}
+    <div class="pl-form-group pl-hq-lg__receipt" x-show="kind !== 'sponsored'"{% if form.kind.value not in receipt_kinds %} x-cloak{% endif %} data-hq-lg-receipt>
+      <span class="pl-hq-lg__upload-head">
+        <label class="pl-form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        <span class="pl-help">
+          <span class="pl-help__icon" tabindex="0" role="img" aria-label="Receipt files: a JPG, PNG or WEBP photo up to {{ max_image_bytes|filesizeformat }}, resized to 2400 pixels on the long edge, or a PDF up to {{ max_pdf_bytes|filesizeformat }}.">?</span>
+          <span class="pl-help__bubble">A JPG, PNG, WEBP or HEIC photo up to {{ max_image_bytes|filesizeformat }}, resized to 2400 pixels on the long edge, or a PDF up to {{ max_pdf_bytes|filesizeformat }}.</span>
+        </span>
+      </span>
+      <label class="cls-image-upload-zone" data-hq-lg-zone data-max-image="{{ max_image_bytes }}" data-max-pdf="{{ max_pdf_bytes }}">
+        <input type="file" name="{{ field.html_name }}" id="{{ field.id_for_label }}" accept="image/*,application/pdf" :disabled="kind === 'sponsored'">
+        <span class="cls-image-upload-label" data-hq-lg-zone-label>+ Add the receipt</span>
+        <span class="cls-image-upload-hint">{{ receipt_hint }}</span>
+      </label>
+      <p class="pl-field-error" role="alert" data-hq-lg-zone-error hidden></p>
+      {% if field.errors %}
+      <ul class="pl-field-errors" data-hq-lg-receipt-errors>
+        {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    <div class="pl-hq-lg__actions">
+      <button type="submit" class="pl-hq-lg__btn" data-hq-lg-log-submit>Add to ledger</button>
+    </div>
+  </form>
+</section>
+{% endwith %}

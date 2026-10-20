@@ -23,6 +23,8 @@ from django.utils import timezone
 
 from core.validators import validate_image_content, validate_image_pixels, validate_image_size
 from hq.models import (
+    RECEIPT_KINDS,
+    BudgetLine,
     EventHub,
     FlyerSlot,
     HubCard,
@@ -31,6 +33,9 @@ from hq.models import (
     HOURS_MIN,
     HOURS_STEP,
     HubGoal,
+    LedgerEntry,
+    LedgerKind,
+    LedgerSettings,
     MarketingAction,
     MarketReport,
     ShiftSignup,
@@ -958,3 +963,224 @@ class FlyerLinksForm(forms.ModelForm):
         labels = {"share_message": "Message to send friends"}
         help_texts = {"share_message": "The share link is added after it."}
         widgets = {"share_message": forms.Textarea(attrs={"rows": 4})}
+
+
+# ---- PL Ledger, budget (Track D, part 6a) ----
+
+# The largest amount a ledger field takes, in dollars. The cents columns are Postgres integers, so an unbounded figure
+# would overflow on save as a server error rather than a form error.
+LEDGER_MAX_DOLLARS = 1_000_000
+
+RECEIPT_TYPE_ERROR = "That file is not a receipt we can keep. Use a photo (JPG, PNG, WEBP or HEIC) or a PDF."
+RECEIPT_NOT_TAKEN = "A sponsored or donated entry takes no receipt."
+
+
+def checked_receipt(upload: UploadedFile) -> UploadedFile:
+    """A receipt as uploaded: a PDF (its first bytes, held to ``MAX_UPLOAD_DOCUMENT_BYTES``) or a photo, checked by
+    the shared image validators (``core.validators``: the byte cap, the content Pillow can open, and the pixel cap
+    before anything decodes it). Never the name or the declared type.
+
+    The file is renamed to what was found (``.pdf``, or the photo's format), so the entry tells a PDF from a photo by
+    its name: a photo is re-encoded to a JPEG on save, a PDF is stored as it came.
+
+    Raises:
+        ValidationError: :data:`RECEIPT_TYPE_ERROR` for anything else, or the cap it is over.
+    """
+    assert upload.size is not None  # an uploaded file always reports its size
+    upload.seek(0)
+    head = upload.read(len(PDF_MAGIC))
+    upload.seek(0)
+    stem = Path(upload.name or "").stem or "receipt"
+    if head == PDF_MAGIC:
+        if upload.size > settings.MAX_UPLOAD_DOCUMENT_BYTES:
+            raise ValidationError(f"A PDF must be {_megabytes(settings.MAX_UPLOAD_DOCUMENT_BYTES)} MB or smaller.")
+        upload.name = f"{stem}.pdf"
+        upload.content_type = "application/pdf"
+        return upload
+    validate_image_size(upload)
+    try:
+        validate_image_content(upload)
+    except ValidationError:
+        raise ValidationError(RECEIPT_TYPE_ERROR) from None
+    validate_image_pixels(upload)
+    image_format = (upload.image.format or "jpeg").lower()  # type: ignore[attr-defined]  # set by validate_image_content
+    upload.name = f"{stem}.{'jpg' if image_format == 'jpeg' else image_format}"
+    return upload
+
+
+def _money(label: str, *, minimum: str = "0") -> forms.DecimalField:
+    """A dollars and cents amount from ``minimum`` up to :data:`LEDGER_MAX_DOLLARS`; the form stores it in cents."""
+    return forms.DecimalField(
+        min_value=Decimal(minimum),
+        max_value=Decimal(LEDGER_MAX_DOLLARS),
+        max_digits=9,
+        decimal_places=2,
+        label=label,
+        widget=forms.NumberInput(
+            attrs={"min": minimum, "max": str(LEDGER_MAX_DOLLARS), "step": "0.01", "inputmode": "decimal"}
+        ),
+    )
+
+
+def _cents(dollars: Decimal) -> int:
+    return int((dollars * 100).to_integral_value())
+
+
+def _dollars_initial(cents: int) -> Decimal:
+    return (Decimal(cents) / 100).quantize(Decimal("0.01"))
+
+
+class LedgerApprovalForm(forms.Form):
+    """The board's approval: the amount and the line under it (Lee's "Drinks budget, Oct 14 meeting")."""
+
+    approved = _money("Board approval ($)")
+    approved_note = forms.CharField(
+        max_length=120,
+        required=False,
+        label="Note",
+        widget=forms.TextInput(attrs={"placeholder": "e.g. Drinks budget, Oct 14 meeting"}),
+    )
+
+    @classmethod
+    def initial_for(cls, found: LedgerSettings) -> dict[str, Any]:
+        return {"approved": _dollars_initial(found.approved_cents), "approved_note": found.approved_note}
+
+    def to_fields(self) -> dict[str, Any]:
+        return {
+            "approved_cents": _cents(self.cleaned_data["approved"]),
+            "approved_note": self.cleaned_data["approved_note"],
+        }
+
+
+class BudgetLineForm(forms.ModelForm):
+    """Add a budget line: Lee's three fields, the budget in dollars and cents."""
+
+    budget = _money("Budgeted amount ($)")
+
+    class Meta:
+        model = BudgetLine
+        fields = ["name", "category"]
+        labels = {"name": "Line name", "category": "Category"}
+        widgets = {"name": forms.TextInput(attrs={"placeholder": "e.g. Wine wall tags"})}
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.instance.pk is not None:
+            self.initial.setdefault("budget", _dollars_initial(self.instance.budget_cents))
+        for field in self.fields.values():
+            field.help_text = ""
+
+    def to_fields(self) -> dict[str, Any]:
+        return {
+            "name": self.cleaned_data["name"],
+            "category": self.cleaned_data["category"],
+            "budget_cents": _cents(self.cleaned_data["budget"]),
+        }
+
+
+class BudgetLineEditForm(BudgetLineForm):
+    """Edit one budget line, saved with one Save. Each label names the line ("Line name for Kegs"), and the form
+    carries the line's ``updated_at``: :attr:`is_stale` is a Save from a page older than the line, refused whole."""
+
+    updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["updated_at"].initial = self._stamp
+        for name in ("name", "category", "budget"):
+            field = self.fields[name]
+            field.label = f"{field.label} for {self.instance.name}"
+
+    @property
+    def _stamp(self) -> str:
+        return self.instance.updated_at.isoformat()
+
+    @property
+    def is_stale(self) -> bool:
+        """Whether the posted stamp differs from the line's: someone saved it after this page loaded."""
+        return self.is_bound and self.data.get(self.add_prefix("updated_at"), "") != self._stamp
+
+
+def _receipt_field() -> forms.FileField:
+    return forms.FileField(
+        required=False,
+        label="Receipt photo or PDF",
+        widget=forms.FileInput(attrs={"accept": "image/*,application/pdf"}),
+    )
+
+
+class LedgerEntryForm(forms.ModelForm):
+    """Log a sponsor or expense: what happened (Lee's four kinds, the approval named in their labels), the budget line,
+    who it came from or went to, the value or amount, the date, a note and, for money spent or refunded, the receipt.
+
+    The line is one of the hub's lines (``lines``, read once by the view). The receipt goes through
+    :func:`checked_receipt`; a sponsored entry that brings one is refused.
+    """
+
+    line = forms.TypedChoiceField(coerce=int, label="Budget line")
+    amount = _money("Amount ($)", minimum="0.01")
+    receipt = _receipt_field()
+
+    class Meta:
+        model = LedgerEntry
+        fields = ["kind", "line", "source", "date", "note", "receipt"]
+        labels = {"kind": "What happened?", "source": "Sponsor or vendor", "date": "Date", "note": "Note (optional)"}
+        widgets = {
+            "kind": forms.RadioSelect(attrs={"x-model": "kind"}),
+            "source": forms.TextInput(attrs={"placeholder": "e.g. Cascade Brewing"}),
+            "date": forms.DateInput(format="%Y-%m-%d", attrs=_DATE_PICKER),
+            "note": forms.TextInput(attrs={"placeholder": "e.g. 1 half-barrel IPA, in-kind"}),
+        }
+
+    def __init__(self, *args: Any, lines: Sequence[BudgetLine], approval: str, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._lines = {line.pk: line for line in lines}
+        self.fields["line"].choices = [(line.pk, line.name) for line in lines]  # type: ignore[attr-defined]  # a TypedChoiceField
+        self.fields["kind"].choices = [  # type: ignore[attr-defined]  # a ChoiceField
+            (kind.value, str(kind.label).replace("$900", approval)) for kind in LedgerKind
+        ]
+        for field in self.fields.values():
+            field.help_text = ""
+
+    def clean_line(self) -> BudgetLine:
+        pk: int = self.cleaned_data["line"]
+        return self._lines[pk]
+
+    def clean_receipt(self) -> UploadedFile | None:
+        upload: UploadedFile | None = self.cleaned_data["receipt"]
+        if not upload:
+            return None
+        return checked_receipt(upload)
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        if cleaned.get("receipt") and cleaned.get("kind") not in RECEIPT_KINDS:
+            self.add_error("receipt", RECEIPT_NOT_TAKEN)
+        return cleaned
+
+    def to_fields(self) -> dict[str, Any]:
+        """The entry's fields for ``hq.services.add_ledger_entry``: the amount in cents, the receipt when one came."""
+        fields = {name: self.cleaned_data[name] for name in ("kind", "line", "source", "date", "note")}
+        fields["amount_cents"] = _cents(self.cleaned_data["amount"])
+        if self.cleaned_data["receipt"]:
+            fields["receipt"] = self.cleaned_data["receipt"]
+        return fields
+
+
+class ReceiptForm(forms.Form):
+    """Add a receipt to an entry that needs one, from its ledger row. Prefixed by the entry, so each row's form keeps
+    its own ids."""
+
+    receipt = forms.FileField(
+        label="Receipt photo or PDF",
+        widget=forms.FileInput(attrs={"accept": "image/*,application/pdf"}),
+    )
+
+    def __init__(self, *args: Any, entry: LedgerEntry, **kwargs: Any) -> None:
+        kwargs["prefix"] = f"receipt-{entry.pk}"
+        super().__init__(*args, **kwargs)
+        self.entry = entry
+        self.fields["receipt"].label = f"Receipt for {entry.source} on {entry.date:%b} {entry.date.day}"
+
+    def clean_receipt(self) -> UploadedFile:
+        return checked_receipt(self.cleaned_data["receipt"])

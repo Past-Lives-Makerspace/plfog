@@ -1,0 +1,61 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+The receipts report (Track D, part 6a): Lee's "receipts report" as a printable page rather than a downloaded file. Her
+summary (the approval and its note, spent from it, refunds back, net used, left, other PLM funds, how many transactions
+and how many are missing a receipt), then every purchase and refund oldest first with its details and its receipt: an
+image inline, a PDF as a link. Print or save as PDF prints the report alone (hq.css, scoped to this page by
+data-hq-receipts). Organisers only, as the ledger.
+{% endcomment %}
+{% block title %}Purchase Receipts{% endblock %}
+{% block extra_head %}
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq-lg pl-hq-lg--report" data-hq-receipts>
+  <header class="pl-hq-lg__header">
+    <div class="pl-hq-lg__heading">
+      <h1 class="pl-hq-lg__title">{{ hub.title }}: Purchase Receipts</h1>
+      <p class="pl-hq-lg__subline" data-hq-rc-subline>Past Lives Makerspace · Prepared {{ today|date:"N j, Y" }} for bookkeeping</p>
+    </div>
+    <div class="pl-hq-lg__actions pl-hq-lg__no-print" x-data>
+      <button type="button" class="pl-hq-lg__btn" @click="window.print()" data-hq-rc-print>Print or save as PDF</button>
+      <a href="{% url 'hq:ledger' hub.slug %}" class="pl-hq-lg__back" data-hq-rc-back>&larr; Ledger</a>
+    </div>
+  </header>
+
+  <section class="pl-hq-lg__card pl-hq-lg__report-sum" aria-label="Summary" data-hq-rc-summary>
+    <p>Board approval ({{ band.approved_note|default:"no note" }}): <strong>{{ band.approved_display }}</strong></p>
+    <p>Spent from approval: <strong>{{ band.paid_approval_display }}</strong>{% if band.refund_cents %} · Refunds back: <strong>{{ band.refund_display }}</strong>{% endif %} · Net used: <strong>{{ band.used_display }}</strong> · Left: <strong>{{ band.left_display }}</strong></p>
+    {% if band.paid_other_cents %}<p data-hq-rc-other>Paid from other PLM funds: <strong>{{ band.paid_other_display }}</strong></p>{% endif %}
+    <p data-hq-rc-count>{{ rows|length }} transaction{{ rows|length|pluralize }}{% if missing %}, {{ missing }} missing a receipt{% elif rows %}, all with receipts{% endif %}</p>
+  </section>
+
+  {% for row in rows %}
+  {% with entry=row.entry %}
+  <section class="pl-hq-lg__card pl-hq-lg__report-entry" aria-label="{{ entry.source }} on {{ entry.date|date:'M j' }}" data-hq-rc-entry="{{ entry.pk }}">
+    <dl class="pl-hq-lg__facts">
+      <div><dt>Date</dt><dd>{{ entry.date|date:"Y-m-d" }}</dd></div>
+      <div><dt>Type</dt><dd>{{ row.kind_label }}</dd></div>
+      <div><dt>Vendor</dt><dd>{{ entry.source }}</dd></div>
+      <div><dt>Amount</dt><dd>{{ entry.amount_display }}</dd></div>
+      <div><dt>Budget line</dt><dd>{{ entry.line.name }}</dd></div>
+      <div><dt>Note</dt><dd>{{ entry.note|default:"–" }}</dd></div>
+    </dl>
+    {% if entry.receipt %}
+      {% if entry.receipt_is_pdf %}
+      <p><a href="{{ entry.receipt.url }}" target="_blank" rel="noopener" hx-boost="false" data-hq-rc-pdf>Open the receipt (PDF)</a></p>
+      {% else %}
+      <img class="pl-hq-lg__report-img" src="{{ entry.receipt.url }}" alt="Receipt from {{ entry.source }} on {{ entry.date|date:'M j' }}" data-hq-rc-image>
+      {% endif %}
+    {% else %}
+    <p class="pl-hq-lg__muted" data-hq-rc-missing><em>No receipt on file</em></p>
+    {% endif %}
+  </section>
+  {% endwith %}
+  {% empty %}
+  <p class="pl-hq-lg__muted" data-hq-rc-empty>No purchases logged yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}

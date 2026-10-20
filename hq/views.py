@@ -1,6 +1,7 @@
 """The HQ page and its edit pages (Track C, part 1), the volunteer sign-up page (part 2), the wine wall (part 3),
 the Marketing Tracker (Track D, part 1), the Sponsorship Tracker (Track D, part 2), Vendor Tables (Track D, part 3)
-the Market Check-in (Track D, part 4) and the event flyer and sharing page (Track D, part 5).
+the Market Check-in (Track D, part 4), the event flyer and sharing page (Track D, part 5) and the PL Ledger's budget
+(Track D, part 6a).
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from hq.access import (
 )
 from hq.exports import (
     stream_donors_csv,
+    stream_ledger_csv,
     stream_market_reports_csv,
     stream_roster_csv,
     stream_sponsors_csv,
@@ -47,14 +49,20 @@ from hq.exports import (
 )
 from hq.forms import (
     MARKETING_TEAM_LIST_ID,
+    RECEIPT_NOT_TAKEN,
     SPONSOR_TEAM_LIST_ID,
+    BudgetLineEditForm,
+    BudgetLineForm,
     FlyerLinksForm,
     FlyerUploadForm,
     HubCardForm,
     HubForm,
     HubGoalFormSet,
+    LedgerApprovalForm,
+    LedgerEntryForm,
     MarketingActionForm,
     MarketReportForm,
+    ReceiptForm,
     SponsorEditForm,
     SponsorForm,
     SponsorLogForm,
@@ -73,14 +81,20 @@ from hq.holiday_bizarre import (
     FLYER_COMING_SOON,
     FLYER_LAST_YEAR_NOTE,
     FLYER_SHARE_LEDE,
+    LEDGER_INTRO,
+    LEDGER_RECEIPT_HINT,
+    LEDGER_TITLE,
     SPONSOR_TIERS,
     VENDOR_SETUP_NOTE,
     WINE_WALL_BENEFIT,
 )
 from hq.models import (
+    RECEIPT_KINDS,
+    BudgetLine,
     EventHub,
     FlyerSlot,
     HubCard,
+    LedgerEntry,
     MarketingKind,
     MarketReport,
     ShiftSignup,
@@ -1466,3 +1480,361 @@ def flyer_links(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpRe
     response = render(request, "hq/partials/_flyer_links_answer.html", context)
     trigger_toast(response, "Saved.", "success")
     return response
+
+
+# ---- PL Ledger, budget (Track D, part 6a) ----
+
+
+def _ledger_url(hub: EventHub, show: str = services.LEDGER_FILTER_ALL) -> str:
+    url = reverse("hq:ledger", args=[hub.slug])
+    return url if show == services.LEDGER_FILTER_ALL else f"{url}?filter={show}"
+
+
+# A line's Save whose ``updated_at`` no longer matches the database: someone else saved it since the page loaded.
+LINE_STALE_SAVE = "Someone else changed this line. Your page has been refreshed; make your change again."
+
+
+@dataclass(frozen=True)
+class LedgerLineRow:
+    """One budget line in the table: its totals and its edit form (bound and refused, or fresh from the line)."""
+
+    totals: services.LineTotals
+    form: BudgetLineEditForm
+    # A refusal the form does not carry: a Save from a page older than the line (``LINE_STALE_SAVE``).
+    error: str = ""
+    # Whether the edit row renders open: a refused Save keeps it open.
+    open: bool = False
+
+
+@dataclass(frozen=True)
+class LedgerEntryRow:
+    """One entry in the ledger: the entry, its Type chip's words, and the Add receipt form when it needs one."""
+
+    entry: LedgerEntry
+    kind_label: str
+    receipt_form: ReceiptForm | None
+
+
+def _line_prefix(line: BudgetLine) -> str:
+    return f"line-{line.pk}"
+
+
+def _line_edit_form(line: BudgetLine, data: Any = None) -> BudgetLineEditForm:
+    return BudgetLineEditForm(data, instance=line, prefix=_line_prefix(line))
+
+
+def _ledger_posted_filter(request: HttpRequest) -> str:
+    return services.ledger_filter(request.POST.get("filter", ""))
+
+
+def _entry_form(band: services.LedgerBand, data: Any = None, files: Any = None, **kwargs: Any) -> LedgerEntryForm:
+    return LedgerEntryForm(
+        data, files, lines=[totals.line for totals in band.lines], approval=band.approval, prefix="entry", **kwargs
+    )
+
+
+def _fresh_entry_form(band: services.LedgerBand, initial: dict[str, Any] | None = None) -> LedgerEntryForm:
+    start = {"kind": LedgerEntry.Kind.SPONSORED, "date": timezone.localdate()}
+    return _entry_form(band, initial={**start, **(initial or {})})
+
+
+def _line_rows(
+    band: services.LedgerBand, *, keep_pk: int | None = None, form: BudgetLineEditForm | None = None, error: str = ""
+) -> list[LedgerLineRow]:
+    rows = []
+    for totals in band.lines:
+        kept = totals.line.pk == keep_pk
+        rows.append(
+            LedgerLineRow(
+                totals=totals,
+                form=form if form is not None and kept else _line_edit_form(totals.line),
+                error=error if kept else "",
+                open=kept and (form is not None or bool(error)),
+            )
+        )
+    return rows
+
+
+def _entry_rows(
+    hub: EventHub, band: services.LedgerBand, show: str, *, receipt_form: ReceiptForm | None = None
+) -> list[LedgerEntryRow]:
+    rows = []
+    for entry in services.filtered_entries(hub, show):
+        form = None
+        if entry.needs_receipt:
+            form = receipt_form if receipt_form is not None and receipt_form.entry.pk == entry.pk else None
+            form = form if form is not None else ReceiptForm(entry=entry)
+        rows.append(
+            LedgerEntryRow(
+                entry=entry, kind_label=services.ledger_kind_short(entry.kind, band.approval), receipt_form=form
+            )
+        )
+    return rows
+
+
+def _ledger_entries_context(
+    hub: EventHub, band: services.LedgerBand, show: str, *, receipt_form: ReceiptForm | None = None
+) -> dict[str, Any]:
+    """What the Ledger section renders: the filters, the entries in view and whether the ledger has any at all."""
+    return {
+        "hub": hub,
+        "show": show,
+        "filters": services.ledger_filters(band.approval),
+        "entry_rows": _entry_rows(hub, band, show, receipt_form=receipt_form),
+        "has_entries": band.entries > 0,
+        "max_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
+        "max_pdf_bytes": settings.MAX_UPLOAD_DOCUMENT_BYTES,
+    }
+
+
+def _ledger_board_context(hub: EventHub, band: services.LedgerBand) -> dict[str, Any]:
+    """What the board summary renders: the band, Lee's paragraph and the text Copy board summary copies."""
+    doors = services.door_figures(hub)
+    return {
+        "hub": hub,
+        "band": band,
+        "board_line": services.board_line(band, doors),
+        "board_summary": services.board_summary(band, doors),
+    }
+
+
+def _ledger_context(
+    request: HttpRequest,
+    hub: EventHub,
+    card: HubCard,
+    *,
+    show: str,
+    approval_form: LedgerApprovalForm | None = None,
+    line_form: BudgetLineForm | None = None,
+    line_open: bool = False,
+    entry_form: LedgerEntryForm | None = None,
+    keep_line: int | None = None,
+    line_edit: BudgetLineEditForm | None = None,
+    line_error: str = "",
+    receipt_form: ReceiptForm | None = None,
+) -> dict[str, Any]:
+    """What the page renders. Organisers alone reach it, so every section carries its forms.
+
+    ``keep_line`` is a line whose refused edit (``line_edit``, or ``line_error`` for a stale Save) renders open in its
+    row; ``receipt_form`` a refused receipt upload shown on its entry's row.
+    """
+    found = services.ledger_settings(hub)
+    band = services.ledger_band(hub, found)
+    return {
+        **_ledger_board_context(hub, band),
+        **_ledger_entries_context(hub, band, show, receipt_form=receipt_form),
+        "card": card,
+        "title": LEDGER_TITLE,
+        "intro": LEDGER_INTRO,
+        "receipt_hint": LEDGER_RECEIPT_HINT,
+        "approval_form": approval_form
+        if approval_form is not None
+        else LedgerApprovalForm(initial=LedgerApprovalForm.initial_for(found)),
+        "line_form": line_form if line_form is not None else BudgetLineForm(),
+        "line_open": line_open or line_form is not None,
+        "line_rows": _line_rows(band, keep_pk=keep_line, form=line_edit, error=line_error),
+        "entry_form": entry_form if entry_form is not None else _fresh_entry_form(band),
+        "receipt_kinds": sorted(RECEIPT_KINDS),
+    }
+
+
+@organizer_page(HubCard.Kind.LEDGER)
+def ledger(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """The PL Ledger: the board summary, the budget lines, Log a Sponsor or Expense, the ledger with ``?filter=`` and
+    the receipts report. Organisers only (the card's gate, then a 403), because it is the event's money."""
+    show = services.ledger_filter(request.GET.get("filter", ""))
+    return render(request, "hq/ledger.html", _ledger_context(request, hub, card, show=show))
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_approval(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Change the board's approval and its note, by the actual role. A plain post: the approval names the kinds, the
+    filters and a column, so the page comes back whole. A refused one renders the page with the form open."""
+    form = LedgerApprovalForm(request.POST)
+    if not form.is_valid():
+        context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, approval_form=form)
+        return render(request, "hq/ledger.html", context)
+    services.save_approval(hub, **form.to_fields())
+    messages.success(request, "Approval saved.")
+    return redirect(_ledger_url(hub))
+
+
+def _line_select_context(hub: EventHub, band: services.LedgerBand, chosen: int) -> dict[str, Any]:
+    """The log form's Budget line select, sent out of band so a line added or renamed is offered at once, chosen."""
+    return {"entry_line_form": _fresh_entry_form(band, {"line": chosen}), "entry_line_oob": True}
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_line_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Add a budget line, by the actual role. Over htmx the lines section comes back with the form open and empty,
+    and the log form's line select out of band with the new line chosen; a plain post lands back with a message."""
+    form = BudgetLineForm(request.POST)
+    fragment = wants_fragment(request)
+    show = _ledger_posted_filter(request)
+    if not form.is_valid():
+        if not fragment:
+            return render(request, "hq/ledger.html", _ledger_context(request, hub, card, show=show, line_form=form))
+        band = services.ledger_band(hub)
+        context = {"hub": hub, "band": band, "line_rows": _line_rows(band), "line_form": form, "line_open": True}
+        return render(request, "hq/partials/_ledger_lines.html", {**context, "show": show})
+    line = services.add_budget_line(hub, form.to_fields())
+    if not fragment:
+        messages.success(request, "Line added.")
+        return redirect(_ledger_url(hub, show))
+    band = services.ledger_band(hub)
+    context = {
+        "hub": hub,
+        "band": band,
+        "show": show,
+        "line_rows": _line_rows(band),
+        "line_form": BudgetLineForm(),
+        "line_open": True,
+        **_line_select_context(hub, band, line.pk),
+    }
+    response = render(request, "hq/partials/_ledger_lines_answer.html", context)
+    trigger_toast(response, "Line added.", "success")
+    return response
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_line_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Save one budget line, by the actual role. Over htmx only that line comes back, with the totals, the log form's
+    line select and the ledger out of band (they name the line); a refused Save comes back open with its errors.
+
+    A Save from a page older than the line (its ``updated_at`` no longer matches) is refused whole under a row lock:
+    the line comes back as the database holds it, with :data:`LINE_STALE_SAVE`.
+    """
+    show = _ledger_posted_filter(request)
+    fragment = wants_fragment(request)
+    with transaction.atomic():
+        line = get_object_or_404(hub.budget_lines.select_for_update(), pk=pk)
+        form = _line_edit_form(line, request.POST)
+        stale = form.is_stale
+        valid = not stale and form.is_valid()
+        if valid:
+            services.update_budget_line(line, form.to_fields())
+    if not valid and not fragment:
+        context = _ledger_context(
+            request,
+            hub,
+            card,
+            show=show,
+            keep_line=line.pk,
+            line_edit=None if stale else form,
+            line_error=LINE_STALE_SAVE if stale else "",
+        )
+        return render(request, "hq/ledger.html", context)
+    if valid and not fragment:
+        messages.success(request, f"{line.name} saved.")
+        return redirect(_ledger_url(hub, show))
+    band = services.ledger_band(hub)
+    if stale:
+        rows = _line_rows(band, keep_pk=line.pk, error=LINE_STALE_SAVE)
+    elif not valid:
+        rows = _line_rows(band, keep_pk=line.pk, form=form)
+    else:
+        rows = _line_rows(band)
+    row = next(row for row in rows if row.totals.line.pk == line.pk)
+    context = {
+        "hub": hub,
+        "band": band,
+        "show": show,
+        "row": row,
+        "line_oob": valid,
+        **(_line_select_context(hub, band, line.pk) if valid else {}),
+        **(_ledger_entries_context(hub, band, show) if valid else {}),
+    }
+    response = render(request, "hq/partials/_ledger_line_answer.html", context)
+    if valid:
+        trigger_toast(response, "Saved.", "success")
+    return response
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_line_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Take a budget line off, by the actual role; a line with entries is refused by name. Then the page."""
+    line = get_object_or_404(hub.budget_lines, pk=pk)
+    try:
+        services.delete_budget_line(line)
+    except services.LineHasEntries as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f"{line.name} is off the budget.")
+    return redirect(_ledger_url(hub, _ledger_posted_filter(request)))
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_entry_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Log a sponsor or expense, by the actual role. A multipart plain post (the form opts out of hx-boost, for the
+    receipt); a refused one renders the page with the form and its errors."""
+    show = _ledger_posted_filter(request)
+    band = services.ledger_band(hub)
+    form = _entry_form(band, request.POST, request.FILES)
+    if not form.is_valid():
+        return render(request, "hq/ledger.html", _ledger_context(request, hub, card, show=show, entry_form=form))
+    entry = services.add_ledger_entry(hub, form.to_fields(), member=actual_member(request))
+    messages.success(request, "Added with receipt." if entry.receipt else "Added to the ledger.")
+    return redirect(_ledger_url(hub, show))
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_receipt(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Add (or replace) an entry's receipt, by the actual role: a multipart plain post from its ledger row. A sponsored
+    entry takes none; a refused file renders the page with the error on that row."""
+    show = _ledger_posted_filter(request)
+    entry = get_object_or_404(hub.ledger_entries.select_related("line"), pk=pk)
+    if not entry.takes_receipt:
+        messages.error(request, RECEIPT_NOT_TAKEN)
+        return redirect(_ledger_url(hub, show))
+    form = ReceiptForm(request.POST, request.FILES, entry=entry)
+    if not form.is_valid():
+        return render(request, "hq/ledger.html", _ledger_context(request, hub, card, show=show, receipt_form=form))
+    services.attach_receipt(entry, form.cleaned_data["receipt"])
+    messages.success(request, "Receipt attached.")
+    return redirect(_ledger_url(hub, show))
+
+
+@require_POST
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_entry_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Take an entry out of the ledger, with its receipt, by the actual role; then the page with the filter."""
+    entry = get_object_or_404(hub.ledger_entries, pk=pk)
+    entry.delete()
+    messages.success(request, f"{entry.source} is out of the ledger.")
+    return redirect(_ledger_url(hub, _ledger_posted_filter(request)))
+
+
+@organizer_required(HubCard.Kind.LEDGER)
+def ledger_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
+    """The whole ledger as a CSV download, oldest first, in Lee's columns."""
+    entries = hub.ledger_entries.select_related("line").order_by("date", "created_at", "pk")
+    return stream_ledger_csv(entries, approval=services.ledger_settings(hub).approval_words, filename_stem=hub.slug)
+
+
+@organizer_page(HubCard.Kind.LEDGER)
+def ledger_receipts(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """The receipts report: every purchase and refund oldest first with its receipt (an image inline, a PDF as a link)
+    under the approval's totals, a printable page for bookkeeping."""
+    band = services.ledger_band(hub)
+    entries = [
+        LedgerEntryRow(entry=entry, kind_label=services.ledger_kind_short(entry.kind, band.approval), receipt_form=None)
+        for entry in services.receipt_entries(hub)
+    ]
+    return render(
+        request,
+        "hq/ledger_receipts.html",
+        {
+            "hub": hub,
+            "card": card,
+            "band": band,
+            "rows": entries,
+            "missing": sum(1 for row in entries if not row.entry.receipt),
+            "today": timezone.localdate(),
+        },
+    )

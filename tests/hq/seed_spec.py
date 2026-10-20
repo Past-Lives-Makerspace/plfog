@@ -119,13 +119,15 @@ def describe_lees_content():
                 HubCard.Kind.VENDOR_TABLES,
                 HubCard.Kind.MARKET_CHECKIN,
                 HubCard.Kind.FLYER,
+                HubCard.Kind.LEDGER,
             }
         )
+        # D6a built the last door, so every one of Lee's doors is seeded live.
         assert [door.kind for door in CARDS] == [
             HubCard.Kind.RSVP,
             HubCard.Kind.VOLUNTEERS,
             HubCard.Kind.WINE_WALL,
-            HubCard.Kind.PLACEHOLDER,
+            HubCard.Kind.LEDGER,
             HubCard.Kind.SPONSORSHIP,
             HubCard.Kind.MARKET_CHECKIN,
             HubCard.Kind.VENDOR_TABLES,
@@ -253,7 +255,8 @@ def describe_seeding():
         ) == (before[0], before[1], before[2] - {photo_pk})
         rsvp.refresh_from_db()
         assert (rsvp.title, rsvp.audience) == ("Renamed by Lee", HubCard.Audience.PUBLIC)
-        assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 1
+        assert not hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).exists()
+        assert hub.cards.get(kind=HubCard.Kind.LEDGER).title == "The Ledger"
         assert not hub.cards.filter(title="PL Ledger").exists()
         assert sorted(hub.goals.values_list("label", flat=True)) == [
             "Member tables",
@@ -352,9 +355,29 @@ def describe_seeding():
         assert "Goals: 1 created, 4 kept as edited. Added: Member tables." in out
         assert "Goals: 0 created, 5 kept as edited." in again
 
-    def it_adds_no_placeholder_once_the_hub_holds_any_even_renamed_or_deleted(event):
+    def it_still_seeds_a_door_whose_page_is_not_built_as_a_placeholder(event, monkeypatch):
+        """The rail for a door not yet built stays: with the ledger taken out of the built doors, a new hub gets it as a
+        placeholder, and a hub that holds cards but not that placeholder is not given one."""
+        monkeypatch.setattr("hq.models.BUILT_DOORS", BUILT_DOORS - {HubCard.Kind.LEDGER})
+
+        _run("--event", str(event.pk))
+
+        hub = EventHub.objects.get(slug=HUB.slug)
+        assert list(hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).values_list("title", flat=True)) == ["PL Ledger"]
+        assert "Cards: 0 created, 9 kept as edited." in _run("--event", str(event.pk))
+        hub.cards.get(title="PL Ledger").delete()
+
+        out = _run("--event", str(event.pk))
+
+        assert not hub.cards.filter(title="PL Ledger").exists()
+        assert "Cards: 0 created, 8 kept as edited." in out
+
+    def it_adds_no_placeholder_and_keeps_one_an_admin_made_and_a_renamed_door(event):
+        """Every one of Lee's doors is live now (D6a built the last), so a seeded hub holds no placeholder; one an
+        admin made stays as made, and a renamed door is still found by its kind."""
         _run("--event", str(event.pk))
         hub = EventHub.objects.get(slug=HUB.slug)
+        assert not hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).exists()
         ledger = hub.cards.get(title="PL Ledger")
         ledger.title = "The Ledger"
         ledger.sort_order = 40
@@ -362,19 +385,17 @@ def describe_seeding():
         rsvp = hub.cards.get(kind=HubCard.Kind.RSVP)
         rsvp.title = "Coming?"
         rsvp.save(update_fields=["title"])
+        HubCardFactory(hub=hub, kind=HubCard.Kind.PLACEHOLDER, title="Coming next year")
 
         out = _run("--event", str(event.pk))
 
-        assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 1
+        assert list(hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).values_list("title", flat=True)) == [
+            "Coming next year"
+        ]
+        assert hub.cards.get(kind=HubCard.Kind.LEDGER).title == "The Ledger"
         assert not hub.cards.filter(title="PL Ledger").exists()
         assert hub.cards.filter(kind=HubCard.Kind.RSVP).get().title == "Coming?"
-        assert "Cards: 0 created, 9 kept as edited. The hub already held its placeholders" in out
-        ledger.delete()
-
-        again = _run("--event", str(event.pk))
-
-        assert not hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).exists()
-        assert "Cards: 0 created, 8 kept as edited. The hub already held its placeholders" in again
+        assert "Cards: 0 created, 10 kept as edited. The hub already held its placeholders" in out
 
 
 def _track_c_hub(event: CommunityEvent) -> EventHub:
@@ -416,10 +437,10 @@ def describe_adopting_a_built_door():
         )
         assert list(card.named_members.all()) == [member]
         assert hub.cards.count() == 9
-        assert hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 1
+        assert not hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).exists()
         assert (
-            "Cards: 0 created, 4 kept as edited. Opened as live doors: Sponsorship Tracker, Market Check-in, "
-            "Vendor Tables, Event flyer and sharing, Marketing Tracker." in out
+            "Cards: 0 created, 3 kept as edited. Opened as live doors: PL Ledger, Sponsorship Tracker, "
+            "Market Check-in, Vendor Tables, Event flyer and sharing, Marketing Tracker." in out
         )
 
     def it_gives_every_untouched_door_lees_latest_words(event):
@@ -497,7 +518,7 @@ def describe_adopting_a_built_door():
             8,
         )
         assert hub.cards.count() == 9
-        assert "Cards: 1 created, 4 kept as edited." in out
+        assert "Cards: 1 created, 3 kept as edited." in out
 
     def it_does_not_adopt_a_renamed_placeholder_and_makes_the_live_door_beside_it(event):
         """A placeholder is matched by its title alone: one renamed is no longer the door's, so the door is made."""

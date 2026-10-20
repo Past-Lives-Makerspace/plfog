@@ -1,0 +1,58 @@
+{% comment %}
+Budget lines, and the htmx answer to Add a budget line: the table of lines, each showing how it was covered (Lee's
+Sponsored, Paid from the approval net of refunds, Other PLM $ and her status chip) with a Total row, then Add a budget
+line. Each line is its own tbody (hq/partials/_ledger_line.html) whose Edit opens a row with its form; a line's Save
+swaps only that line and sends the Total row out of band.
+
+  hub        — required, the EventHub
+  band       — required, a hq.services.LedgerBand (the totals and the approval's words)
+  line_rows  — required, the hq.views.LedgerLineRow list in table order
+  line_form  — required, a BudgetLineForm (bound when an add failed)
+  line_open  — required, whether Add a budget line renders open
+  show       — required, the ledger's filter in view, carried by every form
+{% endcomment %}
+<section class="pl-hq-lg__section" aria-labelledby="hq-lg-lines-title" data-hq-lg-lines>
+  <div class="pl-hq-lg__section-head">
+    <h2 class="pl-hq-lg__h2" id="hq-lg-lines-title">Budget Lines</h2>
+    <span class="pl-hq-lg__muted pl-hq-lg__helper">Each line shows how it was covered</span>
+  </div>
+  <div class="pl-hq-lg__card pl-hq-lg__scroll">
+    <table class="pl-hq-lg__table pl-hq-lg__table--lines">
+      <thead>
+        <tr>
+          <th scope="col">Line</th>
+          <th scope="col" class="pl-hq-lg__num">Budget</th>
+          <th scope="col" class="pl-hq-lg__num">Sponsored</th>
+          <th scope="col" class="pl-hq-lg__num">Paid from {{ band.approval }}</th>
+          <th scope="col" class="pl-hq-lg__num">Other PLM $</th>
+          <th scope="col">Status</th>
+        </tr>
+      </thead>
+      {% for row in line_rows %}
+      {% include "hq/partials/_ledger_line.html" %}
+      {% empty %}
+      <tbody><tr><td colspan="6" class="pl-hq-lg__empty" data-hq-lg-lines-empty>No budget lines yet. Add one below.</td></tr></tbody>
+      {% endfor %}
+      {% if line_rows %}{% include "hq/partials/_ledger_lines_total.html" %}{% endif %}
+    </table>
+  </div>
+
+  <details class="pl-disclosure pl-hq-lg__disclosure" {% if line_open %}open{% endif %} data-hq-lg-line-add>
+    <summary class="pl-disclosure__summary">
+      <span class="pl-disclosure__title">Add a budget line</span>
+      <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+    </summary>
+    <form method="post" action="{% url 'hq:ledger_line_add' hub.slug %}" hx-post="{% url 'hq:ledger_line_add' hub.slug %}" hx-target="closest [data-hq-lg-lines]" hx-swap="outerHTML" class="pl-disclosure__body pl-hq-lg__form" data-hq-lg-line-add-form>
+      {% csrf_token %}
+      <input type="hidden" name="filter" value="{{ show }}">
+      <div class="pl-hq-lg__fields">
+        {% include "components/form_field.html" with field=line_form.name field_hint_off=True %}
+        {% include "components/form_field.html" with field=line_form.category field_hint_off=True %}
+        {% include "components/form_field.html" with field=line_form.budget field_hint_off=True %}
+      </div>
+      <div class="pl-hq-lg__actions">
+        <button type="submit" class="pl-hq-lg__btn" data-hq-lg-line-add-submit>Add line</button>
+      </div>
+    </form>
+  </details>
+</section>

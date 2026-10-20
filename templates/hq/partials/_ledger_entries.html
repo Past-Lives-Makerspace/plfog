@@ -1,0 +1,97 @@
+{% comment %}
+The ledger, Lee's table newest first: the filters (?filter= links), then each entry's date, its Type chip, the line,
+who it came from or went to, the amount (a refund with a minus), the note, the receipt and Delete through the confirm
+modal. An entry that takes a receipt and has none shows Lee's Needs receipt chip with an Add upload form (a multipart
+plain post); one with a receipt links to it (an image as a thumbnail). Sent back out of band when a line is renamed;
+the receipt zones' script rides along, so it binds every zone on the page, the log form's included, on each arrival.
+
+  hub             — required, the EventHub
+  show            — required, the filter in view
+  filters         — required, the (value, label) filter buttons
+  entry_rows      — required, the hq.views.LedgerEntryRow list, newest first
+  has_entries     — required, whether the ledger has any entry at all (picks the empty text)
+  max_image_bytes — required, settings.MAX_UPLOAD_IMAGE_BYTES
+  max_pdf_bytes   — required, settings.MAX_UPLOAD_DOCUMENT_BYTES
+  oob             — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+{% url 'hq:ledger' hub.slug as page_url %}
+<section class="pl-hq-lg__section" id="hq-lg-entries" aria-labelledby="hq-lg-entries-title" data-hq-lg-entries{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="pl-hq-lg__section-head">
+    <h2 class="pl-hq-lg__h2" id="hq-lg-entries-title">Ledger</h2>
+    <nav class="pl-hq-lg__filters" aria-label="Filter the ledger" data-hq-lg-filters>
+      {% for value, label in filters %}
+      <a href="{{ page_url }}{% if value != 'all' %}?filter={{ value }}{% endif %}" class="pl-hq-lg__filter" data-hq-lg-filter="{{ value }}"{% if value == show %} aria-current="true"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </nav>
+  </div>
+  <div class="pl-hq-lg__card pl-hq-lg__scroll">
+    <table class="pl-hq-lg__table pl-hq-lg__table--entries">
+      <thead>
+        <tr>
+          <th scope="col">Date</th>
+          <th scope="col">Type</th>
+          <th scope="col">Line</th>
+          <th scope="col">Sponsor / vendor</th>
+          <th scope="col" class="pl-hq-lg__num">Amount</th>
+          <th scope="col">Note</th>
+          <th scope="col">Receipt</th>
+          <th scope="col"><span class="sr-only">Delete</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in entry_rows %}
+        {% with entry=row.entry %}
+        <tr data-hq-lg-entry="{{ entry.pk }}" data-hq-lg-kind="{{ entry.kind }}">
+          <td class="pl-hq-lg__nowrap">{{ entry.date|date:"Y-m-d" }}</td>
+          <td><span class="pl-hq-lg__chip pl-hq-lg__chip--{{ entry.kind }}">{{ row.kind_label }}</span></td>
+          <td>{{ entry.line.name }}</td>
+          <td>{{ entry.source }}</td>
+          <td class="pl-hq-lg__num pl-hq-lg__nowrap">{{ entry.amount_display }}</td>
+          <td>{{ entry.note }}</td>
+          <td class="pl-hq-lg__receipt-cell" data-hq-lg-receipt-cell>
+            {% if entry.receipt %}
+              {% if entry.receipt_is_pdf %}
+              <a href="{{ entry.receipt.url }}" class="pl-hq-lg__chip pl-hq-lg__chip--ok" target="_blank" rel="noopener" hx-boost="false" aria-label="Open the receipt for {{ entry.source }} on {{ entry.date|date:'M j' }} (PDF)" data-hq-lg-receipt-link>PDF on file</a>
+              {% else %}
+              <a href="{{ entry.receipt.url }}" class="pl-hq-lg__thumb" target="_blank" rel="noopener" hx-boost="false" aria-label="Open the receipt for {{ entry.source }} on {{ entry.date|date:'M j' }}" data-hq-lg-receipt-link>
+                <img src="{{ entry.receipt.url }}" alt="" loading="lazy">
+              </a>
+              {% endif %}
+            {% elif row.receipt_form %}
+              {% with form=row.receipt_form field=row.receipt_form.receipt %}
+              <details class="pl-hq-lg__attach" {% if form.errors %}open{% endif %} data-hq-lg-attach>
+                <summary class="pl-hq-lg__attach-summary"><span class="pl-hq-lg__chip pl-hq-lg__chip--warn" data-hq-lg-needs-receipt>Needs receipt</span> <span class="pl-hq-lg__link">Add</span></summary>
+                <form method="post" action="{% url 'hq:ledger_receipt' hub.slug entry.pk %}" enctype="multipart/form-data" hx-boost="false" class="pl-hq-lg__attach-form" data-hq-lg-attach-form>
+                  {% csrf_token %}
+                  <input type="hidden" name="filter" value="{{ show }}">
+                  <label class="cls-image-upload-zone pl-hq-lg__zone--sm" data-hq-lg-zone data-max-image="{{ max_image_bytes }}" data-max-pdf="{{ max_pdf_bytes }}">
+                    <input type="file" name="{{ field.html_name }}" id="{{ field.id_for_label }}" accept="image/*,application/pdf" required aria-label="{{ field.label }}">
+                    <span class="cls-image-upload-label" data-hq-lg-zone-label>Photo or PDF</span>
+                  </label>
+                  <p class="pl-field-error" role="alert" data-hq-lg-zone-error hidden></p>
+                  {% for error in field.errors %}<p class="pl-field-error" role="alert" data-hq-lg-attach-error>{{ error }}</p>{% endfor %}
+                  <button type="submit" class="pl-hq-lg__btn pl-hq-lg__btn--sm" aria-label="Upload the {{ field.label|lower }}" data-hq-lg-attach-submit>Upload</button>
+                </form>
+              </details>
+              {% endwith %}
+            {% else %}
+            <span class="pl-hq-lg__muted">&ndash;</span>
+            {% endif %}
+          </td>
+          <td class="pl-hq-lg__nowrap">
+            <button type="button" class="pl-hq-lg__delete" aria-label="Delete {{ entry.source }} on {{ entry.date|date:'M j' }}" @click="$dispatch('open-confirm', 'delete-entry-{{ entry.pk }}')" data-hq-lg-entry-delete>Delete</button>
+            {% url 'hq:ledger_entry_delete' hub.slug entry.pk as delete_url %}
+            {% with pk_text=entry.pk|stringformat:"s" %}
+            {% include "components/confirm_modal.html" with confirm_id="delete-entry-"|add:pk_text confirm_title="Delete this entry?" confirm_message="It comes out of the ledger and the totals, with its receipt. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" confirm_field_name="filter" confirm_field_value=show %}
+            {% endwith %}
+          </td>
+        </tr>
+        {% endwith %}
+        {% empty %}
+        <tr><td colspan="8" class="pl-hq-lg__empty" data-hq-lg-entries-empty>{% if has_entries %}No entries match this filter.{% else %}No entries yet. Log your first sponsor or purchase above and it appears here.{% endif %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% include "hq/partials/_ledger_zone_script.html" %}
+</section>

@@ -1,0 +1,10 @@
+{% comment %}
+The log form's Budget line select, in its own box so a line added or saved can send it back out of band with that
+line chosen, leaving everything else typed in the form alone.
+
+  entry_line_form — required, a LedgerEntryForm
+  oob             — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<div class="pl-hq-lg__line-pick" id="hq-lg-entry-line" data-hq-lg-entry-line{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% include "components/form_field.html" with field=entry_line_form.line field_hint_off=True %}
+</div>

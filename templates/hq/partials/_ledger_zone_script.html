@@ -1,0 +1,43 @@
+{% comment %}
+The ledger's receipt zones, once per arrival: the chosen file's name in the zone, a size check before the post (photos
+and PDFs have their own caps, from the zone's data attributes, mirroring hq.forms.checked_upload), and drag and drop.
+Each zone is claimed by a property on the element (FRONTEND, Scripts under hx-boost), so a re-run binds nothing twice.
+{% endcomment %}
+<script>
+(function () {
+  document.querySelectorAll('[data-hq-lg-zone]').forEach(function (zone) {
+    if (zone.plLedgerZoneReady) return;
+    zone.plLedgerZoneReady = true;
+    var input = zone.querySelector('input[type="file"]');
+    var label = zone.querySelector('[data-hq-lg-zone-label]');
+    var error = zone.parentNode.querySelector('[data-hq-lg-zone-error]');
+    var mb = function (bytes) { return Math.round(bytes / 1048576); };
+    var check = function () {
+      var file = input.files[0];
+      if (!file) return;
+      var isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+      var cap = Number(isPdf ? zone.dataset.maxPdf : zone.dataset.maxImage);
+      if (file.size > cap) {
+        error.textContent = 'That file is too large. A ' + (isPdf ? 'PDF' : 'photo') + ' can be up to ' + mb(cap) + ' MB.';
+        error.hidden = false;
+        input.value = '';
+        return;
+      }
+      error.hidden = true;
+      error.textContent = '';
+      label.textContent = file.name;
+    };
+    input.addEventListener('change', check);
+    zone.addEventListener('dragover', function (e) { e.preventDefault(); zone.classList.add('drag-hover'); });
+    zone.addEventListener('dragleave', function () { zone.classList.remove('drag-hover'); });
+    zone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      zone.classList.remove('drag-hover');
+      if (e.dataTransfer.files.length && !input.disabled) {
+        input.files = e.dataTransfer.files;
+        check();
+      }
+    });
+  });
+})();
+</script>
