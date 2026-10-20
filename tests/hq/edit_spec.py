@@ -82,7 +82,7 @@ def describe_loading_lees_hq():
         assert [card.kind for card in cards] == [door.kind for door in DEFAULT_CARDS]
         assert {card.audience for card in cards} == {HubCard.Audience.ADMINS}
         assert cards[0].title == "Going to the Bizarre?"
-        assert hub.goals.count() == 4
+        assert hub.goals.count() == 5
         assert hub.shifts.count() == 21
 
     def it_sends_an_admin_to_the_hq_once_one_exists(open_hub, admin_client):
@@ -133,11 +133,11 @@ def describe_updating_the_doors():
         assert placeholder.button_text == "Enter marketing"
         messages = [str(message) for message in response.context["messages"]]
         assert messages == [
-            "Doors updated: opened Marketing Tracker; added 4 doors; gave 1 card Lee's latest words."
-            " New and admins only until you open it: Sponsorship Tracker."
+            "Doors updated: opened Marketing Tracker; added 5 doors; gave 1 card Lee's latest words."
+            " New and admins only until you open it: Sponsorship Tracker, Vendor Tables."
             " If an old Not shared yet card for it is still on the page, delete that one."
         ]
-        assert open_hub.cards.count() == 6
+        assert open_hub.cards.count() == 7
 
     def it_offers_the_button_on_edit_hq(open_hub, admin_client):
         body = admin_client.get(_edit(open_hub)).content.decode()

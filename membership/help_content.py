@@ -655,13 +655,14 @@ Each card on the page is a door into one part of the event. A card says who it i
 - **Log a wine bottle** opens the wine wall.
 - **Marketing Tracker** opens the marketing log.
 - **Sponsorship Tracker** opens the sponsors the team is asking.
+- **Vendor Tables** opens the member artists' table requests, for the vendor team.
 - A greyed card reading **Not shared yet** is a page the organisers have not opened. It links nowhere.
 
 You only see the doors that are open to you. Every card starts as admins only; an admin opens it to members, to everyone, or to the people who run that part (see Editing the HQ below). A door open to everyone needs no account for what is behind it: RSVP, shifts or bottles. If a door you expect is missing, sign in, or ask an admin.
 
 ### The Goal Tracker {#hq-goal-tracker}
 
-Under the top band sits a row of goals, each with a meter. Goals that count people going, volunteer spots or bottles update themselves from the pages behind the doors. The Raised goal is typed in by an admin.
+Under the top band sits a row of goals, each with a meter. Goals that count people going, volunteer spots, bottles or confirmed vendor tables update themselves from the pages behind the doors. The Raised goal is typed in by an admin. A goal with no target, like **Member tables**, shows its count with no meter.
 
 ### RSVP on the Event Page {#hq-rsvp}
 
@@ -725,6 +726,23 @@ Click a sponsor in the **Pipeline** to open it. Change its status, the amount co
 
 When you ask, say sponsor, gift or in-kind support, not donate: gifts and sponsorships to Past Lives are not tax-deductible.
 
+### Vendor Tables {#hq-vendor-tables}
+
+Open the **Vendor Tables** door. It opens only for the people named on the card, and admins, because every row holds an artist's email and phone; anyone else the door is open to is turned away (Forbidden).
+
+The band at the top counts the requests: **Confirmed** (tables locked in), **Requested** (waiting on the vendor team), **Waitlist**, and **Space left** on the space map. Under it are the setup times and the sale hours.
+
+To add a table request:
+
+1. Open **+ Add a table request**.
+2. Fill in the **Artist or group**, their **Guild** (or Not in a guild), **What they sell** and the **Table size**.
+3. Add their email and phone, the **Setup day** they picked and anything they **Need**, like power.
+4. Click **Add request**. It joins the list as requested, or on the waitlist when the confirmed tables already fill the space map.
+
+Every field in a row can be changed: confirm a table, give it a **Table #**, move it to the waitlist. Click **Save** on that row. **Delete** takes a request off the list. The buttons over the list show one group at a time, and **Download CSV** gives every request as a spreadsheet.
+
+When the space map is ready, open **Space map capacity**, enter the **Tables that fit** and any **Map notes**, and click **Save capacity**. Space left then counts down as tables are confirmed, and new requests go to the waitlist once it reaches zero. The **Member tables** goal on the HQ page counts the confirmed tables.
+
 ### Organiser Tools {#hq-organiser-tools}
 
 Admins and the people named on a card run what is behind it.
@@ -735,7 +753,7 @@ Admins and the people named on a card run what is behind it.
 
 ### Editing the HQ (Admins) {#hq-edit}
 
-Before the HQ exists, an admin who opens it (from **Admin Tools**, **Holiday Bizarre HQ**) gets one button, **Load Lee's HQ**, which puts her nine doors, four goals and 21 volunteer shifts on the site, every door admins only.
+Before the HQ exists, an admin who opens it (from **Admin Tools**, **Holiday Bizarre HQ**) gets one button, **Load Lee's HQ**, which puts her nine doors, five goals and 21 volunteer shifts on the site, every door admins only.
 
 Admins see an **Edit HQ** button at the top of the page and an **Edit** link under each card.
 

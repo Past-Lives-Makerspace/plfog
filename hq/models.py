@@ -18,7 +18,9 @@ Track D turns the six placeholders into live doors, one part at a time; :data:`B
 the set built so far. Part 1 adds the Marketing Tracker behind the ``marketing`` card: a
 :class:`MarketingAction` is one thing the team did to get the word out. Part 2 adds the
 Sponsorship Tracker behind the ``sponsorship`` card: a :class:`Sponsor` is one business the team
-is asking, and a :class:`SponsorLogEntry` one line in its contact log.
+is asking, and a :class:`SponsorLogEntry` one line in its contact log. Part 3 adds Vendor Tables behind the
+``vendor_tables`` card: a :class:`VendorTable` is one member artist's table request, and a :class:`VendorFloor`
+the space map's capacity for the hub.
 """
 
 from __future__ import annotations
@@ -34,10 +36,11 @@ from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.db.models.functions import Lower
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.functional import lazy
 
 from core.files import delete_if_unreferenced, delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
-from membership.models import CommunityEvent, Member
+from membership.models import CommunityEvent, Guild, Member
 
 
 @dataclass(frozen=True)
@@ -341,6 +344,8 @@ class HubCard(models.Model):
             return reverse("hq:marketing", args=[self.hub.slug])
         if self.kind == self.Kind.SPONSORSHIP:
             return reverse("hq:sponsors", args=[self.hub.slug])
+        if self.kind == self.Kind.VENDOR_TABLES:
+            return reverse("hq:vendors", args=[self.hub.slug])
         # A live kind whose page has not shipped yet renders like a placeholder: Not shared yet.
         return ""
 
@@ -368,7 +373,8 @@ class HubGoal(models.Model):
     """One chip in the goal band: a label, a target and where it stands.
 
     A ``manual`` goal's figure is typed in by an admin; the live kinds are counted from the
-    event's RSVPs, the volunteer shifts (C2) and the wine wall (C3) by :func:`hq.services.goal_rows`.
+    event's RSVPs, the volunteer shifts (C2), the wine wall (C3) and the confirmed vendor tables (D3)
+    by :func:`hq.services.goal_rows`. A goal with no target is a plain count.
     """
 
     class Kind(models.TextChoices):
@@ -377,6 +383,7 @@ class HubGoal(models.Model):
         VOLUNTEER_SPOTS = "volunteer_spots", "Volunteer spots filled"
         BOTTLES = "bottles", "Wine wall bottles"
         BOTTLE_VALUE = "bottle_value", "Wine wall value"
+        MEMBER_TABLES = "member_tables", "Vendor tables confirmed"
 
     hub = models.ForeignKey(
         EventHub, on_delete=models.CASCADE, related_name="goals", help_text="The HQ this goal is on."
@@ -388,7 +395,9 @@ class HubGoal(models.Model):
         default=Kind.MANUAL,
         help_text="Where the figure comes from: typed in, or counted live from one part of the event.",
     )
-    target = models.PositiveIntegerField(default=0, help_text="The goal, a whole number (dollars for a money goal).")
+    target = models.PositiveIntegerField(
+        default=0, help_text="The goal, a whole number (dollars for a money goal). 0 shows a plain count."
+    )
     current_value = models.PositiveIntegerField(
         default=0,
         help_text="Where a typed in goal stands. Ignored for the counted kinds.",
@@ -405,7 +414,7 @@ class HubGoal(models.Model):
 
 # The doors whose page is built beyond the first three. The seed turns a placeholder titled as one of
 # these into its live kind; each later part of Track D adds its kind here and nowhere else.
-BUILT_DOORS: frozenset[str] = frozenset({HubCard.Kind.MARKETING, HubCard.Kind.SPONSORSHIP})
+BUILT_DOORS: frozenset[str] = frozenset({HubCard.Kind.MARKETING, HubCard.Kind.SPONSORSHIP, HubCard.Kind.VENDOR_TABLES})
 
 # The three doors that were live from the start of Track C.
 _FIRST_DOORS: frozenset[str] = frozenset({HubCard.Kind.RSVP, HubCard.Kind.VOLUNTEERS, HubCard.Kind.WINE_WALL})
@@ -1179,3 +1188,153 @@ class SponsorLogEntry(models.Model):
 
     def __str__(self) -> str:
         return f"{self.sponsor.organization}: {self.text}"
+
+
+# ---- Vendor Tables (Track D, part 3) ----
+
+
+class VendorTableSize(models.TextChoices):
+    """The table a vendor asks for, in the order of Lee's list. ``VendorTable.Size`` is this."""
+
+    SIX_FT = "six_ft", "6 ft"
+    EIGHT_FT = "eight_ft", "8 ft"
+    FOUR_FT = "four_ft", "4 ft"
+    HALF = "half", "Half table (share)"
+    OWN = "own", "Bringing their own"
+    UNSURE = "unsure", "Not sure"
+
+
+def _setup_window(key: str) -> str:
+    """One setup window's words from :data:`hq.holiday_bizarre.VENDOR_SETUP_WINDOWS`, the labels' one source.
+
+    Read when the label renders, not at import: ``hq.holiday_bizarre`` imports this module.
+    """
+    from hq.holiday_bizarre import VENDOR_SETUP_WINDOWS
+
+    return VENDOR_SETUP_WINDOWS[key]
+
+
+_setup_label = lazy(_setup_window, str)
+
+
+class VendorSetup(models.TextChoices):
+    """The setup window a vendor picked, blank while not chosen. ``VendorTable.Setup`` is this."""
+
+    NOT_CHOSEN = "", "Not chosen"
+    THU = "thu", _setup_label("thu")
+    FRI = "fri", _setup_label("fri")
+
+
+class VendorTableStatus(models.TextChoices):
+    """Where a table request stands, in the list's order. ``VendorTable.Status`` is this."""
+
+    REQUESTED = "requested", "Requested"
+    CONFIRMED = "confirmed", "Confirmed"
+    WAITLIST = "waitlist", "Waitlist"
+    CANCELLED = "cancelled", "Cancelled"
+
+
+# The list's order: requests waiting on the vendor team first, then the confirmed tables, the waitlist, the cancelled.
+_VENDOR_STATUS_ORDER = Case(
+    *(When(status=value, then=Value(position)) for position, value in enumerate(VendorTableStatus.values)),
+    default=Value(len(VendorTableStatus.values)),
+    output_field=IntegerField(),
+)
+
+
+class VendorTable(models.Model):
+    """One member artist's (or group's) table request for the market, entered by the vendor team.
+
+    :func:`hq.services.vendor_band` counts these by status; its ``confirmed`` is the one source of the
+    Member tables goal and the ledger's vendor figure.
+    """
+
+    Size = VendorTableSize
+    Setup = VendorSetup
+    Status = VendorTableStatus
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="vendor_tables",
+        help_text="The HQ whose market this table request is for.",
+    )
+    name = models.CharField(max_length=160, help_text="The artist or group, e.g. Riverbend Ceramics.")
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="hq_vendor_tables",
+        help_text="The guild they sell with. Blank means not in a guild.",
+    )
+    sells = models.CharField(max_length=200, blank=True, help_text="What they sell, e.g. Mugs and planters.")
+    size = models.CharField(
+        max_length=10,
+        choices=VendorTableSize.choices,
+        default=VendorTableSize.SIX_FT,
+        help_text="The table they asked for.",
+    )
+    email = models.EmailField(blank=True, help_text="Their email, lowercased. Organisers only.")
+    phone = models.CharField(max_length=40, blank=True, help_text="Their phone. Organisers only.")
+    setup = models.CharField(
+        max_length=3,
+        choices=VendorSetup.choices,
+        blank=True,
+        default=VendorSetup.NOT_CHOSEN,
+        help_text="The setup window they picked; blank while not chosen.",
+    )
+    needs = models.CharField(max_length=200, blank=True, help_text="What they need, e.g. Power, near a wall.")
+    status = models.CharField(
+        max_length=10,
+        choices=VendorTableStatus.choices,
+        default=VendorTableStatus.REQUESTED,
+        help_text="Where the request stands: requested, confirmed, waitlist or cancelled.",
+    )
+    table_no = models.CharField(max_length=10, blank=True, help_text="The table number on the floor, once given.")
+    created_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="vendor_tables_added",
+        help_text="The organiser who entered the request.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the request was entered.")
+
+    class Meta:
+        ordering = [_VENDOR_STATUS_ORDER, Lower("name"), "pk"]
+
+    def __str__(self) -> str:
+        return self.name
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.email = self.email.strip().lower()
+        super().save(*args, **kwargs)
+
+    @property
+    def guild_display(self) -> str:
+        """The guild's name, or "Not in a guild" for none."""
+        return self.guild.name if self.guild is not None else "Not in a guild"
+
+
+class VendorFloor(models.Model):
+    """How many tables the space map fits on a hub, and the mapper's note. One per hub, made on first save."""
+
+    hub = models.OneToOneField(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="vendor_floor",
+        help_text="The HQ whose market floor this is.",
+    )
+    capacity = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="How many tables fit, from the space map. Blank while the map is not ready.",
+    )
+    map_note = models.CharField(
+        max_length=200, blank=True, help_text="The mapper's note, e.g. 18 in the gallery, 6 in the shop."
+    )
+
+    def __str__(self) -> str:
+        return f"{self.hub.title}: {self.capacity if self.capacity is not None else 'not mapped'}"

@@ -11,7 +11,10 @@ donors table (:func:`donor_rows`) and the three writes (:func:`log_bottle`,
 (:func:`marketing_totals`, the one source of "Businesses with flyers") and its six tiles. The
 Sponsorship Tracker half holds the band (:func:`sponsor_band`, the one source of the sponsor money
 received and committed), the Follow up list (:func:`follow_ups`), the pipeline's filters and the
-three writes (:func:`add_sponsor`, :func:`update_sponsor`, :func:`log_contact`).
+three writes (:func:`add_sponsor`, :func:`update_sponsor`, :func:`log_contact`). The Vendor Tables half holds
+the band (:func:`vendor_band`, the one source of the confirmed tables the Member tables goal and the ledger read),
+the list's filters and the three writes (:func:`add_vendor_table`, :func:`update_vendor_table`,
+:func:`set_vendor_floor`).
 """
 
 from __future__ import annotations
@@ -37,13 +40,16 @@ from hq.models import (
     Sponsor,
     SponsorLogEntry,
     SponsorStatus,
+    VendorFloor,
+    VendorTable,
+    VendorTableStatus,
     VolunteerShift,
     WineBottle,
     WineKind,
     WineryLogo,
     format_money,
 )
-from membership.models import CommunityEvent, Member
+from membership.models import CommunityEvent, Guild, Member
 
 
 @dataclass(frozen=True)
@@ -54,6 +60,11 @@ class GoalRow:
     current: int
     target: int
     is_money: bool
+
+    @property
+    def has_target(self) -> bool:
+        """Whether the chip measures against a target; with none it is a plain count, no "of 0" and no meter."""
+        return self.target > 0
 
     @property
     def percent(self) -> int:
@@ -90,6 +101,7 @@ def volunteer_spots_filled(hub: EventHub) -> int:
 _LIVE_COUNTS: dict[str, Callable[[EventHub], int]] = {
     HubGoal.Kind.RSVPS: lambda hub: rsvp_count(hub.event),
     HubGoal.Kind.VOLUNTEER_SPOTS: volunteer_spots_filled,
+    HubGoal.Kind.MEMBER_TABLES: lambda hub: vendor_band(hub).confirmed,
 }
 
 # The two wine wall kinds are read off one band, so a hub showing both pays for it once.
@@ -798,3 +810,133 @@ def update_sponsor(sponsor: Sponsor, fields: Mapping[str, Any]) -> Sponsor:
 def log_contact(sponsor: Sponsor, *, text: str, by: str) -> SponsorLogEntry:
     """Add one line to ``sponsor``'s contact log, dated Portland today."""
     return SponsorLogEntry.objects.create(sponsor=sponsor, text=text, by=by)
+
+
+# ---- Vendor Tables (Track D, part 3) ----
+
+# The longest capacity the space map form takes: far past any floor, well inside a database integer.
+VENDOR_CAPACITY_MAX = 1_000
+
+# The list's filters, in Lee's order: the query value and the button's words; ``all`` shows every request.
+VENDOR_FILTER_ALL = "all"
+VENDOR_FILTERS: tuple[tuple[str, str], ...] = (
+    (VENDOR_FILTER_ALL, "All"),
+    *((status.value, str(status.label)) for status in VendorTableStatus),
+)
+
+# Who the Requested tile says the requests wait on when the card names nobody.
+VENDOR_TEAM_FALLBACK = "the vendor team"
+
+
+@dataclass(frozen=True)
+class VendorBand:
+    """The strip over the table requests: confirmed, requested and waitlist counts, and the space map.
+
+    ``confirmed`` is the one source of the confirmed vendor tables: the Member tables goal and the ledger read
+    it here. ``capacity`` is None while the space map is not ready; space left is the capacity less the
+    confirmed tables and goes below zero when more are confirmed than fit.
+    """
+
+    confirmed: int
+    requested: int
+    waitlist: int
+    cancelled: int
+    capacity: int | None
+    map_note: str
+
+    @property
+    def total(self) -> int:
+        """Every request on the list, whatever its status."""
+        return self.confirmed + self.requested + self.waitlist + self.cancelled
+
+    @property
+    def space_left(self) -> int | None:
+        """Tables still free on the map (negative when over), or None while it is not mapped."""
+        return None if self.capacity is None else self.capacity - self.confirmed
+
+    @property
+    def is_full(self) -> bool:
+        """Whether a new request goes to the waitlist: the map is in and the confirmed tables fill it."""
+        return self.capacity is not None and self.confirmed >= self.capacity
+
+    @property
+    def space_left_display(self) -> str:
+        """The Space left figure: the number, or a dash while the map is not ready."""
+        return "\u2013" if self.space_left is None else str(self.space_left)
+
+    @property
+    def space_left_line(self) -> str:
+        """The line under Space left, in Lee's words."""
+        if self.capacity is None:
+            return "Waiting on the space map"
+        if self.is_full:
+            return "Full: new requests go to the waitlist"
+        return f"of {self.capacity} tables on the map"
+
+    @property
+    def percent(self) -> int:
+        """How much of the map the confirmed tables fill, 0 to 100; empty while not mapped."""
+        if self.capacity is None:
+            return 0
+        if self.capacity == 0:
+            return 100
+        return min(100, round(self.confirmed * 100 / self.capacity))
+
+
+def vendor_band(hub: EventHub) -> VendorBand:
+    """The band for ``hub`` in two queries: one aggregate over its table requests, and the space map."""
+    totals = hub.vendor_tables.aggregate(
+        **{status: Count("pk", filter=Q(status=status)) for status in VendorTableStatus.values}
+    )
+    floor = VendorFloor.objects.filter(hub=hub).values("capacity", "map_note").first()
+    return VendorBand(
+        confirmed=totals[VendorTableStatus.CONFIRMED],
+        requested=totals[VendorTableStatus.REQUESTED],
+        waitlist=totals[VendorTableStatus.WAITLIST],
+        cancelled=totals[VendorTableStatus.CANCELLED],
+        capacity=floor["capacity"] if floor is not None else None,
+        map_note=floor["map_note"] if floor is not None else "",
+    )
+
+
+def active_guilds() -> list[Guild]:
+    """The guilds a table request may name, by name: every active guild, in one query."""
+    return list(Guild.objects.filter(is_active=True).order_by("name"))
+
+
+def vendor_filter(value: str) -> str:
+    """``value`` when it names one of :data:`VENDOR_FILTERS`, else ``all``: a stale or typed address shows everyone."""
+    return value if value in dict(VENDOR_FILTERS) else VENDOR_FILTER_ALL
+
+
+def filtered_vendor_tables(hub: EventHub, show: str, *, keep_pk: int | None = None) -> QuerySet[VendorTable]:
+    """``hub``'s table requests in list order under the filter ``show``, with each one's guild.
+
+    ``keep_pk`` is a request kept in view whatever the filter (the one just added), so it never vanishes.
+    """
+    tables = hub.vendor_tables.select_related("guild")
+    if show == VENDOR_FILTER_ALL:
+        return tables
+    return tables.filter(Q(status=show) | Q(pk=keep_pk)) if keep_pk is not None else tables.filter(status=show)
+
+
+def add_vendor_table(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> VendorTable:
+    """Put a table request on ``hub`` from the form's fields: requested, or waitlisted while the map is full."""
+    status = VendorTableStatus.WAITLIST if vendor_band(hub).is_full else VendorTableStatus.REQUESTED
+    return VendorTable.objects.create(hub=hub, created_by=member, status=status, **fields)
+
+
+def update_vendor_table(table: VendorTable, fields: Mapping[str, Any]) -> VendorTable:
+    """Save the row's edited fields on ``table``."""
+    for name, value in fields.items():
+        setattr(table, name, value)
+    table.save()
+    return table
+
+
+def set_vendor_floor(hub: EventHub, *, capacity: int | None, map_note: str) -> VendorFloor:
+    """Record how many tables the space map fits on ``hub`` (None clears it) and the mapper's note."""
+    floor, _created = VendorFloor.objects.update_or_create(
+        hub=hub, defaults={"capacity": capacity, "map_note": map_note}
+    )
+    return floor

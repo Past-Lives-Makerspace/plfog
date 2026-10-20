@@ -13,6 +13,8 @@ from hq.models import (
     ShiftSignup,
     Sponsor,
     SponsorLogEntry,
+    VendorFloor,
+    VendorTable,
     VolunteerShift,
     WineBottle,
     WineryLogo,
@@ -156,3 +158,22 @@ class SponsorLogEntryFactory(DjangoModelFactory):
 
     sponsor = factory.SubFactory(SponsorFactory)
     text = factory.Sequence(lambda n: f"Spec contact {n}")
+
+
+class VendorTableFactory(DjangoModelFactory):
+    """A requested 6 ft table with no guild, no contact and no setup day, entered by nobody."""
+
+    class Meta:
+        model = VendorTable
+
+    hub = factory.SubFactory(EventHubFactory)
+    name = factory.Sequence(lambda n: f"Spec Vendor {n}")
+    status = VendorTable.Status.REQUESTED
+
+
+class VendorFloorFactory(DjangoModelFactory):
+    class Meta:
+        model = VendorFloor
+
+    hub = factory.SubFactory(EventHubFactory)
+    capacity = 24

@@ -1,0 +1,9 @@
+{% comment %}
+The htmx answer to Save capacity: the capacity form, still open (with its errors when refused), and
+the band swapped out of band so space left and the waitlist follow the map.
+
+  hub, floor_form — as hq/partials/_vendor_floor.html
+  band            — required, a hq.services.VendorBand
+{% endcomment %}
+{% include "hq/partials/_vendor_floor.html" with floor_open=True %}
+{% include "hq/partials/_vendor_band.html" with oob=True %}

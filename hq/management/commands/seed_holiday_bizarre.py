@@ -1,4 +1,4 @@
-"""Seed Lee's Holiday Bizarre HQ from :mod:`hq.holiday_bizarre`: the hub, its nine doors, four goals and 21 shifts.
+"""Seed Lee's Holiday Bizarre HQ from :mod:`hq.holiday_bizarre`: the hub, its nine doors, five goals and 21 shifts.
 
 A command, never a migration (STANDARDS §3 and §10): deploys do not run it. An admin loads the
 same content from ``/hq/new/`` (the Load Lee's HQ button, :func:`hq.views.setup`), so the command
@@ -14,7 +14,7 @@ edits. A hub that already exists keeps its title, eyebrow, intro, footer note an
 only its event moves, and only when ``--event`` names a different one, which the output says;
 with no ``--event`` it is left alone. The doors are :meth:`hq.models.EventHub.seed_default_cards`:
 live doors keyed on kind, a built door's placeholder adopted in place, placeholders made only on
-a hub with no cards at all, and words still at their old defaults given Lee's current ones. The four
+a hub with no cards at all, and words still at their old defaults given Lee's current ones. The five
 goals and the 21 shifts are each made only on a hub that holds none of that kind of row: both
 are editable and have no stable key, so a renamed or deleted row never grows a sibling on the
 next run. Sign-ups, bottles, logos and marketing actions are never read.
@@ -171,7 +171,7 @@ def seed(event: CommunityEvent | None = None) -> SeedReport:
 
 
 def _seed_goals(hub: EventHub, tally: Tally) -> None:
-    """The four goals, only on a hub that holds none; goals are editable, so an existing set is kept as it is."""
+    """The five goals, only on a hub that holds none; goals are editable, so an existing set is kept as it is."""
     held = hub.goals.count()
     if held:
         tally.kept = held
@@ -218,7 +218,7 @@ def _seed_shifts(hub: EventHub, tally: Tally) -> None:
 
 class Command(BaseCommand):
     help = (
-        "Create the Holiday Bizarre HQ (hub, nine doors, four goals, 21 shifts), linked to a published "
+        "Create the Holiday Bizarre HQ (hub, nine doors, five goals, 21 shifts), linked to a published "
         "calendar event when --event names one. Runs twice without duplicates and never touches an admin's edits; --dry-run rolls everything "
         "back and writes nothing."
     )

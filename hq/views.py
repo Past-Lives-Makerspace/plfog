@@ -1,5 +1,6 @@
 """The HQ page and its edit pages (Track C, part 1), the volunteer sign-up page (part 2), the wine wall (part 3),
-the Marketing Tracker (Track D, part 1) and the Sponsorship Tracker (Track D, part 2)."""
+the Marketing Tracker (Track D, part 1), the Sponsorship Tracker (Track D, part 2) and Vendor Tables (Track D, part 3).
+"""
 
 from __future__ import annotations
 
@@ -24,11 +25,12 @@ from hq.access import (
     card_view,
     hub_or_404,
     is_actual_admin,
+    organizer_page,
     organizer_required,
     renders_as_admin,
     viewer_member,
 )
-from hq.exports import stream_donors_csv, stream_roster_csv, stream_sponsors_csv
+from hq.exports import stream_donors_csv, stream_roster_csv, stream_sponsors_csv, stream_vendor_tables_csv
 from hq.forms import (
     MARKETING_TEAM_LIST_ID,
     SPONSOR_TEAM_LIST_ID,
@@ -39,18 +41,21 @@ from hq.forms import (
     SponsorEditForm,
     SponsorForm,
     SponsorLogForm,
+    VendorFloorForm,
+    VendorTableEditForm,
+    VendorTableForm,
     VolunteerInfoForm,
     VolunteerShiftForm,
     VolunteerShiftFormSet,
     WineBottleForm,
     WineryLogoForm,
 )
-from hq.holiday_bizarre import SPONSOR_TIERS, WINE_WALL_BENEFIT
-from hq.models import EventHub, HubCard, ShiftSignup, Sponsor, VolunteerShift
+from hq.holiday_bizarre import SPONSOR_TIERS, VENDOR_SETUP_NOTE, WINE_WALL_BENEFIT
+from hq.models import EventHub, HubCard, ShiftSignup, Sponsor, VendorTable, VolunteerShift
 from hq.services import VolunteerBand, VolunteerInfo, goal_rows
 from hub.toast import trigger_toast
 from hub.view_as import fog_admin_required
-from membership.models import Member
+from membership.models import Guild, Member
 
 if TYPE_CHECKING:
     from django.forms import BaseInlineFormSet
@@ -746,3 +751,215 @@ def sponsor_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: in
 def sponsors_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
     """Every sponsor on the tracker as a CSV download, one row each, in pipeline order."""
     return stream_sponsors_csv(hub.sponsors.all(), filename_stem=hub.slug)
+
+
+# ---- Vendor Tables (Track D, part 3) ----
+
+
+def _vendors_url(hub: EventHub, show: str = services.VENDOR_FILTER_ALL) -> str:
+    url = reverse("hq:vendors", args=[hub.slug])
+    return url if show == services.VENDOR_FILTER_ALL else f"{url}?filter={show}"
+
+
+@dataclass(frozen=True)
+class VendorRow:
+    """One row in the table requests: the request and its edit form (bound and refused, or fresh from the row)."""
+
+    table: VendorTable
+    form: VendorTableEditForm
+
+
+def _vendor_prefix(table: VendorTable) -> str:
+    return f"vendor-{table.pk}"
+
+
+def _vendor_form_id(table: VendorTable) -> str:
+    return f"hq-vt-row-{table.pk}"
+
+
+def _vendor_edit_form(table: VendorTable, guilds: list[Guild], data: Any = None) -> VendorTableEditForm:
+    return VendorTableEditForm(
+        data, instance=table, guilds=guilds, prefix=_vendor_prefix(table), form_id=_vendor_form_id(table)
+    )
+
+
+def _vendor_team(card: HubCard) -> tuple[str, str]:
+    """Who manages the door, from its first named member: their display name for the header ("" for nobody) and
+    their first name for the Requested tile, else the vendor team."""
+    named = list(card.named_members.all())
+    if not named:
+        return "", services.VENDOR_TEAM_FALLBACK
+    name = named[0].display_name
+    return name, name.split()[0]
+
+
+def _vendors_context(
+    request: HttpRequest,
+    hub: EventHub,
+    card: HubCard,
+    *,
+    show: str,
+    add_form: VendorTableForm | None = None,
+    add_open: bool = False,
+    floor_form: VendorFloorForm | None = None,
+    keep_pk: int | None = None,
+    row_form: VendorTableEditForm | None = None,
+) -> dict[str, Any]:
+    """What the page and its board render. Organisers alone reach it, so every row carries its edit form.
+
+    ``keep_pk`` is a request kept in view whatever the filter (the one just added or refused), and
+    ``row_form`` that row's bound form when its Save was refused.
+    """
+    guilds = services.active_guilds()
+    band_context = _vendor_band_context(hub, card)
+    band: services.VendorBand = band_context["band"]
+    rows = []
+    for table in services.filtered_vendor_tables(hub, show, keep_pk=keep_pk):
+        form = row_form if row_form is not None and table.pk == keep_pk else _vendor_edit_form(table, guilds)
+        rows.append(VendorRow(table=table, form=form))
+    return {
+        **band_context,
+        "hub": hub,
+        "card": card,
+        "managed_by": _vendor_team(card)[0],
+        "add_form": add_form if add_form is not None else VendorTableForm(guilds=guilds),
+        # A refused add comes back open with its errors; a saved one stays open for the next.
+        "add_open": add_open or add_form is not None,
+        "rows": rows,
+        "has_tables": band.total > 0,
+        "show": show,
+        "filters": services.VENDOR_FILTERS,
+        "floor_form": floor_form if floor_form is not None else _floor_form(band),
+    }
+
+
+def _vendor_band_context(hub: EventHub, card: HubCard, band: services.VendorBand | None = None) -> dict[str, Any]:
+    """What the band renders: the counts, Lee's setup note, and who the requests wait on."""
+    return {
+        "band": band if band is not None else services.vendor_band(hub),
+        "setup_note": VENDOR_SETUP_NOTE,
+        "waiting_on": _vendor_team(card)[1],
+    }
+
+
+def _floor_form(band: services.VendorBand) -> VendorFloorForm:
+    return VendorFloorForm(initial={"capacity": band.capacity, "map_note": band.map_note})
+
+
+@organizer_page(HubCard.Kind.VENDOR_TABLES)
+def vendors(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Vendor Tables: the band, + Add a Table Request, the table requests with ``?filter=``, and the space map's
+    capacity. Organisers only (the card's gate, then a 403), because every row is a contact."""
+    show = services.vendor_filter(request.GET.get("filter", ""))
+    return render(request, "hq/vendors.html", _vendors_context(request, hub, card, show=show))
+
+
+def _vendor_posted_filter(request: HttpRequest) -> str:
+    return services.vendor_filter(request.POST.get("filter", ""))
+
+
+@require_POST
+@organizer_required(HubCard.Kind.VENDOR_TABLES)
+def vendor_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """+ Add a Table Request, by the actual role: requested, or the waitlist while the map is full. Over htmx the
+    board comes back with the form open and empty and a toast; a plain post lands back on the page with a message."""
+    show = _vendor_posted_filter(request)
+    form = VendorTableForm(request.POST, guilds=services.active_guilds())
+    fragment = wants_fragment(request)
+    template = "hq/partials/_vendor_board.html" if fragment else "hq/vendors.html"
+    if not form.is_valid():
+        return render(request, template, _vendors_context(request, hub, card, show=show, add_form=form))
+    table = services.add_vendor_table(hub, form.to_fields(), member=actual_member(request))
+    message = (
+        "Added to the waitlist (tables are full)." if table.status == VendorTable.Status.WAITLIST else "Request added."
+    )
+    if not fragment:
+        messages.success(request, message)
+        return redirect(_vendors_url(hub, show))
+    context = _vendors_context(request, hub, card, show=show, add_open=True, keep_pk=table.pk)
+    response = render(request, template, context)
+    trigger_toast(response, message, "success")
+    return response
+
+
+@require_POST
+@organizer_required(HubCard.Kind.VENDOR_TABLES)
+def vendor_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Save one row, by the actual role. Over htmx only that row comes back (with the band out of band), so
+    what is typed in any other row stays put; a refused Save comes back with its errors and saves nothing."""
+    table = get_object_or_404(hub.vendor_tables.select_related("guild"), pk=pk)
+    show = _vendor_posted_filter(request)
+    guilds = services.active_guilds()
+    form = _vendor_edit_form(table, guilds, request.POST)
+    fragment = wants_fragment(request)
+    if not form.is_valid():
+        if not fragment:
+            context = _vendors_context(request, hub, card, show=show, keep_pk=table.pk, row_form=form)
+            return render(request, "hq/vendors.html", context)
+        # The refused form changed the row in memory; the row's own words come from the database.
+        saved = hub.vendor_tables.select_related("guild").get(pk=table.pk)
+        return _vendor_row_answer(request, hub, card, VendorRow(table=saved, form=form))
+    services.update_vendor_table(table, form.to_fields())
+    if not fragment:
+        messages.success(request, f"{table.name} saved.")
+        return redirect(_vendors_url(hub, show))
+    response = _vendor_row_answer(request, hub, card, VendorRow(table=table, form=_vendor_edit_form(table, guilds)))
+    trigger_toast(response, "Saved.", "success")
+    return response
+
+
+def _vendor_row_answer(request: HttpRequest, hub: EventHub, card: HubCard, row: VendorRow) -> HttpResponse:
+    """The row for an htmx Save, with the band swapped out of band so the counts follow the row's status."""
+    context = {**_vendor_band_context(hub, card), "hub": hub, "row": row, "show": _vendor_posted_filter(request)}
+    return render(request, "hq/partials/_vendor_row_answer.html", context)
+
+
+@require_POST
+@organizer_required(HubCard.Kind.VENDOR_TABLES)
+def vendor_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
+    """Take a table request off the list (organisers, by the actual role), then the page with the filter."""
+    table = get_object_or_404(hub.vendor_tables, pk=pk)
+    table.delete()
+    messages.success(request, f"{table.name} is off the list.")
+    return redirect(_vendors_url(hub, _vendor_posted_filter(request)))
+
+
+@require_POST
+@organizer_required(HubCard.Kind.VENDOR_TABLES)
+def vendor_floor(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Save the space map's capacity and note, by the actual role. Over htmx the capacity form comes back with the
+    band out of band and a toast; a plain post lands back on the page with a message."""
+    form = VendorFloorForm(request.POST)
+    fragment = wants_fragment(request)
+    if not form.is_valid():
+        if not fragment:
+            context = _vendors_context(request, hub, card, show=services.VENDOR_FILTER_ALL, floor_form=form)
+            return render(request, "hq/vendors.html", context)
+        return _vendor_floor_answer(request, hub, card, form)
+    services.set_vendor_floor(hub, capacity=form.cleaned_data["capacity"], map_note=form.cleaned_data["map_note"])
+    if not fragment:
+        messages.success(request, "Capacity saved.")
+        return redirect(_vendors_url(hub))
+    band = services.vendor_band(hub)
+    response = _vendor_floor_answer(request, hub, card, _floor_form(band), band=band)
+    trigger_toast(response, "Capacity saved.", "success")
+    return response
+
+
+def _vendor_floor_answer(
+    request: HttpRequest,
+    hub: EventHub,
+    card: HubCard,
+    form: VendorFloorForm,
+    *,
+    band: services.VendorBand | None = None,
+) -> HttpResponse:
+    """The capacity form, still open, for an htmx post, with the band out of band so space left follows the map."""
+    context = {**_vendor_band_context(hub, card, band), "hub": hub, "floor_form": form}
+    return render(request, "hq/partials/_vendor_floor_answer.html", context)
+
+
+@organizer_required(HubCard.Kind.VENDOR_TABLES)
+def vendors_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
+    """Every table request as a CSV download, one row each, in list order."""
+    return stream_vendor_tables_csv(hub.vendor_tables.select_related("guild", "created_by"), filename_stem=hub.slug)

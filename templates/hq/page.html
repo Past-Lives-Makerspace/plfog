@@ -51,8 +51,13 @@ included, with Edit links and the Edit HQ action; everyone else gets only the do
       {% for goal in goals %}
       <div class="pl-hq-goal" data-hq-goal>
         <span class="pl-hq-goal__label">{{ goal.label }}</span>
+        {% if goal.has_target %}
         <strong class="pl-hq-goal__value">{{ goal.current_display }} <small>of {{ goal.target_display }}</small></strong>
         <progress class="pl-hq-meter" max="100" value="{{ goal.percent }}" aria-label="{{ goal.label }}: {{ goal.percent }} percent of the goal">{{ goal.percent }}%</progress>
+        {% else %}
+        {# A goal with no target is a plain count: no "of 0" and no meter. #}
+        <strong class="pl-hq-goal__value" data-hq-goal-count>{{ goal.current_display }}</strong>
+        {% endif %}
       </div>
       {% endfor %}
     </div>

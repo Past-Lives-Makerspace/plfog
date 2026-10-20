@@ -1,4 +1,5 @@
-"""Lee's Holiday Bizarre HQ as data: the hub, its nine doors, four goals, 21 volunteer shifts and the sponsor tiers.
+"""Lee's Holiday Bizarre HQ as data: the hub, its nine doors, five goals, 21 volunteer shifts, the sponsor tiers and the
+vendor setup windows.
 
 ``manage.py seed_holiday_bizarre`` writes these rows for a published calendar event; correcting
 a word here and re-running is the workflow, as with the help articles. Nothing in this module
@@ -10,9 +11,10 @@ words each was first seeded with, so a re-run can tell Lee's untouched words fro
 :data:`CARDS` is that same tuple, so the two never drift.
 The shifts are Lee's sign-up sheet, phase by phase, in her words; the two bartender shifts
 need an Oregon OLCC service permit. The goals are her tracker: Raised is typed in by an admin
-(a money goal, in whole dollars, as every ``HubGoal`` money figure is), the other three are
-counted live from the pages behind the doors. The sponsor tiers are her draft "what they get"
-table on the Sponsorship Tracker, row for row.
+(a money goal, in whole dollars, as every ``HubGoal`` money figure is), the other four are
+counted live from the pages behind the doors; Member tables has no target, so it shows as a plain
+count. The sponsor tiers are her draft "what they get" table on the Sponsorship Tracker, row for
+row. The vendor setup windows are the Setup day choices on Vendor Tables and its band's note.
 """
 
 from __future__ import annotations
@@ -74,6 +76,7 @@ GOALS: tuple[GoalContent, ...] = (
     GoalContent(label="Wine wall bottles", kind=HubGoal.Kind.BOTTLES, target=100),
     GoalContent(label="Volunteer spots", kind=HubGoal.Kind.VOLUNTEER_SPOTS, target=82),
     GoalContent(label="RSVPs", kind=HubGoal.Kind.RSVPS, target=250),
+    GoalContent(label="Member tables", kind=HubGoal.Kind.MEMBER_TABLES, target=0),
 )
 
 # The 21 shifts of Lee's sheet. Their needs add up to the Volunteer spots goal (82).
@@ -305,3 +308,12 @@ SPONSOR_TIERS: tuple[SponsorTierContent, ...] = (
         benefits=("Wine, kegs, gift cards and products", "Name on the sponsor board", WINE_WALL_BENEFIT),
     ),
 )
+
+
+# The two windows a vendor can set up in, keyed by ``VendorTable.Setup`` value: the Setup day choices read their
+# labels here (``hq.models.VendorSetup``), and the band's note says the same in full.
+VENDOR_SETUP_WINDOWS: dict[str, str] = {
+    "thu": "Thu Dec 3, 3 to 7 PM",
+    "fri": "Fri Dec 4, 3 to 5 PM",
+}
+VENDOR_SETUP_NOTE = "Setup: Thursday Dec 3, 3 to 7 PM, or Friday Dec 4, 3 to 5 PM. Sale runs Friday 5 to 10 PM."
