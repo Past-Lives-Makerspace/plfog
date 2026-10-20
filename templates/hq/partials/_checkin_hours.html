@@ -1,0 +1,48 @@
+{% comment %}
+Volunteers: log your hours, and the htmx answer to a refused Log my hours. The form, Lee's message after a save,
+then the member's own entries newest date first with their total, each with a Delete through the confirm modal.
+Log my hours swaps this section; a saved entry also sends the hero's figures and the board out of band.
+
+  hub           — required, the EventHub
+  hours_form    — required, a VolunteerHoursForm (bound when a save was refused)
+  entries       — required, the member's VolunteerHours, newest date first
+  my_total      — required, their hours added up, as displayed
+  hours_message — required, Lee's line after a save, or ""
+{% endcomment %}
+<section class="pl-hq-ci__card" aria-labelledby="hq-ci-hours-title" data-hq-ci-hours>
+  <h2 class="pl-hq-ci__h2" id="hq-ci-hours-title">Volunteers: log your hours</h2>
+  <p class="pl-hq-ci__lede">Flyering, outreach, setup, event night: it all counts.</p>
+  <form method="post" action="{% url 'hq:checkin_hours_log' hub.slug %}" hx-post="{% url 'hq:checkin_hours_log' hub.slug %}" hx-target="closest [data-hq-ci-hours]" hx-swap="outerHTML" class="pl-hq-ci__form" data-hq-ci-hours-form>
+    {% csrf_token %}
+    {% for error in hours_form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+    <div class="pl-hq-ci__fields">
+      {% include "components/form_field.html" with field=hours_form.date field_hint_off=True %}
+      {% include "components/form_field.html" with field=hours_form.hours field_hint_off=True %}
+      {% include "components/form_field.html" with field=hours_form.task field_hint_off=True %}
+    </div>
+    {% include "components/form_field.html" with field=hours_form.note field_hint_off=True %}
+    <div class="pl-hq-ci__actions">
+      <button type="submit" class="pl-hq-ci__btn" data-hq-ci-hours-submit>Log my hours</button>
+      {% if hours_message %}<span class="pl-hq-ci__msg" role="status" data-hq-ci-hours-msg>{{ hours_message }}</span>{% endif %}
+    </div>
+  </form>
+  {% if entries %}
+  <div class="pl-hq-ci__mine" data-hq-ci-mine>
+    <p class="pl-hq-ci__mine-total" data-hq-ci-my-total>Your hours: {{ my_total }}</p>
+    <ul class="pl-hq-ci__entries">
+      {% for entry in entries %}
+      <li class="pl-hq-ci__entry" data-hq-ci-entry="{{ entry.pk }}">
+        <span class="pl-hq-ci__entry-date">{{ entry.date|date:"M j" }}</span>
+        <span class="pl-hq-ci__entry-hours">{{ entry.hours_display }} h</span>
+        <span class="pl-hq-ci__entry-task">{{ entry.get_task_display }}{% if entry.note %} · {{ entry.note }}{% endif %}</span>
+        <button type="button" class="pl-hq-ci__delete" aria-label="Delete {{ entry.hours_display }} h on {{ entry.date|date:'M j' }}" @click="$dispatch('open-confirm', 'delete-hours-{{ entry.pk }}')" data-hq-ci-delete>Delete</button>
+        {% url 'hq:checkin_hours_delete' hub.slug entry.pk as delete_url %}
+        {% with pk_text=entry.pk|stringformat:"s" %}
+        {% include "components/confirm_modal.html" with confirm_id="delete-hours-"|add:pk_text confirm_title="Delete these hours?" confirm_message="The entry comes off your hours and the thank-you board. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" %}
+        {% endwith %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</section>

@@ -1,0 +1,59 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+The Market Check-in (Track D, part 4), in the look of Lee's page: one narrow column with a navy hero (her
+thank-you, the countdown, the volunteer hours and volunteers so far), Artists: your market report, Volunteers:
+log your hours, and the volunteer thank-you board. Members only: the two forms render for a member who may
+check in (hq.access.can_check_in, by the effective role); a signed out visitor gets a sign in link, any other
+account a line saying so, and both still read the hero and the board. Organisers get links to the reports and
+the hours. No login gate of its own: card_view decides who may open the page.
+{% endcomment %}
+{% block title %}{{ card.title }}{% endblock %}
+{% block extra_head %}
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq-ci" data-hq-checkin>
+  <div class="pl-hq-ci__top">
+    {% if can_organize %}
+    <nav class="pl-hq-ci__staff" aria-label="Organisers" data-hq-ci-staff>
+      <a href="{% url 'hq:checkin_reports' hub.slug %}" class="pl-hq-ci__staff-link" data-hq-ci-reports-link>Market reports</a>
+      <a href="{% url 'hq:checkin_hours' hub.slug %}" class="pl-hq-ci__staff-link" data-hq-ci-hours-link>All hours</a>
+    </nav>
+    {% endif %}
+    <a href="{% url 'hq:page' hub.slug %}" class="pl-hq-ci__back" data-hq-ci-back>&larr; HQ</a>
+  </div>
+
+  <section class="pl-hq-ci__hero" aria-labelledby="hq-ci-title" data-hq-ci-hero>
+    <div class="pl-hq-ci__brand">
+      <p class="pl-hq-ci__eyebrow" data-hq-ci-eyebrow>Past Lives Makerspace · {{ hub.title }}</p>
+      <h1 class="pl-hq-ci__title" id="hq-ci-title">Market Check-in</h1>
+    </div>
+    <p class="pl-hq-ci__thanks" data-hq-ci-thanks>{{ thanks }}</p>
+    {% include "hq/partials/_checkin_stats.html" %}
+  </section>
+
+  {% if not signed_in %}
+  <p class="pl-hq-ci__status" data-hq-ci-sign-in><a href="{{ login_url }}" class="pl-hq-ci__status-link">Sign in to add your report or log hours</a></p>
+  {% elif not may_check_in %}
+  <p class="pl-hq-ci__status" data-hq-ci-members-only>Market reports and volunteer hours are for Past Lives members.</p>
+  {% endif %}
+
+  {% if may_check_in %}
+  {% include "hq/partials/_checkin_report.html" %}
+  {% include "hq/partials/_checkin_hours.html" %}
+  {% endif %}
+
+  {% if volunteer_url %}
+  <div class="pl-hq-ci__card pl-hq-ci__link-card" data-hq-ci-volunteer>
+    <p class="pl-hq-ci__link-text">Want a shift on the night too? Pick one on the volunteer sheet.</p>
+    <a href="{{ volunteer_url }}" class="pl-hq-ci__btn pl-hq-ci__btn--ghost" data-hq-ci-volunteer-link>Volunteer Sign-up</a>
+  </div>
+  {% endif %}
+
+  {% include "hq/partials/_checkin_board.html" %}
+
+  <p class="pl-hq-ci__note" data-hq-ci-footer>{{ footer }}</p>
+</div>
+{% endblock %}

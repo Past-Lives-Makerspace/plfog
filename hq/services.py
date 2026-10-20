@@ -22,20 +22,23 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
-from django.db.models import Count, F, IntegerField, Q, QuerySet, Sum
+from django.db.models import Count, DecimalField, F, IntegerField, Min, OuterRef, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import Coalesce, Lower
 from django.http import HttpRequest
+from django.utils import timezone
 
-from hq.holiday_bizarre import GOALS
+from hq.holiday_bizarre import CHECKIN_THANKS, GOALS
 from hq.models import (
     EventHub,
     HubGoal,
     MarketingAction,
     MarketingKind,
+    MarketReport,
     ShiftPhase,
     ShiftSignup,
     Sponsor,
@@ -44,13 +47,15 @@ from hq.models import (
     VendorFloor,
     VendorTable,
     VendorTableStatus,
+    VolunteerHours,
     VolunteerShift,
     WineBottle,
     WineKind,
     WineryLogo,
+    format_hours,
     format_money,
 )
-from membership.models import CommunityEvent, Guild, Member
+from membership.models import CommunityEvent, Guild, GuildMembership, Member
 
 
 @dataclass(frozen=True)
@@ -347,14 +352,23 @@ class RosterRow:
     has_olcc: bool
     note: str
     shifts: list[str]
+    # The hours the member with this primary email logged on the Market Check-in (D4); 0 for anyone else.
+    hours: Decimal = Decimal(0)
+
+    @property
+    def hours_display(self) -> str:
+        """The hours logged, or a dash for none."""
+        return format_hours(self.hours) if self.hours else "\u2013"
 
 
 def roster_rows(hub: EventHub) -> list[RosterRow]:
-    """Everyone signed up on ``hub``, one row per email with their shifts in page order, by name.
+    """Everyone signed up on ``hub``, one row per email with their shifts in page order, by name, in two queries.
 
     A person's name, phone, permit and note are read from their newest sign-up, so what they
-    last typed on Your Info is what the organisers see.
+    last typed on Your Info is what the organisers see. Hours logged is the Market Check-in's figure for the
+    member whose email (``Member.primary_email``'s rule, :func:`hours_by_email`) is the sign-up's.
     """
+    hours = hours_by_email(hub)
     by_email: dict[str, RosterRow] = {}
     signups = ShiftSignup.objects.filter(shift__hub=hub).select_related("shift").order_by("created_at", "pk")
     for signup in signups:
@@ -367,6 +381,7 @@ def roster_rows(hub: EventHub) -> list[RosterRow]:
             has_olcc=signup.has_olcc,
             note=signup.note,
             shifts=shifts,
+            hours=hours.get(signup.email, Decimal(0)),
         )
         shifts.append(signup.shift.role)
     return sorted(by_email.values(), key=lambda row: (row.name.lower(), row.email))
@@ -984,3 +999,254 @@ def set_vendor_floor(hub: EventHub, *, capacity: int | None, map_note: str) -> V
         hub=hub, defaults={"capacity": capacity, "map_note": map_note}
     )
     return floor
+
+
+# ---- Market Check-in (Track D, part 4) ----
+
+# How many volunteers the thank-you board shows.
+BOARD_LIMIT = 15
+
+
+class NotYourHours(Exception):
+    """Only the member who logged an hours entry, or an organiser, may delete it."""
+
+
+@dataclass(frozen=True)
+class CheckinBand:
+    """The Market Check-in's figures: the hours and volunteers in the hero, and the reports' totals.
+
+    These are the one source of the check-in figures: the ledger (D6) reads them here rather than keeping a copy.
+    ``volunteers`` is every member with hours logged; ``vendors_with_sales`` every report with sales above zero.
+    """
+
+    hours: Decimal
+    volunteers: int
+    reports: int
+    sales_cents: int
+    items: int
+    vendors_with_sales: int
+
+    @property
+    def hours_display(self) -> str:
+        return format_hours(self.hours)
+
+    @property
+    def sales_display(self) -> str:
+        return format_money(self.sales_cents)
+
+    @property
+    def average_sale_cents(self) -> int:
+        """The sales per artist who sold anything, rounded to the cent; 0 while nobody has."""
+        if self.vendors_with_sales == 0:
+            return 0
+        return round(self.sales_cents / self.vendors_with_sales)
+
+    @property
+    def average_sale_display(self) -> str:
+        return format_money(self.average_sale_cents)
+
+
+def checkin_band(hub: EventHub) -> CheckinBand:
+    """The check-in figures for ``hub`` in two queries: one aggregate over the hours, one over the reports."""
+    hours = hub.volunteer_hours.aggregate(
+        total=Coalesce(Sum("hours"), Decimal(0), output_field=DecimalField()),
+        people=Count("member", distinct=True),
+    )
+    reports = hub.market_reports.aggregate(
+        count=Count("pk"),
+        sales=Coalesce(Sum("sales_cents"), 0),
+        items=Coalesce(Sum("items_sold"), 0),
+        selling=Count("pk", filter=Q(sales_cents__gt=0)),
+    )
+    return CheckinBand(
+        hours=hours["total"],
+        volunteers=hours["people"],
+        reports=reports["count"],
+        sales_cents=reports["sales"],
+        items=reports["items"],
+        vendors_with_sales=reports["selling"],
+    )
+
+
+def checkin_thanks(hub: EventHub) -> str:
+    """Lee's thank-you line in the hero, with the event's day ("on December 4") when the hub has an event."""
+    if hub.event is None:
+        return CHECKIN_THANKS.format(on_date="")
+    day = timezone.localdate(hub.event.starts_at)
+    return CHECKIN_THANKS.format(on_date=f" on {day:%B} {day.day}")
+
+
+@dataclass(frozen=True)
+class BoardRow:
+    """One volunteer on the thank-you board: their place, who they are and their hours."""
+
+    rank: int
+    member_id: int
+    name: str
+    hours: Decimal
+
+    @property
+    def hours_display(self) -> str:
+        return format_hours(self.hours)
+
+    @property
+    def meter_value(self) -> str:
+        """The hours as a plain number for the bar's ``value``, never localised."""
+        return str(self.hours)
+
+
+@dataclass(frozen=True)
+class ThankYouBoard:
+    """The top volunteers by hours, and the most anyone has given (the bars' full length)."""
+
+    rows: list[BoardRow]
+
+    @property
+    def top(self) -> str:
+        """The leader's hours as a plain number for the bars' ``max``; 1 on an empty board."""
+        return str(self.rows[0].hours) if self.rows else "1"
+
+
+def thank_you_board(hub: EventHub, *, limit: int = BOARD_LIMIT) -> ThankYouBoard:
+    """The ``limit`` members with the most hours on ``hub``, most first (ties by who logged first), in one query."""
+    rows = (
+        hub.volunteer_hours.values("member", "member__preferred_name", "member__full_legal_name")
+        .annotate(total=Sum("hours"), first=Min("pk"))
+        .order_by("-total", "first")[:limit]
+    )
+    return ThankYouBoard(
+        rows=[
+            BoardRow(
+                rank=position,
+                member_id=row["member"],
+                name=row["member__preferred_name"] or row["member__full_legal_name"],
+                hours=row["total"],
+            )
+            for position, row in enumerate(rows, start=1)
+        ]
+    )
+
+
+def member_hours(hub: EventHub, member: Member) -> list[VolunteerHours]:
+    """``member``'s own entries on ``hub``, newest date first."""
+    return list(hub.volunteer_hours.filter(member=member))
+
+
+def total_hours(entries: Sequence[VolunteerHours]) -> Decimal:
+    """The hours in ``entries`` added up."""
+    return sum((entry.hours for entry in entries), Decimal(0))
+
+
+def log_hours(hub: EventHub, member: Member, fields: Mapping[str, Any]) -> VolunteerHours:
+    """Add one hours entry for ``member`` on ``hub`` from the form's cleaned fields."""
+    return VolunteerHours.objects.create(hub=hub, member=member, **fields)
+
+
+def delete_hours(entry: VolunteerHours, *, member: Member, is_organizer: bool) -> None:
+    """Take ``entry`` off the hours.
+
+    Raises:
+        NotYourHours: ``member`` did not log it and is not an organiser.
+    """
+    if not is_organizer and entry.member_id != member.pk:
+        raise NotYourHours("Only the organisers or whoever logged these hours can delete them.")
+    entry.delete()
+
+
+def report_for(hub: EventHub, member: Member) -> MarketReport | None:
+    """``member``'s report on ``hub`` with its guild, or None before they file one."""
+    return hub.market_reports.select_related("guild").filter(member=member).first()
+
+
+def save_report(hub: EventHub, member: Member, fields: Mapping[str, Any]) -> MarketReport:
+    """File or update ``member``'s one report on ``hub`` from the form's fields (an upsert on hub and member)."""
+    report, _created = MarketReport.objects.update_or_create(hub=hub, member=member, defaults=dict(fields))
+    return report
+
+
+def confirmed_table(hub: EventHub, member: Member) -> VendorTable | None:
+    """The confirmed table request on ``hub`` whose email is ``member``'s primary email, with its guild.
+
+    The address is ``Member.primary_email`` (the rule :func:`hours_by_email` keys on): for a signed in member whose
+    user is already loaded, one query for the primary ``EmailAddress`` and one for the table. A blank address
+    returns None before the table query, so it never matches a request left blank. The first confirmed request
+    entered wins if two share the address.
+    """
+    email = member.primary_email.strip().lower()
+    if not email:
+        return None
+    return (
+        hub.vendor_tables.select_related("guild")
+        .filter(status=VendorTableStatus.CONFIRMED, email=email)
+        .order_by("pk")
+        .first()
+    )
+
+
+def report_initial(member: Member, table: VendorTable | None) -> dict[str, Any]:
+    """What a member's first report starts with: the confirmed table's name and guild when there is one, else
+    their display name and their guild when they belong to exactly one active guild."""
+    name = table.name if table is not None else member.display_name
+    guild_id = table.guild_id if table is not None else None
+    if guild_id is None:
+        guilds = list(
+            GuildMembership.objects.filter(member=member, guild__is_active=True).values_list("guild_id", flat=True)[:2]
+        )
+        guild_id = guilds[0] if len(guilds) == 1 else None
+    return {"name": name, "guild": guild_id}
+
+
+@dataclass(frozen=True)
+class GuildSales:
+    """One line of the organisers' sales by guild."""
+
+    name: str
+    reports: int
+    sales_cents: int
+
+    @property
+    def sales_display(self) -> str:
+        return format_money(self.sales_cents)
+
+
+def sales_by_guild(hub: EventHub) -> list[GuildSales]:
+    """The reports on ``hub`` grouped by guild (none is "Not in a guild"), most sales first, in one query."""
+    rows = (
+        hub.market_reports.values("guild__name")
+        .annotate(reports=Count("pk"), sales=Coalesce(Sum("sales_cents"), 0))
+        .order_by("-sales", "guild__name")
+    )
+    return [
+        GuildSales(name=row["guild__name"] or "Not in a guild", reports=row["reports"], sales_cents=row["sales"])
+        for row in rows
+    ]
+
+
+def hours_by_email(hub: EventHub) -> dict[str, Decimal]:
+    """Each member's hours on ``hub`` keyed by their email as ``Member.primary_email`` reads it, lowercased, in one
+    query.
+
+    The rule is ``Member.primary_email``'s: the primary ``EmailAddress`` of a linked user, else ``User.email``, and
+    the stored pre-signup address for a member with no user; it is the rule :func:`confirmed_table` matches on. The
+    volunteer roster reads it to put "Hours logged" beside a sign-up whose email is that address. A member with no
+    address under that rule is left out (a blank key would match nothing real).
+    """
+    from allauth.account.models import EmailAddress
+
+    primary = EmailAddress.objects.filter(user_id=OuterRef("member__user_id"), primary=True).values("email")[:1]
+    rows = (
+        hub.volunteer_hours.annotate(primary=Subquery(primary))
+        .values("member", "member__user_id", "member__user__email", "member___pre_signup_email", "primary")
+        .annotate(total=Sum("hours"))
+        .order_by()
+    )
+    totals: dict[str, Decimal] = {}
+    for row in rows:
+        if row["member__user_id"] is None:
+            email = row["member___pre_signup_email"]
+        else:
+            email = row["primary"] or row["member__user__email"]
+        key = (email or "").strip().lower()
+        if key:
+            totals[key] = totals.get(key, Decimal(0)) + row["total"]
+    return totals

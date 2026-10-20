@@ -3,7 +3,7 @@
 ``new/`` (Load Lee's HQ) sits before ``<slug>/`` so it is never read as a hub; ``hq.forms.RESERVED_SLUGS`` keeps
 a hub from taking that address. The volunteer pages live under ``<slug>/volunteers/`` and the
 wine wall under ``<slug>/wine/``, the Marketing Tracker under ``<slug>/marketing/``, the Sponsorship Tracker
-under ``<slug>/sponsors/`` and Vendor Tables under ``<slug>/vendors/``.
+under ``<slug>/sponsors/``, Vendor Tables under ``<slug>/vendors/`` and the Market Check-in under ``<slug>/check-in/``.
 """
 
 from __future__ import annotations
@@ -49,4 +49,12 @@ urlpatterns = [
     path("<slug:slug>/vendors/floor/", views.vendor_floor, name="vendor_floor"),
     path("<slug:slug>/vendors/<int:pk>/edit/", views.vendor_edit, name="vendor_edit"),
     path("<slug:slug>/vendors/<int:pk>/delete/", views.vendor_delete, name="vendor_delete"),
+    path("<slug:slug>/check-in/", views.checkin, name="checkin"),
+    path("<slug:slug>/check-in/report/", views.checkin_report, name="checkin_report"),
+    path("<slug:slug>/check-in/hours/log/", views.checkin_hours_log, name="checkin_hours_log"),
+    path("<slug:slug>/check-in/hours/<int:pk>/delete/", views.checkin_hours_delete, name="checkin_hours_delete"),
+    path("<slug:slug>/check-in/reports/", views.checkin_reports, name="checkin_reports"),
+    path("<slug:slug>/check-in/reports.csv", views.checkin_reports_csv, name="checkin_reports_csv"),
+    path("<slug:slug>/check-in/hours/", views.checkin_hours, name="checkin_hours"),
+    path("<slug:slug>/check-in/hours.csv", views.checkin_hours_csv, name="checkin_hours_csv"),
 ]

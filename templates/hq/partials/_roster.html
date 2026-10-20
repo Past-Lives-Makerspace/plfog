@@ -3,7 +3,8 @@ The organisers' roster: everyone signed up, with their shifts, as a table that s
 phone (.pl-members-table).
 
   hub           — required, the EventHub
-  roster        — required, hq.services.roster_rows(hub)
+  roster        — required, hq.services.roster_rows(hub); Hours logged is the Market Check-in's figure for the
+                  member whose primary email is the row's
   roster_emails — required, the addresses as one comma separated line
 
 Copy emails writes that line to the clipboard in a secure context, and selects the hidden box
@@ -21,7 +22,7 @@ opts out of hx-boost and is marked for the native shells (FRONTEND rule 24).
   {% if roster %}
   <table class="pl-members-table pl-hq-vol__table">
     <thead>
-      <tr><th>Name</th><th>Shifts</th><th>Email</th><th>Phone</th><th>OLCC</th><th>Note</th></tr>
+      <tr><th>Name</th><th>Shifts</th><th>Email</th><th>Phone</th><th>OLCC</th><th>Hours logged</th><th>Note</th></tr>
     </thead>
     <tbody>
       {% for row in roster %}
@@ -31,6 +32,7 @@ opts out of hx-boost and is marked for the native shells (FRONTEND rule 24).
         <td data-label="Email">{{ row.email }}</td>
         <td data-label="Phone">{{ row.phone }}</td>
         <td data-label="OLCC">{% if row.has_olcc %}Yes{% else %}No{% endif %}</td>
+        <td data-label="Hours logged" data-hq-roster-hours>{{ row.hours_display }}</td>
         <td data-label="Note">{{ row.note }}</td>
       </tr>
       {% endfor %}

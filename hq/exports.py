@@ -1,9 +1,11 @@
-"""The volunteer roster, the wine donors, the sponsors and the vendor tables as CSV, in the streaming shape of ``classes/exports.py``."""
+"""The volunteer roster, the wine donors, the sponsors, the vendor tables, and the Market Check-in's reports and hours
+as CSV, in the streaming shape of ``classes/exports.py``."""
 
 from __future__ import annotations
 
 import csv
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from django.http import StreamingHttpResponse
@@ -12,10 +14,21 @@ from django.utils import timezone
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
-    from hq.models import ShiftSignup, Sponsor, VendorTable
+    from hq.models import MarketReport, ShiftSignup, Sponsor, VendorTable, VolunteerHours
     from hq.services import DonorRow
 
-ROSTER_CSV_HEADERS = ["Name", "Email", "Phone", "OLCC permit", "Shift", "Phase", "When", "Note", "Signed up"]
+ROSTER_CSV_HEADERS = [
+    "Name",
+    "Email",
+    "Phone",
+    "OLCC permit",
+    "Shift",
+    "Phase",
+    "When",
+    "Note",
+    "Signed up",
+    "Hours logged",
+]
 
 _FORMULA_LEADS = ("=", "+", "-", "@", "\t", "\r")
 
@@ -36,8 +49,14 @@ def _neutralise_formula(cell: str) -> str:
     return f"'{cell}" if cell.startswith(_FORMULA_LEADS) else cell
 
 
-def stream_roster_csv(signups: QuerySet[ShiftSignup], *, filename_stem: str) -> StreamingHttpResponse:
-    """Stream ``signups`` as CSV, one row per person per shift, in page order."""
+def stream_roster_csv(
+    signups: QuerySet[ShiftSignup], *, hours: Mapping[str, Decimal], filename_stem: str
+) -> StreamingHttpResponse:
+    """Stream ``signups`` as CSV, one row per person per shift, in page order.
+
+    ``hours`` is ``hq.services.hours_by_email``: each row carries the Market Check-in hours of the member whose
+    primary email is the sign-up's, 0 for anyone else.
+    """
     pseudo = _Echo()
     writer = csv.writer(pseudo)
     rows = signups.select_related("shift").order_by(
@@ -57,6 +76,7 @@ def stream_roster_csv(signups: QuerySet[ShiftSignup], *, filename_stem: str) -> 
                 signup.shift.when_text,
                 signup.note,
                 timezone.localtime(signup.created_at).strftime("%Y-%m-%d %H:%M"),
+                str(hours.get(signup.email, Decimal(0))),
             ]
             yield writer.writerow([_neutralise_formula(cell) for cell in row])
 
@@ -196,4 +216,59 @@ def stream_vendor_tables_csv(tables: QuerySet[VendorTable], *, filename_stem: st
     response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
     stamp = timezone.now().strftime("%Y%m%d")
     response["Content-Disposition"] = f'attachment; filename="{filename_stem}-vendor-tables-{stamp}.csv"'
+    return response
+
+
+MARKET_REPORTS_CSV_HEADERS = ["Name or shop", "Member", "Guild", "Items sold", "Sales", "Experience", "Updated"]
+
+
+def stream_market_reports_csv(reports: QuerySet[MarketReport], *, filename_stem: str) -> StreamingHttpResponse:
+    """Stream ``reports`` as CSV, one row per report by name, the sales in dollars; items blank until reported."""
+    pseudo = _Echo()
+    writer = csv.writer(pseudo)
+
+    def iter_rows() -> Iterator[str]:
+        yield writer.writerow(MARKET_REPORTS_CSV_HEADERS)
+        for report in reports.iterator(chunk_size=500):
+            row = [
+                report.name,
+                report.member.display_name,
+                report.guild_display,
+                "" if report.items_sold is None else str(report.items_sold),
+                f"{report.sales_cents / 100:.2f}",
+                report.experience,
+                timezone.localtime(report.updated_at).strftime("%Y-%m-%d %H:%M"),
+            ]
+            yield writer.writerow([_neutralise_formula(cell) for cell in row])
+
+    response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
+    stamp = timezone.now().strftime("%Y%m%d")
+    response["Content-Disposition"] = f'attachment; filename="{filename_stem}-market-reports-{stamp}.csv"'
+    return response
+
+
+VOLUNTEER_HOURS_CSV_HEADERS = ["Member", "Date", "Hours", "Task", "Note", "Logged"]
+
+
+def stream_volunteer_hours_csv(entries: QuerySet[VolunteerHours], *, filename_stem: str) -> StreamingHttpResponse:
+    """Stream ``entries`` as CSV, one row per hours entry, newest date first."""
+    pseudo = _Echo()
+    writer = csv.writer(pseudo)
+
+    def iter_rows() -> Iterator[str]:
+        yield writer.writerow(VOLUNTEER_HOURS_CSV_HEADERS)
+        for entry in entries.iterator(chunk_size=500):
+            row = [
+                entry.member.display_name,
+                entry.date.isoformat(),
+                str(entry.hours),
+                entry.get_task_display(),
+                entry.note,
+                timezone.localtime(entry.created_at).strftime("%Y-%m-%d %H:%M"),
+            ]
+            yield writer.writerow([_neutralise_formula(cell) for cell in row])
+
+    response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
+    stamp = timezone.now().strftime("%Y%m%d")
+    response["Content-Disposition"] = f'attachment; filename="{filename_stem}-volunteer-hours-{stamp}.csv"'
     return response

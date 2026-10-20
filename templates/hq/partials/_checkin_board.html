@@ -1,0 +1,26 @@
+{% comment %}
+The volunteer thank-you board: the top volunteers by hours (hq.services.BOARD_LIMIT), each with their place,
+their display name ("(you)" on the viewer's own row), a bar against the leader and their hours. Names and hours
+only: nobody's entries or notes. Swapped out of band when hours are logged.
+
+  board — required, a hq.services.ThankYouBoard
+  me_pk — required, the viewer's Member pk, or None
+  oob   — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<section class="pl-hq-ci__card" id="hq-ci-board" aria-labelledby="hq-ci-board-title" data-hq-ci-board{% if oob %} hx-swap-oob="true"{% endif %}>
+  <h2 class="pl-hq-ci__h2" id="hq-ci-board-title">Volunteer thank-you board</h2>
+  {% if board.rows %}
+  <ol class="pl-hq-ci__board">
+    {% for row in board.rows %}
+    <li class="pl-hq-ci__leader{% if row.member_id == me_pk %} pl-hq-ci__leader--me{% endif %}" data-hq-ci-leader="{{ row.rank }}">
+      <span class="pl-hq-ci__rank" aria-hidden="true">{{ row.rank }}</span>
+      <span class="pl-hq-ci__leader-name" data-hq-ci-leader-name>{{ row.name }}{% if row.member_id == me_pk %} <span class="pl-hq-ci__you" data-hq-ci-you>(you)</span>{% endif %}</span>
+      <progress class="pl-hq-ci__bar" max="{{ board.top }}" value="{{ row.meter_value }}" aria-hidden="true"></progress>
+      <span class="pl-hq-ci__leader-hours" data-hq-ci-leader-hours>{{ row.hours_display }} h</span>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="pl-hq-ci__empty" data-hq-ci-board-empty>No hours yet. Be the first!</p>
+  {% endif %}
+</section>

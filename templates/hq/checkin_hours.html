@@ -1,0 +1,69 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+The organisers' volunteer hours behind the Market Check-in: the total hours and volunteers, then every entry
+newest date first as a table that stacks on a phone, each with a Delete through the confirm modal (back here
+afterwards), and Download CSV. organizer_page keeps it to admins and the card's named members, by the effective
+role; the Delete reads the actual one.
+{% endcomment %}
+{% block title %}Volunteer Hours{% endblock %}
+{% block extra_head %}
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq-ci pl-hq-ci--wide" data-hq-ci-hours-page>
+  <header class="pl-hq-ci__header">
+    <div class="pl-hq-ci__heading">
+      <h1 class="pl-hq-ci__page-title">Volunteer Hours</h1>
+      <p class="pl-hq-ci__subline">{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %} · Organisers only</p>
+    </div>
+    <a href="{% url 'hq:checkin' hub.slug %}" class="pl-hq-ci__back" data-hq-ci-back>&larr; {{ card.title }}</a>
+  </header>
+
+  <section class="pl-hq-ci__band" aria-label="Hours totals" data-hq-ci-totals>
+    <div class="pl-hq-ci__tile" data-hq-ci-tile="hours">
+      <span class="pl-hq-ci__tile-heading">Volunteer hours</span>
+      <strong class="pl-hq-ci__tile-figure" data-hq-ci-tile-figure>{{ band.hours_display }}</strong>
+    </div>
+    <div class="pl-hq-ci__tile" data-hq-ci-tile="volunteers">
+      <span class="pl-hq-ci__tile-heading">Volunteers</span>
+      <strong class="pl-hq-ci__tile-figure" data-hq-ci-tile-figure>{{ band.volunteers }}</strong>
+    </div>
+  </section>
+
+  <section class="pl-hq-ci__card" aria-labelledby="hq-ci-all-hours-title" data-hq-ci-all-hours>
+    <div class="pl-hq-ci__card-head">
+      <h2 class="pl-hq-ci__h2" id="hq-ci-all-hours-title">Every entry</h2>
+      <a href="{% url 'hq:checkin_hours_csv' hub.slug %}" class="pl-hq-ci__csv" hx-boost="false" data-pl-download data-hq-ci-hours-csv>Download CSV</a>
+    </div>
+    {% if entries %}
+    <table class="pl-members-table pl-hq-ci__table">
+      <thead><tr><th>Volunteer</th><th>Date</th><th>Hours</th><th>Task</th><th>Note</th><th><span class="pl-hq-ci__sr">Delete</span></th></tr></thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr data-hq-ci-hours-row="{{ entry.pk }}">
+          <td data-label="Volunteer">{{ entry.member.display_name }}</td>
+          <td data-label="Date">{{ entry.date|date:"M j" }}</td>
+          <td data-label="Hours">{{ entry.hours_display }} h</td>
+          <td data-label="Task">{{ entry.get_task_display }}</td>
+          <td data-label="Note">{{ entry.note }}</td>
+          <td data-label="">
+            <button type="button" class="pl-hq-ci__delete" aria-label="Delete {{ entry.member.display_name }}'s {{ entry.hours_display }} h on {{ entry.date|date:'M j' }}" @click="$dispatch('open-confirm', 'delete-hours-{{ entry.pk }}')" data-hq-ci-delete>Delete</button>
+            {% url 'hq:checkin_hours_delete' hub.slug entry.pk as delete_url %}
+            {% with pk_text=entry.pk|stringformat:"s" %}
+            {% include "components/confirm_modal.html" with confirm_id="delete-hours-"|add:pk_text confirm_title="Delete these hours?" confirm_message="The entry comes off this volunteer's hours and the thank-you board. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" confirm_field_name="back" confirm_field_value="hours" %}
+            {% endwith %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="pl-hq-ci__empty" data-hq-ci-hours-empty>No hours yet.</p>
+    {% endif %}
+  </section>
+
+  <p class="pl-hq-ci__note"><a href="{% url 'hq:checkin_reports' hub.slug %}" class="pl-hq-ci__note-link" data-hq-ci-reports-link>See the market reports</a></p>
+</div>
+{% endblock %}

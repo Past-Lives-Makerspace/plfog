@@ -1,0 +1,24 @@
+{% comment %}
+The hero's figures: the countdown (left out with no event), the volunteer hours so far and the volunteers.
+Swapped out of band when hours are logged, so the figures follow without the page being redrawn.
+
+  countdown — required, the hub's Countdown (big and small)
+  band      — required, a hq.services.CheckinBand
+  oob       — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<div class="pl-hq-ci__stats" id="hq-ci-stats" data-hq-ci-stats{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if countdown.big %}
+  <div class="pl-hq-ci__stat" data-hq-ci-stat="countdown">
+    <strong class="pl-hq-ci__stat-figure">{{ countdown.big }}</strong>
+    {% if countdown.small %}<span class="pl-hq-ci__stat-label">{{ countdown.small }}</span>{% endif %}
+  </div>
+  {% endif %}
+  <div class="pl-hq-ci__stat" data-hq-ci-stat="hours">
+    <strong class="pl-hq-ci__stat-figure" data-hq-ci-figure>{{ band.hours_display }}</strong>
+    <span class="pl-hq-ci__stat-label">volunteer hours so far</span>
+  </div>
+  <div class="pl-hq-ci__stat" data-hq-ci-stat="volunteers">
+    <strong class="pl-hq-ci__stat-figure" data-hq-ci-figure>{{ band.volunteers }}</strong>
+    <span class="pl-hq-ci__stat-label">volunteers</span>
+  </div>
+</div>

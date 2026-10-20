@@ -169,3 +169,41 @@ def organizer_required(kind: str) -> Callable[[Callable[..., HttpResponseBase]],
         return wrapped
 
     return decorator
+
+
+def can_check_in(card: HubCard, member: Member, *, is_admin: bool) -> bool:
+    """Who may file a market report and log hours behind the Market Check-in card (D4): a signed in member the card
+    is open to who is ACTIVE, an admin, or named on the card. Members only by design: there is no guest path, and
+    identity is the member, never a typed email. A GUEST account the card is open to reads the page but files
+    nothing. ``is_admin`` is the role being checked: the effective one to render, the actual one to act. Signed
+    out is nobody to check, so callers ask only with a member.
+    """
+    if is_admin or card.is_named(member):
+        return True
+    return member.status == Member.Status.ACTIVE and card.is_open_to(member, is_admin=False)
+
+
+def check_in_required(kind: str) -> Callable[[Callable[..., HttpResponseBase]], Callable[..., HttpResponseBase]]:
+    """Admit whoever :func:`can_check_in` allows, by their actual role, on the hub at ``slug``.
+
+    The view is called as ``view(request, hub=hub, card=card, member=member, **rest)`` with the signed in member.
+    A hidden card is a 404 for anyone but an actual admin (it never reveals itself); anyone else who may not
+    check in gets a 403, signed out included, since every use is a POST.
+    """
+
+    def decorator(view: Callable[..., HttpResponseBase]) -> Callable[..., HttpResponseBase]:
+        @wraps(view)
+        def wrapped(request: HttpRequest, *args: Any, slug: str, **kwargs: Any) -> HttpResponseBase:
+            hub = hub_for_action(slug, request)
+            card = hub.cards.prefetch_related("named_members").filter(kind=kind).first()
+            is_admin = is_actual_admin(request)
+            if card is None or (card.is_hidden and not is_admin):
+                raise Http404("No such card.")
+            member = actual_member(request)
+            if member is None or not can_check_in(card, member, is_admin=is_admin):
+                raise PermissionDenied("Only Past Lives members can add a report or log hours here.")
+            return view(request, *args, hub=hub, card=card, member=member, **kwargs)
+
+        return wrapped
+
+    return decorator
