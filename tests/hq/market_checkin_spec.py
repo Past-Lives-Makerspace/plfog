@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -23,7 +23,14 @@ from django.utils import timezone
 from hq import services
 from hq.exports import MARKET_REPORTS_CSV_HEADERS, VOLUNTEER_HOURS_CSV_HEADERS
 from hq.forms import HOURS_ERROR, HOURS_STEP_ERROR, REPORT_ITEMS_MAX, MarketReportForm, VolunteerHoursForm
-from hq.holiday_bizarre import CHECKIN_FOOTER, CHECKIN_THANKS
+from hq.holiday_bizarre import (
+    CHECKIN_DONE,
+    CHECKIN_DONE_LINE,
+    CHECKIN_FOOTER,
+    CHECKIN_THANKS,
+    CHECKIN_TODAY,
+    CHECKIN_TODAY_LINE,
+)
 from hq.models import BUILT_DOORS, HubCard, MarketReport, VendorTable, VolunteerHours, format_hours
 from hub.view_as import ROLE_GUEST, ROLE_MEMBER
 from membership.models import Member
@@ -728,6 +735,79 @@ def describe_deleting_hours():
         assert "Delete these hours?" in body
 
 
+def _noon() -> datetime:
+    """A fixed local noon, clear of midnight on either side of a day boundary."""
+    return timezone.localtime(timezone.now()).replace(hour=12, minute=0, second=0, microsecond=0)
+
+
+def _event_in(hub: Any, days: int) -> datetime:
+    """Put ``hub``'s event ``days`` Portland days from today at noon, and return today's noon."""
+    noon = _noon()
+    starts = noon + timedelta(days=days)
+    hub.event = CommunityEventFactory(community=True, starts_at=starts, ends_at=starts + timedelta(hours=5))
+    hub.save(update_fields=["event"])
+    return noon
+
+
+def describe_the_hero_countdown():
+    @pytest.mark.parametrize(
+        ("days", "big", "small"),
+        [
+            (12, "12", "days to go"),
+            (1, "1", "day to go"),
+            (0, CHECKIN_TODAY, CHECKIN_TODAY_LINE),
+            (-1, CHECKIN_DONE, CHECKIN_DONE_LINE),
+            (-30, CHECKIN_DONE, CHECKIN_DONE_LINE),
+        ],
+    )
+    def it_counts_down_in_lees_words(hub, days, big, small):
+        now = _event_in(hub, days)
+
+        countdown = services.checkin_countdown(hub, now)
+
+        assert (countdown.big, countdown.small) == (big, small)
+
+    def it_uses_lees_exact_words_for_the_day_and_after():
+        assert (CHECKIN_TODAY, CHECKIN_TODAY_LINE) == ("Today", "It's market day!")
+        assert (CHECKIN_DONE, CHECKIN_DONE_LINE) == ("Done", "Thank you!")
+
+    def it_is_blank_without_an_event(hub):
+        countdown = services.checkin_countdown(hub, _noon())
+
+        assert (countdown.big, countdown.small) == ("", "")
+
+    def it_leaves_the_hq_bands_countdown_in_its_own_words(hub):
+        now = _event_in(hub, -1)
+
+        assert (hub.countdown_parts(now).big, hub.countdown_parts(now).small) == ("Thank you", "")
+        assert services.checkin_countdown(hub, now).big == CHECKIN_DONE
+
+    def it_says_its_market_day_on_the_page_on_the_day(hub):
+        _event_in(hub, 0)
+
+        body = Client().get(_page(hub)).content.decode().replace("&#x27;", "'")
+
+        countdown = body.split('data-hq-ci-stat="countdown"')[1].split("</div>")[0]
+        assert ">Today</strong>" in countdown
+        assert ">It's market day!</span>" in countdown
+
+    def it_says_done_and_thank_you_once_the_market_is_over(hub):
+        _event_in(hub, -2)
+
+        body = Client().get(_page(hub)).content.decode()
+
+        countdown = body.split('data-hq-ci-stat="countdown"')[1].split("</div>")[0]
+        assert ">Done</strong>" in countdown and ">Thank you!</span>" in countdown
+
+    def it_sends_the_same_words_out_of_band_when_hours_are_logged(hub, artist_client):
+        _event_in(hub, 0)
+
+        response = artist_client.post(_log(hub), _hours_post(), **HTMX)
+
+        stats = response.content.decode().replace("&#x27;", "'").split('id="hq-ci-stats"')[1]
+        assert ">It's market day!</span>" in stats.split('data-hq-ci-stat="hours"')[0]
+
+
 def describe_the_thank_you_board():
     def it_ranks_by_total_hours_with_ties_to_who_logged_first(hub, make_member):
         names = ["Ann", "Bo", "Cy"]
@@ -776,6 +856,30 @@ def describe_the_thank_you_board():
         assert 'Rae Artist <span class="pl-hq-ci__you" data-hq-ci-you>(you)</span>' in second
         assert 'max="4.00" value="1.50"' in second
         assert "style=" not in board
+
+    def it_gives_a_small_contributor_at_least_four_percent_of_the_leaders_bar(hub, artist, lee, make_member):
+        for _ in range(4):
+            _hours(hub, lee, "24")
+        _hours(hub, artist, "0.25")
+        _hours(hub, make_member(preferred_name="Mid Helper"), "10")
+
+        leader, mid, small = services.thank_you_board(hub).rows
+
+        assert (leader.meter_value, leader.top) == ("96.00", Decimal("96.00"))
+        assert mid.meter_value == "10.00"  # over the floor, its own hours
+        assert small.meter_value == "3.8400"  # 4% of 96, not 0.25
+        assert small.hours_display == "0.25"  # the figure beside the bar stays the hours given
+
+    def it_draws_the_floor_on_the_page(hub, artist, artist_client, lee):
+        for _ in range(4):
+            _hours(hub, lee, "24")
+        _hours(hub, artist, "0.25")
+
+        body = artist_client.get(_page(hub)).content.decode()
+
+        second = body.split('data-hq-ci-leader="2"')[1].split("</li>")[0]
+        assert 'max="96.00" value="3.8400"' in second
+        assert "data-hq-ci-leader-hours>0.25 h</span>" in second
 
     def it_says_so_when_nobody_has_logged_hours(hub):
         body = Client().get(_page(hub)).content.decode()

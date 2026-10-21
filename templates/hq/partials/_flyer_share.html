@@ -2,7 +2,8 @@
 Help spread the word: Download the flyer, Copy the event link, Share on Facebook (Facebook's share dialog as a plain
 link, no SDK) and Copy a message to send friends, with the message and link shown under the buttons. The copies use
 the roster's clipboard idiom (writeText in a secure context, else select the hidden box and execCommand) and toast.
-Swapped out of band when the organisers save a new message.
+Under them, Lee's What to expect, the wine wall's prices read from the ledger. Swapped out of band when the organisers
+save a new message.
 
   hub          — required, the EventHub
   page         — required, the hub's HubFlyer (saved or the unsaved defaults)
@@ -10,6 +11,7 @@ Swapped out of band when the organisers save a new message.
   facebook_url — required, Facebook's share dialog for that link
   share_text   — required, the message followed by the link
   share_lede   — required, Lee's line under the heading
+  what_to_expect — required, Lee's bullets (hq.services.what_to_expect)
   oob          — optional, True renders the hx-swap-oob attribute
 {% endcomment %}
 <section class="pl-hq-fl__card" aria-labelledby="hq-fl-share-title" id="hq-fl-share" data-hq-fl-share{% if oob %} hx-swap-oob="true"{% endif %}
@@ -27,4 +29,10 @@ Swapped out of band when the organisers save a new message.
     <button type="button" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" @click="copy('message', 'Message copied. Paste it into a text, email or post!')" data-hq-fl-copy-message>Copy a message to send friends</button>
   </div>
   <p class="pl-hq-fl__blurb" data-hq-fl-blurb>{{ share_text }}</p>
+  <div class="pl-hq-fl__expect" data-hq-fl-expect>
+    <h3 class="pl-hq-fl__h3">What to Expect</h3>
+    <ul class="pl-hq-fl__what">
+      {% for line in what_to_expect %}<li>{{ line }}</li>{% endfor %}
+    </ul>
+  </div>
 </section>

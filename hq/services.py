@@ -58,7 +58,12 @@ from django.http import HttpRequest
 from django.utils import timezone
 
 from hq.holiday_bizarre import (
+    CHECKIN_DONE,
+    CHECKIN_DONE_LINE,
     CHECKIN_THANKS,
+    CHECKIN_TODAY,
+    CHECKIN_TODAY_LINE,
+    FLYER_WHAT_TO_EXPECT,
     GOALS,
     TALLY_DAYS,
     TALLY_DONE,
@@ -558,6 +563,16 @@ class WineBand:
     def half_goal(self) -> int:
         """The meter's middle label, half the goal rounded half up (Lee's ``Math.round(goal / 2)``)."""
         return (self.goal + 1) // 2
+
+    @property
+    def every_kind(self) -> list[KindCount]:
+        """Every kind in the band's order, a kind with no bottle at 0: the HQ's Bottles by type line (Lee's lists all
+        five whenever the wall has a bottle)."""
+        found = {kind.key: kind.bottles for kind in self.by_kind}
+        return [
+            KindCount(key=kind.value, label=str(kind.label), bottles=found[kind.value] if kind.value in found else 0)
+            for kind in WineKind
+        ]
 
     @property
     def average_line(self) -> str:
@@ -1162,11 +1177,11 @@ def vendor_filter(value: str) -> str:
 
 
 def filtered_vendor_tables(hub: EventHub, show: str, *, keep_pk: int | None = None) -> QuerySet[VendorTable]:
-    """``hub``'s table requests in list order under the filter ``show``, with each one's guild.
+    """``hub``'s table requests in list order under the filter ``show``, with each one's guild and who added it.
 
     ``keep_pk`` is a request kept in view whatever the filter (the one just added), so it never vanishes.
     """
-    tables = hub.vendor_tables.select_related("guild")
+    tables = hub.vendor_tables.select_related("guild", "created_by")
     if show == VENDOR_FILTER_ALL:
         return tables
     return tables.filter(Q(status=show) | Q(pk=keep_pk)) if keep_pk is not None else tables.filter(status=show)
@@ -1273,6 +1288,24 @@ def checkin_thanks(hub: EventHub) -> str:
     return CHECKIN_THANKS.format(on_date=f" on {day:%B} {day.day}")
 
 
+def checkin_countdown(hub: EventHub, now: datetime) -> Countdown:
+    """The check-in hero's countdown in Lee's words, from :meth:`EventHub.countdown_parts`: "N days to go" and "1 day
+    to go" before, "Today" with "It's market day!" on the day, "Done" with "Thank you!" after; blank with no event."""
+    parts = hub.countdown_parts(now)
+    if hub.event is None:
+        return parts
+    days = (timezone.localdate(hub.event.starts_at) - timezone.localdate(now)).days
+    if days == 0:
+        return Countdown(CHECKIN_TODAY, CHECKIN_TODAY_LINE)
+    if days < 0:
+        return Countdown(CHECKIN_DONE, CHECKIN_DONE_LINE)
+    return parts
+
+
+# The shortest bar on the thank-you board, as a share of the leader's hours (Lee's 4%).
+BOARD_BAR_FLOOR = Decimal("0.04")
+
+
 @dataclass(frozen=True)
 class BoardRow:
     """One volunteer on the thank-you board: their place, who they are and their hours."""
@@ -1281,6 +1314,8 @@ class BoardRow:
     member_id: int
     name: str
     hours: Decimal
+    # The leader's hours, the bars' full length.
+    top: Decimal
 
     @property
     def hours_display(self) -> str:
@@ -1292,8 +1327,9 @@ class BoardRow:
 
     @property
     def meter_value(self) -> str:
-        """The hours as a plain number for the bar's ``value``, never localised."""
-        return str(self.hours)
+        """The bar's ``value`` as a plain number, never localised: the hours, but at least :data:`BOARD_BAR_FLOOR` of
+        the leader's, so a small contributor still shows a sliver (Lee's ``Math.max(4, total / top * 100)``)."""
+        return str(max(self.hours, self.top * BOARD_BAR_FLOOR))
 
 
 @dataclass(frozen=True)
@@ -1315,6 +1351,8 @@ def thank_you_board(hub: EventHub, *, limit: int = BOARD_LIMIT) -> ThankYouBoard
         .annotate(total=Sum("hours"), first=Min("pk"))
         .order_by("-total", "first")[:limit]
     )
+    found = list(rows)
+    top = found[0]["total"] if found else Decimal(0)
     return ThankYouBoard(
         rows=[
             BoardRow(
@@ -1322,8 +1360,9 @@ def thank_you_board(hub: EventHub, *, limit: int = BOARD_LIMIT) -> ThankYouBoard
                 member_id=row["member"],
                 name=row["member__preferred_name"] or row["member__full_legal_name"],
                 hours=row["total"],
+                top=top,
             )
-            for position, row in enumerate(rows, start=1)
+            for position, row in enumerate(found, start=1)
         ]
     )
 
@@ -1552,6 +1591,13 @@ def ledger_settings(hub: EventHub) -> LedgerSettings:
     approval. Rendering never writes a row."""
     found = LedgerSettings.objects.filter(hub=hub).first()
     return found if found is not None else LedgerSettings(hub=hub)
+
+
+def what_to_expect(found: LedgerSettings) -> list[str]:
+    """Lee's What to expect on the flyer page, the wine wall's bullet carrying the ledger's single ticket price, which
+    is also the least a bottle should be worth (:data:`FLYER_WHAT_TO_EXPECT`)."""
+    ticket = format_money(found.ticket_cents)
+    return [line.format(ticket=ticket) for line in FLYER_WHAT_TO_EXPECT]
 
 
 def ledger_kind_label(kind: str, approval: str) -> str:

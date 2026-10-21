@@ -21,7 +21,6 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.http import urlencode
-from django.utils.text import slugify
 from django.views.decorators.http import require_POST
 
 from core.abuse_limits import record_keyed_attempt
@@ -99,6 +98,10 @@ from hq.holiday_bizarre import (
     FLYER_COMING_SOON,
     FLYER_LAST_YEAR_NOTE,
     FLYER_SHARE_LEDE,
+    FLYER_TABLE_ASK,
+    FLYER_TABLE_EMAIL,
+    FLYER_TABLE_TITLE,
+    LEDGER_FOOTER,
     LEDGER_INTRO,
     LEDGER_RECEIPT_HINT,
     LEDGER_TITLE,
@@ -164,6 +167,7 @@ def hub_page(request: HttpRequest, slug: str) -> HttpResponse:
     cards = list(hub.cards.prefetch_related("named_members"))
     if not is_admin:
         cards = [card for card in cards if not card.is_hidden and card.is_open_to(member, is_admin=False)]
+    wine = services.wine_band(hub)
     return render(
         request,
         "hq/page.html",
@@ -172,6 +176,8 @@ def hub_page(request: HttpRequest, slug: str) -> HttpResponse:
             "cards": cards,
             "goals": goal_rows(hub),
             "countdown": hub.countdown_parts(timezone.now()),
+            # Lee's Bottles by type under the goals: every kind, once the wall has a bottle.
+            "bottle_kinds": wine.every_kind if wine.bottles else [],
             "can_edit": is_admin,
         },
     )
@@ -1092,7 +1098,9 @@ def vendor_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) 
     fragment = wants_fragment(request)
     with transaction.atomic():
         # The row lock holds a second Save until the first is in, so the second sees the new stamp and is refused.
-        table = get_object_or_404(hub.vendor_tables.select_related("guild").select_for_update(of=("self",)), pk=pk)
+        table = get_object_or_404(
+            hub.vendor_tables.select_related("guild", "created_by").select_for_update(of=("self",)), pk=pk
+        )
         form = _vendor_edit_form(table, guilds, request.POST)
         if form.is_stale:
             if not fragment:
@@ -1105,7 +1113,7 @@ def vendor_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) 
                 context = _vendors_context(request, hub, card, show=show, keep_pk=table.pk, row_form=form)
                 return render(request, "hq/vendors.html", context)
             # The refused form changed the row in memory; the row's own words come from the database.
-            saved = hub.vendor_tables.select_related("guild").get(pk=table.pk)
+            saved = hub.vendor_tables.select_related("guild", "created_by").get(pk=table.pk)
             return _vendor_row_answer(request, hub, card, VendorRow(table=saved, form=form))
         services.update_vendor_table(table, form.to_fields())
     if not fragment:
@@ -1240,7 +1248,7 @@ def _checkin_context(
     context: dict[str, Any] = {
         "hub": hub,
         "card": card,
-        "countdown": hub.countdown_parts(timezone.now()),
+        "countdown": services.checkin_countdown(hub, timezone.now()),
         "thanks": services.checkin_thanks(hub),
         "footer": CHECKIN_FOOTER,
         "band": services.checkin_band(hub),
@@ -1318,7 +1326,7 @@ def checkin_hours_log(request: HttpRequest, *, hub: EventHub, card: HubCard, mem
     fresh = VolunteerHoursForm(initial=form.kept_for_next())
     context = {
         **_hours_context(hub, member, form=fresh, message=message),
-        "countdown": hub.countdown_parts(timezone.now()),
+        "countdown": services.checkin_countdown(hub, timezone.now()),
         "band": services.checkin_band(hub),
         "board": services.thank_you_board(hub),
         "me_pk": member.pk,
@@ -1408,7 +1416,8 @@ class FlyerUpload:
 
 def _flyer_share_context(hub: EventHub, page: Any) -> dict[str, Any]:
     """What Help spread the word and Find the event render: the link to share (the event's public page, else the
-    HQ), Facebook's share dialog for it, the message with the link, and the page's two links."""
+    HQ), Facebook's share dialog for it, the message with the link, What to expect (the wine wall's prices read from
+    the ledger) and the page's two links."""
     link = services.share_link(hub)
     return {
         "hub": hub,
@@ -1417,6 +1426,7 @@ def _flyer_share_context(hub: EventHub, page: Any) -> dict[str, Any]:
         "facebook_url": services.facebook_share_url(link),
         "share_text": services.share_text(page.share_message, link),
         "share_lede": FLYER_SHARE_LEDE,
+        "what_to_expect": services.what_to_expect(services.ledger_settings(hub)),
     }
 
 
@@ -1437,6 +1447,8 @@ def _flyer_context(
     page = services.flyer_page(hub)
     event = hub.event
     can_organize = card.can_organize(member, is_admin=is_admin)
+    # The Marketing Tracker and Vendor Tables links, in one read of the cards: only the doors open to this viewer.
+    door_urls = _door_urls(hub, member, is_admin)
     context: dict[str, Any] = {
         **_flyer_share_context(hub, page),
         "card": card,
@@ -1446,7 +1458,15 @@ def _flyer_context(
         "rsvp_count": services.rsvp_count(event) if event is not None else None,
         "rsvp_url": f"{reverse('hub_event_detail', args=[event.pk])}#whos-coming" if event is not None else "",
         "flyers_out": services.marketing_totals(hub)[MarketingKind.FLYER],
-        "marketing_url": _door_url(hub, HubCard.Kind.MARKETING, member, is_admin),
+        "marketing_url": door_urls.get(HubCard.Kind.MARKETING, ""),
+        # Members: want a table to sell your work? Lee's card, linking Vendor Tables when that door is open to them.
+        "table_title": FLYER_TABLE_TITLE,
+        "table_ask": format_html(
+            FLYER_TABLE_ASK,
+            email=format_html('<a href="mailto:{0}" class="pl-hq-fl__mail">{0}</a>', FLYER_TABLE_EMAIL),
+        ),
+        "setup_note": VENDOR_SETUP_NOTE,
+        "vendors_url": door_urls.get(HubCard.Kind.VENDOR_TABLES, ""),
     }
     if can_organize:
         uploads = []
@@ -1491,15 +1511,16 @@ def _flyer_slot(slot: str) -> FlyerSlot:
 @card_view(HubCard.Kind.FLYER)
 def flyer_download(request: HttpRequest, *, hub: EventHub, card: HubCard, slot: str) -> FileResponse:
     """One flyer as a download, gated like the page: whoever may open the page may save the file. It is named for
-    the hub and the year, e.g. ``holiday-bizarre-2026-flyer.jpg``; a slot with no file, or any other word, is a
-    404. Served from here rather than linked straight to storage, because a browser ignores ``download`` on a
-    link to another host and opens the file instead."""
+    the hub's slug and the slot, ``holiday-bizarre-2026-flyer.jpg`` or ``holiday-bizarre-2026-last-year-flyer.pdf``
+    (the slug already carries the year); a slot with no file, or any other word, is a 404. Served from here
+    rather than linked straight to storage, because a browser ignores ``download`` on a link to another host and opens
+    the file instead."""
     which = _flyer_slot(slot)
     stored = getattr(services.flyer_page(hub), which)
     if not stored:
         raise Http404("No flyer up yet.")
     response = FileResponse(stored.open("rb"))
-    filename = f"{hub.slug}-{slugify(which.label)}{Path(stored.name).suffix.lower()}"
+    filename = f"{hub.slug}-{which.value.replace('_', '-')}{Path(stored.name).suffix.lower()}"
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
@@ -1721,6 +1742,9 @@ def _ledger_context(
         "title": LEDGER_TITLE,
         "intro": LEDGER_INTRO,
         "receipt_hint": LEDGER_RECEIPT_HINT,
+        "footer": LEDGER_FOOTER,
+        # The section bar's Sponsors and Vendor tables links: only the doors open to the viewer.
+        "door_urls": figures.door_urls,
         "approval_form": approval_form
         if approval_form is not None
         else LedgerApprovalForm(found=found, initial=LedgerApprovalForm.initial_for(found)),
