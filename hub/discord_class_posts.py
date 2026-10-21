@@ -220,13 +220,13 @@ def _class_photo_urls(offering: ClassOffering) -> list[str]:
 
 def _class_fields(offering: ClassOffering, sessions: list[ClassSession]) -> list[dict[str, Any]]:
     """The bold labelled rows, each present only when it has a value, capped at Discord's 1,024."""
-    from classes.templatetags.classes_tags import cents_as_price, session_duration_words
+    from classes.templatetags.classes_tags import cents_as_price
 
     rows: list[tuple[str, str]] = [("When", _class_when(offering, sessions))]
     if len(sessions) > 1:
         rows.append(("Sessions", str(len(sessions))))
     if sessions:
-        rows.append(("Duration", session_duration_words(sessions[0])))
+        rows.append(("Duration", _duration_words(sessions[0])))
     if offering.area is not None:
         rows.append(("Location", offering.area.name))
     rows.append(("Instructor", offering.instructor_names))
@@ -234,6 +234,19 @@ def _class_fields(offering: ClassOffering, sessions: list[ClassSession]) -> list
     if not offering.is_flexible:
         rows.append(("Spots", str(offering.capacity)))
     return [{"name": name, "value": _clip(value, _FIELD_VALUE_MAX)} for name, value in rows if value and value.strip()]
+
+
+def _duration_words(session: ClassSession) -> str:
+    """A session's length in the #calendar card's words ("2 hours", "1 hour 30 minutes"),
+    humanized as ``Event._discord_duration_value`` does."""
+    total_minutes = int((session.ends_at - session.starts_at).total_seconds() // 60)
+    hours, minutes = divmod(total_minutes, 60)
+    parts: list[str] = []
+    if hours:
+        parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+    if minutes or not hours:
+        parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+    return " ".join(parts)
 
 
 def _clip(text: str, limit: int) -> str:

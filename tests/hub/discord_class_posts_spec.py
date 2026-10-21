@@ -387,7 +387,7 @@ def describe_class_announcement_embeds():
         assert _field_names(embed) == ["When", "Duration", "Location", "Instructor", "Price", "Spots"]
         session_day = timezone.localtime(timezone.now() + timedelta(days=3)).strftime("%A, %B %-d")
         assert _field(embed, "When").startswith(f"{session_day} · ")
-        assert _field(embed, "Duration") == "2h"
+        assert _field(embed, "Duration") == "2 hours"
         assert _field(embed, "Location") == "Hot Shop"
         assert _field(embed, "Price") == "$45"
         assert _field(embed, "Spots") == "8"
@@ -399,9 +399,16 @@ def describe_class_announcement_embeds():
         (loaded,) = dcp._pending_offerings()
         embed = dcp.class_announcement_embeds(loaded)[0]
         assert _field(embed, "Sessions") == "2"
-        assert _field(embed, "Duration") == "2h"  # the first session's
+        assert _field(embed, "Duration") == "2 hours"  # the first session's
         session_day = timezone.localtime(timezone.now() + timedelta(days=3)).strftime("%A, %B %-d")
         assert _field(embed, "When").startswith(session_day)  # the next one
+
+    def it_words_an_odd_length_like_the_event_card():
+        offering = ClassOfferingFactory(title="Short", status=ClassOffering.Status.PUBLISHED)
+        start = timezone.now() + timedelta(days=2)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(minutes=90))
+        (loaded,) = dcp._pending_offerings()
+        assert _field(dcp.class_announcement_embeds(loaded)[0], "Duration") == "1 hour 30 minutes"
 
     def it_names_every_instructor():
         from classes.factories import InstructorFactory
