@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-21"
+title = "Admins can put an event on the calendar before announcing it"
+changes = [
+  "A new switch on the event composer publishes the event to the calendar without the Discord post, bell, email or reminders.",
+  "Manage Events marks those events Not announced, with an Announce now button for when it is time to tell members.",
+]
