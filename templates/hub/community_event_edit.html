@@ -30,8 +30,8 @@
   Save; a review-first form has neither either, because approving is what announces.
   {% endcomment %}
   <form method="post" class="hub-form" enctype="multipart/form-data"{% if not form.announced and not form.review_first %}
-        x-data="{ scheduleLater: {{ form.publish_at.value|yesno:'true,false' }}, hasAnnounceAt: {{ form.publish_at.value|yesno:'true,false' }} }"
-        @change="if ($event.target.name === 'publish_at') hasAnnounceAt = $event.target.value !== ''"{% endif %}>
+        x-data="{ scheduleLater: {{ form.publish_at.value|yesno:'true,false' }}, hasAnnounceAt: {{ form.publish_at.value|yesno:'true,false' }}, quiet: {% if form.offers_quiet_publish %}{{ form.announcement_held.value|yesno:'true,false' }}{% else %}false{% endif %} }"
+        @change="if ($event.target.name === 'publish_at') hasAnnounceAt = $event.target.value !== ''; if ($event.target.name === 'announcement_held') quiet = $event.target.checked"{% endif %}>
     {% csrf_token %}
     {# A refusal that belongs to no one field, such as the gallery files posted with a new event. #}
     {% if form.non_field_errors %}<div class="pl-form-group" data-form-errors>{% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}</div>{% endif %}
@@ -96,6 +96,13 @@
       <div x-show="scheduleLater" class="pl-reveal">
         {% include "components/form_field.html" with field=form.publish_at field_hint="We'll announce it — Discord, the bell, and the calendar — at this time. Until then it stays hidden." %}
       </div>
+
+      {% if form.offers_quiet_publish %}
+      {# Admins and Calendar Administrators only (CommunityEventForm._setup_quiet_publish_field); Announce now on Manage Events sends it later. #}
+      <div data-quiet-publish>
+        {% include "components/toggle.html" with field=form.announcement_held toggle_label=form.announcement_held.label toggle_description="Off announces it the usual way." toggle_help="It goes on the Calendar, Google Calendar and Discord Events, but members get no Discord post, bell, email or reminder until someone presses Announce now on Manage Events." %}
+      </div>
+      {% endif %}
       {% endif %}
 
       {# Reminders and the happening-now ping, each saying when it goes out. #}
@@ -129,14 +136,14 @@
     </p>
     {% else %}
     <p class="hub-text-muted" id="event-save-note" style="font-size:0.8125rem; margin-bottom:1rem;">
-      {% if form.announced %}This event is already live, so saving won't announce it again. Reminders are never sent on save.{% elif form.in_review %}This event hasn't been approved, so saving won't announce it.{% elif form.republishes %}This event was announced before it was unpublished, so saving puts it back on the Calendar and Discord without announcing it again — right away, or on your scheduled date if you set one.{% else %}Saving posts the announcement to Discord and adds it to the Calendar — right away, or on your scheduled date if you set one.{% endif %}{% if google_sync_enabled %} Saving also updates this event on the linked Google Calendar.{% endif %}
+      {% if form.announced %}This event is already live, so saving won't announce it again. Reminders are never sent on save.{% elif form.in_review %}This event hasn't been approved, so saving won't announce it.{% elif form.republishes %}This event was announced before it was unpublished, so saving puts it back on the Calendar and Discord without announcing it again — right away, or on your scheduled date if you set one.{% elif form.offers_quiet_publish %}<span x-show="!quiet"{% if form.announcement_held.value %} x-cloak{% endif %}>Saving posts the announcement to Discord and adds it to the Calendar — right away, or on your scheduled date if you set one.</span><span x-show="quiet"{% if not form.announcement_held.value %} x-cloak{% endif %} data-quiet-note>Saving adds it to the Calendar without announcing it. Press Announce now on Manage Events when it's time to tell members.</span>{% else %}Saving posts the announcement to Discord and adds it to the Calendar — right away, or on your scheduled date if you set one.{% endif %}{% if google_sync_enabled %} Saving also updates this event on the linked Google Calendar.{% endif %}
     </p>
     {% endif %}
 
     <div class="pl-form-actions">
       {# The label is the promise: it comes from the same flags the view acts on (FRONTEND rule 21). #}
       <button type="submit" class="pl-btn pl-btn--primary" id="event-save"{% if form.saves_announce %}
-              x-text="scheduleLater && hasAnnounceAt ? 'Save and schedule' : '{% if form.republishes %}Save and publish{% else %}Save and announce{% endif %}'"{% endif %}>{% if form.submits_for_review %}{% if event.pk %}Resubmit for review{% else %}Submit for review{% endif %}{% elif not form.saves_announce %}Save{% elif form.publish_at.value %}Save and schedule{% elif form.republishes %}Save and publish{% else %}Save and announce{% endif %}</button>
+              x-text="scheduleLater && hasAnnounceAt ? 'Save and schedule' : (quiet ? 'Save and publish' : '{% if form.republishes %}Save and publish{% else %}Save and announce{% endif %}')"{% endif %}>{% if form.submits_for_review %}{% if event.pk %}Resubmit for review{% else %}Submit for review{% endif %}{% elif not form.saves_announce %}Save{% elif form.publish_at.value %}Save and schedule{% elif form.republishes %}Save and publish{% elif form.offers_quiet_publish and form.announcement_held.value %}Save and publish{% else %}Save and announce{% endif %}</button>
       <a href="{{ cancel_url }}" class="pl-btn pl-btn--secondary">Cancel</a>
       {% if delete_url %}
         <button type="button" class="pl-btn pl-btn--danger pl-form-actions__danger"

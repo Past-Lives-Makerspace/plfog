@@ -6607,10 +6607,18 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
     # kind questions ask the one question in `membership/permissions.py` (#505 constraint),
     # not a role test this view invents.
     _, can_choose_audience = editable_meeting_scopes(request)
+    # An admin opening a guild event from Manage Events lands here, so the quiet publish
+    # follows the same gate as on the Calendar's composer.
+    can_publish_quietly = can_administer_events(request)
 
     if request.method == "POST":
         form = CommunityEventForm(
-            request.POST, request.FILES, instance=event, guild=guild, can_choose_audience=can_choose_audience
+            request.POST,
+            request.FILES,
+            instance=event,
+            guild=guild,
+            can_choose_audience=can_choose_audience,
+            can_publish_quietly=can_publish_quietly,
         )
         if form.is_valid():
             event = form.save(commit=False)
@@ -6625,7 +6633,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             # parks it, a cleared/back-dated one publishes now: no strand); a live event only
             # re-pushes to Google and Discord (never re-announces).
             if form.saves_announce:
-                event.schedule_or_go_live(actor=request.user)
+                event.schedule_or_go_live(actor=request.user, announce=not event.announcement_held)
             elif form.announced:
                 event.push_to_google(actor=request.user)
                 event.push_to_discord(actor=request.user)
@@ -6635,7 +6643,12 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
                 messages.success(request, "Event saved.")
             return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
     else:
-        form = CommunityEventForm(instance=event, guild=guild, can_choose_audience=can_choose_audience)
+        form = CommunityEventForm(
+            instance=event,
+            guild=guild,
+            can_choose_audience=can_choose_audience,
+            can_publish_quietly=can_publish_quietly,
+        )
 
     ctx = _get_hub_context(request)
     return render(
@@ -6720,6 +6733,8 @@ def _event_composer_kwargs(request: HttpRequest, event: CommunityEvent, *, revie
 
     The full composer asks both opening questions; the review-first one asks them the way
     the propose page does, only of a request with lead or staff authority somewhere (#505).
+    "Publish without announcing to members" is offered to whoever administers events; the
+    form itself drops it from a review-first composer.
     """
     if review_first:
         _, can_choose_audience = editable_meeting_scopes(request)
@@ -6729,6 +6744,7 @@ def _event_composer_kwargs(request: HttpRequest, event: CommunityEvent, *, revie
         "can_choose_audience": can_choose_audience,
         "guild_choices": _event_guild_choices(request, event),
         "review_first": review_first,
+        "can_publish_quietly": can_administer_events(request),
     }
 
 
@@ -6738,7 +6754,8 @@ def _save_as_the_page_promised(
     """The full composer's save: persist, then do what the Save button said (see guild_event_edit).
 
     A new or still-SCHEDULED event routes through ``schedule_or_go_live`` (a future
-    ``publish_at`` parks it, a cleared or back-dated one publishes now); a live event only
+    ``publish_at`` parks it, a cleared or back-dated one publishes now), quietly when the
+    admin ticked "Publish without announcing to members"; a live event only
     re-pushes to Google and Discord, never re-announces; a pending one just saves.
     """
     from membership.models import CommunityEvent
@@ -6748,7 +6765,7 @@ def _save_as_the_page_promised(
         event.created_by = user
     event.save()
     if form.saves_announce:
-        event.schedule_or_go_live(actor=user)
+        event.schedule_or_go_live(actor=user, announce=not event.announcement_held)
     elif form.announced:
         event.push_to_google(actor=user)
         event.push_to_discord(actor=user)

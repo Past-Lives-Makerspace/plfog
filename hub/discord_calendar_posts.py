@@ -429,6 +429,8 @@ def announce_new_events() -> int:
         .upcoming()
         .filter(channel_announced_at__isnull=True)
         .exclude(event_type=CommunityEvent.EventType.STUDIO_HOURS)
+        # Published without announcing: its card waits for Announce now on Manage Events.
+        .exclude(announcement_held=True)
     )
     for event in community_rows:
         # One truth: the rich embed + RSVP/Manage buttons the model builds, also rendered by

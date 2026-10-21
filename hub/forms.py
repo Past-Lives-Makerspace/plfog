@@ -3686,6 +3686,7 @@ class CommunityEventForm(_HeroCropMixin, forms.ModelForm):
             "remind_3d",
             "remind_1d",
             "notify_happening_now",
+            "announcement_held",
         ]
         widgets = {
             "starts_at": forms.DateTimeInput(
@@ -3707,6 +3708,7 @@ class CommunityEventForm(_HeroCropMixin, forms.ModelForm):
         can_choose_audience: bool = False,
         guild_choices: QuerySet[Guild] | None = None,
         review_first: bool = False,
+        can_publish_quietly: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -3753,6 +3755,7 @@ class CommunityEventForm(_HeroCropMixin, forms.ModelForm):
                 del self.fields[name]
             self.saves_announce = False
             self.in_review = True
+        self._setup_quiet_publish_field(can_publish_quietly=can_publish_quietly)
         self.fields["video_url"].label = "Video link"
         self.fields["promo_video_url"].label = "Promo video"
         self.add_hero_crop_field()
@@ -3773,6 +3776,24 @@ class CommunityEventForm(_HeroCropMixin, forms.ModelForm):
         else:
             # The guild is the page this form was opened from, so there is nothing to pick.
             del self.fields["guild"]
+
+    def _setup_quiet_publish_field(self, *, can_publish_quietly: bool) -> None:
+        """Offer "Publish without announcing to members" only where a save would announce.
+
+        ``can_publish_quietly`` is the views' :func:`can_administer_events`: an admin or a
+        Calendar Administrator, the people who publish directly. A review-first author never
+        sees it (``saves_announce`` is already False for them), and neither does anyone on an
+        event that is live or was announced before it was unpublished, where there is nothing
+        left to hold. Removing the field leaves the stored value alone, so a POST that sets it
+        from anyone else is ignored, and a held event's hold survives their save.
+        """
+        self.offers_quiet_publish: bool = can_publish_quietly and self.saves_announce and not self.republishes
+        if not self.offers_quiet_publish:
+            del self.fields["announcement_held"]
+            return
+        field = self.fields["announcement_held"]
+        field.label = "Publish without announcing to members"
+        field.help_text = ""
 
     def _setup_audience_field(self, *, can_choose_audience: bool) -> None:
         """Turn the Google-calendar picker into the form's opening question, or remove it.

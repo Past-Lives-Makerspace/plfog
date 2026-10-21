@@ -92,6 +92,9 @@ class GuildSerializer(serializers.ModelSerializer):
 
 class CommunityEventSerializer(serializers.ModelSerializer):
     guild_name = serializers.CharField(source="guild.name", read_only=True, default=None)
+    # Create only, never stored or echoed: ``false`` publishes without the member announcement
+    # (``CommunityEventViewSet.perform_create`` honours it for staff and superusers alone).
+    announce = serializers.BooleanField(write_only=True, required=False, default=True)
 
     class Meta:
         model = CommunityEvent
@@ -113,6 +116,7 @@ class CommunityEventSerializer(serializers.ModelSerializer):
             "remind_3d",
             "remind_1d",
             "notify_happening_now",
+            "announce",
             "sync_state",
             "discord_sync_state",
             "created_by",

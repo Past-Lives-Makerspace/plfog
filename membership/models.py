@@ -8375,6 +8375,17 @@ class CommunityEvent(HeroCropMixin, models.Model):
             "can strip its buttons. Blank until announced."
         ),
     )
+    announcement_held = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "Published (or scheduled) without the member announcement: it is on the calendars, "
+            "but no Discord post, bell, email, push or reminder goes out, and the #calendar "
+            "announcer skips it, until someone presses Announce now on Manage Events, which "
+            "clears this and announces it as usual. Set only by an admin or a Calendar "
+            "Administrator, and never on an event that was already announced."
+        ),
+    )
 
     # --- Seed import bookkeeping ----------------------------------------------
     import_source_uid = models.CharField(
@@ -9163,7 +9174,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
 
     # --- Review lifecycle (member proposals) ----------------------------------
 
-    def publish(self, *, actor: User | None = None) -> None:
+    def publish(self, *, actor: User | None = None, announce: bool = True) -> None:
         """Make a PUBLISHED event live everywhere: the single "it's live now" choke point.
 
         Owes the one-shot announcement (:meth:`owe_announcement`, which sends it in the
@@ -9172,14 +9183,74 @@ class CommunityEvent(HeroCropMixin, models.Model):
         the member fan-out (#845): a site-wide send takes about 30 seconds, and gunicorn killed
         the request at 30 after members had already been told, so the creator saved again.
 
+        ``announce=False`` is the quiet publish an admin asks for: the event still goes on
+        Google Calendar and Discord Events, but nothing is owed, and a never-announced event
+        is held (:meth:`hold_announcement`) until :meth:`announce_now`. A held event stays
+        quiet through every later publish (the scheduled promotion, the API's ``sync``), so
+        only Announce now releases it.
+
         A draft that was published before still carries its announcement message, whose
         RSVP and Manage buttons :meth:`unpublish` stripped; the announcer skips it on the
-        kept stamp, so the buttons come back here, through the refresh path.
+        kept stamp, so the buttons come back here, through the refresh path. A quiet
+        publish keeps that path too, and never owes a second announcement.
         """
-        self.owe_announcement(actor=actor)
+        if not announce:
+            self.hold_announcement()
+        if announce and not self.announcement_held:
+            self.owe_announcement(actor=actor)
         self.push_live(actor=actor)
         if self.discord_announce_message_id:
             self.refresh_discord_announcement(restore_buttons=True)
+
+    @property
+    def was_announced(self) -> bool:
+        """True once the #calendar announcement went out: the stamp or its message id is kept.
+
+        Both survive :meth:`unpublish` on purpose, so a draft that was live once still reads
+        as announced and a quiet re-publish never holds it.
+        """
+        return self.channel_announced_at is not None or bool(self.discord_announce_message_id)
+
+    @property
+    def awaits_announcement(self) -> bool:
+        """A live event published without its announcement: Manage Events' Not announced chip."""
+        return self.announcement_held and self.moderation_state == self.ModerationState.PUBLISHED
+
+    def hold_announcement(self) -> None:
+        """Hold the member announcement of an event that was never announced; a no-op otherwise.
+
+        An event already announced has nothing left to hold: its post, bells and emails are
+        out, and holding it would offer an Announce now that announces nothing.
+        """
+        if self.announcement_held or self.was_announced:
+            return
+        self.announcement_held = True
+        self.save(update_fields=["announcement_held", "updated_at"])
+
+    def announce_now(self, *, actor: User | None = None) -> bool:
+        """Release a held announcement and send it the usual way: Manage Events' Announce now.
+
+        The release is one conditional UPDATE, so of two presses only the one that cleared
+        the hold owes the announcement; the ``event:{pk}:published`` ledger would refuse a
+        second send anyway. The #calendar card follows on the announcer's next run, as for
+        any event published from the web.
+
+        Returns:
+            ``True`` when this call announced, ``False`` when nothing was held any more.
+
+        Raises:
+            InvalidEventTransition: If the event is not published.
+        """
+        if self.moderation_state != self.ModerationState.PUBLISHED:
+            raise InvalidEventTransition(f"Cannot announce an event in state '{self.moderation_state}'.")
+        released = CommunityEvent.objects.filter(pk=self.pk, announcement_held=True).update(
+            announcement_held=False, updated_at=timezone.now()
+        )
+        if not released:
+            return False
+        self.announcement_held = False
+        self.owe_announcement(actor=actor)
+        return True
 
     def owe_announcement(self, *, actor: User | None = None) -> None:
         """Stamp the announcement as owed and send it in the background after the commit.
@@ -9219,7 +9290,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
         owed_since = self.announcement_owed_since
         if owed_since is None:
             return False
-        live = self.moderation_state == self.ModerationState.PUBLISHED
+        live = self.moderation_state == self.ModerationState.PUBLISHED and not self.announcement_held
         if live:
             self.announce(actor=actor)
         CommunityEvent.objects.filter(pk=self.pk, announcement_owed_since=owed_since).update(
@@ -9246,23 +9317,27 @@ class CommunityEvent(HeroCropMixin, models.Model):
             self.save(update_fields=["discord_sync_state", "updated_at"])
         self.push_to_discord(actor=actor)
 
-    def schedule_or_go_live(self, *, actor: User | None = None) -> None:
+    def schedule_or_go_live(self, *, actor: User | None = None, announce: bool = True) -> None:
         """Publish now, or park until ``publish_at``. The single create/approve entry point.
 
         Future ``publish_at`` ⇒ ``moderation_state=SCHEDULED``, no announce/push (the cron
         promotes it via :meth:`publish_scheduled`). Blank/past ``publish_at`` ⇒
         ``moderation_state=PUBLISHED`` + :meth:`publish` (announce + Google push), as today.
+        ``announce=False`` holds the announcement first (:meth:`hold_announcement`), so a
+        parked event stays quiet when the cron promotes it too.
 
         Idempotent for a still-parked event: re-saving a ``SCHEDULED`` row with an
         unchanged future ``publish_at`` re-sets ``SCHEDULED`` and does not announce.
         """
+        if not announce:
+            self.hold_announcement()
         if self.publish_at is not None and self.publish_at > timezone.now():
             self.moderation_state = self.ModerationState.SCHEDULED
             self.save(update_fields=["moderation_state", "updated_at"])
             return
         self.moderation_state = self.ModerationState.PUBLISHED
         self.save(update_fields=["moderation_state", "updated_at"])
-        self.publish(actor=actor)
+        self.publish(actor=actor, announce=announce)
 
     def publish_scheduled(self, *, actor: User | None = None) -> None:
         """Promote a due SCHEDULED event to live (announce + Google push). Cron-facing.
@@ -9313,7 +9388,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
         " (copy)"; ``by`` is the creator. Nothing of the source's life rides along: the copy is
         unreviewed (no proposer, reviewer or note), unscheduled, unsynced (every Google and
         Discord id, state and stamp blank), unannounced (``channel_announced_at`` and the
-        announcement message cleared) and never imported (``import_source_uid``), so saving it
+        announcement message cleared, no hold) and never imported (``import_source_uid``), so saving it
         from the composer announces and pushes it as the new event it is.
 
         The photo's bytes are written to a **new** file: ``save`` runs
@@ -9350,6 +9425,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
         copy.announcement_owed_since = None
         copy.discord_announce_channel_id = ""
         copy.discord_announce_message_id = ""
+        copy.announcement_held = False
         copy.import_source_uid = ""
         if self.photo:
             photo_name = os.path.basename(self.photo.name or "")

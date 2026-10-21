@@ -54,7 +54,7 @@ is a reserved slot: track B fills it once an event can be listed.
           <td class="pl-class-list__title"><a href="{% url 'hub_admin_event' event.pk %}">{{ event.title }}</a></td>
           <td class="pl-events-admin__kind">{{ event.badge_label }}{% if event.guild %}<span class="pl-events-admin__guild" data-event-guild>{{ event.guild.name }}</span>{% endif %}</td>
           <td class="pl-events-admin__dates">{{ event.next_occurrence_start|date:"M j, Y · g:i A" }}{% if event.recurrence != "none" %}<span class="hub-pill hub-pill--neutral" data-recurrence-pill>{{ event.get_recurrence_display }}</span>{% endif %}</td>
-          <td class="pl-events-admin__status"><span class="hub-pill hub-pill--{{ event.status_tone }}" data-event-status="{{ event.moderation_state }}">{{ event.status_label }}</span></td>
+          <td class="pl-events-admin__status"><span class="hub-pill hub-pill--{{ event.status_tone }}" data-event-status="{{ event.moderation_state }}">{{ event.status_label }}</span>{% if event.awaits_announcement %}<span class="hub-pill hub-pill--warn pl-events-admin__not-announced" data-not-announced>Not announced</span>{% endif %}</td>
           <td data-rsvp-count>{{ event.people_count }}</td>
           <td class="pl-events-admin__eventbrite" data-eventbrite-cell>—</td>
           <td class="pl-events-admin__creator">{{ event.creator_name }}</td>

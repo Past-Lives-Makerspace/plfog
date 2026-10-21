@@ -2015,6 +2015,8 @@ Member data and membership plans are admin-only for privacy. Everything else is 
 
 Writes do real things: creating an event through `POST /api/v1/events/` also pushes it to the Google Calendar and announces it on Discord, exactly as if an admin had created it in the app. Posting an announcement notifies the guild's members. The API is a first-class door into the app, not a side channel.
 
+To put an event on the calendar without telling members yet, send `"announce": false` with the event. It needs a staff token; anyone else is refused. Announce it later with Announce now on Manage Events. Leave the field out and the event is announced as usual.
+
 ## Format Details
 
 - Responses are JSON, paginated 50 items per page. Follow the `next` link (or pass `?page=2`) for more.

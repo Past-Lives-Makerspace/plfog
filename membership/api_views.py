@@ -6,6 +6,7 @@ from allauth.account.models import EmailAddress
 from django.db.models import Prefetch
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -70,6 +71,16 @@ class GuildViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class CommunityEventViewSet(viewsets.ModelViewSet):
+    """``/api/v1/events/``: read for any member, write for admins.
+
+    ``POST`` publishes (or schedules, for a future ``publish_at``) and announces exactly as
+    the app's composer does. It takes one optional boolean beyond the stored fields,
+    ``announce`` (default ``true``): ``false`` puts the event on the calendars without the
+    member announcement, to be sent later with Announce now on Manage Events. Only a staff
+    or superuser token may send ``false``; anyone else gets a 403 and nothing is created.
+    The field is ignored on updates and never appears in a response.
+    """
+
     permission_classes: ClassVar = [IsFogAdminOrReadOnly]
     serializer_class = CommunityEventSerializer
     # A draft (a copy, or an event taken down on Manage Events, #831) is nobody's to read here;
@@ -81,10 +92,15 @@ class CommunityEventViewSet(viewsets.ModelViewSet):
     )
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
-        event = serializer.save(created_by=self.request.user)
-        event.schedule_or_go_live(actor=self.request.user)
+        announce = serializer.validated_data.pop("announce")
+        user = self.request.user
+        if not announce and not (user.is_staff or user.is_superuser):
+            raise PermissionDenied("Only staff can publish an event without announcing it.")
+        event = serializer.save(created_by=user)
+        event.schedule_or_go_live(actor=user, announce=announce)
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        serializer.validated_data.pop("announce", None)
         serializer.save()
 
     @action(detail=True, methods=["post"], permission_classes=[IsFogAdmin])
