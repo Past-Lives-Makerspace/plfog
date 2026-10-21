@@ -1,0 +1,92 @@
+{% comment %}
+One pipeline row. An organiser gets a <details> that opens to its edit form, the 2025 box, the
+contact log and its add form, and Delete through the confirm modal; everyone else the name, tier
+and status. Save and Add to log post over htmx and swap this row only (the answer is
+_sponsor_row_answer.html), so unsaved typing in other open rows and in + Add a sponsor survives.
+
+  row          — required, a hq.views.SponsorRow
+  hub          — required, the EventHub
+  can_organize — required, the effective role's organiser bit
+  today        — required, the Portland date, for the due highlight
+  show         — required, the filter in view, carried in each form so a plain post lands back on it
+{% endcomment %}
+{% with sponsor=row.sponsor %}
+{% if can_organize %}
+<details class="pl-hq-sp__row" data-hq-sp-row="{{ sponsor.pk }}"{% if row.is_open %} open{% endif %}>
+  <summary class="pl-hq-sp__summary">
+    <span class="pl-hq-sp__name">{{ sponsor.organization }}{% if sponsor.history %} <span class="pl-hq-sp__chip pl-hq-sp__chip--asked" data-hq-sp-donor>2025 donor</span>{% endif %}{% if sponsor.organiser_line %}<small data-hq-sp-line>{{ sponsor.organiser_line }}</small>{% endif %}</span>
+    <span class="pl-hq-sp__chip pl-hq-sp__chip--{{ sponsor.status }}" data-hq-sp-status="{{ sponsor.status }}">{{ sponsor.get_status_display }}</span>
+    <span class="pl-hq-sp__next">{% if sponsor.next_step %}{{ sponsor.next_step }}{% else %}<span class="pl-hq-sp__muted">No next step</span>{% endif %}{% if sponsor.follow_up_by %}<small class="{% if sponsor.is_following_up and sponsor.follow_up_by <= today %}pl-hq-sp__due{% endif %}" data-hq-sp-row-due>by {{ sponsor.follow_up_by|date:"M j" }}</small>{% endif %}</span>
+    <span class="pl-hq-sp__amount" data-hq-sp-amount>{{ sponsor.figure_display }}<small>{{ sponsor.figure_label }}</small></span>
+    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+  </summary>
+  <div class="pl-hq-sp__row-body">
+    {% if sponsor.history %}<p class="pl-hq-sp__history" data-hq-sp-history><strong>Last year (2025, as a donation):</strong> {{ sponsor.history }}</p>{% endif %}
+    {% with form=row.edit_form %}
+    <form method="post" action="{% url 'hq:sponsor_edit' hub.slug sponsor.pk %}" hx-post="{% url 'hq:sponsor_edit' hub.slug sponsor.pk %}" hx-target="closest [data-hq-sp-row]" hx-swap="outerHTML" class="pl-hq-sp__form" data-hq-sp-edit-form>
+      {% csrf_token %}
+      <input type="hidden" name="filter" value="{{ show }}">
+      {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+      <div class="pl-hq-sp__fields">
+        {% include "components/form_field.html" with field=form.status field_hint_off=True %}
+        {% include "components/form_field.html" with field=form.ask field_hint_off=True %}
+        {% include "components/form_field.html" with field=form.amount field_hint_off=True %}
+        {% include "components/form_field.html" with field=form.owner field_hint_off=True %}
+      </div>
+      <div class="pl-hq-sp__fields">
+        {% include "components/form_field.html" with field=form.contact_name field_hint_off=True %}
+        {% include "components/form_field.html" with field=form.contact_role field_hint_off=True %}
+        {% include "components/form_field.html" with field=form.email field_hint_off=True %}
+        {% include "components/form_field.html" with field=form.phone field_hint_off=True %}
+      </div>
+      <div class="pl-hq-sp__fields">
+        {% include "components/form_field.html" with field=form.next_step field_hint_off=True %}
+        {% include "components/form_field.html" with field=form.follow_up_by field_hint_off=True %}
+        {% include "components/form_field.html" with field=form.tier field_hint_off=True %}
+        {% include "components/form_field.html" with field=form.organization field_hint_off=True %}
+      </div>
+      {% include "components/form_field.html" with field=form.thanked field_hint_off=True %}
+      {% include "components/form_field.html" with field=form.fit_note field_hint_off=True %}
+      {% include "components/form_field.html" with field=form.benefits field_hint_off=True %}
+      {% include "components/form_field.html" with field=form.note field_hint_off=True %}
+      {% include "components/form_field.html" with field=form.history field_hint_off=True %}
+      <div class="pl-hq-sp__actions">
+        <button type="submit" class="pl-hq-sp__btn" data-hq-sp-save>Save</button>
+      </div>
+    </form>
+    {% endwith %}
+
+    <div class="pl-hq-sp__log" data-hq-sp-log>
+      <h3 class="pl-hq-sp__h3">Contact Log</h3>
+      {% for entry in sponsor.log_entries.all %}
+      <p class="pl-hq-sp__log-line" data-hq-sp-log-line><span class="pl-hq-sp__when">{{ entry.date|date:"M j" }}</span><span>{{ entry.text }}{% if entry.by %} <span class="pl-hq-sp__muted">({{ entry.by }})</span>{% endif %}</span></p>
+      {% empty %}
+      <p class="pl-hq-sp__muted" data-hq-sp-log-empty>No contact logged yet.</p>
+      {% endfor %}
+      {% with form=row.log_form %}
+      <form method="post" action="{% url 'hq:sponsor_log' hub.slug sponsor.pk %}" hx-post="{% url 'hq:sponsor_log' hub.slug sponsor.pk %}" hx-target="closest [data-hq-sp-row]" hx-swap="outerHTML" class="pl-hq-sp__log-form" data-hq-sp-log-form>
+        {% csrf_token %}
+        <input type="hidden" name="filter" value="{{ show }}">
+        {% include "components/form_field.html" with field=form.text field_hint_off=True %}
+        {% include "components/form_field.html" with field=form.by field_hint_off=True %}
+        <button type="submit" class="pl-hq-sp__btn pl-hq-sp__btn--ghost" data-hq-sp-log-submit>Add to log</button>
+      </form>
+      {% endwith %}
+    </div>
+
+    <div class="pl-hq-sp__row-foot">
+      <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'delete-sponsor-{{ sponsor.pk }}')" data-hq-sp-delete>Delete sponsor</button>
+      {% url 'hq:sponsor_delete' hub.slug sponsor.pk as delete_url %}
+      {% with pk_text=sponsor.pk|stringformat:"s" %}
+      {% include "components/confirm_modal.html" with confirm_id="delete-sponsor-"|add:pk_text confirm_title="Delete this sponsor?" confirm_message="The sponsor and its contact log are removed and the totals change. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" confirm_field_name="filter" confirm_field_value=show %}
+      {% endwith %}
+    </div>
+  </div>
+</details>
+{% else %}
+<div class="pl-hq-sp__row pl-hq-sp__row--plain" data-hq-sp-row="{{ sponsor.pk }}">
+  <span class="pl-hq-sp__name">{{ sponsor.organization }}{% if sponsor.tier %}<small>{{ sponsor.get_tier_display }}</small>{% endif %}</span>
+  <span class="pl-hq-sp__chip pl-hq-sp__chip--{{ sponsor.status }}" data-hq-sp-status="{{ sponsor.status }}">{{ sponsor.get_status_display }}</span>
+</div>
+{% endif %}
+{% endwith %}

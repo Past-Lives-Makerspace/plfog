@@ -2460,6 +2460,8 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
         )
         .first()
     )
+    from hub.forms import OrientationMoveForm
+
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -2467,6 +2469,8 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
         {
             **ctx,
             "booking": booking,
+            # Move to Another Time (#853): the modal's form, seeded with the current time.
+            "move_form": OrientationMoveForm(booking=booking, auto_id="id_move_%s") if booking.is_movable else None,
             "refund_state": booking.refund_state if booking.amount_paid_cents else "none",
             "viewer_has_refund_authority": has_refund_authority(request),
             "late_fee": late_fee,
@@ -2498,6 +2502,81 @@ def orientation_lead_cancel(request: HttpRequest, booking_pk: int) -> HttpRespon
     except OrientationError as exc:
         messages.error(request, str(exc))
     return redirect(_safe_next(request, reverse("hub_orientation_respond", args=[booking.pk])))
+
+
+@login_required
+@require_POST
+def orientation_move(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """POST-only: a leader moves a booking to another time, now or by asking the member first (#853).
+
+    Gated like Confirm and Cancel (``_require_can_manage_booking``). ``OrientationMoveForm``
+    reads the new date, start and choice; a bad form or a booking that cannot move answers
+    with an error message and changes nothing. Neither road refunds or charges anything.
+    Lands on ``next`` when it is a local path, else the request page.
+    """
+    from hub.forms import OrientationMoveForm
+    from membership import orientations
+    from membership.models import OrientationBooking, OrientationError
+
+    booking = get_object_or_404(
+        OrientationBooking.objects.select_related("slot", "guild", "member", "orientation_type__equipment"),
+        pk=booking_pk,
+    )
+    forbidden = _require_can_manage_booking(request, booking)
+    if forbidden is not None:
+        return forbidden
+    landing = _safe_next(request, reverse("hub_orientation_respond", args=[booking.pk]))
+    form = OrientationMoveForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, f"Couldn't move the orientation. {form.error_summary()}")
+        return redirect(landing)
+    name = booking.member.display_name
+    try:
+        if form.asks_member_first:
+            orientations.propose_orientation_time(booking, form.cleaned_data["starts_at"], actor=_get_member(request))
+            messages.success(request, f"We asked {name} about the new time. Their booking stays put until they answer.")
+        else:
+            orientations.move_orientation(booking, form.cleaned_data["starts_at"], actor=_get_member(request))
+            messages.success(request, f"Orientation moved and confirmed. We emailed {name}.")
+    except OrientationError as exc:
+        messages.error(request, str(exc))
+    return redirect(landing)
+
+
+@login_required
+@require_POST
+def orientation_proposal_answer(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """POST-only: a member accepts or keeps their time against a proposed new one (#853).
+
+    The booking card's two buttons post ``answer`` (``accept`` or ``keep``) and the
+    ``proposal`` they were drawn for, so a card left open while the leader proposed again
+    never accepts a time the member has not seen. Only the booking's member may answer.
+    """
+    from membership import orientations
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(
+        OrientationBooking.objects.select_related("slot", "guild", "member", "orientation_type__equipment"),
+        pk=booking_pk,
+    )
+    member = _get_member(request)
+    if member is None or booking.member_id != member.pk:
+        return HttpResponse("Forbidden", status=403)
+    answer = request.POST.get("answer", "")
+    if answer not in ("accept", "keep"):
+        return HttpResponseBadRequest("Say answer=accept or answer=keep.")
+    result = orientations.answer_proposal(booking, accept=answer == "accept", proposal=request.POST.get("proposal", ""))
+    if result == "accepted":
+        messages.success(request, "Your orientation moved to the new time. It's confirmed.")
+    elif result == "kept":
+        messages.success(request, "You kept your current time. We let the guild know.")
+    elif result == "passed":
+        messages.info(request, "That new time has already passed, so your orientation stays at its current time.")
+    elif result == "unavailable":
+        messages.info(request, "That new time can't be booked anymore, so your orientation stays at its current time.")
+    else:
+        messages.info(request, "That new time is no longer open. Your booking shows where things stand.")
+    return _orientation_return(request, booking.orientation_type)
 
 
 @login_required
@@ -2868,14 +2947,10 @@ def _token_cancel_fee_context(booking: Any, action: str, result: str | None) -> 
     member pays from there once signed in; this page never redirects to Stripe).
     """
     from billing.models import LateCancellationFee
-    from membership.late_cancel import cancel_sentence, policy_for
-    from membership.models import OrientationBooking
+    from membership.late_cancel import booking_cancel_warning, policy_for
 
-    warning = ""
-    if action == "cancel" and booking.status == OrientationBooking.Status.CONFIRMED:
-        policy = policy_for(booking)
-        if policy.is_late(booking.slot.starts_at):
-            warning = cancel_sentence(policy)
+    # The one fee line rule, so a booking the guild moved (#853) shows no fee here either.
+    warning = booking_cancel_warning(booking, policy_for(booking)) if action == "cancel" else ""
     late_fee = (
         LateCancellationFee.objects.filter(orientation_booking=booking).first() if result == "cancelled" else None
     )
@@ -2902,7 +2977,15 @@ def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
         booking, action, recipient = orientations.read_action_token(token)
     except (BadSignature, OrientationBooking.DoesNotExist):
         return render(request, "hub/orientation_action.html", {"invalid": True}, status=400)
-    result = orientations.apply_token_action(booking, action, recipient=recipient) if request.method == "POST" else None
+    proposal = orientations.read_action_proposal(token)
+    result = (
+        orientations.apply_token_action(booking, action, recipient=recipient, proposal=proposal)
+        if request.method == "POST"
+        else None
+    )
+    # An Accept or Keep link (#853) that can no longer act says why before the click.
+    if result is None:
+        result = orientations.proposal_link_verdict(booking, action, proposal) or None
     return render(
         request,
         "hub/orientation_action.html",
@@ -4343,8 +4426,10 @@ def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:
         or member.is_guild_staff
         or member.is_instructor
         or _compose_editable_classes(request, member).exists()
-        or member.has_admin_capability(AdminCapability.Capability.BILLING_APPROVER)
-        or member.has_admin_capability(AdminCapability.Capability.EVENTS_APPROVER)
+        # One query for both grants: this runs on every hub page through the sidebar.
+        or member.admin_capabilities.filter(
+            capability__in=[AdminCapability.Capability.BILLING_APPROVER, AdminCapability.Capability.EVENTS_APPROVER]
+        ).exists()
     )
 
 
@@ -5132,6 +5217,8 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_site_settings": is_admin,
             "tool_slideshow": is_admin,
             "tool_growth": is_admin,
+            # Admins reach the HQ here whatever the sidebar switch says (Hidden only drops the entry).
+            "tool_holiday_bizarre": is_admin,
             "tool_instructor_inquiries": is_admin,
             "tool_leadership": is_admin,
             "tool_locations": is_admin,
@@ -7693,10 +7780,13 @@ def event_rsvp_guest(request: HttpRequest, pk: int) -> HttpResponse:
     """Count me in on the public event page for someone with no account (#831, part 4).
 
     No login, like the page: a scanned flyer leads here. The order is the cheap refusals first
-    (an unpublished event 404s, an ended one is turned away with the page's own note), then
+    (an unpublished event 404s, a signed-in user goes back to the page, where their RSVP is the
+    member one tap and never a guest row, an ended event is turned away with the page's own
+    note), then
     one rate limit attempt per POST whatever follows, then the honeypot (a filled one is
     answered exactly like a success and writes nothing), then the form. A valid form upserts
-    the guest by email (``CommunityEvent.rsvp_guest``) and refreshes the Discord embed; the
+    the guest by email (``EventGuestRSVPForm.save``: an email that is a member's already on the
+    list resizes that member's RSVP instead) and refreshes the Discord embed; the
     redirect carries ``?going=1`` so the page's "You're on the list" state needs no session.
     An invalid form re-renders the page with its errors.
     """
@@ -7706,6 +7796,8 @@ def event_rsvp_guest(request: HttpRequest, pk: int) -> HttpResponse:
     event = get_object_or_404(CommunityEvent.objects.published().select_related("guild", "area"), pk=pk)
     date_query = event.date_query(EventDateForm(request.GET).occurrence_start(event))
     page = reverse("hub_event_detail", args=[pk]) + date_query
+    if request.user.is_authenticated:
+        return redirect(page)
     if event.rsvps_closed:
         messages.info(request, "This event has already taken place.")
         return redirect(page)

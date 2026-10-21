@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
 from datetime import time as time_type
-from datetime import timedelta
+from datetime import UTC, timedelta
 from decimal import Decimal
 from pathlib import Path
 from html import unescape
@@ -7933,6 +7933,15 @@ class CommunityEventQuerySet(models.QuerySet):
         """Proposals a reviewer turned down (the Manage Events Declined chip)."""
         return self.filter(moderation_state=CommunityEvent.ModerationState.DECLINED)
 
+    def announcement_overdue(self, now: datetime_type) -> CommunityEventQuerySet:
+        """Events whose background announcement should have finished by ``now`` and has not.
+
+        Owed for longer than :data:`CommunityEvent.ANNOUNCEMENT_FINISH_GRACE`: the in-process
+        send was interrupted (a redeploy, a kill). Any moderation state, so the finisher also
+        clears the stamp on an event taken down before its send ran.
+        """
+        return self.filter(announcement_owed_since__lte=now - CommunityEvent.ANNOUNCEMENT_FINISH_GRACE)
+
     def past(self) -> CommunityEventQuerySet:
         """Published one-offs that have ended (the Manage Events Past chip).
 
@@ -8101,6 +8110,12 @@ class CommunityEvent(HeroCropMixin, models.Model):
 
     #: The title column's cap, shared with ``duplicate`` so " (copy)" never overflows it.
     TITLE_MAX_LENGTH = 200
+
+    #: How long the in-process announcement send has before the ``finish_event_announcements``
+    #: cron treats it as interrupted. A site-wide send takes about 30 seconds; the margin keeps
+    #: the cron from running alongside a send that is still going (harmless, since the delivery
+    #: ledger sends each slot once, but wasted work).
+    ANNOUNCEMENT_FINISH_GRACE = timedelta(minutes=5)
 
     title = models.CharField(
         max_length=TITLE_MAX_LENGTH, help_text="Event name shown on the calendar — e.g. 'Monthly Potluck'."
@@ -8344,6 +8359,17 @@ class CommunityEvent(HeroCropMixin, models.Model):
         help_text=(
             "When this event was announced (or silently marked announced) in the Discord calendar "
             "channel. NULL = not yet announced; the 15-minute announcer picks it up once published."
+        ),
+    )
+    announcement_owed_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When this event went live with its member announcement (bell, email, push and the "
+            "Discord post) still to send. The send runs in the background right after the save "
+            "and clears this when it finishes; still set after a few minutes means it was "
+            "interrupted, and the 15 minute finish_event_announcements job completes it. NULL = "
+            "nothing owed."
         ),
     )
     discord_announce_channel_id = models.CharField(
@@ -9105,10 +9131,22 @@ class CommunityEvent(HeroCropMixin, models.Model):
         Raises:
             ValueError: If ``audience`` is not one of the two known values (fail loudly).
         """
+        addresses = self.email_announcement_addresses(audience)
+        self.send_email_announcement(addresses, actor=actor)
+        return len(addresses)
+
+    def email_announcement_addresses(self, audience: str) -> list[str]:
+        """The addresses :meth:`email_announcement` would email for ``audience``, sorted.
+
+        Split out so Discord ``/create`` can report the count in its reply at once and send
+        through :meth:`send_email_announcement` in the background.
+
+        Raises:
+            ValueError: If ``audience`` is not one of the two known values (fail loudly).
+        """
         if self.event_type == self.EventType.STUDIO_HOURS:
-            return 0
+            return []
         from core.events import preferences, resolvers
-        from core.events.emit import emit
         from core.events.registry import Channel, Recipients
 
         event_key = self.announce_event_key()
@@ -9121,7 +9159,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
         else:
             raise ValueError(f"Unknown event email audience: {audience!r}")
 
-        addresses = sorted(
+        return sorted(
             {
                 email
                 for user, _reason in recipients
@@ -9129,10 +9167,19 @@ class CommunityEvent(HeroCropMixin, models.Model):
                 and Channel.EMAIL not in preferences.enabled_channels(user, event_key)
             }
         )
+
+    def send_email_announcement(self, addresses: list[str], *, actor: User | None = None) -> None:
+        """Email the launch announcement to ``addresses`` (from :meth:`email_announcement_addresses`).
+
+        Same ``period`` as the launch, so the in-app and push fan-out this emit also walks is
+        deduped against :meth:`announce` whichever runs first, and each address is claimed once.
+        """
         if not addresses:
-            return 0
+            return
+        from core.events.emit import emit
+
         emit(
-            event_key,
+            self.announce_event_key(),
             actor=actor,
             target=self,
             context=self._announce_context(),
@@ -9141,24 +9188,72 @@ class CommunityEvent(HeroCropMixin, models.Model):
             email_to=addresses,
             suppress_broadcast=True,
         )
-        return len(addresses)
 
     # --- Review lifecycle (member proposals) ----------------------------------
 
     def publish(self, *, actor: User | None = None) -> None:
         """Make a PUBLISHED event live everywhere: the single "it's live now" choke point.
 
-        Fires the one-shot announcement (idempotent via its ``period``), then
-        :meth:`push_live`. Called by :meth:`approve` and by the direct-create views.
+        Owes the one-shot announcement (:meth:`owe_announcement`, which sends it in the
+        background once the save commits), then :meth:`push_live`. Called by :meth:`approve`,
+        :meth:`publish_scheduled` and by the direct-create views. The response never waits on
+        the member fan-out (#845): a site-wide send takes about 30 seconds, and gunicorn killed
+        the request at 30 after members had already been told, so the creator saved again.
 
         A draft that was published before still carries its announcement message, whose
         RSVP and Manage buttons :meth:`unpublish` stripped; the announcer skips it on the
         kept stamp, so the buttons come back here, through the refresh path.
         """
-        self.announce(actor=actor)
+        self.owe_announcement(actor=actor)
         self.push_live(actor=actor)
         if self.discord_announce_message_id:
             self.refresh_discord_announcement(restore_buttons=True)
+
+    def owe_announcement(self, *, actor: User | None = None) -> None:
+        """Stamp the announcement as owed and send it in the background after the commit.
+
+        The stamp (``announcement_owed_since``) is what lets the ``finish_event_announcements``
+        cron complete a send the process did not live to finish. A studio-hours row never
+        announces, so it is never owed.
+        """
+        if self.event_type == self.EventType.STUDIO_HOURS:
+            return
+        from core.deferred import defer
+
+        self.announcement_owed_since = timezone.now()
+        self.save(update_fields=["announcement_owed_since", "updated_at"])
+        pk = self.pk
+        defer(lambda: CommunityEvent.finish_owed_announcement(pk, actor=actor), name=f"event:{pk}:announce")
+
+    @classmethod
+    def finish_owed_announcement(cls, pk: int, *, actor: User | None = None) -> None:
+        """Re-read event ``pk`` and finish its owed announcement; a deleted event is skipped."""
+        for event in cls.objects.filter(pk=pk):
+            event.finish_announcement(actor=actor)
+
+    def finish_announcement(self, *, actor: User | None = None) -> bool:
+        """Send the owed announcement, then clear the stamp. Safe to run any number of times.
+
+        Runs from the background thread :meth:`owe_announcement` starts and from the cron
+        backstop. Every run goes through :meth:`announce`, whose ``event:{pk}:published``
+        period claims each (member, channel) slot and the Discord post once, so a second run
+        sends only what the first did not. An event no longer published (taken down before the
+        send ran) announces nothing and just loses its stamp. The stamp is cleared only while
+        it still holds the value read here, so an event published again meanwhile stays owed.
+
+        Returns:
+            ``True`` when it announced, ``False`` when nothing was owed or the event is not live.
+        """
+        owed_since = self.announcement_owed_since
+        if owed_since is None:
+            return False
+        live = self.moderation_state == self.ModerationState.PUBLISHED
+        if live:
+            self.announce(actor=actor)
+        CommunityEvent.objects.filter(pk=self.pk, announcement_owed_since=owed_since).update(
+            announcement_owed_since=None
+        )
+        return live
 
     def push_live(self, *, actor: User | None = None) -> None:
         """Push a live event to Google Calendar and Discord Events, without announcing it.
@@ -9167,7 +9262,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
         linked Google Calendar, then likewise marks + pushes it to the Discord server's Scheduled
         Events (both best-effort — an outage records ``FAILED`` and never blocks this call; the
         Discord push self-gates to a no-op for studio hours and when Discord Events sync is off).
-        :meth:`publish` calls it after the announcement; a meeting's own event calls it alone
+        :meth:`publish` calls it once the announcement is owed; a meeting's own event calls it alone
         (:meth:`Meeting.create_calendar_event`), because its announcement waits as a draft.
         """
         if self.sync_state == self.SyncState.IDLE:
@@ -9280,6 +9375,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
         for field, blank in self._SYNC_RESET.items():
             setattr(copy, field, blank)
         copy.channel_announced_at = None
+        copy.announcement_owed_since = None
         copy.discord_announce_channel_id = ""
         copy.discord_announce_message_id = ""
         copy.import_source_uid = ""
@@ -9775,10 +9871,11 @@ class CommunityEvent(HeroCropMixin, models.Model):
         return list(self.rsvps.select_related("member").exclude(member__hide_from_directory=True))
 
     def rsvp_people_count(self) -> int:
-        """How many people are coming: every visible RSVP's party size, summed (#831).
+        """How many people are coming: ``party_size`` summed over every RSVP row (#831).
 
-        The same rows :meth:`visible_rsvps` lists, so the public page's count and the Discord
-        embed's agree, as one aggregate query.
+        Members under the ``hide_from_directory`` override are excluded (#614); guest rows are
+        counted. These are the rows :meth:`visible_rsvps` lists, so the public page's count and
+        the Discord embed's agree, as one aggregate query.
         """
         total = self.rsvps.exclude(member__hide_from_directory=True).aggregate(total=Coalesce(Sum("party_size"), 0))[
             "total"
@@ -9925,6 +10022,20 @@ class CommunityEvent(HeroCropMixin, models.Model):
         them again with the size they chose).
         """
         return bool(self.rsvps.filter(member=member).update(party_size=party_size))
+
+    def member_rsvp_for_email(self, email: str) -> "EventRSVP | None":
+        """The member RSVP on this event whose member's primary email is ``email``, if any.
+
+        Case-insensitive, read through :attr:`EventRSVP.contact_email` (the
+        ``Member.primary_email`` contract) over :meth:`guest_list`'s prefetch, so it costs two
+        queries however many members are going. The guest form uses it so a member who fills it
+        logged out resizes their own RSVP instead of being counted twice (#831).
+        """
+        wanted = EventRSVP.normalise_email(email)
+        if not wanted:
+            return None
+        members = self.guest_list().filter(member__isnull=False)
+        return next((rsvp for rsvp in members if EventRSVP.normalise_email(rsvp.contact_email) == wanted), None)
 
     def rsvp_guest(
         self,
@@ -14705,6 +14816,14 @@ class OrientationSlot(models.Model):
         MANUAL = "manual", "Added manually"
         GENERATED = "generated", "From a recurring rule"
         FROM_BLOCK = "from_block", "Booked into an availability block"
+        #: A one-off made for one booking: a custom request's time, or the time a guild moved a
+        #: booking to (#853). Rows from before #853 that were made this way still read MANUAL.
+        CUSTOM = "custom", "Made for one booking"
+
+    #: The slots that belong to one booking rather than to the posted schedule: a custom or
+    #: moved time, and a segment carved out of an open window. When their booking leaves, they
+    #: never reopen to other members (``orientations._tidy_left_slot``).
+    OWN_SOURCES: ClassVar[tuple[str, ...]] = (Source.CUSTOM, Source.FROM_BLOCK)
 
     guild = models.ForeignKey(
         Guild,
@@ -15081,6 +15200,35 @@ class OrientationBooking(models.Model):
     confirmed_at = models.DateTimeField(null=True, blank=True)
     declined_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    moved_by_guild_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the guild last moved this booking to a new time (#853), directly or by the member "
+            "accepting a proposed time. A member cancelling a moved booking never pays a late fee."
+        ),
+    )
+    proposed_starts_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="A new time the guild asked to move this booking to, awaiting the member's answer. Empty when none is open.",
+    )
+    proposed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the open proposal was made. Its Accept and Keep links carry it, so a replaced proposal's links go stale.",
+    )
+    proposed_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orientation_times_proposed",
+        help_text="The leader who proposed the open new time.",
+    )
+
+    #: The columns an open proposal lives in; cleared together on accept, keep, decline and cancel.
+    PROPOSAL_FIELDS: ClassVar[tuple[str, ...]] = ("proposed_starts_at", "proposed_at", "proposed_by")
 
     objects = OrientationBookingQuerySet.as_manager()
 
@@ -15141,19 +15289,114 @@ class OrientationBooking(models.Model):
         self.save(update_fields=["status", "confirmed_at", "oriented_by"])
 
     def decline(self, *, note: str = "") -> None:
-        """Turn down the request, optionally with a note for the member."""
+        """Turn down the request, optionally with a note for the member. Clears any open proposal."""
         self._refuse_checkout_hold()
         self.status = self.Status.DECLINED
         self.declined_at = timezone.now()
         self.lead_note = note
-        self.save(update_fields=["status", "declined_at", "lead_note"])
+        self._drop_proposal()
+        self.save(update_fields=["status", "declined_at", "lead_note", *self.PROPOSAL_FIELDS])
 
     def cancel(self) -> None:
-        """Cancel the booking, freeing its seat."""
+        """Cancel the booking, freeing its seat. Clears any open proposal."""
         self._refuse_checkout_hold()
         self.status = self.Status.CANCELLED
         self.cancelled_at = timezone.now()
-        self.save(update_fields=["status", "cancelled_at"])
+        self._drop_proposal()
+        self.save(update_fields=["status", "cancelled_at", *self.PROPOSAL_FIELDS])
+
+    # --- Moving to another time (#853) ---------------------------------------
+
+    @property
+    def moved_by_guild(self) -> bool:
+        """Whether the guild moved this booking: its member's cancel never carries a late fee."""
+        return self.moved_by_guild_at is not None
+
+    @property
+    def has_open_proposal(self) -> bool:
+        """Whether a proposed new time is waiting on the member's answer: one is recorded and still ahead."""
+        return self.proposed_starts_at is not None and self.proposed_starts_at > timezone.now()
+
+    @property
+    def proposal_has_passed(self) -> bool:
+        """Whether a recorded proposal's time has come and gone unanswered; it is no longer open."""
+        return self.proposed_starts_at is not None and self.proposed_starts_at <= timezone.now()
+
+    @property
+    def proposal_key(self) -> str:
+        """The open proposal's identity for its Accept and Keep links, or "" when none is open.
+
+        Microseconds since the epoch of ``proposed_at``, exact integer arithmetic, so a link
+        minted for one proposal never matches a later one.
+        """
+        if self.proposed_at is None:
+            return ""
+        epoch = datetime_type(1970, 1, 1, tzinfo=UTC)
+        return str((self.proposed_at - epoch) // timedelta(microseconds=1))
+
+    def _drop_proposal(self) -> None:
+        """Clear the open proposal in memory; the caller saves ``PROPOSAL_FIELDS``."""
+        self.proposed_starts_at = None
+        self.proposed_at = None
+        self.proposed_by = None
+
+    @property
+    def is_movable(self) -> bool:
+        """Whether the guild may move this booking (#853): requested or confirmed, and not yet oriented.
+
+        What shows Move to Another Time; :meth:`ensure_movable` is the guard behind it.
+        """
+        return self.status in (self.Status.REQUESTED, self.Status.CONFIRMED) and not self.is_completed
+
+    def ensure_movable(self) -> None:
+        """Raise :class:`OrientationError` unless the guild may move this booking to another time.
+
+        A requested or confirmed booking that has not happened yet moves; a checkout hold, a
+        declined or cancelled booking and a completed orientation never do.
+        """
+        self._refuse_checkout_hold()
+        if self.status not in (self.Status.REQUESTED, self.Status.CONFIRMED):
+            raise OrientationError("Only a requested or confirmed orientation can move to another time.")
+        if self.is_completed:
+            raise OrientationError("This orientation already happened, so it can't move.")
+
+    def move_to(self, slot: OrientationSlot, *, oriented_by: Member | None = None) -> None:
+        """Put the booking on ``slot``, confirmed, and stamp it as moved by the guild.
+
+        The payment columns are never touched: the paid amount and Stripe ids stay with the
+        booking. A booking already confirmed keeps its confirmation time and its runner; a
+        request becomes confirmed now, credited to ``oriented_by`` (the leader who moved it,
+        or who proposed the time the member accepted), else the defaults :meth:`confirm` uses.
+        Any open proposal is cleared.
+        """
+        self.ensure_movable()
+        now = timezone.now()
+        changed = ["slot", "moved_by_guild_at"]
+        if self.status != self.Status.CONFIRMED:
+            self.status = self.Status.CONFIRMED
+            self.confirmed_at = now
+            self.oriented_by = oriented_by or slot.orienter or self.orientation_type.default_runner()
+            changed += ["status", "confirmed_at", "oriented_by"]
+        if self.proposed_at is not None:
+            self._drop_proposal()
+            changed += list(self.PROPOSAL_FIELDS)
+        self.slot = slot
+        self.moved_by_guild_at = now
+        # Only what changed, so a stale write can never put back a status someone else just set.
+        self.save(update_fields=changed)
+
+    def propose_time(self, starts_at: datetime_type, *, proposed_by: Member | None) -> None:
+        """Record a proposed new time for the member to accept or keep, replacing any open one."""
+        self.ensure_movable()
+        self.proposed_starts_at = starts_at
+        self.proposed_at = timezone.now()
+        self.proposed_by = proposed_by
+        self.save(update_fields=list(self.PROPOSAL_FIELDS))
+
+    def clear_proposal(self) -> None:
+        """The member kept their current time: drop the open proposal."""
+        self._drop_proposal()
+        self.save(update_fields=list(self.PROPOSAL_FIELDS))
 
     def mark_completed(self, *, oriented_by: Member | None = None) -> None:
         """Record that the orientation happened — this is what marks the member oriented."""
@@ -18798,6 +19041,19 @@ class WikiPageQuerySet(models.QuerySet["WikiPage"]):
     def space_wide(self) -> Self:
         """Pages belonging to no guild — the space-wide half of the same store."""
         return self.filter(guild__isnull=True)
+
+    def written(self) -> Self:
+        """Pages a person has edited (``body_edited_at`` is set), so the seeders' stubs drop out.
+
+        Listing stubs under Recently Updated told members a page had news on the day a command
+        created it. ``has_written_body`` also needs a non-empty body; this does not, because
+        the list is about who has been editing, not what is in the page.
+        """
+        return self.filter(body_edited_at__isnull=False)
+
+    def unwritten(self) -> Self:
+        """Stubs nobody has written in yet, which the home page lists as an invitation."""
+        return self.filter(body_edited_at__isnull=True)
 
     def visible_for(self, request: HttpRequest) -> Self:
         """The pages this request may see in a listing — a FILTER, not a check.

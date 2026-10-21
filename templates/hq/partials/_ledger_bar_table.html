@@ -1,0 +1,52 @@
+{% comment %}
+The drink sales, newest first, Lee's table: when, the drink, how many, the amount, Paid by and the note, each with a
+Delete through the confirm modal (labelled with the sale and its time), then Download drink sales (CSV), whose last row
+is the totals. Swapped out of band after every sale, batch and undo.
+
+  hub       — required, the EventHub
+  bar_sales — required, the sales newest first
+  oob       — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<div class="pl-hq-lg__bar-sales" id="hq-lg-bar-table" data-hq-lg-bar-table{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="pl-hq-lg__card pl-hq-lg__scroll">
+    <table class="pl-hq-lg__table pl-hq-lg__table--bar">
+      <thead>
+        <tr>
+          <th scope="col">Time</th>
+          <th scope="col">Drink</th>
+          <th scope="col" class="pl-hq-lg__num">Qty</th>
+          <th scope="col" class="pl-hq-lg__num">Amount</th>
+          <th scope="col">Paid by</th>
+          <th scope="col">Note</th>
+          <th scope="col"><span class="sr-only">Delete</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sale in bar_sales %}
+        <tr data-hq-lg-bar-sale="{{ sale.pk }}">
+          <td class="pl-hq-lg__nowrap">{{ sale.created_at|date:"M j, g:i A" }}</td>
+          <td>{{ sale.get_drink_display }}</td>
+          <td class="pl-hq-lg__num">{{ sale.qty }}</td>
+          <td class="pl-hq-lg__num">{{ sale.amount_display }}</td>
+          <td>{{ sale.get_pay_display }}</td>
+          <td>{{ sale.note }}</td>
+          <td>
+            <button type="button" class="pl-hq-lg__delete" aria-label="Delete {{ sale.summary }} at {{ sale.created_at|date:'g:i A' }}" @click="$dispatch('open-confirm', 'delete-sale-{{ sale.pk }}')" data-hq-lg-bar-delete>Delete</button>
+            {% url 'hq:ledger_bar_delete' hub.slug sale.pk as delete_url %}
+            {% with pk_text=sale.pk|stringformat:"s" %}
+            {% include "components/confirm_modal.html" with confirm_id="delete-sale-"|add:pk_text confirm_title="Delete this sale?" confirm_message="It comes out of the drink sales and the totals. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" %}
+            {% endwith %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="pl-hq-lg__empty" data-hq-lg-bar-empty>No drink sales yet. Use the quick-add buttons on the night, or log a batch.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if bar_sales %}
+  <div class="pl-hq-lg__actions">
+    <a href="{% url 'hq:ledger_bar_csv' hub.slug %}" class="pl-hq-lg__btn pl-hq-lg__btn--ghost" hx-boost="false" data-pl-download data-hq-lg-bar-csv>Download drink sales (CSV)</a>
+  </div>
+  {% endif %}
+</div>

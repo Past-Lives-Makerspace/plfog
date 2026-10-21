@@ -1,0 +1,37 @@
+{% comment %}
+The ledger's board summary, Lee's navy panel: four tiles (Board approval with its note, Used from approval net of
+refunds, Left in approval, Sponsored value), a meter of the approval used, her board paragraph, Copy board summary
+(the roster's clipboard idiom: writeText in a secure context, else select the hidden box and execCommand, then a
+toast; Copy finds its box by its data attribute, never an Alpine ref, so it reads the box a swap brought back),
+Download ledger (CSV), and Change the approval (a plain post, since the approval names the kinds, the filters and a
+column). Everything but Change the approval is hq/partials/_ledger_board_figures.html, which every htmx answer whose
+post moved a figure the paragraph reads sends out of band with the tally, the goals and Staff time's figures
+(hq/partials/_ledger_figures_oob.html: a +1 tap, an undo, a batch, the Wine Wall's tickets and ticket prices, a door
+tap, a launch task, a staff entry, a guild row), or with the goals alone (a budget line's Save). The approval form
+carries the approval it was rendered with (seen_*).
+
+  hub           — required, the EventHub
+  band          — required, a hq.services.LedgerBand
+  board_line    — required, the paragraph shown (Lee's empty line until the ledger has an entry)
+  board_summary — required, the paragraph Copy board summary copies
+  approval_form  — required, a LedgerApprovalForm (bound when a save failed, which renders it open)
+  approval_error — optional, a stale Save's refusal shown over a fresh form, which renders it open
+{% endcomment %}
+<section class="pl-hq-lg__board" id="hq-lg-board" aria-label="Board summary" data-hq-lg-board>
+  {% include "hq/partials/_ledger_board_figures.html" %}
+  <details class="pl-hq-lg__approval" {% if approval_form.errors or approval_error %}open{% endif %} data-hq-lg-approval>
+    <summary class="pl-hq-lg__approval-summary">Change the approval</summary>
+    <form method="post" action="{% url 'hq:ledger_approval' hub.slug %}" class="pl-hq-lg__form pl-hq-lg__approval-form" data-hq-lg-approval-form>
+      {% csrf_token %}
+      {% for field in approval_form.seen_fields %}{{ field }}{% endfor %}
+      {% if approval_error %}<p class="pl-field-error" role="alert" data-hq-lg-approval-error>{{ approval_error }}</p>{% endif %}
+      <div class="pl-hq-lg__fields">
+        {% include "components/form_field.html" with field=approval_form.approved field_hint_off=True %}
+        {% include "components/form_field.html" with field=approval_form.approved_note field_hint_off=True %}
+      </div>
+      <div class="pl-hq-lg__actions">
+        <button type="submit" class="pl-hq-lg__btn pl-hq-lg__btn--panel-primary" data-hq-lg-approval-submit>Save</button>
+      </div>
+    </form>
+  </details>
+</section>

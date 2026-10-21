@@ -1,0 +1,35 @@
+{% comment %}
+One shift row on the volunteers card's edit page.
+
+  f     — required, one VolunteerShiftForm (or the formset's empty_form for the + Add shift template)
+  saved — True for a shift already in the database. Its Delete flips the hidden DELETE field
+          and saves the whole page, so no other edit is lost; while people are signed up the
+          button is not offered (the formset refuses such a delete too). An unsaved row's
+          Remove just drops the row.
+{% endcomment %}
+<div class="pl-hq-goal-row" data-hq-shift-row>
+  {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+  <div class="pl-hq-goal-row__fields">
+    {% include "components/form_field.html" with field=f.phase %}
+    {% include "components/form_field.html" with field=f.role %}
+    {% include "components/form_field.html" with field=f.when_text %}
+    {% include "components/form_field.html" with field=f.need %}
+    {% include "components/form_field.html" with field=f.sort_order %}
+  </div>
+  {% include "components/form_field.html" with field=f.description %}
+  {% include "components/form_field.html" with field=f.requires_olcc %}
+  {{ f.id }}
+  {% if saved %}
+  <div hidden>{{ f.DELETE }}</div>
+  {% if f.instance.filled_count %}
+  <p class="pl-field-hint pl-hq-edit__signed" data-hq-shift-signed>{{ f.instance.filled_count }} signed up. Delete opens once everyone is off this shift.</p>
+  {% else %}
+  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-hq-shift-delete
+          onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+    Delete
+  </button>
+  {% endif %}
+  {% else %}
+  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('[data-hq-shift-row]').remove();">Remove</button>
+  {% endif %}
+</div>

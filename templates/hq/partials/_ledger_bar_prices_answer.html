@@ -1,0 +1,10 @@
+{% comment %}
+The htmx answer to saved drink prices: the form, closed, with the +1 buttons (their new prices), the tiles (2025 and
+the break-even line) and the goals (the Drink sales row says 2025) out of band.
+
+  as hq/partials/_ledger_bar_prices.html, _ledger_bar_buttons.html, _ledger_bar_tiles.html and _ledger_figures_oob.html
+{% endcomment %}
+{% include "hq/partials/_ledger_bar_prices.html" %}
+<template>{% include "hq/partials/_ledger_bar_buttons.html" with oob=True %}</template>
+<template>{% include "hq/partials/_ledger_bar_tiles.html" with oob=True %}</template>
+{% include "hq/partials/_ledger_figures_oob.html" %}

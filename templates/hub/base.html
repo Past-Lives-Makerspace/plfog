@@ -101,6 +101,7 @@
     <script defer src="{% static 'js/orientation_row.js' %}"></script>
     <script defer src="{% static 'js/equipment_ways.js' %}"></script>
     <script defer src="{% static 'js/inquiry_member_picker.js' %}"></script>
+    <script defer src="{% static 'js/tab_picker.js' %}"></script>
     <script defer src="{% static 'js/alpine.min.js' %}"></script>
     {% comment %}Biometric sign in for the native app. This document is not a child of
     base.html, so the hub needs its own copy: the enrollment offer and the Signed In Devices
@@ -206,6 +207,11 @@
                 </svg>
                 Calendar
             </a>
+
+            {# The HQ and its pages share the /hq/ prefix, so the entry lights by path (the Meetings idiom). #}
+            {% active_path '/hq/' as hq_active %}
+            {% url 'hq:index' as hq_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.holiday_bizarre url=hq_url label="Holiday Bizarre" icon="hub/partials/nav_icons/_holiday_bizarre.html" active=hq_active %}
 
             {# active_nav can't reverse the pk'd workspace route, so the whole /meetings/ section matches by path prefix (the Classes entry idiom). #}
             {% active_path '/meetings/' as meetings_active %}
@@ -325,6 +331,11 @@
                 </svg>
                 Calendar
             </a>
+
+            {# The HQ and its pages share the /hq/ prefix, so the entry lights by path (the Meetings idiom). #}
+            {% active_path '/hq/' as hq_active %}
+            {% url 'hq:index' as hq_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.holiday_bizarre url=hq_url label="Holiday Bizarre" icon="hub/partials/nav_icons/_holiday_bizarre.html" active=hq_active %}
 
             {% if request.view_as.is_member %}
             {% active_nav 'hub_guild_voting' as voting_active %}

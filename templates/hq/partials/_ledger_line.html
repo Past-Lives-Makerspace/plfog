@@ -1,0 +1,56 @@
+{% comment %}
+One budget line as its own tbody: the line's row (its name and category, the budget, how it was covered and Lee's
+status chip) with an Edit button, and under it the edit row with the line's form, open when a Save was refused. Save
+swaps this tbody alone over htmx. A line with entries shows how many instead of Delete (the delete is refused by
+name, as a shift with sign-ups is); an empty line deletes through the confirm modal.
+
+  hub  — required, the EventHub
+  row  — required, a hq.views.LedgerLineRow (the totals, the edit form, any refusal the form lacks, open)
+  show — required, the ledger's filter in view, carried by Save and Delete
+{% endcomment %}
+{% with totals=row.totals line=row.totals.line form=row.form %}
+<tbody class="pl-hq-lg__line" data-hq-lg-line="{{ line.pk }}" x-data="{ editing: {{ row.open|yesno:'true,false' }} }">
+  <tr>
+    <td class="pl-hq-lg__line-name">
+      <span class="pl-hq-lg__strong" data-hq-lg-line-name>{{ line.name }}</span>
+      <span class="pl-hq-lg__cat" data-hq-lg-line-category>{{ line.get_category_display }}</span>
+      <button type="button" class="pl-hq-lg__link" @click="editing = !editing" :aria-expanded="editing.toString()" aria-expanded="{{ row.open|yesno:'true,false' }}" aria-label="Edit {{ line.name }}" data-hq-lg-line-edit x-text="editing ? 'Done' : 'Edit'">Edit</button>
+    </td>
+    <td class="pl-hq-lg__num">{{ line.budget_display }}</td>
+    <td class="pl-hq-lg__num">{{ totals.sponsored_display }}</td>
+    <td class="pl-hq-lg__num">{{ totals.paid_display }}</td>
+    <td class="pl-hq-lg__num">{{ totals.paid_other_display }}</td>
+    <td><span class="pl-hq-lg__chip{% if totals.status.tone %} pl-hq-lg__chip--{{ totals.status.tone }}{% endif %}" data-hq-lg-status>{{ totals.status.label }}</span></td>
+  </tr>
+  <tr class="pl-hq-lg__edit-row" x-show="editing"{% if not row.open %} x-cloak{% endif %}>
+    <td colspan="6">
+      {% if row.error %}<p class="pl-field-error" role="alert" data-hq-lg-line-error>{{ row.error }}</p>{% endif %}
+      {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+      <form method="post" action="{% url 'hq:ledger_line_edit' hub.slug line.pk %}" hx-post="{% url 'hq:ledger_line_edit' hub.slug line.pk %}" hx-target="closest [data-hq-lg-line]" hx-swap="outerHTML" class="pl-hq-lg__form" data-hq-lg-line-form>
+        {% csrf_token %}
+        <input type="hidden" name="filter" value="{{ show }}">
+        {{ form.updated_at }}
+        <div class="pl-hq-lg__fields">
+          {% include "components/form_field.html" with field=form.name field_hint_off=True %}
+          {% include "components/form_field.html" with field=form.category field_hint_off=True %}
+          {% include "components/form_field.html" with field=form.budget field_hint_off=True %}
+        </div>
+        <div class="pl-hq-lg__actions">
+          <button type="submit" class="pl-hq-lg__btn pl-hq-lg__btn--sm" aria-label="Save {{ line.name }}" data-hq-lg-line-save>Save</button>
+          {% if totals.entries %}
+          <span class="pl-hq-lg__muted pl-hq-lg__helper" data-hq-lg-line-in-use>{{ totals.entries }} entr{{ totals.entries|pluralize:"y,ies" }} in the ledger, so it can't be deleted</span>
+          {% else %}
+          <button type="button" class="pl-hq-lg__delete" aria-label="Delete {{ line.name }}" @click="$dispatch('open-confirm', 'delete-line-{{ line.pk }}')" data-hq-lg-line-delete>Delete</button>
+          {% endif %}
+        </div>
+      </form>
+      {% if not totals.entries %}
+      {% url 'hq:ledger_line_delete' hub.slug line.pk as delete_url %}
+      {% with pk_text=line.pk|stringformat:"s" %}
+      {% include "components/confirm_modal.html" with confirm_id="delete-line-"|add:pk_text confirm_title="Delete this budget line?" confirm_message="The line comes off the budget. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" confirm_field_name="filter" confirm_field_value=show %}
+      {% endwith %}
+      {% endif %}
+    </td>
+  </tr>
+</tbody>
+{% endwith %}

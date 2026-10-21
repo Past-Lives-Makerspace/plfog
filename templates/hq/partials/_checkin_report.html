@@ -1,0 +1,36 @@
+{% comment %}
+Artists: your market report, and the htmx answer to Save my report. One report per member, private to them and
+the organisers. The Saved chip and Update my report show once it is saved; a confirmed vendor table whose email
+is the member's says so beside it. Save swaps this section only, with Lee's message beside the button.
+
+  hub            — required, the EventHub
+  report         — required, the member's MarketReport, or None before one is saved
+  vendor_table   — required, their confirmed VendorTable on the hub, or None
+  report_form    — required, a MarketReportForm (bound when a save was refused)
+  report_message — required, Lee's line after a save, or ""
+{% endcomment %}
+<section class="pl-hq-ci__card" aria-labelledby="hq-ci-report-title" data-hq-ci-report>
+  <div class="pl-hq-ci__card-head">
+    <h2 class="pl-hq-ci__h2" id="hq-ci-report-title">Artists: your market report</h2>
+    {% if report %}<span class="pl-hq-ci__saved" data-hq-ci-saved>Saved</span>{% endif %}
+  </div>
+  <p class="pl-hq-ci__lede">Only you and Past Lives staff can see your report. Fill in your name and guild now, and come back after the market to add your sales.</p>
+  {% if vendor_table %}
+  <p class="pl-hq-ci__my-table" data-hq-ci-table>{% if vendor_table.table_no %}You're at table {{ vendor_table.table_no }}{% else %}Your table is confirmed{% endif %}</p>
+  {% endif %}
+  <form method="post" action="{% url 'hq:checkin_report' hub.slug %}" hx-post="{% url 'hq:checkin_report' hub.slug %}" hx-target="closest [data-hq-ci-report]" hx-swap="outerHTML" class="pl-hq-ci__form" data-hq-ci-report-form>
+    {% csrf_token %}
+    {% for error in report_form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+    <div class="pl-hq-ci__fields">
+      {% include "components/form_field.html" with field=report_form.name field_hint_off=True %}
+      {% include "components/form_field.html" with field=report_form.guild field_hint_off=True %}
+      {% include "components/form_field.html" with field=report_form.items_sold field_hint_off=True %}
+      {% include "components/form_field.html" with field=report_form.sales field_hint_off=True %}
+    </div>
+    {% include "components/form_field.html" with field=report_form.experience field_hint_off=True %}
+    <div class="pl-hq-ci__actions">
+      <button type="submit" class="pl-hq-ci__btn" data-hq-ci-report-submit>{% if report %}Update my report{% else %}Save my report{% endif %}</button>
+      {% if report_message %}<span class="pl-hq-ci__msg" role="status" data-hq-ci-report-msg>{{ report_message }}</span>{% endif %}
+    </div>
+  </form>
+</section>

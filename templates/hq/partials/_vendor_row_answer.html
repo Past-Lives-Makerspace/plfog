@@ -1,0 +1,9 @@
+{% comment %}
+The htmx answer to a row's Save: the row (saved, or refused with its errors) for the target, and the
+band swapped out of band so the counts follow the row's status.
+
+  hub, row, show — as hq/partials/_vendor_row.html
+  band           — required, a hq.services.VendorBand
+{% endcomment %}
+{% include "hq/partials/_vendor_row.html" %}
+{% include "hq/partials/_vendor_band.html" with oob=True %}

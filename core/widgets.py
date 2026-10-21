@@ -96,9 +96,10 @@ class PageContentEditorWidget(RichTextEditorWidget):
         context = super().get_context(name, value, attrs)
         raw = str(value or "")
         # The wiki body renders through its own profile, or a Quill image the member just
-        # inserted would be stripped out of the mount the moment the editor reopened.
+        # inserted would be stripped out of the mount the moment the editor reopened. It keeps
+        # the empty panel lines the reading page drops, because those are the starters' prompts.
         seed = (
-            render_wiki_content(raw)
+            render_wiki_content(raw, for_editor=True)
             if self.markdown_profile == "wiki"
             else render_page_content(raw, profile=self.markdown_profile)
         )

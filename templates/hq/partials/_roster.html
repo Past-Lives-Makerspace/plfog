@@ -1,0 +1,44 @@
+{% comment %}
+The organisers' roster: everyone signed up, with their shifts, as a table that stacks on a
+phone (.pl-members-table).
+
+  hub           — required, the EventHub
+  roster        — required, hq.services.roster_rows(hub); Hours logged is the Market Check-in's figure for the
+                  member whose primary email is the row's
+  roster_emails — required, the addresses as one comma separated line
+
+Copy emails writes that line to the clipboard in a secure context, and selects the hidden box
+for execCommand off https as components/qr_share_card.html does, then toasts. Download CSV
+opts out of hx-boost and is marked for the native shells (FRONTEND rule 24).
+{% endcomment %}
+<div class="pl-hq-vol__card pl-hq-vol__roster" data-hq-roster
+     x-data="{ copy() { const box = this.$refs.emails; box.focus(); box.select(); if (window.isSecureContext && navigator.clipboard) { navigator.clipboard.writeText(box.value); } else { document.execCommand('copy'); } this.$dispatch('show-toast', { message: 'Emails copied', type: 'success' }); } }">
+  <div class="pl-hq-vol__roster-actions">
+    <p class="pl-hq-vol__roster-count" data-hq-roster-count>{{ roster|length }} {{ roster|length|pluralize:"person,people" }} signed up</p>
+    <textarea class="sr-only" readonly x-ref="emails" aria-label="Volunteer emails">{{ roster_emails }}</textarea>
+    <button type="button" class="pl-hq-vol__btn pl-hq-vol__btn--ghost" @click="copy()" data-hq-copy-emails{% if not roster %} disabled{% endif %}>Copy emails</button>
+    <a href="{% url 'hq:volunteer_roster_csv' hub.slug %}" class="pl-hq-vol__btn pl-hq-vol__btn--ghost" hx-boost="false" data-pl-download data-hq-roster-csv>Download CSV</a>
+  </div>
+  {% if roster %}
+  <table class="pl-members-table pl-hq-vol__table">
+    <thead>
+      <tr><th>Name</th><th>Shifts</th><th>Email</th><th>Phone</th><th>OLCC</th><th>Hours logged</th><th>Note</th></tr>
+    </thead>
+    <tbody>
+      {% for row in roster %}
+      <tr data-hq-roster-row="{{ row.email }}">
+        <td data-label="Name">{{ row.name }}</td>
+        <td data-label="Shifts">{{ row.shifts|join:", " }}</td>
+        <td data-label="Email">{{ row.email }}</td>
+        <td data-label="Phone">{{ row.phone }}</td>
+        <td data-label="OLCC">{% if row.has_olcc %}Yes{% else %}No{% endif %}</td>
+        <td data-label="Hours logged" data-hq-roster-hours>{{ row.hours_display }}</td>
+        <td data-label="Note">{{ row.note }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="pl-hq-vol__hint" data-hq-roster-empty>Nobody has signed up yet.</p>
+  {% endif %}
+</div>

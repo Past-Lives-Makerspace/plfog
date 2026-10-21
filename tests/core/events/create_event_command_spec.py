@@ -957,6 +957,42 @@ def describe_the_also_email_option():
         assert "Emailed 2 members" in _followup_payload(followup)["content"]
         assert len(mailoutbox) == 2
 
+    @respx.mock
+    def it_replies_before_the_announcement_or_the_email_goes_out(settings, linked_member, mailoutbox, held_deferred):
+        # #845: the reply counts the addresses, and both sends run after it.
+        _discord_settings(settings)
+        followup = _mock_discord()
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(name="Kiln")
+        members = []
+        for _ in range(2):
+            member = linked_member()
+            members.append(member)
+            GuildMembershipFactory(guild=guild, member=member)
+            NotificationPreference.objects.create(
+                user=member.user, event_key="event.guild_published", channel="email", enabled=False
+            )
+        _result, draft = _preview(admin, title="Kiln Day", when="tomorrow 6pm", guild_slug=guild.slug)
+        _cfg(admin, draft.pk, "email", "guild_members")
+
+        _confirm(admin, draft.pk)
+
+        event = CommunityEvent.objects.get(title="Kiln Day")
+        assert "Emailed 2 members" in _followup_payload(followup)["content"]
+        assert event.announcement_owed_since is not None
+        assert mailoutbox == []
+        assert [name for name, _task in held_deferred] == [
+            f"event:{event.pk}:announce",
+            f"event:{event.pk}:email_announcement",
+        ]
+        for _name, task in held_deferred:
+            task()
+        assert sorted(address for message in mailoutbox for address in message.to) == sorted(
+            m.user.email for m in members
+        )
+        event.refresh_from_db()
+        assert event.announcement_owed_since is None
+
 
 def describe_error_handling():
     @respx.mock
@@ -968,7 +1004,7 @@ def describe_error_handling():
         _result, draft = _preview(admin, title="Repair Cafe", when="tomorrow 6pm", guild_slug=guild.slug)
         _cfg(admin, draft.pk, "email", "all_active")
 
-        with patch.object(CommunityEvent, "email_announcement", side_effect=Exception("smtp down")):
+        with patch.object(CommunityEvent, "email_announcement_addresses", side_effect=Exception("db down")):
             result = _confirm(admin, draft.pk)
 
         assert result == {}

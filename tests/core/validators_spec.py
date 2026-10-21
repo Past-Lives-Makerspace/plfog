@@ -9,7 +9,8 @@ from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 
-from core.validators import validate_image_content, validate_image_size, validate_wiki_upload
+from core import validators
+from core.validators import validate_image_content, validate_image_pixels, validate_image_size, validate_wiki_upload
 
 
 def describe_validate_image_size():
@@ -77,6 +78,26 @@ def describe_validate_image_content():
 
         with pytest.raises(ValidationError, match="not a photo we can open"):
             validate_image_content(upload)
+
+
+def describe_validate_image_pixels():
+    def _opened(size: tuple[int, int]) -> SimpleUploadedFile:
+        buffer = BytesIO()
+        Image.new("1", size).save(buffer, format="PNG")
+        upload = SimpleUploadedFile("tall.png", buffer.getvalue(), content_type="image/png")
+        validate_image_content(upload)
+        return upload
+
+    def it_accepts_an_image_at_the_pixel_limit(monkeypatch):
+        monkeypatch.setattr(validators, "MAX_IMAGE_PIXELS", 100)
+
+        assert validate_image_pixels(_opened((10, 10))) is None
+
+    def it_rejects_an_image_over_the_pixel_limit_by_its_dimensions(monkeypatch):
+        monkeypatch.setattr(validators, "MAX_IMAGE_PIXELS", 100)
+
+        with pytest.raises(ValidationError, match="11 by 10 pixels, too large to open"):
+            validate_image_pixels(_opened((11, 10)))
 
 
 def describe_validate_wiki_upload():

@@ -1,0 +1,28 @@
+{% comment %}
+Set drink prices, Lee's: the four drinks' prices and what the bar sold in 2025 (the Sales tile's "2025: about"). Posts
+over htmx and swaps itself, with the +1 buttons and the tiles out of band. The form carries the figures it was rendered
+with; a save from a page older than them is refused with the database's figures and prices_error.
+
+  hub          — required, the EventHub
+  prices_form  — required, a DrinkPricesForm
+  prices_open  — required, whether it renders open
+  prices_error — optional, a refusal the form does not carry (a stale save)
+{% endcomment %}
+<details class="pl-hq-lg__prices" id="hq-lg-bar-prices" {% if prices_open %}open{% endif %} data-hq-lg-prices>
+  <summary class="pl-hq-lg__prices-summary">Set drink prices</summary>
+  {% if prices_error %}<p class="pl-field-error" role="alert" data-hq-lg-prices-error>{{ prices_error }}</p>{% endif %}
+  <form method="post" action="{% url 'hq:ledger_bar_prices' hub.slug %}" hx-post="{% url 'hq:ledger_bar_prices' hub.slug %}" hx-target="closest [data-hq-lg-prices]" hx-swap="outerHTML" class="pl-hq-lg__form" data-hq-lg-prices-form>
+    {% csrf_token %}
+    {% for field in prices_form.seen_fields %}{{ field }}{% endfor %}
+    <div class="pl-hq-lg__fields pl-hq-lg__fields--narrow">
+      {% include "components/form_field.html" with field=prices_form.ipa field_hint_off=True %}
+      {% include "components/form_field.html" with field=prices_form.pils field_hint_off=True %}
+      {% include "components/form_field.html" with field=prices_form.wine field_hint_off=True %}
+      {% include "components/form_field.html" with field=prices_form.na field_hint_off=True %}
+      {% include "components/form_field.html" with field=prices_form.last_year field_hint_off=True %}
+    </div>
+    <div class="pl-hq-lg__actions">
+      <button type="submit" class="pl-hq-lg__btn pl-hq-lg__btn--sm" data-hq-lg-prices-save>Save prices</button>
+    </div>
+  </form>
+</details>

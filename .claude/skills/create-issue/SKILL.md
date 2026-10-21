@@ -159,7 +159,7 @@ DNS through Tailscale MagicDNS on this machine.
 
 `item-edit` takes one field per call. The board auto-adds a new issue to Backlog within a minute;
 `item-add` is idempotent and makes it immediate, so the edits never race the auto-add. Status stays
-Backlog unless Felix said "todo" or "next", then `--field Status --value Todo`.
+Backlog unless Felix said "todo" or "next", then `--field Status --value "Triage / Not Started"`.
 
 `preview` writes the body to the scratchpad, prints it in the reply followed by the report block from
 §7, and stops. Nothing reaches GitHub.

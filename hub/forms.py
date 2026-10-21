@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from django.http import HttpRequest, QueryDict
 
     from classes.models import ClassOffering
-    from membership.models import AnnouncementDraft
+    from membership.models import AnnouncementDraft, OrientationBooking
 
 from core.html_sanitize import clean_rich_body, clean_rich_html, limit_rich_text
 from core.validators import ALLOWED_WIKI_IMAGE_EXTENSIONS, validate_image_size, validate_wiki_upload
@@ -4228,8 +4228,18 @@ class EventGuestRSVPForm(forms.Form):
         return bool(str(self.data.get("website", "")).strip())
 
     def save(self, event: CommunityEvent) -> EventRSVP:
-        """Write or update the guest's RSVP on ``event`` from the clean values."""
+        """Write or update the guest's RSVP on ``event`` from the clean values.
+
+        An email that belongs to a member already on the list is that member filling the form
+        logged out: their RSVP takes the new party size and no second row counts them twice.
+        """
         data = self.cleaned_data
+        member_rsvp = event.member_rsvp_for_email(data["email"])
+        if member_rsvp is not None:
+            # member_rsvp_for_email only returns rows with a member.
+            event.set_member_party_size(cast(Member, member_rsvp.member), data["party_size"])
+            member_rsvp.party_size = data["party_size"]
+            return member_rsvp
         return event.rsvp_guest(
             name=data["name"],
             email=data["email"],
@@ -4344,6 +4354,75 @@ class OrientationCustomRequestForm(forms.Form):
         if starts <= timezone.now():
             raise forms.ValidationError("Pick a time in the future.")
         return starts
+
+
+class OrientationMoveForm(forms.Form):
+    """Move a booking to another time (#853): a date, a half hour start, and how it moves.
+
+    The start is a half hour ``<select>`` (Rule 20) beside a date input; ``clean`` joins them
+    in the site timezone as ``cleaned_data["starts_at"]`` and refuses a time already past.
+    ``mode`` is the leader's pick between moving it now and asking the member first, a radio
+    pair with no default so the choice is always deliberate. ``booking`` seeds the date and
+    start from its current time; each Bookings tab row passes its own ``auto_id``.
+    """
+
+    MOVE_NOW = "now"
+    ASK_FIRST = "ask"
+
+    date = forms.DateField(
+        label="New date",
+        widget=forms.DateInput(
+            # Rule 14: the whole field opens the picker; .pl-slot-date fixes the icon on the dark theme.
+            attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
+        ),
+        error_messages={"required": "Pick a date.", "invalid": "Pick a date."},
+    )
+    start_time = forms.ChoiceField(
+        choices=half_hour_time_choices(required=True),
+        label="New start time",
+        error_messages={"required": "Pick a start time.", "invalid_choice": "Pick a start time from the list."},
+    )
+    mode = forms.ChoiceField(
+        choices=[(MOVE_NOW, "Move it now"), (ASK_FIRST, "Ask the member first")],
+        widget=forms.RadioSelect,
+        label="How to move it",
+        help_text="Move it now confirms the new time and emails the member. Asking first keeps their time until they accept.",
+        error_messages={
+            "required": "Pick Move it now or Ask the member first.",
+            "invalid_choice": "Pick Move it now or Ask the member first.",
+        },
+    )
+
+    def __init__(self, *args: Any, booking: OrientationBooking | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if booking is not None:
+            current = timezone.localtime(booking.slot.starts_at)
+            self.fields["date"].initial = current.date()
+            value = current.strftime("%H:%M")
+            if value in {choice for choice, _label in half_hour_time_choices(required=True)}:
+                self.fields["start_time"].initial = value
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        day = cleaned.get("date")
+        start = cleaned.get("start_time")
+        if day is None or not start:
+            return cleaned
+        starts_at = timezone.make_aware(datetime.combine(day, _parse_time_choice(start)))
+        if starts_at <= timezone.now():
+            self.add_error("date", "Pick a time in the future.")
+            return cleaned
+        cleaned["starts_at"] = starts_at
+        return cleaned
+
+    @property
+    def asks_member_first(self) -> bool:
+        """Whether the leader picked Ask the member first (read after ``is_valid``)."""
+        return self.cleaned_data["mode"] == self.ASK_FIRST
+
+    def error_summary(self) -> str:
+        """Every error as one friendly sentence run, for the message the view redirects with."""
+        return " ".join(str(message) for messages in self.errors.values() for message in messages)
 
 
 class OrientationAmountForm(forms.Form):

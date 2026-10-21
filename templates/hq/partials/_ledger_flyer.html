@@ -1,0 +1,34 @@
+{% comment %}
+Event flyer (Track D, part 6c), read only: the flyer from the flyer page (a thumbnail, "Flyer ready" for a PDF, or
+not uploaded yet) and how many businesses have it up, from the Marketing Tracker. Where it is posted is the Marketing
+Tracker's flyer drop-offs, linked rather than kept twice. Each door is a link when its card is open to the viewer.
+
+  hub_flyer     — required, the hub's HubFlyer (unsaved until the first upload)
+  flyer_count   — required, the Marketing Tracker's businesses with flyers
+  flyer_url, marketing_url — required, the two doors for this viewer ("" when not open to them)
+{% endcomment %}
+<section class="pl-hq-lg__section" id="hq-lg-flyer" aria-labelledby="hq-lg-flyer-title" data-hq-lg-flyer>
+  <div class="pl-hq-lg__section-head">
+    <h2 class="pl-hq-lg__h2" id="hq-lg-flyer-title">Event Flyer</h2>
+    <span class="pl-hq-lg__muted pl-hq-lg__helper">From the flyer page and the Marketing Tracker</span>
+  </div>
+  <div class="pl-hq-lg__card pl-hq-lg__flyer">
+    <div class="pl-hq-lg__flyer-thumb" data-hq-lg-flyer-thumb>
+      {% if hub_flyer.flyer and not hub_flyer.flyer_is_pdf %}
+      {% if flyer_url %}<a href="{{ flyer_url }}">{% endif %}<img src="{{ hub_flyer.flyer.url }}" alt="The {{ hub.title }} flyer">{% if flyer_url %}</a>{% endif %}
+      {% elif hub_flyer.flyer %}
+      <span class="pl-hq-lg__flyer-pdf">Flyer ready (PDF)</span>
+      {% else %}
+      <span class="pl-hq-lg__muted">No flyer uploaded yet</span>
+      {% endif %}
+    </div>
+    <div class="pl-hq-lg__flyer-text">
+      <p class="pl-hq-lg__flyer-count" data-hq-lg-flyer-count><strong>{{ flyer_count }}</strong> business{{ flyer_count|pluralize:"es" }} {{ flyer_count|pluralize:"has,have" }} the flyer up</p>
+      <p class="pl-hq-lg__helper pl-hq-lg__muted">Where the flyer is posted is kept on the Marketing Tracker: log each drop-off there as a Flyer drop-off at a business.</p>
+      <div class="pl-hq-lg__actions">
+        {% if flyer_url %}<a href="{{ flyer_url }}" class="pl-hq-lg__btn pl-hq-lg__btn--ghost" data-hq-lg-flyer-link>See the flyer</a>{% endif %}
+        {% if marketing_url %}<a href="{{ marketing_url }}" class="pl-hq-lg__btn pl-hq-lg__btn--ghost" data-hq-lg-marketing-link>Flyer drop-offs</a>{% endif %}
+      </div>
+    </div>
+  </div>
+</section>

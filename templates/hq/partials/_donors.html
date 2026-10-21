@@ -1,0 +1,41 @@
+{% comment %}
+The organisers' Wine Donors to Thank panel: every giver with their type, email, sponsor page
+listing, bottles, whether they were thanked and who logged them, as a table that stacks on a
+phone (.pl-members-table). A giver whose bottles include one worth less than a wine wall ticket
+carries Lee's Under $25 flag.
+
+  hub            — required, the EventHub
+  donors         — required, hq.services.donor_rows(hub)
+  donor_emails   — required, the addresses as one comma separated line
+  donors_thanked — required, how many of them are marked thanked
+  donors_back    — required, "wall" when the panel sits on the wall (a plain post lands back there), else ""
+
+Copy donor emails writes that line to the clipboard in a secure context, and selects the
+hidden box for execCommand off https as the volunteer roster does, then toasts. Download CSV
+opts out of hx-boost and is marked for the native shells (FRONTEND rule 24). Each row's
+Thanked button posts over htmx and swaps that row, with the count out of band.
+{% endcomment %}
+<div class="pl-hq-wine__card pl-hq-wine__donors" data-hq-donors
+     x-data="{ copy() { const box = this.$refs.emails; box.focus(); box.select(); if (window.isSecureContext && navigator.clipboard) { navigator.clipboard.writeText(box.value); } else { document.execCommand('copy'); } this.$dispatch('show-toast', { message: 'Donor emails copied', type: 'success' }); } }">
+  <div class="pl-hq-wine__donor-actions">
+    {% include "hq/partials/_donor_count.html" %}
+    <textarea class="sr-only" readonly x-ref="emails" aria-label="Donor emails">{{ donor_emails }}</textarea>
+    <button type="button" class="pl-hq-wine__btn pl-hq-wine__btn--ghost" @click="copy()" data-hq-copy-donor-emails{% if not donor_emails %} disabled{% endif %}>Copy donor emails</button>
+    <a href="{% url 'hq:wine_donors_csv' hub.slug %}" class="pl-hq-wine__btn pl-hq-wine__btn--ghost" hx-boost="false" data-pl-download data-hq-donors-csv>Download CSV</a>
+  </div>
+  {% if donors %}
+  <table class="pl-members-table pl-hq-wine__table">
+    <thead>
+      <tr><th>Giver</th><th>Type</th><th>Email</th><th>Sponsor listing</th><th>Bottles</th><th>Thanked</th><th>Logged by</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      {% for row in donors %}
+      {% include "hq/partials/_donor_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="pl-hq-wine__hint" data-hq-donors-private>Emails and notes stay here with the organisers. The wall shows names only.</p>
+  {% else %}
+  <p class="pl-hq-wine__hint" data-hq-donors-empty>No donors yet.</p>
+  {% endif %}
+</div>

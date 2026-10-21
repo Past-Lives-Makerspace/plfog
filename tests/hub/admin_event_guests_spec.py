@@ -373,6 +373,20 @@ def describe_the_csv():
         assert guest_line[1:6] == ["3", "Event page, no account", "lee@example.com", "503", "Yes"]
         assert guest_line[6] and guest_line[7] == "Plus one" and guest_line[8]
 
+    def it_opens_what_a_guest_typed_as_text_not_a_formula(client: Client):
+        _admin(client)
+        event = CommunityEventFactory(community=True)
+        guest = _guest(
+            event, name='=HYPERLINK("http://x.test","Hi")', email="f@example.com", phone="+1 503", party_size=2
+        )
+        guest.note = "@SUM(1)"
+        guest.save(update_fields=["note"])
+        (line,) = _rows(client.get(_csv_url(event)))[1:]
+        assert line[0] == '\'=HYPERLINK("http://x.test","Hi")'
+        assert line[1] == "2"
+        assert line[4] == "'+1 503"
+        assert line[7] == "'@SUM(1)"
+
     def it_is_gated_like_the_tab(client: Client):
         _user_with_role("plain_csv")
         client.login(username="plain_csv", password="pass")

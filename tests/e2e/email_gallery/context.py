@@ -619,6 +619,36 @@ ORIENTATION_SUBJECTS: dict[str, str] = {
 }
 
 
+def orientation_moved_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.orientations._emit_moved``: the old time a week before the slot."""
+    from datetime import timedelta
+
+    owner_name = data.booking.orientation_type.owner_name
+    return {
+        "subject": f"Your {owner_name} orientation has a new time",
+        "template_context": _orientation_context(data, old_starts_at=data.booking.slot.starts_at - timedelta(days=7)),
+    }
+
+
+def orientation_time_proposed_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.orientations.propose_orientation_time``: a time two days later."""
+    from datetime import timedelta
+
+    from membership.orientations import _action_url
+
+    booking = data.booking
+    owner_name = booking.orientation_type.owner_name
+    return {
+        "subject": f"A new time for your {owner_name} orientation",
+        "template_context": _orientation_context(
+            data,
+            proposed_starts_at=booking.slot.starts_at + timedelta(days=2),
+            accept_url=_action_url(booking, "accept_time", recipient=booking.member, proposal="1"),
+            keep_url=_action_url(booking, "keep_time", recipient=booking.member, proposal="1"),
+        ),
+    }
+
+
 def orientation_thankyou_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``membership.orientations.complete_orientation``.
 

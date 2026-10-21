@@ -1,0 +1,10 @@
+{% comment %}
+The htmx answer to a saved Links and Message: the form for the target, and Help spread the word and Find the
+event swapped out of band so the copied message and the links follow without the page being redrawn.
+
+  hub, links_form                                         — as hq/partials/_flyer_links.html
+  page, share_link, facebook_url, share_text, share_lede  — as hq/partials/_flyer_share.html
+{% endcomment %}
+{% include "hq/partials/_flyer_links.html" %}
+{% include "hq/partials/_flyer_share.html" with oob=True %}
+{% include "hq/partials/_flyer_find.html" with oob=True %}

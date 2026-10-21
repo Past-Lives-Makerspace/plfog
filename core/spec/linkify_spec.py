@@ -166,7 +166,9 @@ def describe_linkify():
         for text in (hyphens, dots, brackets):
             linkify_text(text, _mark)
         linkify(tags, _mark)
-        assert time.monotonic() - started < 2
+        # Backtracking blowups take minutes here; the slack keeps instrumented runs (leela's
+        # mutation job ran this in 2.4s) from tripping a bound meant for that.
+        assert time.monotonic() - started < 10
 
 
 def describe_match_end():

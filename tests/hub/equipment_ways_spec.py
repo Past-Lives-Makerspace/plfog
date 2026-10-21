@@ -355,7 +355,8 @@ def describe_the_editor():
             cnc, *_types = _cnc()
             _manager(client, "ways_buttons", cnc)
             content = _manage(client, cnc).content.decode()
-            template = content[content.index('<template x-ref="template">') : content.index("</template>")]
+            start = content.index('<template x-ref="template">')
+            template = content[start : content.index("</template>", start)]
             assert 'name="ways-__prefix__-orientations"' in template
             assert "data-way-remove" in template
             assert "data-way-delete" not in template

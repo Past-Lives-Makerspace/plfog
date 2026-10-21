@@ -1,0 +1,11 @@
+{% comment %}
+The htmx answer to a saved batch: the form, open and fresh (keeping the drink and Paid by), with the tiles and the
+sales table out of band, then every figure the sales move (the tally, the goals, the board panel's figures and Staff
+time's).
+
+  as hq/partials/_ledger_bar_batch.html, _ledger_bar_tiles.html, _ledger_bar_table.html and _ledger_figures_oob.html
+{% endcomment %}
+{% include "hq/partials/_ledger_bar_batch.html" %}
+<template>{% include "hq/partials/_ledger_bar_tiles.html" with oob=True %}</template>
+<template>{% include "hq/partials/_ledger_bar_table.html" with oob=True %}</template>
+{% include "hq/partials/_ledger_figures_oob.html" %}

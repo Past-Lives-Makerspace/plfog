@@ -322,6 +322,48 @@ def describe_a_live_session():
         assert client.get(reverse("hub_home")).status_code == 200
 
 
+def describe_a_guest_account_and_the_holiday_bizarre_hq():
+    """A guest (#654) is served /hq/ on the members surface whatever the kiln switch says: the
+    HQ's volunteer and wine wall doors are for people with or without an account, and each
+    card's own audience decides what a guest may open (hq.access). Every other members page
+    still sends a guest to the lockout page, or to the kiln while that switch is on (#691)."""
+
+    @pytest.fixture
+    def guest_client(client):
+        user = _user_with_status("hq_guest", Member.Status.GUEST)
+        client.force_login(user)
+        return client
+
+    @pytest.fixture
+    def open_hub(db):
+        from tests.hq.factories import EventHubFactory
+
+        return EventHubFactory(is_open=True, slug="bizarre")
+
+    def it_serves_the_hq_pages_to_a_guest(guest_client, open_hub):
+        assert guest_client.get(reverse("hq:index"))["Location"] == reverse("hq:page", args=["bizarre"])
+        assert guest_client.get(reverse("hq:page", args=["bizarre"])).status_code == 200
+
+    def it_still_locks_a_guest_out_of_every_other_members_page(guest_client, open_hub):
+        response = guest_client.get(reverse("hub_home"))
+
+        assert response.status_code == 302
+        assert response["Location"] == _locked_url("guest")
+
+    def it_keeps_serving_the_hq_while_the_kiln_switch_is_on(guest_client, open_hub):
+        config = SiteConfiguration.load()
+        config.kiln_tickets_open = True
+        config.save(update_fields=["kiln_tickets_open"])
+
+        assert guest_client.get(reverse("hq:page", args=["bizarre"])).status_code == 200
+        assert guest_client.get(reverse("hub_home"))["Location"] == reverse("kiln:mine")
+
+    def it_leaves_a_former_member_locked_out_of_the_hq(client, open_hub):
+        client.force_login(_user_with_status("hq_former", Member.Status.FORMER))
+
+        assert client.get(reverse("hq:page", args=["bizarre"]))["Location"] == _locked_url("former")
+
+
 def describe_the_lockout_page():
     def it_offers_a_signed_in_member_their_bookings_and_a_log_out(client, settings):
         settings.BOOK_BASE_URL = "https://book.example.test"

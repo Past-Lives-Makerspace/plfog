@@ -1,35 +1,33 @@
 """Move a ticket's card across the delivery board when GitHub can see the work move.
 
-The board is an organization ProjectV2 whose ``Status`` field carries the RPIPO phases:
-Triage, Research, Plan, Implement, Present, Observe, Done. This script sets that field.
+The board is an organization ProjectV2 whose ``Status`` field carries these columns, in
+order: Backlog, Triage / Not Started, In Progress, In Draft (Awaiting Mock/Screenshot
+Approval), In Bot Review, Ready to Merge, Done. This script sets that field.
 
-**It cannot carry the whole pipeline, and pretending otherwise would be the bug.** GitHub
-only emits an event for work that reaches GitHub: a branch appearing, a pull request opening,
-a pull request merging, an issue closing. Research and Plan happen entirely on a laptop, in a
-corpus that lives outside the repo by design (``~/.rpipo/<repo>/<issue>/``), and GitHub never
-hears about either. Those two columns are set by the ``rpipo-research`` and ``rpipo-plan``
-skills calling this same script with ``--status``, which is why the CLI exists at all rather
-than the logic living inline in the workflow.
+GitHub only emits an event for work that reaches GitHub, so each phase this script moves
+to is tied to one such event:
 
-So the division is:
+    Triage    an issue exists           -- the project's own built-in auto-add workflow
+    Progress  a branch exists           -- push to any branch but main
+    Draft     a draft PR is open        -- pull_request opened as draft, or converted_to_draft
+    Review    a PR is open for review   -- pull_request opened, reopened, ready_for_review
+    Ready     the review bot approved   -- pull_request_review approved by PastLivesReviewBot
+    Done      merged, or issue closed   -- pull_request closed+merged, issues closed
 
-    Triage     an issue exists            -- the project's own built-in auto-add workflow
-    Research   scouts are out             -- rpipo-research, locally
-    Plan       an approach is being cut   -- rpipo-plan, locally
-    Implement  a branch exists            -- this script, on push
-    Present    a pull request is open     -- this script, on pull_request
-    Observe    it merged, prod unverified -- this script, on pull_request closed+merged
-    Done       the issue closed           -- this script, on issues closed
+Backlog is not a phase. It is where a person parks a card, and nothing here moves a card
+there; a card in Backlog ranks below every phase, so the first event moves it forward.
+``/drive`` moves a card to Progress by hand when it starts on a ticket, before any branch
+exists, which is why the CLI exists at all rather than the logic living inline in the workflow.
 
 **Movement is forward only.** The ranks above are ordered, and a card already at or past the
 requested column is left alone. Without that rule the board thrashes: every push to a branch
-with an open pull request would drag the card from Present back to Implement, and a fix round
-on a reviewed PR is several pushes. ``--force`` overrides it, for the one honest case of
-going backwards -- a merged ticket that Observe sends back for another round.
+with an open pull request would drag the card from In Bot Review back to In Progress, and a
+fix round on a reviewed PR is several pushes. ``--force`` overrides it, for the honest
+backwards moves: a pull request converted back to draft, or a closed ticket reopened by hand.
 
 **Which issue a pull request belongs to** is deliberately not "scrape ``#\\d+`` out of the
 body". PR #366's body opens "Closes #364. Parent epic: #358 (stays open...)", and a scraper
-would have marched the epic to Observe against the body's own explicit instruction. The
+would have marched the epic to Done against the body's own explicit instruction. The
 resolution order is narrowest-first:
 
     1. ``closingIssuesReferences`` -- what GitHub itself considers linked. Authoritative.
@@ -47,6 +45,11 @@ the org's boards would widen that blast radius for no reason. A token that can o
 cards can only ever move cards. ``GITHUB_TOKEN`` is not an option at all: it is scoped to the
 repository that issued it, and an organization board is not in any repository.
 
+Locally no ``PROJECT_PAT`` is needed: when it is unset the script asks ``gh`` for the
+HexagonStorms login's token, which carries the ``project`` scope, and the board coordinates
+default to this repo's board (``Past-Lives-Makerspace``, board 1). So the local call is just
+``.venv/bin/python .github/scripts/project_status.py --issue <n> --status Progress``.
+
 Stdlib only -- this workflow installs nothing beyond the interpreter.
 """
 
@@ -56,6 +59,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -65,23 +69,18 @@ _API = "https://api.github.com/graphql"
 _STATUS_FIELD = "Status"
 
 # Ordered. The index is the rank that makes movement forward-only.
-PHASES = ("Triage", "Research", "Plan", "Implement", "Present", "Observe", "Done")
+PHASES = ("Triage", "Progress", "Draft", "Review", "Ready", "Done")
 
-# What each phase is called ON THE BOARD. The two halves are deliberately different
-# vocabularies in one string: the method's word, so a column maps to a phase and a skill
-# without a translation table in someone's head, and a plain-English word, because "Observe"
-# and "Present" tell a reader nothing about what is happening to their ticket.
-#
-# The CLI and the specs stay on the single-word phase. `--status "Present / In Review"` is a
-# quoted string with a slash in it, typed by a human at a terminal or interpolated into YAML,
-# and it would be wrong eventually. One mapping here is the whole cost of keeping both.
+# What each phase is called ON THE BOARD. The CLI and the specs stay on the single-word
+# phase: `--status "In Draft (Awaiting Mock/Screenshot Approval)"` is a quoted string with a
+# slash and parentheses in it, typed by a human at a terminal or interpolated into YAML, and
+# it would be wrong eventually. One mapping here is the whole cost of keeping both.
 COLUMNS = {
     "Triage": "Triage / Not Started",
-    "Research": "Research / Finding Facts",
-    "Plan": "Plan / Choosing Approach",
-    "Implement": "Implement / Building",
-    "Present": "Present / In Review",
-    "Observe": "Observe / Checking Production",
+    "Progress": "In Progress",
+    "Draft": "In Draft (Awaiting Mock/Screenshot Approval)",
+    "Review": "In Bot Review",
+    "Ready": "Ready to Merge",
     "Done": "Done",
 }
 
@@ -342,8 +341,8 @@ def move(
         added = " (added to the board)"
     else:
         column = current_status(item_id, token)
-        # A board column that is not one of ours is legitimate: somebody can add "Icebox" in
-        # the UI at any time. `.get` with a fallback is correct here precisely because the key
+        # A board column that is not one of ours is legitimate: Backlog is one, and somebody
+        # can add "Icebox" in the UI at any time. `.get` with a fallback is correct here precisely because the key
         # may honestly be absent, and an unknown column ranks below everything so the move
         # proceeds rather than wedging the card.
         present = None if column is None else _PHASE_BY_COLUMN.get(column, column)
@@ -429,23 +428,63 @@ def issues_for_pr(owner: str, repo: str, number: int, token: str) -> list[int]:
     return issues_from_text(pull_request["body"], pull_request["headRefName"])
 
 
+# What a local run means when the workflow's variables are absent. CI sets every one of them.
+_DEFAULTS = {
+    "PROJECT_OWNER": "Past-Lives-Makerspace",
+    "PROJECT_NUMBER": "1",
+    "GITHUB_REPOSITORY": "Past-Lives-Makerspace/plfog",
+}
+_GH_USER = "HexagonStorms"
+
+
 def _env(name: str) -> str:
-    """A required environment variable, or a clear failure naming it.
+    """An environment variable, its local default from :data:`_DEFAULTS`, or a clear failure.
 
     Args:
         name: The variable to read.
 
     Returns:
-        Its value.
+        Its value, or its default when it is unset or empty.
 
     Raises:
-        ProjectStatusError: If it is unset or empty. A missing PROJECT_PAT must stop the run,
-            not fall back to an anonymous request that 401s ten lines later.
+        ProjectStatusError: If it is unset or empty and has no default.
     """
-    value = os.environ.get(name, "")
+    value = os.environ.get(name, "") or _DEFAULTS.get(name, "")
     if not value:
         raise ProjectStatusError(f"{name} is not set.")
     return value
+
+
+def _token() -> str:
+    """``PROJECT_PAT``, or locally the HexagonStorms ``gh`` login's token.
+
+    Returns:
+        A token carrying the ``project`` scope.
+
+    Raises:
+        ProjectStatusError: If ``PROJECT_PAT`` is unset and ``gh`` cannot supply a token. A
+            missing token must stop the run, not fall back to an anonymous request that 401s
+            ten lines later.
+    """
+    value = os.environ.get("PROJECT_PAT", "")
+    if value:
+        return value
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token", "--user", _GH_USER],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            # Go's pure resolver fails on Tailscale MagicDNS; cgo uses the system resolver.
+            env={**os.environ, "GODEBUG": "netdns=cgo"},
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        result = None
+    token = result.stdout.strip() if result is not None and result.returncode == 0 else ""
+    if not token:
+        raise ProjectStatusError(f"PROJECT_PAT is not set, and `gh auth token --user {_GH_USER}` gave no token.")
+    return token
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -467,7 +506,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        token = _env("PROJECT_PAT")
+        token = _token()
         org = _env("PROJECT_OWNER")
         raw_number = _env("PROJECT_NUMBER")
         if not raw_number.isdigit():

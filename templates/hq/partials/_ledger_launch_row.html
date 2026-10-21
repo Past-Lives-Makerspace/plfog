@@ -1,0 +1,40 @@
+{% comment %}
+One launch task as its own tbody: every cell a control of the row's form (in the last cell) by its form attribute,
+each labelled with the task for a screen reader; the due date red with Late when it has passed (Portland) and the task
+is not done; the link opens once it is a web address. Save swaps this tbody alone; Delete goes through the confirm
+modal.
+
+  hub — required, the EventHub
+  row — required, a hq.views.LaunchRow (the task, its edit form, whether it is late, and any refusal the form lacks)
+{% endcomment %}
+{% with task=row.task form=row.form %}
+<tbody class="pl-hq-lg__row-body" data-hq-lg-task="{{ task.pk }}" data-hq-lg-task-status="{{ task.status }}">
+  <tr>
+    <td class="pl-hq-lg__cell pl-hq-lg__cell--wide">{% include "components/form_field.html" with field=form.task field_hint_off=True %}</td>
+    <td class="pl-hq-lg__cell">{% include "components/form_field.html" with field=form.owner field_hint_off=True %}</td>
+    <td class="pl-hq-lg__cell">{% include "components/form_field.html" with field=form.status field_hint_off=True %}</td>
+    <td class="pl-hq-lg__cell{% if row.late %} pl-hq-lg__cell--late{% endif %}"{% if row.late %} data-hq-lg-late{% endif %}>
+      {% include "components/form_field.html" with field=form.due field_hint_off=True %}
+      {% if row.late %}<span class="pl-hq-lg__late">Late</span>{% endif %}
+    </td>
+    <td class="pl-hq-lg__cell">
+      {% include "components/form_field.html" with field=form.link field_hint_off=True %}
+      {% if task.href %}<a href="{{ task.href }}" target="_blank" rel="noopener" class="pl-hq-lg__inline-link" aria-label="Open the link for {{ task.task }}" data-hq-lg-task-open>Open</a>{% endif %}
+    </td>
+    <td class="pl-hq-lg__cell pl-hq-lg__cell--actions">
+      {% if row.error %}<p class="pl-field-error" role="alert" data-hq-lg-task-error>{{ row.error }}</p>{% endif %}
+      {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+      <form id="{{ form.form_id }}" method="post" action="{% url 'hq:ledger_launch_edit' hub.slug task.pk %}" hx-post="{% url 'hq:ledger_launch_edit' hub.slug task.pk %}" hx-target="closest [data-hq-lg-task]" hx-swap="outerHTML" data-hq-lg-task-form>
+        {% csrf_token %}
+        {{ form.updated_at }}
+        <button type="submit" class="pl-hq-lg__btn pl-hq-lg__btn--sm" aria-label="Save {{ task.task }}" data-hq-lg-task-save>Save</button>
+      </form>
+      <button type="button" class="pl-hq-lg__delete" aria-label="Delete {{ task.task }}" @click="$dispatch('open-confirm', 'delete-task-{{ task.pk }}')" data-hq-lg-task-delete>Delete</button>
+      {% url 'hq:ledger_launch_delete' hub.slug task.pk as delete_url %}
+      {% with pk_text=task.pk|stringformat:"s" %}
+      {% include "components/confirm_modal.html" with confirm_id="delete-task-"|add:pk_text confirm_title="Delete this task?" confirm_message="It comes off the launch checklist. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" %}
+      {% endwith %}
+    </td>
+  </tr>
+</tbody>
+{% endwith %}

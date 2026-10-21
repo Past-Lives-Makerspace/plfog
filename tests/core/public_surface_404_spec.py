@@ -26,6 +26,7 @@ MEMBER_ONLY_PATHS = [
     "/billing/",
     "/tab/",
     "/feedback/",
+    "/hq/",
 ]
 
 GUEST_HOSTS = ["book.pastlives.space", "classes.pastlives.app"]

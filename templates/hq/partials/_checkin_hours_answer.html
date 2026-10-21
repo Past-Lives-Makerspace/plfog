@@ -1,0 +1,11 @@
+{% comment %}
+The htmx answer to a saved Log my hours: the hours section (the form keeping the date and task, the message and
+the member's entries) for the target, and the hero's figures and the thank-you board swapped out of band.
+
+  hub, hours_form, entries, my_total, hours_message — as hq/partials/_checkin_hours.html
+  countdown, band                                   — as hq/partials/_checkin_stats.html
+  board, me_pk                                      — as hq/partials/_checkin_board.html
+{% endcomment %}
+{% include "hq/partials/_checkin_hours.html" %}
+{% include "hq/partials/_checkin_stats.html" with oob=True %}
+{% include "hq/partials/_checkin_board.html" with oob=True %}

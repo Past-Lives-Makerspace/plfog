@@ -1,0 +1,20 @@
+{% comment %}
+The inside of a door card, shared by the linked card and the placeholder tile (_card.html).
+Four grid rows: the icon tile, the who line with the title, the bullets, and the button.
+
+  card — required, a HubCard
+  url  — required, card.url; blank renders the disabled looking Not shared yet block
+{% endcomment %}
+<span class="pl-hq-card__tile" aria-hidden="true">{% include "hq/partials/_card_icon.html" with kind=card.kind %}</span>
+<span class="pl-hq-card__head">
+  {% if card.who_for %}<span class="pl-hq-card__who">{{ card.who_for }}</span>{% endif %}
+  <span class="pl-hq-card__title">{{ card.title }}</span>
+</span>
+<ul class="pl-hq-card__bullets">
+  {% for line in card.bullet_lines %}<li>{{ line }}</li>{% endfor %}
+</ul>
+{% if url %}
+<span class="pl-hq-card__button">{{ card.button_text }}</span>
+{% else %}
+<span class="pl-hq-card__button pl-hq-card__button--off" aria-disabled="true">Not shared yet</span>
+{% endif %}

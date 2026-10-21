@@ -1,0 +1,11 @@
+{% comment %}
+The htmx answer to a task's Save: the task's tbody (saved, or refused with its errors) for the target, then the
+checklist's summary, the tally, the goals and the board paragraph out of band in template tags.
+
+  hub, row      — as hq/partials/_ledger_launch_row.html
+  launch_totals — required, a hq.services.LaunchTotals
+  the figures' context (hq/partials/_ledger_figures_oob.html)
+{% endcomment %}
+{% include "hq/partials/_ledger_launch_row.html" %}
+<template>{% include "hq/partials/_ledger_launch_summary.html" with oob=True %}</template>
+{% include "hq/partials/_ledger_figures_oob.html" %}

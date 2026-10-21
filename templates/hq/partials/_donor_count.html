@@ -1,0 +1,8 @@
+{% comment %}
+The donors panel's count: how many to thank and how many are thanked. Swapped out of band when a row's Thanked changes.
+
+  donors         — required, the donor rows
+  donors_thanked — required, how many are marked thanked
+  oob            — optional, True renders the hx-swap-oob attribute
+{% endcomment %}
+<p class="pl-hq-wine__donor-count" id="hq-donor-count" data-hq-donor-count{% if oob %} hx-swap-oob="true"{% endif %}>{{ donors|length }} donor{{ donors|length|pluralize }} to thank · {{ donors_thanked }} thanked</p>

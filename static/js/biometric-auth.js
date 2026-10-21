@@ -181,6 +181,24 @@
     );
   }
 
+  // Whether this device is set up for biometric sign in, WITHOUT raising a biometric prompt.
+  //
+  // On iOS the plugin's isCredentialsSaved is not a quiet lookup: it queries the Face ID
+  // protected Keychain item without suppressing authentication UI, so iOS answers "does it
+  // exist?" with a Face ID prompt. Asking that on every signed-in page load is what made
+  // Face ID pop up while a member was already signed in. The credential id that enroll()
+  // writes to localStorage is the quiet answer: it is written in the same step as the secret
+  // and cleared with it, and has been since biometric sign in first shipped.
+  //
+  // Android's lookup checks for the stored entry without unlocking it, so it stays the source
+  // of truth there.
+  function isEnrolledHere() {
+    if (platform() === "ios") {
+      return Promise.resolve(storedCredentialId() !== null);
+    }
+    return hasStoredSecret();
+  }
+
   function storeSecret(secret) {
     return Bio.setCredentials({
       username: CREDENTIAL_USERNAME,
@@ -203,6 +221,30 @@
     }).then(function (credentials) {
       return credentials && credentials.password;
     });
+  }
+
+  // One scan before turning sign in on, so the member sees it work. Android needs no extra
+  // step: storeSecret already raises its BiometricPrompt to bind the key. iOS stores the
+  // protected item silently, which left the member tapping Turn It On and seeing nothing.
+  function confirmIdentity(name) {
+    if (platform() !== "ios") {
+      return Promise.resolve();
+    }
+    return Bio.verifyIdentity({
+      reason: "Turn on " + name + " sign in for Past Lives",
+      title: "Turn on " + name + " sign in",
+      negativeButtonText: "Cancel",
+    });
+  }
+
+  // The plugin's codes for a member backing out of the prompt rather than it failing: app
+  // and system cancel, user cancel (Android's negative button maps here too), and the
+  // fallback button. Capacitor hands the code back as a string on iOS and a number on
+  // Android, hence String().
+  var DISMISSED_CODES = ["11", "15", "16", "17"];
+
+  function wasDismissed(err) {
+    return !!err && DISMISSED_CODES.indexOf(String(err.code)) !== -1;
   }
 
   function clearSecret() {
@@ -240,7 +282,17 @@
   // Resolves true when the member is signed in, false when the credential is dead and the
   // emailed login code is the way through. Rejects only on an unexpected failure.
   function unlock() {
-    return readSecret().then(function (secret) {
+    return readSecret().catch(function (err) {
+      // "21" is the plugin's "nothing stored" code. On iOS the login page trusts the
+      // localStorage id instead of probing the Keychain, so an id can outlive its secret;
+      // forget it so the button does not come back offering a sign in that cannot work.
+      if (err && String(err.code) === "21") {
+        return forgetDevice().then(function () {
+          return null;
+        });
+      }
+      throw err;
+    }).then(function (secret) {
       if (!secret) {
         return false;
       }
@@ -343,14 +395,16 @@
     var title = document.createElement("h2");
     title.className = "pl-biometric-offer__title";
     title.textContent = "Sign In Faster Next Time";
-    title.style.cssText = "margin:0 0 6px;font-size:16px;line-height:1.25;font-weight:700";
+    // The colors are set on the text itself, not inherited from the card: in light mode the
+    // page's own h2 and p rules paint them near black, which vanished on the navy card.
+    title.style.cssText = "margin:0 0 6px;font-size:16px;line-height:1.25;font-weight:700;color:#fff";
     card.appendChild(title);
 
     var body = document.createElement("p");
     body.className = "pl-biometric-offer__text";
     body.textContent =
       "Use " + name + " to sign in instead of waiting for an emailed code. You can turn this on or off later in Settings.";
-    body.style.cssText = "margin:0 0 14px;font-size:14px;line-height:1.4;opacity:0.92";
+    body.style.cssText = "margin:0 0 14px;font-size:14px;line-height:1.4;opacity:0.92;color:#fff";
     card.appendChild(body);
 
     var actions = document.createElement("div");
@@ -379,10 +433,29 @@
       }
     }
 
+    // Turning it on must say so: the card vanishing on its own read as nothing happening.
+    function showEnabled() {
+      title.textContent = "You're All Set";
+      body.textContent =
+        "Next time you sign in, use " + name + " instead of an emailed code. You can turn it off in Settings.";
+      enableBtn.remove();
+      laterBtn.disabled = false;
+      laterBtn.textContent = "Done";
+      laterBtn.style.cssText = offerButtonStyle(true);
+      laterBtn.removeEventListener("click", onLater);
+      laterBtn.addEventListener("click", close);
+    }
+
     enableBtn.addEventListener("click", function () {
       enableBtn.disabled = true;
       laterBtn.disabled = true;
-      onEnable().then(close, function () {
+      onEnable().then(showEnabled, function (err) {
+        if (wasDismissed(err)) {
+          // Backing out of the scan is not a failure; leave the offer as it was.
+          enableBtn.disabled = false;
+          laterBtn.disabled = false;
+          return;
+        }
         body.textContent = "That did not work. You can try again from Settings.";
         enableBtn.remove();
         laterBtn.disabled = false;
@@ -390,10 +463,11 @@
       });
     });
 
-    laterBtn.addEventListener("click", function () {
+    function onLater() {
       onDecline();
       close();
-    });
+    }
+    laterBtn.addEventListener("click", onLater);
 
     document.body.appendChild(card);
     return card;
@@ -407,14 +481,15 @@
       if (!state.available) {
         return; // never offer on a phone with no enrolled biometric
       }
-      return hasStoredSecret().then(function (stored) {
+      return isEnrolledHere().then(function (stored) {
         if (stored) {
           return;
         }
+        var name = biometryName(state.biometryType);
         buildOffer(
-          biometryName(state.biometryType),
+          name,
           function () {
-            return enroll().then(function () {
+            return confirmIdentity(name).then(enroll).then(function () {
               setDeclined(false);
               if (document.getElementById("biometric-devices")) {
                 // The settings card is server rendered, so the new row only appears on a
@@ -482,9 +557,12 @@
         // that can only fail, and let the login-code form below it do the work.
         mount.hidden = true;
       })
-      .catch(function () {
+      .catch(function (err) {
         button.disabled = false;
-        statusEl.textContent = "That did not work. Use the emailed code below.";
+        // Cancelling the scan is a choice, not an error, so it is not answered like one.
+        statusEl.textContent = wasDismissed(err)
+          ? "Tap the button to try again, or sign in with an emailed code below."
+          : "That did not work. Use the emailed code below.";
       });
   }
 
@@ -497,7 +575,7 @@
       if (!state.available) {
         return;
       }
-      return hasStoredSecret().then(function (stored) {
+      return isEnrolledHere().then(function (stored) {
         if (!stored) {
           return;
         }
@@ -541,28 +619,40 @@
         noteEl.hidden = false;
         return;
       }
-      return hasStoredSecret().then(function (stored) {
+      return isEnrolledHere().then(function (stored) {
+        var name = biometryName(state.biometryType);
         if (stored) {
-          noteEl.textContent = "This device is set up. Revoking it below sends this phone back to emailed codes.";
+          noteEl.textContent =
+            "Sign in with " + name + " is on for this phone. Revoking it below sends this phone back to emailed codes.";
           noteEl.hidden = false;
           return;
         }
-        enableBtn.textContent = "Turn on " + biometryName(state.biometryType) + " sign in";
+        enableBtn.textContent = "Turn on " + name + " sign in";
         enableBtn.hidden = false;
-        enableBtn.addEventListener("click", function onEnable() {
-          enableBtn.removeEventListener("click", onEnable);
+        // Guarded by disabled rather than unbinding, so a cancelled scan or a failed
+        // attempt leaves a button that still works.
+        enableBtn.addEventListener("click", function () {
+          if (enableBtn.disabled) {
+            return;
+          }
           enableBtn.disabled = true;
-          enroll().then(
-            function () {
-              setDeclined(false);
-              window.location.reload(); // the card is server rendered, so re-render the list
-            },
-            function () {
-              enableBtn.disabled = false;
-              noteEl.textContent = "That did not work. Try again in a moment.";
-              noteEl.hidden = false;
-            }
-          );
+          noteEl.hidden = true;
+          confirmIdentity(name)
+            .then(enroll)
+            .then(
+              function () {
+                setDeclined(false);
+                window.location.reload(); // the card is server rendered, so re-render the list
+              },
+              function (err) {
+                enableBtn.disabled = false;
+                if (wasDismissed(err)) {
+                  return;
+                }
+                noteEl.textContent = "That did not work. Try again in a moment.";
+                noteEl.hidden = false;
+              }
+            );
         });
       });
     });
@@ -623,7 +713,7 @@
   // Exposed so a page can re-check this device without re-deriving any of the plugin work.
   window.PLBiometricAuth = {
     isAvailable: checkAvailable,
-    hasStoredSecret: hasStoredSecret,
+    hasStoredSecret: isEnrolledHere,
     enroll: enroll,
     clearSecret: clearSecret,
     refresh: paintSettingsCard,

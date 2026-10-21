@@ -67,7 +67,7 @@ focal point rides data-hero-position and the script at the end lands it.
   is a native progress element drawn by its value, as the HQ's goal chips are, so no width
   has to be written as a style; its ARIA values carry the real numbers.
   {% endcomment %}
-  <section class="pl-event-page__band" data-event-going aria-label="Who is going">
+  <section class="pl-event-page__band"{% if not user.is_authenticated %} id="whos-coming"{% endif %} data-event-going aria-label="Who is going">
     <p class="pl-event-page__count">
       <span class="pl-event-page__count-number" data-people-count="{{ people_count }}">{{ people_count }}</span>
       <span class="pl-event-page__count-label" data-people-label>{% if people_count == 1 %}person is going{% else %}people are going{% endif %}</span>
@@ -181,11 +181,13 @@ focal point rides data-hero-position and the script at the end lands it.
 
   {% comment %}
   Who's Going is for members: the member names, with everyone else folded into "and N
-  guests" (a guest's name never reaches other members). An anonymous visitor has the
-  count in the band and nothing more.
+  guests" (a guest's name never reaches other members), or "N guests are going" when no
+  member name comes before it. An anonymous visitor has the count in the band and nothing
+  more. The HQ flyer's "See who's coming" link lands on #whos-coming: this card for a
+  member, the going band for everyone else.
   {% endcomment %}
   {% if user.is_authenticated %}
-  <section class="pl-event-page__card" data-event-rsvps aria-labelledby="event-whos-going">
+  <section class="pl-event-page__card" id="whos-coming" data-event-rsvps aria-labelledby="event-whos-going">
     <h2 class="pl-event-page__card-title" id="event-whos-going">Who's Going</h2>
     {% if rsvps %}
     <ul class="pl-event-page__people">
@@ -193,7 +195,7 @@ focal point rides data-hero-position and the script at the end lands it.
       <li class="pl-event-page__person">{{ rsvp.display_name }}</li>
       {% endfor %}
       {% if unnamed_count %}
-      <li class="pl-event-page__person pl-event-page__person--guests" data-guest-count="{{ unnamed_count }}">and {{ unnamed_count }} guest{{ unnamed_count|pluralize }}</li>
+      <li class="pl-event-page__person pl-event-page__person--guests" data-guest-count="{{ unnamed_count }}">{% if member_rsvps %}and {{ unnamed_count }} guest{{ unnamed_count|pluralize }}{% else %}{{ unnamed_count }} guest{{ unnamed_count|pluralize:" is,s are" }} going{% endif %}</li>
       {% endif %}
     </ul>
     {% else %}

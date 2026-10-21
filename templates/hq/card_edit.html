@@ -1,0 +1,135 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+One door card's edit page: its place in the order (Move up and Move down post to card_move
+and land back here), its words, who may open it, the named members as a collapsed row of
+pills that Edit expands into a searchable checklist (FRONTEND rule 25; the fields stay in the
+DOM under x-show so one Save posts them), Hidden, and one plain Save last.
+{% endcomment %}
+{% block title %}Edit Card{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq-edit" data-hq-card-edit-page>
+  {% url 'hq:page' hub.slug as back_url %}
+  {% include "components/page_header.html" with title="Edit Card" description="What the door says and who may open it. Admins and the named members always can." action_url=back_url action_label="Back to the HQ" %}
+
+  <div class="hub-card pl-hq-edit__card">
+    <h2 class="pl-hq-edit__title">Place on the Page</h2>
+    <p class="hub-text-muted pl-hq-edit__lead">{{ card.get_kind_display }} card. Move it one place at a time; the page keeps the order.</p>
+    <div class="pl-hq-move">
+      <form method="post" action="{% url 'hq:card_move' hub.slug card.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="dir" value="{{ directions.UP }}">
+        <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost" data-hq-move="up">Move up</button>
+      </form>
+      <form method="post" action="{% url 'hq:card_move' hub.slug card.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="dir" value="{{ directions.DOWN }}">
+        <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost" data-hq-move="down">Move down</button>
+      </form>
+    </div>
+  </div>
+
+  <form method="post" class="hub-form">
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+
+    <div class="hub-card pl-hq-edit__card">
+      <h2 class="pl-hq-edit__title">Words on the Card</h2>
+      {% include "components/form_field.html" with field=form.title %}
+      {% include "components/form_field.html" with field=form.who_for %}
+      {% include "components/form_field.html" with field=form.bullets %}
+      {% include "components/form_field.html" with field=form.button_text %}
+    </div>
+
+    <div class="hub-card pl-hq-edit__card">
+      <h2 class="pl-hq-edit__title">Who May Open It</h2>
+      {% include "components/radio_group.html" with field=form.audience %}
+
+      {% comment %}
+      The named members start collapsed: the chosen names as pills and an Edit button. The
+      pills are read from the checklist's own boxes, so they follow a tick made before Done.
+      A failed save on this field opens the row so the error is in view.
+      {% endcomment %}
+      <div class="pl-hq-named" data-hq-named
+           x-data="{ editing: {{ named_open|yesno:'true,false' }}, q: '', picked: [], refresh() { this.picked = Array.from(this.$el.querySelectorAll('input[name=named_members]:checked')).map(box => box.dataset.name) } }"
+           x-init="refresh()">
+        <div class="pl-hq-named__summary">
+          <span class="pl-form-label pl-hq-named__label">{{ form.named_members.label }}</span>
+          <span class="pl-hq-named__pills" data-hq-named-pills>
+            <template x-for="(name, index) in picked" :key="index"><span class="pl-hq-pill" x-text="name"></span></template>
+            <span class="pl-hq-named__none" x-show="picked.length === 0">Nobody named yet</span>
+          </span>
+          <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="editing = !editing"
+                  :aria-expanded="editing ? 'true' : 'false'" x-text="editing ? 'Done' : 'Edit'" data-hq-named-edit>Edit</button>
+        </div>
+        <div class="pl-hq-named__body" x-show="editing"{% if not named_open %} x-cloak{% endif %} data-hq-named-body>
+          <p class="pl-field-hint pl-hq-named__hint">{{ form.named_members.help_text }}</p>
+          <div class="pl-form-group pl-hq-named__search">
+            <label class="pl-form-label" for="hq-named-filter">Find members</label>
+            <input type="search" id="hq-named-filter" autocomplete="off" placeholder="Type a name or email" x-model="q" @keydown.enter.prevent>
+          </div>
+          <div class="pl-recipient-checklist" role="group" aria-label="Named members">
+            {% for row in member_rows %}
+            <label class="pl-recipient-checklist__row" data-search="{{ row.search_text }}" x-show="!q || $el.dataset.search.includes(q.toLowerCase())">
+              <input type="checkbox" name="named_members" value="{{ row.pk }}" data-name="{{ row.name }}"{% if row.checked %} checked{% endif %} @change="refresh()">
+              <span class="pl-recipient-checklist__label">{{ row.name }}{% if row.email %} <span class="pl-hq-named__email">{{ row.email }}</span>{% endif %}</span>
+            </label>
+            {% empty %}
+            <p class="pl-recipient-checklist__empty">No active members to list yet.</p>
+            {% endfor %}
+          </div>
+          {% if form.named_members.errors %}
+          <ul class="pl-field-errors">
+            {% for error in form.named_members.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+          </ul>
+          {% endif %}
+        </div>
+      </div>
+
+      {% include "components/form_field.html" with field=form.is_hidden %}
+    </div>
+
+    {% if shift_formset %}
+    <div class="hub-card pl-hq-edit__card" data-hq-shifts-editor>
+      <h2 class="pl-hq-edit__title">Shifts</h2>
+      <p class="hub-text-muted pl-hq-edit__lead">The jobs on the sign-up sheet, grouped by phase on the page. A shift with sign-ups keeps them: it cannot be deleted until everyone is off it.</p>
+      {{ shift_formset.management_form }}
+      {% for error in shift_formset.non_form_errors %}<p class="pl-field-error" role="alert" data-hq-shift-error>{{ error }}</p>{% endfor %}
+      <div class="pl-hq-goal-rows" id="hq-shift-rows">
+        {% for f in shift_formset %}
+        {% include "hq/partials/_shift_form_row.html" with f=f saved=f.instance.pk %}
+        {% empty %}
+        <p class="hub-text-muted pl-hq-goal-rows__empty" data-hq-shifts-empty>No shifts yet. Add the first.</p>
+        {% endfor %}
+      </div>
+      {# Hidden empty-form template, cloned by the + Add shift button below. #}
+      <template id="hq-shift-empty-template">
+        {% include "hq/partials/_shift_form_row.html" with f=shift_formset.empty_form saved=False %}
+      </template>
+      <button type="button" class="hub-btn hub-btn--sm pl-hq-edit__add" data-hq-add-shift
+              onclick="
+                const tpl = document.getElementById('hq-shift-empty-template');
+                const total = document.getElementById('id_shifts-TOTAL_FORMS');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                const rows = document.getElementById('hq-shift-rows');
+                const empty = rows.querySelector('[data-hq-shifts-empty]');
+                if (empty) empty.remove();
+                rows.appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+              ">
+        + Add shift
+      </button>
+    </div>
+    {% endif %}
+
+    <div class="pl-hq-edit__actions">
+      <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

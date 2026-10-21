@@ -107,8 +107,10 @@ def describe_saving_a_state_through_the_view():
     def it_leaves_the_other_features_alone(client: Client):
         _superuser(client)
         client.post(URL, _settings_post(states={"wiki": FeatureState.HIDDEN}))
-        untouched = {f.key for f in FEATURES} - {"wiki"}
+        # Holiday Bizarre ships Hidden (core 0118) and a save that never names it leaves it so.
+        untouched = {f.key for f in FEATURES} - {"wiki", "holiday_bizarre"}
         assert all(_state_of(key) == FeatureState.ON for key in untouched)
+        assert _state_of("holiday_bizarre") == FeatureState.HIDDEN
 
 
 def describe_saving_the_coming_soon_message():

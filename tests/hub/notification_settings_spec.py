@@ -76,7 +76,8 @@ def describe_notifications_tab():
         assert "Push (Browser)" not in content  # renamed to plain "Push"
         # uses the canonical .pl-help hover bubble, not a browser title= tooltip
         assert "pl-help__bubble" in content
-        assert "Android only for now. iOS coming soon." in content
+        assert "Sent to the Past Lives app on your iPhone or Android phone." in content
+        assert "iOS coming soon" not in content
 
 
 def describe_build_matrix_staff_flag():

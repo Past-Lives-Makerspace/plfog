@@ -1,0 +1,11 @@
+{% comment %}
+The desktop header row's More menu: everything a member reaches for less often than Edit, a
+photo, a tip, Still accurate and Report. The header used to show all of it as ten equal
+buttons, and a member looking for where to start could not tell Edit from Archive.
+
+The staff items are the same partial the phone menu appends, so the two widths cannot drift.
+Rendered inside components/row_actions.html, which supplies closeAndRefocus().
+{% endcomment %}
+<button type="button" class="pl-row-menu__item" role="menuitem"
+        @click="closeAndRefocus()" onclick="window.print()">Print / Save PDF</button>
+{% include "hub/partials/_wiki_moderation_menu.html" %}
