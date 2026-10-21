@@ -9232,12 +9232,17 @@ class CommunityEvent(HeroCropMixin, models.Model):
 
     @property
     def was_announced(self) -> bool:
-        """True once the #calendar announcement went out: the stamp or its message id is kept.
+        """True once any part of the announcement went out: the #calendar card or the member send.
 
-        Both survive :meth:`unpublish` on purpose, so a draft that was live once still reads
-        as announced and a quiet re-publish never holds it.
+        The card leaves its stamp and message id, both kept by :meth:`unpublish` on purpose.
+        The bell, email and push leave only the ``event:{pk}:published`` delivery ledger, and
+        they finish within a minute while the card waits up to 15 for the announcer, so an
+        event unpublished in between told members with no stamp to show for it. Either way a
+        quiet re-publish never holds it.
         """
-        return self.channel_announced_at is not None or bool(self.discord_announce_message_id)
+        if self.channel_announced_at is not None or self.discord_announce_message_id:
+            return True
+        return self.pk is not None and EventDelivery.objects.filter(period=f"event:{self.pk}:published").exists()
 
     @property
     def awaits_announcement(self) -> bool:

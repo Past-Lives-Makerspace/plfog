@@ -287,3 +287,102 @@ def describe_the_calendar_announcer():
         assert dcp.announce_new_events() == 1
         event.refresh_from_db()
         assert event.discord_announce_message_id == "msg-9"
+
+
+def _this_week(title: str, **overrides: object) -> CommunityEvent:
+    now = timezone.now()
+    return CommunityEventFactory(
+        community=True,
+        title=title,
+        starts_at=now + timedelta(days=3),
+        ends_at=now + timedelta(days=3, hours=2),
+        **overrides,
+    )
+
+
+def describe_the_weekly_digest():
+    def it_leaves_out_a_held_event_and_lists_the_rest():
+        _this_week("Hushed Bazaar", announcement_held=True)
+        _this_week("Loud Bazaar")
+        [embed] = dcp.build_weekly_digest_embeds(timezone.now())
+        assert "Loud Bazaar" in embed["description"]
+        assert "Hushed Bazaar" not in embed["description"]
+
+    def it_lists_the_event_once_it_is_announced():
+        event = _this_week("Hushed Bazaar", announcement_held=True)
+        assert dcp.build_weekly_digest_embeds(timezone.now()) == []
+        event.announce_now()
+        [embed] = dcp.build_weekly_digest_embeds(timezone.now())
+        assert "Hushed Bazaar" in embed["description"]
+
+
+def describe_the_portal_calendar():
+    def it_still_lists_a_held_event_because_it_is_published(client: Client):
+        _user("calendar_reader")
+        client.login(username="calendar_reader", password="pass")
+        event = _this_week("Hushed Bazaar", announcement_held=True)
+        response = client.get(reverse("hub_community_calendar"))
+        listed = [entry.community_event for entry in response.context["events_page_obj"] if entry.source == "community"]
+        assert event in listed
+
+
+def describe_a_republish_after_members_were_told():
+    def _told_then_unpublished() -> CommunityEvent:
+        """Live, its bell and email sent, then unpublished before the #calendar card posted."""
+        _user("told_member")
+        event = CommunityEventFactory(community=True, title="Holiday Bazaar")
+        event.announce()
+        assert _bells(event) >= 1
+        CommunityEvent.objects.filter(pk=event.pk).update(moderation_state=States.DRAFT)
+        event.refresh_from_db()
+        assert (event.channel_announced_at, event.discord_announce_message_id) == (None, "")
+        return event
+
+    def it_reads_as_announced_from_the_delivery_ledger():
+        assert _told_then_unpublished().was_announced is True
+
+    def it_hides_the_switch(client: Client):
+        event = _told_then_unpublished()
+        _login_admin(client, "told_admin")
+        response = client.get(reverse("hub_event_edit", args=[event.pk]))
+        assert _TOGGLE not in response.content.decode()
+        assert response.context["form"].offers_quiet_publish is False
+
+    def it_is_not_held_when_saved_with_the_switch_on(client: Client):
+        event = _told_then_unpublished()
+        _login_admin(client, "told_saver")
+        client.post(reverse("hub_event_edit", args=[event.pk]), data=_payload(announcement_held="on"))
+        event.refresh_from_db()
+        assert event.moderation_state == States.PUBLISHED
+        assert event.announcement_held is False
+
+    def it_is_not_held_by_a_quiet_publish_from_code():
+        event = _told_then_unpublished()
+        event.schedule_or_go_live(announce=False)
+        event.refresh_from_db()
+        assert event.announcement_held is False
+
+    def it_hides_the_switch_while_an_announcement_is_still_being_sent(client: Client):
+        event = CommunityEventFactory(
+            community=True, moderation_state=States.DRAFT, announcement_owed_since=timezone.now()
+        )
+        _login_admin(client, "owed_admin")
+        assert _TOGGLE not in client.get(reverse("hub_event_edit", args=[event.pk])).content.decode()
+
+
+def describe_unticking_a_held_draft():
+    def it_releases_the_hold_and_announces(client: Client):
+        _login_admin(client, "untick_draft_admin")
+        event = CommunityEventFactory(community=True, moderation_state=States.DRAFT, announcement_held=True)
+        client.post(reverse("hub_event_edit", args=[event.pk]), data=_payload())
+        event.refresh_from_db()
+        assert (event.moderation_state, event.announcement_held) == (States.PUBLISHED, False)
+        assert _bells(event) >= 1
+
+    def it_keeps_the_hold_when_the_switch_stays_on(client: Client):
+        _login_admin(client, "keep_draft_admin")
+        event = CommunityEventFactory(community=True, moderation_state=States.DRAFT, announcement_held=True)
+        client.post(reverse("hub_event_edit", args=[event.pk]), data=_payload(announcement_held="on"))
+        event.refresh_from_db()
+        assert (event.moderation_state, event.announcement_held) == (States.PUBLISHED, True)
+        assert _bells(event) == 0

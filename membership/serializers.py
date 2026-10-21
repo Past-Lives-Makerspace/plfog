@@ -93,7 +93,7 @@ class GuildSerializer(serializers.ModelSerializer):
 class CommunityEventSerializer(serializers.ModelSerializer):
     guild_name = serializers.CharField(source="guild.name", read_only=True, default=None)
     # Create only, never stored or echoed: ``false`` publishes without the member announcement
-    # (``CommunityEventViewSet.perform_create`` honours it for staff and superusers alone).
+    # (``api.permissions.MayPublishWithoutAnnouncing`` admits it from events administrators alone).
     announce = serializers.BooleanField(write_only=True, required=False, default=True)
 
     class Meta:

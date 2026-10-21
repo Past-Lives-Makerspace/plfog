@@ -6633,7 +6633,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             # parks it, a cleared/back-dated one publishes now: no strand); a live event only
             # re-pushes to Google and Discord (never re-announces).
             if form.saves_announce:
-                event.schedule_or_go_live(actor=request.user, announce=not event.announcement_held)
+                event.schedule_or_go_live(actor=request.user, announce=form.announces)
             elif form.announced:
                 event.push_to_google(actor=request.user)
                 event.push_to_discord(actor=request.user)
@@ -6765,7 +6765,7 @@ def _save_as_the_page_promised(
         event.created_by = user
     event.save()
     if form.saves_announce:
-        event.schedule_or_go_live(actor=user, announce=not event.announcement_held)
+        event.schedule_or_go_live(actor=user, announce=form.announces)
     elif form.announced:
         event.push_to_google(actor=user)
         event.push_to_discord(actor=user)

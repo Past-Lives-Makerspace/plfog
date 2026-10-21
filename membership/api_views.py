@@ -6,12 +6,12 @@ from allauth.account.models import EmailAddress
 from django.db.models import Prefetch
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from api.permissions import IsFogAdmin, IsFogAdminOrReadOnly
-from membership.models import CommunityEvent, Guild, GuildAnnouncement, Member, MembershipPlan
+from api.permissions import IsFogAdmin, IsFogAdminOrReadOnly, MayPublishWithoutAnnouncing
+from membership.models import CommunityEvent, Guild, GuildAnnouncement, InvalidEventTransition, Member, MembershipPlan
 from membership.serializers import (
     CommunityEventSerializer,
     GuildAnnouncementSerializer,
@@ -76,12 +76,17 @@ class CommunityEventViewSet(viewsets.ModelViewSet):
     ``POST`` publishes (or schedules, for a future ``publish_at``) and announces exactly as
     the app's composer does. It takes one optional boolean beyond the stored fields,
     ``announce`` (default ``true``): ``false`` puts the event on the calendars without the
-    member announcement, to be sent later with Announce now on Manage Events. Only a staff
-    or superuser token may send ``false``; anyone else gets a 403 and nothing is created.
-    The field is ignored on updates and never appears in a response.
+    member announcement, to be sent later with Announce now on Manage Events or the
+    ``announce`` action. Only a caller who may administer events (``MayPublishWithoutAnnouncing``:
+    an admin, a Calendar Administrator or a superuser) may send ``false``; anyone else gets a
+    403 and nothing is created. The field is ignored on updates and never appears in a response.
+
+    Before rolling back to a release without migration 0241, unpublish every held event
+    (``announcement_held``): the older code has no hold, and its 15 minute #calendar
+    announcer and reminders would announce them all.
     """
 
-    permission_classes: ClassVar = [IsFogAdminOrReadOnly]
+    permission_classes: ClassVar = [IsFogAdminOrReadOnly, MayPublishWithoutAnnouncing]
     serializer_class = CommunityEventSerializer
     # A draft (a copy, or an event taken down on Manage Events, #831) is nobody's to read here;
     # the other unpublished states keep the behaviour this API always had.
@@ -94,8 +99,6 @@ class CommunityEventViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         announce = serializer.validated_data.pop("announce")
         user = self.request.user
-        if not announce and not (user.is_staff or user.is_superuser):
-            raise PermissionDenied("Only staff can publish an event without announcing it.")
         event = serializer.save(created_by=user)
         event.schedule_or_go_live(actor=user, announce=announce)
 
@@ -112,9 +115,20 @@ class CommunityEventViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], permission_classes=[IsFogAdmin])
     def announce(self, request: Request, pk: str | None = None) -> Response:
-        """Fire the in-app, email, and Discord announcement without re-pushing to Google Calendar."""
+        """Fire the in-app, email, and Discord announcement without re-pushing to Google Calendar.
+
+        A held event goes through ``announce_now``, so the hold is released with the send and
+        a later Announce now on Manage Events sends nothing more. A held event that is not live
+        yet is refused with a 400, as Announce now refuses it.
+        """
         event = self.get_object()
-        event.announce(actor=request.user)
+        if not event.announcement_held:
+            event.announce(actor=request.user)
+        else:
+            try:
+                event.announce_now(actor=request.user)
+            except InvalidEventTransition as exc:
+                raise ValidationError({"detail": "Only a published event can be announced."}) from exc
         return Response(CommunityEventSerializer(event).data)
 
 

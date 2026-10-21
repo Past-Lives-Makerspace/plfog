@@ -3674,6 +3674,9 @@ class CommunityEventForm(_HeroCropMixin, forms.ModelForm):
         label="RSVP goal",
         help_text="How many people you are aiming for. The page shows a meter towards it. Leave blank for none.",
     )
+    # Not a model field: the form never writes the hold, it asks for one through
+    # ``announces``, and ``CommunityEvent.hold_announcement`` alone decides whether it may be set.
+    announcement_held = forms.BooleanField(required=False, label="Publish without announcing to members")
 
     class Meta:
         model = CommunityEvent
@@ -3698,7 +3701,6 @@ class CommunityEventForm(_HeroCropMixin, forms.ModelForm):
             "remind_3d",
             "remind_1d",
             "notify_happening_now",
-            "announcement_held",
         ]
         widgets = {
             "starts_at": forms.DateTimeInput(
@@ -3796,17 +3798,40 @@ class CommunityEventForm(_HeroCropMixin, forms.ModelForm):
         ``can_publish_quietly`` is the views' :func:`can_administer_events`: an admin or a
         Calendar Administrator, the people who publish directly. A review-first author never
         sees it (``saves_announce`` is already False for them), and neither does anyone on an
-        event that is live or was announced before it was unpublished, where there is nothing
+        event that is live, that told members anything before it was unpublished
+        (``was_announced``), or whose announcement is still being sent, where there is nothing
         left to hold. Removing the field leaves the stored value alone, so a POST that sets it
         from anyone else is ignored, and a held event's hold survives their save.
         """
-        self.offers_quiet_publish: bool = can_publish_quietly and self.saves_announce and not self.republishes
+        event = self.instance
+        self.offers_quiet_publish: bool = (
+            can_publish_quietly
+            and self.saves_announce
+            and not event.was_announced
+            and event.announcement_owed_since is None
+        )
         if not self.offers_quiet_publish:
             del self.fields["announcement_held"]
             return
-        field = self.fields["announcement_held"]
-        field.label = "Publish without announcing to members"
-        field.help_text = ""
+        self.fields["announcement_held"].initial = event.announcement_held
+
+    @property
+    def announces(self) -> bool:
+        """What the save passes to ``schedule_or_go_live(announce=...)``: False only when ticked.
+
+        Where the switch is not offered this is True, and the model keeps any stored hold.
+        """
+        return not (self.offers_quiet_publish and self.cleaned_data.get("announcement_held", False))
+
+    def save(self, commit: bool = True) -> Any:
+        """Save the event; an admin unticking the switch on a held event releases the hold.
+
+        Releasing is the form's only write to the hold. Setting it is left to
+        ``schedule_or_go_live(announce=False)``, which refuses an event that was announced.
+        """
+        if self.offers_quiet_publish and self.announces:
+            self.instance.announcement_held = False
+        return super().save(commit=commit)
 
     def _setup_audience_field(self, *, can_choose_audience: bool) -> None:
         """Turn the Google-calendar picker into the form's opening question, or remove it.
