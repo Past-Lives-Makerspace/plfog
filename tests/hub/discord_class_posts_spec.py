@@ -429,6 +429,16 @@ def describe_class_announcement_embeds():
         embed = dcp.class_announcement_embeds(offering)[0]
         assert _field_names(embed) == ["When", "Instructor", "Price"]
 
+    def it_gives_a_flexible_class_with_old_session_rows_no_sessions_or_duration():
+        offering = _flexible_class("Open Forge")
+        for days in (2, 9):
+            start = timezone.now() + timedelta(days=days)
+            ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=3))
+        (loaded,) = dcp._pending_offerings()
+        names = _field_names(dcp.class_announcement_embeds(loaded)[0])
+        assert "Sessions" not in names
+        assert "Duration" not in names
+
     def it_shows_the_hero_photo_as_an_absolute_url(settings):
         settings.BOOK_BASE_URL = "https://classes.example.org"
         (embed, *_) = _announced(gallery=0)

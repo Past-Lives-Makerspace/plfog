@@ -223,10 +223,13 @@ def _class_fields(offering: ClassOffering, sessions: list[ClassSession]) -> list
     from classes.templatetags.classes_tags import cents_as_price
 
     rows: list[tuple[str, str]] = [("When", _class_when(offering, sessions))]
-    if len(sessions) > 1:
-        rows.append(("Sessions", str(len(sessions))))
-    if sessions:
-        rows.append(("Duration", _duration_words(sessions[0])))
+    # A flexible class may keep old session rows that nothing reads (bookable()), so only a
+    # fixed class counts its sessions or times the first one.
+    if not offering.is_flexible:
+        if len(sessions) > 1:
+            rows.append(("Sessions", str(len(sessions))))
+        if sessions:
+            rows.append(("Duration", _duration_words(sessions[0])))
     if offering.area is not None:
         rows.append(("Location", offering.area.name))
     rows.append(("Instructor", offering.instructor_names))
