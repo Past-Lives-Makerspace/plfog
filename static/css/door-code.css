@@ -1,5 +1,5 @@
 /* The Door Code on Home (#813, hub/partials/_door_code.html). Wide screens show a compact box in
-   the page header beside Show me around; narrower screens show a full width card under the quick
+   the page header beside the title; narrower screens show a full width card under the quick
    links instead. Either way the code sits behind Tap to reveal on every load. Loaded by Home alone. */
 
 .pl-home-header-actions {
@@ -11,6 +11,11 @@
 
 .pl-door-code {
     min-width: 0;
+}
+
+/* Show me around sits in its own row under the header description. */
+.pl-home-tour-link {
+    margin-top: 1rem;
 }
 .pl-door-code--header {
     display: none;

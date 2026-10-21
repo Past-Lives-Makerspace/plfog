@@ -1,6 +1,6 @@
 """The Door Code on Home in a real browser (#813).
 
-Home renders the code twice: a compact box in the header beside Show me around from 1200px, and a
+Home renders the code twice: a compact box in the header beside the title from 1200px, and a
 card under the quick links below that; CSS shows exactly one. Either starts masked on every load:
 tapping it reveals the code, tapping again hides it, and the keyboard does the same. An admin sets
 a code through Change at desktop and phone width. A revealed 20 character code pushes nothing
