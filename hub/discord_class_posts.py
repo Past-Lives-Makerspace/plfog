@@ -32,7 +32,7 @@ from hub.discord_calendar_posts import (
 )
 
 if TYPE_CHECKING:
-    from classes.models import ClassOffering
+    from classes.models import ClassOffering, ClassSession
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,16 @@ _DIGEST_TITLE = "Classes this week at Past Lives"
 _FLEXIBLE_HEADER = "**Flexible scheduling — book anytime**"
 _FLEXIBLE_WHEN = "Flexible scheduling — arrange with the instructor"
 _FOOTER_LABEL = "Browse all classes"
+_CLASS_FOOTER = "Sign up on the class page"
+_MORE_SUFFIX = "… more on the class page"
+# The #calendar card's description cut (membership.models._DISCORD_DESCRIPTION_MAX), the same here.
+_DISCORD_DESCRIPTION_MAX = 600
+# The hero plus three: Discord's client merges up to four same-url embeds into one image grid.
+_GALLERY_PHOTOS_MAX = 3
+# Discord's embed caps for a title and a field value. With these and the 600 cut, a post's
+# text stays far under the 6,000 per message cap (the photo embeds carry none).
+_TITLE_MAX = 256
+_FIELD_VALUE_MAX = 1024
 
 
 def _catalog_url() -> str:
@@ -160,41 +170,119 @@ def _window_prefix(offering: ClassOffering) -> str:
     return f"{label} — " if label else ""
 
 
-def _class_when(offering: ClassOffering) -> str:
-    """The announcement's date line: the next upcoming session, or the flexible line with its window.
+def _class_when(offering: ClassOffering, sessions: list[ClassSession]) -> str:
+    """The **When** value: the next upcoming session, or the flexible line with its window.
 
     ``bookable()`` guarantees a FIXED offering's first session is still upcoming, so the
-    earliest session IS the next one.
+    earliest session IS the next one. ``sessions`` is the prefetched list, earliest first.
     """
-    from classes.models import ClassOffering as CO
-
-    if offering.scheduling_model == CO.SchedulingModel.FLEXIBLE:
+    if offering.is_flexible:
         label = offering.flexible_window_label
         return f"{_FLEXIBLE_WHEN} · {label}" if label else _FLEXIBLE_WHEN
-    first = offering.sessions.order_by("starts_at").first()
-    if first is None:  # defensive: bookable() excludes session-less FIXED offerings
+    if not sessions:  # defensive: bookable() excludes session-less FIXED offerings
         return _FLEXIBLE_WHEN
+    first = sessions[0]
     local = timezone.localtime(first.starts_at)
     return f"{local.strftime('%A, %B %-d')} · {_time_of(first.starts_at)}"
 
 
-def _class_announcement_embed(offering: ClassOffering) -> dict[str, Any]:
-    """One compact new-class embed: category, next date (or flexible), price, sign-up link."""
-    from classes.templatetags.classes_tags import cents_as_price
+def _absolute_photo_url(url: str) -> str:
+    """A photo URL Discord can fetch, or ``""``.
 
+    Discord fetches the picture from its own servers, so a relative ``/media/...`` or proxy
+    path is no use to it. Object storage (R2) already returns an absolute URL and is kept as
+    is; anything relative is made absolute on the public class site, as
+    ``Event.photo_url`` does on the members site. What still is not absolute is left out.
+    """
+    from core.urls_util import book_absolute_url
+
+    if not url:
+        return ""
+    if url.startswith(("http://", "https://")):
+        return url
+    absolute = book_absolute_url(url)
+    return absolute if absolute.startswith(("http://", "https://")) else ""
+
+
+def _class_photo_urls(offering: ClassOffering) -> list[str]:
+    """The post's photos: the hero, then up to :data:`_GALLERY_PHOTOS_MAX` gallery photos, absolute.
+
+    No category fallback: a class with no photo of its own posts as a card with no picture.
+    """
+    gallery = [_absolute_photo_url(image["url"]) for image in offering.gallery_display_images]
+    candidates = [_absolute_photo_url(offering.hero_image_url), *gallery[:_GALLERY_PHOTOS_MAX]]
+    photos: list[str] = []
+    for url in candidates:
+        if url and url not in photos:
+            photos.append(url)
+    return photos
+
+
+def _class_fields(offering: ClassOffering, sessions: list[ClassSession]) -> list[dict[str, Any]]:
+    """The bold labelled rows, each present only when it has a value, capped at Discord's 1,024."""
+    from classes.templatetags.classes_tags import cents_as_price, session_duration_words
+
+    rows: list[tuple[str, str]] = [("When", _class_when(offering, sessions))]
+    if len(sessions) > 1:
+        rows.append(("Sessions", str(len(sessions))))
+    if sessions:
+        rows.append(("Duration", session_duration_words(sessions[0])))
+    if offering.area is not None:
+        rows.append(("Location", offering.area.name))
+    rows.append(("Instructor", offering.instructor_names))
+    rows.append(("Price", cents_as_price(offering.price_cents)))
+    if not offering.is_flexible:
+        rows.append(("Spots", str(offering.capacity)))
+    return [{"name": name, "value": _clip(value, _FIELD_VALUE_MAX)} for name, value in rows if value and value.strip()]
+
+
+def _clip(text: str, limit: int) -> str:
+    """``text`` cut to ``limit`` characters, ending in an ellipsis when it was cut."""
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def class_announcement_embeds(offering: ClassOffering) -> list[dict[str, Any]]:
+    """The new class post, in the shape of the #calendar card (``Event.discord_announcement_embed``).
+
+    The main embed: the title linked to the class page, the description cut at 600
+    characters, the labelled rows, the footer and the hero as its image. Each further
+    gallery photo rides in an embed carrying only the same ``url`` and an ``image``, which
+    Discord's client merges with the hero into one image grid (where it does not, they show
+    as stacked picture cards). With no photo the ``image`` key is absent: a plain card.
+
+    Reads only what :func:`_pending_offerings` loads, so it runs no query of its own.
+    """
+    sessions = list(offering.sessions.all())
     link = offering.public_url
-    lines = [
-        f"*New class in {offering.category.name}*",
-        f"**When:** {_class_when(offering)}",
-        f"**Price:** {cents_as_price(offering.price_cents)}",
-        f"[Sign up →]({link})",
-    ]
-    return {
-        "title": offering.title,
-        "description": "\n".join(lines),
-        "color": _EMBED_COLOR,
+    embed: dict[str, Any] = {
+        "title": _clip(offering.title, _TITLE_MAX),
         "url": link,
+        "color": _EMBED_COLOR,
+        "fields": _class_fields(offering, sessions),
+        "footer": {"text": _CLASS_FOOTER},
     }
+    description = offering.description_text.strip()
+    if description:
+        if len(description) > _DISCORD_DESCRIPTION_MAX:
+            description = description[:_DISCORD_DESCRIPTION_MAX].rstrip() + _MORE_SUFFIX
+        embed["description"] = description
+    photos = _class_photo_urls(offering)
+    if not photos:
+        return [embed]
+    embed["image"] = {"url": photos[0]}
+    return [embed, *({"url": link, "image": {"url": photo}} for photo in photos[1:])]
+
+
+def _pending_offerings() -> list[ClassOffering]:
+    """Unannounced publicly bookable classes, soonest first, with everything the post reads loaded."""
+    from classes.models import ClassOffering
+
+    return list(
+        ClassOffering.objects.bookable()
+        .filter(channel_announced_at__isnull=True)
+        .select_related("category", "instructor", "area")
+        .prefetch_related("sessions", "gallery_images", "instructor_rows")
+    )
 
 
 def announce_new_classes() -> int:
@@ -205,20 +293,14 @@ def announce_new_classes() -> int:
     cap is stamped silently (and logged) so a backlog can never flood the channel later.
     The stamp is permanent, so a republished class never re-announces.
     """
-    from classes.models import ClassOffering
-
     channel_id = _posting_channel_id()
     if not channel_id:
         return 0
     now = timezone.now()
-    pending = list(
-        ClassOffering.objects.bookable()
-        .filter(channel_announced_at__isnull=True)
-        .select_related("category", "instructor")
-    )
+    pending = _pending_offerings()
     posted = 0
     for offering in pending[:ANNOUNCE_CAP]:
-        post_channel_message(channel_id, [_class_announcement_embed(offering)])
+        post_channel_message(channel_id, class_announcement_embeds(offering))
         offering.channel_announced_at = now
         offering.save(update_fields=["channel_announced_at"])
         posted += 1
