@@ -13,10 +13,10 @@
   },
   "dependencies": {
     "@capacitor-firebase/messaging": "^8.5.1",
-    "@capacitor/android": "^8.4.1",
-    "@capacitor/cli": "^8.4.1",
-    "@capacitor/core": "^8.4.1",
-    "@capacitor/ios": "^8.4.1",
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/ios": "^8.5.3",
     "@capacitor/push-notifications": "^8.1.2",
     "@capacitor/share": "^8.0.3",
     "@capgo/capacitor-native-biometric": "^8.6.7"
