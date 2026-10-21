@@ -47,6 +47,8 @@
       {% include "components/form_field.html" with field=form.recurrence field_hint="A weekly event repeats on the same weekday; a monthly event repeats on the same weekday-of-month as the start (e.g. the 2nd Saturday)." %}
     </div>
 
+    {% include "hub/partials/_event_page_card.html" with form=form %}
+
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
       {% if policy == "open" %}
       Your event will be published to the Calendar right away.

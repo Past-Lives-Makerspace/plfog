@@ -1,0 +1,14 @@
+{% comment %}
+The composer's Event page card (#831, part 5): what the public event page says under its
+people count. An RSVP goal draws a meter towards it; the pitch is the one line reason to
+come. Both optional. Included by community_event_edit.html and propose_event.html after the
+Event details card; its spacing is .pl-event-page-card in hub.css, not a style attribute.
+
+Parameters:
+  form — the CommunityEventForm (rsvp_goal and pitch)
+{% endcomment %}
+<div class="hub-card pl-event-page-card" data-event-page-card>
+  <h2 class="hub-detail-label pl-event-page-card__title">Event page</h2>
+  {% include "components/form_field.html" with field=form.rsvp_goal %}
+  {% include "components/form_field.html" with field=form.pitch field_hint="One line under the people count, the reason to come. Up to 200 characters. Optional." %}
+</div>
