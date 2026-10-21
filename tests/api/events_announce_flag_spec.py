@@ -210,3 +210,22 @@ def describe_may_publish_without_announcing():
 
     def it_leaves_every_other_action_alone(member_member: Member):
         assert _allowed(member_member.user, {"announce": False}, action="announce") is True
+
+
+def describe_the_event_page_fields():
+    def it_sets_the_rsvp_goal_and_pitch_on_create(admin_client, reader):
+        response = admin_client.post(
+            "/api/v1/events/",
+            _payload(announce=False, rsvp_goal=250, pitch="Help us reach 250!"),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        event = CommunityEvent.objects.get(title="API Bazaar")
+        assert (event.rsvp_goal, event.pitch) == (250, "Help us reach 250!")
+        assert (response.data["rsvp_goal"], response.data["pitch"]) == (250, "Help us reach 250!")
+
+    def it_leaves_them_blank_when_not_sent(admin_client, reader):
+        response = admin_client.post("/api/v1/events/", _payload(announce=False), format="json")
+
+        assert (response.data["rsvp_goal"], response.data["pitch"]) == (None, "")

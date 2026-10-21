@@ -108,6 +108,8 @@ class CommunityEventSerializer(serializers.ModelSerializer):
             "ends_at",
             "location",
             "description",
+            "rsvp_goal",
+            "pitch",
             "recurrence",
             "moderation_state",
             "google_calendar_target",
