@@ -63,7 +63,7 @@ def describe_download_links_inside_the_native_app():
         expect(page.locator(SUBSCRIBE_BUTTON)).to_have_count(0)
 
         # Arrive at the calendar the boosted way, so afterSettle is what hides the export.
-        page.locator('a.hub-btn:has-text("View the Calendar")').click()
+        page.locator('a.pl-event-page__btn:has-text("View the Calendar")').click()
         page.wait_for_url(re.compile(r"/calendar/$"))
         page.locator(SUBSCRIBE_BUTTON).click()
         expect(page.locator(EXPORT_ITEM)).to_have_count(1)

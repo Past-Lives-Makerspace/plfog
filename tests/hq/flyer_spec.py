@@ -692,6 +692,14 @@ def describe_the_figures():
         body = member_client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
 
         assert 'id="whos-coming" data-event-rsvps' in body
+        assert body.count('id="whos-coming"') == 1
+
+    def it_puts_the_anchor_on_the_going_band_for_a_signed_out_visitor(event, client):
+        body = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+
+        assert 'id="whos-coming" data-event-going' in body
+        assert body.count('id="whos-coming"') == 1
+        assert "data-event-rsvps" not in body
 
     def it_counts_the_marketing_trackers_flyer_drop_offs_on_this_hub(hub, member_client):
         MarketingActionFactory.create_batch(3, hub=hub)

@@ -3665,6 +3665,16 @@ class CommunityEventForm(_HeroCropMixin, forms.ModelForm):
         CommunityEvent.EventType.STUDIO_HOURS,
     }
 
+    # The Event page card (#831, part 5). Declared here rather than generated so a goal of
+    # zero is refused where it is typed: the model column allows it, and the page would show
+    # a meter with nowhere to go.
+    rsvp_goal = forms.IntegerField(
+        required=False,
+        min_value=1,
+        label="RSVP goal",
+        help_text="How many people you are aiming for. The page shows a meter towards it. Leave blank for none.",
+    )
+
     class Meta:
         model = CommunityEvent
         fields = [
@@ -3679,6 +3689,8 @@ class CommunityEventForm(_HeroCropMixin, forms.ModelForm):
             "description",
             "photo",
             "promo_video_url",
+            "rsvp_goal",
+            "pitch",
             "recurrence",
             "google_calendar_target",
             "publish_at",
@@ -3758,6 +3770,7 @@ class CommunityEventForm(_HeroCropMixin, forms.ModelForm):
         self._setup_quiet_publish_field(can_publish_quietly=can_publish_quietly)
         self.fields["video_url"].label = "Video link"
         self.fields["promo_video_url"].label = "Promo video"
+        self.fields["pitch"].label = "One line pitch"
         self.add_hero_crop_field()
         #: The create-mode gallery uploads, checked in ``clean`` and added by the view after the save.
         self.gallery_files: list[UploadedFile] = []
