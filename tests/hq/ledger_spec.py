@@ -28,7 +28,7 @@ from PIL import Image
 from hq import services
 from hq.exports import LEDGER_CSV_HEADERS
 from hq.forms import LEDGER_MAX_DOLLARS, RECEIPT_NOT_TAKEN, RECEIPT_TYPE_ERROR, checked_receipt
-from hq.holiday_bizarre import LEDGER_INTRO, LEDGER_RECEIPT_HINT, LEDGER_TITLE
+from hq.holiday_bizarre import LEDGER_FOOTER, LEDGER_INTRO, LEDGER_RECEIPT_HINT, LEDGER_TITLE
 from hq.models import BUILT_DOORS, BudgetLine, HubCard, LedgerEntry, LedgerSettings, MarketingKind, receipt_upload_to
 from hub.view_as import ROLE_GUEST, ROLE_MEMBER
 from tests.hq.conftest import photo_upload, signed_in
@@ -213,6 +213,88 @@ def describe_the_door():
         assert door.bullet_lines[0] == "Running tally and goals"
         assert list(door.named_members.all()) == [member]
         assert door.url == _page(open_hub)
+
+
+def _jumps(body: str) -> list[tuple[str, str]]:
+    """The section bar's links in order, as (href, label), the door links' arrow left out."""
+    bar = body.split('aria-label="Ledger sections"')[1].split("</nav>")[0]
+    links = []
+    for anchor in bar.split("<a ")[1:]:
+        href = anchor.split('href="')[1].split('"')[0]
+        label = anchor.split(">", 1)[1].split("</a>")[0].split(" <span")[0]
+        links.append((href, label))
+    return links
+
+
+def describe_the_section_bar():
+    def it_jumps_to_every_section_in_lees_order_after_the_hq_link(hub, lee_client):
+        body = lee_client.get(_page(hub)).content.decode()
+
+        assert _jumps(body) == [
+            (hub.get_absolute_url(), "&larr; HQ"),
+            ("#hq-lg-tally", "Tally"),
+            ("#hq-lg-goals", "Goals"),
+            ("#hq-lg-board", "$900 budget"),
+            ("#hq-lg-lines", "Budget lines"),
+            ("#hq-lg-entries", "Ledger"),
+            ("#hq-lg-bar", "Drink sales"),
+            ("#hq-lg-people", "Vendors"),
+            ("#hq-lg-wine", "Wine wall"),
+            ("#hq-lg-launch", "Launch"),
+            ("#hq-lg-staff", "Staff time"),
+            ("#hq-lg-guilds", "Guild demos"),
+            ("#hq-lg-vol", "Volunteers"),
+            ("#hq-lg-flyer", "Flyers"),
+        ]
+        header = body.split('<header class="pl-hq-lg__header">')[1].split("</header>")[0]
+        assert '<nav class="pl-hq-lg__jumpbar" aria-label="Ledger sections" data-hq-lg-jumpbar>' in header
+
+    def it_lands_every_jump_on_a_section_the_page_has(hub, lee_client):
+        body = lee_client.get(_page(hub)).content.decode()
+
+        for href, _ in _jumps(body)[1:]:
+            assert body.count(f'id="{href[1:]}"') == 1, href
+        assert '<section class="pl-hq-lg__section" id="hq-lg-lines" aria-labelledby="hq-lg-lines-title"' in body
+
+    def it_names_the_budget_by_the_hubs_approval(hub, lee_client):
+        LedgerSettingsFactory(hub=hub, approved_cents=120_000)
+
+        assert ("#hq-lg-board", "$1,200 budget") in _jumps(lee_client.get(_page(hub)).content.decode())
+
+    def it_links_the_sponsors_and_vendor_tables_doors_only_when_open_to_the_viewer(hub, lee_client):
+        sponsors = HubCardFactory(hub=hub, kind=HubCard.Kind.SPONSORSHIP, audience=HubCard.Audience.ADMINS)
+        vendors = HubCardFactory(hub=hub, kind=HubCard.Kind.VENDOR_TABLES, audience=HubCard.Audience.ADMINS)
+        sponsors_url = reverse("hq:sponsors", args=[hub.slug])
+        vendors_url = reverse("hq:vendors", args=[hub.slug])
+
+        closed = [href for href, _ in _jumps(lee_client.get(_page(hub)).content.decode())]
+        assert sponsors_url not in closed and vendors_url not in closed
+
+        for door in (sponsors, vendors):
+            door.audience = HubCard.Audience.MEMBERS
+            door.save(update_fields=["audience"])
+        body = lee_client.get(_page(hub)).content.decode()
+        jumps = _jumps(body)
+
+        # Lee's order: Vendor tables first after the HQ link, Sponsors where her sponsor section sat, after Drink sales.
+        assert jumps[1] == (vendors_url, "Vendor tables")
+        assert jumps[jumps.index(("#hq-lg-bar", "Drink sales")) + 1] == (sponsors_url, "Sponsors")
+        assert 'data-hq-lg-jump-door="sponsorship">Sponsors <span aria-hidden="true">&#8599;</span></a>' in body
+
+        sponsors.is_hidden = True
+        sponsors.save(update_fields=["is_hidden"])
+        assert sponsors_url not in [href for href, _ in _jumps(lee_client.get(_page(hub)).content.decode())]
+
+
+def describe_the_footer():
+    def it_ends_the_ledger_with_lees_nonprofit_line(hub, lee_client):
+        body = lee_client.get(_page(hub)).content.decode()
+
+        assert f'<p class="pl-hq-lg__muted pl-hq-lg__footer" data-hq-lg-footer>{LEDGER_FOOTER}</p>' in body
+        assert body.index("data-hq-lg-flyer") < body.index("data-hq-lg-footer")
+        assert LEDGER_FOOTER == (
+            "Past Lives Makerspace is an Oregon nonprofit corporation. Gifts and sponsorships are not tax-deductible."
+        )
 
 
 def describe_who_may_open_it():

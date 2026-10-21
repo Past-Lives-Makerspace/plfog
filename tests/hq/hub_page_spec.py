@@ -12,9 +12,9 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from hq.models import Countdown, EventHub, HubCard, HubGoal
-from hq.services import GoalRow, goal_rows, rsvp_count
-from tests.hq.factories import HubCardFactory, HubGoalFactory
+from hq.models import Countdown, EventHub, HubCard, HubGoal, WineBottle
+from hq.services import GoalRow, KindCount, WineBand, goal_rows, rsvp_count
+from tests.hq.factories import HubCardFactory, HubGoalFactory, WineBottleFactory
 from tests.membership.factories import CommunityEventFactory, EventRSVPFactory
 
 pytestmark = pytest.mark.django_db
@@ -213,6 +213,57 @@ def describe_the_goal_band():
         member_body = member_client.get(_page(open_hub)).content.decode()
         assert "data-hq-goals-empty" not in member_body
         assert 'id="hq-goals-title"' not in member_body
+
+
+def describe_bottles_by_type():
+    def it_lists_every_kind_in_lees_order_with_zeros_once_a_bottle_is_logged(open_hub):
+        HubGoalFactory(hub=open_hub, label="Wine wall bottles", kind=HubGoal.Kind.BOTTLES, target=100)
+        WineBottleFactory(hub=open_hub, kind=WineBottle.Kind.WHITE, qty=3)
+        WineBottleFactory(hub=open_hub, kind=WineBottle.Kind.CIDER)
+        WineBottleFactory(hub=open_hub, kind=WineBottle.Kind.WHITE)
+        WineBottleFactory(kind=WineBottle.Kind.BEER, qty=9)  # another hub's wall
+
+        body = Client().get(_page(open_hub)).content.decode()
+
+        line = body.split("data-hq-bottle-kinds>")[1].split("</p>")[0]
+        assert line.startswith("Bottles by type:")
+        chips = [chip.split(">")[1] for chip in line.split("</span>")[:-1]]
+        assert chips == ["0 Red", "4 White", "0 Champagne", "1 Cider", "0 Beer"]
+        goals = body.split('id="hq-goals-title"')[1].split("</section>")[0]
+        assert "data-hq-bottle-kinds" in goals  # under the goal band
+
+    def it_is_left_out_while_the_wall_is_empty(open_hub):
+        HubGoalFactory(hub=open_hub, kind=HubGoal.Kind.BOTTLES, target=100)
+
+        assert "data-hq-bottle-kinds" not in Client().get(_page(open_hub)).content.decode()
+
+    def it_reads_the_wall_band_for_every_kind():
+        band = WineBand(
+            bottles=2, goal=0, value_cents=0, supporters=1, by_kind=[KindCount(key="beer", label="Beer", bottles=2)]
+        )
+
+        assert [(kind.key, kind.bottles) for kind in band.every_kind] == [
+            ("red", 0),
+            ("white", 0),
+            ("champagne", 0),
+            ("cider", 0),
+            ("beer", 2),
+        ]
+
+    def it_keeps_the_page_to_a_fixed_number_of_queries_as_bottles_grow(open_hub, django_assert_num_queries):
+        HubGoalFactory(hub=open_hub, kind=HubGoal.Kind.BOTTLES, target=100)
+        WineBottleFactory(hub=open_hub)
+        client = Client()
+        client.get(_page(open_hub))  # warm the session and the site configuration
+        with CaptureQueriesContext(connection) as first:
+            client.get(_page(open_hub))
+        for kind in WineBottle.Kind:
+            WineBottleFactory.create_batch(3, hub=open_hub, kind=kind)
+
+        with django_assert_num_queries(len(first)):
+            response = client.get(_page(open_hub))
+
+        assert response.content.decode().count("data-hq-bottle-kind=") == 5
 
 
 def describe_the_tile_icons():

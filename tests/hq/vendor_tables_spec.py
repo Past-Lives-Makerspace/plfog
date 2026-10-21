@@ -25,7 +25,7 @@ from hub.view_as import ROLE_GUEST, ROLE_MEMBER
 from membership.models import Guild
 from tests.hq.conftest import signed_in
 from tests.hq.factories import HubCardFactory, HubGoalFactory, VendorFloorFactory, VendorTableFactory
-from tests.membership.factories import CommunityEventFactory, GuildFactory
+from tests.membership.factories import CommunityEventFactory, GuildFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -617,14 +617,47 @@ def describe_the_list():
                 assert kate_client.get(_page(hub)).status_code == 200
             return len(queries)
 
-        VendorTableFactory(hub=hub, guild=GuildFactory())
+        VendorTableFactory(hub=hub, guild=GuildFactory(), created_by=MemberFactory())
         GuildFactory.create_batch(3)
         _count()  # the first request warms the session and the caches
         few = _count()
         for _ in range(4):
-            VendorTableFactory(hub=hub, guild=GuildFactory())
+            VendorTableFactory(hub=hub, guild=GuildFactory(), created_by=MemberFactory())
 
         assert _count() == few
+
+    def it_says_who_added_each_request_under_the_name(hub, kate, kate_client):
+        table = VendorTableFactory(hub=hub, name="Spec Kilnworks", needs="Power", created_by=kate)
+
+        body = kate_client.get(_page(hub)).content.decode()
+
+        name_cell = body.split(f'data-hq-vt-row="{table.pk}"')[1].split("</td>")[0]
+        assert "data-hq-vt-added-by>Added by Kate Lindqvist</p>" in name_cell
+        assert (
+            name_cell.index('value="Spec Kilnworks"') < name_cell.index("Added by") < name_cell.index('value="Power"')
+        )
+
+    def it_leaves_added_by_out_when_nobody_is_on_record(hub, kate_client):
+        VendorTableFactory(hub=hub, created_by=None)
+        VendorTableFactory(hub=hub, created_by=MemberFactory(preferred_name="", full_legal_name=" "))
+
+        assert "data-hq-vt-added-by" not in kate_client.get(_page(hub)).content.decode()
+
+    def it_reads_who_added_each_request_in_the_lists_one_query(hub, kate):
+        VendorTableFactory.create_batch(3, hub=hub, created_by=kate)
+
+        with CaptureQueriesContext(connection) as queries:
+            names = [table.created_by.display_name for table in services.filtered_vendor_tables(hub, "all")]
+
+        assert names == ["Kate Lindqvist"] * 3
+        assert len(queries) == 1
+
+    def it_keeps_added_by_on_the_row_a_save_sends_back(hub, kate, kate_client):
+        table = VendorTableFactory(hub=hub, name="Spec Saved", created_by=kate)
+
+        response = kate_client.post(_edit(table), _row_post(table, sells="Mugs"), **HTMX)
+
+        assert "data-hq-vt-added-by>Added by Kate Lindqvist</p>" in response.content.decode()
 
 
 def describe_editing_a_row():

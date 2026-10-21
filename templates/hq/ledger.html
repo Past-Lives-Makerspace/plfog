@@ -8,7 +8,8 @@ receipts report, then (D6b) Drink sales and the Wine Wall's tickets. Organisers 
 audience and then a 403 for anyone who does not organise it, because this is the event's money. D6c puts the running
 tally and the goals over the board summary, Attendance and vendors between Drink sales and the Wine Wall (Lee's order),
 and after the Wine Wall the launch checklist, Staff time, Guild demos, Volunteer hours and the Event flyer. Every figure
-they show is read from the door it lives on.
+they show is read from the door it lives on. Over it all, Lee's section bar (← HQ, the doors open to the viewer and a
+jump to each section); at the foot, her nonprofit line.
 {% endcomment %}
 {% block title %}{{ title }}{% endblock %}
 {% block extra_head %}
@@ -18,12 +19,32 @@ they show is read from the door it lives on.
 {% block content %}
 <div class="pl-hq-lg" data-hq-ledger>
   <header class="pl-hq-lg__header">
+    {# Lee's section bar: ← HQ, then a jump to each section in her order, scrolling sideways inside itself on a phone. #}
+    <nav class="pl-hq-lg__jumpbar" aria-label="Ledger sections" data-hq-lg-jumpbar>
+      <a href="{% url 'hq:page' hub.slug %}" class="pl-hq-lg__back" data-hq-lg-back>&larr; HQ</a>
+      <div class="pl-hq-lg__jumps">
+        {% if door_urls.vendor_tables %}<a href="{{ door_urls.vendor_tables }}" class="pl-hq-lg__jump pl-hq-lg__jump--door" data-hq-lg-jump-door="vendor_tables">Vendor tables <span aria-hidden="true">&#8599;</span></a>{% endif %}
+        <a href="#hq-lg-tally" class="pl-hq-lg__jump" data-hq-lg-jump>Tally</a>
+        <a href="#hq-lg-goals" class="pl-hq-lg__jump" data-hq-lg-jump>Goals</a>
+        <a href="#hq-lg-board" class="pl-hq-lg__jump" data-hq-lg-jump>{{ band.approval }} budget</a>
+        <a href="#hq-lg-lines" class="pl-hq-lg__jump" data-hq-lg-jump>Budget lines</a>
+        <a href="#hq-lg-entries" class="pl-hq-lg__jump" data-hq-lg-jump>Ledger</a>
+        <a href="#hq-lg-bar" class="pl-hq-lg__jump" data-hq-lg-jump>Drink sales</a>
+        {% if door_urls.sponsorship %}<a href="{{ door_urls.sponsorship }}" class="pl-hq-lg__jump pl-hq-lg__jump--door" data-hq-lg-jump-door="sponsorship">Sponsors <span aria-hidden="true">&#8599;</span></a>{% endif %}
+        <a href="#hq-lg-people" class="pl-hq-lg__jump" data-hq-lg-jump>Vendors</a>
+        <a href="#hq-lg-wine" class="pl-hq-lg__jump" data-hq-lg-jump>Wine wall</a>
+        <a href="#hq-lg-launch" class="pl-hq-lg__jump" data-hq-lg-jump>Launch</a>
+        <a href="#hq-lg-staff" class="pl-hq-lg__jump" data-hq-lg-jump>Staff time</a>
+        <a href="#hq-lg-guilds" class="pl-hq-lg__jump" data-hq-lg-jump>Guild demos</a>
+        <a href="#hq-lg-vol" class="pl-hq-lg__jump" data-hq-lg-jump>Volunteers</a>
+        <a href="#hq-lg-flyer" class="pl-hq-lg__jump" data-hq-lg-jump>Flyers</a>
+      </div>
+    </nav>
     <div class="pl-hq-lg__heading">
       <h1 class="pl-hq-lg__title">{{ title }}</h1>
       <p class="pl-hq-lg__subline" data-hq-lg-subline>{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %}</p>
       <p class="pl-hq-lg__intro">{{ intro }}</p>
     </div>
-    <a href="{% url 'hq:page' hub.slug %}" class="pl-hq-lg__back" data-hq-lg-back>&larr; HQ</a>
   </header>
 
   {% include "hq/partials/_ledger_tally.html" %}
@@ -61,6 +82,8 @@ they show is read from the door it lives on.
   {% include "hq/partials/_ledger_vol.html" %}
 
   {% include "hq/partials/_ledger_flyer.html" %}
+
+  <p class="pl-hq-lg__muted pl-hq-lg__footer" data-hq-lg-footer>{{ footer }}</p>
 
   {# The team the Owner, Who and Contacted by boxes suggest: the ledger card's named members. #}
   <datalist id="{{ team_list_id }}" data-hq-lg-team>{% for name in team_names %}<option value="{{ name }}"></option>{% endfor %}</datalist>

@@ -17,9 +17,10 @@ tables and Guilds taking part (the guilds with a demo planned on the ledger, D6c
 plain count. The sponsor tiers are her draft "what they get" table on the Sponsorship Tracker, row for
 row. The vendor setup windows are the Setup day choices on Vendor Tables and its band's note. The check-in
 words are the Market Check-in's thank-you line and footer. The flyer words are her member event page's: the message
-to send friends (the default an organiser edits), Coming soon, the line under Help spread the word and last year's. The
-ledger words are her ledger page's title, the line under it and the hint under the receipt upload, and (D6c) her
-running tally's, the door clicker's and the No double entry lines, reworded for the portal.
+to send friends (the default an organiser edits), Coming soon, the line under Help spread the word, What to expect, the
+members' table card and last year's. The ledger words are her ledger page's title, the line under it, the hint under the
+receipt upload and the footer, and (D6c) her running tally's, the door clicker's and the No double entry lines, reworded
+for the portal.
 """
 
 from __future__ import annotations
@@ -333,6 +334,11 @@ CHECKIN_THANKS = (
     "toward one goal!"
 )
 CHECKIN_FOOTER = "Questions? Email Lee at lee@pastlives.space."
+# The hero's countdown on the day and after, in Lee's words (the days before read "N days to go" and "1 day to go").
+CHECKIN_TODAY = "Today"
+CHECKIN_TODAY_LINE = "It's market day!"
+CHECKIN_DONE = "Done"
+CHECKIN_DONE_LINE = "Thank you!"
 
 
 # The event flyer and sharing page's words, in Lee's (her member event page). The share message is the default of
@@ -348,6 +354,22 @@ FLYER_LAST_YEAR_NOTE = (
     "Our first Holiday Bizarre on December 5, 2025 brought the community together with a silent auction, artists' "
     "market and 36 donated items from local businesses."
 )
+# What to expect, under the message in Help spread the word. ``{ticket}`` is the ledger's single ticket price, which is
+# also the least a bottle on the wall should be worth (the donors' Under $X flag reads the same price), so the bullet
+# follows whatever the ticket is set to; Lee's two pages disagree on it ($20 here, $25 on the ledger).
+FLYER_WHAT_TO_EXPECT: tuple[str, ...] = (
+    "Member artists selling handmade work",
+    "Live demos from our guilds, including sparks from the Metal Guild",
+    "The wine wall: {ticket} a ticket, every bottle worth {ticket} or more",
+    "Drinks, music, the Sasquatch and surprises",
+)
+# Members: want a table to sell your work? Lee's card: ``{email}`` is Kate's address (a mail link on the page), and the
+# setup windows follow it from ``VENDOR_SETUP_NOTE``.
+FLYER_TABLE_TITLE = "Members: want a table to sell your work?"
+FLYER_TABLE_EMAIL = "visualartsguild@pastlives.space"
+FLYER_TABLE_ASK = (
+    "Tables are limited. Email Kate at {email} with your name, guild, what you sell and the table size you need."
+)
 
 
 # The PL Ledger's words, in Lee's (her ledger page): the title, the line under it and the hint under the receipt.
@@ -357,6 +379,9 @@ LEDGER_INTRO = (
     "receipts."
 )
 LEDGER_RECEIPT_HINT = "On your phone, tap to take a photo of the receipt."
+LEDGER_FOOTER = (
+    "Past Lives Makerspace is an Oregon nonprofit corporation. Gifts and sponsorships are not tax-deductible."
+)
 
 
 # The running tally at the top of the ledger (D6c), in Lee's words: the eyebrow, the title (its last word in gold) and

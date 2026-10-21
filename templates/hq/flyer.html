@@ -4,8 +4,10 @@
 Event flyer and sharing (Track D, part 5), in the look of Lee's member event page: a header with the hub's name
 and date line, the two figures read live (the event's RSVPs, linked to the Who's coming list on the event page,
 and the Marketing Tracker's businesses with flyers, linked to the tracker when that card is open to the viewer),
-This year's flyer with View full size, Download and Print beside Help spread the word, Find the event, Last
-year's flyer when one is up, and Update this page for organisers (by the effective role). No login gate of its
+This year's flyer with View full size, Download and Print beside Help spread the word (with What to expect), Find the
+event, Lee's Members: want a table to sell your work? (a Vendor Tables link when that door is open to the viewer), Last
+year: 2025 with her line always and the flyer when one is up, and Update this page for organisers (by the effective
+role). No login gate of its
 own: card_view decides who may open the page.
 {% endcomment %}
 {% block title %}{{ card.title }}{% endblock %}
@@ -78,10 +80,21 @@ own: card_view decides who may open the page.
 
   {% include "hq/partials/_flyer_find.html" %}
 
-  {% if page.last_year_flyer %}
+  <section class="pl-hq-fl__card pl-hq-fl__card--gold" aria-labelledby="hq-fl-table-title" data-hq-fl-table>
+    <h2 class="pl-hq-fl__h2" id="hq-fl-table-title">{{ table_title }}</h2>
+    <p class="pl-hq-fl__text" data-hq-fl-table-ask>{{ table_ask }}</p>
+    <p class="pl-hq-fl__muted" data-hq-fl-table-setup>{{ setup_note }}</p>
+    {% if vendors_url %}
+    <div class="pl-hq-fl__actions">
+      <a href="{{ vendors_url }}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" data-hq-fl-vendors>Open Vendor Tables</a>
+    </div>
+    {% endif %}
+  </section>
+
   <section class="pl-hq-fl__card" aria-labelledby="hq-fl-last-title" data-hq-fl-last-year>
     <h2 class="pl-hq-fl__h2" id="hq-fl-last-title">Last Year: 2025</h2>
     <div class="pl-hq-fl__archive">
+      {% if page.last_year_flyer %}
       {% if page.last_year_is_pdf %}
       <a href="{{ page.last_year_flyer.url }}" class="pl-hq-fl__thumb pl-hq-fl__thumb--pdf" target="_blank" rel="noopener" hx-boost="false" data-hq-fl-last-pdf>2025 flyer (PDF)</a>
       {% else %}
@@ -89,10 +102,10 @@ own: card_view decides who may open the page.
         <img src="{{ page.last_year_flyer.url }}" alt="2025 Holiday Bizarre flyer" loading="lazy">
       </a>
       {% endif %}
+      {% endif %}
       <p class="pl-hq-fl__muted" data-hq-fl-last-note>{{ last_year_note }}</p>
     </div>
   </section>
-  {% endif %}
 
   {% if can_organize %}
   <section class="pl-hq-fl__card pl-hq-fl__admin" aria-labelledby="hq-fl-admin-title" data-hq-fl-organizers>

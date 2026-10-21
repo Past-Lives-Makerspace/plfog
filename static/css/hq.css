@@ -203,6 +203,26 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+/* Lee's Bottles by type under the goals: a muted label and a chip per kind. */
+.pl-hq-goals__kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--pl-hq-rule);
+  color: var(--pl-hq-muted);
+  font-size: 0.88rem;
+}
+.pl-hq-goals__kind {
+  padding: 2px 10px;
+  border: 1px solid var(--pl-hq-rule);
+  border-radius: 999px;
+  background: var(--pl-hq-bg);
+  color: var(--pl-hq-ink);
+  font-weight: 700;
+}
 .pl-hq-goal {
   display: flex;
   flex-direction: column;
@@ -2542,6 +2562,13 @@ a.pl-hq-card:focus-visible {
 .pl-hq-vt__cell--name .pl-form-group:first-child input {
   font-weight: 900;
 }
+.pl-hq-vt__added {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+}
+.pl-hq-vt__added + .pl-form-group {
+  margin-top: 0.5rem;
+}
 .pl-hq-vt__cell--setup .pl-form-group select {
   min-width: 170px;
 }
@@ -3343,6 +3370,31 @@ a.pl-hq-fl__figure:hover .pl-hq-fl__figure-link {
   overflow-wrap: anywhere;
 }
 
+/* What to expect, under the message: Lee's short list. */
+.pl-hq-fl__expect {
+  display: grid;
+  gap: 6px;
+}
+.pl-hq-fl__what {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* Members: want a table to sell your work? Lee's card with a gold edge; Kate's address bold and mailable. */
+.pl-hq-fl__card--gold {
+  border-left: 6px solid var(--pl-hq-vol-gold-hi);
+}
+.pl-hq-fl__text {
+  margin: 0;
+}
+.pl-hq-fl__mail {
+  color: var(--pl-hq-vol-ink);
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
 /* Find the event: three link cards across, one column on a phone. */
 .pl-hq-fl__links {
   display: grid;
@@ -3549,6 +3601,62 @@ a.pl-hq-fl__figure:hover .pl-hq-fl__figure-link {
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
+}
+/* Lee's section bar: ← HQ, then the jumps. On a phone the jumps scroll sideways inside the bar, never the page; with
+   room they wrap. A jumped-to section clears the sticky top bar. */
+.pl-hq-lg__jumpbar {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--pl-hq-vol-rule);
+}
+.pl-hq-lg__jumps {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pl-hq-lg__jumps::-webkit-scrollbar {
+  display: none;
+}
+@media (min-width: 821px) {
+  .pl-hq-lg__jumps {
+    flex-wrap: wrap;
+  }
+}
+.pl-hq-lg__jump {
+  flex: none;
+  padding: 6px 10px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 999px;
+  background: var(--pl-hq-vol-surface);
+  color: var(--pl-hq-vol-muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.pl-hq-lg__jump:hover,
+.pl-hq-lg__jump:focus-visible {
+  border-color: var(--pl-hq-vol-ink);
+  color: var(--pl-hq-vol-ink);
+  outline: none;
+}
+.pl-hq-lg__jump--door {
+  border-color: var(--pl-hq-vol-gold-hi);
+  color: var(--pl-hq-vol-ink);
+}
+.pl-hq-lg [id^="hq-lg-"] {
+  scroll-margin-top: calc(var(--topbar-height) + 1rem);
+}
+.pl-hq-lg__footer {
+  margin: 0.5rem 0 0;
+  font-size: 0.88rem;
+  text-align: center;
 }
 .pl-hq-lg__heading {
   min-width: 0;

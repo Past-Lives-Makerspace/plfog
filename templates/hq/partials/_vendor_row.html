@@ -1,7 +1,8 @@
 {% comment %}
 One table request as a row of its own edit form: every field is a control tied to the row's form
 (in the last cell) by its form attribute, since a form cannot wrap a table row. Save swaps this
-row alone over htmx, with the band out of band; Delete goes through the confirm modal.
+row alone over htmx, with the band out of band; Delete goes through the confirm modal. Under the name, Lee's "Added
+by" with who entered the request (the page is for organisers only, so it shows to everyone who sees the row).
 
   hub  — required, the EventHub
   row  — required, a hq.views.VendorRow (the request, its edit form, and any refusal the form lacks)
@@ -11,6 +12,7 @@ row alone over htmx, with the band out of band; Delete goes through the confirm 
 <tr class="pl-hq-vt__row pl-hq-vt__row--{{ table.status }}" data-hq-vt-row="{{ table.pk }}" data-hq-vt-status="{{ table.status }}">
   <td class="pl-hq-vt__cell pl-hq-vt__cell--name">
     {% include "components/form_field.html" with field=form.name field_hint_off=True %}
+    {% if table.created_by and table.created_by.display_name.strip %}<p class="pl-hq-vt__muted pl-hq-vt__added" data-hq-vt-added-by>Added by {{ table.created_by.display_name }}</p>{% endif %}
     {% include "components/form_field.html" with field=form.needs field_hint_off=True %}
   </td>
   <td class="pl-hq-vt__cell">{% include "components/form_field.html" with field=form.guild field_hint_off=True %}</td>

@@ -5,7 +5,8 @@ The Holiday Bizarre HQ page (Track C, part 1). Extends hub/base.html, which auto
 a signed-out visitor (public topbar, no sidebar) and shows the hub chrome for a member; the
 view has no login gate, so the public doors open for anyone with the link. The view already
 filtered the cards by the viewer's effective role: an admin gets every card, hidden ones
-included, with Edit links and the Edit HQ action; everyone else gets only the doors open to them.
+included, with Edit links and the Edit HQ action; everyone else gets only the doors open to them. Under the goals,
+Lee's Bottles by type: every kind, zeros included, once the wine wall has a bottle.
 {% endcomment %}
 {% block title %}{{ hub.title }}{% endblock %}
 {% block extra_head %}
@@ -61,6 +62,9 @@ included, with Edit links and the Edit HQ action; everyone else gets only the do
       </div>
       {% endfor %}
     </div>
+    {% if bottle_kinds %}
+    <p class="pl-hq-goals__kinds" data-hq-bottle-kinds>Bottles by type:{% for kind in bottle_kinds %} <span class="pl-hq-goals__kind" data-hq-bottle-kind="{{ kind.key }}">{{ kind.bottles }} {{ kind.label }}</span>{% endfor %}</p>
+    {% endif %}
     {% else %}
     {# Admins alone reach this branch: the section is skipped for everyone else while there are no goals. #}
     <p class="pl-hq-empty" data-hq-goals-empty>No goals yet. Add them from Edit HQ and they show here as chips.</p>

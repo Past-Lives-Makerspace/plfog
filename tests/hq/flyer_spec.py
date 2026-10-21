@@ -20,8 +20,26 @@ from PIL import Image
 
 from hq import services
 from hq.forms import FLYER_TYPE_ERROR, FlyerUploadForm
-from hq.holiday_bizarre import FLYER_COMING_SOON, FLYER_LAST_YEAR_NOTE, FLYER_SHARE_LEDE, FLYER_SHARE_MESSAGE
-from hq.models import BUILT_DOORS, DEFAULT_CARDS, EventHub, FlyerSlot, HubCard, HubFlyer, MarketingAction
+from hq.holiday_bizarre import (
+    FLYER_COMING_SOON,
+    FLYER_LAST_YEAR_NOTE,
+    FLYER_SHARE_LEDE,
+    FLYER_SHARE_MESSAGE,
+    FLYER_TABLE_EMAIL,
+    FLYER_TABLE_TITLE,
+    FLYER_WHAT_TO_EXPECT,
+    VENDOR_SETUP_NOTE,
+)
+from hq.models import (
+    BUILT_DOORS,
+    DEFAULT_CARDS,
+    EventHub,
+    FlyerSlot,
+    HubCard,
+    HubFlyer,
+    LedgerSettings,
+    MarketingAction,
+)
 from hub.view_as import ROLE_MEMBER
 from membership.models import Member
 from tests.hq.conftest import signed_in
@@ -34,7 +52,9 @@ HTMX = {"HTTP_HX_REQUEST": "true"}
 THIS_YEAR = FlyerSlot.THIS_YEAR.value
 LAST_YEAR = FlyerSlot.LAST_YEAR.value
 # A member's GET of the page, with both flyers up and an event: pinned so a figure that starts to query per row shows.
-QUERIES_PER_PAGE = 28
+# What to expect reads the ledger's ticket price, and the Marketing Tracker and Vendor Tables links share one read of
+# the cards.
+QUERIES_PER_PAGE = 30
 
 
 def _page(hub: Any) -> str:
@@ -306,7 +326,14 @@ def describe_this_years_flyer():
 
 
 def describe_downloading():
-    def it_sends_this_years_flyer_as_an_attachment_named_for_the_hub_and_year(hub, member_client):
+    @pytest.fixture
+    def hub(card) -> EventHub:
+        """The hub under Lee's slug, which already carries the year."""
+        card.hub.slug = "holiday-bizarre-2026"
+        card.hub.save(update_fields=["slug"])
+        return card.hub
+
+    def it_sends_this_years_flyer_as_an_attachment_named_for_the_hub_once(hub, member_client):
         page = _with_flyer(hub)
 
         response = member_client.get(_download(hub))
@@ -322,7 +349,7 @@ def describe_downloading():
 
         response = member_client.get(_download(hub, LAST_YEAR))
 
-        assert response["Content-Disposition"] == 'attachment; filename="holiday-bizarre-2025-flyer.pdf"'
+        assert response["Content-Disposition"] == 'attachment; filename="holiday-bizarre-2026-last-year-flyer.pdf"'
         assert response["Content-Type"] == "application/pdf"
 
     def it_is_a_404_with_no_flyer_up_or_an_unknown_slot(hub, member_client):
@@ -631,6 +658,75 @@ def describe_help_spread_the_word():
         assert services.share_text("  Come along!\n", "https://x.test/") == "Come along! https://x.test/"
 
 
+def describe_what_to_expect():
+    def it_lists_lees_bullets_under_the_message(hub, member_client):
+        body = member_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
+
+        share = body.split("data-hq-fl-share")[1].split("</section>")[0]
+        expect = share.split("data-hq-fl-expect>")[1]
+        assert share.index("data-hq-fl-blurb") < share.index("data-hq-fl-expect")
+        assert "What to Expect</h3>" in expect
+        assert [item.split("</li>")[0] for item in expect.split("<li>")[1:]] == [
+            "Member artists selling handmade work",
+            "Live demos from our guilds, including sparks from the Metal Guild",
+            "The wine wall: $25 a ticket, every bottle worth $25 or more",
+            "Drinks, music, the Sasquatch and surprises",
+        ]
+
+    def it_reads_the_wine_walls_prices_from_the_ledger(hub, member_client):
+        LedgerSettings.objects.create(hub=hub, ticket_cents=2_000)
+
+        body = member_client.get(_page(hub)).content.decode()
+
+        assert "<li>The wine wall: $20 a ticket, every bottle worth $20 or more</li>" in body
+        assert "$25" not in body.split("data-hq-fl-expect>")[1].split("</ul>")[0]
+
+    def it_writes_cents_when_the_ticket_has_them(hub):
+        found = LedgerSettings(hub=hub, ticket_cents=2_250)
+
+        assert services.what_to_expect(found)[2] == "The wine wall: $22.50 a ticket, every bottle worth $22.50 or more"
+        assert len(FLYER_WHAT_TO_EXPECT) == 4
+
+    def it_follows_the_share_section_out_of_band_when_the_links_are_saved(hub, lee_client):
+        LedgerSettings.objects.create(hub=hub, ticket_cents=3_000)
+
+        response = lee_client.post(_links(hub), _links_post(), **HTMX)
+
+        share = response.content.decode().split('id="hq-fl-share"')[1]
+        assert "<li>The wine wall: $30 a ticket, every bottle worth $30 or more</li>" in share
+
+
+def describe_the_members_table_card():
+    def it_asks_members_to_email_kate_with_the_setup_windows_after_find_the_event(hub, member_client):
+        body = member_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
+
+        table = body.split("data-hq-fl-table>")[1].split("</section>")[0]
+        assert f'id="hq-fl-table-title">{FLYER_TABLE_TITLE}</h2>' in table
+        assert FLYER_TABLE_TITLE == "Members: want a table to sell your work?"
+        assert (
+            "Tables are limited. Email Kate at "
+            f'<a href="mailto:{FLYER_TABLE_EMAIL}" class="pl-hq-fl__mail">{FLYER_TABLE_EMAIL}</a>'
+            " with your name, guild, what you sell and the table size you need."
+        ) in table
+        assert FLYER_TABLE_EMAIL == "visualartsguild@pastlives.space"
+        assert f"data-hq-fl-table-setup>{VENDOR_SETUP_NOTE}</p>" in table
+        assert body.index("data-hq-fl-find") < body.index("data-hq-fl-table>") < body.index("data-hq-fl-last-year")
+
+    def it_links_vendor_tables_only_when_that_door_is_open_to_the_viewer(hub, member_client, admin_client):
+        vendors = HubCardFactory(hub=hub, kind=HubCard.Kind.VENDOR_TABLES, audience=HubCard.Audience.ADMINS)
+        url = reverse("hq:vendors", args=[hub.slug])
+        link = f'<a href="{url}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" data-hq-fl-vendors>Open Vendor Tables</a>'
+
+        assert "data-hq-fl-vendors" not in member_client.get(_page(hub)).content.decode()
+        assert link in admin_client.get(_page(hub)).content.decode()
+        vendors.audience = HubCard.Audience.MEMBERS
+        vendors.save(update_fields=["audience"])
+        assert link in member_client.get(_page(hub)).content.decode()
+        vendors.is_hidden = True
+        vendors.save(update_fields=["is_hidden"])
+        assert "data-hq-fl-vendors" not in member_client.get(_page(hub)).content.decode()
+
+
 def describe_find_the_event():
     def it_leaves_out_a_blank_link_and_always_offers_the_member_portal(hub, event, member_client):
         body = member_client.get(_page(hub)).content.decode()
@@ -753,8 +849,13 @@ def describe_the_figures():
 
 
 def describe_last_year():
-    def it_is_left_out_until_a_flyer_is_up(hub, member_client):
-        assert "data-hq-fl-last-year" not in member_client.get(_page(hub)).content.decode()
+    def it_shows_lees_line_before_any_2025_flyer_is_up(hub, member_client):
+        body = member_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
+
+        last = body.split("data-hq-fl-last-year>")[1].split("</section>")[0]
+        assert 'id="hq-fl-last-title">Last Year: 2025</h2>' in last
+        assert f"data-hq-fl-last-note>{FLYER_LAST_YEAR_NOTE}</p>" in last
+        assert "data-hq-fl-last-image" not in last and "data-hq-fl-last-pdf" not in last
 
     def it_shows_last_years_image_with_lees_line(hub, member_client):
         page = _with_flyer(hub, LAST_YEAR)
