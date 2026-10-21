@@ -41,6 +41,10 @@
 .pl-events-admin .admin-table-wrap td.pl-events-admin__status {
     white-space: nowrap;
 }
+/* "Not announced" beside the Status pill: an event published without its announcement. */
+.pl-events-admin__not-announced {
+    margin-left: 0.375rem;
+}
 .pl-events-admin__eventbrite {
     width: 1rem;
     text-align: center;

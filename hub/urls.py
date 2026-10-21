@@ -947,6 +947,11 @@ urlpatterns = [
         event_admin_views.hub_admin_event_unpublish,
         name="hub_admin_event_unpublish",
     ),
+    path(
+        "manage/events/<int:pk>/announce/",
+        event_admin_views.hub_admin_event_announce_now,
+        name="hub_admin_event_announce_now",
+    ),
     # The admin Feedback inbox (#693): every request from the Feedback page, and one page per request.
     path("manage/feedback/", feedback_views.hub_admin_feedback_inbox, name="hub_admin_feedback_inbox"),
     # The admin Growth dashboard (#795): counts since launch for a date range, a GET page.

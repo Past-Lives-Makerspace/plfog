@@ -92,6 +92,9 @@ class GuildSerializer(serializers.ModelSerializer):
 
 class CommunityEventSerializer(serializers.ModelSerializer):
     guild_name = serializers.CharField(source="guild.name", read_only=True, default=None)
+    # Create only, never stored or echoed: ``false`` publishes without the member announcement
+    # (``api.permissions.MayPublishWithoutAnnouncing`` admits it from events administrators alone).
+    announce = serializers.BooleanField(write_only=True, required=False, default=True)
 
     class Meta:
         model = CommunityEvent
@@ -105,6 +108,8 @@ class CommunityEventSerializer(serializers.ModelSerializer):
             "ends_at",
             "location",
             "description",
+            "rsvp_goal",
+            "pitch",
             "recurrence",
             "moderation_state",
             "google_calendar_target",
@@ -113,6 +118,7 @@ class CommunityEventSerializer(serializers.ModelSerializer):
             "remind_3d",
             "remind_1d",
             "notify_happening_now",
+            "announce",
             "sync_state",
             "discord_sync_state",
             "created_by",

@@ -2,8 +2,8 @@
 
 A list of every event on the Calendar with the Manage Classes chrome (search, lifecycle
 chips, sortable columns, pagination), a per-event screen with the actions its state allows
-(the review decisions, Retry sync, Duplicate, Unpublish, Delete) and the two POST actions
-that are new here, and the Guest list tab: every RSVP row, members and guests, with check-in,
+(the review decisions, Retry sync, Duplicate, Unpublish, Announce now, Delete) and the POST
+actions that are new here, and the Guest list tab: every RSVP row, members and guests, with check-in,
 Add a guest, Remove, Copy update emails and a CSV. Everything is
 ``@events_admin_access_required`` (an admin or a Calendar Administrator); the decisions, the
 retry and the delete keep their own endpoints in ``hub.views`` and come back here through
@@ -175,6 +175,7 @@ def hub_admin_event(request: HttpRequest, pk: int) -> HttpResponse:
             "can_decide": event.moderation_state in (states.PENDING, states.CHANGES_REQUESTED),
             "can_request_changes": event.moderation_state == states.PENDING,
             "can_unpublish": event.moderation_state == states.PUBLISHED,
+            "can_announce_now": event.awaits_announcement,
             "google_sync_enabled": google_sync_enabled,
             "can_retry_sync": google_sync_enabled
             and event.sync_state in (CommunityEvent.SyncState.PENDING, CommunityEvent.SyncState.FAILED),
@@ -209,6 +210,27 @@ def hub_admin_event_unpublish(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, str(exc))
     else:
         messages.success(request, "Event unpublished. It is a draft now, and members no longer see it.")
+    return redirect(reverse("hub_admin_event", args=[event.pk]))
+
+
+@events_admin_access_required
+@require_POST
+def hub_admin_event_announce_now(request: HttpRequest, pk: int) -> HttpResponse:
+    """Send the announcement of an event published without one (``CommunityEvent.announce_now``).
+
+    A second press, or a press on an event someone already announced, sends nothing and says so.
+    """
+    user: User = request.user  # type: ignore[assignment]  # the gate wraps @login_required
+    event = get_object_or_404(_managed_events(), pk=pk)
+    try:
+        announced = event.announce_now(actor=user)
+    except InvalidEventTransition:
+        messages.info(request, "Only a published event can be announced.")
+    else:
+        if announced:
+            messages.success(request, "Announcing it now. Members get the Discord post, bell and email in a minute.")
+        else:
+            messages.info(request, "This event was already announced.")
     return redirect(reverse("hub_admin_event", args=[event.pk]))
 
 

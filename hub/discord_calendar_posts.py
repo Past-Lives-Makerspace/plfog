@@ -113,9 +113,19 @@ def _is_studio_hours(item: Any) -> bool:
     return backing is not None and backing.event_type == CommunityEvent.EventType.STUDIO_HOURS
 
 
+def _is_held(item: Any) -> bool:
+    """Whether a calendar entry is an event published without its member announcement.
+
+    The portal's Calendar still lists it, since it is published; only telling members waits
+    for Announce now, and a #calendar post is telling them.
+    """
+    backing = getattr(item, "community_event", None)  # CalendarEvent rows have no such attr
+    return backing is not None and backing.announcement_held
+
+
 def _digest_items(now: datetime) -> list[Any]:
     """The next-7-days slice of the events calendar (feed + general + community events),
-    minus classes and standing studio-hours blocks.
+    minus classes, standing studio-hours blocks and events whose announcement is held.
 
     #calendar is events-only: classes have their own #classes digest, so
     class-sourced rows are dropped here even though they share the calendar union.
@@ -131,6 +141,7 @@ def _digest_items(now: datetime) -> list[Any]:
         and e.end_dt >= now
         and e.source != CalendarEvent.Source.CLASSES
         and not _is_studio_hours(e)
+        and not _is_held(e)
     ]
 
 
@@ -429,6 +440,8 @@ def announce_new_events() -> int:
         .upcoming()
         .filter(channel_announced_at__isnull=True)
         .exclude(event_type=CommunityEvent.EventType.STUDIO_HOURS)
+        # Published without announcing: its card waits for Announce now on Manage Events.
+        .exclude(announcement_held=True)
     )
     for event in community_rows:
         # One truth: the rich embed + RSVP/Manage buttons the model builds, also rendered by

@@ -105,7 +105,8 @@ def _event_context(event: CommunityEvent, date_start: datetime, *, days_before: 
 
 def _sending_events(now: datetime, *, days_before: int) -> QuerySet[CommunityEvent]:
     """Published events that could have a ``days_before`` send in this tick: a one-off starting
-    within that reach, or a repeating series that has begun by then. Studio hours never send."""
+    within that reach, or a repeating series that has begun by then. Studio hours never send,
+    and neither does an event published without its announcement until Announce now."""
     from membership.models import CommunityEvent
 
     # A coarse cut; reminder_sends makes the exact one. Counted in clock time from a UTC now,
@@ -116,6 +117,7 @@ def _sending_events(now: datetime, *, days_before: int) -> QuerySet[CommunityEve
     return (
         CommunityEvent.objects.published()
         .exclude(event_type=CommunityEvent.EventType.STUDIO_HOURS)
+        .exclude(announcement_held=True)
         .filter(one_off | series)
         .select_related("guild")
     )

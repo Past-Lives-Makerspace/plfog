@@ -22,7 +22,8 @@ listing (track B), shown only once an event is listed.
       <h1 class="pl-class-header__title">{{ event.title }}</h1>
       <div class="pl-class-header__badges">
         <span class="hub-pill hub-pill--{{ event.status_tone }}" data-event-status="{{ event.moderation_state }}">{{ event.status_label }}</span>
-        {% if event.moderation_state == "scheduled" %}<span class="hub-badge">Announces {{ event.publish_at_display }}</span>{% endif %}
+        {% if event.moderation_state == "scheduled" %}<span class="hub-badge">{% if event.announcement_held %}Publishes{% else %}Announces{% endif %} {{ event.publish_at_display }}</span>{% endif %}
+        {% if event.awaits_announcement %}<span class="hub-pill hub-pill--warn" data-not-announced>Not announced</span>{% endif %}
         {% if event.recurrence != "none" %}<span class="hub-pill hub-pill--neutral" data-recurrence-pill>{{ event.get_recurrence_display }}</span>{% endif %}
       </div>
       <div class="pl-class-meta">
