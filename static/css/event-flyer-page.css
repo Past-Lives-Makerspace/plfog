@@ -1,0 +1,119 @@
+/* event-flyer-page.css: the page around one event's flyer (templates/hub/event_flyer.html), with no member chrome.
+   The sheet (event-flyer.css) is paper and always light; the page around it follows the member's theme, dark by
+   default and light under [data-theme="light"], as hub/base.html sets it. Print is the sheet alone on one Letter
+   page with no margin of its own: the sheet keeps the printer's margin inside itself. */
+
+@page {
+  size: letter;
+  margin: 0;
+}
+
+.pl-evfl-page {
+  --pl-evfl-page-bg: #0d0f15;
+  --pl-evfl-page-ink: #e6e8ec;
+  --pl-evfl-page-muted: #a3abb8;
+  --pl-evfl-page-rule: #2a2f3a;
+  --pl-evfl-page-warn: #e9b565;
+  margin: 0;
+  padding: 0 16px 32px;
+  min-height: 100vh;
+  box-sizing: border-box;
+  background: var(--pl-evfl-page-bg);
+  color: var(--pl-evfl-page-ink);
+  font-family: "Lato", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+[data-theme="light"] .pl-evfl-page {
+  --pl-evfl-page-bg: #e9edf1;
+  --pl-evfl-page-ink: #1d1e1e;
+  --pl-evfl-page-muted: #5b6675;
+  --pl-evfl-page-rule: #d6dbe1;
+  --pl-evfl-page-warn: #8a5d0c;
+}
+
+.pl-evfl-page__toolbar {
+  max-width: 8.5in;
+  margin: 0 auto;
+  padding: 24px 0 16px;
+  text-align: center;
+}
+
+.pl-evfl-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 12px 20px;
+}
+
+.pl-evfl-page__print {
+  display: inline-block;
+  padding: 12px 32px;
+  background: #eeb44b;
+  color: #092e4c;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pl-evfl-page__print:hover {
+  background: #e0a63a;
+}
+
+.pl-evfl-page__print:focus-visible,
+.pl-evfl-page__link:focus-visible {
+  outline: 2px solid #eeb44b;
+  outline-offset: 3px;
+}
+
+.pl-evfl-page__link {
+  color: var(--pl-evfl-page-ink);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.pl-evfl-page__hint {
+  margin: 12px auto 0;
+  max-width: 60ch;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--pl-evfl-page-muted);
+}
+
+.pl-evfl-page__hint--warn {
+  color: var(--pl-evfl-page-warn);
+  font-weight: 700;
+}
+
+.pl-evfl-page__main {
+  max-width: 8.5in;
+  margin: 0 auto;
+  border: 1px solid var(--pl-evfl-page-rule);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .pl-evfl-page {
+    padding: 0;
+    min-height: 0;
+    background: #ffffff;
+  }
+  .pl-evfl-page__main {
+    max-width: none;
+    width: 8.5in;
+    border: none;
+    box-shadow: none;
+  }
+  /* A hair under the page, so rounding never spills a blank second page. */
+  .pl-evfl-page .pl-evfl__sheet {
+    aspect-ratio: auto;
+    height: 10.98in;
+  }
+}

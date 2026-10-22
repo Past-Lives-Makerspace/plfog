@@ -789,6 +789,7 @@ urlpatterns = [
     path("events/<int:pk>/rsvp/guest/", views.event_rsvp_guest, name="hub_event_rsvp_guest"),
     path("events/<int:pk>/event.ics", views.event_ics, name="hub_event_ics"),
     path("events/<int:pk>/qr.<str:fmt>/", views.event_qr, name="hub_event_qr"),
+    path("events/<int:pk>/flyer/", views.event_flyer, name="hub_event_flyer"),
     path("view-as/set/", views.view_as_set, name="hub_view_as_set"),
     path("view-as/capability/set/", views.view_as_capability_set, name="hub_view_as_capability_set"),
     path("view-as/instructor/set/", views.view_as_instructor_set, name="hub_view_as_instructor_set"),

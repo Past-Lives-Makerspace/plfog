@@ -1,0 +1,231 @@
+/* event-flyer.css: one Community Event's flyer sheet (templates/hub/partials/_event_flyer_sheet.html).
+   The sheet is a whole Letter page (8.5 by 11) and every size inside it is in container units of its wrapper
+   (.pl-evfl), so it reads the same at any width: full size on its own page (hub/event_flyer.html, whose page and
+   print rules live in event-flyer-page.css) and scaled into the HQ's flyer frame (hq/flyer.html). 1cqi is a
+   hundredth of the sheet's width, about 8px at full size. It is paper, so it is forced light in both themes:
+   white, navy #092E4C, gold #EEB44B. */
+
+.pl-evfl {
+  container-type: inline-size;
+  width: 100%;
+  color: #1d1e1e;
+  font-family: "Lato", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.pl-evfl__sheet {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  aspect-ratio: 8.5 / 11;
+  overflow: hidden;
+  background: #ffffff;
+  text-align: left;
+}
+
+/* No specificity, so each line's own margin below still wins. */
+:where(.pl-evfl__sheet p) {
+  margin: 0;
+}
+
+/* The hero across the top, inside the margins a printer keeps. */
+.pl-evfl__hero {
+  flex: 0 0 auto;
+  display: block;
+  width: calc(100% - 12cqi);
+  height: 28cqi;
+  margin: 5.5cqi 6cqi 0;
+  object-fit: cover;
+  border-radius: 1.6cqi;
+}
+
+.pl-evfl__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2cqi;
+  padding: 4cqi 6cqi 3cqi;
+  overflow: hidden;
+}
+
+/* Each line keeps its own height; a long title or pitch is clamped by lines instead. */
+.pl-evfl__body > * {
+  flex-shrink: 0;
+}
+
+/* With no photo the title leads the page, under a gold rule. */
+.pl-evfl__sheet--plain .pl-evfl__body {
+  padding-top: 7cqi;
+}
+
+.pl-evfl__sheet--plain .pl-evfl__eyebrow {
+  padding-top: 2.4cqi;
+  border-top: 0.8cqi solid #eeb44b;
+}
+
+.pl-evfl__eyebrow {
+  font-size: 2cqi;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8a5d0c;
+}
+
+.pl-evfl__title {
+  margin: 0;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 6.6cqi;
+  font-weight: 900;
+  line-height: 1.04;
+  color: #092e4c;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.pl-evfl__sheet--plain .pl-evfl__title {
+  font-size: 8.8cqi;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.pl-evfl__sheet--plain .pl-evfl__pitch {
+  -webkit-line-clamp: 8;
+  line-clamp: 8;
+}
+
+.pl-evfl__when {
+  padding-left: 2.4cqi;
+  border-left: 0.8cqi solid #eeb44b;
+}
+
+.pl-evfl__date {
+  font-size: 4cqi;
+  font-weight: 900;
+  line-height: 1.15;
+  color: #092e4c;
+}
+
+.pl-evfl__time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6cqi 1.6cqi;
+  margin-top: 0.6cqi;
+  font-size: 3.2cqi;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #33404d;
+}
+
+.pl-evfl__cadence {
+  padding: 0.3cqi 1.4cqi;
+  border-radius: 99cqi;
+  background: #092e4c;
+  color: #ffffff;
+  font-size: 2.1cqi;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.pl-evfl__where {
+  font-size: 2.9cqi;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #092e4c;
+  overflow-wrap: anywhere;
+}
+
+.pl-evfl__pitch {
+  font-size: 2.7cqi;
+  line-height: 1.45;
+  color: #33404d;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+}
+
+.pl-evfl__goal {
+  align-self: flex-start;
+  padding: 0.8cqi 2cqi;
+  border: 0.3cqi solid #eeb44b;
+  border-radius: 99cqi;
+  background: #fdf4e1;
+  font-size: 2.4cqi;
+  font-weight: 700;
+  color: #092e4c;
+}
+
+/* The band across the foot: the venue on the navy, the QR on a white tile. */
+.pl-evfl__band {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4cqi;
+  margin-top: auto;
+  padding: 3cqi 6cqi 4.5cqi;
+  background: #092e4c;
+  color: #ffffff;
+}
+
+.pl-evfl__venue-name {
+  margin-bottom: 1cqi;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 4cqi;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #eeb44b;
+}
+
+.pl-evfl__venue-line {
+  font-size: 2.6cqi;
+  line-height: 1.4;
+  color: #ffffff;
+}
+
+.pl-evfl__qr-panel {
+  flex: 0 0 auto;
+  width: 26cqi;
+  padding: 1.4cqi;
+  border-radius: 1.6cqi;
+  background: #ffffff;
+  text-align: center;
+}
+
+.pl-evfl__qr {
+  width: 19.2cqi;
+  height: 19.2cqi;
+  margin: 0 auto;
+}
+
+.pl-evfl__qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.pl-evfl__qr-caption {
+  margin-top: 0.8cqi;
+  font-size: 1.8cqi;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #092e4c;
+}
+
+.pl-evfl__qr-url {
+  margin-top: 0.3cqi;
+  font-size: 1.35cqi;
+  line-height: 1.25;
+  color: #33404d;
+  overflow-wrap: anywhere;
+}

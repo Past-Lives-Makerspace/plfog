@@ -276,11 +276,12 @@ data-hero-position and the script at the end lands it.
   </div>
 
   {% if can_edit %}
-  {# Share & Print for editors: the shared QR card, whose downloads carry hx-boost="false" and data-pl-download (FRONTEND rule 24). #}
+  {# Share & Print for editors: the shared QR card, whose downloads carry hx-boost="false" and data-pl-download (FRONTEND rule 24), and its Flyer link to the printable flyer. #}
   {% url 'hub_event_qr' event.pk 'svg' as event_qr_svg_url %}
   {% url 'hub_event_qr' event.pk 'png' as event_qr_png_url %}
+  {% url 'hub_event_flyer' event.pk as event_flyer_url %}
   <div class="pl-event-page__qr" data-event-qr>
-    {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens this page. Print it on signage, add it to a flyer, or hand it out." qr_svg=event.qr_svg share_url=event.public_url svg_url=event_qr_svg_url png_url=event_qr_png_url %}
+    {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens this page. Print it on signage, add it to a flyer, or hand it out." qr_svg=event.qr_svg share_url=event.public_url svg_url=event_qr_svg_url png_url=event_qr_png_url flyer_url=event_flyer_url %}
   </div>
   {% endif %}
 

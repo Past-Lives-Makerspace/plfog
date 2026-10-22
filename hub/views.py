@@ -7914,6 +7914,24 @@ def event_qr(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
     return resp
 
 
+def event_flyer(request: HttpRequest, pk: int) -> HttpResponse:
+    """The printable one-page flyer for a Community Event, beside its public page (Print, then Save as PDF).
+
+    Seen by whoever may see the event: a published event's flyer is public, like its page, and an
+    unpublished one only by those who may edit the event (``can_edit_event``), so the composer can
+    print it before publishing. Anyone else, and an unknown pk, gets the same themed 404 the page
+    gives, so an unreviewed proposal never shows on a guessed URL. The sheet itself is
+    ``hub/partials/_event_flyer_sheet.html``, which the HQ's Event flyer and sharing page also shows.
+    """
+    from membership.models import CommunityEvent
+    from membership.permissions import can_edit_event
+
+    event = get_object_or_404(CommunityEvent.objects.select_related("area"), pk=pk)
+    if not event.is_published and not can_edit_event(request, event):
+        raise Http404("No such event.")
+    return render(request, "hub/event_flyer.html", {"event": event, "qr_svg": event.qr_svg()})
+
+
 @require_POST
 @login_required
 def view_as_set(request: HttpRequest) -> JsonResponse:

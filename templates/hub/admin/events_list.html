@@ -8,7 +8,8 @@
 {% comment %}
 Manage Events (#831, part 2), built by hub.event_admin_views.hub_admin_events with the Manage
 Classes chrome: the search box, the lifecycle chips (hub.event_lifecycle.EVENT_FACETS), the
-My Events toggle, the sortable table and the pager. Every row opens its own admin screen.
+My Events toggle, the sortable table and the pager. Every row opens its own admin screen, and its
+Flyer link opens the event's printable flyer (hub_event_flyer) in its own tab.
 The RSVPs column is the people count (party sizes summed, #831 part 4). The Eventbrite cell
 is a reserved slot: track B fills it once an event can be listed.
 {% endcomment %}
@@ -51,7 +52,7 @@ is a reserved slot: track B fills it once an event can be listed.
       {% for event in page %}
         <tr data-event-row="{{ event.pk }}">
           {# The whole title, wrapped, never clipped, as on Manage Classes (#543). #}
-          <td class="pl-class-list__title"><a href="{% url 'hub_admin_event' event.pk %}">{{ event.title }}</a></td>
+          <td class="pl-class-list__title"><a href="{% url 'hub_admin_event' event.pk %}">{{ event.title }}</a><a class="pl-events-admin__flyer" href="{% url 'hub_event_flyer' event.pk %}" target="_blank" rel="noopener" data-event-flyer>Flyer</a></td>
           <td class="pl-events-admin__kind">{{ event.badge_label }}{% if event.guild %}<span class="pl-events-admin__guild" data-event-guild>{{ event.guild.name }}</span>{% endif %}</td>
           <td class="pl-events-admin__dates">{{ event.next_occurrence_start|date:"M j, Y · g:i A" }}{% if event.recurrence != "none" %}<span class="hub-pill hub-pill--neutral" data-recurrence-pill>{{ event.get_recurrence_display }}</span>{% endif %}</td>
           <td class="pl-events-admin__status"><span class="hub-pill hub-pill--{{ event.status_tone }}" data-event-status="{{ event.moderation_state }}">{{ event.status_label }}</span>{% if event.awaits_announcement %}<span class="hub-pill hub-pill--warn pl-events-admin__not-announced" data-not-announced>Not announced</span>{% endif %}</td>

@@ -3371,11 +3371,26 @@ a.pl-hq-fl__figure:hover .pl-hq-fl__figure-link {
   color: var(--pl-hq-vol-ink);
   text-decoration: none;
 }
-.pl-hq-fl__poster img {
+.pl-hq-fl__poster > img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+/* The flyer the event system makes (event-flyer.css): the sheet fills the frame edge to edge, as paper. */
+.pl-hq-fl__poster--sheet {
+  display: block;
+  background: #FFFFFF;
+}
+.pl-hq-fl__poster--sheet:hover {
+  border-color: var(--pl-hq-vol-gold-hi);
+  text-decoration: none;
+}
+.pl-hq-fl__sheet {
+  width: 100%;
+}
+.pl-hq-fl__generated-note {
+  margin-top: 12px;
 }
 .pl-hq-fl__poster--soon,
 .pl-hq-fl__poster--pdf {
@@ -3650,11 +3665,21 @@ a.pl-hq-fl__figure:hover .pl-hq-fl__figure-link {
     background: #FFFFFF;
     break-inside: avoid;
   }
-  body:has([data-hq-flyer]) [data-hq-fl-poster] img {
+  body:has([data-hq-flyer]) [data-hq-fl-poster] > img {
     width: 100%;
     height: auto;
     max-height: 100vh;
     object-fit: contain;
+  }
+  /* The event's own flyer is a Letter sheet at a fixed size that fits inside any printer margin (7.3 by 9.44
+     inches), so it prints on one page whatever margins the print dialog picks. */
+  body:has([data-hq-flyer]) [data-hq-fl-poster] .pl-evfl {
+    width: 7.3in;
+    margin: 0 auto;
+  }
+  body:has([data-hq-flyer]) [data-hq-fl-poster] .pl-evfl__sheet {
+    aspect-ratio: auto;
+    height: 9.44in;
   }
 }
 

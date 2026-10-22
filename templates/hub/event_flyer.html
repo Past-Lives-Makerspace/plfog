@@ -1,0 +1,39 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ event.title }} Flyer · Past Lives</title>
+{# The member's theme, read before the first paint as hub/base.html reads it (the shared cookie, then this origin's choice, else dark); only the page around the sheet follows it, the sheet is paper. #}
+<script>
+  (function () {
+    var theme = null;
+    var m = document.cookie.match(/(?:^|;\s*)pl_theme=(light|dark)/);
+    if (m) { theme = m[1]; }
+    if (!theme) { try { theme = localStorage.getItem("theme"); } catch (e) {} }
+    if (theme === "light") { document.documentElement.setAttribute("data-theme", "light"); }
+  })();
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/event-flyer.css' %}">
+<link rel="stylesheet" href="{% static 'css/event-flyer-page.css' %}">
+{% include "includes/google_analytics.html" %}
+</head>
+<body class="pl-evfl-page">
+
+{# header/main landmarks: keeps the standalone page navigable by assistive tech (axe: landmark-one-main/region). #}
+<header class="pl-evfl-page__toolbar no-print">
+  <div class="pl-evfl-page__actions">
+    <button type="button" class="pl-evfl-page__print" onclick="window.print()" data-evfl-print>Print / Save as PDF</button>
+    {% if event.is_published %}<a class="pl-evfl-page__link" href="{% url 'hub_event_detail' event.pk %}" data-evfl-event-link>Open the event page</a>{% endif %}
+  </div>
+  <p class="pl-evfl-page__hint">Use your browser's Print dialog and choose “Save as PDF,” or print it and post it up. It fits one Letter page.</p>
+  {% if not event.is_published %}<p class="pl-evfl-page__hint pl-evfl-page__hint--warn" data-evfl-unpublished>Only people who can edit this event see this flyer until it is published. Its QR code opens the event page once it is.</p>{% endif %}
+</header>
+
+<main class="pl-evfl-page__main">
+  {% include "hub/partials/_event_flyer_sheet.html" with event=event qr_svg=qr_svg %}
+</main>
+
+</body>
+</html>

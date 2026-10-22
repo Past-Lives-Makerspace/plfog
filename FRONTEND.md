@@ -417,6 +417,8 @@ All under `static/css/`. The pattern in use: one stylesheet per surface, linked 
 | `classes-register.css` | `classes/public/register.html` | The public registration form. |
 | `book-account.css` | `account/*.html` | Login code and signup screens. |
 | `class-flyer.css`, `guild-flyer.css` | the two flyer pages | Printable flyers. |
+| `event-flyer.css` | `hub/partials/_event_flyer_sheet.html`, on `hub/event_flyer.html` and `hq/flyer.html` | A Community Event's flyer: a Letter sheet sized in container units, so it is the same full size or scaled into the HQ's flyer frame; forced light. |
+| `event-flyer-page.css` | `hub/event_flyer.html` | The page around the event flyer: follows the theme on screen, prints the sheet alone on one Letter page. |
 | `qr-sheet.css` | `hub/equipment_flyer.html`, `hub/orientation_type_flyer.html` | The equipment and orientation QR sheets (#631): printable one page Letter flyers, forced light like the other two. |
 | `calendar.css`, `session-calendar.css` | community calendar, guild pages, the Orientations and Reservations pages, class composer | Calendar grids. |
 | `member-edit.css` | `hub/admin/member_edit.html` | One admin page. |
