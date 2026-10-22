@@ -53,8 +53,9 @@ THIS_YEAR = FlyerSlot.THIS_YEAR.value
 LAST_YEAR = FlyerSlot.LAST_YEAR.value
 # A member's GET of the page, with both flyers up and an event: pinned so a figure that starts to query per row shows.
 # What to expect reads the ledger's ticket price, and the Marketing Tracker and Vendor Tables links share one read of
-# the cards.
-QUERIES_PER_PAGE = 30
+# the cards. 33 since HQ card sharing: the sidebar's Holiday Bizarre entry is one query on every hub page, and the
+# card's gate and the door links each read the Can open list beside the Team (one prefetch each, however long).
+QUERIES_PER_PAGE = 33
 
 
 def _page(hub: Any) -> str:
@@ -121,7 +122,7 @@ def card(open_hub, lee) -> HubCard:
         kind=HubCard.Kind.FLYER,
         title="Event flyer and sharing",
         audience=HubCard.Audience.MEMBERS,
-        named=[lee],
+        team=[lee],
     )
 
 
@@ -202,13 +203,19 @@ def describe_who_may_open_it():
         assert lee_client.get(_page(card.hub)).status_code == 404
         assert admin_client.get(_page(card.hub)).status_code == 200
 
-    def it_gives_the_organisers_box_to_a_named_member_and_an_admin(hub, lee_client, admin_client):
-        for client in (lee_client, admin_client):
-            body = client.get(_page(hub)).content.decode()
-            assert "data-hq-fl-organizers" in body
-            assert f'action="{_upload(hub, THIS_YEAR)}"' in body
-            assert f'action="{_upload(hub, LAST_YEAR)}"' in body
-            assert f'hx-post="{_links(hub)}"' in body
+    def it_gives_update_this_page_to_admins_and_never_the_team(hub, lee_client, admin_client):
+        """The flyers and links are settings and uploads: admins only, whatever the card's Team (HQ card sharing)."""
+        body = admin_client.get(_page(hub)).content.decode()
+        assert "data-hq-fl-organizers" in body
+        assert f'action="{_upload(hub, THIS_YEAR)}"' in body
+        assert f'action="{_upload(hub, LAST_YEAR)}"' in body
+        assert f'hx-post="{_links(hub)}"' in body
+
+        team_body = lee_client.get(_page(hub)).content.decode()
+        assert "data-hq-fl-organizers" not in team_body
+        assert _upload(hub, THIS_YEAR) not in team_body
+        assert lee_client.post(_upload(hub), _file_post(THIS_YEAR, _image())).status_code == 403
+        assert lee_client.post(_links(hub), _links_post()).status_code == 403
 
     def it_renders_a_previewing_admin_as_the_member_but_lets_them_act(hub, admin_client):
         _preview(admin_client, ROLE_MEMBER)
@@ -241,8 +248,8 @@ def describe_who_may_open_it():
         assert admin_client.get(_page(other)).status_code == 404
         assert admin_client.post(_upload(other), _file_post(THIS_YEAR, _image())).status_code == 404
         assert admin_client.post(_links(other), _links_post()).status_code == 404
-        assert lee_client.post(_upload(hub, "poster"), {"poster-file": _image()}).status_code == 404
-        assert lee_client.post(_remove(hub, "poster")).status_code == 404
+        assert admin_client.post(_upload(hub, "poster"), {"poster-file": _image()}).status_code == 404
+        assert admin_client.post(_remove(hub, "poster")).status_code == 404
         assert not HubFlyer.objects.exists()
 
     def it_never_lets_one_hubs_organiser_change_another_hub(hub, lee_client):
@@ -378,10 +385,10 @@ def describe_downloading():
 
 
 def describe_uploading():
-    def it_stores_an_image_resized_to_the_hero_edge_as_a_jpeg(hub, lee_client, settings):
+    def it_stores_an_image_resized_to_the_hero_edge_as_a_jpeg(hub, admin_client, settings):
         settings.IMAGE_MAX_LONG_EDGE_HERO = 400
 
-        response = lee_client.post(_upload(hub), _file_post(THIS_YEAR, _image("Poster.png", size=(850, 1100))))
+        response = admin_client.post(_upload(hub), _file_post(THIS_YEAR, _image("Poster.png", size=(850, 1100))))
 
         page = HubFlyer.objects.get(hub=hub)
         assert response.status_code == 302
@@ -393,10 +400,10 @@ def describe_uploading():
         assert not page.flyer_is_pdf
         assert not page.last_year_flyer
 
-    def it_stores_a_pdf_as_it_came_whatever_its_name(hub, lee_client):
+    def it_stores_a_pdf_as_it_came_whatever_its_name(hub, admin_client):
         body = _pdf("flyer.png")
 
-        lee_client.post(_upload(hub), _file_post(THIS_YEAR, body))
+        admin_client.post(_upload(hub), _file_post(THIS_YEAR, body))
 
         page = HubFlyer.objects.get(hub=hub)
         assert page.flyer.name.endswith(".pdf")
@@ -409,8 +416,8 @@ def describe_uploading():
             assert form.is_valid(), form.errors
             assert form.cleaned_data["file"].name == f"flyer.{extension}"
 
-    def it_says_which_flyer_was_uploaded(hub, lee_client):
-        response = lee_client.post(_upload(hub, LAST_YEAR), _file_post(LAST_YEAR, _image()), follow=True)
+    def it_says_which_flyer_was_uploaded(hub, admin_client):
+        response = admin_client.post(_upload(hub, LAST_YEAR), _file_post(LAST_YEAR, _image()), follow=True)
 
         assert _messages(response) == ["2025 flyer uploaded."]
         assert HubFlyer.objects.get(hub=hub).last_year_flyer
@@ -422,8 +429,8 @@ def describe_uploading():
             SimpleUploadedFile("flyer.pdf", b"PDF but not really", content_type="application/pdf"),
         ],
     )
-    def it_refuses_a_file_that_is_neither_an_image_nor_a_pdf(hub, lee_client, upload):
-        response = lee_client.post(_upload(hub), _file_post(THIS_YEAR, upload))
+    def it_refuses_a_file_that_is_neither_an_image_nor_a_pdf(hub, admin_client, upload):
+        response = admin_client.post(_upload(hub), _file_post(THIS_YEAR, upload))
 
         body = response.content.decode().replace("&#x27;", "'")
         assert response.status_code == 200
@@ -450,8 +457,8 @@ def describe_uploading():
         ],
         ids=["svg", "html"],
     )
-    def it_refuses_markup_renamed_as_a_png(hub, lee_client, upload):
-        response = lee_client.post(_upload(hub), _file_post(THIS_YEAR, upload))
+    def it_refuses_markup_renamed_as_a_png(hub, admin_client, upload):
+        response = admin_client.post(_upload(hub), _file_post(THIS_YEAR, upload))
 
         assert response.status_code == 200
         assert FLYER_TYPE_ERROR in response.content.decode().replace("&#x27;", "'")
@@ -468,14 +475,14 @@ def describe_uploading():
         assert not form.is_valid()
         assert form.errors["file"] == [FLYER_TYPE_ERROR]
 
-    def it_refuses_an_image_over_fifty_million_pixels_before_decoding_it(hub, lee_client):
+    def it_refuses_an_image_over_fifty_million_pixels_before_decoding_it(hub, admin_client):
         # 8000 by 8000 one-bit pixels: a few kilobytes on disk, 64 million pixels once decoded.
         buffer = io.BytesIO()
         Image.new("1", (8000, 8000)).save(buffer, format="PNG")
         bomb = SimpleUploadedFile("flyer.png", buffer.getvalue(), content_type="image/png")
         assert bomb.size is not None and bomb.size < 100_000
 
-        response = lee_client.post(_upload(hub), _file_post(THIS_YEAR, bomb))
+        response = admin_client.post(_upload(hub), _file_post(THIS_YEAR, bomb))
 
         assert response.status_code == 200
         assert (
@@ -484,29 +491,29 @@ def describe_uploading():
         )
         assert not HubFlyer.objects.exists()
 
-    def it_holds_an_image_to_the_image_cap_and_a_pdf_to_the_document_cap(hub, lee_client, settings):
+    def it_holds_an_image_to_the_image_cap_and_a_pdf_to_the_document_cap(hub, admin_client, settings):
         settings.MAX_UPLOAD_IMAGE_BYTES = 1024 * 1024
         settings.MAX_UPLOAD_DOCUMENT_BYTES = 2 * 1024 * 1024
         big_image = SimpleUploadedFile("big.png", b"\x89PNG" + b"0" * (1024 * 1024), content_type="image/png")
 
-        image_answer = lee_client.post(_upload(hub), _file_post(THIS_YEAR, big_image))
-        pdf_answer = lee_client.post(_upload(hub), _file_post(THIS_YEAR, _pdf(size=2 * 1024 * 1024)))
-        fits = lee_client.post(_upload(hub), _file_post(THIS_YEAR, _pdf(size=1024 * 1024)))
+        image_answer = admin_client.post(_upload(hub), _file_post(THIS_YEAR, big_image))
+        pdf_answer = admin_client.post(_upload(hub), _file_post(THIS_YEAR, _pdf(size=2 * 1024 * 1024)))
+        fits = admin_client.post(_upload(hub), _file_post(THIS_YEAR, _pdf(size=1024 * 1024)))
 
         assert "An image must be 1 MB or smaller." in image_answer.content.decode()
         assert "A PDF must be 2 MB or smaller." in pdf_answer.content.decode()
         assert fits.status_code == 302
         assert HubFlyer.objects.get(hub=hub).flyer_is_pdf
 
-    def it_refuses_an_empty_post(hub, lee_client):
-        response = lee_client.post(_upload(hub), {})
+    def it_refuses_an_empty_post(hub, admin_client):
+        response = admin_client.post(_upload(hub), {})
 
         assert response.status_code == 200
         assert "data-hq-fl-upload-errors" in response.content.decode()
         assert not HubFlyer.objects.exists()
 
-    def it_keeps_the_other_forms_error_free_when_one_is_refused(hub, lee_client):
-        response = lee_client.post(_upload(hub, LAST_YEAR), _file_post(LAST_YEAR, SimpleUploadedFile("x.txt", b"x")))
+    def it_keeps_the_other_forms_error_free_when_one_is_refused(hub, admin_client):
+        response = admin_client.post(_upload(hub, LAST_YEAR), _file_post(LAST_YEAR, SimpleUploadedFile("x.txt", b"x")))
 
         body = response.content.decode()
         this_year = body.split('data-hq-fl-upload="flyer"')[1].split("</form>")[0]
@@ -514,12 +521,14 @@ def describe_uploading():
         assert "data-hq-fl-upload-errors" in last_year
         assert "data-hq-fl-upload-errors" not in this_year
 
-    def it_deletes_the_file_it_replaces_once_the_new_one_is_stored(hub, lee_client, django_capture_on_commit_callbacks):
+    def it_deletes_the_file_it_replaces_once_the_new_one_is_stored(
+        hub, admin_client, django_capture_on_commit_callbacks
+    ):
         old = _with_flyer(hub).flyer.path
         assert os.path.exists(old)
 
         with django_capture_on_commit_callbacks() as pending:
-            lee_client.post(_upload(hub), _file_post(THIS_YEAR, _pdf()))
+            admin_client.post(_upload(hub), _file_post(THIS_YEAR, _pdf()))
 
         page = HubFlyer.objects.get(hub=hub)
         assert os.path.exists(page.flyer.path)
@@ -543,10 +552,10 @@ def describe_uploading():
         assert os.path.exists(old_path)
         assert HubFlyer.objects.get(hub=hub).flyer.name == old_name
 
-    def it_leaves_the_other_flyer_alone(hub, lee_client):
+    def it_leaves_the_other_flyer_alone(hub, admin_client):
         last = _with_flyer(hub, LAST_YEAR).last_year_flyer.path
 
-        lee_client.post(_upload(hub), _file_post(THIS_YEAR, _image()))
+        admin_client.post(_upload(hub), _file_post(THIS_YEAR, _image()))
 
         assert os.path.exists(last)
         assert HubFlyer.objects.get(hub=hub).last_year_flyer.path == last
@@ -577,11 +586,11 @@ def describe_deleting_the_hub():
 
 
 def describe_removing():
-    def it_takes_the_flyer_off_the_page_and_out_of_storage(hub, lee_client, django_capture_on_commit_callbacks):
+    def it_takes_the_flyer_off_the_page_and_out_of_storage(hub, admin_client, django_capture_on_commit_callbacks):
         path = _with_flyer(hub).flyer.path
 
         with django_capture_on_commit_callbacks(execute=True):
-            response = lee_client.post(_remove(hub), follow=True)
+            response = admin_client.post(_remove(hub), follow=True)
 
         page = HubFlyer.objects.get(hub=hub)
         assert response.redirect_chain == [(_page(hub), 302)]
@@ -590,21 +599,21 @@ def describe_removing():
         assert not os.path.exists(path)
         assert "data-hq-fl-soon" in response.content.decode()
 
-    def it_says_so_when_there_is_nothing_to_remove(hub, lee_client):
-        assert _messages(lee_client.post(_remove(hub, LAST_YEAR), follow=True)) == [
+    def it_says_so_when_there_is_nothing_to_remove(hub, admin_client):
+        assert _messages(admin_client.post(_remove(hub, LAST_YEAR), follow=True)) == [
             "There was no 2025 flyer to remove."
         ]
         _with_flyer(hub)
-        assert _messages(lee_client.post(_remove(hub, LAST_YEAR), follow=True)) == [
+        assert _messages(admin_client.post(_remove(hub, LAST_YEAR), follow=True)) == [
             "There was no 2025 flyer to remove."
         ]
         assert HubFlyer.objects.get(hub=hub).flyer
 
-    def it_asks_first_with_labels_that_name_each_flyer(hub, lee_client):
+    def it_asks_first_with_labels_that_name_each_flyer(hub, admin_client):
         _with_flyer(hub)
         _with_flyer(hub, LAST_YEAR, _pdf())
 
-        body = lee_client.get(_page(hub)).content.decode()
+        body = admin_client.get(_page(hub)).content.decode()
 
         assert 'aria-label="Remove the 2026 flyer" data-hq-fl-remove' in body
         assert 'aria-label="Remove the 2025 flyer" data-hq-fl-remove' in body
@@ -614,8 +623,8 @@ def describe_removing():
         assert f'action="{_remove(hub, THIS_YEAR)}"' in body and f'action="{_remove(hub, LAST_YEAR)}"' in body
         assert ">the 2025 flyer (PDF)</a>" in body
 
-    def it_offers_no_remove_before_a_flyer_is_up(hub, lee_client):
-        body = lee_client.get(_page(hub)).content.decode()
+    def it_offers_no_remove_before_a_flyer_is_up(hub, admin_client):
+        body = admin_client.get(_page(hub)).content.decode()
 
         assert "data-hq-fl-remove" not in body
         assert body.count("None up yet") == 2
@@ -687,10 +696,10 @@ def describe_what_to_expect():
         assert services.what_to_expect(found)[2] == "The wine wall: $22.50 a ticket, every bottle worth $22.50 or more"
         assert len(FLYER_WHAT_TO_EXPECT) == 4
 
-    def it_follows_the_share_section_out_of_band_when_the_links_are_saved(hub, lee_client):
+    def it_follows_the_share_section_out_of_band_when_the_links_are_saved(hub, admin_client):
         LedgerSettings.objects.create(hub=hub, ticket_cents=3_000)
 
-        response = lee_client.post(_links(hub), _links_post(), **HTMX)
+        response = admin_client.post(_links(hub), _links_post(), **HTMX)
 
         share = response.content.decode().split('id="hq-fl-share"')[1]
         assert "<li>The wine wall: $30 a ticket, every bottle worth $30 or more</li>" in share
@@ -712,15 +721,18 @@ def describe_the_members_table_card():
         assert f"data-hq-fl-table-setup>{VENDOR_SETUP_NOTE}</p>" in table
         assert body.index("data-hq-fl-find") < body.index("data-hq-fl-table>") < body.index("data-hq-fl-last-year")
 
-    def it_links_vendor_tables_only_when_that_door_is_open_to_the_viewer(hub, member_client, admin_client):
+    def it_links_vendor_tables_only_when_that_door_is_open_to_the_viewer(hub, member, member_client, admin_client):
         vendors = HubCardFactory(hub=hub, kind=HubCard.Kind.VENDOR_TABLES, audience=HubCard.Audience.ADMINS)
         url = reverse("hq:vendors", args=[hub.slug])
         link = f'<a href="{url}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" data-hq-fl-vendors>Open Vendor Tables</a>'
 
         assert "data-hq-fl-vendors" not in member_client.get(_page(hub)).content.decode()
         assert link in admin_client.get(_page(hub)).content.decode()
+        # A Team-only door: it opens to the member by their place on its Team, never by an audience.
         vendors.audience = HubCard.Audience.MEMBERS
         vendors.save(update_fields=["audience"])
+        assert "data-hq-fl-vendors" not in member_client.get(_page(hub)).content.decode()
+        vendors.team.add(member)
         assert link in member_client.get(_page(hub)).content.decode()
         vendors.is_hidden = True
         vendors.save(update_fields=["is_hidden"])
@@ -877,8 +889,8 @@ def describe_last_year():
 
 
 def describe_the_links_form():
-    def it_saves_over_htmx_and_sends_the_share_and_find_sections_out_of_band(hub, event, lee_client):
-        response = lee_client.post(
+    def it_saves_over_htmx_and_sends_the_share_and_find_sections_out_of_band(hub, event, admin_client):
+        response = admin_client.post(
             _links(hub),
             _links_post(website_url="https://pastlives.space/b", share_message="See you there!"),
             **HTMX,
@@ -900,9 +912,9 @@ def describe_the_links_form():
         assert f"See you there! {event.public_url}" in body
         assert 'href="https://pastlives.space/b" class="pl-hq-fl__link"' in body
 
-    def it_refuses_a_link_that_is_not_http_and_saves_nothing(hub, lee_client):
+    def it_refuses_a_link_that_is_not_http_and_saves_nothing(hub, admin_client):
         for bad in ("javascript:alert(1)", "ftp://files.example.com/flyer"):
-            response = lee_client.post(_links(hub), _links_post(website_url=bad), **HTMX)
+            response = admin_client.post(_links(hub), _links_post(website_url=bad), **HTMX)
             body = response.content.decode()
             assert response.status_code == 200
             assert "HX-Trigger" not in response
@@ -910,20 +922,20 @@ def describe_the_links_form():
             assert "hx-swap-oob" not in body
         assert not HubFlyer.objects.exists()
 
-    def it_refuses_a_blank_message(hub, lee_client):
-        response = lee_client.post(_links(hub), _links_post(share_message=""), **HTMX)
+    def it_refuses_a_blank_message(hub, admin_client):
+        response = admin_client.post(_links(hub), _links_post(share_message=""), **HTMX)
 
         assert "This field is required." in response.content.decode()
         assert not HubFlyer.objects.exists()
 
-    def it_refuses_a_message_over_600_characters(hub, lee_client):
-        response = lee_client.post(_links(hub), _links_post(share_message="x" * 601), **HTMX)
+    def it_refuses_a_message_over_600_characters(hub, admin_client):
+        response = admin_client.post(_links(hub), _links_post(share_message="x" * 601), **HTMX)
 
         assert "pl-field-error" in response.content.decode()
         assert not HubFlyer.objects.exists()
 
-    def it_lands_a_plain_post_back_on_the_page_with_a_message(hub, lee_client):
-        response = lee_client.post(
+    def it_lands_a_plain_post_back_on_the_page_with_a_message(hub, admin_client):
+        response = admin_client.post(
             _links(hub), _links_post(eventbrite_url="https://www.eventbrite.com/e/9"), follow=True
         )
 
@@ -931,19 +943,19 @@ def describe_the_links_form():
         assert _messages(response) == ["Saved."]
         assert HubFlyer.objects.get(hub=hub).eventbrite_url == "https://www.eventbrite.com/e/9"
 
-    def it_renders_the_whole_page_with_the_errors_for_a_plain_post_that_fails(hub, lee_client):
-        response = lee_client.post(_links(hub), _links_post(website_url="nope nope"))
+    def it_renders_the_whole_page_with_the_errors_for_a_plain_post_that_fails(hub, admin_client):
+        response = admin_client.post(_links(hub), _links_post(website_url="nope nope"))
 
         body = response.content.decode()
         assert response.status_code == 200
         assert "data-hq-flyer" in body and "pl-field-error" in body
 
-    def it_starts_from_lees_message_and_keeps_an_uploaded_flyer_on_save(hub, lee_client):
-        body = lee_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
+    def it_starts_from_lees_message_and_keeps_an_uploaded_flyer_on_save(hub, admin_client):
+        body = admin_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
         assert f"{FLYER_SHARE_MESSAGE}</textarea>" in body
         _with_flyer(hub)
 
-        lee_client.post(_links(hub), _links_post())
+        admin_client.post(_links(hub), _links_post())
 
         page = HubFlyer.objects.get(hub=hub)
         assert page.flyer and page.share_message == "Come to the Bizarre!"
@@ -999,7 +1011,7 @@ def describe_the_seed():
             ),
             button_text="Get the flyer",
             audience=HubCard.Audience.ADMINS,
-            named=[member],
+            team=[member],
         )
 
         result = open_hub.seed_default_cards()
@@ -1013,7 +1025,7 @@ def describe_the_seed():
             "See the flyer",
         )
         assert card.bullet_lines[0] == "This year's flyer to view, download and print"
-        assert list(card.named_members.all()) == [member]
+        assert list(card.team.all()) == [member]
         assert card.url == _page(open_hub)
 
     def it_makes_the_flyer_door_admins_only_beside_other_cards_and_says_so(open_hub):

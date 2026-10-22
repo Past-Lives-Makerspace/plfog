@@ -122,13 +122,14 @@ def kate(make_member):
 
 @pytest.fixture
 def card(open_hub, kate) -> HubCard:
-    """The Vendor Tables door on the open hub, open to everyone, with Kate named on it."""
+    """The Vendor Tables door on the open hub with Kate on its Team. A Team-only door (HQ card sharing): Admins only
+    is its one audience, and nobody off the Team opens it whatever the database says."""
     return HubCardFactory(
         hub=open_hub,
         kind=HubCard.Kind.VENDOR_TABLES,
         title="Vendor Tables",
-        audience=HubCard.Audience.PUBLIC,
-        named=[kate],
+        audience=HubCard.Audience.ADMINS,
+        team=[kate],
     )
 
 
@@ -143,8 +144,8 @@ def kate_client(kate) -> Client:
 
 
 def describe_the_door():
-    def it_is_a_built_door_that_opens_the_page_from_the_hq_page(card):
-        body = Client().get(card.hub.get_absolute_url()).content.decode()
+    def it_is_a_built_door_that_opens_the_page_from_the_hq_page(card, kate_client):
+        body = kate_client.get(card.hub.get_absolute_url()).content.decode()
 
         assert HubCard.Kind.VENDOR_TABLES in BUILT_DOORS
         assert card.url == _page(card.hub) == f"/hq/{card.hub.slug}/vendors/"
@@ -163,7 +164,7 @@ def describe_the_door():
         assert "data-hq-vt-helper>Waiting on Kate</span>" in body
 
     def it_leaves_out_the_date_and_the_manager_it_does_not_have(card, admin_client):
-        card.named_members.clear()
+        card.team.clear()
 
         body = admin_client.get(_page(card.hub)).content.decode()
 
@@ -172,12 +173,12 @@ def describe_the_door():
 
     def it_reads_the_first_named_member_by_pk_and_falls_back_on_a_blank_name(card, kate, make_member):
         blank = make_member(preferred_name="   ", full_legal_name="   ")
-        card.named_members.add(blank)
+        card.team.add(blank)
         later = make_member(preferred_name="Zed Ames")
-        card.named_members.add(later)
+        card.team.add(later)
         assert kate.pk < blank.pk < later.pk
 
-        card.named_members.remove(kate)
+        card.team.remove(kate)
         body = signed_in(blank).get(_page(card.hub)).content.decode()
 
         assert f"data-hq-vt-subline>{card.hub.title}</p>" in body
@@ -185,15 +186,17 @@ def describe_the_door():
 
 
 def describe_who_may_open_it():
-    def it_refuses_a_member_the_card_is_open_to_who_does_not_organise_it_and_leaks_nothing(hub, member_client, kate):
+    def it_is_a_404_for_anyone_off_the_team_and_leaks_nothing(hub, member_client, kate):
         _private_table(hub, kate)
         VendorFloorFactory(hub=hub, map_note="Spec secret map note")
 
         for client in (member_client, Client()):
             response = client.get(_page(hub))
 
-            body = response.content.decode()
-            assert response.status_code == 403
+            # The themed 404 draws the sidebar, whose Guilds list names every active guild; the page is what must
+            # not leak, so the check reads the main content.
+            body = response.content.decode().split('id="main-content"')[-1]
+            assert response.status_code == 404
             for private in (
                 "Spec Secret Studio",
                 "Spec Secret Guild",
@@ -260,12 +263,12 @@ def describe_who_may_open_it():
         assert not VendorFloor.objects.exists()
 
     @pytest.mark.parametrize("role", [ROLE_MEMBER, ROLE_GUEST])
-    def it_shows_a_previewing_admin_the_403_that_viewer_gets_but_lets_them_act(hub, admin_client, role):
+    def it_shows_a_previewing_admin_the_404_that_viewer_gets_but_lets_them_act(hub, admin_client, role):
         session = admin_client.session
         session["view_as_role"] = role
         session.save()
 
-        assert admin_client.get(_page(hub)).status_code == 403
+        assert admin_client.get(_page(hub)).status_code == 404
         assert admin_client.post(_add(hub), _add_post()).status_code == 302
         assert admin_client.get(_csv(hub)).status_code == 200
         assert VendorTable.objects.count() == 1
@@ -866,10 +869,10 @@ def describe_deleting_a_request():
 
 
 def describe_the_space_map_capacity():
-    def it_saves_the_capacity_over_htmx_and_sends_the_band_out_of_band(hub, kate_client):
+    def it_saves_the_capacity_over_htmx_and_sends_the_band_out_of_band(hub, admin_client):
         VendorTableFactory.create_batch(3, hub=hub, status=S.CONFIRMED)
 
-        response = kate_client.post(_floor(hub), {"capacity": "24", "map_note": " 18 in the gallery "}, **HTMX)
+        response = admin_client.post(_floor(hub), {"capacity": "24", "map_note": " 18 in the gallery "}, **HTMX)
 
         floor = VendorFloor.objects.get()
         body = response.content.decode()
@@ -882,17 +885,17 @@ def describe_the_space_map_capacity():
         assert "data-hq-vt-helper>of 24 tables on the map</span>" in body
         assert "data-hq-vt-board" not in body
 
-    def it_updates_the_one_map_and_clears_it_when_left_blank(hub, kate_client):
+    def it_updates_the_one_map_and_clears_it_when_left_blank(hub, admin_client):
         VendorFloorFactory(hub=hub, capacity=10, map_note="old")
 
-        kate_client.post(_floor(hub), {"capacity": "", "map_note": ""}, **HTMX)
+        admin_client.post(_floor(hub), {"capacity": "", "map_note": ""}, **HTMX)
 
         floor = VendorFloor.objects.get()
         assert (floor.capacity, floor.map_note) == (None, "")
 
     @pytest.mark.parametrize("capacity", ["0", "-1", "1001", "abc", "2.5"])
-    def it_refuses_a_capacity_out_of_range(hub, kate_client, capacity):
-        response = kate_client.post(_floor(hub), {"capacity": capacity}, **HTMX)
+    def it_refuses_a_capacity_out_of_range(hub, admin_client, capacity):
+        response = admin_client.post(_floor(hub), {"capacity": capacity}, **HTMX)
 
         body = response.content.decode()
         assert "HX-Trigger" not in response
@@ -900,23 +903,23 @@ def describe_the_space_map_capacity():
         assert "open data-hq-vt-floor" in body
         assert not VendorFloor.objects.exists()
 
-    def it_lands_a_plain_post_back_on_the_page_with_a_message(hub, kate_client):
-        response = kate_client.post(_floor(hub), {"capacity": "12"}, follow=True)
+    def it_lands_a_plain_post_back_on_the_page_with_a_message(hub, admin_client):
+        response = admin_client.post(_floor(hub), {"capacity": "12"}, follow=True)
 
         assert response.redirect_chain == [(_page(hub), 302)]
         assert "Capacity saved." in [str(message) for message in response.context["messages"]]
 
-    def it_renders_the_page_open_with_the_errors_for_a_plain_post_that_fails(hub, kate_client):
-        response = kate_client.post(_floor(hub), {"capacity": "0"})
+    def it_renders_the_page_open_with_the_errors_for_a_plain_post_that_fails(hub, admin_client):
+        response = admin_client.post(_floor(hub), {"capacity": "0"})
 
         body = response.content.decode()
         assert "data-hq-vt-subline" in body
         assert "open data-hq-vt-floor" in body
 
-    def it_starts_closed_with_lees_words_and_the_saved_figures(hub, kate_client):
+    def it_starts_closed_with_lees_words_and_the_saved_figures(hub, admin_client):
         VendorFloorFactory(hub=hub, capacity=18, map_note="Gallery only")
 
-        body = kate_client.get(_page(hub)).content.decode()
+        body = admin_client.get(_page(hub)).content.decode()
 
         assert '<details class="pl-disclosure pl-hq-vt__disclosure"  data-hq-vt-floor>' in body
         assert "Space map capacity</span>" in body
@@ -930,7 +933,7 @@ def describe_the_space_map_capacity():
 
 
 def describe_the_csv():
-    def it_streams_one_row_per_request_in_list_order(hub, kate, kate_client):
+    def it_streams_one_row_per_request_in_list_order(hub, kate, admin_client):
         VendorTableFactory(
             hub=hub,
             name="Spec Studio",
@@ -948,7 +951,7 @@ def describe_the_csv():
         VendorTableFactory(hub=hub, name="Spec Requested")
         VendorTableFactory(name="Elsewhere")
 
-        response = kate_client.get(_csv(hub))
+        response = admin_client.get(_csv(hub))
 
         rows = list(csv.reader(io.StringIO(b"".join(response.streaming_content).decode())))
         assert response["Content-Type"] == "text/csv"
@@ -976,8 +979,8 @@ def describe_the_csv():
             "",
         )
 
-    def it_links_the_download_out_of_hx_boost(hub, kate_client):
-        body = kate_client.get(_page(hub)).content.decode()
+    def it_links_the_download_out_of_hx_boost(hub, admin_client):
+        body = admin_client.get(_page(hub)).content.decode()
 
         assert f'href="{_csv(hub)}" class="pl-hq-vt__csv" hx-boost="false" data-pl-download' in body
 
@@ -996,12 +999,12 @@ def describe_the_member_tables_goal():
         assert (plain.current, plain.has_target, plain.percent) == (3, False, 0)
         assert (measured.current, measured.has_target, measured.percent) == (3, True, 15)
 
-    def it_renders_a_goal_with_no_target_without_of_or_a_meter(hub):
+    def it_renders_a_goal_with_no_target_without_of_or_a_meter(hub, kate_client):
         HubGoalFactory(hub=hub, label="Member tables", kind=HubGoal.Kind.MEMBER_TABLES, target=0, sort_order=0)
         HubGoalFactory(hub=hub, label="Bottles", kind=HubGoal.Kind.BOTTLES, target=100, sort_order=1)
         VendorTableFactory.create_batch(2, hub=hub, status=S.CONFIRMED)
 
-        body = Client().get(hub.get_absolute_url()).content.decode()
+        body = kate_client.get(hub.get_absolute_url()).content.decode()
         plain = body.split("Member tables</span>")[1].split("</div>")[0]
 
         assert '<strong class="pl-hq-goal__value" data-hq-goal-count>2</strong>' in plain
@@ -1056,7 +1059,7 @@ def describe_adopting_the_placeholder():
             bullets="Every table and who is at it\nLoad in times and what each vendor needs\nA map of the floor",
             button_text="See the tables",
             audience=HubCard.Audience.MEMBERS,
-            named=[member],
+            team=[member],
         )
 
         result = open_hub.seed_default_cards()
@@ -1069,7 +1072,7 @@ def describe_adopting_the_placeholder():
             "Enter vendor tables",
         )
         assert card.bullet_lines[0] == "Every table request in one place"
-        assert list(card.named_members.all()) == [member]
+        assert list(card.team.all()) == [member]
         assert card.url == _page(open_hub)
 
 

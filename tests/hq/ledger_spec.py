@@ -131,9 +131,10 @@ def lee(make_member):
 
 @pytest.fixture
 def card(open_hub, lee) -> HubCard:
-    """The ledger door on the open hub, open to everyone (so the 403 is what stops a non-organiser), Lee named."""
+    """The ledger door on the open hub with Lee on its Team. A Team-only door (HQ card sharing): Admins only is its
+    one audience, and nobody off the Team opens it whatever the database says."""
     return HubCardFactory(
-        hub=open_hub, kind=HubCard.Kind.LEDGER, title="PL Ledger", audience=HubCard.Audience.PUBLIC, named=[lee]
+        hub=open_hub, kind=HubCard.Kind.LEDGER, title="PL Ledger", audience=HubCard.Audience.ADMINS, team=[lee]
     )
 
 
@@ -167,8 +168,8 @@ def _private_ledger(hub: Any) -> LedgerEntry:
 
 
 def describe_the_door():
-    def it_is_a_built_door_that_opens_the_ledger_from_the_hq_page(card):
-        body = Client().get(card.hub.get_absolute_url()).content.decode()
+    def it_is_a_built_door_that_opens_the_ledger_from_the_hq_page(card, lee_client):
+        body = lee_client.get(card.hub.get_absolute_url()).content.decode()
 
         assert HubCard.Kind.LEDGER in BUILT_DOORS
         assert card.url == _page(card.hub)
@@ -198,7 +199,7 @@ def describe_the_door():
             bullets="Money in and money out for the night\nSponsorships, the wine wall and the door\nKept by the core team",
             button_text="Open the ledger",
             audience=HubCard.Audience.MEMBERS,
-            named=[member],
+            team=[member],
         )
 
         result = open_hub.seed_default_cards()
@@ -211,7 +212,7 @@ def describe_the_door():
             "Enter the ledger",
         )
         assert door.bullet_lines[0] == "Running tally and goals"
-        assert list(door.named_members.all()) == [member]
+        assert list(door.team.all()) == [member]
         assert door.url == _page(open_hub)
 
 
@@ -261,7 +262,7 @@ def describe_the_section_bar():
 
         assert ("#hq-lg-board", "$1,200 budget") in _jumps(lee_client.get(_page(hub)).content.decode())
 
-    def it_links_the_sponsors_and_vendor_tables_doors_only_when_open_to_the_viewer(hub, lee_client):
+    def it_links_the_sponsors_and_vendor_tables_doors_only_when_open_to_the_viewer(hub, lee, lee_client):
         sponsors = HubCardFactory(hub=hub, kind=HubCard.Kind.SPONSORSHIP, audience=HubCard.Audience.ADMINS)
         vendors = HubCardFactory(hub=hub, kind=HubCard.Kind.VENDOR_TABLES, audience=HubCard.Audience.ADMINS)
         sponsors_url = reverse("hq:sponsors", args=[hub.slug])
@@ -270,9 +271,10 @@ def describe_the_section_bar():
         closed = [href for href, _ in _jumps(lee_client.get(_page(hub)).content.decode())]
         assert sponsors_url not in closed and vendors_url not in closed
 
-        for door in (sponsors, vendors):
-            door.audience = HubCard.Audience.MEMBERS
-            door.save(update_fields=["audience"])
+        sponsors.audience = HubCard.Audience.MEMBERS
+        sponsors.save(update_fields=["audience"])
+        # Vendor Tables is Team-only: it opens to Lee by her place on its Team, never by an audience.
+        vendors.team.add(lee)
         body = lee_client.get(_page(hub)).content.decode()
         jumps = _jumps(body)
 
@@ -298,15 +300,15 @@ def describe_the_footer():
 
 
 def describe_who_may_open_it():
-    def it_refuses_a_member_the_card_is_open_to_and_a_visitor_and_leaks_nothing(hub, member_client):
+    def it_is_a_404_for_anyone_off_the_team_and_leaks_nothing(hub, member_client):
         _private_ledger(hub)
         LedgerSettingsFactory(hub=hub, approved_note="Spec secret approval note")
 
         for client in (member_client, Client()):
-            for url in (_page(hub), _url("ledger_receipts", hub), _url("ledger_csv", hub)):
+            for url, status in ((_page(hub), 404), (_url("ledger_receipts", hub), 404), (_url("ledger_csv", hub), 403)):
                 response = client.get(url)
 
-                assert response.status_code == 403, url
+                assert response.status_code == status, url
                 body = b"".join(response.streaming_content) if response.streaming else response.content
                 text = body.decode()
                 for private in (
@@ -385,13 +387,13 @@ def describe_who_may_open_it():
         assert not LedgerSettings.objects.exists()
 
     @pytest.mark.parametrize("role", [ROLE_MEMBER, ROLE_GUEST])
-    def it_shows_a_previewing_admin_the_403_that_viewer_gets_but_lets_them_act(hub, admin_client, role):
+    def it_shows_a_previewing_admin_the_404_that_viewer_gets_but_lets_them_act(hub, admin_client, role):
         session = admin_client.session
         session["view_as_role"] = role
         session.save()
 
-        assert admin_client.get(_page(hub)).status_code == 403
-        assert admin_client.get(_url("ledger_receipts", hub)).status_code == 403
+        assert admin_client.get(_page(hub)).status_code == 404
+        assert admin_client.get(_url("ledger_receipts", hub)).status_code == 404
         assert (
             admin_client.post(
                 _url("ledger_line_add", hub), {"name": "Ice", "category": C.DRINKS, "budget": "40"}
@@ -746,15 +748,15 @@ def describe_the_board_on_the_page():
 
 
 def describe_the_approval():
-    def it_saves_the_amount_and_note_and_names_the_kinds_filters_and_column_with_it(hub, kegs, lee_client):
+    def it_saves_the_amount_and_note_and_names_the_kinds_filters_and_column_with_it(hub, kegs, admin_client):
         posted = _approval_post(services.ledger_settings(hub), approved="1200.50", approved_note="Nov 3 vote")
 
-        response = lee_client.post(_url("ledger_approval", hub), posted)
+        response = admin_client.post(_url("ledger_approval", hub), posted)
 
         assert response.status_code == 302
         found = LedgerSettings.objects.get(hub=hub)
         assert (found.approved_cents, found.approved_note) == (120_050, "Nov 3 vote")
-        body = lee_client.get(_page(hub)).content.decode()
+        body = admin_client.get(_page(hub)).content.decode()
         assert "Approval saved." in body
         assert "Paid from board $1,200.50" in body
         assert "Refund back to $1,200.50" in body
@@ -762,23 +764,23 @@ def describe_the_approval():
         assert "Paid from $1,200.50</th>" in body
         assert "$900" not in body.split("data-hq-lg-board", 1)[1].split("data-hq-lg-receipts", 1)[0]
 
-    def it_writes_only_the_approval_so_d6bs_figures_stay(hub, lee_client):
+    def it_writes_only_the_approval_so_d6bs_figures_stay(hub, admin_client):
         found = LedgerSettingsFactory(hub=hub, ipa_cents=700, singles_sold=12)
 
-        lee_client.post(_url("ledger_approval", hub), _approval_post(found, approved="800", approved_note=""))
+        admin_client.post(_url("ledger_approval", hub), _approval_post(found, approved="800", approved_note=""))
 
         found = LedgerSettings.objects.get(hub=hub)
         assert (found.approved_cents, found.approved_note, found.ipa_cents, found.singles_sold) == (80_000, "", 700, 12)
 
-    def it_never_writes_the_settings_on_a_get(hub, lee_client):
-        lee_client.get(_page(hub))
-        lee_client.get(_url("ledger_receipts", hub))
+    def it_never_writes_the_settings_on_a_get(hub, admin_client):
+        admin_client.get(_page(hub))
+        admin_client.get(_url("ledger_receipts", hub))
 
         assert not LedgerSettings.objects.exists()
 
     @pytest.mark.parametrize("approved", ["", "-1", "abc", str(LEDGER_MAX_DOLLARS + 1), "1.234"])
-    def it_refuses_an_approval_out_of_range_and_opens_the_form(hub, lee_client, approved):
-        response = lee_client.post(_url("ledger_approval", hub), {"approved": approved, "approved_note": "x"})
+    def it_refuses_an_approval_out_of_range_and_opens_the_form(hub, admin_client, approved):
+        response = admin_client.post(_url("ledger_approval", hub), {"approved": approved, "approved_note": "x"})
 
         body = response.content.decode()
         assert response.status_code == 200
@@ -786,10 +788,10 @@ def describe_the_approval():
         assert "pl-field-error" in body
         assert not LedgerSettings.objects.exists()
 
-    def it_starts_from_the_saved_figures_and_carries_them_as_seen(hub, lee_client):
+    def it_starts_from_the_saved_figures_and_carries_them_as_seen(hub, admin_client):
         LedgerSettingsFactory(hub=hub, approved_cents=95_025, approved_note="Spec note")
 
-        body = lee_client.get(_page(hub)).content.decode()
+        body = admin_client.get(_page(hub)).content.decode()
 
         assert 'value="950.25"' in body
         assert 'value="Spec note"' in body
@@ -798,8 +800,8 @@ def describe_the_approval():
         assert '<input type="hidden" name="seen_approved_note" value="Spec note" id="id_seen_approved_note">' in body
         assert 'name="updated_at"' not in body
 
-    def it_carries_lees_defaults_as_seen_before_the_first_save(hub, lee_client):
-        body = lee_client.get(_page(hub)).content.decode()
+    def it_carries_lees_defaults_as_seen_before_the_first_save(hub, admin_client):
+        body = admin_client.get(_page(hub)).content.decode()
 
         assert 'name="seen_approved_cents" value="90000"' in body
         assert 'name="seen_approved_note" value="Drinks budget, Oct 14 meeting"' in body
@@ -815,13 +817,13 @@ def describe_the_approval():
         ],
         ids=["older amount", "older note", "blank note", "no amount", "no note"],
     )
-    def it_refuses_a_save_after_someone_else_changed_the_approval(hub, lee_client, seen):
+    def it_refuses_a_save_after_someone_else_changed_the_approval(hub, admin_client, seen):
         found = LedgerSettingsFactory(hub=hub, approved_cents=80_000, approved_note="Their note")
         posted = _approval_post(found, approved="1500", approved_note="Mine")
         posted.update(seen)
         posted = {key: value for key, value in posted.items() if value is not None}
 
-        response = lee_client.post(_url("ledger_approval", hub), posted)
+        response = admin_client.post(_url("ledger_approval", hub), posted)
 
         body = response.content.decode()
         found.refresh_from_db()
@@ -835,22 +837,22 @@ def describe_the_approval():
         assert 'value="800.00"' in body and 'value="Their note"' in body
         assert 'name="seen_approved_cents" value="80000"' in body
 
-    def it_matches_a_blank_note_with_a_blank_note(hub, lee_client):
+    def it_matches_a_blank_note_with_a_blank_note(hub, admin_client):
         found = LedgerSettingsFactory(hub=hub, approved_cents=80_000, approved_note="")
 
-        response = lee_client.post(_url("ledger_approval", hub), _approval_post(found, approved="850"))
+        response = admin_client.post(_url("ledger_approval", hub), _approval_post(found, approved="850"))
 
         found.refresh_from_db()
         assert response.status_code == 302
         assert (found.approved_cents, found.approved_note) == (85_000, "")
 
-    def it_saves_again_from_the_page_it_was_given(hub, lee_client):
-        lee_client.post(
+    def it_saves_again_from_the_page_it_was_given(hub, admin_client):
+        admin_client.post(
             _url("ledger_approval", hub), _approval_post(services.ledger_settings(hub), approved_note="First")
         )
         found = LedgerSettings.objects.get(hub=hub)
 
-        response = lee_client.post(_url("ledger_approval", hub), _approval_post(found, approved="950"))
+        response = admin_client.post(_url("ledger_approval", hub), _approval_post(found, approved="950"))
 
         found.refresh_from_db()
         assert response.status_code == 302
@@ -876,19 +878,19 @@ def describe_the_approval():
         sql = [query["sql"] for query in queries.captured_queries]
         assert any('"hq_ledgersettings"' in text and "FOR UPDATE" in text for text in sql)
 
-    def it_shows_a_bad_amount_before_a_stale_approval(hub, lee_client):
+    def it_shows_a_bad_amount_before_a_stale_approval(hub, admin_client):
         found = LedgerSettingsFactory(hub=hub)
         posted = _approval_post(found, approved="-1", seen_approved_cents=found.approved_cents + 1)
 
-        body = lee_client.post(_url("ledger_approval", hub), posted).content.decode()
+        body = admin_client.post(_url("ledger_approval", hub), posted).content.decode()
 
         assert "pl-field-error" in body
         assert "data-hq-lg-approval-error" not in body
 
 
 def describe_the_budget_lines():
-    def it_adds_a_line_over_htmx_with_the_log_forms_select_out_of_band(hub, kegs, lee_client):
-        response = lee_client.post(
+    def it_adds_a_line_over_htmx_with_the_log_forms_select_out_of_band(hub, kegs, admin_client):
+        response = admin_client.post(
             _url("ledger_line_add", hub),
             {"name": "Ice", "category": C.DRINKS, "budget": "40.25", "filter": "refund"},
             **HTMX,
@@ -904,8 +906,8 @@ def describe_the_budget_lines():
         assert "open data-hq-lg-line-add" in body
         assert 'name="filter" value="refund"' in body
 
-    def it_lands_a_plain_add_back_on_the_page_with_the_filter(hub, lee_client):
-        response = lee_client.post(
+    def it_lands_a_plain_add_back_on_the_page_with_the_filter(hub, admin_client):
+        response = admin_client.post(
             _url("ledger_line_add", hub), {"name": "Ice", "category": C.DRINKS, "budget": "0", "filter": "refund"}
         )
 
@@ -921,9 +923,9 @@ def describe_the_budget_lines():
             {"name": "Ice", "category": C.DRINKS, "budget": str(LEDGER_MAX_DOLLARS + 1)},
         ],
     )
-    def it_refuses_a_bad_line_and_saves_nothing(hub, lee_client, fields):
-        htmx = lee_client.post(_url("ledger_line_add", hub), fields, **HTMX)
-        plain = lee_client.post(_url("ledger_line_add", hub), fields)
+    def it_refuses_a_bad_line_and_saves_nothing(hub, admin_client, fields):
+        htmx = admin_client.post(_url("ledger_line_add", hub), fields, **HTMX)
+        plain = admin_client.post(_url("ledger_line_add", hub), fields)
 
         assert htmx.status_code == 200
         assert "pl-field-error" in htmx.content.decode()
@@ -931,12 +933,12 @@ def describe_the_budget_lines():
         assert "data-hq-ledger" in plain.content.decode()
         assert not BudgetLine.objects.exists()
 
-    def it_orders_the_lines_and_names_each_in_its_labels(hub, lee_client):
+    def it_orders_the_lines_and_names_each_in_its_labels(hub, admin_client):
         second = BudgetLineFactory(hub=hub, name="beer cups", sort_order=1)
         first = BudgetLineFactory(hub=hub, name="Ales", sort_order=1)
         top = BudgetLineFactory(hub=hub, name="Zinfandel", sort_order=0)
 
-        body = lee_client.get(_page(hub)).content.decode()
+        body = admin_client.get(_page(hub)).content.decode()
 
         names = [line.name for line in (top, first, second)]
         assert [body.index(f"data-hq-lg-line-name>{name}<") for name in names] == sorted(
@@ -948,10 +950,10 @@ def describe_the_budget_lines():
             assert f'aria-label="Edit {name}"' in body
             assert f'aria-label="Delete {name}"' in body
 
-    def it_saves_a_line_and_sends_back_only_it_with_the_totals_select_and_ledger(hub, kegs, lee_client):
+    def it_saves_a_line_and_sends_back_only_it_with_the_totals_select_and_ledger(hub, kegs, admin_client):
         LedgerEntryFactory(hub=hub, line=kegs, kind=K.PAID_APPROVAL, amount_cents=1_000, source="Spec Vendor")
 
-        response = lee_client.post(
+        response = admin_client.post(
             _url("ledger_line_edit", hub, kegs.pk), _line_post(kegs, name="Kegs and taps", budget="700"), **HTMX
         )
 
@@ -966,8 +968,8 @@ def describe_the_budget_lines():
         assert "<td>Kegs and taps</td>" in body
         assert "data-hq-lg-line-add" not in body
 
-    def it_brings_back_a_refused_line_open_with_its_errors_and_saves_nothing(hub, kegs, lee_client):
-        response = lee_client.post(_url("ledger_line_edit", hub, kegs.pk), _line_post(kegs, name=""), **HTMX)
+    def it_brings_back_a_refused_line_open_with_its_errors_and_saves_nothing(hub, kegs, admin_client):
+        response = admin_client.post(_url("ledger_line_edit", hub, kegs.pk), _line_post(kegs, name=""), **HTMX)
 
         body = response.content.decode()
         kegs.refresh_from_db()
@@ -978,12 +980,12 @@ def describe_the_budget_lines():
         assert "hx-swap-oob" not in body
         assert "HX-Trigger" not in response
 
-    def it_lands_a_plain_save_back_with_a_message_and_renders_a_refused_one(hub, kegs, lee_client):
-        saved = lee_client.post(
+    def it_lands_a_plain_save_back_with_a_message_and_renders_a_refused_one(hub, kegs, admin_client):
+        saved = admin_client.post(
             _url("ledger_line_edit", hub, kegs.pk), _line_post(kegs, category=C.DECOR, filter="refund")
         )
         kegs.refresh_from_db()
-        refused = lee_client.post(_url("ledger_line_edit", hub, kegs.pk), _line_post(kegs, budget="-5"))
+        refused = admin_client.post(_url("ledger_line_edit", hub, kegs.pk), _line_post(kegs, budget="-5"))
 
         assert saved.status_code == 302
         assert saved["Location"] == _page(hub, "refund")
@@ -992,14 +994,14 @@ def describe_the_budget_lines():
         assert "data-hq-ledger" in refused.content.decode()
         assert "{ editing: true }" in refused.content.decode()
 
-    def it_refuses_a_save_from_an_older_page_and_brings_the_line_back_as_saved(hub, kegs, lee_client):
+    def it_refuses_a_save_from_an_older_page_and_brings_the_line_back_as_saved(hub, kegs, admin_client):
         stale = _line_post(kegs, name="From an old page")
         BudgetLine.objects.filter(pk=kegs.pk).update(
             name="Kegs (renamed)", updated_at=timezone.now() + timedelta(seconds=5)
         )
 
-        response = lee_client.post(_url("ledger_line_edit", hub, kegs.pk), stale, **HTMX)
-        plain = lee_client.post(_url("ledger_line_edit", hub, kegs.pk), stale)
+        response = admin_client.post(_url("ledger_line_edit", hub, kegs.pk), stale, **HTMX)
+        plain = admin_client.post(_url("ledger_line_edit", hub, kegs.pk), stale)
 
         body = response.content.decode()
         kegs.refresh_from_db()
@@ -1011,11 +1013,11 @@ def describe_the_budget_lines():
         assert "Someone else changed this line." in plain.content.decode()
         assert "data-hq-ledger" in plain.content.decode()
 
-    def it_refuses_a_save_with_no_stamp(hub, kegs, lee_client):
+    def it_refuses_a_save_with_no_stamp(hub, kegs, admin_client):
         posted = _line_post(kegs, name="No stamp")
         del posted[f"line-{kegs.pk}-updated_at"]
 
-        lee_client.post(_url("ledger_line_edit", hub, kegs.pk), posted, **HTMX)
+        admin_client.post(_url("ledger_line_edit", hub, kegs.pk), posted, **HTMX)
 
         kegs.refresh_from_db()
         assert kegs.name == "Kegs"
@@ -1040,21 +1042,21 @@ def describe_the_budget_lines():
         assert saved.name == "Taps"
         assert BudgetLine.objects.get(pk=kegs.pk).name == "Taps"
 
-    def it_deletes_an_empty_line_through_the_confirm_modal(hub, kegs, lee_client):
-        body = lee_client.get(_page(hub)).content.decode()
+    def it_deletes_an_empty_line_through_the_confirm_modal(hub, kegs, admin_client):
+        body = admin_client.get(_page(hub)).content.decode()
 
         assert f"open-confirm', 'delete-line-{kegs.pk}'" in body
-        response = lee_client.post(_url("ledger_line_delete", hub, kegs.pk), {"filter": "sponsored"})
+        response = admin_client.post(_url("ledger_line_delete", hub, kegs.pk), {"filter": "sponsored"})
 
         assert response["Location"] == _page(hub, "sponsored")
         assert not BudgetLine.objects.exists()
-        assert "Kegs is off the budget." in lee_client.get(_page(hub)).content.decode()
+        assert "Kegs is off the budget." in admin_client.get(_page(hub)).content.decode()
 
-    def it_refuses_by_name_to_delete_a_line_with_entries(hub, kegs, lee_client):
+    def it_refuses_by_name_to_delete_a_line_with_entries(hub, kegs, admin_client):
         LedgerEntryFactory.create_batch(2, hub=hub, line=kegs)
 
-        body = lee_client.get(_page(hub)).content.decode()
-        response = lee_client.post(_url("ledger_line_delete", hub, kegs.pk), follow=True)
+        body = admin_client.get(_page(hub)).content.decode()
+        response = admin_client.post(_url("ledger_line_delete", hub, kegs.pk), follow=True)
 
         assert "2 entries in the ledger, so it can't be deleted" in body
         assert f"delete-line-{kegs.pk}" not in body
@@ -1087,8 +1089,8 @@ def describe_the_budget_lines():
         assert lock < count
         assert not BudgetLine.objects.exists()
 
-    def it_says_so_when_there_are_no_lines(hub, lee_client):
-        body = lee_client.get(_page(hub)).content.decode()
+    def it_says_so_when_there_are_no_lines(hub, admin_client):
+        body = admin_client.get(_page(hub)).content.decode()
 
         assert "data-hq-lg-lines-empty>No budget lines yet. Add one below." in body
         assert "data-hq-lg-lines-total" not in body

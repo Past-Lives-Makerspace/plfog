@@ -50,6 +50,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
             "classes_catalog_active_class": "",
             "kiln_nav": KilnNav(None),
             "spotlight": None,
+            "hq_nav": False,
         }
 
     initials = ""
@@ -80,7 +81,27 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "kiln_nav": KilnNav(member),
         # Lazy as well (#709): the Spotlight's one query runs only when a page renders it.
         "spotlight": SimpleLazyObject(partial(_spotlight, member)) if can_vote(member) else None,
+        # The Holiday Bizarre entry: one query, run only when the sidebar renders it.
+        "hq_nav": SimpleLazyObject(partial(_hq_nav, request, member)),
     }
+
+
+def _hq_nav(request: HttpRequest, member: Member | None) -> bool:
+    """Whether the sidebar shows the Holiday Bizarre entry, in one query.
+
+    An admin, by the effective role, sees it whenever any HQ exists (a closed one included, which only admins
+    reach). Anyone else sees it only when the open HQ has a card they may open (``HubCardQuerySet.open_to``, the
+    rule of ``HubCard.is_open_to``), so a member never gets an entry that lands on a 404. An admin previewing as a
+    Guest is nobody, as ``hq.access.viewer_member`` has it. The same rule in every block of the sidebar, the guest
+    accounts' included.
+    """
+    from hq.models import EventHub, HubCard
+
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.is_admin:
+        return EventHub.objects.exists()
+    viewer = None if view_as is not None and view_as.is_previewing and view_as.is_guest else member
+    return HubCard.objects.filter(hub__is_open=True).open_to(viewer).exists()
 
 
 def _spotlight(member: Member | None) -> Spotlight:

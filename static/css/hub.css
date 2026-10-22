@@ -5079,6 +5079,14 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     flex: 1 1 auto;
 }
 
+/* One line under a choice's label saying what it means (radio_group's choice_hints). */
+.pl-radio-option__hint {
+    display: block;
+    margin-top: 0.125rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+
 /* :checked lives on the input; style the enclosing label via :has (option card). */
 .pl-radio-option:has(input:checked) {
     border-color: var(--color-tuscan-yellow);

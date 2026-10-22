@@ -9,7 +9,9 @@ that explains the choice rather than only the option labels.
 Parameters (pass via {% include ... with %}):
   field       — required, a form field whose widget is a RadioSelect
   field_hint  — optional, hint text under the group (defaults to field.help_text)
+  choice_hints — optional, a dict of one line per choice value, shown under that choice's label
 {% endcomment %}
+{% load hub_tags %}
 {% firstof field_hint field.help_text as hint_text %}
 <div class="pl-form-group">
     <span class="pl-form-label" id="{{ field.auto_id }}_label">{{ field.label }}</span>
@@ -17,7 +19,7 @@ Parameters (pass via {% include ... with %}):
         {% for radio in field %}
         <label class="pl-radio-option">
             {{ radio.tag }}
-            <span class="pl-radio-option__label">{{ radio.choice_label }}</span>
+            <span class="pl-radio-option__label">{{ radio.choice_label }}{% if choice_hints %}<span class="pl-radio-option__hint">{{ choice_hints|get_item:radio.data.value }}</span>{% endif %}</span>
         </label>
         {% endfor %}
     </div>

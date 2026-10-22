@@ -157,16 +157,6 @@ FEATURES: list[Feature] = [
             "Takes the whole Guilds section out of the sidebar — the heading and every guild listed under it."
         ),
     ),
-    # Seeded Hidden by core migration 0118: an unseeded key reads ON, and the entry would point
-    # at a 404 on every sidebar until an admin makes the first HQ.
-    Feature(
-        key="holiday_bizarre",
-        name="Holiday Bizarre",
-        off_description=(
-            "Takes Holiday Bizarre out of the sidebar. The HQ and its pages stay reachable by their "
-            "own links, and the public event page is untouched."
-        ),
-    ),
 ]
 
 FEATURES_BY_KEY: dict[str, Feature] = {feature.key: feature for feature in FEATURES}

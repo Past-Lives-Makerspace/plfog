@@ -4,7 +4,7 @@
 The organisers' market reports behind the Market Check-in (Lee's "staff can see", which had no page of its own):
 four totals (reporting artists, total sales, items sold, the average per artist who sold anything), sales by
 guild, and every report as a table that stacks on a phone, with Download CSV. organizer_page keeps it to
-admins and the card's named members, by the effective role.
+admins and the card's Team, by the effective role.
 {% endcomment %}
 {% block title %}Market Reports{% endblock %}
 {% block extra_head %}
@@ -16,7 +16,7 @@ admins and the card's named members, by the effective role.
   <header class="pl-hq-ci__header">
     <div class="pl-hq-ci__heading">
       <h1 class="pl-hq-ci__page-title">Market Reports</h1>
-      <p class="pl-hq-ci__subline">{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %} · Organisers only</p>
+      <p class="pl-hq-ci__subline">{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %} · Team only</p>
     </div>
     <a href="{% url 'hq:checkin' hub.slug %}" class="pl-hq-ci__back" data-hq-ci-back>&larr; {{ card.title }}</a>
   </header>

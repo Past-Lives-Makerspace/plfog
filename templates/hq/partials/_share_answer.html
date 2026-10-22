@@ -1,0 +1,8 @@
+{% comment %}
+The share panel's saved htmx answer: the panel as saved, into the modal's body, and the card's chip on the HQ page out
+of band. The view adds the toast and hq-share-saved, which closes the modal.
+
+  hub, card, form — as hq/partials/_share_form.html
+{% endcomment %}
+{% include "hq/partials/_share_form.html" %}
+{% include "hq/partials/_share_chip.html" with oob=True %}

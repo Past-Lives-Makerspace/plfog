@@ -116,7 +116,7 @@ def card(open_hub, lee) -> HubCard:
         kind=HubCard.Kind.MARKET_CHECKIN,
         title="Market Check-in",
         audience=HubCard.Audience.PUBLIC,
-        named=[lee],
+        team=[lee],
     )
 
 
@@ -223,7 +223,7 @@ def describe_who_may_check_in():
 
     def it_gives_a_named_member_who_is_not_active_the_forms_and_the_organisers_links(card, make_member):
         named = make_member(status=Member.Status.INVITED)
-        card.named_members.add(named)
+        card.team.add(named)
 
         body = signed_in(named).get(_page(card.hub)).content.decode()
 
@@ -1179,7 +1179,7 @@ def describe_adopting_the_placeholder():
             bullets="Artists and vendors checking in on the day\nTable numbers and who has arrived\nVolunteers check in here too",
             button_text="Check in",
             audience=HubCard.Audience.MEMBERS,
-            named=[member],
+            team=[member],
         )
 
         result = open_hub.seed_default_cards()
@@ -1196,7 +1196,7 @@ def describe_adopting_the_placeholder():
             "Volunteers: log your prep hours",
             "Volunteer thank-you board",
         ]
-        assert list(card.named_members.all()) == [member]
+        assert list(card.team.all()) == [member]
         assert card.url == _page(open_hub)
 
 

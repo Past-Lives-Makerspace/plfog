@@ -81,9 +81,10 @@ def _preview_as(client: Client, role: str) -> None:
 # Bookings sidebar entry (#768): one EXISTS over the member's leadership rows, for a member who
 # runs nothing (an admin pays nothing). If this ever climbs by two for that entry, it started
 # asking about guilds and equipment separately. 38 with Pages Waiting For You: one query for
-# the stubs nobody has written yet.
+# the stubs nobody has written yet. 39 with the Holiday Bizarre sidebar entry (HQ card sharing): one query
+# over the open HQ's cards for a member; if it ever grows with the cards or people, the lazy check broke.
 # That fixed cost must stay the same with one page or a full list of cards.
-_HOME_QUERY_BUDGET = 38
+_HOME_QUERY_BUDGET = 39
 
 
 def describe_the_feature_switch():

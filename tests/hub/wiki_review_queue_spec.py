@@ -115,8 +115,8 @@ def describe_ordering_and_paging():
             guild = GuildFactory()
             for _row in range(3):
                 WikiReportFactory(page=WikiPageFactory(guild=guild), reporter=MemberFactory())
-        # 26 with the Spotlight's one query (#709).
-        with django_assert_max_num_queries(26):
+        # 26 with the Spotlight's one query (#709); 27 with the Holiday Bizarre sidebar entry (HQ card sharing).
+        with django_assert_max_num_queries(27):
             assert client.get(_queue_url()).status_code == 200
 
     def it_leaves_the_safety_list_alone_when_the_reports_page(client: Client):

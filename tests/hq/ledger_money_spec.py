@@ -131,9 +131,9 @@ def lee(make_member):
 
 @pytest.fixture
 def card(open_hub, lee) -> HubCard:
-    """The ledger door, open to everyone (so the 403 is what stops a non-organiser), Lee named."""
+    """The ledger door with Lee on its Team. A Team-only door (HQ card sharing): Admins only is its one audience."""
     return HubCardFactory(
-        hub=open_hub, kind=HubCard.Kind.LEDGER, title="PL Ledger", audience=HubCard.Audience.PUBLIC, named=[lee]
+        hub=open_hub, kind=HubCard.Kind.LEDGER, title="PL Ledger", audience=HubCard.Audience.ADMINS, team=[lee]
     )
 
 
@@ -151,7 +151,7 @@ def lee_client(lee) -> Client:
 def wall(hub, lee) -> HubCard:
     """The wine wall door on the same hub, open to everyone, Lee organising it."""
     return HubCardFactory(
-        hub=hub, kind=HubCard.Kind.WINE_WALL, title="Log a wine bottle", audience=HubCard.Audience.PUBLIC, named=[lee]
+        hub=hub, kind=HubCard.Kind.WINE_WALL, title="Log a wine bottle", audience=HubCard.Audience.PUBLIC, team=[lee]
     )
 
 
@@ -210,7 +210,8 @@ def describe_who_may_use_it():
             response = client.get(_url("ledger_bar_csv", hub))
             assert response.status_code == 403
             assert b"Spec secret bar note" not in response.content
-            assert client.get(_page(hub)).status_code == 403
+            # A Team-only door: off its Team the page is a closed door, a 404.
+            assert client.get(_page(hub)).status_code == 404
         # The donors' toggle is the wall's organisers' (Lee), not the ledger's.
         assert (
             member_client.post(
@@ -262,7 +263,7 @@ def describe_who_may_use_it():
         session["view_as_role"] = ROLE_MEMBER
         session.save()
 
-        assert admin_client.get(_page(hub)).status_code == 403
+        assert admin_client.get(_page(hub)).status_code == 404
         assert admin_client.post(_url("ledger_bar_quick", hub), _quick()).status_code == 302
         assert BarSale.objects.get().created_by == admin
 
@@ -481,11 +482,11 @@ def describe_log_a_batch():
 
 
 def describe_set_drink_prices():
-    def it_saves_the_four_prices_and_last_year_and_sends_the_buttons_and_tiles_out_of_band(hub, lee_client):
+    def it_saves_the_four_prices_and_last_year_and_sends_the_buttons_and_tiles_out_of_band(hub, admin_client):
         LedgerSettingsFactory(hub=hub, approved_cents=120_000, singles_sold=4)
         found = _found(hub)
 
-        response = lee_client.post(_url("ledger_bar_prices", hub), _prices(found), **HTMX)
+        response = admin_client.post(_url("ledger_bar_prices", hub), _prices(found), **HTMX)
 
         found.refresh_from_db()
         assert (found.ipa_cents, found.pils_cents, found.wine_cents, found.na_cents) == (700, 650, 900, 200)
@@ -498,18 +499,18 @@ def describe_set_drink_prices():
         assert "2025: about $650" in body
         assert 'id="hq-lg-bar-prices"  data-hq-lg-prices' in body  # closed once saved
 
-    def it_makes_the_settings_on_a_first_save(hub, lee_client):
-        response = lee_client.post(_url("ledger_bar_prices", hub), _prices(_found(hub)))
+    def it_makes_the_settings_on_a_first_save(hub, admin_client):
+        response = admin_client.post(_url("ledger_bar_prices", hub), _prices(_found(hub)))
 
         assert response["Location"] == f"{_page(hub)}#hq-lg-bar"
         assert LedgerSettings.objects.get(hub=hub).ipa_cents == 700
 
-    def it_refuses_a_save_from_an_older_page_and_shows_what_is_saved(hub, lee_client):
+    def it_refuses_a_save_from_an_older_page_and_shows_what_is_saved(hub, admin_client):
         old = _found(hub)
         LedgerSettingsFactory(hub=hub, ipa_cents=800)
 
-        fragment = lee_client.post(_url("ledger_bar_prices", hub), _prices(old), **HTMX)
-        plain = lee_client.post(_url("ledger_bar_prices", hub), _prices(old))
+        fragment = admin_client.post(_url("ledger_bar_prices", hub), _prices(old), **HTMX)
+        plain = admin_client.post(_url("ledger_bar_prices", hub), _prices(old))
 
         assert LedgerSettings.objects.get(hub=hub).ipa_cents == 800
         for response in (fragment, plain):
@@ -519,18 +520,18 @@ def describe_set_drink_prices():
             assert 'id="hq-lg-bar-prices" open' in body
         assert "HX-Trigger" not in fragment
 
-    def it_treats_a_form_with_no_figures_as_stale(hub, lee_client):
+    def it_treats_a_form_with_no_figures_as_stale(hub, admin_client):
         data = {key: value for key, value in _prices(_found(hub)).items() if "seen" not in key}
 
-        response = lee_client.post(_url("ledger_bar_prices", hub), data, **HTMX)
+        response = admin_client.post(_url("ledger_bar_prices", hub), data, **HTMX)
 
         assert services.SETTINGS_STALE_SAVE in response.content.decode()
         assert not LedgerSettings.objects.exists()  # a refusal writes nothing, not even the row
 
     @pytest.mark.parametrize(("field", "value"), [("ipa", "1000.01"), ("na", "-1"), ("last_year", "1000000.01")])
-    def it_holds_the_prices_to_their_caps(hub, lee_client, field, value):
-        fragment = lee_client.post(_url("ledger_bar_prices", hub), _prices(_found(hub), **{field: value}), **HTMX)
-        plain = lee_client.post(_url("ledger_bar_prices", hub), _prices(_found(hub), **{field: value}))
+    def it_holds_the_prices_to_their_caps(hub, admin_client, field, value):
+        fragment = admin_client.post(_url("ledger_bar_prices", hub), _prices(_found(hub), **{field: value}), **HTMX)
+        plain = admin_client.post(_url("ledger_bar_prices", hub), _prices(_found(hub), **{field: value}))
 
         assert "Ensure this value is" in fragment.content.decode()
         assert "data-hq-ledger" in plain.content.decode() and "Ensure this value is" in plain.content.decode()
@@ -539,7 +540,7 @@ def describe_set_drink_prices():
 
 def describe_the_approval_beside_d6bs_figures():
     @pytest.mark.parametrize("saved_in_between", ["prices", "tickets", "ticket prices"])
-    def it_saves_the_approval_from_a_page_older_than_a_price_or_tickets_save(hub, lee_client, saved_in_between):
+    def it_saves_the_approval_from_a_page_older_than_a_price_or_tickets_save(hub, admin_client, saved_in_between):
         LedgerSettingsFactory(hub=hub, approved_cents=90_000, approved_note="Oct 14")
         page = _found(hub)
         posts = {
@@ -548,20 +549,20 @@ def describe_the_approval_beside_d6bs_figures():
             "ticket prices": ("ledger_ticket_prices", _ticket_prices(page)),
         }
         name, data = posts[saved_in_between]
-        assert lee_client.post(_url(name, hub), data, **HTMX).status_code == 200
+        assert admin_client.post(_url(name, hub), data, **HTMX).status_code == 200
 
-        response = lee_client.post(_url("ledger_approval", hub), _approval(page, approved="1100"))
+        response = admin_client.post(_url("ledger_approval", hub), _approval(page, approved="1100"))
 
         found = _found(hub)
         assert response.status_code == 302
         assert (found.approved_cents, found.approved_note) == (110_000, "Oct 14")
 
-    def it_still_refuses_the_approval_after_another_approval_save(hub, lee_client, admin_client):
+    def it_still_refuses_the_approval_after_another_approval_save(hub, admin_client):
         LedgerSettingsFactory(hub=hub, approved_cents=90_000, approved_note="Oct 14")
         page = _found(hub)
         assert admin_client.post(_url("ledger_approval", hub), _approval(page, approved="1000")).status_code == 302
 
-        response = lee_client.post(_url("ledger_approval", hub), _approval(page, approved="1100", note="Mine"))
+        response = admin_client.post(_url("ledger_approval", hub), _approval(page, approved="1100", note="Mine"))
 
         found = _found(hub)
         assert response.status_code == 200
@@ -570,12 +571,12 @@ def describe_the_approval_beside_d6bs_figures():
         )
         assert (found.approved_cents, found.approved_note) == (100_000, "Oct 14")
 
-    def it_takes_a_first_approval_save_on_a_hub_whose_row_a_price_save_made(hub, lee_client):
+    def it_takes_a_first_approval_save_on_a_hub_whose_row_a_price_save_made(hub, admin_client):
         page = _found(hub)
         assert not LedgerSettings.objects.exists()
-        lee_client.post(_url("ledger_bar_prices", hub), _prices(page), **HTMX)
+        admin_client.post(_url("ledger_bar_prices", hub), _prices(page), **HTMX)
 
-        response = lee_client.post(_url("ledger_approval", hub), _approval(page, approved="1200", note="Nov vote"))
+        response = admin_client.post(_url("ledger_approval", hub), _approval(page, approved="1200", note="Nov vote"))
 
         found = _found(hub)
         assert response.status_code == 302
@@ -663,7 +664,7 @@ def describe_the_tiles():
 
         assert bar.sales_line == "2025: about $0"
 
-    def it_follows_a_line_moved_into_drinks_out_of_band(hub, lee_client):
+    def it_follows_a_line_moved_into_drinks_out_of_band(hub, admin_client):
         lights = BudgetLineFactory(hub=hub, name="Lights", category=C.DECOR)
         _bar_cost(hub, lights, 12_000)
         data = {
@@ -674,7 +675,7 @@ def describe_the_tiles():
             "filter": "all",
         }
 
-        response = lee_client.post(_url("ledger_line_edit", hub, lights.pk), data, **HTMX)
+        response = admin_client.post(_url("ledger_line_edit", hub, lights.pk), data, **HTMX)
 
         body = response.content.decode()
         assert 'id="hq-lg-bar-tiles" data-hq-lg-bar-tiles hx-swap-oob="true"' in body
@@ -761,7 +762,7 @@ def describe_the_wine_wall_section():
 
     def it_leaves_out_links_the_viewer_may_not_open(hub, card, make_member):
         kate = make_member(preferred_name="Kate")
-        card.named_members.add(kate)
+        card.team.add(kate)
         wall = HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL, audience=HubCard.Audience.MEMBERS)
         client = signed_in(kate)
 
@@ -859,11 +860,11 @@ def describe_the_tickets_form():
         board = body.split('id="hq-lg-board-figures"', 1)[1]
         assert board.count("7 tickets sold (3 singles at $25 + 2 deals at $40 for 2) raised $155.") == 2
 
-    def it_labels_the_inputs_with_the_prices_and_follows_a_price_change(hub, lee_client):
+    def it_labels_the_inputs_with_the_prices_and_follows_a_price_change(hub, lee_client, admin_client):
         body = lee_client.get(_page(hub)).content.decode()
         assert "Single tickets sold ($25)" in body and "2-ticket deals sold ($40)" in body
 
-        response = lee_client.post(_url("ledger_ticket_prices", hub), _ticket_prices(_found(hub)), **HTMX)
+        response = admin_client.post(_url("ledger_ticket_prices", hub), _ticket_prices(_found(hub)), **HTMX)
 
         found = _found(hub)
         assert (found.ticket_cents, found.pair_cents) == (2_000, 3_500)
@@ -872,12 +873,12 @@ def describe_the_tickets_form():
         assert "Single tickets sold ($20)" in body and "2-ticket deals sold ($35)" in body
         assert "$20 a ticket or 2 for $35. Each ticket wins a bottle." in body
 
-    def it_refuses_a_save_from_an_older_page(hub, lee_client):
+    def it_refuses_a_save_from_an_older_page(hub, lee_client, admin_client):
         old = _found(hub)
         LedgerSettingsFactory(hub=hub, singles_sold=9)
 
         fragment = lee_client.post(_url("ledger_tickets", hub), _tickets(old), **HTMX)
-        plain = lee_client.post(
+        plain = admin_client.post(
             _url("ledger_ticket_prices", hub), _ticket_prices(LedgerSettings(hub=hub, ticket_cents=1))
         )
 
@@ -900,8 +901,8 @@ def describe_the_tickets_form():
         assert error in plain.content.decode() and "data-hq-ledger" in plain.content.decode()
         assert not LedgerSettings.objects.exists()
 
-    def it_holds_the_ticket_prices_to_their_cap(hub, lee_client):
-        response = lee_client.post(
+    def it_holds_the_ticket_prices_to_their_cap(hub, admin_client):
+        response = admin_client.post(
             _url("ledger_ticket_prices", hub), _ticket_prices(_found(hub), ticket="1000.01"), **HTMX
         )
 
@@ -1099,11 +1100,11 @@ def describe_the_event_cash():
         assert (raised.current, raised.target, raised.current_display) == (1_001, 10_000, "$1,001")
         assert again.current == 1_001
 
-    def it_shows_on_the_hq_page_counted(hub):
+    def it_shows_on_the_hq_page_counted(hub, lee_client):
         HubGoalFactory(hub=hub, label="Raised", kind=HubGoal.Kind.EVENT_CASH, target=10_000, is_money=True)
         BarSaleFactory(hub=hub, amount_cents=60_000)
 
-        body = Client().get(hub.get_absolute_url()).content.decode()
+        body = lee_client.get(hub.get_absolute_url()).content.decode()
 
         assert '<strong class="pl-hq-goal__value">$600 <small>of $10,000</small></strong>' in body
 

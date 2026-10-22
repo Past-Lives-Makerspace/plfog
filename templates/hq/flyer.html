@@ -107,10 +107,10 @@ own: card_view decides who may open the page.
     </div>
   </section>
 
-  {% if can_organize %}
+  {% if can_configure %}
   <section class="pl-hq-fl__card pl-hq-fl__admin" aria-labelledby="hq-fl-admin-title" data-hq-fl-organizers>
     <h2 class="pl-hq-fl__h2" id="hq-fl-admin-title">Update This Page</h2>
-    <p class="pl-hq-fl__muted">Only the organisers of this page see this box.</p>
+    <p class="pl-hq-fl__muted">Only admins see this box.</p>
     <div class="pl-hq-fl__uploads">
       {% for upload in uploads %}
       {% include "hq/partials/_flyer_upload.html" with upload=upload %}

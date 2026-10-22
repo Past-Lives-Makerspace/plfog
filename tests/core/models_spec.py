@@ -73,9 +73,9 @@ def describe_SiteConfiguration():
             # everything ON would have silently launched the wiki on deploy.
             from core.features import FEATURES, is_on
 
-            # Holiday Bizarre is seeded Hidden by 0118 for the same reason: its entry would
-            # point at a 404 until an admin makes the first HQ.
-            assert [f.key for f in FEATURES if not is_on(f.key)] == ["wiki", "holiday_bizarre"]
+            # Holiday Bizarre was seeded Hidden by 0118 and retired by 0119: its sidebar entry no
+            # longer reads a switch (HQ card sharing), so it is not a feature at all.
+            assert [f.key for f in FEATURES if not is_on(f.key)] == ["wiki"]
 
         def it_treats_a_missing_row_as_on():
             # Absence means ON, so a database that has never been seeded behaves exactly like

@@ -1,0 +1,15 @@
+{% comment %}
+One person chosen in a share picker: a removable chip with their name and email, and the hidden input that posts
+them. The picker's template clones a blank copy of this for a person picked in the browser.
+
+  name   — required, the field's name (can_open or team)
+  person — optional, a hq.forms.PersonOption; blank in the picker's template
+{% endcomment %}
+<li class="pl-hq-people__chip" data-hq-person="{{ person.pk }}">
+  <input type="hidden" name="{{ name }}" value="{{ person.pk }}" data-hq-person-input>
+  <span class="pl-hq-people__who">
+    <span class="pl-hq-people__name" data-hq-person-name>{{ person.name }}</span>
+    <span class="pl-hq-people__email" data-hq-person-email>{{ person.email }}</span>
+  </span>
+  <button type="button" class="pl-hq-people__remove" aria-label="Remove {{ person.name }}" @click="remove($event)" data-hq-person-remove><span aria-hidden="true">&times;</span></button>
+</li>

@@ -174,8 +174,9 @@ def describe_query_count():
             client.get(URL)
 
 
-#: The whole page as an admin sees it: the hub shell's reads plus the dashboard's aggregates.
-QUERIES = 34
+#: The whole page as an admin sees it: the hub shell's reads plus the dashboard's aggregates. 35 with the Holiday
+#: Bizarre sidebar entry (HQ card sharing): one EXISTS over the HQs for an admin.
+QUERIES = 35
 
 
 def describe_admin_tools_card():

@@ -100,7 +100,7 @@ its own: card_view decides who may open the page.
     <form method="post" action="{% url 'hq:winery_logo' hub.slug %}" enctype="multipart/form-data" hx-boost="false" class="pl-hq-wine__card pl-hq-wine__form" data-hq-logo-form>
       {% csrf_token %}
       <h3 class="pl-hq-wine__h3">Add a Logo</h3>
-      <p class="pl-hq-wine__hint">Organisers only. A logo replaces the one under the same name.</p>
+      <p class="pl-hq-wine__hint">Admins only. A logo replaces the one under the same name.</p>
       {% for error in logo_form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
       {% include "components/form_field.html" with field=logo_form.name %}
       {% include "components/image_field.html" with field=logo_form.logo current_image=None shape="rect" thumbnail_width="160px" thumbnail_height="80px" max_bytes=max_upload_bytes tooltip_html="A square or wide logo, JPG or PNG up to 10 MB. It sits on a white tile and is resized to 1200 pixels." %}
