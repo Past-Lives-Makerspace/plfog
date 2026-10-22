@@ -370,8 +370,8 @@ def describe_a_guest_account_and_the_holiday_bizarre_hq():
 
 def describe_a_guest_account_and_the_public_event_pages():
     """The HQ links a guest to an event's public page (the RSVP card) and its flyer, which a signed-out visitor already
-    opens, so a guest is served those and the page's RSVP posts (core.middleware.GUEST_EVENT_URL_NAMES), and nothing
-    else under /events/."""
+    opens, so a guest is served those, the calendar file and the guest RSVP post (core.middleware.GUEST_EVENT_URL_NAMES),
+    and nothing else under /events/: the members' one tap RSVP stays members only."""
 
     @pytest.fixture
     def guest_client(client):
@@ -389,16 +389,21 @@ def describe_a_guest_account_and_the_public_event_pages():
         assert guest_client.get(reverse("hub_event_flyer", args=[event.pk])).status_code == 200
         assert guest_client.get(reverse("hub_event_ics", args=[event.pk])).status_code == 200
 
-    def it_lets_a_guest_rsvp_from_the_page(guest_client, event):
+    def it_lets_a_guest_rsvp_through_the_guest_form(guest_client, event):
+        with patch("membership.models.CommunityEvent.refresh_discord_announcement"):
+            response = guest_client.post(
+                reverse("hub_event_rsvp_guest", args=[event.pk]),
+                {"name": "Gale Guest", "email": "gale@example.com", "party_size": "1", "website": ""},
+            )
+
+        assert response["Location"] == reverse("hub_event_detail", args=[event.pk]) + "?going=1"
+        assert event.rsvps.get().is_guest
+
+    def it_keeps_the_members_one_tap_rsvp_from_a_guest(guest_client, event):
         response = guest_client.post(reverse("hub_event_rsvp", args=[event.pk]), {"party_size": "1"})
 
-        assert response["Location"] == reverse("hub_event_detail", args=[event.pk])
-        assert event.rsvps.count() == 1
-
-    def it_sends_a_guest_on_the_guest_rsvp_post_back_to_the_page(guest_client, event):
-        response = guest_client.post(reverse("hub_event_rsvp_guest", args=[event.pk]), {})
-
-        assert response["Location"] == reverse("hub_event_detail", args=[event.pk])
+        assert response["Location"] == _locked_url("guest")
+        assert not event.rsvps.exists()
 
     def it_still_locks_a_guest_out_of_the_rest_of_events(guest_client, event):
         for path in (

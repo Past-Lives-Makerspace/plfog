@@ -7656,6 +7656,13 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
     return response
 
 
+def _is_guest_account(request: HttpRequest) -> bool:
+    """Whether a guest account (``Member.Status.GUEST``, #654) is signed in: the public event page treats it as a
+    signed-out visitor, since it is not a member (``core.middleware.GUEST_EVENT_URL_NAMES`` lets it reach the page)."""
+    member = _get_member(request) if request.user.is_authenticated else None
+    return member is not None and member.status == Member.Status.GUEST
+
+
 def _from_hq(request: HttpRequest) -> bool:
     """Whether the HQ's RSVP card opened this event page (``?from=hq``, ``hq.models.HQ_MARKER``)."""
     from hq.models import HQ_MARKER
@@ -7726,7 +7733,10 @@ def _render_event_page(
     can_edit = on_member_surface and edit_url is not None
     can_manage = on_member_surface and can_administer_events(request)
     is_recurring = event.recurrence != CommunityEvent.Recurrence.NONE
-    member = _get_member(request)
+    # A guest account sees the page a signed-out visitor sees: the count, never the member names, and the guest form
+    # (with its honeypot and rate limit) rather than the members' one tap RSVP.
+    viewer_is_member = request.user.is_authenticated and not _is_guest_account(request)
+    member = _get_member(request) if viewer_is_member else None
     hidden_rsvp = Q(member__hide_from_directory=True)
     if member is not None:
         hidden_rsvp &= ~Q(member=member)
@@ -7777,7 +7787,8 @@ def _render_event_page(
             "member_form": member_form,
             "guest_form": guest_form,
             # A guest just RSVPed: the page says so from the URL, with no session to carry it.
-            "guest_going": not request.user.is_authenticated and request.GET.get("going") == "1",
+            "guest_going": not viewer_is_member and request.GET.get("going") == "1",
+            "viewer_is_member": viewer_is_member,
         },
     )
 
@@ -7834,9 +7845,9 @@ def event_rsvp_guest(request: HttpRequest, pk: int) -> HttpResponse:
     """Count me in on the public event page for someone with no account (#831, part 4).
 
     No login, like the page: a scanned flyer leads here. The order is the cheap refusals first
-    (an unpublished event 404s, a signed-in user goes back to the page, where their RSVP is the
+    (an unpublished event 404s, a signed-in member goes back to the page, where their RSVP is the
     member one tap and never a guest row, an ended event is turned away with the page's own
-    note), then
+    note; a signed-in guest account is no member, so it RSVPs here like a signed-out visitor), then
     one rate limit attempt per POST whatever follows, then the honeypot (a filled one is
     answered exactly like a success and writes nothing), then the form. A valid form upserts
     the guest by email (``EventGuestRSVPForm.save``: an email that is a member's already on the
@@ -7850,7 +7861,7 @@ def event_rsvp_guest(request: HttpRequest, pk: int) -> HttpResponse:
     event = get_object_or_404(CommunityEvent.objects.published().select_related("guild", "area"), pk=pk)
     page_query = _event_page_query(request, event.date_query(EventDateForm(request.GET).occurrence_start(event)))
     page = reverse("hub_event_detail", args=[pk]) + page_query
-    if request.user.is_authenticated:
+    if request.user.is_authenticated and not _is_guest_account(request):
         return redirect(page)
     if event.rsvps_closed:
         messages.info(request, "This event has already taken place.")
