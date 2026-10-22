@@ -69,6 +69,12 @@ class Countdown:
         return f"{self.big} {self.small}".strip()
 
 
+#: The ``from`` value the RSVP card puts on its link to the event page (``?from=hq``). The event page reads it
+#: to show a way back to the hub; nothing else carries it, so the page's canonical link, QR and share links
+#: (``CommunityEvent.public_url``) never do.
+HQ_MARKER = "hq"
+
+
 class EventHubManager(models.Manager["EventHub"]):
     def open(self) -> EventHub | None:
         """The hub whose page ``/hq/`` opens, with its event, or None while no hub is open.
@@ -76,6 +82,22 @@ class EventHubManager(models.Manager["EventHub"]):
         The partial unique constraint keeps ``is_open`` to one row, so ``first()`` is exact.
         """
         return self.filter(is_open=True).select_related("event").first()
+
+    def back_from_event(self, event: CommunityEvent, *, admin: bool) -> EventHub | None:
+        """The hub an event page links back to when the RSVP card opened it (``?from=hq``).
+
+        Args:
+            event: The event the page shows.
+            admin: The viewer's effective admin role. An admin may open any hub, so any hub linked to the event
+                answers, the open one first; anyone else only the open hub, as ``hq.access.hub_or_404`` allows.
+
+        Returns:
+            The hub, or None when no hub the viewer may open is linked to ``event``.
+        """
+        hubs = self.filter(event=event)
+        if not admin:
+            hubs = hubs.filter(is_open=True)
+        return hubs.order_by("-is_open", "-created_at", "-pk").first()
 
 
 class EventHub(models.Model):
@@ -365,7 +387,9 @@ class HubCard(models.Model):
     def url(self) -> str:
         """Where the card's button goes, or "" for a card that opens nothing yet (rendered as a plain tile)."""
         if self.kind == self.Kind.RSVP:
-            return reverse("hub_event_detail", args=[self.hub.event_id]) if self.hub.event_id is not None else ""
+            # The marker tells the event page it was opened from the HQ, so it shows a way back (HQ_MARKER).
+            event_page = reverse("hub_event_detail", args=[self.hub.event_id]) if self.hub.event_id is not None else ""
+            return f"{event_page}?from={HQ_MARKER}" if event_page else ""
         if self.kind == self.Kind.VOLUNTEERS:
             return reverse("hq:volunteers", args=[self.hub.slug])
         if self.kind == self.Kind.WINE_WALL:

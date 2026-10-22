@@ -1122,6 +1122,31 @@ select[multiple] option:checked {
     background: rgba(238, 180, 75, 0.04);
 }
 
+/* components/image_field.html's capture mode: "Take a photo" over the drop zone, which then
+   reads "Choose a photo". Both inputs hide by the zone rule above (1px, zero opacity), so each
+   stays a Tab stop; the non-capture path keeps its inline display:none and is not focusable.
+   A focused input is invisible, so the button or zone around it carries the ring, in the
+   themed --hub-blue (lighter on dark, darker on light). */
+.pl-image-field__choices {
+    display: grid;
+    gap: 0.75rem;
+}
+.pl-image-field__take { position: relative; }
+.pl-image-field__take:focus-within,
+.pl-image-field__choices .cls-image-upload-zone:focus-within {
+    outline: 2px solid var(--hub-blue);
+    outline-offset: 2px;
+}
+.pl-image-field__camera {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
 .cls-image-upload-zone.uploading {
     opacity: 0.6;
     pointer-events: none;

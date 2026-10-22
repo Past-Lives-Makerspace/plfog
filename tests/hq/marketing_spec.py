@@ -64,6 +64,13 @@ def describe_the_door():
         assert card.url == _page(card.hub)
         assert f'href="{_page(card.hub)}" class="pl-hq-card" data-hq-card-link' in body
 
+    def it_carries_a_way_back_to_the_hq_in_its_header(card):
+        body = Client().get(_page(card.hub)).content.decode()
+        header = body.split('<header class="pl-hq-mk__header">')[1].split("</header>")[0]
+
+        assert f'<a href="{card.hub.get_absolute_url()}" class="pl-hq-mk__back" data-hq-mk-back>&larr; HQ</a>' in header
+        assert card.hub.get_absolute_url() == reverse("hq:page", args=[card.hub.slug])
+
     def it_shows_a_door_with_no_page_as_not_shared(open_hub):
         """Every Track D door has its page now (D6a built the last); a placeholder still opens nothing."""
         HubCardFactory(hub=open_hub, kind=HubCard.Kind.PLACEHOLDER, audience=HubCard.Audience.PUBLIC)

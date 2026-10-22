@@ -58,6 +58,30 @@
   font-family: var(--pl-event-body);
 }
 
+/* ---- Back to the HQ ----
+   Shown only when the HQ's RSVP card opened the page (?from=hq): the pill every HQ door
+   carries (hq.css's .pl-hq-*__back), in this page's button colours so it reads in both themes. */
+.pl-event-page__back {
+  justify-self: start;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: var(--pl-event-button-bg);
+  color: var(--pl-event-button-ink);
+  font-size: 0.88rem;
+  font-weight: 900;
+  text-decoration: none;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.pl-event-page__back:hover {
+  color: var(--pl-event-button-ink);
+  text-decoration: underline;
+}
+.pl-event-page__back:focus-visible {
+  outline: 2px solid var(--pl-event-gold-hi);
+  outline-offset: 2px;
+}
+
 /* ---- Hero ---- */
 /* The navy band alone, or the cropped photo under the navy shade (--photo). The thin gold
    inset is drawn 9px inside the band, over the photo and under the text. */

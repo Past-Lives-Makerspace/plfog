@@ -302,7 +302,7 @@ def describe_the_doors():
         body = Client().get(_page(open_hub)).content.decode()
         door = body.split(f'data-hq-card-pk="{card.pk}"')[1].split("</a>")[0]
 
-        assert card.url == reverse("hub_event_detail", args=[event.pk])
+        assert card.url == f"{reverse('hub_event_detail', args=[event.pk])}?from=hq"
         assert f'<a href="{card.url}" class="pl-hq-card" data-hq-card-link>' in door
         assert "M9.5 12l1.8 1.8 3.4-3.6" in door  # the ticket with a check, the RSVP door's icon
         assert "Members and guests" in door
