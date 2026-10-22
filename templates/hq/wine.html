@@ -51,7 +51,7 @@ its own: card_view decides who may open the page.
       </div>
       <h3 class="pl-hq-wine__h3">For the Wall</h3>
       {% include "components/form_field.html" with field=form.credited_name %}
-      {% include "components/image_field.html" with field=form.photo current_image=None shape="rect" thumbnail_width="160px" thumbnail_height="160px" max_bytes=max_upload_bytes tooltip_html="A phone photo is fine: JPG, PNG or HEIC up to 10 MB. It is resized to 1600 pixels on the long edge." %}
+      {% include "components/image_field.html" with field=form.photo current_image=None shape="rect" thumbnail_width="160px" thumbnail_height="160px" max_bytes=max_upload_bytes capture="environment" tooltip_html="A phone photo is fine: JPG, PNG or HEIC up to 10 MB. It is resized to 1600 pixels on the long edge." %}
       {% include "components/form_field.html" with field=form.note %}
       {% if is_guest %}
       {# The honeypot: off screen for people, tempting for a bot; a filled value saves nothing. #}

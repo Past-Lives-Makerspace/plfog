@@ -24,7 +24,7 @@ from playwright.sync_api import expect
 from hq.models import HubCard, ShiftSignup, VolunteerShift, WineBottle
 from membership.models import Member
 from tests.hq.factories import EventHubFactory, HubCardFactory, VolunteerShiftFactory
-from tests.membership.factories import MembershipPlanFactory
+from tests.membership.factories import CommunityEventFactory, MembershipPlanFactory
 
 MEMBER_EMAIL = "hb-volunteer@example.com"
 
@@ -130,6 +130,26 @@ def describe_a_member():
         expect(page.locator("button[data-hq-shift-signup]").first).to_be_enabled()
 
 
+def describe_the_rsvp_door():
+    def it_goes_from_the_rsvp_card_to_the_event_page_and_back_to_the_hq(live_server, page):
+        hub = EventHubFactory(is_open=True, slug="holiday-bizarre", title="Holiday Bizarre HQ")
+        hub.event = CommunityEventFactory(community=True, title="Holiday Bizarre")
+        hub.save()
+        rsvp = HubCardFactory(hub=hub, kind=HubCard.Kind.RSVP, audience=HubCard.Audience.PUBLIC)
+        page.goto(live_server.url + reverse("hq:page", args=["holiday-bizarre"]))
+
+        page.locator(f'[data-hq-card-pk="{rsvp.pk}"] a[data-hq-card-link]').click()
+
+        expect(page.locator("[data-event-page]")).to_be_visible()
+        expect(page).to_have_url(live_server.url + reverse("hub_event_detail", args=[hub.event.pk]) + "?from=hq")
+        back = page.locator("[data-event-hq-back]")
+        expect(back).to_have_text("\u2190 Holiday Bizarre HQ")
+        back.click()
+
+        expect(page.locator("[data-event-page]")).to_have_count(0)
+        expect(page).to_have_url(live_server.url + reverse("hq:page", args=["holiday-bizarre"]))
+
+
 def _png() -> dict:
     """A small bottle photo for the file input, as Playwright takes it."""
     buffer = io.BytesIO()
@@ -175,7 +195,7 @@ def describe_the_wine_wall():
         page.fill('input[name="qty"]', "2")
         page.fill('input[name="giver_name"]', "Pat Giver")
         page.select_option('select[name="giver_type"]', "wine_shop")
-        page.locator('input[name="photo"]').set_input_files(_png())
+        page.locator("#id_photo").set_input_files(_png())  # Choose a photo; Take a photo is #id_photo_camera
         page.locator("[data-hq-wine-add]").click()
 
         expect(page.locator("[data-hq-wine-bottles]")).to_have_text("2")
@@ -196,3 +216,51 @@ def describe_the_wine_wall():
         assert (bottle.logged_by_id, bottle.credited_name) == (member.pk, "Lee Organiser")
         assert bottle.logged_by_email == MEMBER_EMAIL
         assert bottle.photo.name.startswith("hq/bottles/")
+
+    def it_takes_or_chooses_a_photo_with_one_preview_and_posts_the_last_one_picked(
+        live_server, page, media_in_tmp, serve_media
+    ):
+        hub = EventHubFactory(is_open=True, slug="holiday-bizarre", title="Holiday Bizarre HQ")
+        HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL, audience=HubCard.Audience.PUBLIC)
+        page.goto(live_server.url + reverse("hq:wine", args=["holiday-bizarre"]))
+        page.locator("[data-hq-wine-open]").click()
+        preview = page.locator("#image-preview-id_photo img")
+        camera = page.locator("#id_photo_camera")
+        chooser = page.locator("#id_photo")
+
+        expect(page.locator("[data-image-field-take]")).to_have_text("Take a photo")
+        expect(camera).to_have_attribute("capture", "environment")
+        with page.expect_file_chooser() as taken:
+            page.locator("[data-image-field-take]").click()
+        assert taken.value.element.get_attribute("id") == "id_photo_camera"
+        taken.value.set_files(_png())
+
+        expect(preview).to_be_visible()
+        assert camera.evaluate("el => el.files.length") == 1
+
+        with page.expect_file_chooser() as chosen:
+            page.locator("#image-upload-zone-id_photo").click()
+        assert chosen.value.element.get_attribute("id") == "id_photo"
+        chosen.value.set_files({**_png(), "name": "chosen.png"})
+
+        expect(preview).to_be_visible()
+        assert chooser.evaluate("el => el.files.length") == 1
+        assert camera.evaluate("el => el.files.length") == 0  # picking in one clears the other
+
+        with page.expect_file_chooser() as retaken:
+            page.locator("[data-image-field-take]").click()
+        retaken.value.set_files(_png())
+
+        assert camera.evaluate("el => el.files.length") == 1
+        assert chooser.evaluate("el => el.files.length") == 0
+        page.select_option('select[name="kind"]', "red")
+        page.fill('input[name="name"]', "2021 Pinot Noir")
+        page.fill('input[name="winery"]', "Abacela")
+        page.fill('input[name="value"]', "25")
+        page.fill('input[name="giver_name"]', "Pat Giver")
+        page.fill('input[name="credited_name"]', "Lee")
+        page.locator("[data-hq-wine-add]").click()
+
+        expect(page.locator("[data-hq-bottle-photo]")).to_have_count(1)
+        expect(page.locator("[data-hq-bottle-photo]")).to_have_js_property("naturalWidth", 64)
+        assert WineBottle.objects.get().photo.name.startswith("hq/bottles/")

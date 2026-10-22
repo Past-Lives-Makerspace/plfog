@@ -1122,6 +1122,24 @@ select[multiple] option:checked {
     background: rgba(238, 180, 75, 0.04);
 }
 
+/* components/image_field.html's capture mode: "Take a photo" over the drop zone, which then
+   reads "Choose a photo". The camera input hides as the zone's input does above, rendered and
+   focusable but invisible, and the button label opens it. */
+.pl-image-field__choices {
+    display: grid;
+    gap: 0.75rem;
+}
+.pl-image-field__take { position: relative; }
+.pl-image-field__camera {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
 .cls-image-upload-zone.uploading {
     opacity: 0.6;
     pointer-events: none;

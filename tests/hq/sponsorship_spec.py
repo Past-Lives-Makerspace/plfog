@@ -115,7 +115,7 @@ def describe_the_door():
 
         assert "Sponsorship Tracker</h1>" in body
         assert f"data-hq-sp-subline>{hub.title} · Cash sponsors · Team only</p>" in body
-        assert f'href="{hub.get_absolute_url()}" class="pl-hq-sp__back"' in body
+        assert f'<a href="{hub.get_absolute_url()}" class="pl-hq-sp__back" data-hq-sp-back>&larr; HQ</a>' in body
         assert (
             "<strong>When you ask:</strong> say sponsor, gift or in-kind support, not donate. Past Lives Makerspace is "
             "an Oregon nonprofit corporation. Gifts and sponsorships are not tax-deductible.</p>"

@@ -507,13 +507,13 @@ def describe_moving_a_card():
 
 
 def describe_the_card_url():
-    def it_points_the_rsvp_card_at_the_event_page(open_hub):
+    def it_points_the_rsvp_card_at_the_event_page_marked_as_from_the_hq(open_hub):
         event = CommunityEventFactory(community=True)
         open_hub.event = event
         open_hub.save()
         card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.RSVP)
 
-        assert HubCard.objects.get(pk=card.pk).url == reverse("hub_event_detail", args=[event.pk])
+        assert HubCard.objects.get(pk=card.pk).url == f"{reverse('hub_event_detail', args=[event.pk])}?from=hq"
 
     def it_reads_the_c2_and_c3_routes_once_they_exist(open_hub):
         from unittest.mock import patch

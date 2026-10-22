@@ -6,8 +6,8 @@ resolves to, in the look of the Holiday Bizarre HQ (static/css/event-page.css). 
 hub/base.html, which auto-degrades for a signed-out visitor (public topbar, no sidebar)
 and shows the hub chrome for a member. PUBLISHED events only (the view 404s the rest).
 
-Top to bottom: the hero (photo or navy band), the going band with the people count, the
-goal meter and the pitch, Count Me In, the description, the gallery, the video, the
+Top to bottom: a way back to the HQ when its RSVP card opened the page (?from=hq), the
+hero (photo or navy band), the going band with the people count, the goal meter and the pitch, Count Me In, the description, the gallery, the video, the
 location card, Who's Going (members only), the actions row, Share & Print for editors and
 the footer line. Nothing here carries a style attribute (FRONTEND rule 9): the hero's
 focal point rides data-hero-position and the script at the end lands it.
@@ -21,6 +21,10 @@ focal point rides data-hero-position and the script at the end lands it.
 {% endblock %}
 {% block content %}
 <div class="pl-event-page" data-event-page>
+  {% if hq_back_hub %}
+  {# Opened from the HQ's RSVP card (?from=hq): the way back every HQ door has, named by the hub's title. #}
+  <a href="{{ hq_back_hub.get_absolute_url }}" class="pl-event-page__back" data-event-hq-back>&larr; {{ hq_back_hub.title }}</a>
+  {% endif %}
   {% comment %}
   The hero: the photo cut to the composer's crop box (CommunityEvent.hero_image_url) under
   the navy shade, or the navy band alone. The photo is decorative, the title beside it
@@ -96,7 +100,7 @@ focal point rides data-hero-position and the script at the end lands it.
     {# Track B lists an event on Eventbrite; until then this property is False and the line never renders. #}
     {% if event.eventbrite_listed %}<p class="pl-event-page__note" data-eventbrite-counts>Bought a ticket on Eventbrite? You are already counted.</p>{% endif %}
     {% if user.is_authenticated %}
-    <form method="post" action="{% url 'hub_event_rsvp' event.pk %}{{ date_query }}" class="pl-event-page__rsvp-form" data-member-rsvp-form>
+    <form method="post" action="{% url 'hub_event_rsvp' event.pk %}{{ page_query }}" class="pl-event-page__rsvp-form" data-member-rsvp-form>
       {% csrf_token %}
       {% if viewer_rsvp %}
       <p class="pl-event-page__going" data-rsvp-state="going">You're on the list{% if is_recurring %} for the whole series{% endif %}. See you there.</p>
@@ -115,10 +119,10 @@ focal point rides data-hero-position and the script at the end lands it.
     {% elif guest_going %}
     <div class="pl-event-page__going-card" data-rsvp-going>
       <p class="pl-event-page__going">You're on the list. See you there.</p>
-      <p class="pl-event-page__note">Changed plans? <a href="{% url 'hub_event_detail' event.pk %}{{ date_query }}">Fill the form again</a> with the same email and it updates your RSVP.</p>
+      <p class="pl-event-page__note">Changed plans? <a href="{% url 'hub_event_detail' event.pk %}{{ page_query }}">Fill the form again</a> with the same email and it updates your RSVP.</p>
     </div>
     {% else %}
-    <form method="post" action="{% url 'hub_event_rsvp_guest' event.pk %}{{ date_query }}" class="pl-event-page__guest-form" data-guest-rsvp-form>
+    <form method="post" action="{% url 'hub_event_rsvp_guest' event.pk %}{{ page_query }}" class="pl-event-page__guest-form" data-guest-rsvp-form>
       {% csrf_token %}
       <p class="pl-event-page__note pl-event-page__guest-hint">No account needed. A Past Lives member can <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" hx-boost="false">log in</a> to RSVP with one tap.</p>
       {% include "components/form_field.html" with field=guest_form.name %}
