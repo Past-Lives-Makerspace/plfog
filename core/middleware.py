@@ -260,6 +260,24 @@ class ToastFlashMiddleware:
         return response
 
 
+#: The public event pages a guest account is served on the members surface (the HQ links to them): one event's page,
+#: its printable flyer, its Add to calendar file and the guest RSVP post, as a signed-out visitor has them (the page
+#: renders for a guest as for a signed-out visitor). The members' one tap RSVP (``hub_event_rsvp``) stays members only,
+#: and so does everything else under /events/ (its editor, Manage Events, the review queue, the photo endpoints).
+GUEST_EVENT_URL_NAMES = frozenset({"hub_event_detail", "hub_event_flyer", "hub_event_ics", "hub_event_rsvp_guest"})
+
+
+def _is_public_event_page(request: HttpRequest) -> bool:
+    """Whether the request is for one of :data:`GUEST_EVENT_URL_NAMES`, by the URL it resolves to."""
+    from django.urls import Resolver404, resolve
+
+    try:
+        match = resolve(request.path_info, getattr(request, "urlconf", None))
+    except Resolver404:
+        return False
+    return match.url_name in GUEST_EVENT_URL_NAMES and not match.namespace
+
+
 def _kiln_is_open() -> bool:
     """The kiln launch switch, read only for a locked-out guest (#691)."""
     from kiln.access import guest_may_use_kiln
@@ -283,7 +301,9 @@ class MemberLockoutMiddleware:
     - Guilds and signage surfaces are guest surfaces with their own allowlists: untouched.
     - Two exceptions for a guest account on the members surface. The Holiday Bizarre HQ
       (``/hq/``) is served to a guest always: its volunteer and wine wall doors are for people
-      with or without an account, and each card's own audience decides what a guest may open.
+      with or without an account, and each card's own audience decides what a guest may open; so are
+      the public event pages it links to (``GUEST_EVENT_URL_NAMES``: one event's page, its flyer, its
+      calendar file and the guest RSVP post), which a signed-out visitor already opens.
       And (#691) while ``SiteConfiguration.kiln_tickets_open`` is on, a guest is served the
       kiln ticket pages (``/kiln/``), and every other gated members path sends them there
       instead of to the lockout page. While it is off, a guest off ``/hq/`` is handled as
@@ -320,6 +340,9 @@ class MemberLockoutMiddleware:
             # A guest may open the Holiday Bizarre HQ: its doors are for people with or
             # without an account, and the card's audience decides the rest (hq.access).
             if request.path.startswith(reverse("hq:index")):
+                return self.get_response(request)
+            # The event pages the HQ links to (its RSVP card, the flyer), which anyone signed out may open too.
+            if _is_public_event_page(request):
                 return self.get_response(request)
             if _kiln_is_open():
                 # A guest (#691) may use the kiln pages and nothing else on the members

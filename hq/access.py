@@ -78,7 +78,7 @@ def hub_for_action(slug: str, request: HttpRequest) -> EventHub:
 
 
 def _hub(slug: str, *, admin: bool) -> EventHub:
-    hub = EventHub.objects.filter(slug=slug).select_related("event").first()
+    hub = EventHub.objects.filter(slug=slug).select_related("event__area").first()
     if hub is None or (not hub.is_open and not admin):
         raise Http404("No such HQ.")
     return hub

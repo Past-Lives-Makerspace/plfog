@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import os
+from datetime import timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -16,6 +17,7 @@ from django.core.files.storage import FileSystemStorage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 from PIL import Image
 
 from hq import services
@@ -44,7 +46,7 @@ from hub.view_as import ROLE_MEMBER
 from membership.models import Member
 from tests.hq.conftest import signed_in
 from tests.hq.factories import EventHubFactory, HubCardFactory, MarketingActionFactory
-from tests.membership.factories import CommunityEventFactory, EventRSVPFactory
+from tests.membership.factories import CommunityEventFactory, EventRSVPFactory, LocationFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -287,6 +289,18 @@ def describe_the_page_cost():
 
         with django_assert_num_queries(QUERIES_PER_PAGE):
             member_client.get(_page(hub))
+
+    def it_costs_the_same_showing_the_flyer_the_event_makes(hub, event, member_client, django_assert_num_queries):
+        # No upload: the poster is the event's own flyer. Its sheet reads the event and its area, which come with the
+        # hub (select_related), and draws the QR in Python, so the page costs what it does with an upload.
+        event.area = LocationFactory()
+        event.save(update_fields=["area"])
+        member_client.get(_page(hub))
+
+        with django_assert_num_queries(QUERIES_PER_PAGE):
+            response = member_client.get(_page(hub))
+
+        assert "data-hq-fl-generated" in response.content.decode()
 
 
 def describe_this_years_flyer():
@@ -1039,3 +1053,79 @@ def describe_the_seed():
         admins_only = result.summary.split(" New and admins only until you open it: ")[1].split(".")[0]
         assert "Event flyer and sharing" in admins_only.split(", ")
         assert "open to members" not in result.summary
+
+
+def describe_the_flyer_the_event_makes():
+    """With no 2026 flyer uploaded, the poster is the flyer the event system makes for the hub's published event."""
+
+    def it_shows_the_events_flyer_in_place_of_coming_soon(hub, event, member_client):
+        body = member_client.get(_page(hub)).content.decode()
+
+        flyer_url = reverse("hub_event_flyer", args=[event.pk])
+        assert (
+            f'<a href="{flyer_url}" class="pl-hq-fl__poster pl-hq-fl__poster--sheet" target="_blank" rel="noopener"'
+            ' aria-label="Open the event flyer full size" data-hq-fl-poster data-hq-fl-generated>' in body
+        )
+        assert f'data-event-flyer="{event.pk}"' in body
+        assert '<p class="pl-evfl__title" data-evfl-title>Holiday Bizarre</p>' in body  # not a second h1
+        assert '<div class="pl-evfl__qr"><svg' in body
+        assert "data-hq-fl-soon" not in body
+
+    def it_offers_view_full_size_and_print_but_no_download(hub, event, member_client):
+        body = member_client.get(_page(hub)).content.decode()
+
+        flyer_url = reverse("hub_event_flyer", args=[event.pk])
+        assert (
+            f'<a href="{flyer_url}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" target="_blank" rel="noopener"'
+            " data-hq-fl-view>View full size</a>" in body
+        )
+        assert '@click="window.print()" data-hq-fl-print>Print</button>' in body
+        assert "data-hq-fl-download" not in body
+        assert "data-hq-fl-share-download" not in body
+        assert "data-hq-fl-copy-link" in body and "data-hq-fl-copy-message" in body  # the share buttons as today
+
+    def it_tells_an_admin_an_upload_replaces_it(hub, event, admin_client, member_client):
+        assert "data-hq-fl-generated-note" in admin_client.get(_page(hub)).content.decode()
+        assert "data-hq-fl-generated-note" not in member_client.get(_page(hub)).content.decode()
+
+    def it_gives_way_to_an_uploaded_flyer(hub, event, member_client):
+        page = _with_flyer(hub)
+
+        body = member_client.get(_page(hub)).content.decode()
+
+        assert f'<img src="{page.flyer.url}" alt="{hub.title} flyer" data-hq-fl-image>' in body
+        assert "data-hq-fl-generated" not in body
+        assert "data-event-flyer" not in body
+
+    def it_gives_way_to_an_uploaded_pdf(hub, event, member_client):
+        _with_flyer(hub, upload=_pdf())
+
+        body = member_client.get(_page(hub)).content.decode()
+
+        assert "data-hq-fl-pdf" in body
+        assert "data-hq-fl-generated" not in body
+
+    def it_keeps_coming_soon_with_no_event(hub, member_client):
+        body = member_client.get(_page(hub)).content.decode()
+
+        assert "data-hq-fl-soon" in body
+        assert "data-hq-fl-generated" not in body
+
+    def it_keeps_coming_soon_while_the_event_is_unpublished(hub, event, member_client):
+        event.moderation_state = event.ModerationState.DRAFT
+        event.save(update_fields=["moderation_state"])
+
+        body = member_client.get(_page(hub)).content.decode()
+
+        assert "data-hq-fl-soon" in body
+        assert "data-hq-fl-generated" not in body
+
+    def it_keeps_coming_soon_once_a_one_off_event_has_ended(hub, event, member_client):
+        event.starts_at = timezone.now() - timedelta(days=2)
+        event.ends_at = event.starts_at + timedelta(hours=3)
+        event.save(update_fields=["starts_at", "ends_at"])
+
+        body = member_client.get(_page(hub)).content.decode()
+
+        assert "data-hq-fl-soon" in body
+        assert "data-hq-fl-generated" not in body

@@ -898,6 +898,86 @@ def describe_the_guest_form():
         assert any("Too many" in m.message for m in get_messages(resp.wsgi_request))
 
 
+def describe_a_guest_account_on_the_page():
+    """A guest account (#654) is no member: the page renders for it as for a signed-out visitor (the count without
+    names, the guest form with its honeypot and rate limit), never the members' Who's Going or one tap RSVP."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_counters():
+        cache.clear()
+
+    @pytest.fixture
+    def guest_client(client: Client) -> Client:
+        user = _user_with_role("evt_guest_account")
+        member = user.member
+        member.status = Member.Status.GUEST
+        member.save(update_fields=["status"])
+        client.force_login(user)
+        return client
+
+    def it_shows_a_guest_the_count_but_no_member_names(guest_client: Client):
+        event = CommunityEventFactory(community=True)
+        EventRSVPFactory(event=event, member=MemberFactory(full_legal_name="Zzytrix Quon"))
+
+        body = guest_client.get(_page_url(event)).content.decode()
+
+        assert 'data-people-count="1">1<' in body
+        assert "Zzytrix Quon" not in body
+        assert 'id="whos-coming"' in body  # the band carries the anchor, as for a signed-out visitor
+
+    def it_offers_a_guest_the_guest_form_not_the_member_one_tap(guest_client: Client):
+        event = CommunityEventFactory(community=True)
+
+        body = guest_client.get(_page_url(event)).content.decode()
+
+        assert _GUEST_FORM in body and _MEMBER_FORM not in body
+        assert f'href="{reverse("classes:public_list")}"' in body
+        assert f'href="{reverse("hub_community_calendar")}"' not in body
+
+    def it_counts_a_guest_who_rsvps_through_the_guest_form(guest_client: Client):
+        event = CommunityEventFactory(community=True)
+
+        resp = _guest_post(guest_client, event, name="Gale Guest", email="gale@example.com")
+
+        assert resp["Location"] == _page_url(event, "?going=1")
+        rsvp = event.rsvps.get()
+        assert rsvp.is_guest and rsvp.member is None and rsvp.email == "gale@example.com"
+        body = guest_client.get(resp["Location"]).content.decode()
+        assert _GOING in body and 'data-people-count="2"' in body
+
+    def it_answers_a_guests_filled_honeypot_like_a_success_and_writes_nothing(guest_client: Client):
+        event = CommunityEventFactory(community=True)
+
+        resp = _guest_post(guest_client, event, website="http://spam.example")
+
+        assert resp["Location"] == _page_url(event, "?going=1")
+        assert not event.rsvps.exists()
+
+    # Its own cache: LocMemCache shares storage by LOCATION, and the signed-out spec above fills _LOCMEM's.
+    @override_settings(
+        CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "guest-acct-limit"}}
+    )
+    def it_holds_a_guest_to_the_same_rate_limit(guest_client: Client):
+        event = CommunityEventFactory(community=True)
+        for i in range(10):
+            assert _guest_post(guest_client, event, email=f"g{i}@example.com")["Location"].endswith("?going=1")
+
+        resp = _guest_post(guest_client, event, email="g10@example.com")
+
+        assert resp["Location"] == _page_url(event)
+        assert event.rsvps.count() == 10
+
+    def it_keeps_the_way_back_to_the_hq_for_a_guest(guest_client: Client):
+        from tests.hq.factories import EventHubFactory
+
+        event = CommunityEventFactory(community=True)
+        hub = EventHubFactory(is_open=True, event=event, title="Holiday Bizarre HQ")
+
+        body = guest_client.get(_page_url(event, "?from=hq")).content.decode()
+
+        assert f'href="{hub.get_absolute_url()}" class="pl-event-page__back" data-event-hq-back>' in body
+
+
 def _page_url_body(client: Client, event: CommunityEvent, query: str = "") -> str:
     return client.get(_page_url(event, query)).content.decode()
 

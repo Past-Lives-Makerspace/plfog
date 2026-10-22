@@ -1,0 +1,70 @@
+{% comment %}
+One Community Event's printable flyer, a Letter page drawn in container units so it reads the same at any width: on
+its own page (hub/event_flyer.html, hub_event_flyer) and scaled into the HQ's Event flyer and sharing page when no
+2026 flyer is uploaded (hq/flyer.html). Styles in static/css/event-flyer.css, forced light because it is paper.
+
+Top to bottom: the hero (the photo cut to its crop box, left out with none), the title (sized by its length,
+CommunityEvent.flyer_title_size, so a long one prints whole), the next date with its time and a series' repeat
+(CommunityEvent.flyer_when, no dashes), the place as the event page names it (two lines at most), the RSVP goal when
+the event page shows one, the pitch or else the description's opening words (last, the one line that gives way to
+room), then the band with the Past Lives name and address beside the QR to the event's public page and its short URL.
+
+  event   — required, the CommunityEvent (area selected with it)
+  qr_svg  — required, event.qr_svg() rendered once by the caller
+  preview — optional, True inside the HQ page, where the title is not the page's heading
+{% endcomment %}
+<div class="pl-evfl" data-event-flyer="{{ event.pk }}">
+  <article class="pl-evfl__sheet{% if not event.photo %} pl-evfl__sheet--plain{% endif %}">
+    {% if event.photo %}
+    <img class="pl-evfl__hero" src="{{ event.hero_image_url }}" alt="" data-hero-position="{{ event.hero_object_position }}" data-evfl-hero>
+    {% endif %}
+    <div class="pl-evfl__body">
+      <p class="pl-evfl__eyebrow">Past Lives Makerspace</p>
+      {% if preview %}
+      <p class="pl-evfl__title{% if event.flyer_title_size %} pl-evfl__title--{{ event.flyer_title_size }}{% endif %}" data-evfl-title>{{ event.title }}</p>
+      {% else %}
+      <h1 class="pl-evfl__title{% if event.flyer_title_size %} pl-evfl__title--{{ event.flyer_title_size }}{% endif %}" data-evfl-title>{{ event.title }}</h1>
+      {% endif %}
+      {% with when=event.flyer_when %}
+      <div class="pl-evfl__when" data-evfl-when>
+        <p class="pl-evfl__date">{{ when.date }}</p>
+        <p class="pl-evfl__time">{{ when.time }}{% if when.cadence %}<span class="pl-evfl__cadence" data-evfl-cadence>{{ when.cadence }}</span>{% endif %}</p>
+      </div>
+      {% endwith %}
+      {% if event.area or event.location %}
+      <p class="pl-evfl__where" data-evfl-where>{% if event.area %}{{ event.area.name }}{% if event.location %} · {% endif %}{% endif %}{{ event.location }}</p>
+      {% endif %}
+      {% if event.rsvp_goal %}
+      <p class="pl-evfl__goal" data-evfl-goal="{{ event.rsvp_goal }}">Help us reach {{ event.rsvp_goal }} {{ event.rsvp_goal|pluralize:"person,people" }}</p>
+      {% endif %}
+      {% if event.pitch %}
+      <p class="pl-evfl__pitch" data-evfl-pitch>{{ event.pitch }}</p>
+      {% elif event.description %}
+      <p class="pl-evfl__pitch" data-evfl-pitch>{{ event.description_text|truncatewords:45 }}</p>
+      {% endif %}
+    </div>
+    <footer class="pl-evfl__band">
+      <div class="pl-evfl__venue">
+        <p class="pl-evfl__venue-name">Past Lives Makerspace</p>
+        <p class="pl-evfl__venue-line">2808 SE 9th Ave</p>
+        <p class="pl-evfl__venue-line">Portland, OR 97202</p>
+      </div>
+      <div class="pl-evfl__qr-panel" data-evfl-qr>
+        <div class="pl-evfl__qr">{{ qr_svg|safe }}</div>
+        <p class="pl-evfl__qr-caption">Scan to see it and RSVP</p>
+        <p class="pl-evfl__qr-url" data-evfl-url>{{ event.short_url }}</p>
+      </div>
+    </footer>
+  </article>
+</div>
+{% if event.photo %}
+{# The hero's focal point rides data-hero-position and lands here, so the markup carries no style attribute (FRONTEND rule 9); idempotent, and re-run on every boosted arrival. #}
+<script>
+  (function () {
+    var heroes = document.querySelectorAll("[data-evfl-hero]");
+    for (var i = 0; i < heroes.length; i += 1) {
+      heroes[i].style.objectPosition = heroes[i].getAttribute("data-hero-position");
+    }
+  })();
+</script>
+{% endif %}
