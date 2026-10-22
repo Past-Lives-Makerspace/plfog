@@ -105,6 +105,28 @@ def describe_who_may_see_it():
         assert client.get(reverse("hub_event_flyer", args=[999999])).status_code == 404
 
 
+def describe_an_ended_event():
+    def it_says_a_one_off_has_already_taken_place(client: Client):
+        start = timezone.now() - timedelta(days=3)
+        event = CommunityEventFactory(community=True, starts_at=start, ends_at=start + timedelta(hours=2))
+
+        body = client.get(_flyer(event)).content.decode()
+
+        assert "data-evfl-past>This event has already taken place.</p>" in body
+
+    def it_has_no_note_for_an_upcoming_event_or_a_series(client: Client):
+        start = timezone.now() - timedelta(days=30)
+        series = CommunityEventFactory(
+            community=True,
+            starts_at=start,
+            ends_at=start + timedelta(hours=2),
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+        )
+
+        assert "data-evfl-past" not in client.get(_flyer(CommunityEventFactory(community=True))).content.decode()
+        assert "data-evfl-past" not in client.get(_flyer(series)).content.decode()
+
+
 def describe_the_sheet():
     def it_carries_the_title_date_place_pitch_goal_qr_and_address(client: Client):
         event = CommunityEventFactory(

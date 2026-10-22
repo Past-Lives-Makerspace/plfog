@@ -1501,8 +1501,9 @@ def _flyer_context(
     # The Marketing Tracker and Vendor Tables links, in one read of the cards: only the doors open to this viewer.
     door_urls = _door_urls(hub, member, is_admin)
     # With no 2026 flyer uploaded, the poster is the flyer the event system makes for the hub's event (hub_event_flyer),
-    # once that event is published: its QR opens the event page, which an unpublished event does not have.
-    flyer_event = event if not page.flyer and event is not None and event.is_published else None
+    # once that event is published (its QR opens the event page, which an unpublished event does not have) and until a
+    # one-off has ended, when its date would read as still to come.
+    flyer_event = event if not page.flyer and event is not None and event.is_published and not event.has_ended else None
     context: dict[str, Any] = {
         **_flyer_share_context(hub, page),
         "card": card,

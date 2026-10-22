@@ -28,6 +28,7 @@
     {% if event.is_published %}<a class="pl-evfl-page__link" href="{% url 'hub_event_detail' event.pk %}" data-evfl-event-link>Open the event page</a>{% endif %}
   </div>
   <p class="pl-evfl-page__hint">Use your browser's Print dialog and choose “Save as PDF,” or print it and post it up. It fits one Letter page.</p>
+  {% if event.has_ended %}<p class="pl-evfl-page__hint pl-evfl-page__hint--warn" data-evfl-past>This event has already taken place.</p>{% endif %}
   {% if not event.is_published %}<p class="pl-evfl-page__hint pl-evfl-page__hint--warn" data-evfl-unpublished>Only people who can edit this event see this flyer until it is published. Its QR code opens the event page once it is.</p>{% endif %}
 </header>
 

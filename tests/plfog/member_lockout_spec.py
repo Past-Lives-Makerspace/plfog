@@ -368,6 +368,65 @@ def describe_a_guest_account_and_the_holiday_bizarre_hq():
         assert client.get(reverse("hq:page", args=["bizarre"]))["Location"] == _locked_url("former")
 
 
+def describe_a_guest_account_and_the_public_event_pages():
+    """The HQ links a guest to an event's public page (the RSVP card) and its flyer, which a signed-out visitor already
+    opens, so a guest is served those and the page's RSVP posts (core.middleware.GUEST_EVENT_URL_NAMES), and nothing
+    else under /events/."""
+
+    @pytest.fixture
+    def guest_client(client):
+        client.force_login(_user_with_status("event_guest", Member.Status.GUEST))
+        return client
+
+    @pytest.fixture
+    def event(db):
+        from tests.membership.factories import CommunityEventFactory
+
+        return CommunityEventFactory(community=True, title="Holiday Bizarre")
+
+    def it_serves_the_event_page_its_flyer_and_its_calendar_file_to_a_guest(guest_client, event):
+        assert guest_client.get(reverse("hub_event_detail", args=[event.pk])).status_code == 200
+        assert guest_client.get(reverse("hub_event_flyer", args=[event.pk])).status_code == 200
+        assert guest_client.get(reverse("hub_event_ics", args=[event.pk])).status_code == 200
+
+    def it_lets_a_guest_rsvp_from_the_page(guest_client, event):
+        response = guest_client.post(reverse("hub_event_rsvp", args=[event.pk]), {"party_size": "1"})
+
+        assert response["Location"] == reverse("hub_event_detail", args=[event.pk])
+        assert event.rsvps.count() == 1
+
+    def it_sends_a_guest_on_the_guest_rsvp_post_back_to_the_page(guest_client, event):
+        response = guest_client.post(reverse("hub_event_rsvp_guest", args=[event.pk]), {})
+
+        assert response["Location"] == reverse("hub_event_detail", args=[event.pk])
+
+    def it_still_locks_a_guest_out_of_the_rest_of_events(guest_client, event):
+        for path in (
+            reverse("hub_event_edit", args=[event.pk]),
+            reverse("hub_event_add"),
+            reverse("hub_event_qr", args=[event.pk, "svg"]),
+            reverse("hub_event_review_queue"),
+            reverse("hub_propose_event"),
+            reverse("hub_admin_events"),
+            reverse("hub_admin_event", args=[event.pk]),
+        ):
+            assert guest_client.get(path)["Location"] == _locked_url("guest"), path
+
+    def it_sends_a_guest_to_the_kiln_from_the_rest_while_that_switch_is_on(guest_client, event):
+        config = SiteConfiguration.load()
+        config.kiln_tickets_open = True
+        config.save(update_fields=["kiln_tickets_open"])
+
+        assert guest_client.get(reverse("hub_event_flyer", args=[event.pk])).status_code == 200
+        assert guest_client.get(reverse("hub_event_edit", args=[event.pk]))["Location"] == reverse("kiln:mine")
+
+    def it_leaves_a_former_member_locked_out_of_the_event_page(client, event):
+        client.force_login(_user_with_status("event_former", Member.Status.FORMER))
+
+        assert client.get(reverse("hub_event_flyer", args=[event.pk]))["Location"] == _locked_url("former")
+        assert client.get(reverse("hub_event_detail", args=[event.pk]))["Location"] == _locked_url("former")
+
+
 def describe_the_lockout_page():
     def it_offers_a_signed_in_member_their_bookings_and_a_log_out(client, settings):
         settings.BOOK_BASE_URL = "https://book.example.test"

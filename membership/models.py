@@ -8822,6 +8822,18 @@ class CommunityEvent(HeroCropMixin, models.Model):
         """Whether the event is live (``PUBLISHED``): it has a public page, and so its flyer is public too."""
         return self.moderation_state == self.ModerationState.PUBLISHED
 
+    #: The printed flyer's title steps: (longest title in characters, size), shortest first; longer than the last is
+    #: ``"xlong"``. Read by :attr:`flyer_title_size`, so a title up to the 200 character cap prints whole.
+    FLYER_TITLE_STEPS: tuple[tuple[int, str], ...] = ((28, ""), (60, "mid"), (110, "long"))
+
+    @property
+    def flyer_title_size(self) -> str:
+        """The flyer title's size step for its length: ``""`` (the largest), ``"mid"``, ``"long"`` or ``"xlong"``."""
+        for longest, size in self.FLYER_TITLE_STEPS:
+            if len(self.title) <= longest:
+                return size
+        return "xlong"
+
     @property
     def flyer_when(self) -> FlyerWhen:
         """The date and time the printed flyer shows (``hub_event_flyer``), for the next date anyone can come to.

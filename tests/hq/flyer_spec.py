@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import os
+from datetime import timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -16,6 +17,7 @@ from django.core.files.storage import FileSystemStorage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 from PIL import Image
 
 from hq import services
@@ -1112,6 +1114,16 @@ def describe_the_flyer_the_event_makes():
     def it_keeps_coming_soon_while_the_event_is_unpublished(hub, event, member_client):
         event.moderation_state = event.ModerationState.DRAFT
         event.save(update_fields=["moderation_state"])
+
+        body = member_client.get(_page(hub)).content.decode()
+
+        assert "data-hq-fl-soon" in body
+        assert "data-hq-fl-generated" not in body
+
+    def it_keeps_coming_soon_once_a_one_off_event_has_ended(hub, event, member_client):
+        event.starts_at = timezone.now() - timedelta(days=2)
+        event.ends_at = event.starts_at + timedelta(hours=3)
+        event.save(update_fields=["starts_at", "ends_at"])
 
         body = member_client.get(_page(hub)).content.decode()
 

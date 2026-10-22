@@ -1,11 +1,11 @@
 /* event-flyer-page.css: the page around one event's flyer (templates/hub/event_flyer.html), with no member chrome.
    The sheet (event-flyer.css) is paper and always light; the page around it follows the member's theme, dark by
    default and light under [data-theme="light"], as hub/base.html sets it. Print is the sheet alone on one Letter
-   page with no margin of its own: the sheet keeps the printer's margin inside itself. */
+   page inside a quarter inch margin, which a home printer keeps white anyway, so the band never shows a strip. */
 
 @page {
   size: letter;
-  margin: 0;
+  margin: 0.25in;
 }
 
 .pl-evfl-page {
@@ -107,13 +107,13 @@
   }
   .pl-evfl-page__main {
     max-width: none;
-    width: 8.5in;
+    width: 8in;
     border: none;
     box-shadow: none;
   }
-  /* A hair under the page, so rounding never spills a blank second page. */
+  /* 8 by 10.35 inches, the sheet's shape inside the 8 by 10.5 the margin leaves, so it is always one page. */
   .pl-evfl-page .pl-evfl__sheet {
     aspect-ratio: auto;
-    height: 10.98in;
+    height: 10.35in;
   }
 }

@@ -35,7 +35,7 @@
   flex: 0 0 auto;
   display: block;
   width: calc(100% - 12cqi);
-  height: 28cqi;
+  height: 23cqi;
   margin: 5.5cqi 6cqi 0;
   object-fit: cover;
   border-radius: 1.6cqi;
@@ -46,14 +46,20 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 2cqi;
-  padding: 4cqi 6cqi 3cqi;
+  gap: 1.6cqi;
+  padding: 3.5cqi 6cqi 2.5cqi;
   overflow: hidden;
 }
 
-/* Each line keeps its own height; a long title or pitch is clamped by lines instead. */
+/* Each line keeps its own height (the title steps down by length, the place stops at two lines), so the goal
+   always shows; only the pitch, last, gives way, and it is clamped by lines with an ellipsis before it has to. */
 .pl-evfl__body > * {
   flex-shrink: 0;
+}
+
+.pl-evfl__body > .pl-evfl__pitch {
+  flex-shrink: 1;
+  min-height: 0;
 }
 
 /* With no photo the title leads the page, under a gold rule. */
@@ -79,20 +85,38 @@
   font-family: "Playfair Display", Georgia, serif;
   font-size: 6.6cqi;
   font-weight: 900;
-  line-height: 1.04;
+  line-height: 1.06;
   color: #092e4c;
   overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
+}
+
+/* Longer titles step down rather than clamp (CommunityEvent.flyer_title_size), so the 200 character cap prints whole. */
+.pl-evfl__title--mid {
+  font-size: 5.2cqi;
+}
+
+.pl-evfl__title--long {
+  font-size: 4.2cqi;
+}
+
+.pl-evfl__title--xlong {
+  font-size: 3.4cqi;
 }
 
 .pl-evfl__sheet--plain .pl-evfl__title {
   font-size: 8.8cqi;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+}
+
+.pl-evfl__sheet--plain .pl-evfl__title--mid {
+  font-size: 6.4cqi;
+}
+
+.pl-evfl__sheet--plain .pl-evfl__title--long {
+  font-size: 5cqi;
+}
+
+.pl-evfl__sheet--plain .pl-evfl__title--xlong {
+  font-size: 4cqi;
 }
 
 .pl-evfl__sheet--plain .pl-evfl__pitch {
@@ -135,11 +159,16 @@
 }
 
 .pl-evfl__where {
-  font-size: 2.9cqi;
+  font-size: 2.7cqi;
   font-weight: 700;
   line-height: 1.3;
   color: #092e4c;
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 
 .pl-evfl__pitch {
@@ -173,7 +202,7 @@
   justify-content: space-between;
   gap: 4cqi;
   margin-top: auto;
-  padding: 3cqi 6cqi 4.5cqi;
+  padding: 2.6cqi 6cqi 4cqi;
   background: #092e4c;
   color: #ffffff;
 }
@@ -195,16 +224,16 @@
 
 .pl-evfl__qr-panel {
   flex: 0 0 auto;
-  width: 26cqi;
-  padding: 1.4cqi;
+  width: 25cqi;
+  padding: 1.3cqi;
   border-radius: 1.6cqi;
   background: #ffffff;
   text-align: center;
 }
 
 .pl-evfl__qr {
-  width: 19.2cqi;
-  height: 19.2cqi;
+  width: 17.5cqi;
+  height: 17.5cqi;
   margin: 0 auto;
 }
 
