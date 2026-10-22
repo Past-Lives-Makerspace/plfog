@@ -1,0 +1,19 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+One card's share panel on its own page: where the HQ page's Share button goes with no script, and what a GET without
+htmx answers. The panel is hq/partials/_share_form.html as a plain post, which lands back on the HQ page.
+{% endcomment %}
+{% block title %}Share {{ card.title }}{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/hq.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-hq-edit" data-hq-share-page>
+  {% url 'hq:page' hub.slug as back_url %}
+  {% include "components/page_header.html" with title="Share "|add:card.title description="Who can open this card. Admins always can." action_url=back_url action_label="Back to the HQ" %}
+  <div class="hub-card pl-hq-edit__card">
+    {% include "hq/partials/_share_form.html" with as_page=True %}
+  </div>
+</div>
+{% endblock %}

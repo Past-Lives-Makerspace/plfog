@@ -1,6 +1,7 @@
 {% comment %}
 One budget line as its own tbody: the line's row (its name and category, the budget, how it was covered and Lee's
-status chip) with an Edit button, and under it the edit row with the line's form, open when a Save was refused. Save
+status chip) with an Edit button for admins (by the effective role; budget lines are settings the Team never
+changes), and under it the edit row with the line's form, open when a Save was refused. Save
 swaps this tbody alone over htmx. A line with entries shows how many instead of Delete (the delete is refused by
 name, as a shift with sign-ups is); an empty line deletes through the confirm modal.
 
@@ -14,7 +15,8 @@ name, as a shift with sign-ups is); an empty line deletes through the confirm mo
     <td class="pl-hq-lg__line-name">
       <span class="pl-hq-lg__strong" data-hq-lg-line-name>{{ line.name }}</span>
       <span class="pl-hq-lg__cat" data-hq-lg-line-category>{{ line.get_category_display }}</span>
-      <button type="button" class="pl-hq-lg__link" @click="editing = !editing" :aria-expanded="editing.toString()" aria-expanded="{{ row.open|yesno:'true,false' }}" aria-label="Edit {{ line.name }}" data-hq-lg-line-edit x-text="editing ? 'Done' : 'Edit'">Edit</button>
+      {# Budget lines are settings: Edit and Delete show to admins only by the effective role, never the Team. #}
+      {% if request.view_as.is_admin %}<button type="button" class="pl-hq-lg__link" @click="editing = !editing" :aria-expanded="editing.toString()" aria-expanded="{{ row.open|yesno:'true,false' }}" aria-label="Edit {{ line.name }}" data-hq-lg-line-edit x-text="editing ? 'Done' : 'Edit'">Edit</button>{% endif %}
     </td>
     <td class="pl-hq-lg__num">{{ line.budget_display }}</td>
     <td class="pl-hq-lg__num">{{ totals.sponsored_display }}</td>
@@ -22,6 +24,7 @@ name, as a shift with sign-ups is); an empty line deletes through the confirm mo
     <td class="pl-hq-lg__num">{{ totals.paid_other_display }}</td>
     <td><span class="pl-hq-lg__chip{% if totals.status.tone %} pl-hq-lg__chip--{{ totals.status.tone }}{% endif %}" data-hq-lg-status>{{ totals.status.label }}</span></td>
   </tr>
+  {% if request.view_as.is_admin %}
   <tr class="pl-hq-lg__edit-row" x-show="editing"{% if not row.open %} x-cloak{% endif %}>
     <td colspan="6">
       {% if row.error %}<p class="pl-field-error" role="alert" data-hq-lg-line-error>{{ row.error }}</p>{% endif %}
@@ -52,5 +55,6 @@ name, as a shift with sign-ups is); an empty line deletes through the confirm mo
       {% endif %}
     </td>
   </tr>
+  {% endif %}
 </tbody>
 {% endwith %}

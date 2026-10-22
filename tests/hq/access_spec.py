@@ -75,7 +75,7 @@ def describe_the_hq_page():
             "admin": signed_in(make_member(fog_role=Member.FogRole.ADMIN)),
         }
         named = make_member()
-        doors["admins"].named_members.add(named)
+        doors["admins"].team.add(named)
         clients["named"] = signed_in(named)
 
         body = clients[viewer].get(_page(open_hub)).content.decode()
@@ -217,7 +217,7 @@ def describe_card_or_404():
 
     def it_404s_an_admins_card_for_a_member_but_not_for_a_named_member(open_hub, member, make_member):
         named = make_member()
-        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL, audience=ADMINS, named=[named])
+        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL, audience=ADMINS, team=[named])
 
         with pytest.raises(Http404):
             card_or_404(open_hub, HubCard.Kind.WINE_WALL, _request(member.user))
@@ -288,7 +288,7 @@ def describe_organizer_required():
     def it_keeps_a_closed_hub_from_a_named_member(make_member):
         named = make_member()
         closed = EventHubFactory(is_open=False)
-        HubCardFactory(hub=closed, kind=HubCard.Kind.WINE_WALL, named=[named])
+        HubCardFactory(hub=closed, kind=HubCard.Kind.WINE_WALL, team=[named])
         wrapped = organizer_required(HubCard.Kind.WINE_WALL)(_view)
 
         with pytest.raises(Http404):
@@ -296,7 +296,7 @@ def describe_organizer_required():
 
     def it_admits_a_named_member(open_hub, make_member):
         named = make_member()
-        HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL, named=[named])
+        HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL, team=[named])
         wrapped = organizer_required(HubCard.Kind.WINE_WALL)(_view)
 
         assert wrapped(_request(named.user), slug=open_hub.slug).status_code == 200

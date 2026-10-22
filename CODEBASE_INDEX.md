@@ -62,7 +62,7 @@ Those nine plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Oth
 ### polls
 - `Poll` / `PollChoice` / `PollVote` — Spotlight polls (#708); open while `opens_at <= now < closes_at`; one vote per member per poll
 ### hq
-- `EventHub` / `HubCard` / `HubGoal` — the Holiday Bizarre HQ: the one open hub, its door cards (kind, audience, named members, hidden) and its goal chips; `hq.services.goal_rows` counts the live kinds
+- `EventHub` / `HubCard` / `HubGoal` — the Holiday Bizarre HQ: the one open hub, its door cards (kind, audience, Can open and Team, hidden) and its goal chips; `hq.services.goal_rows` counts the live kinds
 ### classes (book CMS — `book.` subdomain)
 - `Category` (+ `verbose_name`) — class grouping; **UI labeled "Guild"** (see relabel plan); optional FK to `membership.Guild`
 - `ClassOffering` (+ `ClassOfferingQuerySet`) — a class; status DRAFT/PENDING/PUBLISHED/ARCHIVED; `public()` / `bookable()`; sequential approval state machine; instructor welcome-email fields

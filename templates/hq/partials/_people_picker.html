@@ -1,0 +1,34 @@
+{% comment %}
+One of the share panel's two people pickers (Can open, Team), on the HQ page's Share modal and on the card edit page.
+The chosen people are chips with their name and email, each removable; the search box narrows a list of everyone the
+form offers (ACTIVE members plus anyone already on a list), and picking a row adds its chip. It is the
+inquiryMemberPicker's pattern (a search box over role="option" rows drawn by the page) made to keep several people:
+the hqPeoplePicker component (static/js/hq_people_picker.js). The chips' hidden inputs are what posts, so the list as
+saved posts unchanged with no script.
+
+  picker — required, a hq.forms.PeoplePicker
+{% endcomment %}
+{% with field=picker.field %}
+<div class="pl-form-group pl-hq-people" x-data="hqPeoplePicker" @keydown="onKey($event)" data-hq-people="{{ field.name }}">
+  <span class="pl-form-label" id="{{ picker.dom_id }}-label">{{ field.label }}</span>
+  <p class="pl-field-hint pl-hq-people__hint">{{ field.help_text }}</p>
+  <ul class="pl-hq-people__chips" aria-labelledby="{{ picker.dom_id }}-label" data-hq-people-chips>
+    {% for person in picker.chosen %}{% include "hq/partials/_people_chip.html" with name=field.name person=person %}{% endfor %}
+  </ul>
+  <p class="pl-hq-people__none" data-hq-people-none{% if picker.chosen %} hidden{% endif %}>Nobody added yet.</p>
+  <div class="pl-hq-people__search">
+    <label class="pl-form-label pl-hq-people__search-label" for="{{ picker.dom_id }}-q">Add someone to {{ field.label }}</label>
+    <input type="search" id="{{ picker.dom_id }}-q" class="pl-hq-people__input" autocomplete="off" placeholder="Type a name or email" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="{{ picker.dom_id }}-list" @input="filter()" data-hq-people-input>
+  </div>
+  <ul id="{{ picker.dom_id }}-list" class="pl-hq-people__list" role="listbox" aria-label="Members to add to {{ field.label }}" @click="pick($event)" data-hq-people-list hidden>
+    {% for person in picker.options %}<li id="{{ picker.dom_id }}-opt-{{ person.pk }}" class="pl-hq-people__option" role="option" aria-selected="false" data-hq-person-option="{{ person.pk }}" data-name="{{ person.name }}" data-email="{{ person.email }}" data-search="{{ person.search_text }}">{{ person.name }}{% if person.email %} <span class="pl-hq-people__email">{{ person.email }}</span>{% endif %}</li>{% endfor %}
+  </ul>
+  <p class="pl-hq-people__nomatch" data-hq-people-nomatch hidden>No members match.</p>
+  <template data-hq-people-chip-template>{% include "hq/partials/_people_chip.html" with name=field.name person=None %}</template>
+  {% if field.errors %}
+  <ul class="pl-field-errors">
+    {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+</div>
+{% endwith %}

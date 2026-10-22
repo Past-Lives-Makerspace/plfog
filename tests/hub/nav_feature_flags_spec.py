@@ -120,7 +120,6 @@ _NAV_MARKERS: dict[str, tuple[bytes, bytes]] = {
     "voting": (b'href="/manage/voting/" class="hub-sidebar__link', b"Guild Voting"),
     "wiki": (b'href="/wiki/" class="hub-sidebar__link', b"Member Wiki"),
     "my_tab": (b'href="/tab/" class="hub-sidebar__link', b"My Tab"),
-    "holiday_bizarre": (b'href="/hq/" class="hub-sidebar__link', b"Holiday Bizarre"),
 }
 
 

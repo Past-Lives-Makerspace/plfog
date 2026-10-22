@@ -120,7 +120,7 @@ def describe_who_may_open_it():
     def it_gives_the_form_to_a_named_member_on_an_admins_card(card, member):
         card.audience = HubCard.Audience.ADMINS
         card.save(update_fields=["audience"])
-        card.named_members.set([member])
+        card.team.set([member])
 
         body = signed_in(member).get(_page(card.hub)).content.decode()
 
@@ -255,8 +255,8 @@ def describe_logging_an_action():
         action = MarketingAction.objects.get()
         assert (action.reach, action.who, action.details, action.link) == (0, "Kate", "Flyer at Rocking Frog", "")
 
-    def it_starts_on_a_flyer_today_and_suggests_the_cards_named_members(card, admin_client, make_member):
-        card.named_members.set([make_member(preferred_name="Anjali"), make_member(preferred_name="Kate")])
+    def it_starts_on_a_flyer_today_and_suggests_the_cards_team(card, admin_client, make_member):
+        card.team.set([make_member(preferred_name="Anjali"), make_member(preferred_name="Kate")])
 
         body = admin_client.get(_page(card.hub)).content.decode()
 
@@ -329,7 +329,7 @@ def describe_the_log():
 
 def describe_deleting_an_action():
     def it_takes_the_row_off_the_log_for_an_organiser(card, member):
-        card.named_members.set([member])
+        card.team.set([member])
         action = MarketingActionFactory(hub=card.hub)
 
         response = signed_in(member).post(_delete(action), follow=True)

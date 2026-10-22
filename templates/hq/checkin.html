@@ -17,7 +17,7 @@ the hours. No login gate of its own: card_view decides who may open the page.
 <div class="pl-hq-ci" data-hq-checkin>
   <div class="pl-hq-ci__top">
     {% if can_organize %}
-    <nav class="pl-hq-ci__staff" aria-label="Organisers" data-hq-ci-staff>
+    <nav class="pl-hq-ci__staff" aria-label="Team" data-hq-ci-staff>
       <a href="{% url 'hq:checkin_reports' hub.slug %}" class="pl-hq-ci__staff-link" data-hq-ci-reports-link>Market reports</a>
       <a href="{% url 'hq:checkin_hours' hub.slug %}" class="pl-hq-ci__staff-link" data-hq-ci-hours-link>All hours</a>
     </nav>

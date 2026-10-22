@@ -221,7 +221,7 @@ def describe_who_may_open_it():
     def it_gives_the_forms_and_details_to_a_named_member_on_an_admins_card(card, member):
         card.audience = HubCard.Audience.ADMINS
         card.save(update_fields=["audience"])
-        card.named_members.set([member])
+        card.team.set([member])
         SponsorFactory(hub=card.hub, email="pat@frog.example")
 
         body = signed_in(member).get(_page(card.hub)).content.decode()
@@ -503,8 +503,8 @@ def describe_adding_a_sponsor():
         assert "data-hq-sp-subline" in response.content.decode()
         assert not Sponsor.objects.exists()
 
-    def it_offers_one_tier_list_and_suggests_the_cards_named_members(card, admin_client, make_member):
-        card.named_members.set([make_member(preferred_name="Dixie"), make_member(preferred_name="Augustin")])
+    def it_offers_one_tier_list_and_suggests_the_cards_team(card, admin_client, make_member):
+        card.team.set([make_member(preferred_name="Dixie"), make_member(preferred_name="Augustin")])
 
         body = admin_client.get(_page(card.hub)).content.decode()
 
@@ -862,7 +862,7 @@ def describe_the_contact_log():
 
 def describe_deleting_a_sponsor():
     def it_takes_the_sponsor_and_its_log_off_for_an_organiser(card, member):
-        card.named_members.set([member])
+        card.team.set([member])
         sponsor = SponsorFactory(hub=card.hub, organization="Spec Bank")
         SponsorLogEntryFactory(sponsor=sponsor)
 
@@ -982,7 +982,7 @@ def describe_adopting_the_placeholder():
             bullets="Who we asked and where it stands\nLevels and what each sponsor gets\nLogos for the flyer and the wall",
             button_text="Track sponsors",
             audience=HubCard.Audience.MEMBERS,
-            named=[member],
+            team=[member],
         )
 
         result = open_hub.seed_default_cards()
@@ -994,7 +994,7 @@ def describe_adopting_the_placeholder():
             HubCard.Audience.MEMBERS,
             "Enter sponsorships",
         )
-        assert list(card.named_members.all()) == [member]
+        assert list(card.team.all()) == [member]
         assert card.url == _page(open_hub)
 
 

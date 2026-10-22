@@ -336,9 +336,13 @@ def describe_a_guest_account_and_the_holiday_bizarre_hq():
 
     @pytest.fixture
     def open_hub(db):
-        from tests.hq.factories import EventHubFactory
+        from hq.models import HubCard
+        from tests.hq.factories import EventHubFactory, HubCardFactory
 
-        return EventHubFactory(is_open=True, slug="bizarre")
+        hub = EventHubFactory(is_open=True, slug="bizarre")
+        # A door open to everyone: with none open to a viewer, the HQ page is a 404 (HQ card sharing).
+        HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL, audience=HubCard.Audience.PUBLIC)
+        return hub
 
     def it_serves_the_hq_pages_to_a_guest(guest_client, open_hub):
         assert guest_client.get(reverse("hq:index"))["Location"] == reverse("hq:page", args=["bizarre"])

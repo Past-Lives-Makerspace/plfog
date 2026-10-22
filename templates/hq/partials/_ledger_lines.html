@@ -1,7 +1,7 @@
 {% comment %}
 Budget lines, and the htmx answer to Add a budget line: the table of lines, each showing how it was covered (Lee's
 Sponsored, Paid from the approval net of refunds, Other PLM $ and her status chip) with a Total row, then Add a budget
-line. Each line is its own tbody (hq/partials/_ledger_line.html) whose Edit opens a row with its form; a line's Save
+line (admins only, by the effective role). Each line is its own tbody (hq/partials/_ledger_line.html) whose Edit opens a row with its form; a line's Save
 swaps only that line and sends the Total row out of band.
 
   hub        — required, the EventHub
@@ -31,12 +31,14 @@ swaps only that line and sends the Total row out of band.
       {% for row in line_rows %}
       {% include "hq/partials/_ledger_line.html" %}
       {% empty %}
-      <tbody><tr><td colspan="6" class="pl-hq-lg__empty" data-hq-lg-lines-empty>No budget lines yet. Add one below.</td></tr></tbody>
+      <tbody><tr><td colspan="6" class="pl-hq-lg__empty" data-hq-lg-lines-empty>No budget lines yet.{% if request.view_as.is_admin %} Add one below.{% endif %}</td></tr></tbody>
       {% endfor %}
       {% if line_rows %}{% include "hq/partials/_ledger_lines_total.html" %}{% endif %}
     </table>
   </div>
 
+  {# Adding a line is a setting: admins only by the effective role, never the Team (admin_required on its POST). #}
+  {% if request.view_as.is_admin %}
   <details class="pl-disclosure pl-hq-lg__disclosure" {% if line_open %}open{% endif %} data-hq-lg-line-add>
     <summary class="pl-disclosure__summary">
       <span class="pl-disclosure__title">Add a budget line</span>
@@ -55,4 +57,5 @@ swaps only that line and sends the Total row out of band.
       </div>
     </form>
   </details>
+  {% endif %}
 </section>

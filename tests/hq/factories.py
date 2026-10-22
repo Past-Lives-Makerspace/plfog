@@ -47,7 +47,8 @@ class EventHubFactory(DjangoModelFactory):
 
 
 class HubCardFactory(DjangoModelFactory):
-    """A placeholder door, admins only. ``named=[member, ...]`` names people on it."""
+    """A placeholder door, admins only. ``team=[member, ...]`` puts people on its Team, ``can_open=[...]`` on its
+    Can open list."""
 
     class Meta:
         model = HubCard
@@ -62,9 +63,14 @@ class HubCardFactory(DjangoModelFactory):
     sort_order = factory.Sequence(lambda n: n)
 
     @factory.post_generation
-    def named(obj, create, extracted, **kwargs):  # noqa: N805  # factory-boy hook, obj is the instance
+    def team(obj, create, extracted, **kwargs):  # noqa: N805  # factory-boy hook, obj is the instance
         if create and extracted:
-            obj.named_members.set(extracted)
+            obj.team.set(extracted)
+
+    @factory.post_generation
+    def can_open(obj, create, extracted, **kwargs):  # noqa: N805  # factory-boy hook, obj is the instance
+        if create and extracted:
+            obj.can_open.set(extracted)
 
 
 class HubGoalFactory(DjangoModelFactory):

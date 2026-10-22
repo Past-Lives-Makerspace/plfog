@@ -84,12 +84,9 @@ def describe_feature_flags():
         assert result["late_cancel_fees_enabled"] is False
         assert result["features"]["my_tab"].is_on
         # Ships in today's behaviour: the features that were live stay live; the wiki keeps the
-        # off state it has always shipped with (core/migrations/0087) and Holiday Bizarre is seeded
-        # Hidden until its HQ exists (core/migrations/0118).
-        assert [key for key, view in result["features"].items() if not view.is_on] == [
-            "wiki",
-            "holiday_bizarre",
-        ]
+        # off state it has always shipped with (core/migrations/0087). Holiday Bizarre's switch is
+        # retired (core/migrations/0119): its entry follows who has a card, not a switch.
+        assert [key for key, view in result["features"].items() if not view.is_on] == ["wiki"]
         assert (
             result["class_registration_disabled_note"]
             == SiteConfiguration._meta.get_field("class_registration_disabled_note").default

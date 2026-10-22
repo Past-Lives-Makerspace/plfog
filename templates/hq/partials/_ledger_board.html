@@ -19,6 +19,8 @@ carries the approval it was rendered with (seen_*).
 {% endcomment %}
 <section class="pl-hq-lg__board" id="hq-lg-board" aria-label="Board summary" data-hq-lg-board>
   {% include "hq/partials/_ledger_board_figures.html" %}
+  {# The approval is a setting: admins only by the effective role, never the Team (admin_required on its POST). #}
+  {% if request.view_as.is_admin %}
   <details class="pl-hq-lg__approval" {% if approval_form.errors or approval_error %}open{% endif %} data-hq-lg-approval>
     <summary class="pl-hq-lg__approval-summary">Change the approval</summary>
     <form method="post" action="{% url 'hq:ledger_approval' hub.slug %}" class="pl-hq-lg__form pl-hq-lg__approval-form" data-hq-lg-approval-form>
@@ -34,4 +36,5 @@ carries the approval it was rendered with (seen_*).
       </div>
     </form>
   </details>
+  {% endif %}
 </section>

@@ -1,0 +1,14 @@
+{% comment %}
+The Holiday Bizarre entry in every block of the sidebar (admin, member and the guest accounts' kiln menu). No feature
+switch decides it: hq_nav (hub.context_processors) is true for an admin, by the effective role, whenever an HQ
+exists, and for anyone else once a card on the open HQ is opened to them. The HQ and its pages share the /hq/
+prefix, so the entry lights by path (the Meetings idiom).
+{% endcomment %}
+{% load hub_tags %}
+{% if hq_nav %}
+{% active_path '/hq/' as hq_active %}
+<a href="{% url 'hq:index' %}" class="hub-sidebar__link {{ hq_active }}" data-nav="hq">
+    {% include "hub/partials/nav_icons/_holiday_bizarre.html" %}
+    Holiday Bizarre
+</a>
+{% endif %}

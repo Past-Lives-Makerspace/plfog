@@ -5217,7 +5217,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_site_settings": is_admin,
             "tool_slideshow": is_admin,
             "tool_growth": is_admin,
-            # Admins reach the HQ here whatever the sidebar switch says (Hidden only drops the entry).
+            # Admins reach the HQ here as well as from the sidebar, which shows it to them once an HQ exists.
             "tool_holiday_bizarre": is_admin,
             "tool_instructor_inquiries": is_admin,
             "tool_leadership": is_admin,

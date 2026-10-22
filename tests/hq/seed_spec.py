@@ -436,7 +436,7 @@ def describe_adopting_a_built_door():
         placeholder.is_hidden = True
         placeholder.sort_order = 2
         placeholder.save(update_fields=["audience", "is_hidden", "sort_order"])
-        placeholder.named_members.set([member])
+        placeholder.team.set([member])
 
         out = _run("--event", str(event.pk))
 
@@ -448,7 +448,7 @@ def describe_adopting_a_built_door():
             True,
             2,
         )
-        assert list(card.named_members.all()) == [member]
+        assert list(card.team.all()) == [member]
         assert hub.cards.count() == 9
         assert not hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).exists()
         assert (

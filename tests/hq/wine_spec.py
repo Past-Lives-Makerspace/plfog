@@ -260,7 +260,7 @@ def describe_logging_a_bottle():
         logger = make_member()
         WineBottleFactory(hub=card.hub, logged_by=logger, note="Knows the giver personally")
         named = make_member()
-        card.named_members.add(named)
+        card.team.add(named)
 
         for client in (signed_in(logger), admin_client, signed_in(named)):
             assert "data-hq-bottle-note" in client.get(_wall(card.hub)).content.decode()
@@ -396,7 +396,7 @@ def describe_deleting():
 
     def it_lets_an_organiser_delete_any_bottle(card, admin_client, make_member):
         named = make_member()
-        card.named_members.add(named)
+        card.team.add(named)
         by_guest = WineBottleFactory(hub=card.hub)
         by_other = WineBottleFactory(hub=card.hub, logged_by=make_member())
 
@@ -669,10 +669,11 @@ def describe_the_wineries():
         assert response.status_code == 200
         assert "MB or smaller" in response.content.decode()
 
-    def it_keeps_the_logo_form_and_its_endpoint_to_organisers(card, member_client, make_member):
+    def it_keeps_the_logo_form_and_its_endpoint_to_admins(card, member_client, admin_client, make_member):
+        """A winery logo is an upload: admins only, never the wall's Team (HQ card sharing)."""
         WineBottleFactory(hub=card.hub, winery="Abacela")
-        named = make_member()
-        card.named_members.add(named)
+        team = make_member()
+        card.team.add(team)
 
         def upload() -> dict[str, Any]:
             return {"name": "Abacela", "logo": photo_upload("one.png")}
@@ -680,8 +681,10 @@ def describe_the_wineries():
         assert "data-hq-logo-form" not in member_client.get(_wall(card.hub)).content.decode()
         assert member_client.post(_logo_url(card.hub), upload()).status_code == 403
         assert Client().post(_logo_url(card.hub), upload()).status_code == 403
-        assert "data-hq-logo-form" in signed_in(named).get(_wall(card.hub)).content.decode()
-        assert signed_in(named).post(_logo_url(card.hub), upload()).status_code == 302
+        assert "data-hq-logo-form" not in signed_in(team).get(_wall(card.hub)).content.decode()
+        assert signed_in(team).post(_logo_url(card.hub), upload()).status_code == 403
+        assert "data-hq-logo-form" in admin_client.get(_wall(card.hub)).content.decode()
+        assert admin_client.post(_logo_url(card.hub), upload()).status_code == 302
         assert not WineryLogo.objects.exclude(hub=card.hub).exists()
         assert WineryLogo.objects.count() == 1
 
@@ -749,9 +752,9 @@ def describe_the_donors():
         assert amy.logged_by == ["Guest"]
         assert services.donor_emails([amy]) == ""
 
-    def it_is_on_the_page_for_admins_and_named_members_only(card, givers, admin_client, member_client, make_member):
+    def it_is_on_the_page_for_admins_and_the_team_only(card, givers, admin_client, member_client, make_member):
         named = make_member()
-        card.named_members.add(named)
+        card.team.add(named)
 
         admin_body = admin_client.get(_wall(card.hub)).content.decode()
         named_body = signed_in(named).get(_wall(card.hub)).content.decode()
@@ -771,7 +774,7 @@ def describe_the_donors():
         card, givers, admin_client, member_client, make_member
     ):
         named = make_member()
-        card.named_members.add(named)
+        card.team.add(named)
 
         assert admin_client.get(_donors_url(card.hub)).status_code == 200
         named_body = signed_in(named).get(_donors_url(card.hub)).content.decode()

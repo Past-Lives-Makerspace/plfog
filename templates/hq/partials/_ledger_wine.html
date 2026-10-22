@@ -72,6 +72,8 @@ swap this section.
         <span class="pl-hq-lg__muted pl-hq-lg__helper" data-hq-lg-price-line>{{ tickets.price_line }}</span>
       </div>
     </form>
+    {# Ticket prices are a setting: admins only by the effective role, never the Team (admin_required on its POST). #}
+    {% if request.view_as.is_admin %}
     <details class="pl-hq-lg__prices" {% if ticket_prices_open %}open{% endif %} data-hq-lg-ticket-prices>
       <summary class="pl-hq-lg__prices-summary">Set ticket prices</summary>
       {% if ticket_prices_error %}<p class="pl-field-error" role="alert" data-hq-lg-ticket-prices-error>{{ ticket_prices_error }}</p>{% endif %}
@@ -87,5 +89,6 @@ swap this section.
         </div>
       </form>
     </details>
+    {% endif %}
   </div>
 </section>

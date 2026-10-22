@@ -2,9 +2,11 @@
 One door on the HQ page, in Lee's look: an icon tile, the who line, the title, the bullets
 and a full width button.
 
-  card     — required, a HubCard (named_members prefetched by the view)
+  card     — required, a HubCard (team and can_open prefetched by the view)
   hub      — required, its EventHub
-  can_edit — True renders the admin line under the card: the audience, a Hidden chip and Edit
+  can_edit — True renders the admin line under the card: who can open it (the share chip), a Hidden chip, Share and
+             Edit. Share opens the card's share panel in a modal, loaded over htmx; with no script it is a link to
+             the panel's own page. A saved panel sends hq-share-saved with the card's pk, which closes the modal.
 
 A card with somewhere to go is one <a>, the whole tile. A placeholder, and a live kind whose
 page has not shipped yet (card.url is ""), is a <div> with a dashed border whose button
@@ -23,11 +25,16 @@ admin line sits outside the tile, because an anchor cannot hold another anchor.
   </div>
   {% endif %}
   {% if can_edit %}
-  <div class="pl-hq-door__admin">
-    <span class="pl-hq-door__audience">{{ card.get_audience_display }}{% if card.named_members.all %} · {{ card.named_members.all|length }} named{% endif %}</span>
+  {% url 'hq:card_share' hub.slug card.pk as share_url %}
+  <div class="pl-hq-door__admin" x-data @hq-share-saved.window="if ($event.detail.pk === {{ card.pk }}) $dispatch('close-modal', 'hq-share-{{ card.pk }}')">
+    {% include "hq/partials/_share_chip.html" %}
     {% if card.is_hidden %}<span class="hub-badge pl-hq-chip--hidden" data-hq-hidden-chip>Hidden</span>{% endif %}
+    <a href="{{ share_url }}" class="pl-hq-door__edit" hx-get="{{ share_url }}" hx-target="#hq-share-{{ card.pk }}-body" hx-swap="innerHTML" @click="$dispatch('open-modal', 'hq-share-{{ card.pk }}')" aria-label="Share {{ card.title }}" data-hq-card-share>Share</a>
     <a href="{% url 'hq:card_edit' hub.slug card.pk %}" class="pl-hq-door__edit" data-hq-card-edit>Edit</a>
   </div>
+  {% with pk_text=card.pk|stringformat:"s" %}
+  {% include "components/modal.html" with modal_id="hq-share-"|add:pk_text modal_title="Share "|add:card.title modal_size="md" modal_body="Loading…" %}
+  {% endwith %}
   {% endif %}
 </div>
 {% endwith %}
