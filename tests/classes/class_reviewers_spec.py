@@ -2,8 +2,8 @@
 
 A guild lead marks some staff as Class Reviewer. The review request, Remind lead, the two
 review queues, the tokenized review page and the notification settings row all follow one
-audience: the guild lead plus the staff marked Class Reviewer, leaving out the class's own
-instructors unless one of them is the lead. Plain staff keep every other lead power.
+audience: the guild lead plus the staff marked Class Reviewer, on every class in the guild,
+including classes they teach (#883). Plain staff keep every other lead power.
 """
 
 from __future__ import annotations
@@ -144,15 +144,6 @@ def describe_Guild_class_reviewers():
         GuildStaffMembershipFactory(guild=guild, member=reviewer, role=Role.SECRETARY, can_review_classes=True)
         assert guild.class_reviewers() == [reviewer]
 
-    def describe_with_a_class():
-        def it_leaves_out_a_class_reviewer_who_teaches_it(ceramics: _Ceramics):
-            offering = ceramics.taught_by(ceramics.reviewer)
-            assert ceramics.guild.class_reviewers(offering) == [ceramics.lead]
-
-        def it_keeps_a_lead_who_teaches_it(ceramics: _Ceramics):
-            offering = ceramics.taught_by(ceramics.lead)
-            assert ceramics.guild.class_reviewers(offering) == [ceramics.lead, ceramics.reviewer]
-
     def describe_reviews_classes():
         def it_answers_yes_for_the_lead_and_a_class_reviewer(ceramics: _Ceramics):
             assert ceramics.guild.reviews_classes(ceramics.lead) is True
@@ -162,13 +153,13 @@ def describe_Guild_class_reviewers():
             assert ceramics.guild.reviews_classes(ceramics.plain) is False
             assert ceramics.guild.reviews_classes(MemberFactory()) is False
 
-        def it_answers_no_for_a_class_reviewer_who_teaches_the_class(ceramics: _Ceramics):
-            offering = ceramics.taught_by(ceramics.reviewer)
-            assert ceramics.guild.reviews_classes(ceramics.reviewer, offering) is False
+        def it_answers_yes_for_a_class_reviewer_who_teaches_a_class_in_the_guild(ceramics: _Ceramics):
+            ceramics.taught_by(ceramics.reviewer)
+            assert ceramics.guild.reviews_classes(ceramics.reviewer) is True
 
-        def it_answers_yes_for_a_lead_who_teaches_the_class(ceramics: _Ceramics):
-            offering = ceramics.taught_by(ceramics.lead)
-            assert ceramics.guild.reviews_classes(ceramics.lead, offering) is True
+        def it_answers_no_for_plain_staff_who_teach_a_class_in_the_guild(ceramics: _Ceramics):
+            ceramics.taught_by(ceramics.plain)
+            assert ceramics.guild.reviews_classes(ceramics.plain) is False
 
     def describe_Member_class_reviewed_guilds():
         def it_holds_led_guilds_and_guilds_where_the_member_reviews(ceramics: _Ceramics):
@@ -190,17 +181,17 @@ def describe_the_review_request_audience():
                 (ceramics.reviewer.user_id, "guild_class_reviewer"),
             ]
 
-        def it_leaves_out_a_class_reviewer_who_teaches_the_class(ceramics: _Ceramics):
+        def it_reaches_a_class_reviewer_who_teaches_the_class(ceramics: _Ceramics):
             offering = ceramics.taught_by(ceramics.reviewer)
             found = resolvers.guild_class_reviewers({"guild": ceramics.guild, "offering": offering})
-            assert [user.pk for user, _ in found] == [ceramics.lead.user_id]
+            assert [user.pk for user, _ in found] == [ceramics.lead.user_id, ceramics.reviewer.user_id]
 
         def it_resolves_nobody_for_a_null_guild():
             assert resolvers.guild_class_reviewers({"guild": None}) == []
 
-        def it_fails_loudly_without_the_offering(ceramics: _Ceramics):
+        def it_fails_loudly_without_the_guild():
             with pytest.raises(KeyError):
-                resolvers.guild_leadership_or_class_approvers({"guild": ceramics.guild})
+                resolvers.guild_leadership_or_class_approvers({})
 
     def describe_on_submission():
         def it_sends_the_request_to_the_lead_and_the_class_reviewer_only(ceramics: _Ceramics):
@@ -211,14 +202,15 @@ def describe_the_review_request_audience():
             assert _bells(ceramics.reviewer) == 1
             assert _reached(ceramics.plain) is False
 
-        def it_sends_nothing_to_a_class_reviewer_who_teaches_the_class(ceramics: _Ceramics):
+        def it_sends_the_request_to_a_class_reviewer_who_teaches_the_class(ceramics: _Ceramics):
             teacher = _teacher("erin", "Erin", "Horgan")
             GuildStaffMembershipFactory(
                 guild=ceramics.guild, member=teacher, role=Role.SECRETARY, can_review_classes=True
             )
             offering = ceramics.taught_by(teacher)
             send_guild_lead_review_request(offering, ceramics.gate)
-            assert _reached(teacher) is False
+            assert len(_review_emails(teacher)) == 1
+            assert _bells(teacher) == 1
             assert _reached(ceramics.lead) is True
             assert _reached(ceramics.reviewer) is True
 
@@ -255,13 +247,13 @@ def describe_remind_lead():
         toast = _remind(admin_client, ceramics.offering)
         assert "Reminder sent to Jay Holtman, Amber Capwell and Nicole Javaly." in toast
 
-    def it_leaves_out_a_class_reviewer_who_teaches_the_class(admin_client: Client, ceramics: _Ceramics):
+    def it_reminds_a_class_reviewer_who_teaches_the_class(admin_client: Client, ceramics: _Ceramics):
         ceramics.taught_by(ceramics.reviewer)
         toast = _remind(admin_client, ceramics.offering)
-        assert "Reminder sent to Jay Holtman." in toast
-        assert _reached(ceramics.reviewer) is False
+        assert "Reminder sent to Jay Holtman and Amber Capwell." in toast
+        assert len(_review_emails(ceramics.reviewer)) == 1
 
-    def it_refuses_when_the_lead_cannot_be_reached_and_the_only_class_reviewer_teaches_it(admin_client: Client):
+    def it_reminds_the_only_reachable_class_reviewer_even_when_they_teach_it(admin_client: Client):
         ghost_lead = MemberFactory(_pre_signup_email="")
         teacher = _teacher("only", "Only", "Reviewer")
         guild = GuildFactory(name="Unreachable", guild_lead=ghost_lead)
@@ -269,9 +261,9 @@ def describe_remind_lead():
         offering = ClassOfferingFactory(status=ClassOffering.Status.PENDING, category=CategoryFactory(guild=guild))
         offering.set_instructors([teacher])
         ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
-        assert class_has_reachable_reviewer(offering) is False
-        assert "Review it yourself." in _remind(admin_client, offering)
-        assert mail.outbox == []
+        assert class_has_reachable_reviewer(offering) is True
+        assert "Reminder sent to Only Reviewer." in _remind(admin_client, offering)
+        assert len(_review_emails(teacher)) == 1
 
     def it_refuses_when_the_lead_cannot_be_reached_and_only_plain_staff_remain(admin_client: Client):
         guild = GuildFactory(name="Plain Staff Only", guild_lead=MemberFactory(_pre_signup_email=""))
@@ -324,9 +316,13 @@ def describe_review_queues():
         def it_lists_nothing_for_plain_staff(ceramics: _Ceramics):
             assert list(ClassOffering.objects.awaiting_guild_lead(ceramics.plain)) == []
 
-        def it_lists_nothing_for_a_class_reviewer_who_teaches_the_class(ceramics: _Ceramics):
+        def it_lists_the_class_for_a_class_reviewer_who_teaches_it(ceramics: _Ceramics):
             ceramics.taught_by(ceramics.reviewer)
-            assert list(ClassOffering.objects.awaiting_guild_lead(ceramics.reviewer)) == []
+            assert list(ClassOffering.objects.awaiting_guild_lead(ceramics.reviewer)) == [ceramics.offering]
+
+        def it_lists_nothing_for_plain_staff_who_teach_the_class(ceramics: _Ceramics):
+            ceramics.taught_by(ceramics.plain)
+            assert list(ClassOffering.objects.awaiting_guild_lead(ceramics.plain)) == []
 
         def it_still_lists_the_class_for_a_lead_who_teaches_it(ceramics: _Ceramics):
             ceramics.taught_by(ceramics.lead)
@@ -410,9 +406,25 @@ def describe_the_tokenized_review_page():
             ceramics.offering.refresh_from_db()
             assert ceramics.offering.status == ClassOffering.Status.PENDING
 
-    def it_refuses_a_class_reviewer_who_teaches_the_class(client: Client, ceramics: _Ceramics):
+    @pytest.mark.parametrize(
+        "decision",
+        [
+            ClassApproval.Decision.APPROVED,
+            ClassApproval.Decision.CHANGES_REQUESTED,
+            ClassApproval.Decision.DENIED,
+        ],
+    )
+    def it_lets_a_class_reviewer_who_teaches_the_class_decide(client: Client, ceramics: _Ceramics, decision: str):
         ceramics.taught_by(ceramics.reviewer)
         client.force_login(ceramics.reviewer.user)
+        client.post(_url(ceramics.gate), {"decision": decision, "notes": "Looks fine."})
+        ceramics.gate.refresh_from_db()
+        assert ceramics.gate.decision == decision
+        assert ceramics.gate.decided_by == ceramics.reviewer.user
+
+    def it_refuses_plain_staff_who_teach_the_class(client: Client, ceramics: _Ceramics):
+        ceramics.taught_by(ceramics.plain)
+        client.force_login(ceramics.plain.user)
         _decide(client, ceramics.gate)
         assert ceramics.gate.decision == ""
 
@@ -487,6 +499,14 @@ def describe_the_tokenized_review_page():
         def it_leaves_the_admin_gate_unchanged(ceramics: _Ceramics):
             admin_gate = ClassApproval.objects.create(class_offering=ceramics.offering, role=ClassApproval.Role.ADMIN)
             assert admin_gate.may_be_decided_by(ceramics.plain.user) is True
+
+        def it_lets_a_class_reviewer_who_teaches_the_class_decide(ceramics: _Ceramics):
+            ceramics.taught_by(ceramics.reviewer)
+            assert ceramics.gate.may_be_decided_by(ceramics.reviewer.user) is True
+
+        def it_refuses_plain_staff_who_teach_the_class(ceramics: _Ceramics):
+            ceramics.taught_by(ceramics.plain)
+            assert ceramics.gate.may_be_decided_by(ceramics.plain.user) is False
 
         def it_allows_nobody_signed_in(ceramics: _Ceramics):
             assert ceramics.gate.may_be_decided_by(None) is True

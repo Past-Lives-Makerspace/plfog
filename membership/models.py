@@ -2871,16 +2871,6 @@ class GuildManager(models.Manager["Guild"]):
         return self.filter(is_active=True).filter(models.Q(name__icontains=query) | models.Q(slug__icontains=query))
 
 
-def _offering_instructor_ids(offering: ClassOffering | None) -> set[int]:
-    """Member pks teaching ``offering`` (every instructor row plus the payee), or none without one."""
-    if offering is None:
-        return set()
-    ids = {member.pk for member in offering.instructor_list}
-    if offering.instructor_id is not None:
-        ids.add(offering.instructor_id)
-    return ids
-
-
 class Guild(HeroCropMixin, models.Model):
     # Queryset annotation (set by GuildAdmin.get_queryset)
     sublet_count: int
@@ -3412,35 +3402,32 @@ class Guild(HeroCropMixin, models.Model):
             self.staff_memberships.filter(can_review_classes=True).values_list("member_id", flat=True).distinct()
         )
 
-    def class_reviewers(self, offering: ClassOffering | None = None) -> list[Member]:
+    def class_reviewers(self) -> list[Member]:
         """Who reviews this guild's classes (#816): the lead, then the staff marked Class Reviewer.
 
-        De-duplicated, lead first, staff in name order. With ``offering``, its instructors are
-        dropped unless they are the guild lead: nobody is asked to review a class they teach,
-        but a lead who teaches in their own guild still holds its gate.
+        De-duplicated, lead first, staff in name order. The same people review every class in
+        the guild, including classes they teach (#883).
         """
         members: list[Member] = []
         seen: set[int] = set()
         if self.guild_lead_id is not None and self.guild_lead is not None:
             members.append(self.guild_lead)
             seen.add(self.guild_lead_id)
-        teaching = _offering_instructor_ids(offering)
         rows = self.staff_memberships.filter(can_review_classes=True).select_related("member__user")
         for staff in sorted(rows, key=lambda row: (row.member.full_legal_name or "").lower()):
-            if staff.member_id not in seen and staff.member_id not in teaching:
+            if staff.member_id not in seen:
                 members.append(staff.member)
                 seen.add(staff.member_id)
         return members
 
-    def reviews_classes(self, member: Member, offering: ClassOffering | None = None) -> bool:
-        """Whether ``member`` is in :meth:`class_reviewers` for ``offering``.
+    def reviews_classes(self, member: Member) -> bool:
+        """Whether ``member`` is in :meth:`class_reviewers`.
 
-        The lead always is; a staff member is when marked Class Reviewer and not teaching ``offering``.
+        The lead always is; a staff member is when marked Class Reviewer, including on a class
+        they teach (#883).
         """
         if self.guild_lead_id == member.pk:
             return True
-        if member.pk in _offering_instructor_ids(offering):
-            return False
         return self.staff_memberships.filter(member=member, can_review_classes=True).exists()
 
     def set_class_reviewer(self, member: Member, on: bool) -> int:

@@ -572,25 +572,15 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
 
         A class qualifies when it is PENDING, its category's guild is one this member
         leads or is a Class Reviewer of (:attr:`Member.class_reviewed_guilds`; plain staff
-        are not), and it has an undecided ``GUILD_LEAD`` approval row. A Class Reviewer
-        never sees a class they teach, the same audience :meth:`Guild.class_reviewers`
-        asks; a lead who teaches in their own guild still does.
+        are not), and it has an undecided ``GUILD_LEAD`` approval row. A class the member
+        teaches is listed too, the same audience :meth:`Guild.class_reviewers` asks (#883).
         """
-        taught_not_led = (
-            ClassOffering.objects.filter(Q(instructors=member) | Q(instructor=member))
-            .exclude(category__guild__guild_lead=member)
-            .values("pk")
-        )
-        return (
-            self.filter(
-                status="pending",
-                category__guild__in=member.class_reviewed_guilds,
-                approvals__role="guild_lead",
-                approvals__decision="",
-            )
-            .exclude(pk__in=taught_not_led)
-            .distinct()
-        )
+        return self.filter(
+            status="pending",
+            category__guild__in=member.class_reviewed_guilds,
+            approvals__role="guild_lead",
+            approvals__decision="",
+        ).distinct()
 
     def awaiting_admin_validation(self, member: "Member") -> "ClassOfferingQuerySet":
         """Pending classes whose guild-lead gate this member's guilds already approved.
@@ -4172,9 +4162,8 @@ class ClassApproval(models.Model):
         """Whether ``user`` may record this gate's decision from the tokenized review page (#816).
 
         Only a ``GUILD_LEAD`` gate is narrowed: a signed-in person must be the lead or a Class
-        Reviewer of the guild the gate was opened for (:meth:`Guild.reviews_classes`, which
-        also leaves out a reviewer who teaches the class), or an admin, a superuser or a CMS
-        Administrator. Nobody signed in is the emailed link working as it always has: the
+        Reviewer of the guild the gate was opened for (:meth:`Guild.reviews_classes`, a class
+        they teach included), or an admin, a superuser or a CMS Administrator. Nobody signed in is the emailed link working as it always has: the
         token is the credential, and leads use it from email without logging in. An ``ADMIN``
         gate is unchanged. A gate whose guild is gone (or a row from before
         ``opened_for_guild``) is read against the class's current guild, and with no guild at
@@ -4196,7 +4185,7 @@ class ClassApproval(models.Model):
         guild = self.opened_for_guild or self.class_offering.category.guild
         if guild is None:
             return True
-        return guild.reviews_classes(member, self.class_offering)
+        return guild.reviews_classes(member)
 
     def decide(self, decision: str, user=None, notes: str = "") -> None:
         """Record a reviewer decision and trigger the offering's lifecycle hook.
