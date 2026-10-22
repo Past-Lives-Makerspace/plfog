@@ -315,7 +315,8 @@ def describe_the_photo_field():
         ) in camera
         assert "Take a photo" in camera
         chooser = form.split('id="image-upload-zone-id_photo">')[1].split("</label>")[0]
-        assert '<input type="file" name="photo" id="id_photo" accept="image/*"' in chooser
+        # Focusable in capture mode: the class rule hides it, with no inline display:none.
+        assert '<input type="file" name="photo" id="id_photo" accept="image/*">' in chooser
         assert "capture" not in chooser
         assert '<span class="cls-image-upload-label">Choose a photo</span>' in chooser
         assert form.count('name="photo"') == 2
@@ -329,6 +330,7 @@ def describe_the_photo_field():
         assert "document.getElementById('id_photo_camera')" in form
         assert f"this.files[0].size > {settings.MAX_UPLOAD_IMAGE_BYTES}" in form
         assert "inputs.forEach(each => each.addEventListener('change', onChange));" in form
+        assert "preview.innerHTML = firstPreview; preview.style.display = firstDisplay;" in form
 
     def it_leaves_the_winery_logo_field_without_a_camera(card, admin_client):
         WineBottleFactory(hub=card.hub, winery="Abacela")
@@ -339,6 +341,8 @@ def describe_the_photo_field():
         assert '<span class="cls-image-upload-label">+ Upload logo</span>' in logo_form
         assert "data-image-field-take" not in logo_form
         assert "capture=" not in logo_form
+        assert 'id="id_logo" accept="image/*" style="display:none;">' in logo_form  # the non-capture path is unchanged
+        assert "preview.innerHTML = firstPreview" not in logo_form
 
     def it_saves_a_photo_taken_with_the_camera(card, member):
         response = _browser_post(signed_in(member), _wall(card.hub), [("camera.jpg", _jpeg()), ("", b"")])

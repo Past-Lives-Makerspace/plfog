@@ -65,7 +65,7 @@ Parameters (pass via {% include ... with %}):
             Take a photo
         </label>{% endif %}
         <label class="cls-image-upload-zone" id="image-upload-zone-{{ field.auto_id }}">
-            <input type="file" name="{{ field.html_name }}" id="{{ field.id_for_label }}" accept="image/*" style="display:none;">
+            <input type="file" name="{{ field.html_name }}" id="{{ field.id_for_label }}" accept="image/*"{% if not capture %} style="display:none;"{% endif %}>
             <span class="cls-image-upload-label">{% if capture %}Choose a photo{% elif current_image %}Replace image{% else %}+ Upload {{ label|default:field.label|lower }}{% endif %}</span>
             <span class="cls-image-upload-hint">Click or drag a file here</span>
         </label>
@@ -97,8 +97,14 @@ Parameters (pass via {% include ... with %}):
             const sizeError = document.getElementById('image-size-error-{{ field.auto_id }}');
             // The camera input (capture mode) shares the field's name: whichever one picked last is the one that posts.
             const inputs = [input, document.getElementById('{{ field.id_for_label }}_camera')].filter(Boolean);
+            const firstPreview = preview.innerHTML;
+            const firstDisplay = preview.style.display;
             function onChange() {
-                if (!this.files.length) return;
+                if (!this.files.length) {
+                    {% if capture %}// Nothing picked here now: unless the other input still holds the photo that posts, go back to the field's first preview.
+                    if (!inputs.some(other => other.files.length)) { preview.innerHTML = firstPreview; preview.style.display = firstDisplay; }
+                    {% endif %}return;
+                }
                 {% if max_bytes %}
                 if (this.files[0].size > {{ max_bytes }}) {
                     const mb = ({{ max_bytes }} / 1048576).toFixed(1).replace(/\.0$/, '');
@@ -173,7 +179,7 @@ Parameters (pass via {% include ... with %}):
             Take a photo
         </label>{% endif %}
         <label class="cls-image-upload-zone" id="image-upload-zone-{{ field.auto_id }}">
-            <input type="file" name="{{ field.html_name }}" id="{{ field.id_for_label }}" accept="image/*" style="display:none;">
+            <input type="file" name="{{ field.html_name }}" id="{{ field.id_for_label }}" accept="image/*"{% if not capture %} style="display:none;"{% endif %}>
             <span class="cls-image-upload-label">{% if capture %}Choose a photo{% elif current_image %}Replace image{% else %}+ Upload {{ label|default:field.label|lower }}{% endif %}</span>
             <span class="cls-image-upload-hint">Click or drag a file here</span>
         </label>
@@ -205,8 +211,14 @@ Parameters (pass via {% include ... with %}):
             const sizeError = document.getElementById('image-size-error-{{ field.auto_id }}');
             // The camera input (capture mode) shares the field's name: whichever one picked last is the one that posts.
             const inputs = [input, document.getElementById('{{ field.id_for_label }}_camera')].filter(Boolean);
+            const firstPreview = preview.innerHTML;
+            const firstDisplay = preview.style.display;
             function onChange() {
-                if (!this.files.length) return;
+                if (!this.files.length) {
+                    {% if capture %}// Nothing picked here now: unless the other input still holds the photo that posts, go back to the field's first preview.
+                    if (!inputs.some(other => other.files.length)) { preview.innerHTML = firstPreview; preview.style.display = firstDisplay; }
+                    {% endif %}return;
+                }
                 {% if max_bytes %}
                 if (this.files[0].size > {{ max_bytes }}) {
                     const mb = ({{ max_bytes }} / 1048576).toFixed(1).replace(/\.0$/, '');

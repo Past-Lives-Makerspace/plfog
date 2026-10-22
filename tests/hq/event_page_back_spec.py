@@ -5,6 +5,7 @@ the page is unchanged, and the marker never reaches the page's canonical, QR or 
 from __future__ import annotations
 
 from unittest.mock import patch
+from urllib.parse import quote, unquote
 
 import pytest
 from django.core.cache import cache
@@ -135,6 +136,29 @@ def describe_the_event_page():
         guest_action = body.split('class="pl-event-page__guest-form"')[0].rsplit("<form", 1)[1]
         assert "?date=" in guest_action
         assert "&amp;from=hq" in guest_action
+
+    def it_keeps_the_way_back_through_the_log_in_link(hub, event):
+        body = Client().get(_page(event, "?from=hq")).content.decode()
+
+        login = body.split("data-guest-login")[0].rsplit("<a ", 1)[1]
+        assert f'href="{reverse("account_login")}?next={quote(_page(event, "?from=hq"))}"' in login
+        assert unquote(login.split("?next=")[1].split('"')[0]) == _page(event, "?from=hq")
+
+    def it_leaves_the_log_in_link_on_the_plain_path_without_the_marker(hub, event):
+        body = Client().get(_page(event)).content.decode()
+
+        assert f'href="{reverse("account_login")}?next={_page(event)}"' in body
+
+    def it_hands_the_marked_page_to_the_login_form_as_next(hub, event):
+        """Following "log in" from the HQ's event page puts the marked page in the login form, where the sign in
+        returns to."""
+        client = Client()
+        body = client.get(_page(event, "?from=hq")).content.decode()
+        login_url = body.split("data-guest-login")[0].rsplit('href="', 1)[1].split('"')[0]
+
+        login = client.get(login_url).content.decode()
+
+        assert f'<input type="hidden" name="next" value="{_page(event, "?from=hq")}">' in login
 
 
 def describe_rsvping_from_the_hq():

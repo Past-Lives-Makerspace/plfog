@@ -264,3 +264,37 @@ def describe_the_wine_wall():
         expect(page.locator("[data-hq-bottle-photo]")).to_have_count(1)
         expect(page.locator("[data-hq-bottle-photo]")).to_have_js_property("naturalWidth", 64)
         assert WineBottle.objects.get().photo.name.startswith("hq/bottles/")
+
+    def it_reaches_both_choices_by_keyboard_with_a_ring_and_drops_a_preview_that_will_not_post(live_server, page):
+        hub = EventHubFactory(is_open=True, slug="holiday-bizarre", title="Holiday Bizarre HQ")
+        HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL, audience=HubCard.Audience.PUBLIC)
+        page.goto(live_server.url + reverse("hq:wine", args=["holiday-bizarre"]))
+        page.locator("[data-hq-wine-open]").click()
+        take = page.locator("[data-image-field-take]")
+        zone = page.locator("#image-upload-zone-id_photo")
+        preview = page.locator("#image-preview-id_photo")
+
+        page.locator("#id_credited_name").click()  # then Tab: the photo's ? help, Take a photo, Choose a photo
+        for _ in range(4):
+            page.keyboard.press("Tab")
+            if page.evaluate("document.activeElement.id") == "id_photo_camera":
+                break
+        assert page.evaluate("document.activeElement.id") == "id_photo_camera"
+        assert take.evaluate("el => getComputedStyle(el).outlineStyle") == "solid"
+        assert zone.evaluate("el => getComputedStyle(el).outlineStyle") == "none"
+
+        page.keyboard.press("Tab")
+        assert page.evaluate("document.activeElement.id") == "id_photo"
+        assert zone.evaluate("el => getComputedStyle(el).outlineStyle") == "solid"
+        assert take.evaluate("el => getComputedStyle(el).outlineStyle") == "none"
+
+        page.locator("#id_photo_camera").set_input_files(_png())
+        expect(preview.locator("img")).to_be_visible()
+        page.locator("#id_photo_camera").set_input_files([])
+        expect(preview).to_be_hidden()
+        expect(preview.locator("img")).to_have_count(0)
+
+        page.locator("#id_photo").set_input_files(_png())
+        expect(preview.locator("img")).to_be_visible()
+        page.locator("#id_photo_camera").set_input_files([])  # the chooser still holds the photo that posts
+        expect(preview.locator("img")).to_be_visible()

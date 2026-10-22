@@ -7,10 +7,11 @@ hub/base.html, which auto-degrades for a signed-out visitor (public topbar, no s
 and shows the hub chrome for a member. PUBLISHED events only (the view 404s the rest).
 
 Top to bottom: a way back to the HQ when its RSVP card opened the page (?from=hq), the
-hero (photo or navy band), the going band with the people count, the goal meter and the pitch, Count Me In, the description, the gallery, the video, the
-location card, Who's Going (members only), the actions row, Share & Print for editors and
-the footer line. Nothing here carries a style attribute (FRONTEND rule 9): the hero's
-focal point rides data-hero-position and the script at the end lands it.
+hero (photo or navy band), the going band with the people count, the goal meter and the
+pitch, Count Me In, the description, the gallery, the video, the location card, Who's
+Going (members only), the actions row, Share & Print for editors and the footer line.
+Nothing here carries a style attribute (FRONTEND rule 9): the hero's focal point rides
+data-hero-position and the script at the end lands it.
 {% endcomment %}
 {% block title %}{{ event.title }}{% endblock %}
 {% block extra_head %}
@@ -124,7 +125,7 @@ focal point rides data-hero-position and the script at the end lands it.
     {% else %}
     <form method="post" action="{% url 'hub_event_rsvp_guest' event.pk %}{{ page_query }}" class="pl-event-page__guest-form" data-guest-rsvp-form>
       {% csrf_token %}
-      <p class="pl-event-page__note pl-event-page__guest-hint">No account needed. A Past Lives member can <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" hx-boost="false">log in</a> to RSVP with one tap.</p>
+      <p class="pl-event-page__note pl-event-page__guest-hint">No account needed. A Past Lives member can <a href="{% url 'account_login' %}?next={{ request.path|add:page_query|urlencode }}" hx-boost="false" data-guest-login>log in</a> to RSVP with one tap.</p>
       {% include "components/form_field.html" with field=guest_form.name %}
       {% include "components/form_field.html" with field=guest_form.email %}
       {% include "components/form_field.html" with field=guest_form.phone %}
