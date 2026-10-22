@@ -394,7 +394,7 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
             "Sent when an instructor submits a class for review. Goes to the category's guild lead and "
-            "the staff marked Class Reviewer, never the class's own instructors unless one is the lead "
+            "the staff marked Class Reviewer, a reviewer who teaches the class included "
             "(or to the CMS Administrators when the category has no guild lead), with a tokenized "
             "review link. Each reviewer's Email switch for Class review request decides."
         ),

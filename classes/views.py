@@ -4669,7 +4669,7 @@ def admin_class_remind_lead(request: HttpRequest, pk: int) -> HttpResponse:
     if result is None and access.can_administer:
         trigger_toast(response, "This guild has no lead. Review it yourself.", "error")
     elif result is None:
-        # An instructor cannot review their own class; an admin takes it from here.
+        # The guild has nobody reachable to remind; an admin takes it from here.
         trigger_toast(response, "This guild has nobody to remind. An admin will review your class.", "error")
     elif result.delivered:
         trigger_toast(response, f"Reminder sent to {join_names(reminded_names(result))}.")
