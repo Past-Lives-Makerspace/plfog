@@ -527,22 +527,21 @@ a.pl-hq-card:focus-visible {
   font-size: 0.875rem;
   color: var(--hub-text);
 }
-/* The name and email sit on one line while they fit; on a narrow screen the email drops under the name. */
+/* The email sits on its own line under the name, so a phone never breaks it mid-word. */
 .pl-hq-people__who {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: 0.4rem;
+  flex-direction: column;
+  align-items: flex-start;
   min-width: 0;
 }
 .pl-hq-people__name {
   font-weight: 600;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .pl-hq-people__email {
   font-size: 0.8125rem;
   color: var(--hub-text-muted);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .pl-hq-people__email:empty {
   display: none;
@@ -617,7 +616,7 @@ a.pl-hq-card:focus-visible {
   border-radius: 6px;
   color: var(--hub-text);
   font-size: 0.9375rem;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   cursor: pointer;
 }
 .pl-hq-people__option:hover,

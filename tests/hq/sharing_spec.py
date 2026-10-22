@@ -413,6 +413,22 @@ def describe_the_share_panel():
         assert door.audience == ADMINS
         assert door.can_open.count() == 0
 
+    @pytest.mark.parametrize("kind", sorted(TEAM_ONLY_KINDS))
+    @pytest.mark.parametrize("stored", [MEMBERS, PUBLIC])
+    def it_ticks_admins_only_on_a_team_only_door_stored_wider_and_saves_it(open_hub, admin_client, kind, stored):
+        """A door saved with a wider audience before sharing existed still has its one choice ticked."""
+        door = _door(open_hub, kind)
+        HubCard.objects.filter(pk=door.pk).update(audience=stored)
+        door.refresh_from_db()
+
+        assert CardSharingForm(instance=door)["audience"].value() == ADMINS
+        body = admin_client.get(_share(door), HTTP_HX_REQUEST="true").content.decode()
+        assert "checked" in body.split('value="admins"', 1)[1].split(">", 1)[0]
+        saved = admin_client.post(_share(door), {"audience": ADMINS}, HTTP_HX_REQUEST="true")
+        assert "hq-share-saved" in saved["HX-Trigger"]
+        door.refresh_from_db()
+        assert door.audience == ADMINS
+
     def it_answers_a_refused_htmx_post_with_the_panel_and_its_errors(card, admin_client):
         response = admin_client.post(_share(card), {"audience": "nobody"}, HTTP_HX_REQUEST="true")
 

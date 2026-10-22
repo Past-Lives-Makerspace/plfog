@@ -253,6 +253,10 @@ class CardSharingForm(forms.ModelForm):
         self.fields["audience"].help_text = TEAM_ONLY_AUDIENCE_HELP if card.is_team_only else AUDIENCE_HELP
         if card.is_team_only:
             self.fields["team"].help_text = TEAM_ONLY_TEAM_HELP
+            if not self.is_bound:
+                # A Team-only door stored with a wider audience (from before sharing) would render with no choice
+                # ticked, and Save would fail as required: start it on Admins only, its one choice.
+                self.initial["audience"] = HubCard.Audience.ADMINS
         self._options: list[PersonOption] | None = None
 
     @property

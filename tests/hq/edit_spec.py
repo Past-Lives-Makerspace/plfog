@@ -478,6 +478,15 @@ def describe_editing_a_card():
         assert card.audience == HubCard.Audience.ADMINS
         assert card.can_open.count() == 0
 
+    def it_ticks_admins_only_on_a_team_only_door_stored_with_a_wider_audience(open_hub, admin_client):
+        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.VENDOR_TABLES, title="Vendor Tables")
+        HubCard.objects.filter(pk=card.pk).update(audience=HubCard.Audience.PUBLIC)
+
+        body = admin_client.get(_card_edit(card)).content.decode()
+
+        admins = body.split('value="admins"', 1)[1].split(">", 1)[0]
+        assert "checked" in admins
+
     def it_offers_move_up_and_move_down(open_hub, admin_client):
         card = HubCardFactory(hub=open_hub)
 
