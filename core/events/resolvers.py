@@ -175,26 +175,24 @@ def class_approvers(context: dict[str, Any]) -> list[Recipient]:
 
 
 def guild_class_reviewers(context: dict[str, Any]) -> list[Recipient]:
-    """GUILD-SCOPED — who reviews ``context["offering"]`` for ``context["guild"]`` (#816).
+    """GUILD-SCOPED — who reviews a class for ``context["guild"]`` (#816).
 
-    The guild's lead plus the staff marked Class Reviewer, minus the class's own
-    instructors unless that instructor is the lead (:meth:`Guild.class_reviewers`). Plain
-    staff are not asked. A ``None`` guild resolves to nobody; a missing ``guild`` or
-    ``offering`` key fails loudly (a programming error at the emit site).
+    The guild's lead plus the staff marked Class Reviewer, a reviewer who teaches the class
+    included (:meth:`Guild.class_reviewers`, #883). Plain staff are not asked. A ``None``
+    guild resolves to nobody; a missing ``guild`` key fails loudly (a programming error at
+    the emit site).
     """
     guild: Guild | None = _require(context, "guild")
     if guild is None:
         return []
-    offering = _require(context, "offering")
-    return _members_to_recipients(guild.class_reviewers(offering), "guild_class_reviewer")
+    return _members_to_recipients(guild.class_reviewers(), "guild_class_reviewer")
 
 
 def guild_leadership_or_class_approvers(context: dict[str, Any]) -> list[Recipient]:
     """COMPOSITION — a guild's class reviewers when it has a guild, else the CMS Administrators.
 
     A guild-led class routes to that guild's lead and Class Reviewers ONLY (via
-    :func:`guild_class_reviewers`, which also needs ``context["offering"]`` to leave out
-    the class's instructors); a lead-less category (``context["guild"]`` is ``None``)
+    :func:`guild_class_reviewers`); a lead-less category (``context["guild"]`` is ``None``)
     routes to :func:`class_approvers`. This is composition, not the union
     :func:`guild_leadership_or_admins` performs — a guild-led review never also blasts
     every admin. A missing ``guild`` key still fails loudly (a programming error).

@@ -1819,7 +1819,7 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
         else []
     )
 
-    # A guild lead who teaches a PENDING class in their OWN guild is in two of the merged card's
+    # A guild lead or Class Reviewer who teaches a PENDING class in their OWN guild is in two of the merged card's
     # queues at once: their review queue (where they can act) and their own "waiting on a
     # reviewer" list (where they can only watch). Show it once, in the queue that names the
     # action actually blocking it, and count distinct classes. This is display-only — it does

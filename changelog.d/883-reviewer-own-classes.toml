@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-22"
+title = "Class Reviewers can approve classes they teach"
+changes = [
+  "A guild staff member marked Class Reviewer now gets the review request for every class in the guild, including the ones they teach.",
+  "They can approve, request changes on or deny their own class, the same as the guild lead.",
+]

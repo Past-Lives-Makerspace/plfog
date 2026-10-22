@@ -1467,7 +1467,7 @@ Class review requests go to the guild lead and to the staff you mark as **Class 
 1. Open your guild's page and click **Guild Settings**, then the **Staff** tab.
 2. Turn on **Class Reviewer** next to the staff member.
 
-Only the guild lead and admins can flip the switch. Other staff see it but can't change it. Nothing is sent to anyone when you flip it. A Class Reviewer never gets a review request for a class they teach; the guild lead always does.
+Only the guild lead and admins can flip the switch. Other staff see it but can't change it. Nothing is sent to anyone when you flip it. A Class Reviewer reviews every class in the guild, including classes they teach.
 
 ### Add or Remove Staff {#guild-manage-staff}
 
@@ -1878,7 +1878,7 @@ When someone submits a class in a category tied to your guild, you're the first 
 
 ### How a Review Reaches You
 
-The moment a class is submitted, the guild lead and the staff marked **Class Reviewer** get a review request email, plus an in-app notice. Other staff don't. Nobody is asked to review a class they teach, unless they're the guild lead. The instructor is told their class is in review. Any one of your reviewers can make the call, and the first decision is the guild's decision.
+The moment a class is submitted, the guild lead and the staff marked **Class Reviewer** get a review request email, plus an in-app notice. Other staff don't. A lead or Class Reviewer who teaches the class is asked too, and may approve it. The instructor is told their class is in review. Any one of your reviewers can make the call, and the first decision is the guild's decision.
 
 ### Where to Review {#guild-approve-classes}
 
