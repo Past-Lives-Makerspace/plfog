@@ -114,20 +114,18 @@ def describe_ScheduledOccurrence():
 
 
 def describe_flush_digests():
-    def it_drains_buffered_digest_rows(db):
-        # A PENDING digest row should be grouped + flipped to SENT by the flush.
+    def it_sends_nothing_before_8am_pacific(db):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
         EventDelivery.objects.create(
-            event_key="site_announcement",
+            event_key="class_review_requested",
             target_ref="user:1",
             channel=Channel.DIGEST.value,
-            period="digest",
+            period="approval:1:request",
             status=EventDelivery.Status.PENDING,
             title="Buffered",
             body="Body",
         )
-        grouped = flush_digests()
-        assert "user:1" in grouped
-        assert (
-            EventDelivery.objects.get(target_ref="user:1", channel=Channel.DIGEST.value).status
-            == EventDelivery.Status.SENT
-        )
+        assert flush_digests(datetime(2026, 10, 24, 7, 45, tzinfo=ZoneInfo("America/Los_Angeles"))) == {}
+        assert EventDelivery.objects.get(target_ref="user:1").status == EventDelivery.Status.PENDING

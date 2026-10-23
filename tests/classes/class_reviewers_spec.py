@@ -78,7 +78,10 @@ def ceramics() -> _Ceramics:
 
 
 def _review_emails(member: Member) -> list:
-    return [m for m in mail.outbox if m.to == [member.user.email] and m.subject.startswith("Review request:")]
+    """The review requests that reached ``member``: since #894, the 8 AM digest carrying them."""
+    from tests.core.events.digest_support import digest_emails
+
+    return digest_emails(member.user.email)
 
 
 def _bells(member: Member) -> int:

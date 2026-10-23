@@ -4649,7 +4649,7 @@ def admin_class_unpublish(request: HttpRequest, pk: int) -> HttpResponse:
 @class_screen_required
 @require_POST
 def admin_class_remind_lead(request: HttpRequest, pk: int) -> HttpResponse:
-    """Remind lead (HTMX): re-send the open guild-lead review request, once per day, and toast the outcome.
+    """Remind lead (HTMX): queue the open guild-lead gate for the reviewers' 8 AM email, once per day.
 
     An admin or the class's own instructor (#816, :func:`_may_remind_or_duplicate`); the
     reminder reaches the same people and dedupes the same way whoever clicks.
@@ -4665,14 +4665,17 @@ def admin_class_remind_lead(request: HttpRequest, pk: int) -> HttpResponse:
         return response
     from membership.models import join_names
 
-    result = send_guild_lead_review_reminder(gate)
+    result = send_guild_lead_review_reminder(gate, reminded_by=request.user)  # type: ignore[arg-type]
     if result is None and access.can_administer:
         trigger_toast(response, "This guild has no lead. Review it yourself.", "error")
     elif result is None:
         # The guild has nobody reachable to remind; an admin takes it from here.
         trigger_toast(response, "This guild has nobody to remind. An admin will review your class.", "error")
     elif result.delivered:
-        trigger_toast(response, f"Reminder sent to {join_names(reminded_names(result))}.")
+        trigger_toast(
+            response,
+            f"Reminder sent to {join_names(reminded_names(result))}. They will see it in their 8 AM email.",
+        )
     else:
         trigger_toast(response, "Already reminded today.", "info")
     return response

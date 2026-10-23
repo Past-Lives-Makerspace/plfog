@@ -222,15 +222,15 @@ def describe_digest_adapter():
         pending = DigestAdapter.pending_for(user)
         assert [r.event_key for r in pending] == ["registration_confirmed", "class_cancelled"]
 
-    def it_flush_due_groups_per_recipient_and_marks_sent():
+    def it_flush_due_fails_loudly_for_an_event_with_no_still_open_check():
+        # Only digest events queue lines, and each registers a still-open check (#894).
+        from datetime import datetime
+
         user = _user()
         DigestAdapter().deliver(user, _message(trigger_kind="registration_confirmed"))
-        DigestAdapter().deliver(user, _message(trigger_kind="class_cancelled"))
-        grouped = DigestAdapter.flush_due()
-        assert set(grouped) == {f"user:{user.pk}"}
-        assert len(grouped[f"user:{user.pk}"]) == 2
-        # All flipped to SENT — nothing pending remains.
-        assert DigestAdapter.pending_for(user) == []
+        EventDelivery.objects.update(created_at=datetime(2026, 1, 1, tzinfo=channels.PACIFIC))
+        with pytest.raises(KeyError):
+            DigestAdapter.flush_due(datetime(2026, 1, 2, 9, tzinfo=channels.PACIFIC))
 
     def it_flush_due_returns_empty_when_nothing_pending():
         assert DigestAdapter.flush_due() == {}
@@ -322,3 +322,21 @@ def describe_push_channel_for():
         valid = {"urgent", "guilds", "classes", "general"}
         for event in all_events():
             assert push_channel_for(event.key) in valid, event.key
+
+
+def describe_digest_context():
+    def _row(event_key: str, url: str) -> EventDelivery:
+        return EventDelivery(event_key=event_key, title="Title", body="Body", url=url)
+
+    def it_names_classes_in_the_subject_when_every_line_is_a_class_review():
+        rows = [_row("class_review_requested", "/a/"), _row("class_validation_requested", "/b/")]
+        assert channels.digest_context(rows)["subject"] == "Action Needed: 2 Classes Awaiting Review"
+
+    def it_says_requests_when_anything_else_rides_along():
+        rows = [_row("class_review_requested", "/a/"), _row("orientation_requested", "/b/")]
+        assert channels.digest_context(rows)["subject"] == "Action Needed: 2 Requests Awaiting You"
+
+    def it_uses_the_singular_for_one_request():
+        assert channels.digest_context([_row("orientation_requested", "/a/")])["subject"] == (
+            "Action Needed: 1 Request Awaiting You"
+        )

@@ -2892,11 +2892,16 @@ class ClassOffering(HeroCropMixin, models.Model):
                 # undecided guild-lead row) as approved with a system note so the
                 # class drops out of every reviewer queue. The rows are kept as
                 # history — decided_by stays NULL because no human decided them.
-                self.approvals.filter(decision="").exclude(pk=row.pk).update(
+                still_open = self.approvals.filter(decision="").exclude(pk=row.pk)
+                closed_tokens = list(still_open.values_list("token", flat=True))
+                still_open.update(
                     decision=ClassApproval.Decision.APPROVED,
                     notes="Approved automatically when an admin gave final approval.",
                     decided_at=timezone.now(),
                 )
+                # A queryset update fires no save, so the closed gates' bell entries (the
+                # lead's "A class needs your review") are cleared here, by hand (#894).
+                ClassApproval.mark_review_bells_read(closed_tokens)
                 # ``ClassApproval.decide`` already refused an unready class before saving
                 # the row, so this publish cannot raise on readiness in practice; the guard
                 # inside ``publish`` is defense in depth for any other caller.
@@ -4038,6 +4043,18 @@ class ClassApprovalQuerySet(models.QuerySet["ClassApproval"]):
     def for_offering(self, offering: "ClassOffering") -> "ClassApprovalQuerySet":
         return self.filter(class_offering=offering)
 
+    def open_review_urls(self, urls: list[str]) -> set[str]:
+        """Which of ``urls`` are review links to a gate still waiting on a decision (#894).
+
+        The staff digest's still-open check for class review: a line queued for a gate that
+        has since been decided, or deleted, drops out. One query for any number of links.
+        """
+        token_by_url = {url: ClassApproval.review_token_from_url(url) for url in urls}
+        open_tokens = set(
+            self.pending().filter(token__in=[t for t in token_by_url.values() if t]).values_list("token", flat=True)
+        )
+        return {url for url, token in token_by_url.items() if token in open_tokens}
+
 
 class ClassApproval(models.Model):
     """One reviewer gate on a ClassOffering submission.
@@ -4158,6 +4175,64 @@ class ClassApproval(models.Model):
             self.opened_for_guild_id = self.class_offering.category.guild_id
         super().save(*args, **kwargs)
 
+    @property
+    def review_path(self) -> str:
+        """The tokenized review page, the link every request about this gate carries."""
+        from django.urls import reverse
+
+        return reverse("classes:class_review", kwargs={"token": self.token})
+
+    @staticmethod
+    def review_token_from_url(url: str) -> str | None:
+        """The gate token in a review link (path or absolute), or ``None`` for any other link."""
+        from urllib.parse import urlsplit
+
+        from django.urls import Resolver404, resolve
+
+        try:
+            match = resolve(urlsplit(url).path)
+        except Resolver404:
+            return None
+        if match.view_name != "classes:class_review":
+            return None
+        return str(match.kwargs["token"])
+
+    @classmethod
+    def mark_review_bells_read(cls, tokens: list[str]) -> int:
+        """Mark read every unread bell entry pointing at these gates' review pages (#894).
+
+        Called when a gate is decided, by anyone, so "A class needs your review" stops
+        saying so. Bell rows store the review path as their link, and the token in it is
+        unique to the gate. Returns how many entries were marked.
+        """
+        from django.urls import reverse
+
+        from core.models import Notification
+
+        paths = [reverse("classes:class_review", kwargs={"token": token}) for token in tokens]
+        return Notification.objects.unread().filter(url__in=paths).update(read_at=timezone.now())
+
+    @classmethod
+    def mark_decided_review_bells_read(cls) -> int:
+        """Mark read the unread bell entries whose review gate is decided or gone.
+
+        The one-time cleanup for entries written before decisions and deletions cleared them
+        (#894): read each unread bell link, keep the review links, and mark the ones whose
+        gate has a decision or no longer exists. Returns how many entries were marked.
+        """
+        from core.models import Notification
+
+        # "/review/" is a cheap narrowing; review_token_from_url decides exactly.
+        unread_links = Notification.objects.unread().filter(url__contains="/review/").values_list("pk", "url")
+        tokens_by_pk = {pk: cls.review_token_from_url(url) for pk, url in unread_links}
+        still_open = set(
+            cls.objects.pending()
+            .filter(token__in=[t for t in tokens_by_pk.values() if t])
+            .values_list("token", flat=True)
+        )
+        stale = [pk for pk, token in tokens_by_pk.items() if token and token not in still_open]
+        return Notification.objects.filter(pk__in=stale).update(read_at=timezone.now())
+
     def may_be_decided_by(self, user: "AbstractBaseUser | AnonymousUser | None") -> bool:
         """Whether ``user`` may record this gate's decision from the tokenized review page (#816).
 
@@ -4256,6 +4331,8 @@ class ClassApproval(models.Model):
         with transaction.atomic():
             self.save(update_fields=update_fields)
             self.class_offering.on_review_decision_recorded(self)
+            # Decided, so the bell entries asking for this decision stop asking (#894).
+            ClassApproval.mark_review_bells_read([self.token])
 
 
 class ClassImage(models.Model):

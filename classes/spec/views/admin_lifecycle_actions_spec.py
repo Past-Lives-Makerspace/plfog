@@ -21,6 +21,7 @@ from classes.factories import (
 )
 from classes.models import READINESS_DESCRIPTION_HINT, ClassApproval, ClassOffering, CmsActivity, Registration
 from core.models import Notification
+from tests.core.events.digest_support import digest_emails
 from tests.membership.factories import GuildFactory
 
 Status = ClassOffering.Status
@@ -240,14 +241,15 @@ def describe_remind_lead():
         first = client.post(url)
         assert first.status_code == 204
         assert "Reminder sent to Lena Lead." in first["HX-Trigger"]
-        lead_mail = [m for m in mail.outbox if m.to == ["remind-lead@example.com"]]
-        assert len(lead_mail) == 1
-        assert "[missing:" not in lead_mail[0].body
-        assert [m for m in mail.outbox if m.to == ["teacher@example.com"]] == []
+        # Remind lead sends no email (#894): the lead reads it in the next 8 AM digest.
+        assert mail.outbox == []
         second = client.post(url)
         assert second.status_code == 204
         assert "Already reminded today." in second["HX-Trigger"]
-        assert len([m for m in mail.outbox if m.to == ["remind-lead@example.com"]]) == 1
+        (lead_mail,) = digest_emails("remind-lead@example.com")
+        assert "Reminded by " in lead_mail.body
+        assert "[missing:" not in lead_mail.body
+        assert [m for m in mail.outbox if m.to == ["teacher@example.com"]] == []
 
     def it_names_the_class_reviewer_when_the_guild_has_one_but_no_lead(admin_user, client, db):
         from membership.models import GuildStaffMembership, Member
@@ -553,7 +555,7 @@ def describe_readiness_guard_on_approve():
         mail.outbox = []
         gate.decide(ClassApproval.Decision.APPROVED, user=lead_user)
         assert offering.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").count() == 1
-        assert [m for m in mail.outbox if m.to == ["cms-esc@example.com"]]
+        assert digest_emails("cms-esc@example.com")
 
     def it_admin_review_page_shows_the_readiness_message_as_a_form_error(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.PENDING, description="Short")

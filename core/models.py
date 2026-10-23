@@ -2042,9 +2042,37 @@ class EventDelivery(models.Model):
             ),
         ]
 
+    #: How a queued digest line says who pressed Remind lead (#894); :attr:`reminded_by` reads it.
+    REMINDED_BY_PREFIX = "Reminded by "
+
     def __str__(self) -> str:
         suffix = f"@{self.period}" if self.period else ""
         return f"{self.event_key}→{self.target_ref}[{self.channel}]{suffix}"
+
+    # A queued digest row (#894) reads without re-rendering: the recipient (``target_ref``),
+    # the event (``event_key``), when it was queued (``created_at``) and the three below.
+
+    @property
+    def recipient_user_id(self) -> int:
+        """The recipient's ``User`` pk, from a per-person ``user:<pk>`` target ref."""
+        prefix, _sep, pk = self.target_ref.partition(":")
+        if prefix != "user":
+            raise ValueError(f"Not a per-person delivery: {self.target_ref!r}")
+        return int(pk)
+
+    @property
+    def request_ref(self) -> str:
+        """The request a digest row is about: the first two parts of its period (``approval:12``).
+
+        The original ask (``approval:12:request``) and a Remind lead
+        (``approval:12:reminder:2026-10-23``) share it.
+        """
+        return ":".join(self.period.split(":")[:2])
+
+    @property
+    def reminded_by(self) -> str:
+        """Who pressed Remind lead for a queued line, or ``""`` for the original request."""
+        return self.body.removeprefix(self.REMINDED_BY_PREFIX) if self.body.startswith(self.REMINDED_BY_PREFIX) else ""
 
 
 class NotificationTemplate(models.Model):

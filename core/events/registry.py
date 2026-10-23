@@ -46,6 +46,20 @@ class Channel(str, Enum):
     DISCORD_DM = "discord_dm"
 
 
+class EmailDelivery(str, Enum):
+    """When an event's per-person email goes out (#894).
+
+    * ``INSTANT`` — sent the moment the event is emitted, as every email always was.
+    * ``DIGEST`` — buffered, then sent in the 8 AM Pacific staff digest, which drops a
+      request someone decided in the meantime. For requests that ask a staff member to
+      act. An ``email_to`` send (an explicit address, such as the instructor explainer
+      riding ``class_review_requested``) is always instant.
+    """
+
+    INSTANT = "instant"
+    DIGEST = "digest"
+
+
 class ChannelDefault(str, Enum):
     """The default state of a channel for an event, before any user preference.
 
@@ -154,6 +168,9 @@ class EventType:
             (the transactional navy card) or ``"light"`` (the hybrid release-style
             shell: logo hero band over a white body). Presentation only; the copy
             fragment stays admin-editable either way.
+        email_delivery: :class:`EmailDelivery` — instant (the default) or the 8 AM
+            staff digest. A digest event needs a still-open check registered in
+            :mod:`core.events.resolvers`.
     """
 
     key: str
@@ -164,6 +181,7 @@ class EventType:
     channels: tuple[ChannelSpec, ...] = field(default_factory=tuple)
     activity_kind: str | None = None
     email_shell: str = "light"
+    email_delivery: EmailDelivery = EmailDelivery.INSTANT
 
     def channel(self, channel: Channel) -> ChannelSpec | None:
         """Return this event's spec for ``channel``, or ``None`` if not declared."""
@@ -1541,6 +1559,18 @@ _NEW_EVENTS: list[EventType] = [
 ]
 
 
+# Events whose per-person email waits for the 8 AM staff digest (#894): requests that ask
+# a staff member to act. Each one has a still-open check in core.events.resolvers.
+_DIGEST_EMAIL_EVENTS: frozenset[str] = frozenset({"class_review_requested", "class_validation_requested"})
+
+
+def _with_email_delivery(event: EventType) -> EventType:
+    """Mark the :data:`_DIGEST_EMAIL_EVENTS` as digest; every other event stays instant."""
+    if event.key in _DIGEST_EMAIL_EVENTS:
+        return replace(event, email_delivery=EmailDelivery.DIGEST)
+    return event
+
+
 def _assemble_events() -> list[EventType]:
     """Seed from legacy triggers, then apply the Phase-6 net-new events.
 
@@ -1556,7 +1586,7 @@ def _assemble_events() -> list[EventType]:
             events[by_key[new_event.key]] = new_event
         else:
             events.append(new_event)
-    return [_with_push(event) for event in events]
+    return [_with_email_delivery(_with_push(event)) for event in events]
 
 
 EVENTS: list[EventType] = _assemble_events()
