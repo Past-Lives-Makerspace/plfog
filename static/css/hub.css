@@ -8805,9 +8805,10 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font-size: 0.875rem;
 }
 
-/* --- The guild detail Meeting Notes tab (#891) --- */
+/* --- The Meeting Notes section of the guild detail Meetings tab (#891) --- */
 .pl-guild-notes { display: flex; flex-direction: column; gap: 1.5rem; }
-.pl-guild-notes__toolbar { display: flex; justify-content: flex-end; }
+.pl-guild-notes__header { align-items: center; margin-bottom: 0; }
+.pl-guild-notes__heading { margin: 0; }
 .pl-guild-notes__note { padding: 1.5rem; }
 .pl-guild-notes__date { font-size: 0.875rem; }
 .pl-guild-notes__title { margin-top: 0.25rem; font-size: 1.125rem; font-weight: 600; color: var(--hub-text); }

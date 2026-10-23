@@ -125,7 +125,7 @@
 
 {% comment %} Legacy ?tab=notes deep links land on the renamed Meetings tab (spec §6.4); only the two known values map, so a garbage ?tab can't blank every pane. {% endcomment %}
 <div x-data="{ section: 'overview' }"
-     x-init="const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'notes' || t === 'meetings') section = 'meetings';{% if show_orientation %} if (t === 'orientations' || window.location.hash === '#guild-orientation') { section = 'orientations'; const ot = new URLSearchParams(window.location.search).get('type'); const target = ot ? 'orientation-type-' + ot : (window.location.hash === '#guild-orientation' ? 'guild-orientation' : null); if (target) $nextTick(() => document.getElementById(target)?.scrollIntoView()); }{% endif %}{% if show_reservations %} if (t === 'reservations') section = 'reservations';{% endif %}{% if wiki_tab_enabled %} if (t === 'wiki') section = 'wiki';{% endif %}{% if kiln_home %} if (t === 'kiln') section = 'kiln';{% endif %}{% if show_meeting_notes %} if (t === 'meeting_notes') section = 'meeting_notes';{% endif %}">
+     x-init="const t = new URLSearchParams(window.location.search).get('tab');{% if show_meetings_tab %} if (t === 'notes' || t === 'meetings') section = 'meetings';{% endif %}{% if show_orientation %} if (t === 'orientations' || window.location.hash === '#guild-orientation') { section = 'orientations'; const ot = new URLSearchParams(window.location.search).get('type'); const target = ot ? 'orientation-type-' + ot : (window.location.hash === '#guild-orientation' ? 'guild-orientation' : null); if (target) $nextTick(() => document.getElementById(target)?.scrollIntoView()); }{% endif %}{% if show_reservations %} if (t === 'reservations') section = 'reservations';{% endif %}{% if wiki_tab_enabled %} if (t === 'wiki') section = 'wiki';{% endif %}{% if kiln_home %} if (t === 'kiln') section = 'kiln';{% endif %}">
 {% tab_picker "Guild Sections" %}
 <nav role="tablist" class="pl-tabs">
     <button type="button" class="vote-tab" :class="section === 'overview' ? 'vote-tab--active' : ''" @click="section = 'overview'">Overview</button>
@@ -137,8 +137,7 @@
     {% if features.my_tab.is_on and not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
     {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">{{ guild.faq_label|default:"FAQ" }}</button>{% endif %}
     {% if guild.wishlist or guild.donate_url %}<button type="button" class="vote-tab" :class="section === 'wishlist' ? 'vote-tab--active' : ''" @click="section = 'wishlist'">Wishlist</button>{% endif %}
-    {% if not is_guilds_surface and features.meetings.is_on %}<button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>{% endif %}
-    {% if show_meeting_notes %}<button type="button" class="vote-tab" :class="section === 'meeting_notes' ? 'vote-tab--active' : ''" @click="section = 'meeting_notes'" data-guild-tab="meeting-notes">Meeting Notes</button>{% endif %}
+    {% if show_meetings_tab %}<button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>{% endif %}
     {% if gallery_images %}<button type="button" class="vote-tab" :class="section === 'gallery' ? 'vote-tab--active' : ''" @click="section = 'gallery'">Gallery</button>{% endif %}
 </nav>
 {% endtab_picker %}
@@ -407,16 +406,11 @@
 </div>
 {% endif %}
 
-{% if not is_guilds_surface and features.meetings.is_on %}
-{# ── Meetings tab (spec §6.4) — a filtered window into the Meetings feature. ── #}
+{% if show_meetings_tab %}
+{# ── Meetings tab (spec §6.4, #891): the Meetings feature parts while the switch is on, and the guild's meeting notes. ── #}
 <div x-show="section === 'meetings'" x-cloak>
     {% include "hub/partials/_guild_meetings_tab.html" %}
 </div>
-{% endif %}
-
-{% if show_meeting_notes %}
-{# Meeting Notes tab (#891): the notes leads post in the editor; never gated on the Meetings switch. #}
-<div x-show="section === 'meeting_notes'" x-cloak data-guild-meeting-notes>{% include "hub/partials/_guild_meeting_notes_tab.html" %}</div>
 {% endif %}
 
 {% if gallery_images %}

@@ -722,29 +722,53 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     guilds_surface = getattr(request, "surface", "members") == "guilds"
     links = [guild.classes_link(guilds_surface=guilds_surface), *guild.links.all()]
     announcements = guild.announcements.published().active()[:5]
-    # The §6.4 Meetings tab: the guild's soonest upcoming meeting + last 5 approved minutes.
-    next_guild_meeting = (
-        Meeting.objects.for_scope(guild).upcoming().select_related("guild").annotate(topic_count=Count("items")).first()
+    # The Meetings tab (§6.4, #891). Its Meetings feature parts (next meeting, proposals, minutes)
+    # follow the switch and are built only while it is on; the guild's meeting notes (the ones
+    # leads post in the editor) show on the tab whatever the switch says, to signed in viewers,
+    # newest meeting first (Meta.ordering), attachments in the same prefetch. The tab shows on the
+    # members surface when the feature is on, the guild has notes, or the viewer can edit it, so
+    # a lead's empty state can point at the editor.
+    meetings_feature_on = is_on("meetings") and not guilds_surface
+    meeting_notes = (
+        list(guild.meeting_notes.prefetch_related("attachments"))
+        if not guilds_surface and request.user.is_authenticated
+        else []
     )
-    # Everyone who may propose sees the button — editors included; their submissions
-    # land in the same pending-proposals queue.
-    can_propose_next = next_guild_meeting is not None and _can_propose_to_meeting(request, next_guild_meeting)
-    propose_form = MeetingItemProposalForm(auto_id="propose-item-%s") if can_propose_next else None
-    pending_proposal_count = (
-        next_guild_meeting.proposals.filter(state=MeetingItemProposal.State.PENDING).count()
-        if can_edit_this_guild and next_guild_meeting is not None
-        else 0
-    )
-    recent_minutes = Meeting.objects.for_scope(guild).approved().select_related("guild")[:5]
-    # Not-yet-approved meetings in the archive window (past + undated), so a published or
-    # slipped meeting stays reachable from its guild page: members see published ones,
-    # editors also see slipped drafts (mirrors the Meetings-home needs-attention scope).
-    awaiting_window = Meeting.objects.for_scope(guild).archive().select_related("guild")
-    awaiting_minutes = (
-        awaiting_window.exclude(status=Meeting.Status.APPROVED)
-        if can_edit_this_guild
-        else awaiting_window.filter(status=Meeting.Status.PUBLISHED)
-    )[:3]
+    show_meetings_tab = not guilds_surface and (meetings_feature_on or bool(meeting_notes) or can_edit_this_guild)
+    next_guild_meeting = None
+    can_propose_next = False
+    propose_form = None
+    pending_proposal_count = 0
+    recent_minutes = Meeting.objects.none()
+    awaiting_minutes = Meeting.objects.none()
+    if meetings_feature_on:
+        # The guild's soonest upcoming meeting + last 5 approved minutes.
+        next_guild_meeting = (
+            Meeting.objects.for_scope(guild)
+            .upcoming()
+            .select_related("guild")
+            .annotate(topic_count=Count("items"))
+            .first()
+        )
+        # Everyone who may propose sees the button — editors included; their submissions
+        # land in the same pending-proposals queue.
+        can_propose_next = next_guild_meeting is not None and _can_propose_to_meeting(request, next_guild_meeting)
+        propose_form = MeetingItemProposalForm(auto_id="propose-item-%s") if can_propose_next else None
+        pending_proposal_count = (
+            next_guild_meeting.proposals.filter(state=MeetingItemProposal.State.PENDING).count()
+            if can_edit_this_guild and next_guild_meeting is not None
+            else 0
+        )
+        recent_minutes = Meeting.objects.for_scope(guild).approved().select_related("guild")[:5]
+        # Not-yet-approved meetings in the archive window (past + undated), so a published or
+        # slipped meeting stays reachable from its guild page: members see published ones,
+        # editors also see slipped drafts (mirrors the Meetings-home needs-attention scope).
+        awaiting_window = Meeting.objects.for_scope(guild).archive().select_related("guild")
+        awaiting_minutes = (
+            awaiting_window.exclude(status=Meeting.Status.APPROVED)
+            if can_edit_this_guild
+            else awaiting_window.filter(status=Meeting.Status.PUBLISHED)
+        )[:3]
     # Gate the roster on the viewer, not just the guild opt-in: an anonymous guest
     # must never see member names/avatars (the count-only chip lives in the hero).
     roster = guild.roster_members() if guild.show_members and member is not None else None
@@ -878,14 +902,6 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         acting_admin=bool(getattr(getattr(request, "view_as", None), "is_admin", False)),
     )
 
-    # The Meeting Notes tab (#891): the notes leads post in the editor, newest meeting first
-    # (Meta.ordering), attachments in the same prefetch. Members surface and signed in only,
-    # and never the Meetings switch: notes are their own thing. The tab shows when there is
-    # a note, or to a lead or admin so the empty state can point at the editor.
-    show_meeting_notes_to_viewer = not guilds_surface and request.user.is_authenticated
-    meeting_notes = list(guild.meeting_notes.prefetch_related("attachments")) if show_meeting_notes_to_viewer else []
-    show_meeting_notes = show_meeting_notes_to_viewer and (bool(meeting_notes) or can_edit_this_guild)
-
     guild_ct = ContentType.objects.get_for_model(Guild)
 
     from membership.services.location_status import guild_location_statuses
@@ -938,7 +954,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "wiki_tab_enabled": wiki_tab_enabled,
             **wiki_tab_context,
             "kiln_home": kiln_home,
-            "show_meeting_notes": show_meeting_notes,
+            "show_meetings_tab": show_meetings_tab,
             "meeting_notes": meeting_notes,
             "location_statuses": guild_location_statuses(guild),
         },
