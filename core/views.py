@@ -15,6 +15,7 @@ from django.db.models import Q
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
@@ -643,8 +644,11 @@ def biometric_disable(request: HttpRequest) -> JsonResponse:
 
 @staff_member_required
 def site_activity(request: HttpRequest) -> HttpResponse:
-    """Staff dashboard: a chronological site-wide event feed and an email audit log."""
+    """Staff dashboard: a site-wide event feed, an email audit log and the Email Queue (#894)."""
+    from core.services.email_queue import DigestQueue, sent_digests
+
     tab = request.GET.get("tab", "feed")
+    now = timezone.now()
 
     activities = SiteActivity.objects.select_related("actor", "target_ct", "email_log").all()
     kind = request.GET.get("kind", "").strip()
@@ -675,7 +679,25 @@ def site_activity(request: HttpRequest) -> HttpResponse:
             "kind": kind,
             "actor_q": actor_q,
             "status": status,
+            "digest_queue": DigestQueue.load(now),
+            "sent_digests": sent_digests(now),
         },
+    )
+
+
+@staff_member_required
+def site_activity_upcoming(request: HttpRequest) -> HttpResponse:
+    """The Email Queue tab's "Coming up in the next 24 hours" section, loaded by HTMX when the tab opens.
+
+    Its own request because it walks every timed email source a tick at a time, which the
+    Activity Feed and Email Log should never pay for.
+    """
+    from core.services.email_queue import upcoming_timed_emails
+
+    return render(
+        request,
+        "hub/admin/_activity_queue_upcoming.html",
+        {"upcoming": upcoming_timed_emails(timezone.now())},
     )
 
 

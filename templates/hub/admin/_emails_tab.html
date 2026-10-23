@@ -28,6 +28,7 @@ in static/css/hub.css (.pl-email-*), mirroring the Automations card set.
         {% else %}
           <span class="hub-pill hub-pill--neutral">Triggered</span>
         {% endif %}
+        <span class="hub-pill hub-pill--{% if row.is_digest %}warn{% else %}ok{% endif %}" data-email-delivery="{{ row.key }}">{{ row.delivery_label }}</span>
       </div>
 
       <div class="pl-email-row__desc">{{ row.description }}</div>

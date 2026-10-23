@@ -45,6 +45,7 @@ urlpatterns = [
     path("accounts/biometric/disable/", views.biometric_disable, name="biometric_disable"),
     # Staff activity dashboard
     path("manage/activity/", views.site_activity, name="manage_activity"),
+    path("manage/activity/upcoming/", views.site_activity_upcoming, name="manage_activity_upcoming"),
     # Member notifications page
     path("notifications/", views.notification_list, name="notification_list"),
     path("notifications/unread-count/", views.notification_unread_count, name="notification_unread_count"),

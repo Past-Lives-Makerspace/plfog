@@ -37,6 +37,15 @@ def next_tick(at: datetime) -> datetime:
     return mark if mark == at else mark + DEFAULT_WINDOW
 
 
+def send_tick(fire_at: datetime) -> datetime:
+    """The cron tick that sends something firing at ``fire_at``: the quarter hour at or before it.
+
+    A tick at ``t`` fires everything due in ``[t, t + 15 min)`` (:func:`is_due`), so a send due at
+    9:07 goes out on the 9:00 tick.
+    """
+    return fire_at.replace(minute=fire_at.minute - fire_at.minute % 15, second=0, microsecond=0)
+
+
 @dataclass(frozen=True)
 class DueWindow:
     """The fire time for a scheduled event and the tick window it's due in.

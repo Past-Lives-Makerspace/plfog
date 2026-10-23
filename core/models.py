@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import hashlib
 import logging
 import secrets
@@ -2198,6 +2199,28 @@ class EventDelivery(models.Model):
         (``approval:12:reminder:2026-10-23``) share it.
         """
         return ":".join(self.period.split(":")[:2])
+
+    def record_digest(self, *, subject: str, included: int, left_out: int) -> None:
+        """Stamp a sent staff digest's ledger row with what it carried (#894 part 2).
+
+        The ``staff_digest`` ledger row has no message of its own, so its ``title`` holds the
+        subject and its ``body`` the counts, read back by :attr:`digest_counts`.
+        """
+        self.title = subject[:255]
+        self.body = json.dumps({"included": included, "left_out": left_out})
+        self.save(update_fields=["title", "body"])
+
+    @property
+    def digest_counts(self) -> tuple[int, int]:
+        """``(included, left_out)`` for a sent digest, as :meth:`record_digest` wrote them.
+
+        Raises ``ValueError`` for a row that recorded none (sent before #894 part 2, or a
+        day's slot kept after two failed sends): callers filter those out first.
+        """
+        if not self.body:
+            raise ValueError(f"No digest counts recorded on {self}")
+        counts = json.loads(self.body)
+        return counts["included"], counts["left_out"]
 
     @property
     def reminded_by(self) -> str:
