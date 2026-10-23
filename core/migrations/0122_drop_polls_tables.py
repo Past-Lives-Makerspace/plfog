@@ -1,0 +1,28 @@
+"""Drop the tables of the polls feature removed in #890 (#913).
+
+The polls app is gone from the code; its tables stayed one release so the release before #890
+kept working while it deployed. A JSON backup of every row was taken before this ran. The
+``polls`` migration history and content types go too, so nothing points at the removed app.
+"""
+
+from django.db import migrations
+
+
+def forget_polls_content_types(apps, schema_editor):
+    """Delete the polls content types; their permissions cascade."""
+    apps.get_model("contenttypes", "ContentType").objects.filter(app_label="polls").delete()
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ("core", "0121_automationaction"),
+        ("contenttypes", "0002_remove_content_type_name"),
+    ]
+
+    operations = [
+        migrations.RunSQL("DROP TABLE IF EXISTS polls_pollvote", reverse_sql=migrations.RunSQL.noop),
+        migrations.RunSQL("DROP TABLE IF EXISTS polls_pollchoice", reverse_sql=migrations.RunSQL.noop),
+        migrations.RunSQL("DROP TABLE IF EXISTS polls_poll", reverse_sql=migrations.RunSQL.noop),
+        migrations.RunSQL("DELETE FROM django_migrations WHERE app = 'polls'", reverse_sql=migrations.RunSQL.noop),
+        migrations.RunPython(forget_polls_content_types, migrations.RunPython.noop),
+    ]
