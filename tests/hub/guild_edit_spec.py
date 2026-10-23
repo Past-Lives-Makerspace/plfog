@@ -1344,6 +1344,7 @@ def describe_the_location_lights_setting():
         basic = html.split("x-show=\"section === 'basic'\"")[1].split("x-show=\"section === 'meetings'\"")[0]
         toggle = basic.split('name="show_members"')[1]
         assert 'name="show_location_status"' in toggle
+        assert '<input type="hidden" name="location_lights_shown" value="1">' in toggle
         assert 'class="pl-toggle-label">Show location lights on the guild page' in toggle
         assert "Free now, starting soon or in use, for each of this guild's locations." in toggle
         widget = toggle.split('name="show_location_status"')[1].split(">")[0]
@@ -1354,19 +1355,33 @@ def describe_the_location_lights_setting():
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="lights_lead", password="pass")
 
-        assert _post(client, guild).json() == {"saved": True, "rows": {}}
+        # The marker and no box: the switch was on the page and left off.
+        assert _post(client, guild, location_lights_shown="1").json() == {"saved": True, "rows": {}}
         guild.refresh_from_db()
         assert guild.show_location_status is False
 
-        assert _post(client, guild, show_location_status="on").status_code == 200
+        assert _post(client, guild, location_lights_shown="1", show_location_status="on").status_code == 200
         guild.refresh_from_db()
         assert guild.show_location_status is True
+
+    def describe_when_the_page_predates_the_switch():
+        # A Guild Settings tab loaded before #892 posts neither the marker nor the box; its
+        # autosave must leave the guild's choice alone, whichever way it is set.
+        @pytest.mark.parametrize("current", [True, False])
+        def it_keeps_the_guilds_current_value(client: Client, current: bool):
+            user = _user_with_role(f"lights_old_{current}")
+            guild = GuildFactory(guild_lead=user.member, show_location_status=current)
+            client.login(username=f"lights_old_{current}", password="pass")
+            assert _post(client, guild, about="Saved from an old tab").json() == {"saved": True, "rows": {}}
+            guild.refresh_from_db()
+            assert guild.about == "Saved from an old tab"
+            assert guild.show_location_status is current
 
     def it_refuses_a_crafted_post_from_a_member_who_cannot_edit_the_guild(client: Client):
         _user_with_role("lights_plain")
         guild = GuildFactory(show_location_status=True)
         client.login(username="lights_plain", password="pass")
-        response = _post(client, guild)
+        response = _post(client, guild, location_lights_shown="1")
         assert response.status_code == 403
         guild.refresh_from_db()
         assert guild.show_location_status is True

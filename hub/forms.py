@@ -294,6 +294,17 @@ class GuildEditForm(forms.ModelForm):
         "https://discordapp.com/api/webhooks/",
     )
 
+    #: Posted beside the location lights switch (#892), so an unchecked box means "off" only when the
+    #: switch was on the page. A Guild Settings tab loaded before #892 posts neither, and its first
+    #: autosave must not turn the guild's lights off.
+    LIGHTS_MARKER = "location_lights_shown"
+
+    def clean_show_location_status(self) -> bool:
+        """The posted switch when it was on the page, else the guild's current value."""
+        if self.LIGHTS_MARKER not in self.data:
+            return bool(self.instance.show_location_status)
+        return bool(self.cleaned_data["show_location_status"])
+
     def clean_meeting_cadence(self) -> str:
         # An omitted/blank cadence means "no regular meeting", not an empty string.
         return self.cleaned_data.get("meeting_cadence") or Guild.MeetingCadence.NONE

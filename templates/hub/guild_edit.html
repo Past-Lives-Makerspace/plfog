@@ -139,6 +139,8 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
         {% include "components/form_field.html" with field=form.featured_class field_label="Featured class" %}
       </div>
       {% include "components/form_field.html" with field=form.show_members %}
+      {# The marker tells GuildEditForm the switch was on the page, so an unchecked box means off. #}
+      <input type="hidden" name="location_lights_shown" value="1">
       {% include "components/toggle.html" with field=form.show_location_status toggle_label=form.show_location_status.label toggle_description="Free now, starting soon or in use, for each of this guild's locations." %}
     </div>
 
