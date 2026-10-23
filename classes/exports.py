@@ -52,10 +52,11 @@ def _class_date(offering: ClassOffering, first: datetime | None, last: datetime 
     """The class's date as a spreadsheet sorts it: "2026-10-05", or "2026-10-05 to 2026-10-19".
 
     The same span the on screen Class Date column shows, from the class's sessions in Pacific
-    time; a flexible class gives its window label, and a class with no session gives "".
+    time; a flexible class gives its window label ("Flexible" with none, as the screen does),
+    and a class with no session gives "".
     """
     if offering.is_flexible:
-        return offering.flexible_window_label
+        return offering.flexible_window_label or "Flexible"
     if first is None or last is None:
         return ""
     first_day = timezone.localtime(first).date().isoformat()

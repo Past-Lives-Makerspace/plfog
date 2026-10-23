@@ -103,6 +103,9 @@ def describe_class_date_and_instructor_columns():
         )
         assert _row_for(offering)["Class Date"] == "Nov 2 to Dec 1, 2026"
 
+    def it_writes_a_flexible_class_with_no_window_as_flexible():
+        assert _row_for(ClassOfferingFactory(scheduling_model="flexible"))["Class Date"] == "Flexible"
+
     def it_leaves_the_date_empty_for_a_class_with_no_session():
         assert _row_for(ClassOfferingFactory())["Class Date"] == ""
 
