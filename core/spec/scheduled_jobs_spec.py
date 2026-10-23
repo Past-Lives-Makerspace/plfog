@@ -21,6 +21,8 @@ from core.scheduled_jobs import (
 # or a dispatcher job dropped from the registry.
 _DISPATCHER_ALWAYS = {
     "send_payouts",
+    # Every tick, self-gated on 8:00 Pacific (#894): DAILY's UTC 13:00 hour drifts with DST.
+    "send_staff_digests",
     "send_voting_reminders",
     "take_cycle_snapshot",
     "send_lease_expiry_reminders",
@@ -108,8 +110,16 @@ def describe_registry():
         # run, so pausing this one would leave an admin's queued announcement unsent, with no
         # run record and nothing in the composer or the voting UI to show it had stalled.
         # finish_event_announcements: the same, for an event announcement a redeploy cut short.
+        # send_staff_digests: review requests email only through it (#894), so pausing it
+        # would leave reviewers with the bell alone.
         pinned = {job.key for job in SCHEDULED_JOBS if not job.toggleable}
-        assert pinned == {"bill_tabs", "finish_event_announcements", "send_payouts", "send_queued_announcements"}
+        assert pinned == {
+            "bill_tabs",
+            "finish_event_announcements",
+            "send_payouts",
+            "send_queued_announcements",
+            "send_staff_digests",
+        }
 
     def it_no_longer_registers_or_ships_the_retired_results_email_queue():
         # Retired with the results announcement (October 2026): nothing may re-add the job

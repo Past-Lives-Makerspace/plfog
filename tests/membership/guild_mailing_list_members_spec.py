@@ -177,12 +177,11 @@ def describe_remember_announcement_recipients():
         linked = guild.mailing_list_emails.get()
         assert (linked.email, linked.user_id, linked.label) == ("main@example.com", member.user_id, "Book club")
 
+    @pytest.mark.postgres_only
     def it_locks_the_guild_row_while_it_saves():
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
 
-        if not connection.features.has_select_for_update:
-            pytest.skip("SQLite has no row locks; CI's Postgres run checks this.")
         guild = GuildFactory()
         added = _account("added@example.com")
         with CaptureQueriesContext(connection) as queries:

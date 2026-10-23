@@ -31,6 +31,7 @@ from django.db.models import (
     Max,
     OuterRef,
     Q,
+    Subquery,
     Value,
     When,
 )
@@ -376,6 +377,45 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             )
             .order_by(F("first_session_at").asc(nulls_last=True), "title")
             .distinct()
+        )
+
+    def featurable(self) -> "ClassOfferingQuerySet":
+        """The classes Home may feature (#888): ones a member can sign up for now, with a session to come.
+
+        :meth:`registration_open` (the catalog's ``bookable()`` set, short of any class past its
+        registration cutoff), less a class with no seat left (``spots_remaining`` 0: the seats
+        taken by :data:`CAPACITY_CONSUMING_REGISTRATION_STATUSES` rows reach ``capacity``; a
+        flexible class has no cap and is never full), and narrowed to a class whose next session
+        has not started, because the featured card names that session's date and time. Each row
+        carries ``next_session_at``, the start of that session, and the category is joined for
+        the card's picture (:attr:`ClassOffering.card_photo_url`). ``hub.home`` shuffles it in
+        the database and takes the first few. One query; the counts are subqueries.
+        """
+        from django.db.models import Count
+
+        next_start = (
+            ClassSession.objects.filter(class_offering=OuterRef("pk"), starts_at__gt=timezone.now())
+            .order_by("starts_at")
+            .values("starts_at")[:1]
+        )
+        taken = (
+            Registration.objects.filter(
+                class_offering=OuterRef("pk"), status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES
+            )
+            .order_by()
+            .values("class_offering")
+            .annotate(n=Count("pk"))
+            .values("n")
+        )
+        return (
+            ClassOffering.objects.filter(pk__in=self.registration_open().values("pk"))
+            .annotate(
+                next_session_at=Subquery(next_start),
+                seats_taken_now=Coalesce(Subquery(taken), Value(0)),
+            )
+            .filter(next_session_at__isnull=False)
+            .filter(Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE) | Q(seats_taken_now__lt=F("capacity")))
+            .select_related("category")
         )
 
     def registration_open(self) -> "ClassOfferingQuerySet":
@@ -2892,11 +2932,16 @@ class ClassOffering(HeroCropMixin, models.Model):
                 # undecided guild-lead row) as approved with a system note so the
                 # class drops out of every reviewer queue. The rows are kept as
                 # history — decided_by stays NULL because no human decided them.
-                self.approvals.filter(decision="").exclude(pk=row.pk).update(
+                still_open = self.approvals.filter(decision="").exclude(pk=row.pk)
+                closed_tokens = list(still_open.values_list("token", flat=True))
+                still_open.update(
                     decision=ClassApproval.Decision.APPROVED,
                     notes="Approved automatically when an admin gave final approval.",
                     decided_at=timezone.now(),
                 )
+                # A queryset update fires no save, so the closed gates' bell entries (the
+                # lead's "A class needs your review") are cleared here, by hand (#894).
+                ClassApproval.mark_review_bells_read(closed_tokens)
                 # ``ClassApproval.decide`` already refused an unready class before saving
                 # the row, so this publish cannot raise on readiness in practice; the guard
                 # inside ``publish`` is defense in depth for any other caller.
@@ -3237,6 +3282,20 @@ class ClassOffering(HeroCropMixin, models.Model):
         if self.hero_cropped:
             return self.hero_cropped.url
         return self.hero_source_url
+
+    @property
+    def card_photo_url(self) -> str:
+        """The photo a catalog card shows: :attr:`hero_image_url`, else the category's hero, else ``""``.
+
+        One rule for every card that pictures a class: the catalog (``_class_card_media.html``,
+        whose own photo branch adds the crop position and the composer's live bindings) and the
+        Featured Class on Home (#888). With ``""`` the card has no picture of the class at all.
+        """
+        if self.hero_image_url:
+            return self.hero_image_url
+        if self.category.hero_image:
+            return str(self.category.hero_image.url)
+        return ""
 
     @property
     def is_demo(self) -> bool:
@@ -4038,6 +4097,18 @@ class ClassApprovalQuerySet(models.QuerySet["ClassApproval"]):
     def for_offering(self, offering: "ClassOffering") -> "ClassApprovalQuerySet":
         return self.filter(class_offering=offering)
 
+    def open_review_urls(self, urls: list[str]) -> set[str]:
+        """Which of ``urls`` are review links to a gate still waiting on a decision (#894).
+
+        The staff digest's still-open check for class review: a line queued for a gate that
+        has since been decided, or deleted, drops out. One query for any number of links.
+        """
+        token_by_url = {url: ClassApproval.review_token_from_url(url) for url in urls}
+        open_tokens = set(
+            self.pending().filter(token__in=[t for t in token_by_url.values() if t]).values_list("token", flat=True)
+        )
+        return {url for url, token in token_by_url.items() if token in open_tokens}
+
 
 class ClassApproval(models.Model):
     """One reviewer gate on a ClassOffering submission.
@@ -4158,6 +4229,64 @@ class ClassApproval(models.Model):
             self.opened_for_guild_id = self.class_offering.category.guild_id
         super().save(*args, **kwargs)
 
+    @property
+    def review_path(self) -> str:
+        """The tokenized review page, the link every request about this gate carries."""
+        from django.urls import reverse
+
+        return reverse("classes:class_review", kwargs={"token": self.token})
+
+    @staticmethod
+    def review_token_from_url(url: str) -> str | None:
+        """The gate token in a review link (path or absolute), or ``None`` for any other link."""
+        from urllib.parse import urlsplit
+
+        from django.urls import Resolver404, resolve
+
+        try:
+            match = resolve(urlsplit(url).path)
+        except Resolver404:
+            return None
+        if match.view_name != "classes:class_review":
+            return None
+        return str(match.kwargs["token"])
+
+    @classmethod
+    def mark_review_bells_read(cls, tokens: list[str]) -> int:
+        """Mark read every unread bell entry pointing at these gates' review pages (#894).
+
+        Called when a gate is decided, by anyone, so "A class needs your review" stops
+        saying so. Bell rows store the review path as their link, and the token in it is
+        unique to the gate. Returns how many entries were marked.
+        """
+        from django.urls import reverse
+
+        from core.models import Notification
+
+        paths = [reverse("classes:class_review", kwargs={"token": token}) for token in tokens]
+        return Notification.objects.unread().filter(url__in=paths).update(read_at=timezone.now())
+
+    @classmethod
+    def mark_decided_review_bells_read(cls) -> int:
+        """Mark read the unread bell entries whose review gate is decided or gone.
+
+        The one-time cleanup for entries written before decisions and deletions cleared them
+        (#894): read each unread bell link, keep the review links, and mark the ones whose
+        gate has a decision or no longer exists. Returns how many entries were marked.
+        """
+        from core.models import Notification
+
+        # "/review/" is a cheap narrowing; review_token_from_url decides exactly.
+        unread_links = Notification.objects.unread().filter(url__contains="/review/").values_list("pk", "url")
+        tokens_by_pk = {pk: cls.review_token_from_url(url) for pk, url in unread_links}
+        still_open = set(
+            cls.objects.pending()
+            .filter(token__in=[t for t in tokens_by_pk.values() if t])
+            .values_list("token", flat=True)
+        )
+        stale = [pk for pk, token in tokens_by_pk.items() if token and token not in still_open]
+        return Notification.objects.filter(pk__in=stale).update(read_at=timezone.now())
+
     def may_be_decided_by(self, user: "AbstractBaseUser | AnonymousUser | None") -> bool:
         """Whether ``user`` may record this gate's decision from the tokenized review page (#816).
 
@@ -4256,6 +4385,8 @@ class ClassApproval(models.Model):
         with transaction.atomic():
             self.save(update_fields=update_fields)
             self.class_offering.on_review_decision_recorded(self)
+            # Decided, so the bell entries asking for this decision stop asking (#894).
+            ClassApproval.mark_review_bells_read([self.token])
 
 
 class ClassImage(models.Model):

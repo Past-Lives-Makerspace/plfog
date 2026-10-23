@@ -867,7 +867,7 @@ def describe_the_thank_you_board():
 
         assert (leader.meter_value, leader.top) == ("96.00", Decimal("96.00"))
         assert mid.meter_value == "10.00"  # over the floor, its own hours
-        assert small.meter_value == "3.8400"  # 4% of 96, not 0.25
+        assert small.meter_value == "3.84"  # 4% of 96, not 0.25
         assert small.hours_display == "0.25"  # the figure beside the bar stays the hours given
 
     def it_draws_the_floor_on_the_page(hub, artist, artist_client, lee):
@@ -878,7 +878,7 @@ def describe_the_thank_you_board():
         body = artist_client.get(_page(hub)).content.decode()
 
         second = body.split('data-hq-ci-leader="2"')[1].split("</li>")[0]
-        assert 'max="96.00" value="3.8400"' in second
+        assert 'max="96.00" value="3.84"' in second
         assert "data-hq-ci-leader-hours>0.25 h</span>" in second
 
     def it_says_so_when_nobody_has_logged_hours(hub):

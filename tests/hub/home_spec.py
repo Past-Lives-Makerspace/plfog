@@ -567,7 +567,7 @@ def describe_upcoming_block_heading():
         user = _member_user("headline")
         client.force_login(user)
         html = client.get(reverse("hub_home")).content.decode()
-        assert '<h2 class="pl-home-heading">Upcoming at Past Lives</h2>' in html
+        assert '<h2 class="pl-home-heading">Upcoming</h2>' in html
         assert '<h2 class="pl-home-heading">Your Upcoming</h2>' not in html
 
 

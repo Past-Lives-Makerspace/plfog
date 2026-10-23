@@ -210,7 +210,8 @@ def describe_the_classes_channel():
 
         assert dcp.announce_new_classes() == 1
         embeds = [embed for call in route.calls for embed in json.loads(call.request.content)["embeds"]]
-        assert [embed["url"] for embed in embeds] == [offering.public_url]
+        assert route.call_count == 1  # one post; its photo embeds share the class url (#879)
+        assert embeds[0]["url"] == offering.public_url
         assert dcp.announce_new_classes() == 0
 
 
@@ -235,7 +236,8 @@ def describe_a_class_whose_first_date_has_passed():
         assert second_run.channel_announced_at is not None
         assert dcp.announce_new_classes() == 1
         embeds = [embed for call in route.calls for embed in json.loads(call.request.content)["embeds"]]
-        assert [embed["url"] for embed in embeds] == [first_run.public_url]
+        assert route.call_count == 1  # one post; its photo embeds share the class url (#879)
+        assert embeds[0]["url"] == first_run.public_url
         assert dcp.announce_new_classes() == 0
 
     def it_hands_an_announced_class_stamp_to_every_run():

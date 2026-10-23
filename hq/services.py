@@ -1302,6 +1302,15 @@ def checkin_countdown(hub: EventHub, now: datetime) -> Countdown:
     return parts
 
 
+def meter_number(hours: Decimal) -> str:
+    """``hours`` as a bar's plain number, two places, never localised: "4.00", "3.84".
+
+    A summed total's scale comes from the database (PostgreSQL's ``SUM`` keeps the column's two places, SQLite's
+    comes back as ``Decimal("4")``), so ``str()`` of it would render the page differently on each.
+    """
+    return f"{hours:.2f}"
+
+
 # The shortest bar on the thank-you board, as a share of the leader's hours (Lee's 4%).
 BOARD_BAR_FLOOR = Decimal("0.04")
 
@@ -1329,7 +1338,7 @@ class BoardRow:
     def meter_value(self) -> str:
         """The bar's ``value`` as a plain number, never localised: the hours, but at least :data:`BOARD_BAR_FLOOR` of
         the leader's, so a small contributor still shows a sliver (Lee's ``Math.max(4, total / top * 100)``)."""
-        return str(max(self.hours, self.top * BOARD_BAR_FLOOR))
+        return meter_number(max(self.hours, self.top * BOARD_BAR_FLOOR))
 
 
 @dataclass(frozen=True)
@@ -1341,7 +1350,7 @@ class ThankYouBoard:
     @property
     def top(self) -> str:
         """The leader's hours as a plain number for the bars' ``max``; 1 on an empty board."""
-        return str(self.rows[0].hours) if self.rows else "1"
+        return meter_number(self.rows[0].hours) if self.rows else "1"
 
 
 def thank_you_board(hub: EventHub, *, limit: int = BOARD_LIMIT) -> ThankYouBoard:

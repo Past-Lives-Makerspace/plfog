@@ -102,6 +102,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         toggleable=False,
     ),
     ScheduledJob(
+        key="send_staff_digests",
+        name="Staff request digest",
+        description=("Sends each reviewer one email at 8 AM listing the class review requests still waiting on them."),
+        command="send_staff_digests",
+        schedule_label="Every 15 min (sends from 8 AM)",
+        cadence=Cadence.ALWAYS,
+        # Not toggleable: review requests no longer email on their own (#894), so pausing
+        # this would leave reviewers with the bell alone and nothing saying so.
+        toggleable=False,
+    ),
+    ScheduledJob(
         key="take_reconciliation_snapshot",
         name="Reconciliation month-end snapshots",
         description="Freezes the prior month's per-recipient payout allocation once, at month end.",

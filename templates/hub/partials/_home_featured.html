@@ -1,0 +1,69 @@
+{% comment %}
+The carousel at the top of Home's Upcoming card (#888, #896): classes and events mixed, up to eight slides that
+hub.home (_featured) picks and shuffles again on every load. A rotator (static/js/pl-rotator.js, plRotator): one slide at
+a time, a cross fade to the next every 6 seconds, with dots, a time bar, arrows and a pause button
+(hub/partials/_rotator_controls.html), none of them with one slide. On a wide screen the picture sits left of the text,
+on a phone above it. Styles in static/css/home-featured.css.
+
+A class slide shows the catalog card's picture (ClassOffering.card_photo_url), or a quiet accent block with none. An
+event slide shows the event's photo as its page crops it, or else a small live preview of its flyer
+(hub/partials/_event_flyer_sheet.html, scaled in container units as the HQ's Flyer card shows it). Pictures after the
+first carry data-rotator-src and load when their slide comes up.
+
+  featured — a list of hub.home.FeaturedClass and hub.home.FeaturedEvent, each with its kind ("Class" or "Event")
+{% endcomment %}
+{% with total=featured|length %}
+<section class="pl-home-featured pl-rotator" x-data="plRotator" data-rotator-interval="6000" aria-roledescription="carousel" aria-label="Upcoming classes and events" data-home-featured data-featured-slides="{{ total }}">
+  <div class="pl-rotator__stage">
+    <div class="pl-rotator__slides">
+      {% for item in featured %}
+      <div class="pl-rotator__slide pl-home-featured__slide{% if forloop.first %} is-active{% endif %}" :class="{ 'is-active': index === {{ forloop.counter0 }} }" role="group" aria-roledescription="slide" aria-label="{{ forloop.counter }} of {{ total }}" data-rotator-slide {% if item.kind == "Class" %}data-featured-class{% else %}data-featured-event="{{ item.event.pk }}"{% endif %}>
+        {% if item.photo_url %}
+        <a class="pl-home-featured__media" href="{{ item.url }}" tabindex="-1">
+          <img class="pl-home-featured__img" {% if forloop.first %}src{% else %}data-rotator-src{% endif %}="{{ item.photo_url }}" alt="{{ item.title }}" width="640" height="360" loading="lazy" data-featured-position="{{ item.photo_position }}" data-featured-photo>
+        </a>
+        {% elif item.kind == "Class" %}
+        <a class="pl-home-featured__media" href="{{ item.url }}" tabindex="-1">
+          <span class="pl-home-featured__accent" aria-hidden="true" data-featured-accent></span>
+        </a>
+        {% else %}
+        {# No photo: the event's flyer, drawn in container units so it scales into the frame; a tap opens it full size. #}
+        <a class="pl-home-featured__media pl-home-featured__media--flyer" href="{{ item.flyer_url }}" target="_blank" rel="noopener" tabindex="-1" aria-label="Open the flyer for {{ item.title }}" data-featured-flyer>
+          <div class="pl-home-featured__sheet" aria-hidden="true">
+            {% include "hub/partials/_event_flyer_sheet.html" with event=item.event qr_svg=item.qr_svg preview=True %}
+          </div>
+        </a>
+        {% endif %}
+        <div class="pl-home-featured__body">
+          <span class="pl-upcoming__kind pl-home-featured__kind" data-featured-kind>{{ item.kind }}</span>
+          <p class="pl-home-featured__title"><a href="{{ item.url }}">{{ item.title }}</a></p>
+          <p class="pl-home-featured__when">{{ item.start|date:"D, M j" }} · {{ item.start|date:"g:i A" }}</p>
+          {% if item.kind == "Class" %}
+          {% if item.instructors %}<p class="pl-home-featured__meta" data-featured-instructors>with {{ item.instructors }}</p>{% endif %}
+          {% elif item.place %}<p class="pl-home-featured__meta" data-featured-place>{{ item.place }}</p>
+          {% endif %}
+          <div class="pl-home-featured__actions">
+            {% if item.kind == "Class" %}
+            <a href="{{ item.url }}" class="hub-btn hub-btn--sm hub-btn--ghost">View class</a>
+            {% else %}
+            <a href="{{ item.url }}" class="hub-btn hub-btn--sm hub-btn--ghost">View event</a>
+            <a href="{{ item.flyer_url }}" class="hub-btn hub-btn--sm hub-btn--ghost" target="_blank" rel="noopener" data-featured-flyer-link>Flyer</a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% if total > 1 %}{% include "hub/partials/_rotator_controls.html" with slides=featured noun="slide" %}{% endif %}
+  </div>
+</section>
+{% endwith %}
+{# Each photo's crop rides data-featured-position and lands here, so the markup carries no style attribute (FRONTEND rule 9); idempotent, and re-run on every boosted arrival. #}
+<script>
+  (function () {
+    var photos = document.querySelectorAll("[data-featured-position]");
+    for (var i = 0; i < photos.length; i += 1) {
+      photos[i].style.objectPosition = photos[i].getAttribute("data-featured-position");
+    }
+  })();
+</script>

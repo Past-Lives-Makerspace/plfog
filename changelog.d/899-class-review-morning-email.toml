@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-23"
+title = "Class review requests come once a day"
+changes = [
+  "Guild leads and Class Reviewers now get one email at 8 AM listing every class still waiting on them, instead of an email for each class.",
+  "A class someone already approved is left out, and its notice in the app is marked read.",
+  "Remind lead adds a reminder to that morning email instead of sending a new one.",
+]

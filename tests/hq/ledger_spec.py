@@ -868,6 +868,7 @@ def describe_the_approval():
         found.refresh_from_db()
         assert (found.approved_cents, found.approved_note) == (80_000, "Their note")
 
+    @pytest.mark.postgres_only
     def it_locks_the_settings_before_the_stale_check(hub):
         found = LedgerSettingsFactory(hub=hub)
         seen = {"approved_cents": found.approved_cents, "approved_note": found.approved_note}
@@ -1031,6 +1032,7 @@ def describe_the_budget_lines():
         kegs.refresh_from_db()
         assert kegs.name == "Kegs"
 
+    @pytest.mark.postgres_only
     def it_saves_a_line_in_the_service_under_its_lock(hub, kegs):
         with CaptureQueriesContext(connection) as queries:
             saved = services.update_budget_line(kegs, {"name": "Taps"}, seen=kegs.updated_at.isoformat())
@@ -1078,6 +1080,7 @@ def describe_the_budget_lines():
         with pytest.raises(services.LineHasEntries, match="Kegs has 1 entry in the ledger"):
             services.delete_budget_line(kegs)
 
+    @pytest.mark.postgres_only
     def it_locks_the_line_before_counting_its_entries(hub, kegs):
         with CaptureQueriesContext(connection) as queries:
             services.delete_budget_line(kegs)

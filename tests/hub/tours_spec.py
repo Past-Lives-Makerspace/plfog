@@ -120,11 +120,23 @@ def describe_home_tour_offer():
         TourState.objects.mark_completed(member.user, "member-welcome")
         assert "pl-tour-offer" not in client.get(reverse("hub_home")).content.decode()
 
-    def it_renders_the_show_me_around_header_button_once_the_tour_is_behind_them(client):
+    def it_hides_show_me_around_once_the_tour_is_taken(client):
         member = _login_member(client, "home-btn")
         TourState.objects.mark_completed(member.user, "member-welcome")
         content = client.get(reverse("hub_home")).content.decode()
+        assert HEADER_LINK not in content
+        assert 'class="pl-home-tour-link"' not in content
+
+    def it_shows_show_me_around_while_the_tour_is_not_taken_and_no_banner_offers_it(client):
+        _login_member(client, "home-btn-new", guided_tours_enabled=False)
+        content = client.get(reverse("hub_home")).content.decode()
         assert HEADER_LINK in content
+
+    def it_still_offers_a_retake_on_help_once_show_me_around_is_gone(client):
+        member = _login_member(client, "home-btn-help")
+        TourState.objects.mark_completed(member.user, "member-welcome")
+        assert HEADER_LINK not in client.get(reverse("hub_home")).content.decode()
+        assert f'href="{reverse("hub_home")}?tour=member-welcome"' in client.get(reverse("hub_help")).content.decode()
 
     def describe_manual_start():
         def it_autostarts_without_writing_a_row_even_when_dismissed(client):
@@ -192,14 +204,15 @@ def describe_home_tour_banner():
         content = client.get(reverse("hub_home")).content.decode()
         assert BANNER not in content
         assert FLOATING_CARD not in content
-        assert HEADER_LINK in content
+        # Dismissed is the checklist's Done too, so Show me around stays away as well.
+        assert HEADER_LINK not in content
 
-    def it_is_gone_once_the_tour_is_completed_and_the_header_link_returns(client):
+    def it_is_gone_once_the_tour_is_completed_and_so_is_show_me_around(client):
         member = _login_member(client, "banner-done")
         TourState.objects.mark_completed(member.user, "member-welcome")
         content = client.get(reverse("hub_home")).content.decode()
         assert BANNER not in content
-        assert HEADER_LINK in content
+        assert HEADER_LINK not in content
 
     def it_stays_away_while_the_welcome_modal_shows(client):
         _login_member(client, "banner-welcome", welcome_dismissed_at=None)

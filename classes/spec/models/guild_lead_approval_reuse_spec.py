@@ -107,7 +107,10 @@ def _move_every_session(offering: ClassOffering, delta: timedelta) -> None:
 
 
 def _addressed(email: str) -> bool:
-    return any(email in message.to for message in mail.outbox)
+    """Whether ``email`` was mailed, or is asked in the next 8 AM digest (review requests, #894)."""
+    from tests.core.events.digest_support import digest_emails
+
+    return any(email in message.to for message in mail.outbox) or bool(digest_emails(email))
 
 
 def describe_schedule_fingerprint():
