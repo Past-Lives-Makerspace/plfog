@@ -1,0 +1,60 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}{% if form.instance.pk %}Edit Announcement{% else %}New Announcement{% endif %}{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/home-announcements.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+Add or edit one Home announcement (#889, hub.announcement_admin_views, hub.spotlight_forms.AnnouncementForm). The text is
+the rich editor with bold, italic and links only (core.widgets.InlineRichTextWidget), with a live "N / 160" under it
+that turns red past the limit; the save refuses it there too. Then Show from and Show until, each a date and a half hour,
+and Active. Save goes back to the Spotlight page's Announcements section.
+{% endcomment %}
+{% include "_components/rich_editor_assets.html" %}
+{% if form.instance.pk %}
+{% include "components/page_header.html" with title="Edit Announcement" description="Shown in the banner at the top of Home while it is live. A member who closed the banner sees it again after this is saved." %}
+{% else %}
+{% include "components/page_header.html" with title="New Announcement" description="Shown in the banner at the top of Home while it is live, taking turns with the other live ones." %}
+{% endif %}
+<div class="hub-card pl-ann-admin-form">
+  <form method="post" data-announcement-form>
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="pl-spotlight-admin__errors" role="alert">{% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}</div>{% endif %}
+    {% include "components/form_field.html" with field=form.body field_hint_off=True %}
+    <div class="pl-ann-admin-form__count-row">
+      <p class="pl-field-hint">{{ form.body.help_text }}</p>
+      <p class="pl-ann-admin-form__count{% if char_count > max_chars %} is-over{% endif %}" data-announcement-chars data-max="{{ max_chars }}" aria-live="polite">{{ char_count }} / {{ max_chars }}</p>
+    </div>
+    <div class="pl-ann-admin-form__when">
+      <div class="pl-ann-admin-form__pair">
+        {% include "components/form_field.html" with field=form.show_from_date field_hint="Empty shows it at once." %}
+        {% include "components/form_field.html" with field=form.show_from_time %}
+      </div>
+      <div class="pl-ann-admin-form__pair">
+        {% include "components/form_field.html" with field=form.show_until_date field_hint="Empty keeps it until you turn it off." %}
+        {% include "components/form_field.html" with field=form.show_until_time %}
+      </div>
+    </div>
+    {% include "components/form_field.html" with field=form.is_active %}
+    <div class="pl-ann-admin-form__actions">
+      <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+      <a href="{{ section_url }}" class="pl-btn pl-btn--ghost">Cancel</a>
+    </div>
+  </form>
+</div>
+{# The live count mirrors the save's rule: the editor's text, whitespace runs collapsed and the ends trimmed, in code points (hub.spotlight_forms.AnnouncementForm.clean_body). #}
+<script>
+  (function () {
+    var form = document.querySelector("[data-announcement-form]");
+    var counter = form && form.querySelector("[data-announcement-chars]");
+    if (!counter) return;
+    var max = parseInt(counter.getAttribute("data-max"), 10);
+    form.addEventListener("pl-rte-change", function (e) {
+      var n = Array.from(e.detail.text.trim().split(/\s+/).filter(Boolean).join(" ")).length;
+      counter.textContent = n + " / " + max;
+      counter.classList.toggle("is-over", n > max);
+    });
+  })();
+</script>
+{% endblock %}

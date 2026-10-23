@@ -1,6 +1,9 @@
 {% extends "hub/base.html" %}
 {% load static classes_tags %}
 {% block title %}Spotlight{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/home-announcements.css' %}">
+{% endblock %}
 {% block content %}
 {% comment %}
 Admin Tools > Spotlight (#708), built by hub.spotlight_views. The text form saves the meeting and
@@ -8,7 +11,101 @@ the two minimized lines; the preview beside it is hub/partials/_spotlight.html, 
 members get (#709), bound to the form as the admin types. Then the open poll, a New poll form
 and the Past polls table. Nothing here notifies anyone.
 {% endcomment %}
-{% include "components/page_header.html" with title="Spotlight" description="The top left of the Member Portal: this week's poll and the next Feature Request Meeting. Members see changes the next time a page loads." %}
+{% include "components/page_header.html" with title="Spotlight" description="The announcements banner on Home, and the top left of the Member Portal: this week's poll and the next Feature Request Meeting. Members see changes the next time a page loads." %}
+
+{% comment %}
+The Announcements section (#889, hub.announcement_admin_views): every Home announcement in the banner's order, each row
+from hub/admin/_announcement_row.html. "+ Add announcement" and Edit open the form page; the switch and the order save at
+once, the order through the hidden form below (the script at the end of this section writes it and submits it over htmx).
+{% endcomment %}
+<div class="hub-card pl-spotlight-admin pl-ann-admin" id="announcements" data-announcements-admin>
+  <div class="pl-ann-admin__head">
+    <h2 class="pl-spotlight-admin__title">Announcements</h2>
+    <a href="{% url 'hub_admin_announcement_new' %}" class="pl-btn pl-btn--primary pl-btn--sm" data-announcement-add>+ Add announcement</a>
+  </div>
+  <p class="hub-text-muted pl-ann-admin__intro">Short notices in a banner at the top of Home. The live ones take turns, in this order; drag a row or use the arrows to change it.</p>
+  {% if announcement_rows %}
+  <form method="post" action="{% url 'hub_admin_announcement_reorder' %}" hx-post="{% url 'hub_admin_announcement_reorder' %}" hx-swap="none" hidden data-announcement-order-form>
+    {% csrf_token %}
+    <input type="hidden" name="order" value="{% for row in announcement_rows %}{{ row.announcement.pk }}{% if not forloop.last %},{% endif %}{% endfor %}" data-announcement-order>
+  </form>
+  <ul class="pl-ann-admin__rows" data-announcement-rows>
+    {% for row in announcement_rows %}{% include "hub/admin/_announcement_row.html" %}{% endfor %}
+  </ul>
+  {% for row in announcement_rows %}
+  {% with pk=row.announcement.pk|stringformat:"s" %}
+  {% url 'hub_admin_announcement_delete' row.announcement.pk as delete_url %}
+  {% include "components/confirm_modal.html" with confirm_id="delete-announcement-"|add:pk confirm_title="Delete this announcement?" confirm_message="Members stop seeing it at once." confirm_action_url=delete_url confirm_button_text="Delete" %}
+  {% endwith %}
+  {% endfor %}
+  {% else %}
+  <p class="hub-text-muted pl-ann-admin__empty" data-announcements-empty>No announcements yet. Add one and it shows at the top of Home.</p>
+  {% endif %}
+</div>
+{# The order saves as soon as a row moves: a drag from the grip, or the up and down buttons on touch and keyboard (the Slideshow's controls). #}
+<script>
+  (function () {
+    var list = document.querySelector("[data-announcement-rows]");
+    var form = document.querySelector("[data-announcement-order-form]");
+    if (!list || !form) return;
+    var input = form.querySelector("[data-announcement-order]");
+
+    function rows() {
+      return Array.prototype.slice.call(list.querySelectorAll("[data-announcement-row]"));
+    }
+
+    function save() {
+      var order = rows().map(function (row) { return row.getAttribute("data-announcement-row"); }).join(",");
+      if (order === input.value) return;
+      input.value = order;
+      form.requestSubmit();
+    }
+
+    list.addEventListener("click", function (e) {
+      var button = e.target.closest("[data-move]");
+      if (!button) return;
+      var row = button.closest("[data-announcement-row]");
+      if (button.getAttribute("data-move") === "up") {
+        if (row.previousElementSibling) list.insertBefore(row, row.previousElementSibling);
+      } else if (row.nextElementSibling) {
+        list.insertBefore(row.nextElementSibling, row);
+      }
+      button.focus();
+      save();
+    });
+
+    var dragged = null;
+    list.addEventListener("dragstart", function (e) {
+      var grip = e.target.closest(".pl-slide-grip");
+      if (!grip) return;
+      dragged = grip.closest("[data-announcement-row]");
+      dragged.classList.add("pl-slide-card--dragging");
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("application/x-announcement-reorder", "1"); } catch (err) {}
+      try { e.dataTransfer.setDragImage(dragged, 24, 24); } catch (err) {}
+    });
+    list.addEventListener("dragend", function () {
+      if (dragged) dragged.classList.remove("pl-slide-card--dragging");
+      rows().forEach(function (row) { row.classList.remove("pl-slide-card--drag-over"); });
+      dragged = null;
+    });
+    list.addEventListener("dragover", function (e) {
+      var row = dragged && e.target.closest("[data-announcement-row]");
+      if (!row || row === dragged) return;
+      e.preventDefault();
+      rows().forEach(function (other) { other.classList.toggle("pl-slide-card--drag-over", other === row); });
+    });
+    list.addEventListener("drop", function (e) {
+      var row = dragged && e.target.closest("[data-announcement-row]");
+      if (!row || row === dragged) return;
+      e.preventDefault();
+      row.classList.remove("pl-slide-card--drag-over");
+      var all = rows();
+      list.insertBefore(dragged, all.indexOf(dragged) < all.indexOf(row) ? row.nextElementSibling : row);
+      save();
+    });
+  })();
+</script>
 
 {{ spotlight_preview|json_script:"spotlight-preview-data" }}
 <div class="hub-card pl-spotlight-admin" id="spotlight-text"

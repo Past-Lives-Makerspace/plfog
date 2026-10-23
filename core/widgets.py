@@ -29,6 +29,21 @@ class RichTextEditorWidget(forms.Textarea):
     template_name = "widgets/rich_text_editor.html"
 
 
+class InlineRichTextWidget(RichTextEditorWidget):
+    """The editor with only bold, italic and links (``data-rte-toolbar="inline"``), for a short notice.
+
+    ``rich-editor-init.js`` also limits the editor's formats to those three, so a paste never
+    shows a heading or a list the save would drop. Written for the Home announcements (#889);
+    their sanitizer is :func:`core.html_sanitize.sanitize_announcement_html`.
+    """
+
+    def get_context(self, name: str, value: Any, attrs: dict[str, Any] | None) -> dict[str, Any]:
+        """Name the toolbar for the mount."""
+        context = super().get_context(name, value, attrs)
+        context["widget"]["toolbar"] = "inline"
+        return context
+
+
 class RichBodyEditorWidget(RichTextEditorWidget):
     """The editor for a body that is stored as editor HTML or, from before the editor, plain text.
 

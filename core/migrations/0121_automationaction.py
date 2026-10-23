@@ -8,7 +8,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("core", "0119_retire_holiday_bizarre_switch"),
+        ("core", "0120_announcement"),
         ("membership", "0243_discordremoval"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

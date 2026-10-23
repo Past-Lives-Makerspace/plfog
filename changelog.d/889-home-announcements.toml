@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-23"
+title = "Announcements at the top of Home"
+changes = [
+  "Short announcements now show in a banner at the top of Home, taking turns every few seconds.",
+  "Close the banner and it stays closed until there is something new.",
+  "Admins write them in Admin Tools, under Spotlight: up to 160 characters with bold, italics and links, optional start and end dates, and drag to set the order.",
+]
