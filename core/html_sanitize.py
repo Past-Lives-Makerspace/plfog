@@ -326,6 +326,45 @@ def sanitize_rich_html(raw: str) -> str:
     return hardened
 
 
+#: The longest a Home announcement may read (#889), counted on its visible text (:func:`rich_html_to_text`).
+ANNOUNCEMENT_MAX_CHARS = 160
+
+# A Home announcement keeps bold, italic, links and line breaks, and nothing more (#889).
+_ANNOUNCEMENT_CLEANER = AllowlistCleaner(["p", "br", "strong", "em", "a"], {"a": {"href"}})
+# A link that leaves the site: it opens in a new tab. A relative one, mailto or tel opens in place.
+_EXTERNAL_HREF_RE = re.compile(r"^(?:https?:)?//", re.IGNORECASE)
+
+
+def _harden_announcement_link(attrs: dict[str, str]) -> dict[str, str]:
+    """Every announcement link gets ``rel="noopener noreferrer"``; an external one also ``target="_blank"``."""
+    hardened = {**attrs, "rel": "noopener noreferrer"}
+    # An anchor whose href the cleaner refused (javascript:, data:) has none left, and stays in place.
+    if _EXTERNAL_HREF_RE.match(attrs.get("href", "")):
+        hardened["target"] = "_blank"
+    return hardened
+
+
+def sanitize_announcement_html(raw: str) -> str:
+    """Sanitize a Home announcement to paragraphs, line breaks, bold, italic and links (#889).
+
+    Args:
+        raw: The editor's HTML. Treated as hostile input.
+
+    Returns:
+        The HTML with ``script`` and ``style`` dropped along with their contents, every other tag
+        and attribute outside the allowlist dropped (text kept), links hardened by
+        :func:`_harden_announcement_link` and bare addresses linked. Input with no visible text
+        returns ``""``.
+    """
+    if not raw or not raw.strip():
+        return ""
+    cleaned = _ANNOUNCEMENT_CLEANER.clean(_RAW_TEXT_ELEMENT_RE.sub("", raw))
+    hardened = linkify(cleaned, _harden_announcement_link)
+    if not rich_html_to_text(hardened):
+        return ""
+    return hardened
+
+
 def is_editor_html(value: str) -> bool:
     """True when a stored body is editor HTML (it carries a block tag), false for plain text.
 

@@ -1,0 +1,51 @@
+{% comment %}
+The announcements banner at the very top of Home (#889): what admins post in Admin Tools > Spotlight, one at a time in
+their order. With two or more it is a plRotator (static/js/pl-rotator.js, #896): it moves on every 8 seconds with a cross
+fade, with dots, previous and next, a pause button and swipe (hub/partials/_rotator_controls.html), and holds while
+hovered, focused or paused; under prefers-reduced-motion it never moves by itself. With one there is no control and no
+timer. Every announcement sits in one grid cell, so the tallest sets the height. Styles in
+static/css/home-announcements.css.
+
+The X closes it in this browser until the set of live announcements changes: it keeps the banner's signature
+(hub.home.HomeBanner, ids and last saves) in localStorage, and the script after the banner removes it before first paint
+while the stored signature still matches. Every storage read and write is in a try, so with storage blocked the banner
+simply shows.
+
+  banner — a hub.home.HomeBanner
+{% endcomment %}
+{% with total=banner.items|length %}
+<section class="pl-home-ann pl-rotator{% if total > 1 %} pl-home-ann--many{% endif %}" x-data="plRotator" data-rotator-interval="8000"{% if total > 1 %} aria-roledescription="carousel"{% endif %} aria-label="Announcements" data-home-announcements data-announcement-signature="{{ banner.signature }}" data-announcement-count="{{ total }}">
+  <span class="pl-home-ann__icon" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+  </span>
+  <div class="pl-rotator__stage pl-home-ann__stage">
+    <div class="pl-rotator__slides">
+      {% for announcement in banner.items %}
+      <div class="pl-rotator__slide pl-home-ann__slide{% if forloop.first %} is-active{% endif %}" :class="{ 'is-active': index === {{ forloop.counter0 }} }"{% if total > 1 %} role="group" aria-roledescription="slide" aria-label="{{ forloop.counter }} of {{ total }}"{% endif %} data-rotator-slide data-announcement="{{ announcement.pk }}">
+        <div class="pl-ann-body pl-home-ann__body">{{ announcement.body_html }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% if total > 1 %}{% include "hub/partials/_rotator_controls.html" with slides=banner.items noun="announcement" %}{% endif %}
+  </div>
+  <button type="button" class="pl-home-ann__close" onclick="window.plHomeAnnouncements.close(this.closest('[data-home-announcements]'))" aria-label="Close the announcements" data-announcement-close>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  </button>
+</section>
+{% endwith %}
+{# Runs as the banner arrives, before Alpine starts its clock; removing the banner stops the clock (plRotator's destroy). Re-defined on every boosted arrival, which is harmless. #}
+<script>
+  (function () {
+    var KEY = "pl-home-announcements-closed";
+    window.plHomeAnnouncements = {
+      close: function (banner) {
+        try { window.localStorage.setItem(KEY, banner.getAttribute("data-announcement-signature")); } catch (e) {}
+        banner.remove();
+      },
+    };
+    var banner = document.querySelector("[data-home-announcements]");
+    var closed = null;
+    try { closed = window.localStorage.getItem(KEY); } catch (e) {}
+    if (banner && closed === banner.getAttribute("data-announcement-signature")) banner.remove();
+  })();
+</script>

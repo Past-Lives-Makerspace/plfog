@@ -7,10 +7,13 @@
 <link rel="stylesheet" href="{% static 'css/door-code.css' %}">
 <link rel="stylesheet" href="{% static 'css/tour-banner.css' %}">
 <link rel="stylesheet" href="{% static 'css/home-featured.css' %}">
+<link rel="stylesheet" href="{% static 'css/home-announcements.css' %}">
 <link rel="stylesheet" href="{% static 'css/event-flyer.css' %}">
 {% endblock %}
 
 {% block content %}
+{# --- Announcements (#889): what admins post in Admin Tools > Spotlight, to everyone who sees Home, while one is live --- #}
+{% if home_banner %}{% include "hub/partials/_home_announcements.html" with banner=home_banner %}{% endif %}
 {# On phones the sidebar starts closed, so the Spotlight sits at the top of Home there (#709); hidden on wider screens. #}
 {% if spotlight %}<div class="pl-spotlight-home" data-spotlight-home>{% include "hub/partials/_spotlight.html" with spotlight=spotlight next_url=request.get_full_path %}</div>{% endif %}
 {% if member %}

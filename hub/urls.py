@@ -2,6 +2,7 @@ from django.urls import path
 from django.views.generic import RedirectView
 
 from . import (
+    announcement_admin_views,
     day_off_views,
     discord_views,
     door_code_views,
@@ -969,6 +970,32 @@ urlpatterns = [
         "manage/spotlight/polls/<int:pk>/close/",
         spotlight_views.hub_admin_spotlight_poll_close,
         name="hub_admin_spotlight_poll_close",
+    ),
+    # The Home announcements (#889), in the Spotlight page's Announcements section.
+    path(
+        "manage/spotlight/announcements/new/",
+        announcement_admin_views.hub_admin_announcement_new,
+        name="hub_admin_announcement_new",
+    ),
+    path(
+        "manage/spotlight/announcements/order/",
+        announcement_admin_views.hub_admin_announcement_reorder,
+        name="hub_admin_announcement_reorder",
+    ),
+    path(
+        "manage/spotlight/announcements/<int:pk>/",
+        announcement_admin_views.hub_admin_announcement_edit,
+        name="hub_admin_announcement_edit",
+    ),
+    path(
+        "manage/spotlight/announcements/<int:pk>/active/",
+        announcement_admin_views.hub_admin_announcement_toggle,
+        name="hub_admin_announcement_toggle",
+    ),
+    path(
+        "manage/spotlight/announcements/<int:pk>/delete/",
+        announcement_admin_views.hub_admin_announcement_delete,
+        name="hub_admin_announcement_delete",
     ),
     path("manage/feedback/<int:pk>/", feedback_views.hub_admin_feedback_request, name="hub_admin_feedback_request"),
     path(

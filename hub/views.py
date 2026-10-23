@@ -7448,8 +7448,11 @@ def home(request: HttpRequest) -> HttpResponse:
     rejected ("CSRF cookie not set"), leaving native push silently broken. Forcing the
     cookie here (it persists for the rest of the session) lets the token register.
     """
+    from hub.home import HomeBanner
+
     member = _get_member(request)
-    ctx = _get_hub_context(request)
+    # The announcements banner (#889) shows to everyone who sees Home, linked to a membership or not.
+    ctx = {**_get_hub_context(request), "home_banner": HomeBanner.load(dj_timezone.now())}
     if member is None:
         return _private_no_store(render(request, "hub/home.html", {**ctx, "member": None}))
     from hub.door_code import DoorCodeView, DoorCodeForm
