@@ -7,7 +7,7 @@ pill on Site Settings > Emails.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from django.contrib.auth.models import User
@@ -25,10 +25,11 @@ from classes.factories import (
     RegistrationFactory,
     UserFactory,
 )
-from classes.models import ClassApproval, ClassOffering, Registration
+from classes.models import ClassApproval, ClassOffering, ClassSession, Registration
 from core.events.email_catalogue import build_email_catalogue
 from core.events.scheduler import ScheduledOccurrence, flush_digests
-from core.models import EventDelivery
+from core.events.scheduling import send_tick
+from core.models import EventDelivery, NotificationPreference
 from core.services.email_queue import DigestQueue, _subject_key, next_digest_at, sent_digests, upcoming_timed_emails
 from membership.models import GuildStaffMembership, Member
 from tests.core.events.digest_support import PACIFIC, next_8am
@@ -96,6 +97,14 @@ def _queue_html(staff_client: Client) -> str:
     return response.content.decode()
 
 
+def _opted_in_guild_member(guild: object, slug: str, first: str, last: str) -> Member:
+    """A guild member who switched event reminder email on (it is off by default)."""
+    member = _person(slug, first, last)
+    GuildMembershipFactory(guild=guild, member=member)
+    NotificationPreference.objects.create(user=member.user, event_key="event.reminder", channel="email", enabled=True)
+    return member
+
+
 def _class_reminder(*, title: str, hours_from_now: float) -> Registration:
     """A confirmed registrant on a live class whose 24 hour reminder is due ``hours_from_now``."""
     offering = ClassOfferingFactory(title=title, status=ClassOffering.Status.PUBLISHED)
@@ -105,6 +114,12 @@ def _class_reminder(*, title: str, hours_from_now: float) -> Registration:
     registration = RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
     registration.session = session  # type: ignore[attr-defined]
     return registration
+
+
+def _move_session(registration: Registration, starts_at: datetime) -> None:
+    """Move a reminder spec's session to ``starts_at``, keeping its two hours."""
+    session = registration.session  # type: ignore[attr-defined]
+    ClassSession.objects.filter(pk=session.pk).update(starts_at=starts_at, ends_at=starts_at + timedelta(hours=2))
 
 
 def describe_the_tab():
@@ -128,6 +143,19 @@ def describe_the_tab():
         )
         assert "<form" not in html
         assert "<button" not in html
+
+    def it_spaces_every_card_and_row_through_the_email_queue_stylesheet(staff_client: Client, shop: _Woodshop):
+        # FRONTEND.md rule 26: the four cards clear each other by 1.5rem through a class, never inline.
+        shop.submit("Board One")
+        html = _queue_html(staff_client)
+        assert "css/email-queue.css" in html
+        assert html.count('class="hub-card pl-email-queue__section"') == 4
+        assert html.count('class="pl-email-queue__rows"') == 3
+        assert 'class="pl-email-queue__rows" hx-get=' in html
+        assert "pl-email-queue__person" in html
+        assert 'class="hub-member-row pl-email-queue__row" data-queue-item' in html
+        queue_pane = html[html.index("pl-email-queue") :]
+        assert 'style="' not in queue_pane[: queue_pane.index("</section>\n</div>")]
 
     def it_loads_coming_up_only_when_the_tab_opens(staff_client: Client):
         html = _queue_html(staff_client)
@@ -177,6 +205,24 @@ def describe_waiting_for_the_next_digest():
         send_guild_lead_review_reminder(gate, reminded_by=shop.instructor.user)
         (lead,) = [person for person in DigestQueue.load(timezone.now()).people if person.email == "chris@example.com"]
         assert [(item.pill_label, item.pill_tone) for item in lead.items] == [("Reminded by Alex Eason", "warn")]
+
+    def it_marks_a_line_the_send_will_skip_because_the_email_switch_is_off(shop: _Woodshop):
+        shop.submit("Board One")
+        NotificationPreference.objects.create(
+            user=shop.lead.user, event_key="class_review_requested", channel="email", enabled=False
+        )
+        queue = DigestQueue.load(timezone.now())
+        (lead,) = [person for person in queue.people if person.name == "Chris Ellwanger"]
+        assert [(item.pill_label, item.pill_tone) for item in lead.items] == [("Will be skipped: email off", "neutral")]
+        assert (queue.waiting_count, queue.handled_count, queue.skipped_count) == (1, 0, 1)
+
+    def it_marks_a_line_the_send_will_skip_for_want_of_an_address(staff_client: Client, shop: _Woodshop):
+        shop.submit("Board One")
+        User.objects.filter(pk=shop.lead.user.pk).update(email="")
+        (lead,) = [p for p in DigestQueue.load(timezone.now()).people if p.name == "Chris Ellwanger"]
+        assert lead.email == "no email address"
+        assert [item.pill_label for item in lead.items] == ["Will be skipped: no email address"]
+        assert "1 item waiting · 0 already handled (will be left out) · 1 will be skipped" in _queue_html(staff_client)
 
     def it_names_an_account_with_no_member_by_its_email_and_skips_one_that_is_gone(shop: _Woodshop):
         shop.submit("Board One")
@@ -250,13 +296,35 @@ def describe_coming_up_in_the_next_24_hours():
         )
         assert upcoming_timed_emails(timezone.now()) == []
 
+    def it_counts_only_people_whose_email_is_on():
+        guild = GuildFactory(name="Metal")
+        _opted_in_guild_member(guild, "mo", "Mo", "Smith")
+        # Event reminder email is off by default, so a member who never switched it on is not reached.
+        GuildMembershipFactory(guild=guild, member=_person("quinn", "Quinn", "Quiet"))
+        CommunityEventFactory(
+            guild=guild, title="Open Shop Night", starts_at=timezone.now() + timedelta(days=1, hours=3), remind_1d=True
+        )
+        (row,) = [row for row in upcoming_timed_emails(timezone.now()) if row.about == "Open Shop Night"]
+        assert row.reach == 1
+
+    def it_shows_the_quarter_hour_tick_the_cron_sends_on_and_skips_one_already_past():
+        now = send_tick(timezone.now()) + timedelta(minutes=5)
+        sent_soon = now + timedelta(hours=2)
+        fire = send_tick(sent_soon) + timedelta(minutes=7)
+        registration = _class_reminder(title="Lathe", hours_from_now=0)
+        _move_session(registration, fire + timedelta(hours=24))
+        late = _class_reminder(title="Already Going", hours_from_now=0)
+        _move_session(late, now + timedelta(minutes=2, hours=24))
+        rows = upcoming_timed_emails(now)
+        assert [(row.about, row.send_at) for row in rows] == [("Lathe", send_tick(sent_soon))]
+
     def it_leaves_out_one_beyond_24_hours():
         _class_reminder(title="Cutting Board Basics", hours_from_now=30)
         assert upcoming_timed_emails(timezone.now()) == []
 
     def it_lists_an_event_reminder_by_the_event_title():
         guild = GuildFactory(name="Metal")
-        GuildMembershipFactory(guild=guild, member=_person("mo", "Mo", "Smith"))
+        _opted_in_guild_member(guild, "mo", "Mo", "Smith")
         CommunityEventFactory(
             guild=guild, title="Open Shop Night", starts_at=timezone.now() + timedelta(days=1, hours=3), remind_1d=True
         )
@@ -288,6 +356,15 @@ def describe_coming_up_in_the_next_24_hours():
         _class_reminder(title="Cutting Board Basics", hours_from_now=2)
         with django_assert_max_num_queries(40):
             _queue_html(staff_client)
+
+
+def describe_send_tick():
+    def it_is_the_quarter_hour_at_or_before_the_fire_time():
+        at = timezone.now().replace(hour=9, minute=7, second=30, microsecond=5)
+        assert send_tick(at) == at.replace(minute=0, second=0, microsecond=0)
+        assert send_tick(at.replace(minute=15, second=0, microsecond=0)) == at.replace(
+            minute=15, second=0, microsecond=0
+        )
 
 
 def describe_the_emails_tab_pill():

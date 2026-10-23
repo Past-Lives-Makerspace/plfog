@@ -1,11 +1,9 @@
-{# Email Queue "Coming up" rows (#894), rendered by site_activity_upcoming; times are Pacific. #}
+{# Email Queue "Coming up" rows (#894), rendered by site_activity_upcoming into .pl-email-queue__rows; times are Pacific. #}
 {% for email in upcoming %}
-<div class="hub-member-row" data-queue-upcoming-row>
-  <div>
-    <div class="hub-member-name">{{ email.about }}</div>
-    <div class="hub-text-muted">{{ email.send_at|date:"D, M j, g:i A" }} Pacific · {{ email.label }}</div>
-    <div><span class="hub-pill hub-pill--neutral">{{ email.reach }} {% if email.reach == 1 %}person{% else %}people{% endif %}</span></div>
-  </div>
+<div class="hub-member-row pl-email-queue__row" data-queue-upcoming-row>
+  <div class="hub-member-name">{{ email.about }}</div>
+  <div class="hub-text-muted pl-email-queue__meta">{{ email.send_at|date:"D, M j, g:i A" }} Pacific · {{ email.label }}</div>
+  <div class="pl-email-queue__pills"><span class="hub-pill hub-pill--neutral">{{ email.reach }} {% if email.reach == 1 %}person{% else %}people{% endif %}</span></div>
 </div>
 {% empty %}
 <p class="hub-text-muted">No timed emails in the next 24 hours.</p>

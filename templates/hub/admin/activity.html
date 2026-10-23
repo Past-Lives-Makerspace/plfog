@@ -1,6 +1,10 @@
 {% extends "hub/base.html" %}
-{% load tab_picker %}
+{% load static tab_picker %}
 {% block title %}Site Activity — Past Lives{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/email-queue.css' %}">
+{% endblock %}
 
 {% block content %}
 <div x-data="{ tab: '{{ active_tab|default:"feed" }}' }">

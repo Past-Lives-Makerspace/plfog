@@ -66,11 +66,20 @@ class QueuedItem:
     url: str
     is_open: bool
     reminded_by: str
+    #: Why the 8 AM send will skip a still-open line: "email off" or "no email address".
+    skip_reason: str = ""
+
+    @property
+    def is_waiting(self) -> bool:
+        """Whether the 8 AM email will carry this line."""
+        return self.is_open and not self.skip_reason
 
     @property
     def pill_label(self) -> str:
         if not self.is_open:
             return "Handled, will be left out"
+        if self.skip_reason:
+            return f"Will be skipped: {self.skip_reason}"
         if self.reminded_by:
             return f"Reminded by {self.reminded_by}"
         return "Still waiting"
@@ -78,9 +87,18 @@ class QueuedItem:
     @property
     def pill_tone(self) -> str:
         """The ``hub-pill--*`` modifier for :attr:`pill_label`."""
-        if not self.is_open:
+        if not self.is_waiting:
             return "neutral"
         return "warn" if self.reminded_by else "ok"
+
+
+def _skip_reason(email_on: bool, address: str) -> str:
+    """Why the 8 AM send skips a still-open line, in the send's order: the switch, then the address."""
+    if not email_on:
+        return "email off"
+    if not address:
+        return "no email address"
+    return ""
 
 
 @dataclass(frozen=True)
@@ -93,7 +111,11 @@ class QueuedPerson:
 
     @property
     def waiting_count(self) -> int:
-        return sum(1 for item in self.items if item.is_open)
+        return sum(1 for item in self.items if item.is_waiting)
+
+    @property
+    def handled_count(self) -> int:
+        return sum(1 for item in self.items if not item.is_open)
 
 
 @dataclass(frozen=True)
@@ -109,13 +131,24 @@ class DigestQueue:
 
     @property
     def handled_count(self) -> int:
-        return sum(len(person.items) - person.waiting_count for person in self.people)
+        return sum(person.handled_count for person in self.people)
+
+    @property
+    def skipped_count(self) -> int:
+        """Still-open lines the send will skip: email switched off, or no address."""
+        return sum(len(person.items) - person.waiting_count - person.handled_count for person in self.people)
 
     @classmethod
     def load(cls, now: datetime) -> DigestQueue:
-        """Read every pending digest line, in three queries plus one per digest event."""
+        """Read every pending digest line and judge it as the 8 AM send will.
+
+        Three queries plus one per digest event, then the send's own per-person checks: the
+        Email switch (:meth:`DigestAdapter.wanted_event_keys`, one query per person and event)
+        and the address (:func:`notification_email_for`).
+        """
         from django.contrib.auth.models import User
 
+        from core.events.channels import DigestAdapter, notification_email_for
         from core.events.resolvers import open_request_urls
 
         pending = list(
@@ -135,7 +168,10 @@ class DigestQueue:
         for user_pk, rows in newest.items():
             if user_pk not in users:
                 continue  # the account is gone; the send drops these lines too
-            name, email = _person(users[user_pk])
+            user = users[user_pk]
+            name, _login_email = _person(user)
+            address = notification_email_for(user).strip()
+            wanted = DigestAdapter.wanted_event_keys(user, {row.event_key for row in rows.values()})
             items = [
                 QueuedItem(
                     label=get_event(row.event_key).label,
@@ -144,10 +180,11 @@ class DigestQueue:
                     url=row.url,
                     is_open=row.url in open_urls[row.event_key],
                     reminded_by=row.reminded_by,
+                    skip_reason=_skip_reason(row.event_key in wanted, address),
                 )
                 for row in sorted(rows.values(), key=lambda row: row.created_at)
             ]
-            people.append(QueuedPerson(name=name, email=email, items=items))
+            people.append(QueuedPerson(name=name, email=address or "no email address", items=items))
         people.sort(key=lambda person: person.name.lower())
         return cls(next_send=next_digest_at(now), people=people)
 
@@ -258,24 +295,42 @@ def _due_emails(now: datetime, sources: list[Source]) -> list[ScheduledOccurrenc
         tick = now
         while tick < end:
             for occurrence in source(tick):
-                sends_at = occurrence.anchor + occurrence.offset
                 event = get_event(occurrence.event_key)
                 sends_email = event.has_channel(Channel.EMAIL) or bool(occurrence.email_to)
-                if sends_email and now <= sends_at < end:
+                if sends_email and now <= _sent_on_tick(occurrence) < end:
                     due.append(occurrence)
             tick += stride
     return due
 
 
+def _sent_on_tick(occurrence: ScheduledOccurrence) -> datetime:
+    """The quarter hour tick the cron sends ``occurrence`` on (:func:`core.events.scheduling.send_tick`)."""
+    from core.events.scheduling import send_tick
+
+    return send_tick(occurrence.anchor + occurrence.offset)
+
+
 def _target_refs(occurrence: ScheduledOccurrence) -> list[str]:
-    """The ledger ``target_ref`` of everyone the occurrence's email reaches."""
-    from core.events import resolvers
+    """The ledger ``target_ref`` of everyone the occurrence's email will actually reach.
+
+    Mirrors :func:`core.events.emit.emit`: an explicit ``email_to`` sends to each non-blank
+    address with no preference check; otherwise each resolved person counts only while their
+    Email switch is on (:func:`core.events.preferences.wants`, the call emit's
+    ``enabled_channels`` makes per channel) and they have an address
+    (:func:`core.events.channels.notification_email_for`, as the email adapter checks).
+    """
+    from core.events import preferences, resolvers
+    from core.events.channels import notification_email_for
 
     if occurrence.email_to:
         addresses = [occurrence.email_to] if isinstance(occurrence.email_to, str) else occurrence.email_to
         return [f"email:{address.strip().lower()}" for address in addresses if address.strip()]
     recipients = resolvers.resolve(get_event(occurrence.event_key).recipient, occurrence.context)
-    return [f"user:{user.pk}" for user, _reason in recipients]
+    return [
+        f"user:{user.pk}"
+        for user, _reason in recipients
+        if preferences.wants(user, occurrence.event_key, Channel.EMAIL) and notification_email_for(user).strip()
+    ]
 
 
 def _subject_key(occurrence: ScheduledOccurrence) -> tuple[str, Any]:
@@ -322,7 +377,7 @@ def upcoming_timed_emails(now: datetime) -> list[UpcomingEmail]:
     for occurrence in due:
         owed = [ref for ref in refs[id(occurrence)] if (occurrence.event_key, ref, occurrence.period) not in delivered]
         if owed:
-            key = (occurrence.event_key, _subject_key(occurrence), occurrence.anchor + occurrence.offset)
+            key = (occurrence.event_key, _subject_key(occurrence), _sent_on_tick(occurrence))
             reach[key] += len(owed)
     class_titles = dict(
         ClassOffering.objects.filter(

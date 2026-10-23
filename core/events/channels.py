@@ -541,14 +541,23 @@ class DigestAdapter:
         return keep, Counter(target_ref for target_ref, _url in {(row.target_ref, row.url) for row in dropped})
 
     @staticmethod
+    def wanted_event_keys(user: User, event_keys: set[str]) -> set[str]:
+        """Which of ``event_keys`` ``user`` still has their email switched on for (read only).
+
+        The send drops the rest at 8 AM; the Email Queue tab asks the same question so the
+        two cannot disagree.
+        """
+        from core.events import preferences
+
+        return {key for key in event_keys if preferences.wants(user, key, Channel.EMAIL)}
+
+    @staticmethod
     def _drop_switched_off(user: User, rows: list[EventDelivery]) -> tuple[list[EventDelivery], int]:
         """Delete the rows for events ``user`` has since switched their email off for.
 
         Returns the rest, and how many requests (distinct links) that left out.
         """
-        from core.events import preferences
-
-        wanted_keys = {key for key in {row.event_key for row in rows} if preferences.wants(user, key, Channel.EMAIL)}
+        wanted_keys = DigestAdapter.wanted_event_keys(user, {row.event_key for row in rows})
         dropped = [row for row in rows if row.event_key not in wanted_keys]
         EventDelivery.objects.filter(pk__in=[row.pk for row in dropped]).delete()
         return [row for row in rows if row.event_key in wanted_keys], len({row.url for row in dropped})
