@@ -50,7 +50,20 @@
             [{ panel: [false, "info", "tip", "warning", "danger"] }],
             ["link", "blockquote", "code-block", "divider", "image"],
             ["clean"]
+        ],
+        // A Home announcement (#889): bold, italic and links, and nothing else.
+        inline: [
+            ["bold", "italic"],
+            ["link"],
+            ["clean"]
         ]
+    };
+
+    /* The formats an editor accepts, for a toolbar whose sanitizer keeps less than Quill's
+       defaults: a paste is cut down to these, so the editor never shows a heading or list the
+       save would drop. A toolbar not listed here accepts every format, as before. */
+    var FORMATS = {
+        inline: ["bold", "italic", "link"]
     };
 
     /* The wiki's block formats, registered before any editor is built.
@@ -197,12 +210,14 @@
             if (mount.dataset.rteSeed !== "server") {
                 mount.innerHTML = ta.value;
             }
-            var quill = new Quill(mount, {
+            var options = {
                 theme: "snow",
                 modules: {
                     toolbar: { container: TOOLBARS[mount.dataset.rteToolbar] || TOOLBARS.default }
                 }
-            });
+            };
+            if (FORMATS[mount.dataset.rteToolbar]) options.formats = FORMATS[mount.dataset.rteToolbar];
+            var quill = new Quill(mount, options);
             if (mount.dataset.rteToolbar === "wiki") {
                 var toolbarModule = quill.getModule("toolbar");
                 toolbarModule.addHandler("image", wikiImageHandler(quill, mount.dataset.rteUploadUrl || ""));

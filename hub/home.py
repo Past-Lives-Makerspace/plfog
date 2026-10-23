@@ -26,6 +26,7 @@ from membership.models import CalendarEvent, CommunityEvent, GuildAnnouncement
 
 if TYPE_CHECKING:
     from classes.models import ClassOffering
+    from core.models import Announcement
     from membership.models import Member
 
 _Row = TypeVar("_Row", bound=Model)
@@ -41,6 +42,26 @@ ANNOUNCEMENTS_CAP = 4
 # The Teaching card shows at most this many rows (bounced first, then drafts, in review, this week).
 TEACHING_CAP = 3
 TEACHING_WEEK_DAYS = 7
+
+
+@dataclass(frozen=True)
+class HomeBanner:
+    """The announcements banner at the top of Home (#889): the live announcements in order, and their signature.
+
+    The signature (:meth:`core.models.Announcement.signature`) is what a member's Close keeps in
+    the browser; the banner stays closed until it changes.
+    """
+
+    items: list[Announcement]
+    signature: str
+
+    @classmethod
+    def load(cls, now: datetime_type) -> HomeBanner | None:
+        """The banner at ``now``, or None while nothing is live. One query."""
+        from core.models import Announcement
+
+        rows = list(Announcement.objects.live(now))
+        return cls(rows, Announcement.signature(rows)) if rows else None
 
 
 @dataclass(frozen=True)

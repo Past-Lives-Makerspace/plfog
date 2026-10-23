@@ -510,7 +510,7 @@ def describe_home_page():
             assert 'aria-label="Show slide 4 of 4"' in html
             assert 'aria-label="Previous slide"' in html
             assert 'aria-label="Next slide"' in html
-            assert 'aria-label="Pause the rotation"' in html
+            assert 'aria-label="Pause the classes and events"' in html
             assert "data-rotator-bar" in html
 
         def it_gives_one_slide_no_controls(client: Client):

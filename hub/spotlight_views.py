@@ -1,7 +1,7 @@
 """Admin Tools > Spotlight at /manage/spotlight/ (#708).
 
-One page: the Spotlight text and meeting with a live preview, the open poll with Close now,
-a New poll form and the Past polls table. Every view is admin only (``@fog_admin_required``);
+One page: the Home announcements (#889, hub.announcement_admin_views), the Spotlight text and
+meeting with a live preview, the open poll with Close now, a New poll form and the Past polls table. Every view is admin only (``@fog_admin_required``);
 saves are plain POSTs that redirect back with a message, shown as a toast. Nothing here sends
 an email, push, Discord post or bell.
 """
@@ -18,6 +18,7 @@ from django.views.decorators.http import require_POST
 
 from classes.table import prepare_table
 from core.models import SiteConfiguration
+from hub.announcement_admin_views import announcement_rows
 from hub.spotlight import SECOND_LINE_DEFAULT, Spotlight, SpotlightMeeting
 from hub.spotlight_forms import NewPollForm, SpotlightTextForm
 from hub.view_as import fog_admin_required
@@ -74,6 +75,7 @@ def _render_page(
     context: dict[str, Any] = {
         **_get_hub_context(request),
         "admin_spotlight": admin_spotlight,
+        "announcement_rows": announcement_rows(now),
         "text_form": text_form,
         "poll_form": poll_form or NewPollForm(),
         "max_choices": MAX_CHOICES,

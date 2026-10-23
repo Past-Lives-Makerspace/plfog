@@ -89,7 +89,7 @@ def describe_the_home_carousel():
         _open_home(page, live_server, login_via_code, "rotator-pause-e2e@example.com")
         pause = page.locator(f"{CAROUSEL} [data-rotator-pause]")
         pause.click()
-        expect(pause).to_have_attribute("aria-label", "Play the rotation")
+        expect(pause).to_have_attribute("aria-label", "Play the classes and events")
         page.mouse.move(0, 0)
         page.evaluate("() => document.activeElement.blur()")
         page.clock.run_for(20000)
