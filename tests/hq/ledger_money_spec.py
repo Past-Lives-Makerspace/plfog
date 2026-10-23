@@ -582,6 +582,7 @@ def describe_the_approval_beside_d6bs_figures():
         assert response.status_code == 302
         assert (found.approved_cents, found.approved_note, found.ipa_cents) == (120_000, "Nov vote", 700)
 
+    @pytest.mark.postgres_only
     @pytest.mark.django_db(transaction=True)
     def it_holds_a_racing_first_save_to_the_row_the_other_made(hub):
         """Another organiser's first save inserts the row and commits only once ours waits on it, so ours finds no

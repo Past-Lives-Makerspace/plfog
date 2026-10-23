@@ -872,6 +872,7 @@ def describe_the_launch_checklist():
 
         assert LaunchTask.objects.get(pk=task.pk).owner == "Someone"
 
+    @pytest.mark.postgres_only
     def it_saves_a_task_in_the_service_under_its_lock(hub):
         task = LaunchTaskFactory(hub=hub, owner="Someone")
 
@@ -1217,6 +1218,7 @@ def describe_guild_demos():
 
         assert GuildDemo.objects.get(pk=row.pk).lead == "Theirs"
 
+    @pytest.mark.postgres_only
     def it_saves_a_row_in_the_service_under_its_lock(hub):
         row = GuildDemoFactory(hub=hub, lead="Theirs")
 
@@ -1816,6 +1818,7 @@ def describe_live_guilds():
 
 
 def describe_the_add_guild_race():
+    @pytest.mark.postgres_only
     def it_locks_the_hubs_row_before_it_checks_and_adds(hub):
         guild = GuildFactory(name="Glass Guild")
 
@@ -1828,6 +1831,7 @@ def describe_the_add_guild_race():
         assert lock < insert
         assert row.guild == guild
 
+    @pytest.mark.postgres_only
     @pytest.mark.django_db(transaction=True)
     def it_refuses_a_guild_another_add_listed_after_the_form_was_read(hub, lee_client):
         """Add every active guild holds the hub's row and lists the guild while our form, which still offered it,
