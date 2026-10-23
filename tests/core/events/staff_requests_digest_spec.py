@@ -14,7 +14,9 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth.models import User
 from django.core import mail
+from django.db import connection
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -202,6 +204,21 @@ def describe_a_pending_discount_code_switched_off():
         assert _read(bell)
         assert not _is_open("discount_code.requested", row)
 
+    def it_clears_only_on_the_switch_off_so_other_saves_ask_nothing_of_the_bell():
+        code = DiscountCodeFactory(is_approved=False, is_active=False)
+        bell = _bell(code, "discount_code.requested", _approver())
+        loaded = type(code).objects.get(pk=code.pk)
+        with CaptureQueriesContext(connection) as queries:
+            loaded.save()
+        assert not [q for q in queries.captured_queries if "core_notification" in q["sql"]]
+        loaded.is_active = True
+        loaded.save()
+        assert not _read(bell)
+        fresh = type(code).objects.get(pk=code.pk)
+        fresh.is_active = False
+        fresh.save()
+        assert _read(bell)
+
     def it_leaves_an_approved_code_switched_off_alone():
         code = DiscountCodeFactory(is_approved=True)
         bell = _bell(code, "discount_code.requested", _approver())
@@ -365,6 +382,21 @@ def describe_instructor_application_received():
         client.force_login(admin)
         html = client.get(reverse("classes:admin_overview")).content.decode()
         assert f'id="applicant-{member.pk}"' in html
+
+    def it_clears_only_on_leaving_active_so_an_ordinary_save_asks_nothing_of_the_bell():
+        member = _applicant()
+        bell = _bell(member, "instructor_application_received", _approver())
+        Member.objects.filter(pk=member.pk).update(status=Member.Status.FORMER)
+        former = Member.objects.get(pk=member.pk)
+        with CaptureQueriesContext(connection) as queries:
+            former.save()
+        assert not [q for q in queries.captured_queries if "core_notification" in q["sql"]]
+        assert not _read(bell)
+        active = Member.objects.get(pk=_applicant().pk)
+        bell = _bell(active, "instructor_application_received", _approver_admin())
+        active.status = Member.Status.SUSPENDED
+        active.save()
+        assert _read(bell)
 
     def it_closes_and_clears_the_bell_when_the_applicant_leaves_active():
         member = _applicant()

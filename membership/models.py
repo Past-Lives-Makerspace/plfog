@@ -7,7 +7,7 @@ import os
 import re
 import secrets
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
@@ -2607,11 +2607,28 @@ class Member(StaffRequestMixin, models.Model):
         # Member records are otherwise managed in Airtable; this override cleans up the
         # orphaned profile_photo file when the user replaces it.
         delete_orphan_on_replace(self, "profile_photo")
+        left_active = (
+            not self._state.adding and self._loaded_status == self.Status.ACTIVE and self.status != self.Status.ACTIVE
+        )
         super().save(*args, **kwargs)
-        if self.teaching_applied_at is not None and self.status != self.Status.ACTIVE:
+        self._loaded_status = self.status
+        if left_active and self.teaching_applied_at is not None:
             # Only an active member's application waits on an admin (awaiting_teaching_decision),
-            # so one who leaves ACTIVE no longer asks in the admins' bell (#894 part 3).
+            # so one who leaves ACTIVE no longer asks in the admins' bell (#894 part 3). Only on
+            # that change: an ordinary save costs no query.
             self.clear_request_bells()
+
+    #: ``status`` as last read from or written to the database; ``save`` compares against it.
+    #: ``None`` when unknown (never loaded, or loaded with ``status`` deferred).
+    _loaded_status: str | None = None
+
+    @classmethod
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        """Remember the loaded ``status`` so ``save`` can see a member leave ACTIVE (#894 part 3)."""
+        instance = super().from_db(db, field_names, values, **kwargs)
+        # A deferred status is absent from __dict__; the save then sees no transition.
+        instance._loaded_status = instance.__dict__.get("status")
+        return instance
 
 
 # A handle: letters, digits, dots and underscores, with or without a leading "@". One trailing

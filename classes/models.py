@@ -7,13 +7,13 @@ import logging
 import re
 import secrets
 import unicodedata
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 from datetime import UTC, date as date_type, datetime, timedelta
 from html import unescape
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, Self, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -4852,12 +4852,28 @@ class DiscountCode(StaffRequestMixin, models.Model):
     def __str__(self) -> str:
         return self.code
 
+    #: ``is_active`` as last read from or written to the database; ``save`` compares against it.
+    #: ``None`` when unknown (never loaded, or loaded with ``is_active`` deferred).
+    _loaded_is_active: bool | None = None
+
+    @classmethod
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        """Remember the loaded ``is_active`` so ``save`` can see a pending code switched off (#894 part 3)."""
+        instance = super().from_db(db, field_names, values, **kwargs)
+        # A deferred is_active is absent from __dict__; the save then sees no transition.
+        instance._loaded_is_active = instance.__dict__.get("is_active")
+        return instance
+
     def save(self, *args, **kwargs) -> None:
         creating = self._state.adding
         self.code = self.code.strip().upper()
+        switched_off = not creating and self._loaded_is_active is True and not self.is_active
         super().save(*args, **kwargs)
-        if not creating and not self.is_approved and not self.is_active:
+        self._loaded_is_active = self.is_active
+        if switched_off and not self.is_approved:
             # Switched off while waiting for approval: nobody is asked any more (#894 part 3).
+            # Only on that change, so an ordinary save costs no query. Switching it back on does
+            # not ask again: the admin list still shows it.
             self.clear_request_bells()
         if creating:
             from classes import activity
