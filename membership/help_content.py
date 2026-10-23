@@ -160,7 +160,7 @@ Log in and you land on **Home**. It shows:
 
 - **Get started at Past Lives** — a short checklist for new members. Dismiss it once you're settled.
 - Quick links — one tap to the **Calendar**, **Classes**, **Guild Voting**, **Member Directory**, and **Settings**.
-- **Your upcoming** — classes and events you're signed up for.
+- **Upcoming** — a few classes and events with their pictures, changing every few seconds, then a list of what is coming up at Past Lives.
 - **Latest from your guilds** — recent announcements from guilds you follow.
 - **Your guilds** — a chip for each of your guilds, linking straight to its page.
 

@@ -1,0 +1,363 @@
+/* home-featured.css: the carousel at the top of Home's Upcoming card (#888, #896,
+   templates/hub/partials/_home_featured.html), then the plRotator block it is built on (static/js/pl-rotator.js),
+   which the Home announcements banner reuses (#889). Classes and events mixed, one slide at a time: on a phone the
+   picture sits above the text, from 768px it takes the left --pl-feature-media of the card and the text the rest.
+   Every picture is a 16:9 frame: a photo covers it, a class with no picture gets a quiet accent block, and an event
+   with no photo shows its flyer (event-flyer.css) scaled to the frame's height. */
+
+.pl-home-featured {
+    --pl-feature-media: 100%;
+    overflow: hidden;
+    border: 1px solid var(--hub-border);
+    border-radius: 12px;
+    background: var(--hub-surface);
+}
+
+/* The list's heading follows the carousel (after its crop script); the carousel is new, so the gap is set here. */
+.pl-home-featured ~ .pl-home-heading {
+    margin-top: 1.5rem;
+}
+
+.pl-home-featured__slide {
+    display: flex;
+    flex-direction: column;
+}
+
+.pl-home-featured__media {
+    display: block;
+    flex: 0 0 auto;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background: var(--hub-elevated);
+}
+
+.pl-home-featured__img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* A class with no picture: a quiet wash in the two accents where the photo would be. */
+.pl-home-featured__accent {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background:
+        radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--color-tuscan-yellow) 26%, transparent), transparent 55%),
+        radial-gradient(circle at 85% 80%, color-mix(in srgb, var(--hub-blue) 24%, transparent), transparent 60%),
+        var(--hub-card-bg);
+}
+
+/* An event with no photo: the whole flyer, as tall as the frame, centred like a poster on a navy deeper than
+   the flyer's own band (#092E4C), with a hairline so the sheet's foot never melts into it. */
+.pl-home-featured__media--flyer {
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0.75rem;
+    background: radial-gradient(circle at 50% 35%, #0d3a5f, #041a2c 75%);
+}
+
+.pl-home-featured__sheet {
+    height: 100%;
+    aspect-ratio: 8.5 / 11;
+    outline: 1px solid rgba(255, 255, 255, 0.35);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+/* A small lift on hover, only for those who have not asked for less motion. */
+@media (prefers-reduced-motion: no-preference) {
+    .pl-home-featured__sheet {
+        transition: transform 0.15s;
+    }
+
+    .pl-home-featured__media--flyer:hover .pl-home-featured__sheet {
+        transform: scale(1.03);
+    }
+}
+
+.pl-home-featured__body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+    padding: 1rem 1.25rem 1.25rem;
+}
+
+/* The list's own Class and Event pill (.pl-upcoming__kind in hub.css), kept to its width. */
+.pl-home-featured__kind {
+    align-self: flex-start;
+    margin-bottom: 0.25rem;
+}
+
+/* A paragraph, not a heading, so no heading comes before the card's "Upcoming" h2; it keeps the heading face. */
+.pl-home-featured__title {
+    font-family: var(--font-heading);
+    color: var(--hub-text);
+    font-size: 1.125rem;
+    font-weight: 700;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+.pl-home-featured__title a {
+    color: var(--hub-text);
+    text-decoration: none;
+}
+
+.pl-home-featured__title a:hover {
+    color: var(--hub-link);
+}
+
+.pl-home-featured__when {
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.pl-home-featured__meta {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    overflow-wrap: anywhere;
+}
+
+.pl-home-featured__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding-top: 0.75rem;
+}
+
+@media (min-width: 768px) {
+    .pl-home-featured {
+        --pl-feature-media: 46%;
+    }
+
+    /* Two classes, so it outranks .pl-rotator__slide's flex further down. */
+    .pl-home-featured .pl-home-featured__slide {
+        display: grid;
+        grid-template-columns: var(--pl-feature-media) minmax(0, 1fr);
+        align-items: start;
+    }
+
+    /* The text is centred beside the picture, clear of the dots and pause button along its foot. */
+    .pl-home-featured__body {
+        align-self: stretch;
+        justify-content: center;
+        padding: 1.5rem 1.75rem;
+    }
+
+    .pl-home-featured:has(.pl-rotator__nav) .pl-home-featured__body {
+        padding-bottom: 3.5rem;
+    }
+
+    .pl-home-featured .pl-rotator__overlay {
+        right: auto;
+        width: var(--pl-feature-media);
+    }
+
+    .pl-home-featured .pl-rotator__nav {
+        position: absolute;
+        bottom: 1rem;
+        left: calc(var(--pl-feature-media) + 1.25rem);
+        z-index: 2;
+        padding: 0;
+    }
+}
+
+/* ---- plRotator (#896, static/js/pl-rotator.js, hub/partials/_rotator_controls.html) ----
+   One slide at a time in one grid cell, so the tallest slide sets the card's height and nothing jumps;
+   the current slide fades in over 400ms. Reused by the Home announcements banner (#889). */
+
+.pl-rotator__stage {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+}
+
+.pl-rotator__slides {
+    display: grid;
+    flex: 1 1 auto;
+}
+
+.pl-rotator__slide {
+    grid-area: 1 / 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.4s ease, visibility 0s linear 0.4s;
+}
+
+.pl-rotator__slide.is-active {
+    z-index: 1;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.4s ease, visibility 0s;
+}
+
+/* Over the picture: the arrows and the time bar along its foot. The picture is 16:9 of the card's width. */
+.pl-rotator__overlay {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 2;
+    aspect-ratio: 16 / 9;
+    pointer-events: none;
+}
+
+.pl-rotator__arrow {
+    position: absolute;
+    top: 50%;
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(10, 11, 16, 0.62);
+    color: #ffffff;
+    cursor: pointer;
+    pointer-events: auto;
+    transform: translateY(-50%);
+    transition: opacity 0.15s, background 0.15s;
+}
+
+.pl-rotator__arrow:hover {
+    background: rgba(10, 11, 16, 0.85);
+}
+
+.pl-rotator__arrow:focus-visible,
+.pl-rotator__dot:focus-visible,
+.pl-rotator__pause:focus-visible {
+    outline: 2px solid var(--color-tuscan-yellow);
+    outline-offset: 2px;
+}
+
+.pl-rotator__arrow--prev {
+    left: 0.75rem;
+}
+
+.pl-rotator__arrow--next {
+    right: 0.75rem;
+}
+
+/* With a mouse the arrows wait for a hover or focus; on touch they always show. */
+@media (hover: hover) and (pointer: fine) {
+    .pl-rotator__arrow {
+        opacity: 0;
+    }
+
+    .pl-rotator:hover .pl-rotator__arrow,
+    .pl-rotator:focus-within .pl-rotator__arrow {
+        opacity: 1;
+    }
+}
+
+.pl-rotator__track {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.28);
+}
+
+.pl-rotator__bar {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: var(--color-tuscan-yellow);
+    transform: scaleX(0);
+    transform-origin: left center;
+    animation: pl-rotator-fill 6000ms linear forwards;
+}
+
+@keyframes pl-rotator-fill {
+    from {
+        transform: scaleX(0);
+    }
+
+    to {
+        transform: scaleX(1);
+    }
+}
+
+/* Under the card: a dot per slide, the current one a filled pill, and the pause button. */
+.pl-rotator__nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 0 1.25rem 1rem;
+}
+
+.pl-rotator__dots {
+    display: flex;
+    gap: 0.25rem;
+}
+
+/* The button is a real tap target; the dot is drawn inside it. */
+.pl-rotator__dot {
+    display: grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    cursor: pointer;
+}
+
+.pl-rotator__dot::before {
+    content: "";
+    display: block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border: 1.5px solid var(--hub-text-muted);
+    border-radius: 999px;
+    transition: width 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.pl-rotator__dot.is-current::before {
+    width: 1.25rem;
+    border-color: var(--hub-link);
+    background: var(--hub-link);
+}
+
+.pl-rotator__pause {
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+}
+
+.pl-rotator__pause:hover {
+    color: var(--hub-text);
+}
+
+/* Nothing moves by itself and nothing fades; the arrows and the dots still work. */
+@media (prefers-reduced-motion: reduce) {
+    .pl-rotator__slide,
+    .pl-rotator__slide.is-active {
+        transition: none;
+    }
+
+    .pl-rotator__track,
+    .pl-rotator__pause {
+        display: none;
+    }
+}

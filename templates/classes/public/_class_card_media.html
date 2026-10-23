@@ -40,8 +40,8 @@ no photo of its own.
          style="object-position: {{ offering.card_object_position }};"{% if live_position %} :style="'object-position: ' + {{ live_position }}"{% if offering.hero_cropped %} data-hero-source="{{ offering.hero_source_url }}"{% endif %}{% endif %}>
   {% elif live_src %}
     <img class="cls-img" :src="{{ live_src }}" alt=""{% if live_position %} :style="'object-position: ' + {{ live_position }}"{% endif %}>
-  {% elif offering.category.hero_image %}
-    <img class="cls-img" src="{{ offering.category.hero_image.url }}" alt="" loading="lazy">
+  {% elif offering.card_photo_url %}
+    <img class="cls-img" src="{{ offering.card_photo_url }}" alt="" loading="lazy">
   {% elif offering.category.logo_prefix %}
     <div class="cls-img-ph cls-img-ph--logo">
       <img src="{% static 'img/guild_logos/'|add:offering.category.logo_prefix|add:'_color.svg' %}" alt="{{ offering.category.name }}" loading="lazy">

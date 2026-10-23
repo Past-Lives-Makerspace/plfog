@@ -31,6 +31,7 @@ from django.db.models import (
     Max,
     OuterRef,
     Q,
+    Subquery,
     Value,
     When,
 )
@@ -376,6 +377,45 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             )
             .order_by(F("first_session_at").asc(nulls_last=True), "title")
             .distinct()
+        )
+
+    def featurable(self) -> "ClassOfferingQuerySet":
+        """The classes Home may feature (#888): ones a member can sign up for now, with a session to come.
+
+        :meth:`registration_open` (the catalog's ``bookable()`` set, short of any class past its
+        registration cutoff), less a class with no seat left (``spots_remaining`` 0: the seats
+        taken by :data:`CAPACITY_CONSUMING_REGISTRATION_STATUSES` rows reach ``capacity``; a
+        flexible class has no cap and is never full), and narrowed to a class whose next session
+        has not started, because the featured card names that session's date and time. Each row
+        carries ``next_session_at``, the start of that session, and the category is joined for
+        the card's picture (:attr:`ClassOffering.card_photo_url`). ``hub.home`` shuffles it in
+        the database and takes the first few. One query; the counts are subqueries.
+        """
+        from django.db.models import Count
+
+        next_start = (
+            ClassSession.objects.filter(class_offering=OuterRef("pk"), starts_at__gt=timezone.now())
+            .order_by("starts_at")
+            .values("starts_at")[:1]
+        )
+        taken = (
+            Registration.objects.filter(
+                class_offering=OuterRef("pk"), status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES
+            )
+            .order_by()
+            .values("class_offering")
+            .annotate(n=Count("pk"))
+            .values("n")
+        )
+        return (
+            ClassOffering.objects.filter(pk__in=self.registration_open().values("pk"))
+            .annotate(
+                next_session_at=Subquery(next_start),
+                seats_taken_now=Coalesce(Subquery(taken), Value(0)),
+            )
+            .filter(next_session_at__isnull=False)
+            .filter(Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE) | Q(seats_taken_now__lt=F("capacity")))
+            .select_related("category")
         )
 
     def registration_open(self) -> "ClassOfferingQuerySet":
@@ -3242,6 +3282,20 @@ class ClassOffering(HeroCropMixin, models.Model):
         if self.hero_cropped:
             return self.hero_cropped.url
         return self.hero_source_url
+
+    @property
+    def card_photo_url(self) -> str:
+        """The photo a catalog card shows: :attr:`hero_image_url`, else the category's hero, else ``""``.
+
+        One rule for every card that pictures a class: the catalog (``_class_card_media.html``,
+        whose own photo branch adds the crop position and the composer's live bindings) and the
+        Featured Class on Home (#888). With ``""`` the card has no picture of the class at all.
+        """
+        if self.hero_image_url:
+            return self.hero_image_url
+        if self.category.hero_image:
+            return str(self.category.hero_image.url)
+        return ""
 
     @property
     def is_demo(self) -> bool:
