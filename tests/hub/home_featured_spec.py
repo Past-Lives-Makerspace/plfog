@@ -15,8 +15,8 @@ from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
 
-from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
-from classes.models import ClassOffering
+from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory, RegistrationFactory
+from classes.models import ClassOffering, RegistrationStatus
 from hub.home import _featured_class, _featured_event, _pick_one
 from membership.models import CommunityEvent, Member
 from tests.features import coming_soon, hide, turn_on
@@ -42,6 +42,8 @@ def _png(name: str = "hero.png") -> SimpleUploadedFile:
 def _class(title: str = "Intro to Welding", *, days: float = 3, **kwargs: object) -> ClassOffering:
     """A published class with one session ``days`` from now (negative for one already begun)."""
     kwargs.setdefault("status", PUBLISHED)
+    # Off unless a spec is about it: the cutoff closes sign ups 48 hours out by default.
+    kwargs.setdefault("registration_cutoff_hours", None)
     offering = ClassOfferingFactory(title=title, **kwargs)
     start = timezone.now() + timedelta(days=days)
     ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
@@ -124,6 +126,44 @@ def describe_featured_class():
             scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
         )
         assert _featured_class() is None
+
+    def it_never_features_a_class_past_its_registration_cutoff():
+        _class("Closing", days=1, registration_cutoff_hours=48)
+        assert _featured_class() is None
+
+    def it_features_a_class_still_inside_its_registration_window():
+        _class("Open", days=3, registration_cutoff_hours=48)
+        assert _featured_class() is not None
+
+    def it_never_features_a_sold_out_class():
+        offering = _class("Full", capacity=2)
+        RegistrationFactory(class_offering=offering, status=RegistrationStatus.CONFIRMED)
+        RegistrationFactory(class_offering=offering, status=RegistrationStatus.PENDING)
+        assert _featured_class() is None
+
+    def it_features_a_class_with_a_seat_left_whoever_waits_or_cancelled():
+        offering = _class("One seat left", capacity=2)
+        RegistrationFactory(class_offering=offering, status=RegistrationStatus.CONFIRMED)
+        RegistrationFactory(class_offering=offering, status=RegistrationStatus.WAITLISTED)
+        RegistrationFactory(class_offering=offering, status=RegistrationStatus.CANCELLED)
+        assert _featured_class() is not None
+
+    def it_features_a_flexible_class_however_many_have_booked():
+        # A flexible class has no seat cap (spots_remaining is None), so it is never full.
+        offering = _class("Flexible with a date", capacity=1, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
+        RegistrationFactory(class_offering=offering, status=RegistrationStatus.CONFIRMED)
+        RegistrationFactory(class_offering=offering, status=RegistrationStatus.CONFIRMED)
+        assert _featured_class() is not None
+
+    def it_counts_the_offset_from_the_lowest_pk_not_the_newest_class():
+        # ClassOffering's default ordering is newest first; created lowest pk first, so only a pk
+        # order puts pk 9100 at offset 0.
+        lowest = _class("Lowest pk", pk=9100)
+        _class("Highest pk", pk=9300)
+        with patch("hub.home.random.randrange", return_value=0):
+            featured = _featured_class()
+        assert featured is not None
+        assert featured.title == lowest.title
 
     def it_never_features_a_class_the_catalog_does_not_list():
         _class("Draft", status=ClassOffering.Status.DRAFT)
@@ -255,6 +295,22 @@ def describe_featured_event():
         CommunityEventFactory(guild=guild, studio_hours=True)
         CommunityEventFactory(lead_meeting=True)
         assert _featured_event(member) is None
+
+    def it_never_features_a_one_off_event_that_has_already_begun():
+        begun = timezone.now() - timedelta(hours=1)
+        CommunityEventFactory(community=True, starts_at=begun, ends_at=begun + timedelta(hours=3))
+        assert _featured_event(_member()) is None
+
+    def it_counts_the_offset_from_the_lowest_pk_not_the_soonest_start():
+        # CommunityEvent's default ordering is by start; the lowest pk starts last, so only a pk
+        # order puts it at offset 0.
+        member = _member()
+        lowest = CommunityEventFactory(community=True, pk=9100, starts_at=timezone.now() + timedelta(days=9))
+        CommunityEventFactory(community=True, pk=9300, starts_at=timezone.now() + timedelta(days=3))
+        with patch("hub.home.random.randrange", return_value=0):
+            featured = _featured_event(member)
+        assert featured is not None
+        assert featured.event == lowest
 
     def it_never_features_a_past_or_unpublished_event():
         past = timezone.now() - timedelta(days=3)
@@ -390,8 +446,10 @@ def describe_home_page():
 
         def it_reads_the_featured_class_in_five_queries(django_assert_num_queries):
             # The Classes switch, the demo gate's settings row, the count, the row and its instructors.
+            # No photo of their own, so the card reads the category's: one query only while it is joined.
+            category = CategoryFactory(hero_image=_png("category.png"))
             for n in range(3):
-                _class(f"Class {n}")
+                _class(f"Class {n}", image="", category=category)
             with django_assert_num_queries(5):
                 assert _featured_class() is not None
 

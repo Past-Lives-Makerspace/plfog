@@ -75,11 +75,17 @@
     aspect-ratio: 8.5 / 11;
     outline: 1px solid rgba(255, 255, 255, 0.35);
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-    transition: transform 0.15s;
 }
 
-.pl-home-featured__media--flyer:hover .pl-home-featured__sheet {
-    transform: scale(1.03);
+/* A small lift on hover, only for those who have not asked for less motion. */
+@media (prefers-reduced-motion: no-preference) {
+    .pl-home-featured__sheet {
+        transition: transform 0.15s;
+    }
+
+    .pl-home-featured__media--flyer:hover .pl-home-featured__sheet {
+        transform: scale(1.03);
+    }
 }
 
 .pl-home-featured__body {

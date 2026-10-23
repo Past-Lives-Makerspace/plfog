@@ -380,23 +380,41 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         )
 
     def featurable(self) -> "ClassOfferingQuerySet":
-        """The classes Home may feature (#888): :meth:`bookable` ones with a session still to come.
+        """The classes Home may feature (#888): ones a member can sign up for now, with a session to come.
 
-        The catalog's set, narrowed to a class whose next session has not started, because the
-        featured card names that session's date and time: a flexible class with no session row
-        yet has none to name. Each row carries ``next_session_at``, the start of that session,
-        and the category is joined for the card's picture (:attr:`ClassOffering.card_photo_url`).
-        Ordered by pk, so a random offset into it picks one row (``hub.home``).
+        :meth:`registration_open` (the catalog's ``bookable()`` set, short of any class past its
+        registration cutoff), less a class with no seat left (``spots_remaining`` 0: the seats
+        taken by :data:`CAPACITY_CONSUMING_REGISTRATION_STATUSES` rows reach ``capacity``; a
+        flexible class has no cap and is never full), and narrowed to a class whose next session
+        has not started, because the featured card names that session's date and time. Each row
+        carries ``next_session_at``, the start of that session, and the category is joined for
+        the card's picture (:attr:`ClassOffering.card_photo_url`). Ordered by pk, so a random
+        offset into it picks one row (``hub.home``). One query; the counts are subqueries.
         """
+        from django.db.models import Count
+
         next_start = (
             ClassSession.objects.filter(class_offering=OuterRef("pk"), starts_at__gt=timezone.now())
             .order_by("starts_at")
             .values("starts_at")[:1]
         )
+        taken = (
+            Registration.objects.filter(
+                class_offering=OuterRef("pk"), status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES
+            )
+            .order_by()
+            .values("class_offering")
+            .annotate(n=Count("pk"))
+            .values("n")
+        )
         return (
-            ClassOffering.objects.filter(pk__in=self.bookable().values("pk"))
-            .annotate(next_session_at=Subquery(next_start))
+            ClassOffering.objects.filter(pk__in=self.registration_open().values("pk"))
+            .annotate(
+                next_session_at=Subquery(next_start),
+                seats_taken_now=Coalesce(Subquery(taken), Value(0)),
+            )
             .filter(next_session_at__isnull=False)
+            .filter(Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE) | Q(seats_taken_now__lt=F("capacity")))
             .select_related("category")
             .order_by("pk")
         )

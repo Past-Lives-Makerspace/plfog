@@ -39,7 +39,7 @@ The event card shows the event's photo as its page crops it, or else a small liv
     </a>
     {% else %}
     {# No photo: the event's flyer, drawn in container units so it scales into the frame; a tap opens it full size. #}
-    <a class="pl-home-featured__media pl-home-featured__media--flyer" href="{{ featured_event.flyer_url }}" target="_blank" rel="noopener" aria-label="Open the flyer for {{ featured_event.title }}" data-featured-flyer>
+    <a class="pl-home-featured__media pl-home-featured__media--flyer" href="{{ featured_event.flyer_url }}" target="_blank" rel="noopener" tabindex="-1" aria-label="Open the flyer for {{ featured_event.title }}" data-featured-flyer>
       <div class="pl-home-featured__sheet" aria-hidden="true">
         {% include "hub/partials/_event_flyer_sheet.html" with event=featured_event.event qr_svg=featured_event.qr_svg preview=True %}
       </div>
