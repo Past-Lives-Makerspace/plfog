@@ -35,6 +35,7 @@ from core.events import discord_dm, discord_reactions, discord_roles
 from core.events.discord_dm import bot_disabled
 from core.events.discord_oauth import DiscordOAuthError, exchange_code, fetch_identity, resolve_member_from_code
 from core.events.senders import emit_with_email_shell
+from membership.discord_removal import put_back_if_removed
 
 if TYPE_CHECKING:
     from membership.models import Guild, Member
@@ -293,6 +294,7 @@ def link_and_import(code: str, redirect_uri: str, *, member: Member | None = Non
         return LinkResult(LinkOutcome.ACCOUNT_HAS_OTHER_DISCORD)
 
     target.link_discord(identity.user_id, handle=identity.handle)
+    put_back_if_removed(target, identity.user_id, identity.access_token)
     result = import_member_guilds(target)
     if result.guilds:
         _send_import_confirmation(target, result)

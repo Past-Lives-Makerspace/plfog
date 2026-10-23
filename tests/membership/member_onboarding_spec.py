@@ -283,7 +283,8 @@ def describe_no_n_plus_one():
             show = fresh.show_onboarding
             checklist = fresh.onboarding
 
-        # One guild-exists query + one voting-exists query; profile signals are local fields.
+        # One guild-exists query, one voting-exists query and one Discord rejoin check (#898), none
+        # per guild; profile signals are local fields.
         assert show is False
         assert checklist.complete is True
-        assert len(ctx.captured_queries) == 2
+        assert len(ctx.captured_queries) == 3
