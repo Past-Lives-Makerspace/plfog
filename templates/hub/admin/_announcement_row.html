@@ -7,7 +7,7 @@ partial alone.
 
   row — an AnnouncementRow
 {% endcomment %}
-{% with announcement=row.announcement %}
+{% with announcement=row.announcement announcement_short=row.announcement.text|truncatechars:40 %}
 <li class="pl-slide-card pl-ann-admin__row" data-announcement-row="{{ announcement.pk }}">
   <span class="pl-slide-grip pl-ann-admin__grip" draggable="true" aria-hidden="true">⠿</span>
   <div class="pl-ann-admin__main">
@@ -20,7 +20,10 @@ partial alone.
   <div class="pl-ann-admin__actions">
     <form class="pl-ann-admin__switch" hx-post="{% url 'hub_admin_announcement_toggle' announcement.pk %}" hx-trigger="change" hx-target="closest [data-announcement-row]" hx-swap="outerHTML" data-announcement-toggle>
       {% csrf_token %}
-      {% include "components/toggle.html" with field=row.active_form.is_active %}
+      {# A name per row for screen readers; its visible copy is hidden in CSS, the status chip says the same. #}
+      {% with switch_label="Show on Home: "|add:announcement_short %}
+      {% include "components/toggle.html" with field=row.active_form.is_active toggle_label=switch_label %}
+      {% endwith %}
     </form>
     <span class="pl-slide-move" role="group" aria-label="Reorder announcement">
       <button type="button" class="pl-slide-move__btn" data-move="up" aria-label="Move announcement up">↑</button>

@@ -182,6 +182,13 @@ def describe_the_section():
         assert f'value="{scheduled.pk},{ended.pk},{off.pk},{live.pk}" data-announcement-order' in html
         assert "<p>Zorblax live</p>" in html
 
+    def it_names_each_switch_by_its_row(admin_client: Client):
+        AnnouncementFactory(body="<p>Zorblax <strong>open house</strong> on Saturday, bring a friend along</p>")
+
+        html = admin_client.get(PAGE).content.decode()
+
+        assert '<span class="sr-only">Show on Home: Zorblax open house on Saturday, bring a…</span>' in html
+
     def it_shows_each_switch_in_its_saved_state(admin_client: Client):
         on, off = AnnouncementFactory(), AnnouncementFactory(is_active=False)
 
@@ -228,7 +235,7 @@ def describe_adding():
 
         assert "New Announcement" in html
         assert 'data-rte-toolbar="inline"' in html
-        assert 'data-announcement-count data-max="160" aria-live="polite">0 / 160</p>' in html
+        assert 'data-announcement-chars data-max="160" aria-live="polite">0 / 160</p>' in html
         assert 'name="show_from_date"' in html and 'name="show_until_time"' in html
         assert '<option value="" selected>Start of day</option>' in html
         assert '<option value="" selected>End of day</option>' in html
@@ -266,7 +273,7 @@ def describe_adding():
         assert response.status_code == 200
         assert announcement_too_long(161) in html
         assert "z" * 161 in html
-        assert 'class="pl-ann-admin-form__count is-over" data-announcement-count data-max="160"' in html
+        assert 'class="pl-ann-admin-form__count is-over" data-announcement-chars data-max="160"' in html
         assert ">161 / 160</p>" in html
         assert not Announcement.objects.exists()
 
@@ -546,7 +553,7 @@ def describe_the_order():
         ("data", "message"),
         [
             ({"order": "1,two"}, "That order could not be read. Reload the page and try again."),
-            ({}, "This field is required."),
+            ({}, "That order could not be read. Reload the page and try again."),
         ],
     )
     def it_refuses_an_order_it_cannot_read(admin_client: Client, data: dict[str, str], message: str):

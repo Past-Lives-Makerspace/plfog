@@ -135,6 +135,7 @@ class NewPollForm(forms.Form):
 ANNOUNCEMENT_EMPTY = "Write the announcement first."
 ANNOUNCEMENT_ENDS_FIRST = "Show until must be after Show from."
 ANNOUNCEMENT_TIME_NEEDS_DATE = "Pick a date for this time."
+ANNOUNCEMENT_ORDER_UNREADABLE = "That order could not be read. Reload the page and try again."
 # A blank time is the start of the day for Show from and its end for Show until.
 _FROM_TIME_CHOICES = [("", "Start of day"), *half_hour_time_choices(required=True)]
 _UNTIL_TIME_CHOICES = [("", "End of day"), *half_hour_time_choices(required=True)]
@@ -257,10 +258,10 @@ class AnnouncementActiveForm(forms.Form):
 class AnnouncementOrderForm(forms.Form):
     """The new order of every announcement, as ids in a comma separated list."""
 
-    order = forms.CharField()
+    order = forms.CharField(error_messages={"required": ANNOUNCEMENT_ORDER_UNREADABLE})
 
     def clean_order(self) -> list[int]:
         try:
             return [int(pk) for pk in self.cleaned_data["order"].split(",")]
         except ValueError as exc:
-            raise forms.ValidationError("That order could not be read. Reload the page and try again.") from exc
+            raise forms.ValidationError(ANNOUNCEMENT_ORDER_UNREADABLE) from exc

@@ -24,7 +24,7 @@ and Active. Save goes back to the Spotlight page's Announcements section.
     {% include "components/form_field.html" with field=form.body field_hint_off=True %}
     <div class="pl-ann-admin-form__count-row">
       <p class="pl-field-hint">{{ form.body.help_text }}</p>
-      <p class="pl-ann-admin-form__count{% if char_count > max_chars %} is-over{% endif %}" data-announcement-count data-max="{{ max_chars }}" aria-live="polite">{{ char_count }} / {{ max_chars }}</p>
+      <p class="pl-ann-admin-form__count{% if char_count > max_chars %} is-over{% endif %}" data-announcement-chars data-max="{{ max_chars }}" aria-live="polite">{{ char_count }} / {{ max_chars }}</p>
     </div>
     <div class="pl-ann-admin-form__when">
       <div class="pl-ann-admin-form__pair">
@@ -46,10 +46,11 @@ and Active. Save goes back to the Spotlight page's Announcements section.
 {# The live count mirrors the save's rule: the editor's text, whitespace runs collapsed and the ends trimmed, in code points (hub.spotlight_forms.AnnouncementForm.clean_body). #}
 <script>
   (function () {
-    var counter = document.querySelector("[data-announcement-count]");
+    var form = document.querySelector("[data-announcement-form]");
+    var counter = form && form.querySelector("[data-announcement-chars]");
     if (!counter) return;
     var max = parseInt(counter.getAttribute("data-max"), 10);
-    counter.closest("form").addEventListener("pl-rte-change", function (e) {
+    form.addEventListener("pl-rte-change", function (e) {
       var n = Array.from(e.detail.text.trim().split(/\s+/).filter(Boolean).join(" ")).length;
       counter.textContent = n + " / " + max;
       counter.classList.toggle("is-over", n > max);

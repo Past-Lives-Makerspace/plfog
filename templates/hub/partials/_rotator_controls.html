@@ -7,6 +7,7 @@ nothing moves by itself. Include inside the rotator's .pl-rotator__stage, after 
 
   slides — the rotator's items, one dot each
   noun   — what a slide is, for the arrow and dot labels ("slide": "Next slide", "Show slide 2 of 8")
+  plural — what the slides are together, for the pause button ("announcements": "Pause the announcements")
 {% endcomment %}
 <div class="pl-rotator__overlay">
   <button type="button" class="pl-rotator__arrow pl-rotator__arrow--prev" @click="prev()" aria-label="Previous {{ noun }}" data-rotator-prev>
@@ -23,7 +24,7 @@ nothing moves by itself. Include inside the rotator's .pl-rotator__stage, after 
     <button type="button" class="pl-rotator__dot{% if forloop.first %} is-current{% endif %}" :class="{ 'is-current': index === {{ forloop.counter0 }} }" :aria-current="index === {{ forloop.counter0 }} ? 'true' : null" @click="go({{ forloop.counter0 }})" aria-label="Show {{ noun }} {{ forloop.counter }} of {{ slides|length }}" data-rotator-dot></button>
     {% endfor %}
   </div>
-  <button type="button" class="pl-rotator__pause" x-show="!reduced" @click="toggle()" :aria-label="userPaused ? 'Play the rotation' : 'Pause the rotation'" aria-label="Pause the rotation" data-rotator-pause>
+  <button type="button" class="pl-rotator__pause" x-show="!reduced" @click="toggle()" :aria-label="userPaused ? 'Play the {{ plural }}' : 'Pause the {{ plural }}'" aria-label="Pause the {{ plural }}" data-rotator-pause>
     <svg x-show="!userPaused" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
     <svg x-show="userPaused" x-cloak width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>
   </button>

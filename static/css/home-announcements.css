@@ -214,23 +214,25 @@
     gap: 0.5rem;
 }
 
-/* The switch alone, without the toggle row's padding and rule. */
+/* The switch alone, without the toggle row's padding and rule. Its row specific label stays as the
+   switch's screen reader name (toggle.html's sr-only span); the visible copy would repeat the row's text. */
 .pl-ann-admin__switch .pl-toggle-row {
     padding: 0;
     border-bottom: 0;
 }
 
-/* The pills' dark theme colours are pale; on the light card they need the darker ones. */
+.pl-ann-admin__switch .pl-toggle-info {
+    display: none;
+}
+
+/* The shared Live and Scheduled pills are pale on the light theme (1.2:1 and 1.4:1 on this row), so the
+   section takes the darker values other light pages use. Neutral already reads the light muted token. */
 [data-theme="light"] .pl-ann-admin .hub-pill--ok {
     color: #1f7a52;
 }
 
 [data-theme="light"] .pl-ann-admin .hub-pill--primary {
     color: #9c5e0d;
-}
-
-[data-theme="light"] .pl-ann-admin .hub-pill--neutral {
-    color: #5b6675;
 }
 
 @media (max-width: 640px) {

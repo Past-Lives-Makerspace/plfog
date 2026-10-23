@@ -151,6 +151,7 @@ def describe_one_and_many():
         assert 'aria-label="Show announcement 2 of 3"' in banner
         assert 'aria-label="Next announcement"' in banner
         assert "data-rotator-pause" in banner
+        assert "'Play the announcements' : 'Pause the announcements'\" aria-label=\"Pause the announcements\"" in banner
         assert 'role="group" aria-roledescription="slide" aria-label="3 of 3"' in banner
         assert "aria-live" not in banner
 

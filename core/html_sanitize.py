@@ -332,7 +332,8 @@ ANNOUNCEMENT_MAX_CHARS = 160
 # A Home announcement keeps bold, italic, links and line breaks, and nothing more (#889).
 _ANNOUNCEMENT_CLEANER = AllowlistCleaner(["p", "br", "strong", "em", "a"], {"a": {"href"}})
 # A link that leaves the site: it opens in a new tab. A relative one, mailto or tel opens in place.
-_EXTERNAL_HREF_RE = re.compile(r"^(?:https?:)?//", re.IGNORECASE)
+# Leading space and backslashes count, since browsers read " https://x", "/\\x" and "\\\\x" as leaving the site too.
+_EXTERNAL_HREF_RE = re.compile(r"^\s*(?:https?:)?[/\\]{2}", re.IGNORECASE)
 
 
 def _harden_announcement_link(attrs: dict[str, str]) -> dict[str, str]:

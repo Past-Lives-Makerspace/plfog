@@ -26,7 +26,7 @@ simply shows.
       </div>
       {% endfor %}
     </div>
-    {% if total > 1 %}{% include "hub/partials/_rotator_controls.html" with slides=banner.items noun="announcement" %}{% endif %}
+    {% if total > 1 %}{% include "hub/partials/_rotator_controls.html" with slides=banner.items noun="announcement" plural="announcements" %}{% endif %}
   </div>
   <button type="button" class="pl-home-ann__close" onclick="window.plHomeAnnouncements.close(this.closest('[data-home-announcements]'))" aria-label="Close the announcements" data-announcement-close>
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>

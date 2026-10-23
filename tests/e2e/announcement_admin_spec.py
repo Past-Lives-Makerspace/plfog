@@ -68,7 +68,7 @@ def describe_adding_and_editing():
         expect(page.locator(".ql-toolbar .ql-header")).to_have_count(0)
         expect(page.locator(".ql-toolbar .ql-list")).to_have_count(0)
 
-        counter = page.locator("[data-announcement-count]")
+        counter = page.locator("[data-announcement-chars]")
         _type_into_editor(page, "z" * 161)
         expect(counter).to_have_text("161 / 160")
         expect(counter).to_have_class(re.compile(r"\bis-over\b"))
@@ -104,7 +104,7 @@ def describe_adding_and_editing():
 
         page.locator(f"{ROWS} [data-announcement-edit]").click()
         page.wait_for_url("**/manage/spotlight/announcements/*/")
-        expect(page.locator("[data-announcement-count]")).to_have_text("19 / 160")
+        expect(page.locator("[data-announcement-chars]")).to_have_text("19 / 160")
         _type_into_editor(page, "Zorblax second draft")
         page.fill("#id_show_from_date", "2099-01-02")
         page.select_option("#id_show_from_time", "09:00")

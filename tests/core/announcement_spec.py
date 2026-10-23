@@ -220,7 +220,9 @@ def describe_sanitize_announcement_html():
             '<p><a href="https://example.org/x" rel="noopener noreferrer" target="_blank">out</a></p>'
         )
 
-    @pytest.mark.parametrize("href", ["HTTP://example.org", "//example.org/x"])
+    @pytest.mark.parametrize(
+        "href", ["HTTP://example.org", "//example.org/x", " https://example.org", "/\\example.org", "\\\\example.org"]
+    )
     def it_treats_any_absolute_web_address_as_external(href: str):
         assert 'target="_blank"' in sanitize_announcement_html(f'<p><a href="{href}">out</a></p>')
 
