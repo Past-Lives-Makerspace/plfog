@@ -2244,6 +2244,10 @@ select[multiple] option:checked {
 
 /* Reconciliation: refunds where the payee kept a share already sent (#662, part 3). */
 .pl-payouts-kept-banner { display: block; padding: 0.75rem 1rem; margin-bottom: 1rem; border-radius: 6px; }
+/* #905: the Reconciliation tab's payout state, a badge on its own line under a producer's name or a line's item, and the line above the producer tables. */
+.pl-recon-payout { display: block; margin-top: 0.5rem; }
+.pl-recon-payout .pl-status-badge { white-space: normal; }
+.pl-recon-pay-lead { margin: 1.5rem 0; max-width: 62ch; color: var(--hub-text-muted); }
 
 /* Busy submit (#713, components/busy_submit.html). The .btn[aria-busy] spinner lives in
    style.css, which hub pages never load, and it hides the label; here the spinner sits beside
