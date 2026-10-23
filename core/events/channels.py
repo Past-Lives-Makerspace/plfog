@@ -33,8 +33,9 @@ register-before-build channel; the three above no longer use them.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
@@ -501,7 +502,8 @@ class DigestAdapter:
             channel=Channel.DIGEST.value, status=EventDelivery.Status.PENDING, created_at__lt=cutoff
         ).order_by("created_at")
         by_target: dict[str, list[EventDelivery]] = {}
-        for row in cls._drop_decided(list(pending)):
+        kept, left_out = cls._drop_decided(list(pending))
+        for row in kept:
             by_target.setdefault(row.target_ref, []).append(row)
         users = User.objects.select_related("member").in_bulk(
             [int(target_ref.removeprefix("user:")) for target_ref in by_target]
@@ -512,16 +514,20 @@ class DigestAdapter:
             if user_pk not in users:
                 EventDelivery.objects.filter(pk__in=[row.pk for row in rows]).delete()
                 continue
-            wanted = cls._drop_switched_off(users[user_pk], rows)
-            if wanted and cls._send(users[user_pk], wanted, current.date()):
+            wanted, switched_off = cls._drop_switched_off(users[user_pk], rows)
+            left_out[target_ref] += switched_off
+            if wanted and cls._send(users[user_pk], wanted, current.date(), left_out=left_out[target_ref]):
                 ids = [row.pk for row in wanted]
                 EventDelivery.objects.filter(pk__in=ids).update(status=EventDelivery.Status.SENT)
                 sent[target_ref] = ids
         return sent
 
     @staticmethod
-    def _drop_decided(rows: list[EventDelivery]) -> list[EventDelivery]:
-        """Delete the rows whose request was decided since it was queued; return the rest."""
+    def _drop_decided(rows: list[EventDelivery]) -> tuple[list[EventDelivery], Counter[str]]:
+        """Delete the rows whose request was decided since it was queued.
+
+        Returns the rest, and how many requests (distinct links) each person had left out.
+        """
         from core.events.resolvers import open_request_urls
 
         urls_by_event: dict[str, set[str]] = {}
@@ -530,21 +536,38 @@ class DigestAdapter:
         open_urls = {key: open_request_urls(key, sorted(urls)) for key, urls in urls_by_event.items()}
         keep = [row for row in rows if row.url in open_urls[row.event_key]]
         kept_ids = {row.pk for row in keep}
-        EventDelivery.objects.filter(pk__in=[row.pk for row in rows if row.pk not in kept_ids]).delete()
-        return keep
+        dropped = [row for row in rows if row.pk not in kept_ids]
+        EventDelivery.objects.filter(pk__in=[row.pk for row in dropped]).delete()
+        return keep, Counter(target_ref for target_ref, _url in {(row.target_ref, row.url) for row in dropped})
 
     @staticmethod
-    def _drop_switched_off(user: User, rows: list[EventDelivery]) -> list[EventDelivery]:
-        """Delete the rows for events ``user`` has since switched their email off for."""
+    def wanted_event_keys(user: User, event_keys: set[str]) -> set[str]:
+        """Which of ``event_keys`` ``user`` still has their email switched on for (read only).
+
+        The send drops the rest at 8 AM; the Email Queue tab asks the same question so the
+        two cannot disagree.
+        """
         from core.events import preferences
 
-        wanted_keys = {key for key in {row.event_key for row in rows} if preferences.wants(user, key, Channel.EMAIL)}
-        EventDelivery.objects.filter(pk__in=[row.pk for row in rows if row.event_key not in wanted_keys]).delete()
-        return [row for row in rows if row.event_key in wanted_keys]
+        return {key for key in event_keys if preferences.wants(user, key, Channel.EMAIL)}
 
     @staticmethod
-    def _send(user: User, rows: list[EventDelivery], day: date) -> bool:
+    def _drop_switched_off(user: User, rows: list[EventDelivery]) -> tuple[list[EventDelivery], int]:
+        """Delete the rows for events ``user`` has since switched their email off for.
+
+        Returns the rest, and how many requests (distinct links) that left out.
+        """
+        wanted_keys = DigestAdapter.wanted_event_keys(user, {row.event_key for row in rows})
+        dropped = [row for row in rows if row.event_key not in wanted_keys]
+        EventDelivery.objects.filter(pk__in=[row.pk for row in dropped]).delete()
+        return [row for row in rows if row.event_key in wanted_keys], len({row.url for row in dropped})
+
+    @staticmethod
+    def _send(user: User, rows: list[EventDelivery], day: date, *, left_out: int) -> bool:
         """Send ``user`` the digest of ``rows`` unless they already had one on ``day``.
+
+        A sent digest's ledger row records its subject and how many requests it carried and
+        left out (:meth:`core.models.EventDelivery.record_digest`), for the Email Queue tab.
 
         The ``staff_digest`` ledger slot for the Pacific date is claimed before the send. A
         first failed send hands it back and records a ``digest:<date>:failed`` slot, so the
@@ -586,6 +609,7 @@ class DigestAdapter:
             if first_failure:
                 row.delete()
             return False
+        row.record_digest(subject=str(context["subject"]), included=cast("int", context["count"]), left_out=left_out)
         return True
 
 

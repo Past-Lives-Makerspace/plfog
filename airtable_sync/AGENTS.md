@@ -22,7 +22,7 @@ Thin HTTP wrapper around Airtable REST API. `AirtableClient` with methods: `get(
 
 ## Management Commands
 
-- `airtable_pull` — pulls all records from Airtable and upserts into Django (Members, Spaces, Leases)
+- `airtable_pull` — pulls all records from Airtable and upserts into Django (Members, Spaces, Leases). A member it turns Former is queued for removal from Discord by `Member.save` (#898; `membership/AGENTS.md`).
 - `airtable_backfill` — one-time backfill for existing records
 - `backfill_old_votes` — one-time migration to sync old vote data
 

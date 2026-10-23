@@ -9313,6 +9313,55 @@ def _handle_run_job(request: HttpRequest, config: Any) -> HttpResponse:
     return redirect(redirect_url)
 
 
+@fog_admin_required
+def admin_automation_history(request: HttpRequest, key: str) -> HttpResponse:
+    """Every run of one automation, each with the actions it took (#898), plus admins' clicks."""
+    from django.core.paginator import Paginator
+
+    from core.models import AutomationAction, ScheduledTaskRun
+    from core.scheduled_jobs import JOBS_BY_KEY
+    from membership.models import DISCORD_REMOVAL_TASK_KEY, DiscordRemoval
+
+    if key not in JOBS_BY_KEY:
+        raise Http404(f"No automation '{key}'.")
+    # Two lists, one pager: ?list=other pages the actions outside a run, the default pages the runs.
+    showing_other = request.GET.get("list") == "other"
+    rows = (
+        AutomationAction.objects.filter(task_key=key, run__isnull=True).select_related("member", "actor")
+        if showing_other
+        else ScheduledTaskRun.objects.history_for(key)
+    )
+    context = {
+        "job": JOBS_BY_KEY[key],
+        "page": Paginator(rows, 50 if showing_other else 25).get_page(request.GET.get("page")),
+        "showing_other": showing_other,
+        "base_params": "list=other" if showing_other else "",
+        "open_removals": (
+            DiscordRemoval.objects.open().select_related("member").order_by("warn_on", "pk")
+            if key == DISCORD_REMOVAL_TASK_KEY
+            else None
+        ),
+    }
+    return render(request, "hub/admin/automation_history.html", context)
+
+
+@fog_admin_required
+@require_POST
+def admin_discord_removal_cancel(request: HttpRequest, pk: int) -> HttpResponse:
+    """Keep a queued person on the Discord: an admin's special agreement (#898)."""
+    from membership.models import DISCORD_REMOVAL_TASK_KEY, DiscordRemoval, RemovalNotOpenError
+
+    try:
+        removal = DiscordRemoval.objects.cancel_locked(pk, by=request.user)
+    except DiscordRemoval.DoesNotExist as exc:
+        raise Http404(f"No removal {pk}.") from exc
+    except RemovalNotOpenError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f"Cancelled. {removal.subject} stays on the Discord.")
+    return redirect("hub_admin_automation_history", key=DISCORD_REMOVAL_TASK_KEY)
+
+
 # The Site Settings fields that drive the pinned #important-info Discord post; changing any
 # of them on save re-syncs the post in place.
 _INFO_POST_FIELDS = frozenset({"discord_info_channel_id", "discord_info_message_id", "discord_info_links_content"})

@@ -18,14 +18,15 @@ from dataclasses import dataclass, replace
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Iterator, cast
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, cast
 
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
 if TYPE_CHECKING:
-    from billing.models import BillingSettings, ReconciliationSnapshot, TabCharge, TransactionAdjustment
+    from billing.models import BillingSettings, PayoutAccount, ReconciliationSnapshot, TabCharge, TransactionAdjustment
     from billing.payments_panel import PanelWindow
+    from billing.payouts import LinePayout, PayoutBadge
     from membership.models import Guild
 
 _HUNDRED = Decimal("100")
@@ -140,6 +141,7 @@ class TransactionLine:
     unassigned: bool = False  # an unset producer or guild rolled its share to Past Lives
     note: str = ""
     payee_kept_share: bool = False  # refunded after its share was sent, and the payee kept it (#662)
+    payout: LinePayout | None = None  # live tab only: how its producer share is paid (#905)
 
 
 @dataclass
@@ -154,6 +156,7 @@ class RecipientAllocation:
     voting_cents: int = 0
     voting_projected: bool = False
     stripe_cents: int = 0  # producer rows: the part sent (or scheduled) through Stripe (#662)
+    payout_badge: PayoutBadge | None = None  # live producer rows: the payee's automatic payouts state (#905)
 
     @property
     def manual_cents(self) -> int:
@@ -728,7 +731,7 @@ def build_reconciliation(
     lines.extend(_reservation_lines(window, reservation_percents, adjustments))
     lines.sort(key=lambda line: line.date, reverse=True)
 
-    from billing.payouts import kept_share_notes, through_stripe_keys
+    from billing.payouts import kept_share_notes
 
     kept = kept_share_notes(lines)
     if kept:
@@ -742,7 +745,9 @@ def build_reconciliation(
             else line
             for line in lines
         ]
-    aggregate = _aggregate_lines(lines, through_stripe_keys(lines))
+    lines, accounts, payouts_by_line = _attach_payouts(lines)
+    stripe_keys = {key for key, state in payouts_by_line.items() if state.through_stripe}
+    aggregate = _aggregate_lines(lines, stripe_keys)
 
     voting_by_guild: dict[int, int] = {}
     voting_projected = True
@@ -751,6 +756,7 @@ def build_reconciliation(
         voting_by_guild, voting_projected, voting_on = resolve_voting_allocation(window)
 
     groups = _build_groups(aggregate, voting_by_guild, voting_projected, include_voting=include_voting)
+    _badge_producers(groups, accounts, payouts_switched_on=settings_obj.connect_enabled)
 
     return ReconciliationResult(
         window=window,
@@ -765,6 +771,94 @@ def build_reconciliation(
         voting_projected=voting_projected,
         voting_snapshotted_on=voting_on,
     )
+
+
+def _attach_payouts(
+    lines: list[TransactionLine],
+) -> tuple[list[TransactionLine], dict[int, PayoutAccount], dict[AdjustmentKey, LinePayout]]:
+    """``lines`` with their payout states (#905), the producers' accounts, and the states by line.
+
+    The one path from lines to what Transaction Detail shows, shared by ``build_reconciliation``
+    and ``registration_payouts``. One query for every producer's account: producer keys always
+    carry a Member pk.
+    """
+    from billing.payouts import line_payouts, producer_accounts
+
+    accounts = producer_accounts(
+        cast(int, key[1]) for line in lines for key in line.shares if key[0] in _PRODUCER_KINDS
+    )
+    payouts_by_line = line_payouts(lines, accounts)
+    return [_with_payout(line, payouts_by_line) for line in lines], accounts, payouts_by_line
+
+
+def registration_payouts(registration_pks: Iterable[int]) -> dict[int, LinePayout]:
+    """What Transaction Detail shows for each registration's instructor share, by registration pk (#910).
+
+    Each paid, confirmed registration gets the same line Reconciliation builds for it (split,
+    refunds, adjustments) and goes through the same ``_attach_payouts``, so the two always agree.
+    A registration with no state (unpaid, free, not confirmed, omitted, or no instructor share)
+    is left out. A fixed number of queries for any number of registrations.
+    """
+    from billing.models import BillingSettings, TransactionAdjustment
+    from classes.models import Registration
+
+    pks = list(registration_pks)
+    registrations = (
+        Registration.objects.filter(pk__in=pks, amount_paid_cents__gt=0)
+        .filter(confirmed_at__isnull=False)
+        .select_related("class_offering__instructor", "class_offering__category__guild", "member")
+        .prefetch_related("refunds")
+    )
+    percents = _class_percents(BillingSettings.load())
+    adjustments = TransactionAdjustment.objects.filter(source_kind="class", source_pk__in=pks).as_map()
+    lines, _accounts, _states = _attach_payouts([_class_line(reg, percents, adjustments) for reg in registrations])
+    return {line.source_pk: line.payout for line in lines if line.payout is not None}
+
+
+def _with_payout(line: TransactionLine, payouts_by_line: dict[AdjustmentKey, LinePayout]) -> TransactionLine:
+    """``line`` with its producer share's payout state (#905), the same state that split it into the columns.
+
+    A line with no earning but a producer share still to pay (a class with no sessions, say)
+    is paid by hand, as Owed manually counts it; an omitted line, or one with no producer share
+    left, gets no state.
+    """
+    from billing.payouts import PAY_BY_HAND
+
+    state = payouts_by_line.get((line.source_kind, line.source_pk))
+    if state is None and not line.omitted:
+        if any(cents for key, cents in line.shares.items() if key[0] in _PRODUCER_KINDS):
+            state = PAY_BY_HAND
+    return line if state is None else replace(line, payout=state)
+
+
+def _badge_producers(
+    groups: dict[RecipientKind, list[RecipientAllocation]],
+    accounts: dict[int, PayoutAccount],
+    *,
+    payouts_switched_on: bool,
+) -> None:
+    """Give every producer row its payee's automatic payouts badge (#905) from the accounts already loaded.
+
+    While payouts are switched off site wide (``BillingSettings.connect_enabled``, the switch
+    ``payouts.payouts_on`` reads) Stripe starts nothing new, so the account's status no longer
+    says who Stripe pays. A row with nothing in Sent through Stripe reads Paid by hand, as its
+    lines and Owed manually do. A row that still has shares recorded through Stripe (sent,
+    pending or taken back before the switch went off) reads Payouts switched off instead, since
+    part of it is not the treasurer's to pay.
+    """
+    from billing.payouts import PayoutBadge, account_badge
+
+    switched_off = PayoutBadge("Payouts switched off", "warn")
+    for kind in GROUP_ORDER:
+        if not kind.is_producer:
+            continue
+        for alloc in groups[kind]:
+            if payouts_switched_on:
+                alloc.payout_badge = account_badge(accounts.get(cast(int, alloc.recipient_id)))
+            elif alloc.stripe_cents > 0:
+                alloc.payout_badge = switched_off
+            else:
+                alloc.payout_badge = account_badge(None)
 
 
 @dataclass(frozen=True)

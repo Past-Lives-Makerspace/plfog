@@ -1,0 +1,112 @@
+{% extends "hub/base.html" %}
+{% load tab_picker %}
+{% block title %}{{ job.name }} History{% endblock %}
+{% block content %}
+{% comment %}
+One automation's history (#898), built by hub.views.admin_automation_history: every run newest
+first with the actions it took (AutomationAction), or, under ?list=other, the actions taken outside
+a run (an admin's click, or an action whose run was pruned); each list pages with the shared pager. The Discord removal job also lists its open queue,
+each row with a Cancel that keeps the person on the server.
+{% endcomment %}
+{% include "components/page_header.html" with title=job.name description="Every run of this automation, newest first, with each thing it did and how it went." %}
+<p class="pl-automation-history__back"><a href="{% url 'hub_admin_site_settings' %}?tab=automations">&larr; Automations</a></p>
+
+{% if open_removals is not None %}
+<div class="hub-card pl-automation-history__card" data-open-removals>
+  <h2 class="pl-automation-history__title">Queued Removals</h2>
+  {% if open_removals %}
+  <table class="pl-members-table">
+    <thead><tr><th scope="col">Who</th><th scope="col">Why</th><th scope="col">Status</th><th scope="col">Next Step</th><th scope="col"></th></tr></thead>
+    <tbody>
+      {% for removal in open_removals %}
+      <tr data-removal-row="{{ removal.pk }}">
+        <td data-label="Who">{{ removal.subject }}{% if removal.discord_username and removal.member %} <span class="hub-text-muted">@{{ removal.discord_username }}</span>{% endif %}</td>
+        <td data-label="Why">{{ removal.get_source_display }}</td>
+        <td data-label="Status"><span class="hub-pill hub-pill--warn">{{ removal.get_status_display }}</span></td>
+        <td data-label="Next Step">{% if removal.kick_after %}Removal due {{ removal.kick_after|date:"N j, g:i A" }}{% else %}DM due {{ removal.warn_on|date:"N j" }}{% endif %}</td>
+        <td data-label="">
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="$dispatch('open-confirm', 'cancel-removal-{{ removal.pk }}')">Cancel</button>
+          {% url 'hub_admin_discord_removal_cancel' removal.pk as cancel_url %}
+          {% with pk_text=removal.pk|stringformat:"s" %}{% with confirm_id="cancel-removal-"|add:pk_text %}
+          {% include "components/confirm_modal.html" with confirm_id=confirm_id confirm_title="Keep them on the Discord?" confirm_message="The bot will not DM or remove this person. Use this for a special agreement." confirm_action_url=cancel_url confirm_button_text="Cancel Removal" confirm_button_style="primary" %}
+          {% endwith %}{% endwith %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="hub-text-muted">Nobody is queued.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% tab_picker "History" %}
+<nav class="pl-tabs pl-automation-history__tabs" aria-label="History lists">
+  <a href="{% url 'hub_admin_automation_history' job.key %}" class="vote-tab{% if not showing_other %} vote-tab--active{% endif %}"{% if not showing_other %} aria-current="page"{% endif %} data-runs-tab>Runs</a>
+  <a href="{% url 'hub_admin_automation_history' job.key %}?list=other" class="vote-tab{% if showing_other %} vote-tab--active{% endif %}"{% if showing_other %} aria-current="page"{% endif %} data-loose-tab>Actions Outside a Run</a>
+</nav>
+{% endtab_picker %}
+
+{% if showing_other %}
+<div class="hub-card pl-automation-history__card" data-loose-actions>
+  <h2 class="pl-automation-history__title">Actions Outside a Run</h2>
+  <p class="hub-text-muted">An admin's clicks, changes the app made as it saved, and actions whose run is older than 90 days.</p>
+  {% if page.object_list %}
+  <table class="pl-members-table pl-automation-history__actions">
+    <thead><tr><th scope="col">Who</th><th scope="col">What</th><th scope="col">Result</th><th scope="col">When</th><th scope="col">Detail</th><th scope="col">Admin</th></tr></thead>
+    <tbody>
+      {% for action in page.object_list %}
+      <tr data-action="{{ action.pk }}">
+        <td data-label="Who">{{ action.subject }}</td>
+        <td data-label="What">{{ action.get_kind_display }}</td>
+        <td data-label="Result"><span class="hub-pill hub-pill--{{ action.tone }}">{{ action.get_result_display }}</span></td>
+        <td data-label="When">{{ action.created_at|date:"N j, g:i A" }}</td>
+        <td data-label="Detail">{{ action.detail }}</td>
+        <td data-label="Admin">{% if action.actor %}{{ action.actor.get_full_name|default:action.actor.username }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="hub-text-muted">None.</p>
+  {% endif %}
+  {% include "components/table_pagination.html" %}
+</div>
+{% else %}
+<div class="hub-card pl-automation-history__card" data-run-history>
+  <h2 class="pl-automation-history__title">Runs</h2>
+  {% for run in page.object_list %}
+  <div class="pl-automation-history__run" data-run="{{ run.pk }}">
+    <div class="pl-automation-history__run-head">
+      {% if run.succeeded %}<span class="hub-pill hub-pill--ok">OK</span>{% elif run.failed %}<span class="hub-pill hub-pill--danger">Failed</span>{% elif run.is_stale_running %}<span class="hub-pill hub-pill--neutral">Unknown</span>{% else %}<span class="hub-pill hub-pill--warn">Running</span>{% endif %}
+      <span>{{ run.started_at|date:"N j, Y g:i A" }}</span>
+      <span class="hub-text-muted">{{ run.get_trigger_display }}{% if run.actor %} by {{ run.actor.get_full_name|default:run.actor.username }}{% endif %}</span>
+    </div>
+    {% if run.error %}<p class="pl-automation-history__error">{{ run.error }}</p>{% endif %}
+    {% with actions=run.actions.all %}
+    {% if actions %}
+    <table class="pl-members-table pl-automation-history__actions">
+      <thead><tr><th scope="col">Who</th><th scope="col">What</th><th scope="col">Result</th><th scope="col">When</th><th scope="col">Detail</th></tr></thead>
+      <tbody>
+        {% for action in actions %}
+        <tr data-action="{{ action.pk }}">
+          <td data-label="Who">{{ action.subject }}</td>
+          <td data-label="What">{{ action.get_kind_display }}</td>
+          <td data-label="Result"><span class="hub-pill hub-pill--{{ action.tone }}">{{ action.get_result_display }}</span></td>
+          <td data-label="When">{{ action.created_at|date:"N j, g:i A" }}</td>
+          <td data-label="Detail">{{ action.detail }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    {% endwith %}
+  </div>
+  {% empty %}
+  <p class="hub-text-muted">This automation has not run yet.</p>
+  {% endfor %}
+  {% include "components/table_pagination.html" %}
+</div>
+{% endif %}
+{% endblock %}

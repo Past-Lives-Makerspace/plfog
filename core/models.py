@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import hashlib
 import logging
 import secrets
@@ -2199,6 +2200,28 @@ class EventDelivery(models.Model):
         """
         return ":".join(self.period.split(":")[:2])
 
+    def record_digest(self, *, subject: str, included: int, left_out: int) -> None:
+        """Stamp a sent staff digest's ledger row with what it carried (#894 part 2).
+
+        The ``staff_digest`` ledger row has no message of its own, so its ``title`` holds the
+        subject and its ``body`` the counts, read back by :attr:`digest_counts`.
+        """
+        self.title = subject[:255]
+        self.body = json.dumps({"included": included, "left_out": left_out})
+        self.save(update_fields=["title", "body"])
+
+    @property
+    def digest_counts(self) -> tuple[int, int]:
+        """``(included, left_out)`` for a sent digest, as :meth:`record_digest` wrote them.
+
+        Raises ``ValueError`` for a row that recorded none (sent before #894 part 2, or a
+        day's slot kept after two failed sends): callers filter those out first.
+        """
+        if not self.body:
+            raise ValueError(f"No digest counts recorded on {self}")
+        counts = json.loads(self.body)
+        return counts["included"], counts["left_out"]
+
     @property
     def reminded_by(self) -> str:
         """Who pressed Remind lead for a queued line, or ``""`` for the original request."""
@@ -2466,6 +2489,16 @@ class ScheduledTaskRunQuerySet(models.QuerySet["ScheduledTaskRun"]):
             return {}
         return {run.task_key: run for run in self.filter(match)}
 
+    def history_for(self, key: str) -> ScheduledTaskRunQuerySet:
+        """One job's runs, newest first, each with the actions it took (a fixed number of queries)."""
+        actions = AutomationAction.objects.select_related("member", "actor")
+        return (
+            self.filter(task_key=key)
+            .select_related("actor")
+            .prefetch_related(models.Prefetch("actions", queryset=actions))
+            .order_by("-started_at")
+        )
+
 
 class ScheduledTaskRun(models.Model):
     """Append-only history of every scheduled-job run (scheduled or manual "Run now").
@@ -2551,6 +2584,103 @@ class ScheduledTaskRun(models.Model):
         self.finished_at = timezone.now()
         self.error = str(exc)
         self.save(update_fields=["status", "finished_at", "error"])
+
+
+class AutomationAction(models.Model):
+    """One thing an automation did to one person: a DM, a kick, a queue entry closed (#898).
+
+    ``ScheduledTaskRun`` says a run happened; this says what the run did, so an admin can audit
+    each step on the job's history page. Generic: any automation writes here through
+    :meth:`record`, under its registry key. An admin's click outside a run (cancelling a queued
+    removal) is recorded with ``actor`` set and no ``run``. Rows are kept when their run is pruned.
+    """
+
+    class Kind(models.TextChoices):
+        DISCORD_DM = "discord_dm", "Discord DM"
+        DISCORD_KICK = "discord_kick", "Removed from Discord"
+        DISCORD_REJOIN = "discord_rejoin", "Put back on Discord"
+        REMOVAL_QUEUED = "removal_queued", "Queued for removal"
+        REMOVAL_CANCELLED = "removal_cancelled", "Removal cancelled"
+        REMOVAL_CLOSED = "removal_closed", "Removal closed"
+
+    class Result(models.TextChoices):
+        OK = "ok", "OK"
+        FAILED = "failed", "Failed"
+        SKIPPED = "skipped", "Skipped"
+
+    task_key = models.CharField(max_length=64, help_text="Registry key of the automation that took this action.")
+    run = models.ForeignKey(
+        ScheduledTaskRun,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="actions",
+        help_text="The run that took this action; null for an admin's click or once the run is pruned.",
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices, help_text="What the automation did.")
+    result = models.CharField(max_length=16, choices=Result.choices, help_text="Whether it worked.")
+    subject = models.CharField(
+        max_length=200, help_text="Who it was done to, as shown on the history page (a name or a Discord username)."
+    )
+    member = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The member it was done to, when there is one.",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The admin who clicked, when an admin did it; null for the automation itself.",
+    )
+    detail = models.TextField(blank=True, default="", help_text="Discord's answer, the error, or why it closed.")
+    created_at = models.DateTimeField(default=timezone.now, help_text="When the action was taken.")
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        indexes = [models.Index(fields=["task_key", "-created_at"], name="idx_autoaction_key_recent")]
+
+    def __str__(self) -> str:
+        return f"{self.task_key} {self.kind} {self.subject} {self.result}"
+
+    @property
+    def tone(self) -> str:
+        """The ``hub-pill--*`` modifier for this action's result."""
+        return {self.Result.OK: "ok", self.Result.FAILED: "danger", self.Result.SKIPPED: "neutral"}[
+            self.Result(self.result)
+        ]
+
+    @classmethod
+    def record(
+        cls,
+        task_key: str,
+        *,
+        kind: str,
+        result: str,
+        subject: str,
+        member: Any = None,
+        actor: User | None = None,
+        detail: str = "",
+    ) -> AutomationAction:
+        """Write one action, attached to the run ``record_run`` has open for ``task_key``, if any."""
+        from core.scheduled_jobs import current_run
+
+        run = current_run()
+        return cls.objects.create(
+            task_key=task_key,
+            run=run if run is not None and run.task_key == task_key else None,
+            kind=kind,
+            result=result,
+            subject=subject[:200],
+            member=member,
+            actor=actor,
+            detail=detail,
+        )
 
 
 class ScheduledJobStateManager(models.Manager["ScheduledJobState"]):
