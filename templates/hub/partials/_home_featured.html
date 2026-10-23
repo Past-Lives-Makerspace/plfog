@@ -36,7 +36,7 @@ first carry data-rotator-src and load when their slide comes up.
         {% endif %}
         <div class="pl-home-featured__body">
           <span class="pl-upcoming__kind pl-home-featured__kind" data-featured-kind>{{ item.kind }}</span>
-          <h3 class="pl-home-featured__title"><a href="{{ item.url }}">{{ item.title }}</a></h3>
+          <p class="pl-home-featured__title"><a href="{{ item.url }}">{{ item.title }}</a></p>
           <p class="pl-home-featured__when">{{ item.start|date:"D, M j" }} · {{ item.start|date:"g:i A" }}</p>
           {% if item.kind == "Class" %}
           {% if item.instructors %}<p class="pl-home-featured__meta" data-featured-instructors>with {{ item.instructors }}</p>{% endif %}

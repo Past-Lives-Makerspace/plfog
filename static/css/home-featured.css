@@ -93,7 +93,10 @@
     margin-bottom: 0.25rem;
 }
 
+/* A paragraph, not a heading, so no heading comes before the card's "Upcoming" h2; it keeps the heading face. */
 .pl-home-featured__title {
+    font-family: var(--font-heading);
+    color: var(--hub-text);
     font-size: 1.125rem;
     font-weight: 700;
     line-height: 1.3;

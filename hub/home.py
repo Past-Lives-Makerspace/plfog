@@ -25,6 +25,7 @@ from django.utils import timezone
 from membership.models import CalendarEvent, CommunityEvent, GuildAnnouncement
 
 if TYPE_CHECKING:
+    from classes.models import ClassOffering
     from membership.models import Member
 
 _Row = TypeVar("_Row", bound=Model)
@@ -182,14 +183,14 @@ def _featured(member: Member) -> list[FeaturedClass | FeaturedEvent]:
     return slides
 
 
-def _featured_class(offering: Any) -> FeaturedClass:
+def _featured_class(offering: ClassOffering) -> FeaturedClass:
     """One class's slide: its next session, instructors, link, and the catalog card's picture."""
     from classes.templatetags.classes_tags import strip_date_suffix
 
     return FeaturedClass(
         title=strip_date_suffix(offering.title),
         url=reverse("classes:public_class_detail", kwargs={"slug": offering.slug}),
-        start=offering.next_session_at,
+        start=offering.next_session_at,  # type: ignore[attr-defined]  # annotated by featurable()
         instructors=offering.instructor_names,
         photo_url=offering.card_photo_url,
         photo_position=offering.card_object_position if offering.hero_image_url else "50% 50%",

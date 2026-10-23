@@ -114,3 +114,80 @@ def describe_the_home_carousel():
         assert _current(page) == "1 of 6"
         page.locator(f"{CAROUSEL} [data-rotator-next]").click()
         _expect_slide(page, "2 of 6")
+
+
+def _touch(page, kind: str, x: int, y: int) -> None:
+    """A synthetic touch event on the carousel (a desktop browser sends no real ones)."""
+    page.evaluate(
+        """([kind, x, y]) => {
+            const el = document.querySelector('[data-home-featured]');
+            const ev = new Event(kind, { bubbles: true });
+            const point = [{ clientX: x, clientY: y }];
+            if (kind === 'touchstart') ev.touches = point; else ev.changedTouches = point;
+            el.dispatchEvent(ev);
+        }""",
+        [kind, x, y],
+    )
+
+
+def describe_the_home_carousel_on_touch_and_navigation():
+    def it_runs_one_clock_after_leaving_home_and_coming_back(page, live_server, login_via_code):
+        _open_home(page, live_server, login_via_code, "rotator-boost-e2e@example.com")
+        page.locator(".pl-quicklink", has_text="Calendar").click()
+        page.wait_for_url("**/calendar/**")
+        page.locator(".hub-sidebar__link", has_text="Home").first.click()
+        page.wait_for_url(f"{live_server.url}{reverse('hub_home')}")
+        expect(page.locator(f"{CAROUSEL} [data-rotator-dot]")).to_have_count(6)
+        page.mouse.move(0, 0)
+        page.evaluate("() => document.activeElement && document.activeElement.blur()")
+        assert _current(page) == "1 of 6"
+        page.clock.run_for(6500)
+        _expect_slide(page, "2 of 6")
+        page.clock.run_for(4000)
+        assert _current(page) == "2 of 6"
+
+    def it_ignores_a_mostly_vertical_drag_and_follows_a_sideways_swipe(page, live_server, login_via_code):
+        _open_home(page, live_server, login_via_code, "rotator-swipe-e2e@example.com")
+        _touch(page, "touchstart", 200, 300)
+        _touch(page, "touchend", 260, 100)
+        assert _current(page) == "1 of 6"
+        _touch(page, "touchstart", 300, 300)
+        _touch(page, "touchend", 200, 310)
+        _expect_slide(page, "2 of 6")
+        _touch(page, "touchstart", 200, 300)
+        _touch(page, "touchend", 300, 290)
+        _expect_slide(page, "1 of 6")
+
+    def it_is_not_held_by_a_finger_passing_over_it(page, live_server, login_via_code):
+        # A tap on a phone sends a touch pointerenter and then a compatibility mouseenter, and
+        # never the leave events, so neither may hold the rotation.
+        _open_home(page, live_server, login_via_code, "rotator-finger-e2e@example.com")
+        page.evaluate(
+            """() => {
+                const el = document.querySelector('[data-home-featured]');
+                el.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'touch' }));
+                el.dispatchEvent(new MouseEvent('mouseenter'));
+            }"""
+        )
+        page.clock.run_for(6500)
+        _expect_slide(page, "2 of 6")
+
+    def it_resumes_after_a_click_on_an_arrow_but_holds_for_keyboard_focus(page, live_server, login_via_code):
+        _open_home(page, live_server, login_via_code, "rotator-focus-e2e@example.com")
+        page.locator(f"{CAROUSEL} [data-rotator-next]").click()
+        _expect_slide(page, "2 of 6")
+        page.mouse.move(0, 0)
+        page.clock.run_for(6500)
+        _expect_slide(page, "3 of 6")
+
+        # Tab to the carousel's first control, as a keyboard user would.
+        for _ in range(120):
+            page.keyboard.press("Tab")
+            if page.evaluate(
+                "() => !!document.activeElement.closest('[data-home-featured] .pl-rotator__overlay, [data-home-featured] .pl-rotator__nav')"
+            ):
+                break
+        else:
+            raise AssertionError("Tab never reached the carousel's controls")
+        page.clock.run_for(20000)
+        assert _current(page) == "3 of 6"

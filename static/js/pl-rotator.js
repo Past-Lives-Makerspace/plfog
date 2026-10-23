@@ -15,9 +15,10 @@
 //   [data-rotator-bar]       optional, a bar whose fill runs over each slide's time (CSS animation)
 // The controls call prev(), next(), go(i) and toggle(). With fewer than two slides nothing moves.
 //
-// It moves on only while nobody is pointing at it, nothing in it has focus, the tab is visible
-// and the pause button is off. With prefers-reduced-motion: reduce it never moves on by itself and
-// the CSS drops the fade; the arrows and the dots still work. No live region: announcing every
+// It moves on only while no mouse or pen rests on it, nothing in it has keyboard focus, the tab
+// is visible and the pause button is off; a swipe that is mostly sideways moves it. With
+// prefers-reduced-motion: reduce it never moves on by itself and the CSS drops the fade; the
+// arrows and the dots still work. No live region: announcing every
 // automatic move would talk over whatever the member is reading.
 (function () {
   var SWIPE_PX = 40;
@@ -37,6 +38,7 @@
         startedAt: 0,
         timer: null,
         touchX: null,
+        touchY: null,
 
         init() {
           var root = this.$root;
@@ -54,19 +56,39 @@
             self.sync();
           };
           document.addEventListener('visibilitychange', this.onVisibility);
-          root.addEventListener('mouseenter', function () { self.hovering = true; self.sync(); });
-          root.addEventListener('mouseleave', function () { self.hovering = false; self.sync(); });
-          root.addEventListener('focusin', function () { self.focused = true; self.sync(); });
+          // A mouse or pen resting on it holds it; a finger lifts at once, so a tap on a phone never holds it.
+          root.addEventListener('pointerenter', function (e) {
+            if (e.pointerType === 'touch') return;
+            self.hovering = true;
+            self.sync();
+          });
+          root.addEventListener('pointerleave', function (e) {
+            if (e.pointerType === 'touch') return;
+            self.hovering = false;
+            self.sync();
+          });
+          // Keyboard focus holds it; the focus a tap or click leaves on an arrow or a dot does not.
+          root.addEventListener('focusin', function (e) {
+            self.focused = e.target.matches(':focus-visible');
+            self.sync();
+          });
           root.addEventListener('focusout', function (e) {
             if (!root.contains(e.relatedTarget)) { self.focused = false; self.sync(); }
           });
-          root.addEventListener('touchstart', function (e) { self.touchX = e.touches[0].clientX; }, { passive: true });
+          // A swipe moves it only when it is mostly sideways, so scrolling the page past it never does.
+          root.addEventListener('touchstart', function (e) {
+            self.touchX = e.touches[0].clientX;
+            self.touchY = e.touches[0].clientY;
+          }, { passive: true });
           root.addEventListener('touchend', function (e) {
             if (self.touchX === null) return;
             var dx = e.changedTouches[0].clientX - self.touchX;
+            var dy = e.changedTouches[0].clientY - self.touchY;
             self.touchX = null;
-            if (dx <= -SWIPE_PX) self.next();
-            else if (dx >= SWIPE_PX) self.prev();
+            self.touchY = null;
+            if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) <= Math.abs(dy)) return;
+            if (dx < 0) self.next();
+            else self.prev();
           }, { passive: true });
           this.restartBar(this.remaining);
           this.sync();
