@@ -33,13 +33,9 @@
     align-items: start;
 }
 
+/* The picker icon follows the theme through components.css's color-scheme rules. */
 .pl-reg-toolbar__dates input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: invert(1);
     cursor: pointer;
-}
-
-[data-theme="light"] .pl-reg-toolbar__dates input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: none;
 }
 
 /* Two columns from 640px and three from 1100px. The date pair spans two, so an admin's
@@ -77,8 +73,9 @@
     gap: 0.5rem 0.75rem;
 }
 
-/* My Classes and its ? stay together on one line. */
-.pl-reg-toolbar__mine {
+/* My Classes and Payment Report each stay on one line with their ?. */
+.pl-reg-toolbar__mine,
+.pl-reg-toolbar__report {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;

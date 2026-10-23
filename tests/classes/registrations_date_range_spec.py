@@ -43,6 +43,12 @@ def _flexible(email: str, starts_on: date | None, ends_on: date | None) -> Regis
     return RegistrationFactory(class_offering=offering, email=email)
 
 
+def _no_window_day(reg: Registration, registered: datetime, confirmed: datetime | None = None) -> Registration:
+    """Backdate ``reg``; ``registered_at`` is auto_now_add, so it moves only through an update."""
+    Registration.objects.filter(pk=reg.pk).update(registered_at=registered, confirmed_at=confirmed)
+    return reg
+
+
 def _emails(qs) -> set[str]:
     return set(qs.values_list("email", flat=True))
 
@@ -120,14 +126,15 @@ def describe_with_class_dates_in():
         def it_treats_a_blank_end_of_the_window_as_open(db):
             _flexible("no-first-day@example.com", None, date(2026, 11, 2))
             _flexible("no-last-day@example.com", date(2026, 11, 29), None)
-            _flexible("no-window@example.com", None, None)
             _flexible("no-first-day-too-early@example.com", None, date(2026, 10, 31))
             _flexible("no-last-day-too-late@example.com", date(2026, 12, 1), None)
-            assert _in(NOV_1, NOV_30) == {
-                "no-first-day@example.com",
-                "no-last-day@example.com",
-                "no-window@example.com",
-            }
+            assert _in(NOV_1, NOV_30) == {"no-first-day@example.com", "no-last-day@example.com"}
+
+        def it_goes_by_the_window_not_by_the_registration_day_when_there_is_a_window(db):
+            _no_window_day(
+                _flexible("dec-window@example.com", date(2026, 12, 1), date(2026, 12, 31)), _at(2026, 11, 10)
+            )
+            assert _in(NOV_1, NOV_30) == set()
 
         def it_goes_by_the_window_not_by_a_stray_session(db):
             reg = _flexible("flex@example.com", date(2026, 12, 1), date(2026, 12, 31))
@@ -138,6 +145,42 @@ def describe_with_class_dates_in():
             _flexible("dec@example.com", date(2026, 12, 1), date(2026, 12, 31))
             assert _in(NOV_1, None) == {"dec@example.com"}
             assert _in(None, NOV_30) == set()
+
+    def describe_a_flexible_class_with_no_window():
+        def it_does_not_match_every_range(db):
+            _no_window_day(_flexible("october@example.com", None, None), _at(2026, 10, 10))
+            assert _in(NOV_1, NOV_30) == set()
+
+        def it_counts_by_the_day_payment_confirmed(db):
+            _no_window_day(
+                _flexible("confirmed-nov@example.com", None, None), _at(2026, 10, 10), confirmed=_at(2026, 11, 2)
+            )
+            _no_window_day(
+                _flexible("confirmed-dec@example.com", None, None), _at(2026, 11, 10), confirmed=_at(2026, 12, 2)
+            )
+            assert _in(NOV_1, NOV_30) == {"confirmed-nov@example.com"}
+
+        def it_falls_back_to_the_day_it_was_made_when_unconfirmed(db):
+            _no_window_day(_flexible("made-nov@example.com", None, None), _at(2026, 11, 10))
+            _no_window_day(_flexible("made-dec@example.com", None, None), _at(2026, 12, 10))
+            assert _in(NOV_1, NOV_30) == {"made-nov@example.com"}
+
+        def it_reads_pacific_days_at_both_edges(db):
+            _no_window_day(_flexible("first-moment@example.com", None, None), _at(2026, 11, 1, 0))
+            _no_window_day(_flexible("last-evening@example.com", None, None), _at(2026, 11, 30, 23))
+            _no_window_day(_flexible("eve-before@example.com", None, None), _at(2026, 10, 31, 23))
+            _no_window_day(_flexible("day-after@example.com", None, None), _at(2026, 12, 1, 0))
+            assert _in(NOV_1, NOV_30) == {"first-moment@example.com", "last-evening@example.com"}
+
+        def it_takes_one_bound_alone(db):
+            _no_window_day(_flexible("dec@example.com", None, None), _at(2026, 12, 10))
+            assert _in(NOV_1, None) == {"dec@example.com"}
+            assert _in(None, NOV_30) == set()
+
+        def it_leaves_a_scheduled_class_to_its_sessions(db):
+            # Only a windowless flexible class falls back to the registration's day.
+            _no_window_day(RegistrationFactory(email="unscheduled@example.com"), _at(2026, 11, 10))
+            assert _in(NOV_1, NOV_30) == set()
 
 
 def describe_registration_date_range_form():
@@ -264,6 +307,26 @@ def describe_registrations_page():
             assert "nov@example.com" in body
             assert "dec@example.com" not in body
 
+        def it_follows_the_search_box(admin_user, client):
+            RegistrationFactory(email="ana-search@example.com", first_name="Ana")
+            RegistrationFactory(email="bo-search@example.com", first_name="Bo")
+            client.force_login(admin_user)
+            body = _body(client.get(reverse("classes:admin_registrations_export"), {"q": " ana "}))
+            assert "ana-search@example.com" in body
+            assert "bo-search@example.com" not in body
+
+        def it_searches_the_same_fields_as_the_page(admin_user, client):
+            from classes import views
+
+            RegistrationFactory(class_offering=ClassOfferingFactory(title="Kiln Basics"), email="kiln@example.com")
+            RegistrationFactory(email="other@example.com")
+            client.force_login(admin_user)
+            page = client.get(reverse("classes:admin_registrations"), {"q": "kiln"}).content.decode()
+            body = _body(client.get(reverse("classes:admin_registrations_export"), {"q": "kiln"}))
+            assert "kiln@example.com" in page and "kiln@example.com" in body
+            assert "other@example.com" not in page and "other@example.com" not in body
+            assert views.REGISTRATION_SEARCH_FIELDS == ["first_name", "last_name", "email", "class_offering__title"]
+
         def it_filters_nothing_by_date_when_the_range_has_an_error(admin_user, client):
             _scheduled("nov@example.com", _at(2026, 11, 10))
             _scheduled("dec@example.com", _at(2026, 12, 10))
@@ -301,6 +364,16 @@ def describe_registrations_page():
             assert "data-reg-payment-report" in actions.group(1)
             assert "Export CSV" in actions.group(1)
 
+        def it_explains_that_reconciliation_groups_by_payment_day(admin_user, client):
+            client.force_login(admin_user)
+            html = client.get(reverse("classes:admin_registrations")).content.decode()
+            report = re.search(r'<span class="pl-reg-toolbar__report">(.*?)</span>\s*</span>\s*</span>', html, re.S)
+            assert "data-reg-payment-report" in report.group(1)
+            assert (
+                "Opens Reconciliation for these dates. It groups payments by the day they were paid, not the class date."
+                in report.group(1)
+            )
+
         def it_is_hidden_from_an_instructor(client):
             user = UserFactory(username="reg-range-teacher@example.com")
             ClassOfferingFactory(instructor=InstructorFactory(user=user))
@@ -320,7 +393,7 @@ def describe_registrations_page():
             assert response.context["totals"] == {"count": 27, "paid_cents": 28350}
             totals = re.search(r"<p class=\"pl-reg-totals\" data-reg-totals>(.*?)</p>", response.content.decode())
             text = re.sub(r"<[^>]+>", "", totals.group(1))
-            assert text == "27 registrations·$283.50 paid"
+            assert text == "27 registrations·$283.50 paid before refunds"
 
         def it_follows_the_search_and_the_range(admin_user, client):
             ana = _scheduled("ana@example.com", _at(2026, 11, 10))
@@ -338,7 +411,7 @@ def describe_registrations_page():
             client.force_login(admin_user)
             html = client.get(reverse("classes:admin_registrations")).content.decode()
             assert re.search(r"<strong>1</strong> registration<span", html)
-            assert "<strong>$0.00</strong> paid" in html
+            assert "<strong>$0.00</strong> paid before refunds" in html
 
         def it_is_zero_on_an_empty_list(admin_user, client):
             client.force_login(admin_user)

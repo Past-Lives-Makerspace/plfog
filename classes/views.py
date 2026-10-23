@@ -1590,6 +1590,11 @@ def _scoped_registrations(request: HttpRequest) -> QuerySet[Registration]:
     return qs.filter(class_offering__in=ClassOffering.objects.editable_by(request.user.member))
 
 
+#: The fields the Registrations search box matches, shared by the page and its CSV export so
+#: the file always holds the rows the list shows (#911).
+REGISTRATION_SEARCH_FIELDS = ["first_name", "last_name", "email", "class_offering__title"]
+
+
 def _filter_registrations(request: HttpRequest, qs: QuerySet[Registration]) -> QuerySet[Registration]:
     """Apply the optional ``status``, ``class``, ``instructor``, ``mine``, ``start`` and ``end`` GET filters.
 
@@ -5463,7 +5468,6 @@ def _granted_instructor_class_pks(request: HttpRequest) -> set[int]:
 def admin_registrations(request: HttpRequest) -> HttpResponse:
     scoped = _scoped_registrations(request)
     filtered = _filter_registrations(request, scoped)
-    search_fields = ["first_name", "last_name", "email", "class_offering__title"]
     # The Class Date column and its sort: the class's sessions, the same span the admin
     # Classes list shows as Date(s). Annotated here rather than in _filter_registrations so
     # the CSV export keeps its own columns.
@@ -5474,12 +5478,12 @@ def admin_registrations(request: HttpRequest) -> HttpResponse:
     table = prepare_table(
         request,
         rows,
-        search_fields=search_fields,
+        search_fields=REGISTRATION_SEARCH_FIELDS,
         default_sort="registered_at",
         default_dir="desc",
     )
     # The totals line (#911): every filtered row, not just this page, in one query.
-    totals = table_search(filtered, table["q"], search_fields).aggregate(
+    totals = table_search(filtered, table["q"], REGISTRATION_SEARCH_FIELDS).aggregate(
         count=Count("pk"), paid_cents=Coalesce(Sum("amount_paid_cents"), 0)
     )
     date_form = RegistrationDateRangeForm(request.GET)
@@ -5566,6 +5570,8 @@ def admin_registrations_export(request: HttpRequest) -> StreamingHttpResponse | 
     if view_as is None or not view_as.is_admin:
         return HttpResponseForbidden("Exporting registrations requires admin access.")
     registrations = _filter_registrations(request, _scoped_registrations(request))
+    # The search box narrows the file exactly as it narrows the list (prepare_table strips it too).
+    registrations = table_search(registrations, request.GET.get("q", "").strip(), REGISTRATION_SEARCH_FIELDS)
     return stream_registrations_query_csv(registrations, filename_stem="registrations")
 
 
