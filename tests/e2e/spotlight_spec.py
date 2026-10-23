@@ -1,27 +1,33 @@
 """End-to-end: the member Spotlight in a real browser (#709).
 
-The yellow dot clearing, the minimized choice surviving a reload, voting in place from
-Standard, the changelog five a page inside Expanded, the #changelog-<slug> deep link landing on
-the right page, and the same pager on the login page's modal. Waits are on what the page shows.
-Run with ``pytest -m e2e`` on PostgreSQL.
+The yellow dot clearing and coming back for an edited announcement, the minimized choice
+surviving a reload, the announcements rotating in Standard on their own clock (#890), the
+changelog five a page inside Expanded, the #changelog-<slug> deep link landing on the right
+page, and the same pager on the login page's modal. Waits are on what the page shows. Run with
+``pytest -m e2e`` on PostgreSQL.
 """
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 from django.urls import reverse
-from django.utils import timezone
 from playwright.sync_api import expect
 
+from core.factories import AnnouncementFactory
+from core.models import Announcement
 from plfog.version import CHANGELOG
 from tests.membership.factories import MembershipPlanFactory
-from tests.polls.factories import poll_with
 
 EMAIL = "spotlight-e2e@example.com"
 STANDARD = ".hub-sidebar__spotlight [data-spotlight-state='standard']"
 MINIMIZED = ".hub-sidebar__spotlight [data-spotlight-state='minimized']"
 QUIET = ".hub-sidebar__spotlight [data-spotlight-state='quiet']"
+ROTATOR = f"{STANDARD} [data-spotlight-announcements]"
+ACTIVE = f"{ROTATOR} .pl-rotator__slide.is-active"
+BANNER_ACTIVE = "[data-home-announcements] .pl-rotator__slide.is-active"
+
+
+def _announcements(count: int) -> list[Announcement]:
+    return [AnnouncementFactory(body=f"<p>Zorblax notice {n + 1}</p>", position=n) for n in range(count)]
 
 
 def _sign_in(page, login_via_code) -> None:
@@ -38,7 +44,7 @@ def _home(page, live_server, fragment: str = "") -> None:
 def describe_the_spotlight():
     def it_shows_the_dot_for_something_new_and_clears_it_when_opened(page, live_server, login_via_code):
         _sign_in(page, login_via_code)
-        poll_with("Laser", "Lathe", question="Zorblax dot?", opens_at=timezone.now() - timedelta(hours=1))
+        _announcements(1)
         page.evaluate(
             "() => { localStorage.setItem('plSpotlightMinimized', '1'); localStorage.removeItem('plSpotlightSeen') }"
         )
@@ -57,7 +63,7 @@ def describe_the_spotlight():
 
     def it_remembers_the_minimized_choice_across_a_reload(page, live_server, login_via_code):
         _sign_in(page, login_via_code)
-        poll_with("Laser", "Lathe", question="Zorblax keep?", opens_at=timezone.now() - timedelta(hours=1))
+        _announcements(1)
         page.evaluate("() => localStorage.removeItem('plSpotlightMinimized')")
         _home(page, live_server)
         page.locator(f"{STANDARD} [data-spotlight-minimize]").click()
@@ -68,16 +74,90 @@ def describe_the_spotlight():
         expect(page.locator(MINIMIZED)).to_be_visible()
         expect(page.locator(STANDARD)).to_be_hidden()
 
-    def it_votes_in_place_from_standard(page, live_server, login_via_code):
+    def it_lights_the_dot_again_when_an_announcement_is_edited(page, live_server, login_via_code):
         _sign_in(page, login_via_code)
-        poll_with("Laser", "Lathe", question="Zorblax vote?", opens_at=timezone.now() - timedelta(hours=1))
+        (announcement,) = _announcements(1)
+        page.evaluate("() => localStorage.removeItem('plSpotlightMinimized')")
+        _home(page, live_server)
+        page.locator(f"{STANDARD} [data-spotlight-minimize]").click()
+        expect(page.locator(f"{MINIMIZED} [data-spotlight-dot]")).to_be_hidden()
+
+        announcement.body = "<p>Zorblax edited</p>"
+        announcement.save()
         _home(page, live_server)
 
-        page.locator(f"{STANDARD} [data-poll-choice]").first.click()
+        expect(page.locator(f"{MINIMIZED} [data-spotlight-dot]")).to_be_visible()
+        expect(page.locator(f"{MINIMIZED} [data-spotlight-first]")).to_have_text("Zorblax edited")
 
-        expect(page.locator(f"{STANDARD} [data-my-vote]")).to_be_visible()
-        expect(page.locator(f"{STANDARD} [data-poll-choices]")).to_have_count(0)
-        expect(page).to_have_url(f"{live_server.url}{reverse('hub_home')}")
+    def it_rotates_the_announcements_in_standard_with_a_count(page, live_server, login_via_code):
+        _sign_in(page, login_via_code)
+        _announcements(3)
+        page.evaluate("() => localStorage.removeItem('plSpotlightMinimized')")
+        page.clock.install()
+        page.goto(f"{live_server.url}{reverse('hub_beta_feedback')}")
+        page.mouse.move(1200, 800)
+        count = page.locator(f"{ROTATOR} [data-rotator-count]")
+        expect(count).to_have_text("1 of 3")
+
+        page.clock.run_for(8500)
+        expect(count).to_have_text("2 of 3")
+        expect(page.locator(ACTIVE)).to_contain_text("Zorblax notice 2")
+
+        page.locator(f"{ROTATOR} [data-rotator-next]").click()
+        expect(count).to_have_text("3 of 3")
+        page.locator(f"{ROTATOR} [data-rotator-prev]").click()
+        page.locator(f"{ROTATOR} [data-rotator-prev]").click()
+        expect(count).to_have_text("1 of 3")
+
+        pause = page.locator(f"{ROTATOR} [data-rotator-pause]")
+        pause.click()
+        expect(pause).to_have_attribute("aria-label", "Play the announcements")
+        page.mouse.move(1200, 800)
+        page.evaluate("() => document.activeElement.blur()")
+        page.clock.run_for(30000)
+        expect(count).to_have_text("1 of 3")
+
+    def it_fits_its_controls_in_the_sidebar(page, live_server, login_via_code):
+        _sign_in(page, login_via_code)
+        _announcements(3)
+        page.evaluate("() => localStorage.removeItem('plSpotlightMinimized')")
+        _home(page, live_server)
+
+        card = page.locator(STANDARD).bounding_box()
+        assert card
+        for control in ("[data-rotator-prev]", "[data-rotator-count]", "[data-rotator-next]", "[data-rotator-pause]"):
+            box = page.locator(f"{ROTATOR} {control}").bounding_box()
+            assert box and box["x"] >= card["x"] and box["x"] + box["width"] <= card["x"] + card["width"]
+        prev = page.locator(f"{ROTATOR} [data-rotator-prev]").bounding_box()
+        pause = page.locator(f"{ROTATOR} [data-rotator-pause]").bounding_box()
+        assert prev and pause and abs(prev["y"] - pause["y"]) < 4
+
+    def it_keeps_its_own_clock_beside_the_home_banner(page, live_server, login_via_code):
+        _sign_in(page, login_via_code)
+        _announcements(3)
+        page.evaluate("() => localStorage.removeItem('plSpotlightMinimized')")
+        page.clock.install()
+        page.goto(f"{live_server.url}{reverse('hub_home')}")
+        page.mouse.move(1200, 800)
+        expect(page.locator(BANNER_ACTIVE)).to_have_attribute("aria-label", "1 of 3")
+
+        page.locator(f"{ROTATOR} [data-rotator-pause]").click()
+        page.mouse.move(1200, 800)
+        page.evaluate("() => document.activeElement.blur()")
+        page.clock.run_for(8500)
+
+        expect(page.locator(BANNER_ACTIVE)).to_have_attribute("aria-label", "2 of 3")
+        expect(page.locator(f"{ROTATOR} [data-rotator-count]")).to_have_text("1 of 3")
+
+    def it_leaves_the_announcements_out_of_the_phone_copy_on_home(page, live_server, login_via_code):
+        _sign_in(page, login_via_code)
+        _announcements(2)
+        page.set_viewport_size({"width": 390, "height": 844})
+        _home(page, live_server)
+
+        expect(page.locator("[data-home-announcements]")).to_be_visible()
+        expect(page.locator("[data-spotlight-home]")).to_be_visible()
+        expect(page.locator("[data-spotlight-home] [data-spotlight-announcements]")).to_have_count(0)
 
     def it_pages_the_changelog_five_at_a_time_inside_expanded(page, live_server, login_via_code):
         _sign_in(page, login_via_code)
@@ -107,7 +187,7 @@ def describe_the_spotlight():
         expect(page.locator("#spotlight-changelog [data-changelog-label]")).to_contain_text("Page 2 of")
 
 
-def describe_with_no_poll_and_no_meeting():
+def describe_with_no_announcement_and_no_meeting():
     def it_stays_quiet_even_after_a_minimize_elsewhere(page, live_server, login_via_code):
         _sign_in(page, login_via_code)
         page.evaluate("() => localStorage.setItem('plSpotlightMinimized', '1')")

@@ -894,6 +894,16 @@ urlpatterns = [
     ),
     path("manage/site-settings/", views.admin_site_settings, name="hub_admin_site_settings"),
     path(
+        "manage/site-settings/automations/<slug:key>/",
+        views.admin_automation_history,
+        name="hub_admin_automation_history",
+    ),
+    path(
+        "manage/discord-removals/<int:pk>/cancel/",
+        views.admin_discord_removal_cancel,
+        name="hub_admin_discord_removal_cancel",
+    ),
+    path(
         "manage/site-settings/brand/logo/delete/",
         views.admin_brand_logo_delete,
         name="hub_admin_brand_logo_delete",
@@ -962,15 +972,6 @@ urlpatterns = [
     path("manage/door-code/", door_code_views.hub_admin_door_code, name="hub_admin_door_code"),
     path("manage/spotlight/", spotlight_views.hub_admin_spotlight, name="hub_admin_spotlight"),
     path("manage/spotlight/text/", spotlight_views.hub_admin_spotlight_text, name="hub_admin_spotlight_text"),
-    path(
-        "manage/spotlight/polls/new/", spotlight_views.hub_admin_spotlight_poll_new, name="hub_admin_spotlight_poll_new"
-    ),
-    path("manage/spotlight/polls/<int:pk>/", spotlight_views.hub_admin_spotlight_poll, name="hub_admin_spotlight_poll"),
-    path(
-        "manage/spotlight/polls/<int:pk>/close/",
-        spotlight_views.hub_admin_spotlight_poll_close,
-        name="hub_admin_spotlight_poll_close",
-    ),
     # The Home announcements (#889), in the Spotlight page's Announcements section.
     path(
         "manage/spotlight/announcements/new/",

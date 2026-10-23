@@ -18,6 +18,7 @@ from pathlib import Path
 from html import unescape
 from typing import Any, ClassVar, NamedTuple, Self, TYPE_CHECKING, cast
 
+import httpx
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
@@ -53,7 +54,7 @@ from PIL import UnidentifiedImageError
 
 from core.files import delete_orphan_on_replace
 from core.images import cut_hero_crop, image_upload_refusal, normalize_field_if_uploaded
-from core.models import HERO_CROP_FIELDS, EventDelivery, HeroCropMixin, StaffRequestMixin
+from core.models import HERO_CROP_FIELDS, AutomationAction, EventDelivery, HeroCropMixin, StaffRequestMixin
 from core.urls_util import member_absolute_url
 from core.phone import phone_tel_number
 from core.validators import (
@@ -1115,6 +1116,14 @@ class Member(StaffRequestMixin, models.Model):
             return self.display_name
         return f"{parts[0]} {parts[-1][0]}."
 
+    @cached_property
+    def needs_discord_rejoin(self) -> bool:
+        """An Active member the bot removed from the Discord, who must connect Discord again to be
+        put back: re-adding needs their own ``guilds.join`` token, so it cannot happen without the click (#898)."""
+        if self.status != self.Status.ACTIVE:
+            return False
+        return DiscordRemoval.objects.awaiting_rejoin(self, self.discord_user_id) is not None
+
     @property
     def discord_is_linked(self) -> bool:
         """Whether this member has a verified Discord account linked for DM notifications."""
@@ -1398,13 +1407,18 @@ class Member(StaffRequestMixin, models.Model):
             ),
             OnboardingStep(
                 key="discord",
-                label="Connect your Discord",
+                label="Rejoin the Discord" if self.needs_discord_rejoin else "Connect your Discord",
                 # Keyed specifically off ``discord_is_linked`` (a linked OAuth account), NOT the
-                # free-text ``discord_handle`` — a typed handle does not satisfy this step.
-                done=self.discord_is_linked,
+                # free-text ``discord_handle`` — a typed handle does not satisfy this step. A member
+                # the bot removed is linked but not back on the server until they connect again (#898).
+                done=self.discord_is_linked and not self.needs_discord_rejoin,
                 url=reverse("hub_discord_connect"),
                 optional=True,
-                hint="" if self.discord_is_linked else "We'll set up your guilds instantly",
+                hint=(
+                    "Connect again to get back on the server"
+                    if self.needs_discord_rejoin
+                    else ("" if self.discord_is_linked else "We'll set up your guilds instantly")
+                ),
             ),
             OnboardingStep(
                 key="voting",
@@ -2604,19 +2618,37 @@ class Member(StaffRequestMixin, models.Model):
         )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        # Member records are otherwise managed in Airtable; this override cleans up the
-        # orphaned profile_photo file when the user replaces it.
+        # Cleans up the orphaned profile_photo file when the user replaces it, queues a
+        # member who just turned Former for removal from Discord (#898), and clears the
+        # admins' teaching-application bell when a member leaves ACTIVE (#894 part 3).
+        # Every path that changes a member's status (the Airtable pull, an admin's edit)
+        # saves through here.
         delete_orphan_on_replace(self, "profile_photo")
+        turning_former = self._turning_former(kwargs.get("update_fields"))
         left_active = (
             not self._state.adding and self._loaded_status == self.Status.ACTIVE and self.status != self.Status.ACTIVE
         )
         super().save(*args, **kwargs)
         self._loaded_status = self.status
+        if turning_former:
+            DiscordRemoval.objects.queue_for_former(self)
         if left_active and self.teaching_applied_at is not None:
             # Only an active member's application waits on an admin (awaiting_teaching_decision),
-            # so one who leaves ACTIVE no longer asks in the admins' bell (#894 part 3). Only on
-            # that change: an ordinary save costs no query.
+            # so one who leaves ACTIVE no longer asks in the admins' bell. Only on that change:
+            # an ordinary save costs no query.
             self.clear_request_bells()
+
+    def _turning_former(self, update_fields: Iterable[str] | None) -> bool:
+        """Whether this save moves an existing member from another status to Former.
+
+        Reads the stored status only when the new one is Former, so an ordinary save costs nothing.
+        """
+        if self._state.adding or self.status != self.Status.FORMER:
+            return False
+        if update_fields is not None and "status" not in update_fields:
+            return False
+        previous = Member.objects.filter(pk=self.pk).values_list("status", flat=True).first()
+        return previous != self.Status.FORMER
 
     #: ``status`` as last read from or written to the database; ``save`` compares against it.
     #: ``None`` when unknown (never loaded, or loaded with ``status`` deferred).
@@ -7830,6 +7862,361 @@ class DiscordLinkNudge(models.Model):
 
     def __str__(self) -> str:
         return f"Link nudge → {self.discord_user_id}"
+
+
+# The registry key the removal job and every action it records sit under (#898).
+DISCORD_REMOVAL_TASK_KEY = "process_discord_removals"
+
+# Felix's Discord account, mentioned in the cleanup DM so a person kept by special agreement
+# knows whom to message (#898). A public Discord id, already in the public issue.
+DISCORD_CLEANUP_CONTACT_ID = "150063478210691081"
+DISCORD_CLEANUP_TEXT = (
+    "Hi there! We're doing some member cleanup on the Past Lives Makerspace Discord, and it looks like "
+    "you might be a former active member, or we just don't have your Discord handle matched up in our "
+    "system. Because of that, your access to the server is scheduled to be removed in 3 days. If you're "
+    "still an active member, please connect your Discord here so we can keep you in: "
+    "https://members.pastlives.space/settings/discord/connect/ If you have a special agreement in place "
+    f"or believe this is an error, message Felix (<@{DISCORD_CLEANUP_CONTACT_ID}>, @covo) and we will "
+    "keep you in. Thanks!"
+)
+
+
+class DiscordRemovalQuerySet(models.QuerySet["DiscordRemoval"]):
+    """Removal queue lookups for the job and the history page."""
+
+    def open(self) -> DiscordRemovalQuerySet:
+        """Rows still to be acted on: queued for the warning DM, or warned and waiting for the kick."""
+        return self.filter(status__in=DiscordRemoval.OPEN_STATUSES)
+
+    def due_warnings(self, today: date_type) -> DiscordRemovalQuerySet:
+        """Queued rows whose warning day has come."""
+        return self.filter(status=DiscordRemoval.Status.QUEUED, warn_on__lte=today)
+
+    def due_kicks(self, now: datetime_type) -> DiscordRemovalQuerySet:
+        """Warned rows whose wait after the DM is over."""
+        return self.filter(status=DiscordRemoval.Status.WARNED, kick_after__lte=now)
+
+    def queue_for_former(self, member: Member) -> DiscordRemoval | None:
+        """Queue ``member``, who just turned Former, for the warning DM and the kick.
+
+        Nothing is queued when they have no Discord linked, or when their Discord account
+        already has an open row. The DM is due the day after their membership ended: the
+        Cancellation Date, or today when that is blank.
+        """
+        discord_user_id = (member.discord_user_id or "").strip()
+        if not discord_user_id or self.open().filter(discord_user_id=discord_user_id).exists():
+            return None
+        ended_on = member.cancellation_date or timezone.localdate()
+        removal = self.create(
+            member=member,
+            discord_user_id=discord_user_id,
+            discord_username=member.discord_handle,
+            source=DiscordRemoval.Source.FORMER,
+            warn_on=ended_on + timedelta(days=1),
+        )
+        AutomationAction.record(
+            DISCORD_REMOVAL_TASK_KEY,
+            kind=AutomationAction.Kind.REMOVAL_QUEUED,
+            result=AutomationAction.Result.OK,
+            subject=removal.subject,
+            member=member,
+            detail=f"Membership ended; the warning DM is due {removal.warn_on:%B %-d, %Y}.",
+        )
+        return removal
+
+    def queue_for_cleanup(self, discord_user_id: str, username: str) -> DiscordRemoval:
+        """Queue one Discord account from Felix's one-time cleanup list, warned today."""
+        removal = self.create(
+            discord_user_id=discord_user_id,
+            discord_username=username,
+            source=DiscordRemoval.Source.CLEANUP,
+            warn_on=timezone.localdate(),
+        )
+        removal._record(
+            AutomationAction.Kind.REMOVAL_QUEUED, AutomationAction.Result.OK, "On the one-time cleanup list."
+        )
+        return removal
+
+    def awaiting_rejoin(self, member: Member, discord_user_id: str) -> DiscordRemoval | None:
+        """The newest removal of this member, or of this Discord account, not yet undone."""
+        whose = Q(member=member) | Q(discord_user_id=discord_user_id) if discord_user_id else Q(member=member)
+        return (
+            self.filter(whose, status=DiscordRemoval.Status.KICKED)
+            .filter(rejoined_at__isnull=True)
+            .order_by("-kicked_at", "-pk")
+            .first()
+        )
+
+    def cancel_locked(self, pk: int, by: Any) -> DiscordRemoval:
+        """Cancel one removal under a row lock, so it cannot race the job's DM or kick.
+
+        Raises:
+            DiscordRemoval.DoesNotExist: No such row.
+            RemovalNotOpenError: The job already acted on it.
+        """
+        with transaction.atomic():
+            removal = self.select_for_update(of=("self",)).select_related("member").get(pk=pk)
+            removal.cancel(by=by)
+        return removal
+
+
+class RemovalNotOpenError(Exception):
+    """An admin tried to cancel a removal the job already ran, closed or someone cancelled."""
+
+
+class DiscordRemoval(models.Model):
+    """One person queued to be warned by DM and then removed from the Discord server (#898).
+
+    A member who turns Former with Discord linked is queued by :meth:`Member.save`. The
+    ``process_discord_removals`` job sends the warning on ``warn_on`` and removes them once
+    ``kick_after`` passes, unless they are active again by then, in which case the row closes.
+    An admin can cancel an open row. Every step is an :class:`core.models.AutomationAction`.
+    """
+
+    class Source(models.TextChoices):
+        FORMER = "former", "Membership ended"
+        CLEANUP = "cleanup", "Cleanup list"
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        WARNED = "warned", "Warned"
+        KICKED = "kicked", "Removed"
+        KICK_FAILED = "kick_failed", "Removal failed"
+        CANCELLED = "cancelled", "Cancelled"
+        CLOSED = "closed", "Closed"
+
+    OPEN_STATUSES: ClassVar[tuple[str, ...]] = (Status.QUEUED, Status.WARNED)
+
+    # How long after the warning DM the kick waits, per source.
+    KICK_DELAYS: ClassVar[dict[str, timedelta]] = {
+        Source.FORMER: timedelta(hours=24),
+        Source.CLEANUP: timedelta(days=3),
+    }
+
+    member = models.ForeignKey(
+        "Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="discord_removals",
+        help_text="The member being removed; blank for a row from the one-time cleanup list.",
+    )
+    discord_user_id = models.CharField(
+        max_length=32, help_text="The Discord account id (snowflake) to warn and remove, copied when queued."
+    )
+    discord_username = models.CharField(
+        max_length=100, blank=True, default="", help_text="The Discord username, for the history page."
+    )
+    source = models.CharField(max_length=16, choices=Source.choices, help_text="Why this person was queued.")
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.QUEUED, help_text="How far the removal has got."
+    )
+    warn_on = models.DateField(help_text="The day the warning DM is due (Pacific).")
+    warned_at = models.DateTimeField(null=True, blank=True, help_text="When the warning DM was attempted.")
+    kick_after = models.DateTimeField(null=True, blank=True, help_text="When the removal from Discord is due.")
+    kicked_at = models.DateTimeField(null=True, blank=True, help_text="When they were removed from Discord.")
+    closed_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the row was cancelled, or closed because they were kept."
+    )
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The admin who cancelled the removal.",
+    )
+    rejoined_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the bot put them back on the server after they came back."
+    )
+    created_at = models.DateTimeField(default=timezone.now, help_text="When they were queued.")
+
+    objects = DiscordRemovalQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["discord_user_id"],
+                condition=Q(status__in=["queued", "warned"]),
+                name="uq_discordremoval_open",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"Discord removal {self.subject} ({self.status})"
+
+    @property
+    def subject(self) -> str:
+        """Who this is, as the history page names them."""
+        if self.member is not None:
+            return self.member.display_name
+        return self.discord_username or self.discord_user_id
+
+    @property
+    def is_open(self) -> bool:
+        return self.status in self.OPEN_STATUSES
+
+    def keep_reason(self) -> str:
+        """Why this person must not be warned or removed after all, or ``""`` to go ahead.
+
+        Only Former is removable: a member Airtable has since made Active, Paused (Suspended) or
+        Pending (Invited), or anything else, is kept.
+        """
+        if self.member is not None and self.member.status != Member.Status.FORMER:
+            return f"No longer Former: now {self.member.get_status_display()}."
+        if Member.objects.filter(discord_user_id=self.discord_user_id, status=Member.Status.ACTIVE).exists():
+            return "Their Discord is connected to an active member."
+        return ""
+
+    def _record(self, kind: str, result: str, detail: str, actor: Any = None) -> None:
+        AutomationAction.record(
+            DISCORD_REMOVAL_TASK_KEY,
+            kind=kind,
+            result=result,
+            subject=self.subject,
+            member=self.member,
+            actor=actor,
+            detail=detail,
+        )
+
+    def close(self, reason: str) -> None:
+        """Close an open row because the person is being kept."""
+        self.status = self.Status.CLOSED
+        self.closed_at = timezone.now()
+        self.save(update_fields=["status", "closed_at"])
+        self._record(AutomationAction.Kind.REMOVAL_CLOSED, AutomationAction.Result.OK, reason)
+
+    def cancel(self, by: Any) -> None:
+        """An admin keeps this person (a special agreement). Call on a row locked by
+        :meth:`DiscordRemovalQuerySet.cancel_locked`, so the job cannot act on it meanwhile.
+
+        Raises:
+            RemovalNotOpenError: The row already ran (removed, closed or cancelled).
+        """
+        if not self.is_open:
+            raise RemovalNotOpenError(
+                f"The removal for {self.subject} already ran ({self.get_status_display()}), so nothing was cancelled."
+            )
+        self.status = self.Status.CANCELLED
+        self.closed_at = timezone.now()
+        self.closed_by = by
+        self.save(update_fields=["status", "closed_at", "closed_by"])
+        self._record(
+            AutomationAction.Kind.REMOVAL_CANCELLED, AutomationAction.Result.OK, "Cancelled by an admin.", actor=by
+        )
+
+    def warning_text(self) -> str:
+        """The warning DM: the ticket's fixed text for the cleanup list, else the membership-ended one."""
+        from core.models import SiteConfiguration
+
+        if self.source == self.Source.CLEANUP:
+            return DISCORD_CLEANUP_TEXT
+
+        email = SiteConfiguration.load().org_support_email
+        contact = f"email {email}" if email else "contact a Past Lives admin"
+        return (
+            "Hi! Your Past Lives Makerspace membership has ended, so you will be removed from the Past Lives "
+            f"Makerspace Discord in the next 24 hours. If you have rejoined or believe this is an error, please "
+            f"{contact}. Thanks for being part of the space!"
+        )
+
+    def warning_mentions(self) -> tuple[str, ...]:
+        """The users the warning DM may mention: Felix, in the cleanup DM only."""
+        return (DISCORD_CLEANUP_CONTACT_ID,) if self.source == self.Source.CLEANUP else ()
+
+    def put_back(self, server_id: str, discord_user_id: str, access_token: str, now: datetime_type) -> bool:
+        """Put a removed person back on the server with their own OAuth token. Never raises.
+
+        ``discord_user_id`` is the account that just connected, which owns ``access_token``: a
+        member who comes back on a different Discord account is added as that account, because
+        Discord refuses a token used for anyone else.
+
+        Returns True once they are on the server again (added now, or already there).
+        """
+        from core.events.discord_members import JoinOutcome, add_member
+
+        kind = AutomationAction.Kind.DISCORD_REJOIN
+        try:
+            outcome = add_member(server_id, discord_user_id, access_token)
+        except httpx.HTTPError as exc:
+            self._record(kind, AutomationAction.Result.FAILED, str(exc))
+            return False
+        if outcome in (JoinOutcome.REFUSED, JoinOutcome.DISABLED):
+            self._record(kind, AutomationAction.Result.FAILED, f"Discord answered {outcome}.")
+            return False
+        self.rejoined_at = now
+        self.save(update_fields=["rejoined_at"])
+        detail = "Put back on the server." if outcome is JoinOutcome.ADDED else "Already back on the server."
+        self._record(kind, AutomationAction.Result.OK, detail)
+        return True
+
+    def send_warning(self, now: datetime_type) -> bool:
+        """Send the warning DM and start the wait before the kick. Returns False when it must be retried.
+
+        A person who is being kept is closed instead. A DM Discord will not deliver (closed DMs, a
+        blocked bot) still starts the wait: the warning is a courtesy, not a condition. A Discord
+        or network error leaves the row queued for the next pass.
+        """
+        from core.events.discord_dm import send_dm_text
+
+        reason = self.keep_reason()
+        if reason:
+            self.close(reason)
+            return True
+        try:
+            delivered = send_dm_text(
+                self.discord_user_id, self.warning_text(), mention_user_ids=self.warning_mentions()
+            )
+        except httpx.HTTPError as exc:
+            self._record(AutomationAction.Kind.DISCORD_DM, AutomationAction.Result.FAILED, f"Will retry: {exc}")
+            return False
+        self.status = self.Status.WARNED
+        self.warned_at = now
+        self.kick_after = now + self.KICK_DELAYS[self.source]
+        self.save(update_fields=["status", "warned_at", "kick_after"])
+        if delivered:
+            self._record(AutomationAction.Kind.DISCORD_DM, AutomationAction.Result.OK, "Delivered.")
+        else:
+            self._record(
+                AutomationAction.Kind.DISCORD_DM,
+                AutomationAction.Result.FAILED,
+                "DM not delivered: Discord refused it (DMs closed or the bot blocked). The removal still follows.",
+            )
+        return True
+
+    def remove_from_server(self, server_id: str, now: datetime_type) -> bool:
+        """Remove the person from the Discord server. Returns False when the step failed.
+
+        A 404 counts as removed: they are already gone. A 403 is a standing refusal, so the row
+        moves to Removal failed instead of being retried every 15 minutes. A Discord or network
+        error leaves the row warned for the next pass.
+        """
+        from core.events.discord_members import KickOutcome, kick_member
+
+        reason = self.keep_reason()
+        if reason:
+            self.close(reason)
+            return True
+        kind = AutomationAction.Kind.DISCORD_KICK
+        try:
+            outcome = kick_member(server_id, self.discord_user_id, f"Past Lives: {self.get_source_display()}")
+        except httpx.HTTPError as exc:
+            self._record(kind, AutomationAction.Result.FAILED, f"Will retry: {exc}")
+            return False
+        if outcome is KickOutcome.DISABLED:
+            return True
+        if outcome is KickOutcome.REFUSED:
+            self.status = self.Status.KICK_FAILED
+            self.save(update_fields=["status"])
+            self._record(kind, AutomationAction.Result.FAILED, "Discord refused (403): the bot's role is too low.")
+            return False
+        self.status = self.Status.KICKED
+        self.kicked_at = now
+        self.save(update_fields=["status", "kicked_at"])
+        detail = "Removed." if outcome is KickOutcome.REMOVED else "Already gone from the server."
+        self._record(kind, AutomationAction.Result.OK, detail)
+        return True
 
 
 class SkillCategory(models.Model):

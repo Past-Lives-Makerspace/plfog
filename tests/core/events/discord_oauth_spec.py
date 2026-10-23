@@ -47,7 +47,7 @@ def describe_authorize_url():
         assert params["response_type"] == ["code"]
         assert params["client_id"] == ["cid"]
         assert params["redirect_uri"] == [_REDIRECT]
-        assert params["scope"] == ["identify email"]
+        assert params["scope"] == ["identify email guilds.join"]
         assert params["state"] == ["state-token"]
 
 
@@ -90,6 +90,7 @@ def describe_fetch_identity():
         identity = discord_oauth.fetch_identity("token")
         assert identity.user_id == "777"
         assert identity.handle == "makerjo"
+        assert identity.access_token == "token"
 
     @respx.mock
     def it_falls_back_to_global_name_when_username_is_blank():

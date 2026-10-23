@@ -1,7 +1,7 @@
 {% comment %}
 The Spotlight's Expanded panel (#709), the body of components/modal.html "spotlight-expanded".
-spotlight is hub.spotlight.Spotlight. Two views in one Alpine scope: the main view (the poll,
-the meeting, Have an idea, the version link) and the changelog, five releases a page
+spotlight is hub.spotlight.Spotlight. Two views in one Alpine scope: the main view (every live
+announcement in full, else the latest update (#890); the meeting, Have an idea, the version link) and the changelog, five releases a page
 (includes/_changelog_pages.html) with Back. A #changelog-<slug> link (the "it's live" notice,
 #693) opens the panel on the changelog page holding that release.
 {% endcomment %}
@@ -10,16 +10,16 @@ the meeting, Have an idea, the version link) and the changelog, five releases a 
      @spotlight-changelog.window="view = 'changelog'; $nextTick(() => { const pages = document.getElementById('spotlight-changelog'); const entry = $event.detail ? pages.plShowEntry($event.detail) : null; if (entry) entry.scrollIntoView({ block: 'start' }); else pages.plShowPage(0) })"
      x-init="if (location.hash.indexOf('#changelog-') === 0) { const pages = document.getElementById('spotlight-changelog'); const entry = pages && pages.plShowEntry ? pages.plShowEntry(location.hash.slice(1)) : null; if (entry) { view = 'changelog'; $store.spotlight.markSeen(); $dispatch('open-modal', 'spotlight-expanded'); setTimeout(() => entry.scrollIntoView({ block: 'start' }), 50) } }">
     <div class="pl-spotlight-panel__main" x-show="view === 'main'" data-spotlight-panel-main>
-        {% if spotlight.card %}
-        <section class="pl-spotlight-panel__section" aria-label="This week's poll">
-            <p class="pl-spotlight__eyebrow">This week's poll</p>
-            {% include "polls/partials/_poll_card.html" with card=spotlight.card variant="panel" %}
-            <a class="pl-spotlight-panel__link" href="{% url 'polls:index' %}" data-spotlight-all-polls>See all past polls <span aria-hidden="true">&rarr;</span></a>
+        {% if spotlight.announcements %}
+        <section class="pl-spotlight-panel__section" aria-label="Announcements" data-spotlight-panel-announcements>
+            <p class="pl-spotlight__eyebrow">Announcements</p>
+            <ul class="pl-spotlight-panel__announcements">
+                {% for announcement in spotlight.announcements %}<li class="pl-ann-body pl-spotlight-panel__announcement" data-spotlight-panel-announcement="{{ announcement.pk }}">{{ announcement.body_html }}</li>{% endfor %}
+            </ul>
         </section>
         {% elif spotlight.latest_update %}
         <section class="pl-spotlight-panel__section" aria-label="Latest update" data-spotlight-panel-update>
             {% include "hub/partials/_spotlight_update.html" with update=spotlight.latest_update %}
-            <a class="pl-spotlight-panel__link" href="{% url 'polls:index' %}" data-spotlight-all-polls>See all past polls <span aria-hidden="true">&rarr;</span></a>
         </section>
         {% endif %}
         {% if spotlight.meeting %}

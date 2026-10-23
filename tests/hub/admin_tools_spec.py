@@ -16,6 +16,7 @@ from django.test import Client
 from django.urls import reverse
 
 from membership.models import AdminCapability
+from hub.views import ADMIN_TOOL_SECTIONS, admin_tool_sections
 from tests.membership.factories import GuildFactory
 
 pytestmark = pytest.mark.django_db
@@ -188,16 +189,16 @@ def describe_admin_tools_holiday_bizarre_card():
 
 
 def _tools_grid(client: Client) -> str:
-    """Just the tool card grid from /manage/tools/, not the whole page.
+    """Just the tool card sections from /manage/tools/, not the whole page.
 
     Scoped on purpose. The rendered changelog rides in every hub page's context, and a
     v1.3.0 entry still says Admin Tools links each role's Quickstart guide — true when it
     shipped, and not something to rewrite. A negative assertion against the whole body
-    would be reading release history instead of the grid.
+    would be reading release history instead of the cards.
     """
     body = client.get(reverse("hub_admin_tools")).content.decode()
-    grid = re.search(r'<div class="pl-tools-grid".*?\n</div>', body, re.S)
-    assert grid is not None, "the tools grid did not render"
+    grid = re.search(r'<div class="pl-tools-sections".*?\n</div>', body, re.S)
+    assert grid is not None, "the tools sections did not render"
     return grid.group(0)
 
 
@@ -206,43 +207,109 @@ def _card_titles(client: Client) -> list[str]:
     return re.findall(r'pl-tool-card__title">([^<]+)<', _tools_grid(client))
 
 
-def describe_admin_tools_card_order():
-    """The grid is alphabetical, and the two Quickstart guide cards are gone.
+def _sections(client: Client) -> list[tuple[str, str, list[str]]]:
+    """Each rendered section as (key, heading, card titles in order), in page order."""
+    found = re.findall(
+        r'<section class="pl-tools-section" data-tools-section="(\w+)".*?>([^<]+)</h2>(.*?)</section>',
+        _tools_grid(client),
+        re.S,
+    )
+    return [(key, heading, re.findall(r'pl-tool-card__title">([^<]+)<', cards)) for key, heading, cards in found]
 
-    Order is asserted against ``sorted()`` rather than a hardcoded list on purpose: a
-    card added in the wrong place fails here without anyone remembering to edit a
-    fixture, which is the whole point of the change.
-    """
 
-    def it_lists_a_fog_admins_cards_alphabetically(client: Client):
-        _login_superuser(client, "order_admin")
-        titles = _card_titles(client)
-        assert titles, "the grid rendered no cards, so the ordering assertion would be vacuous"
-        assert titles == sorted(titles)
-
-    def it_shows_a_fog_admin_every_tool_card(client: Client):
-        _login_superuser(client, "order_admin_all")
-        assert _card_titles(client) == [
-            "Activity",
+_ADMIN_SECTIONS = [
+    ("manage", "Manage", ["Manage All Classes", "Manage Events", "Manage Members", "Instructor Inquiries"]),
+    (
+        "tools",
+        "Tools",
+        [
             "Announcements",
-            "Feedback Inbox",
-            "Growth",
-            "Holiday Bizarre HQ",
-            "Instructor Inquiries",
-            "Leadership Directory",
-            "Locations",
-            "Manage Classes",
-            "Manage Events",
-            "Manage Members",
-            "Notification Settings",
-            "Orientations",
-            "Payments",
             "Push Notification Test",
-            "Reports",
-            "Site Settings",
-            "Slideshow",
+            "Orientations",
             "Spotlight",
-        ]
+            "Feedback Inbox",
+            "Holiday Bizarre HQ",
+            "Slideshow",
+        ],
+    ),
+    ("reports", "Reports", ["Payments", "Reports", "Growth"]),
+    (
+        "webmaster",
+        "Webmaster",
+        ["Site Settings", "Notification Settings", "Activity", "Leadership Directory", "Locations"],
+    ),
+]
+
+
+def describe_admin_tools_sections():
+    """#912: the cards sit in Manage, Tools, Reports and Webmaster, in Felix's order, and a
+    section with no card the viewer may open is not rendered."""
+
+    def it_shows_a_fog_admin_the_four_sections_with_their_cards_in_order(client: Client):
+        _login_superuser(client, "sections_admin")
+        assert _sections(client) == _ADMIN_SECTIONS
+
+    def it_puts_every_card_in_exactly_one_section(client: Client):
+        _login_superuser(client, "sections_once")
+        titles = _card_titles(client)
+        assert len(titles) == len(set(titles)) == 19
+
+    def it_keeps_the_help_key_on_the_wrapper_the_admin_tour_targets(client: Client):
+        _login_superuser(client, "sections_help_key")
+        assert 'class="pl-tools-sections" data-help-key="admin.tools-grid"' in _tools_grid(client)
+
+    def it_gives_a_guild_lead_only_the_tools_section(client: Client):
+        _login_guild_lead(client, "sections_lead")
+        sections = _sections(client)
+        assert [key for key, _, _ in sections] == ["tools"]
+        assert sections[0][2] == ["Announcements", "Orientations"]
+
+    def it_gives_a_billing_approver_only_the_reports_section_without_growth(client: Client):
+        _login_billing_approver(client, "sections_biller")
+        assert _sections(client) == [("reports", "Reports", ["Payments", "Reports"])]
+
+    def it_gives_a_calendar_administrator_only_the_manage_section(client: Client):
+        _login_events_approver(client, "sections_calendar")
+        assert _sections(client) == [("manage", "Manage", ["Manage Events"])]
+
+    def describe_admin_tool_sections():
+        """The helper the view uses to decide which sections render."""
+
+        def _flags(on: set[str]) -> dict[str, bool]:
+            return {name: name in on for _, names in ADMIN_TOOL_SECTIONS for name in names}
+
+        def it_shows_a_section_when_any_one_of_its_cards_shows():
+            assert admin_tool_sections(_flags({"tool_locations"})) == {
+                "manage": False,
+                "tools": False,
+                "reports": False,
+                "webmaster": True,
+            }
+
+        def it_hides_every_section_when_no_card_shows():
+            assert admin_tool_sections(_flags(set())) == dict.fromkeys(
+                ("manage", "tools", "reports", "webmaster"), False
+            )
+
+        def it_refuses_flags_missing_a_card():
+            flags = _flags(set())
+            del flags["tool_growth"]
+            with pytest.raises(KeyError):
+                admin_tool_sections(flags)
+
+        def it_names_every_flag_the_view_hands_the_template(client: Client):
+            # A card added to the view but to no section would never render under a heading.
+            _login_superuser(client, "sections_flags")
+            response = client.get(reverse("hub_admin_tools"))
+            context_flags = {
+                key for key in response.context.keys() if key.startswith("tool_") and key != "tool_sections"
+            }
+            section_flags = [name for _, names in ADMIN_TOOL_SECTIONS for name in names]
+            assert sorted(section_flags) == sorted(context_flags)
+
+
+def describe_admin_tools_cards():
+    """Per card gates, unchanged by the sections, and the two Quickstart guide cards stay gone."""
 
     def describe_the_slideshow_tile():
         def it_shows_for_a_fog_admin(client: Client):
@@ -270,14 +337,6 @@ def describe_admin_tools_card_order():
         def it_does_not_show_for_a_guild_lead(client: Client):
             _login_guild_lead(client, "leadership_lead")
             assert reverse("hub_admin_leadership") not in _tools_grid(client)
-
-    def it_stays_alphabetical_for_a_partial_role(client: Client):
-        # A guild lead sees a subset, so this catches an ordering that only holds
-        # when every card happens to render.
-        _login_guild_lead(client, "order_lead")
-        titles = _card_titles(client)
-        assert titles, "a guild lead should still see at least one tool card"
-        assert titles == sorted(titles)
 
     def describe_the_quickstart_guide_cards():
         def it_does_not_show_them_to_a_fog_admin(client: Client):

@@ -1,0 +1,10 @@
+/* Admin Tools (#912), hub/admin_tools.html: the cards grouped into Manage, Tools, Reports and
+   Webmaster. Each section carries its own top margin (FRONTEND rule 26), its heading is the
+   .hub-detail-label used over Manage Bookings' What You Run grid, and the grid under it keeps
+   .pl-tools-grid's columns from hub.css with its own gap below the heading. The card rules stay
+   in hub.css, which hq.css's door cards also use. */
+
+.pl-tools-section { margin-top: 2rem; }
+.pl-tools-section:first-child { margin-top: 1.5rem; }
+.pl-tools-section__title { margin: 0; }
+.pl-tools-section .pl-tools-grid { margin-top: 1rem; }

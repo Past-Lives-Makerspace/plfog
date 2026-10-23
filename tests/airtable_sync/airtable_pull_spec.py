@@ -115,3 +115,30 @@ def describe_pull_members_with_an_unmapped_status():
         assert "recLAPSED1" in messages[0]
         assert "Lee Lapsed" in messages[0]
         assert "'Lapsed'" in messages[0]
+
+
+@pytest.mark.django_db
+def describe_pull_turning_a_member_former():
+    def it_queues_their_discord_removal():
+        from datetime import date
+
+        from membership.models import DiscordRemoval
+
+        existing = MemberFactory(
+            _pre_signup_email="leaving@example.com", status=Member.Status.ACTIVE, discord_user_id="555"
+        )
+        existing.airtable_record_id = "recLEAVING"
+        existing.save()
+        results = {"created": 0, "updated": 0, "skipped": 0}
+
+        Command()._upsert_member(
+            model=Member,
+            record_id="recLEAVING",
+            django_kwargs={"status": "former", "cancellation_date": date(2026, 10, 20)},
+            default_plan=None,
+            dry_run=False,
+            results=results,
+        )
+
+        removal = DiscordRemoval.objects.get()
+        assert (removal.member, removal.warn_on) == (existing, date(2026, 10, 21))

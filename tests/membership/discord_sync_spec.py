@@ -328,6 +328,34 @@ def describe_link_and_import():
         assert mail.outbox[0].to == [member.primary_email]
 
     @respx.mock
+    def it_puts_a_member_the_bot_removed_back_on_the_server(sync_config):
+        from datetime import date
+
+        from django.utils import timezone
+
+        from membership.models import DiscordRemoval
+
+        member = _verified_member("jo@example.com", discord_user_id="42")
+        removal = DiscordRemoval.objects.create(
+            member=member,
+            discord_user_id="42",
+            source=DiscordRemoval.Source.FORMER,
+            status=DiscordRemoval.Status.KICKED,
+            warn_on=date(2026, 10, 1),
+            kicked_at=timezone.now(),
+        )
+        _mock_oauth("jo@example.com")
+        _mock_reactions({})
+        _mock_roles()
+        join = respx.put("https://discord.com/api/v10/guilds/srv/members/42").mock(
+            return_value=httpx.Response(201, json={})
+        )
+        assert discord_sync.link_and_import("code", _REDIRECT).outcome is LinkOutcome.LINKED
+        assert join.calls.last.request.read() == b'{"access_token":"tok"}'
+        removal.refresh_from_db()
+        assert removal.rejoined_at is not None
+
+    @respx.mock
     def it_does_not_email_on_an_empty_import(sync_config):
         _verified_member("jo@example.com")
         _mock_oauth("jo@example.com")

@@ -69,6 +69,10 @@
 {% else %}
 
 {% for kind, heading, rows in reconciliation.ordered_groups %}
+{% if kind.value == "instructor" %}
+{# #905: the line badges come from the same rule as the columns, so this line holds. #}
+<p class="pl-recon-pay-lead" data-recon-pay-lead>Pay by hand only the shares marked Pay by hand in Transaction Detail. Stripe pays the rest, including any share it is retrying.</p>
+{% endif %}
 <div class="pl-card" style="margin-bottom:1.25rem">
   <div class="pl-section-label">{{ heading }}</div>
   {% if rows %}
@@ -92,7 +96,10 @@
       <tbody>
         {% for alloc in rows %}
         <tr style="cursor:default">
-          <td>{{ alloc.label }}</td>
+          <td>
+            {{ alloc.label }}
+            {% if alloc.payout_badge %}<span class="pl-recon-payout" data-payee-payout-state><span class="pl-status-badge pl-status-badge--{{ alloc.payout_badge.tone }}">{{ alloc.payout_badge.label }}</span></span>{% endif %}
+          </td>
           <td class="text-right">{{ alloc.transaction_count }}</td>
           <td class="text-right">{{ alloc.total_cents|cents_as_dollars }}</td>
           {% if kind.value == "guild" %}
@@ -159,6 +166,7 @@
               {% if line.omitted %}<span class="pl-badge pl-badge--fail">Omitted</span>{% endif %}
               {% if line.payee_kept_share %}<span class="pl-badge pl-badge--warn">Payee kept share</span>{% endif %}
               {% if line.note %}<span class="pl-text-muted" style="font-size:0.75rem">({{ line.note }})</span>{% endif %}
+              {% if line.payout %}<span class="pl-recon-payout" data-line-payout-state="{{ line.payout.state }}"><span class="pl-status-badge pl-status-badge--{{ line.payout.badge.tone }}">{{ line.payout.badge.label }}</span></span>{% endif %}
             </td>
             <td class="text-right">{{ line.gross_cents|cents_as_dollars }}</td>
             <td class="text-right">{{ line.refunded_cents|cents_as_dollars }}</td>

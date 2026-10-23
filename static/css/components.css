@@ -487,6 +487,13 @@
     margin: 0;
 }
 
+/* Rejoin the Discord beside Disconnect, for a member the bot removed who is back (#898). */
+.pl-discord-link__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
 .pl-notif-category {
     margin: 0;
 }
@@ -1579,10 +1586,12 @@ select[multiple] option:checked {
     color: #6b7280;
 }
 
+/* background-color, not the shorthand: the shorthand also cleared the select's chevron
+   image, leaving every light theme select with no arrow at all (#911). */
 [data-theme="light"] .pl-form-group input,
 [data-theme="light"] .pl-form-group select,
 [data-theme="light"] .pl-form-group textarea {
-    background: #fff;
+    background-color: #fff;
     border-color: #d1d5db;
     color: #1f2937;
 }
@@ -2244,6 +2253,10 @@ select[multiple] option:checked {
 
 /* Reconciliation: refunds where the payee kept a share already sent (#662, part 3). */
 .pl-payouts-kept-banner { display: block; padding: 0.75rem 1rem; margin-bottom: 1rem; border-radius: 6px; }
+/* #905: the Reconciliation tab's payout state, a badge on its own line under a producer's name or a line's item, and the line above the producer tables. */
+.pl-recon-payout { display: block; margin-top: 0.5rem; }
+.pl-recon-payout .pl-status-badge { white-space: normal; }
+.pl-recon-pay-lead { margin: 1.5rem 0; max-width: 62ch; color: var(--hub-text-muted); }
 
 /* Busy submit (#713, components/busy_submit.html). The .btn[aria-busy] spinner lives in
    style.css, which hub pages never load, and it hides the label; here the spinner sits beside

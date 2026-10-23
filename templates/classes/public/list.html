@@ -14,7 +14,7 @@
   </div>
   <div id="hero-cta">
     {% if request.view_as.is_admin %}
-      <a class="cta-secondary" href="{% if is_public_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'classes:admin_overview' %}">Manage classes</a>
+      <a class="cta-secondary" href="{% if is_public_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'classes:admin_overview' %}">Manage All Classes</a>
     {% elif request.view_as.is_member %}
       <a class="cta-secondary" href="{% if is_public_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'classes:teach_overview' %}">Manage My Classes</a>
     {% endif %}

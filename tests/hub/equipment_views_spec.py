@@ -437,8 +437,9 @@ def describe_equipment_index():
             # unlocking orientation prefetches (#656): the gate's list and the Book links' list,
             # plus the Spotlight's one query (#709), plus the payouts switch the nudge reads (#749),
             # plus the one query the Manage Bookings sidebar gate adds to every hub page (#768),
-            # plus the one the Holiday Bizarre sidebar entry adds (HQ card sharing).
-            with django_assert_num_queries(42):
+            # plus the one the Holiday Bizarre sidebar entry adds (HQ card sharing),
+            # plus the Spotlight's second query, its live announcements (#890).
+            with django_assert_num_queries(43):
                 assert client.get(url).status_code == 200
 
         def it_answers_an_empty_grid_without_the_member_lookups(django_assert_num_queries):

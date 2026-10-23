@@ -334,8 +334,7 @@ def _earnings(registrations: Iterable[Any], bookings: Iterable[Any], reservation
 
 
 def _accounts(earnings: Iterable[Earning]) -> dict[int, PayoutAccount]:
-    member_ids = {earning.payee.pk for earning in earnings}
-    return {a.member_id: a for a in PayoutAccount.objects.in_active_mode().filter(member_id__in=member_ids)}
+    return producer_accounts(earning.payee.pk for earning in earnings)
 
 
 def _payouts_since() -> datetime | None:
@@ -705,35 +704,136 @@ def payee_earnings(member: Member, now: datetime | None = None) -> EarningsList:
     return EarningsList(ordered, upcoming, sent_this_month, owed)
 
 
-def through_stripe_keys(lines: Iterable[TransactionLine]) -> set[tuple[str, int]]:
-    """The class, orientation and reservation lines whose producer share goes through Stripe, for the Reconciliation split.
+@dataclass(frozen=True)
+class PayoutBadge:
+    """A payout state's words and its ``pl-status-badge`` modifier, for the Reconciliation tab (#905)."""
+
+    label: str
+    tone: str  # "ok" | "warn" | "fail" | "muted"
+
+
+def account_badge(account: PayoutAccount | None) -> PayoutBadge:
+    """What a producer row on Reconciliation says about its payee's automatic payouts.
+
+    ``account`` is the payee's account in the current Stripe mode, or None when they never
+    started signup.
+    """
+    if account is None:
+        return PayoutBadge("Paid by hand", "muted")
+    if account.status == PayoutAccount.Status.ACTIVE:
+        if account.active_since is None:
+            return PayoutBadge("Automatic payouts on", "ok")
+        since = timezone.localtime(account.active_since)
+        return PayoutBadge(f"Automatic payouts on since {since:%b} {since.day}, {since.year}", "ok")
+    if account.status == PayoutAccount.Status.PAUSED:
+        return PayoutBadge("Paused by Stripe", "fail")
+    return PayoutBadge("Stripe signup not finished", "warn")
+
+
+@dataclass(frozen=True)
+class LinePayout:
+    """How one class, orientation or reservation line's producer share is paid (#905).
+
+    ``state`` is one of:
+
+    - "sent": Stripe accepted the transfer (``sent_at`` set when it did).
+    - "taken_back": sent, then a refund took some or all of it back.
+    - "will_send": recorded and pending, or not yet due but going through Stripe.
+    - "retrying": Stripe rejected the transfer and the send job retries it daily until it gives
+      up (``PayoutQuerySet.to_send``). It counts in Owed manually, as it always has, but it is
+      not to be paid by hand, or the payee could be paid twice.
+    - "by_hand": owed by hand, or with no Stripe route.
+    """
+
+    state: str
+    sent_at: datetime | None = None
+
+    @property
+    def through_stripe(self) -> bool:
+        """True when the share counts in Sent through Stripe rather than Owed manually."""
+        return self.state in _THROUGH_STRIPE_LINE_STATES
+
+    @property
+    def badge(self) -> PayoutBadge:
+        """The line's Transaction Detail badge: the sent day as "Oct 14"."""
+        sent_on = None
+        if self.sent_at is not None:
+            sent = timezone.localtime(self.sent_at)
+            sent_on = f"{sent:%b} {sent.day}"
+        return PayoutBadge(self._words(sent_on), _LINE_TONES[self.state])
+
+    @property
+    def export_label(self) -> str:
+        """The same words for a spreadsheet (#910): the sent day in Pacific time as "2026-10-14"."""
+        sent_on = None if self.sent_at is None else timezone.localtime(self.sent_at).date().isoformat()
+        return self._words(sent_on)
+
+    def _words(self, sent_on: str | None) -> str:
+        """The state in words; ``sent_on`` is the sent day as the surface writes it, or None."""
+        if self.state in ("sent", "taken_back"):
+            words = "Sent through Stripe" if sent_on is None else f"Sent through Stripe {sent_on}"
+            return f"{words}, refund taken back" if self.state == "taken_back" else words
+        return _LINE_WORDS[self.state]
+
+
+_LINE_WORDS = {
+    "will_send": "Will be sent through Stripe",
+    "retrying": "Stripe is retrying",
+    "by_hand": "Pay by hand",
+}
+_LINE_TONES = {"sent": "ok", "taken_back": "ok", "will_send": "warn", "retrying": "warn", "by_hand": "muted"}
+_THROUGH_STRIPE_LINE_STATES = frozenset({"sent", "taken_back", "will_send"})
+
+
+PAY_BY_HAND = LinePayout("by_hand")
+
+
+def producer_accounts(member_ids: Iterable[int]) -> dict[int, PayoutAccount]:
+    """The current Stripe mode's payout accounts for ``member_ids``, by member pk, in one query."""
+    return {a.member_id: a for a in PayoutAccount.objects.in_active_mode().filter(member_id__in=set(member_ids))}
+
+
+def line_payouts(
+    lines: Iterable[TransactionLine], accounts: dict[int, PayoutAccount]
+) -> dict[tuple[str, int], LinePayout]:
+    """How each class, orientation and reservation line's producer share is paid, for the Reconciliation split.
 
     A recorded share counts as Stripe while pending, sent or taken back (a failed one is owed
-    by hand until it succeeds); one not yet due follows ``goes_through_stripe``.
+    by hand until it succeeds); one not yet due follows ``goes_through_stripe``. A line with no
+    earning (omitted, no producer, nothing left to pay) is absent. ``accounts`` must hold every
+    payee's current mode account (``producer_accounts``); a payee missing from it has none.
     """
     lines = [line for line in lines if not line.omitted]
     class_pks = [line.source_pk for line in lines if line.source_kind == "class"]
     booking_pks = [line.source_pk for line in lines if line.source_kind == "orientation"]
     reservation_pks = [line.source_pk for line in lines if line.source_kind == "reservation"]
     if not class_pks and not booking_pks and not reservation_pks:
-        return set()
+        return {}
     earnings = _earnings(
         _registrations().filter(pk__in=class_pks),
         _bookings().filter(pk__in=booking_pks),
         _reservations().filter(pk__in=reservation_pks),
     )
-    accounts = _accounts(earnings)
     since = _payouts_since()
-    keys: set[tuple[str, int]] = set()
+    states: dict[tuple[str, int], LinePayout] = {}
     for earning in earnings:
         payout = earning.payout
-        if payout is not None:
-            through = payout.status in _THROUGH_STRIPE_STATUSES
+        if payout is not None and payout.status == Payout.Status.SENT:
+            state = LinePayout("sent", payout.sent_at)
+        elif payout is not None and payout.status == Payout.Status.TAKEN_BACK:
+            state = LinePayout("taken_back", payout.sent_at)
+        elif payout is not None and payout.status in _THROUGH_STRIPE_STATUSES:
+            state = LinePayout("will_send")  # pending: the only through status left
+        elif payout is not None and payout.status == Payout.Status.FAILED:
+            state = LinePayout("retrying")
+        elif payout is not None:
+            state = PAY_BY_HAND
+        elif goes_through_stripe(earning, accounts.get(earning.payee.pk), since):
+            state = LinePayout("will_send")
         else:
-            through = goes_through_stripe(earning, accounts.get(earning.payee.pk), since)
-        if through:
-            keys.add((earning.kind, earning.source.pk))
-    return keys
+            state = PAY_BY_HAND
+        states[(earning.kind, earning.source.pk)] = state
+    return states
 
 
 # ---------------------------------------------------------------------------

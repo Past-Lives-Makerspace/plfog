@@ -1,7 +1,7 @@
 {% extends "hub/base.html" %}
 {% load hub_tags %}
 
-{% block title %}Manage All Classes — {{ active_tab|title }}{% endblock %}
+{% block title %}Manage All Classes — {% if active_tab == "classes" %}All Classes{% else %}{{ active_tab|title }}{% endif %}{% endblock %}
 
 {% block content %}
 <div class="hub-card cms-admin">

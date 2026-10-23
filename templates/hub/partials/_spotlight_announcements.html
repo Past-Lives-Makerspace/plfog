@@ -1,0 +1,27 @@
+{% comment %}
+The live announcements at the top of the Spotlight's Standard (#890), in the place the poll had: the eyebrow
+"Announcement" and each one's rich text, in the admins' order. With two or more it is a plRotator
+(static/js/pl-rotator.js), timed like the Home banner (8 seconds, held while hovered, focused or paused, still under
+prefers-reduced-motion), with previous, "2 of 3", next and the pause button in one row under the text
+(hub/partials/_rotator_controls.html with counter, laid out in static/css/spotlight.css). With one there is no control
+and no timer. Every announcement sits in one grid cell, so the tallest sets the height.
+
+  announcements — the live core.Announcement rows, in order
+  rotator_name  — optional, its plRotator name for the lasting pause; "spotlight" unless given (the admin preview's
+                  own is "spotlight-preview", so pausing the preview never pauses the admin's sidebar)
+{% endcomment %}
+{% with total=announcements|length %}
+<div class="pl-spotlight__ann pl-rotator" x-data="plRotator" data-rotator-interval="8000" data-rotator-name="{{ rotator_name|default:'spotlight' }}"{% if total > 1 %} role="group" aria-roledescription="carousel" aria-label="Announcements"{% endif %} data-spotlight-announcements data-announcement-count="{{ total }}">
+    <p class="pl-spotlight__eyebrow">Announcement</p>
+    <div class="pl-rotator__stage">
+        <div class="pl-rotator__slides">
+            {% for announcement in announcements %}
+            <div class="pl-rotator__slide{% if forloop.first %} is-active{% endif %}" :class="{ 'is-active': index === {{ forloop.counter0 }} }"{% if total > 1 %} role="group" aria-roledescription="slide" aria-label="{{ forloop.counter }} of {{ total }}"{% endif %} data-rotator-slide data-spotlight-announcement="{{ announcement.pk }}">
+                <div class="pl-ann-body pl-spotlight__ann-body">{{ announcement.body_html }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% if total > 1 %}{% include "hub/partials/_rotator_controls.html" with slides=announcements noun="announcement" plural="announcements" counter=True %}{% endif %}
+    </div>
+</div>
+{% endwith %}

@@ -1,9 +1,10 @@
 // plRotator: a card that shows one slide at a time and moves on by itself (#896; Home's Featured
-// Class and Featured Event, and the Home announcements banner next, #889). Registered from
+// Class and Featured Event, the Home announcements banner, #889, and the sidebar Spotlight's
+// announcements on every hub page, #890). Each instance keeps its own clock. Registered from
 // hub/base.html's <head> before Alpine, on whichever side of alpine:init this lands (FRONTEND.md,
 // Scripts under hx-boost), so a boosted arrival finds it.
 //
-// Markup contract (styles: the .pl-rotator block in static/css/home-featured.css):
+// Markup contract (styles: static/css/rotator.css, loaded on every hub page):
 //   x-data="plRotator" on the root, with
 //     data-rotator-interval  milliseconds each slide shows (required, e.g. 6000)
 //     data-rotator-delay     extra milliseconds before the first move (optional, default 0), so two
@@ -13,6 +14,8 @@
 //   img[data-rotator-src]    a picture on a slide after the first, loaded only when its slide (or
 //                            the one before it) shows
 //   [data-rotator-bar]       optional, a bar whose fill runs over each slide's time (CSS animation)
+//   data-rotator-name        on the root: which rotator this is ("spotlight", "home-banner",
+//                            "home-upcoming"), so its pause is remembered apart from the others'
 // The controls call prev(), next(), go(i) and toggle(). With fewer than two slides nothing moves.
 //
 // It moves on only while no mouse or pen rests on it, nothing in it has keyboard focus, the tab
@@ -20,8 +23,69 @@
 // prefers-reduced-motion: reduce it never moves on by itself and the CSS drops the fade; the
 // arrows and the dots still work. No live region: announcing every
 // automatic move would talk over whatever the member is reading.
+//
+// A pause lasts until play or logging out (#890, Felix): toggle() keeps it in localStorage under
+// pl-rotator-paused:<user pk>:<name>, the user pk read from <html data-pl-user> (never an email),
+// and init starts that rotator paused. A submitted form to a /logout/ URL clears every such key,
+// and on load this script drops the keys of anyone but the signed-in user (all of them on a
+// signed-out page), so a shared computer never hands one person's pause to the next. With
+// storage blocked a pause lasts for the page, as before.
 (function () {
   var SWIPE_PX = 40;
+  var PAUSE_PREFIX = 'pl-rotator-paused:';
+
+  function currentUser() {
+    return document.documentElement.getAttribute('data-pl-user') || '';
+  }
+
+  function pauseKey(name) {
+    var user = currentUser();
+    return user && name ? PAUSE_PREFIX + user + ':' + name : null;
+  }
+
+  function storedPause(name) {
+    var key = pauseKey(name);
+    if (!key) return false;
+    try {
+      return window.localStorage.getItem(key) === '1';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function rememberPause(name, paused) {
+    var key = pauseKey(name);
+    if (!key) return;
+    try {
+      if (paused) window.localStorage.setItem(key, '1');
+      else window.localStorage.removeItem(key);
+    } catch (e) {
+      /* Storage blocked: the pause lasts for this page only. */
+    }
+  }
+
+  // Every remembered pause but the ones belonging to ``keepUser`` ("" forgets them all).
+  function forgetPauses(keepUser) {
+    var keep = keepUser ? PAUSE_PREFIX + keepUser + ':' : null;
+    try {
+      var storage = window.localStorage;
+      for (var i = storage.length - 1; i >= 0; i--) {
+        var key = storage.key(i);
+        if (key && key.indexOf(PAUSE_PREFIX) === 0 && (keep === null || key.indexOf(keep) !== 0)) storage.removeItem(key);
+      }
+    } catch (e) {
+      /* Storage blocked: nothing was kept. */
+    }
+  }
+
+  forgetPauses(currentUser());
+  // Logging out, from any form that posts to a logout URL (the confirm page, the member agreement
+  // page, the app's WebView, which logs out through the same form). Capture, so it runs even when
+  // another handler (biometric-auth.js) holds the submit for its own cleanup.
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (form && form.tagName === 'FORM' && (form.getAttribute('action') || '').indexOf('/logout/') !== -1) forgetPauses('');
+  }, true);
 
   function register() {
     window.Alpine.data('plRotator', function () {
@@ -39,6 +103,7 @@
         timer: null,
         touchX: null,
         touchY: null,
+        name: '',
 
         init() {
           var root = this.$root;
@@ -48,6 +113,8 @@
           this.reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
           this.tabHidden = document.hidden;
           this.remaining = this.interval + delay;
+          this.name = root.getAttribute('data-rotator-name') || '';
+          this.userPaused = storedPause(this.name);
           this.loadPictures();
           if (this.count < 2) return;
           var self = this;
@@ -140,6 +207,7 @@
 
         toggle() {
           this.userPaused = !this.userPaused;
+          rememberPause(this.name, this.userPaused);
           this.sync();
         },
 

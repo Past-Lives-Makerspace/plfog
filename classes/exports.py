@@ -9,6 +9,7 @@ for class organizers, not engineers).
 from __future__ import annotations
 
 import csv
+from itertools import batched
 from typing import TYPE_CHECKING, Iterator
 
 from django.db.models import Max, Min
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from django.db.models import QuerySet
+
+    from billing.payouts import LinePayout
 
     from classes.models import ClassOffering, Registration
     from membership.models import Member
@@ -32,12 +35,14 @@ class _Echo:
 
 
 # Cross-class registrations export carries the order number and class title, then the
-# class's date and instructor (#904), which is what the treasurer pays instructors by.
+# class's date and instructor (#904), which is what the treasurer pays instructors by, and
+# whether Stripe pays that instructor share (#910).
 REGISTRATIONS_CSV_HEADERS = [
     "Order #",
     "Class",
     "Class Date",
     "Instructor",
+    "Payout",
     "First Name",
     "Last Name",
     "Email Address",
@@ -67,7 +72,14 @@ def _class_date(offering: ClassOffering, first: datetime | None, last: datetime 
 def stream_registrations_query_csv(
     registrations: QuerySet[Registration], *, filename_stem: str
 ) -> StreamingHttpResponse:
-    """Stream an arbitrary (already filtered/scoped) registration queryset as CSV."""
+    """Stream an arbitrary (already filtered/scoped) registration queryset as CSV.
+
+    The Payout cell is what Reconciliation's Transaction Detail shows for the registration
+    (``billing.reconciliation.registration_payouts``), looked up once per chunk of rows, and
+    empty when no instructor share is owed.
+    """
+    from billing.reconciliation import registration_payouts
+
     pseudo = _Echo()
     writer = csv.writer(pseudo)
     registrations = (
@@ -82,27 +94,39 @@ def stream_registrations_query_csv(
 
     def iter_rows() -> Iterator[str]:
         yield writer.writerow(REGISTRATIONS_CSV_HEADERS)
-        for reg in registrations.iterator(chunk_size=500):
-            yield writer.writerow(
-                [
-                    reg.order_number,
-                    reg.class_offering.title,
-                    _class_date(reg.class_offering, reg.class_first_session, reg.class_last_session),
-                    _neutralise_formula(reg.class_offering.instructor_names),
-                    reg.first_name,
-                    reg.last_name,
-                    reg.email,
-                    reg.registered_at.date().isoformat(),
-                    reg.get_status_display(),
-                    reg.phone,
-                    f"{reg.amount_paid_cents / 100:.2f}",
-                ]
-            )
+        for chunk in batched(registrations.iterator(chunk_size=_CHUNK), _CHUNK):
+            payouts = registration_payouts(reg.pk for reg in chunk)
+            for reg in chunk:
+                yield writer.writerow(_registration_cells(reg, payouts.get(reg.pk)))
 
     response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
     stamp = timezone.now().strftime("%Y%m%d")
     response["Content-Disposition"] = f'attachment; filename="{filename_stem}-{stamp}.csv"'
     return response
+
+
+_CHUNK = 500
+
+
+def _registration_cells(reg: Registration, payout: LinePayout | None) -> list[str]:
+    """One registration's CSV cells; ``payout`` is its instructor share's state, or None for an empty cell.
+
+    ``reg`` carries the export's ``class_first_session`` / ``class_last_session`` annotations.
+    """
+    return [
+        reg.order_number,
+        reg.class_offering.title,
+        _class_date(reg.class_offering, reg.class_first_session, reg.class_last_session),  # type: ignore[attr-defined]
+        _neutralise_formula(reg.class_offering.instructor_names),
+        "" if payout is None else payout.export_label,
+        reg.first_name,
+        reg.last_name,
+        reg.email,
+        reg.registered_at.date().isoformat(),
+        reg.get_status_display(),
+        reg.phone,
+        f"{reg.amount_paid_cents / 100:.2f}",
+    ]
 
 
 INSTRUCTOR_INQUIRIES_CSV_HEADERS = [

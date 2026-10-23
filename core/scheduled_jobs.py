@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections.abc import Iterator
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
@@ -46,6 +47,7 @@ class Cadence(models.TextChoices):
 class Trigger(models.TextChoices):
     SCHEDULED = "scheduled", "Scheduled"
     MANUAL = "manual", "Run now"
+    COMMAND = "command", "Command line"  # a one-time management command run by hand (#898)
 
 
 @dataclass(frozen=True)
@@ -383,6 +385,18 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,
     ),
+    ScheduledJob(
+        key="process_discord_removals",
+        name="Remove ex-members from Discord",
+        description=(
+            "Warns a member whose membership ended, by Discord DM, the day after it ends, and removes "
+            "them from the Discord 24 hours later unless they are active again. Off by default."
+        ),
+        command="process_discord_removals",
+        schedule_label="Every 15 min (DMs from 9 AM)",
+        cadence=Cadence.ALWAYS,
+        default_enabled=False,
+    ),
 ]
 
 JOBS_BY_KEY: dict[str, ScheduledJob] = {job.key: job for job in SCHEDULED_JOBS}
@@ -438,6 +452,7 @@ def record_run(
         actor=actor if (actor is not None and getattr(actor, "pk", None)) else None,
         status=ScheduledTaskRun.Status.RUNNING,
     )
+    token = _current_run.set(run)
     try:
         yield run
     except Exception as exc:
@@ -447,6 +462,18 @@ def record_run(
     else:
         run.mark_ok()
         _prune_run_history(key)
+    finally:
+        _current_run.reset(token)
+
+
+# The run ``record_run`` has open, so an action the wrapped command takes can name its run
+# (``AutomationAction.record``) although ``call_command`` hands the command no run object.
+_current_run: ContextVar[ScheduledTaskRun | None] = ContextVar("current_scheduled_run", default=None)
+
+
+def current_run() -> ScheduledTaskRun | None:
+    """The run ``record_run`` currently has open in this context, or ``None`` outside one."""
+    return _current_run.get()
 
 
 def automations_path() -> str:
