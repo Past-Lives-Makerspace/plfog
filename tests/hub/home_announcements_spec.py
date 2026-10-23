@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
@@ -146,7 +145,10 @@ def describe_one_and_many():
         banner = _banner(_home(member_client))
 
         assert 'class="pl-home-ann pl-rotator pl-home-ann--many"' in banner
-        assert 'data-rotator-interval="8000" aria-roledescription="carousel" aria-label="Announcements"' in banner
+        assert (
+            'data-rotator-interval="8000" data-rotator-name="home-banner" aria-roledescription="carousel" aria-label="Announcements"'
+            in banner
+        )
         assert banner.count("data-rotator-dot") == 3
         assert 'aria-label="Show announcement 2 of 3"' in banner
         assert 'aria-label="Next announcement"' in banner
@@ -157,20 +159,59 @@ def describe_one_and_many():
 
 
 def describe_the_query_budget():
-    def _count(client: Client) -> int:
+    def _announcement_reads(client: Client) -> int:
         with CaptureQueriesContext(connection) as captured:
             assert client.get(HOME).status_code == 200
-        return len(captured)
+        return sum('"core_announcement"' in query["sql"] for query in captured.captured_queries)
 
-    def it_costs_home_one_query_however_many_are_live(member_client: Client):
-        member_client.get(HOME)
-        without_banner_read = None
-        with patch("hub.home.HomeBanner.load", return_value=None):
-            without_banner_read = _count(member_client)
-        none_live = _count(member_client)
+    def it_reads_the_live_announcements_once_on_home_for_a_member(member_client: Client):
+        # The banner shares the sidebar Spotlight's read (#890); before, Home read them twice.
         for _ in range(3):
             AnnouncementFactory()
-        three_live = _count(member_client)
 
-        assert none_live == without_banner_read + 1
-        assert three_live == none_live
+        assert _announcement_reads(member_client) == 1
+
+    def it_reads_them_once_with_none_live(member_client: Client):
+        assert _announcement_reads(member_client) == 1
+
+    def it_still_reads_them_for_an_account_the_spotlight_leaves_out(client: Client):
+        # An account with no member record sees the banner but no Spotlight.
+        user = User.objects.create_user(username="zorblax-unlinked")
+        Member.objects.filter(user=user).delete()
+        client.force_login(user)
+        AnnouncementFactory(body="<p>Zorblax for all</p>")
+
+        html = _home(client)
+
+        assert "data-spotlight" not in html
+        assert "Zorblax for all" in _banner(html)
+        assert _announcement_reads(client) == 1
+
+    def it_shows_the_same_announcements_in_the_banner_and_the_sidebar(member_client: Client):
+        rows = [AnnouncementFactory(position=n) for n in range(2)]
+
+        html = _home(member_client)
+
+        assert f'data-announcement-signature="{Announcement.signature(rows)}"' in html
+        assert f'data-spotlight-signature="{Announcement.signature(rows)}|' in html
+
+
+def describe_HomeBanner_for_request():
+    def it_loads_on_its_own_without_a_signed_in_member(rf):
+        from django.contrib.auth.models import AnonymousUser
+
+        AnnouncementFactory()
+        request = rf.get(HOME)
+        request.user = AnonymousUser()
+
+        banner = HomeBanner.for_request(request, timezone.now())
+
+        assert banner is not None and len(banner.items) == 1
+
+    def it_is_none_with_nothing_live(rf):
+        from django.contrib.auth.models import AnonymousUser
+
+        request = rf.get(HOME)
+        request.user = AnonymousUser()
+
+        assert HomeBanner.for_request(request, timezone.now()) is None

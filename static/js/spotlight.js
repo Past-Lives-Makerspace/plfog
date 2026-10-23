@@ -5,8 +5,9 @@
  * which the stylesheet reads to show Standard or Minimized: an early script in hub/base.html's
  * head sets it before the first paint, so a minimized Spotlight never flashes open.
  *
- * The yellow dot: each page hands the store the Spotlight's signature (the open poll, the next
- * meeting date and the text-changed stamp, hub.spotlight.Spotlight.seen_signature). The dot
+ * The yellow dot: each page hands the store the Spotlight's signature (the live announcements'
+ * ids and last saves since #890, the next meeting date and the text-changed stamp,
+ * hub.spotlight.Spotlight.seen_signature). The dot
  * shows on Minimized while that differs from the last one the member opened the Spotlight on;
  * showing Standard or opening Expanded records it as seen.
  */

@@ -1,0 +1,198 @@
+/* rotator.css: the plRotator block (#896, static/js/pl-rotator.js, hub/partials/_rotator_controls.html), loaded on
+   every hub page from hub/base.html because the sidebar Spotlight's announcements rotate everywhere (#890). Home's
+   carousel (home-featured.css), the Home announcements banner (home-announcements.css) and the Spotlight
+   (spotlight.css) each place the controls for their own card. Moved here from home-featured.css unchanged. */
+
+/* One slide at a time in one grid cell, so the tallest slide sets the card's height and nothing jumps;
+   the current slide fades in over 400ms. */
+
+.pl-rotator__stage {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+}
+
+.pl-rotator__slides {
+    display: grid;
+    flex: 1 1 auto;
+}
+
+.pl-rotator__slide {
+    grid-area: 1 / 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.4s ease, visibility 0s linear 0.4s;
+}
+
+.pl-rotator__slide.is-active {
+    z-index: 1;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.4s ease, visibility 0s;
+}
+
+/* Over the picture: the arrows and the time bar along its foot. The picture is 16:9 of the card's width. */
+.pl-rotator__overlay {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 2;
+    aspect-ratio: 16 / 9;
+    pointer-events: none;
+}
+
+.pl-rotator__arrow {
+    position: absolute;
+    top: 50%;
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(10, 11, 16, 0.62);
+    color: #ffffff;
+    cursor: pointer;
+    pointer-events: auto;
+    transform: translateY(-50%);
+    transition: opacity 0.15s, background 0.15s;
+}
+
+.pl-rotator__arrow:hover {
+    background: rgba(10, 11, 16, 0.85);
+}
+
+.pl-rotator__arrow:focus-visible,
+.pl-rotator__dot:focus-visible,
+.pl-rotator__pause:focus-visible {
+    outline: 2px solid var(--color-tuscan-yellow);
+    outline-offset: 2px;
+}
+
+.pl-rotator__arrow--prev {
+    left: 0.75rem;
+}
+
+.pl-rotator__arrow--next {
+    right: 0.75rem;
+}
+
+/* With a mouse the arrows wait for a hover or focus; on touch they always show. */
+@media (hover: hover) and (pointer: fine) {
+    .pl-rotator__arrow {
+        opacity: 0;
+    }
+
+    .pl-rotator:hover .pl-rotator__arrow,
+    .pl-rotator:focus-within .pl-rotator__arrow {
+        opacity: 1;
+    }
+}
+
+.pl-rotator__track {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.28);
+}
+
+.pl-rotator__bar {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: var(--color-tuscan-yellow);
+    transform: scaleX(0);
+    transform-origin: left center;
+    animation: pl-rotator-fill 6000ms linear forwards;
+}
+
+@keyframes pl-rotator-fill {
+    from {
+        transform: scaleX(0);
+    }
+
+    to {
+        transform: scaleX(1);
+    }
+}
+
+/* Under the card: a dot per slide, the current one a filled pill, and the pause button. */
+.pl-rotator__nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 0 1.25rem 1rem;
+}
+
+.pl-rotator__dots {
+    display: flex;
+    gap: 0.25rem;
+}
+
+/* The button is a real tap target; the dot is drawn inside it. */
+.pl-rotator__dot {
+    display: grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    cursor: pointer;
+}
+
+.pl-rotator__dot::before {
+    content: "";
+    display: block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border: 1.5px solid var(--hub-text-muted);
+    border-radius: 999px;
+    transition: width 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.pl-rotator__dot.is-current::before {
+    width: 1.25rem;
+    border-color: var(--hub-link);
+    background: var(--hub-link);
+}
+
+.pl-rotator__pause {
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+}
+
+.pl-rotator__pause:hover {
+    color: var(--hub-text);
+}
+
+/* Nothing moves by itself and nothing fades; the arrows and the dots still work. */
+@media (prefers-reduced-motion: reduce) {
+    .pl-rotator__slide,
+    .pl-rotator__slide.is-active {
+        transition: none;
+    }
+
+    .pl-rotator__track,
+    .pl-rotator__pause {
+        display: none;
+    }
+}

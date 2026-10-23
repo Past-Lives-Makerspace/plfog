@@ -1,7 +1,8 @@
 /* home-announcements.css: the Home announcements (#889). First the banner at the very top of Home
    (templates/hub/partials/_home_announcements.html): a tinted card with a gold edge, a megaphone, the
    text and a close button; with two or more announcements it is a plRotator, whose slides, fade and
-   reduced-motion rules come from home-featured.css (loaded beside this file on Home). Here its dots and
+   reduced-motion rules come from rotator.css and the announcement's own rich text (.pl-ann-body) from
+   spotlight.css, both loaded on every hub page. Here its dots and
    pause sit along the foot under the text, the previous and next arrows at the foot's right end, and
    the time bar along the banner's bottom edge. Then Admin Tools > Spotlight's Announcements section
    (templates/hub/admin/spotlight.html, its rows in hub/admin/_announcement_row.html, which reuse
@@ -52,22 +53,6 @@
     font-weight: 500;
     line-height: 1.5;
     overflow-wrap: anywhere;
-}
-
-/* The announcement's own rich text, on the banner and in the admin rows. */
-.pl-ann-body p + p {
-    margin-top: 0.5rem;
-}
-
-.pl-ann-body strong {
-    font-weight: 700;
-}
-
-.pl-ann-body a {
-    color: var(--hub-link);
-    font-weight: 600;
-    text-decoration: underline;
-    text-underline-offset: 2px;
 }
 
 .pl-home-ann__close {
