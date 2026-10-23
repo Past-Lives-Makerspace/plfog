@@ -14,6 +14,7 @@ from classes.factories import ClassOfferingFactory, ClassSessionFactory, Registr
 from classes.models import ClassApproval, ClassOffering, CmsActivity, Registration
 from core.models import Notification
 from membership.models import AdminCapability, Member
+from tests.core.events.digest_support import digest_emails
 from tests.membership.factories import MemberFactory
 
 Status = ClassOffering.Status
@@ -106,8 +107,9 @@ def describe_request_change():
         # Notification row and mailed out, so it has to keep resolving after a revert — one
         # 302 hop while the merge is live is the cheaper half of that trade.
         assert bell.url == reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
-        sent = [m for m in mail.outbox if m.to == ["cms-change@example.com"]]
-        assert len(sent) == 1 and "Move it to Friday." in sent[0].body
+        assert [m for m in mail.outbox if m.to == ["cms-change@example.com"]] == []
+        (sent,) = digest_emails("cms-change@example.com")
+        assert "Move it to Friday." in sent.body
         # A second request is its own period, so it delivers again.
         offering.request_change(instructor, "Also add a seat.")
         assert Notification.objects.filter(trigger="class_change_requested", user=holder_user).count() == 2
@@ -127,7 +129,7 @@ def describe_request_change():
         assert offering.request_change(instructor, note) is False
         assert rows.count() == 1
         assert Notification.objects.filter(trigger="class_change_requested", user=holder_user).count() == 1
-        assert len([m for m in mail.outbox if m.to == ["cms-repeat@example.com"]]) == 1
+        assert len(digest_emails("cms-repeat@example.com")) == 1
         # Only the latest request counts: a different note in between makes the same note new again.
         assert offering.request_change(instructor, "Also add a seat.") is True
         assert offering.request_change(instructor, note) is True

@@ -1561,7 +1561,23 @@ _NEW_EVENTS: list[EventType] = [
 
 # Events whose per-person email waits for the 8 AM staff digest (#894): requests that ask
 # a staff member to act. Each one has a still-open check in core.events.resolvers.
-_DIGEST_EMAIL_EVENTS: frozenset[str] = frozenset({"class_review_requested", "class_validation_requested"})
+_DIGEST_EMAIL_EVENTS: frozenset[str] = frozenset(
+    {
+        "class_review_requested",
+        "class_validation_requested",
+        # Part 3: the other staff requests.
+        "space.lease_requested",
+        "space.cubby_requested",
+        "discount_code.requested",
+        "event.submitted",
+        "guild_announcement.submitted",
+        "meeting.item_proposed",
+        "wiki.page_reported",
+        "wiki.page_proposed",
+        "instructor_application_received",
+        "class_change_requested",
+    }
+)
 
 
 def _with_email_delivery(event: EventType) -> EventType:

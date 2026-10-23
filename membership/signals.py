@@ -183,3 +183,39 @@ def _log_vote_activity(sender: type, instance: VotePreference, created: bool, **
     kind = SiteActivity.Kind.VOTE_SUBMITTED if created else SiteActivity.Kind.VOTE_CHANGED
     actor = instance.member.user if instance.member_id else None
     SiteActivity.log(kind, actor=actor, target=instance.member)
+
+
+def _connect_request_bell_clearing() -> None:
+    """A staff request deleted unanswered stops asking in the bell (#894 part 3).
+
+    ``pre_delete`` fires for a single delete, a queryset delete and a cascade (a guild, a
+    meeting, a member going away), which no decision method sees.
+    """
+    from django.db.models.signals import pre_delete
+
+    from core.signals import clear_request_bells_on_delete
+    from membership.models import (
+        CommunityEvent,
+        GuildAnnouncement,
+        MeetingItemProposal,
+        Member,
+        SpaceRequest,
+        WikiPage,
+        WikiReport,
+    )
+
+    for model in (
+        SpaceRequest,
+        CommunityEvent,
+        GuildAnnouncement,
+        MeetingItemProposal,
+        WikiReport,
+        WikiPage,
+        Member,
+    ):
+        pre_delete.connect(
+            clear_request_bells_on_delete, sender=model, dispatch_uid=f"membership.request_bells.{model.__name__}"
+        )
+
+
+_connect_request_bell_clearing()

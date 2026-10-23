@@ -13,6 +13,7 @@ from core.events.resolvers import refund_authority
 from core.events.settings_matrix import STAFF_RECIPIENTS
 from core.models import Notification, TransactionalEmailLog
 from membership.models import AdminCapability, Member
+from tests.core.events.digest_support import digest_emails
 
 pytestmark = pytest.mark.django_db
 
@@ -119,8 +120,10 @@ def describe_class_change_requested():
         row = Notification.objects.get(trigger="class_change_requested", user=holder.user)
         assert row.title == "Robin asked for a change to Casting"
         assert row.body == "Move it to Friday."
-        assert [m.to for m in mail.outbox] == [["cms-holder@example.com"]]
-        assert "Move it to Friday." in mail.outbox[0].body
+        # A staff request (#894 part 3): nothing at once, then one line in the 8 AM email.
+        assert mail.outbox == []
+        (email,) = digest_emails("cms-holder@example.com")
+        assert "Move it to Friday." in email.body
 
     def it_seeds_rows_for_both_new_events():
         seeded = {(key, channel) for key, channel, _default in seedable_rows()}

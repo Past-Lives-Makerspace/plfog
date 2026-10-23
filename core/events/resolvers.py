@@ -15,7 +15,7 @@ email are dropped (they cannot receive a per-recipient channel).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -25,6 +25,9 @@ from core.events.registry import Recipients
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
+    from django.db.models import QuerySet
+
+    from core.models import EventDelivery
 
     from membership.models import Guild, Member, OrientationBooking
 
@@ -802,30 +805,131 @@ def get_resolver(reference: Recipients) -> ResolverFn:
 
 
 class OpenCheckFn(Protocol):
-    """A still-open check: the queued lines' links → the links whose request is still open."""
+    """A still-open check: queued digest rows → the links of those whose request is still open."""
 
-    def __call__(self, urls: list[str]) -> set[str]: ...
+    def __call__(self, rows: list[EventDelivery]) -> set[str]: ...
 
 
-def open_class_review_urls(urls: list[str]) -> set[str]:
+def open_class_review_urls(rows: list[EventDelivery]) -> set[str]:
     """The class review links whose gate has no decision yet (the gate the request was sent for)."""
     from classes.models import ClassApproval
 
-    return ClassApproval.objects.open_review_urls(urls)
+    return ClassApproval.objects.open_review_urls([row.url for row in rows])
+
+
+def always_open(rows: list[EventDelivery]) -> set[str]:
+    """For a request nothing decides (a class change request): every queued line goes out."""
+    return {row.url for row in rows}
+
+
+def _open_by_request(open_querysets: Callable[[], dict[str, QuerySet[Any]]]) -> OpenCheckFn:
+    """A check reading the request from each row's period (``spacereq:12:submitted`` → request 12).
+
+    ``open_querysets`` maps each period prefix the event emits with to the queryset of its
+    still-open requests (built lazily: this module is imported before the models). One
+    query per prefix, whatever the number of rows.
+    """
+
+    def check(rows: list[EventDelivery]) -> set[str]:
+        querysets = open_querysets()
+        wanted: dict[str, set[int]] = {}
+        for row in rows:
+            prefix, pk = row.request_ref.split(":")
+            wanted.setdefault(prefix, set()).add(int(pk))
+        open_refs = {
+            f"{prefix}:{pk}"
+            for prefix, pks in wanted.items()
+            for pk in querysets[prefix].filter(pk__in=pks).values_list("pk", flat=True)
+        }
+        return {row.url for row in rows if row.request_ref in open_refs}
+
+    return check
+
+
+def _space_requests() -> dict[str, QuerySet[Any]]:
+    from membership.models import SpaceRequest
+
+    return {"spacereq": SpaceRequest.objects.pending()}
+
+
+def _discount_requests() -> dict[str, QuerySet[Any]]:
+    from classes.models import DiscountCode, DiscountCodeRequest
+
+    return {
+        # An unapproved code an instructor switched off asks nobody any more.
+        "discount": DiscountCode.objects.filter(is_approved=False, is_active=True),
+        "discount_request": DiscountCodeRequest.objects.pending(),
+    }
+
+
+def _submitted_events() -> dict[str, QuerySet[Any]]:
+    from membership.models import CommunityEvent
+
+    return {"event": CommunityEvent.objects.awaiting_review()}
+
+
+def _submitted_announcements() -> dict[str, QuerySet[Any]]:
+    from membership.models import GuildAnnouncement
+
+    return {"announcement": GuildAnnouncement.objects.awaiting_review()}
+
+
+def _proposed_meeting_items() -> dict[str, QuerySet[Any]]:
+    from membership.models import MeetingItemProposal
+
+    return {"meeting-proposal": MeetingItemProposal.objects.filter(state=MeetingItemProposal.State.PENDING)}
+
+
+def _wiki_reports() -> dict[str, QuerySet[Any]]:
+    from membership.models import WikiReport
+
+    return {"wiki_report": WikiReport.objects.open()}
+
+
+def _wiki_proposals() -> dict[str, QuerySet[Any]]:
+    from membership.models import WikiPage
+
+    return {"wiki_proposed": WikiPage.objects.awaiting_publication()}
+
+
+def _teaching_applications() -> dict[str, QuerySet[Any]]:
+    from membership.models import Member
+
+    return {"member": Member.objects.awaiting_teaching_decision()}
 
 
 _OPEN_CHECKS: dict[str, OpenCheckFn] = {
     "class_review_requested": open_class_review_urls,
     "class_validation_requested": open_class_review_urls,
+    "space.lease_requested": _open_by_request(_space_requests),
+    "space.cubby_requested": _open_by_request(_space_requests),
+    "discount_code.requested": _open_by_request(_discount_requests),
+    "event.submitted": _open_by_request(_submitted_events),
+    "guild_announcement.submitted": _open_by_request(_submitted_announcements),
+    "meeting.item_proposed": _open_by_request(_proposed_meeting_items),
+    "wiki.page_reported": _open_by_request(_wiki_reports),
+    "wiki.page_proposed": _open_by_request(_wiki_proposals),
+    "instructor_application_received": _open_by_request(_teaching_applications),
+    "class_change_requested": always_open,
 }
 
 
-def open_request_urls(event_key: str, urls: list[str]) -> set[str]:
-    """Which of ``urls`` (queued digest lines for ``event_key``) point at a still-open request.
+def open_request_urls(event_key: str, rows: list[EventDelivery]) -> set[str]:
+    """Which of ``rows`` (queued digest lines for ``event_key``) ask about a still-open request, by link.
 
     Raises ``KeyError`` for an event with no registered check (a registry wiring error).
     """
-    return _OPEN_CHECKS[event_key](urls)
+    return _OPEN_CHECKS[event_key](rows)
+
+
+def is_always_included(event_key: str) -> bool:
+    """Whether nothing decides ``event_key``'s requests, so each queued row is its own request.
+
+    Such a request never repeats (no Remind lead), and its link need not be unique to it: a
+    class change request links to the class's edit page, which every request on that class
+    shares. The morning email gives each of these rows its own line.
+    """
+    return _OPEN_CHECKS[event_key] is always_open
 
 
 def has_open_check(event_key: str) -> bool:

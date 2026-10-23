@@ -333,10 +333,10 @@ def describe_digest_context():
         assert channels.digest_context(rows)["subject"] == "Action Needed: 2 Classes Awaiting Review"
 
     def it_says_requests_when_anything_else_rides_along():
-        rows = [_row("class_review_requested", "/a/"), _row("orientation_requested", "/b/")]
+        rows = [_row("class_review_requested", "/a/"), _row("space.lease_requested", "/b/")]
         assert channels.digest_context(rows)["subject"] == "Action Needed: 2 Requests Awaiting You"
 
     def it_uses_the_singular_for_one_request():
-        assert channels.digest_context([_row("orientation_requested", "/a/")])["subject"] == (
+        assert channels.digest_context([_row("space.lease_requested", "/a/")])["subject"] == (
             "Action Needed: 1 Request Awaiting You"
         )

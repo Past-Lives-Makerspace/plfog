@@ -34,7 +34,21 @@ from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 pytestmark = pytest.mark.django_db
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
-DIGEST_EVENTS = {"class_review_requested", "class_validation_requested"}
+DIGEST_EVENTS = {
+    "class_review_requested",
+    "class_validation_requested",
+    # Part 3's staff requests (tests/core/events/staff_requests_digest_spec.py).
+    "space.lease_requested",
+    "space.cubby_requested",
+    "discount_code.requested",
+    "event.submitted",
+    "guild_announcement.submitted",
+    "meeting.item_proposed",
+    "wiki.page_reported",
+    "wiki.page_proposed",
+    "instructor_application_received",
+    "class_change_requested",
+}
 
 
 @pytest.fixture(autouse=True)
