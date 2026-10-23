@@ -94,8 +94,6 @@ def committed_once_we_wait(work: Callable[[], object]) -> Iterator[None]:
     The body of the ``with`` is the side that loses the race. If it never waits, the other side gives up after ten
     seconds and rolls back, so the body ran against nothing and the spec's own assertions fail.
     """
-    if not connection.features.has_select_for_update:
-        pytest.skip("SQLite has no row locks; run on PostgreSQL to check the lock.")
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_backend_pid()")
         ours = int(cursor.fetchone()[0])

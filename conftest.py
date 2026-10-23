@@ -1,6 +1,12 @@
+import os
+
 import pytest
 
 from django.conf import settings
+
+# Set by CI's postgres-only job, whose whole point is running these specs: there a database
+# other than PostgreSQL is a broken job, not a reason to skip.
+POSTGRES_ONLY_JOB = "PLFOG_POSTGRES_ONLY_JOB"
 
 
 def pytest_configure():
@@ -23,6 +29,25 @@ def pytest_sessionstart(session):
     # of identical UserWarnings. An empty directory silences it; tests serve static
     # assets through StaticFilesStorage above, not from STATIC_ROOT.
     Path(django_settings.STATIC_ROOT).mkdir(parents=True, exist_ok=True)
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip ``postgres_only`` specs on a database that is not PostgreSQL, with the reason.
+
+    SQLite has no row locks (it never writes FOR UPDATE) and no ``pg_*`` functions, so a spec
+    that asserts a lock or provokes a real race cannot run there. CI's ``test`` and ``mutation``
+    jobs run on SQLite and skip these; the ``postgres-only`` job runs them on PostgreSQL.
+    """
+    from django.db import connection
+
+    marked = [item for item in items if "postgres_only" in item.keywords]
+    if not marked or connection.vendor == "postgresql":
+        return
+    if os.environ.get(POSTGRES_ONLY_JOB):
+        raise pytest.UsageError(f"{POSTGRES_ONLY_JOB} is set but the database is {connection.vendor}, not PostgreSQL.")
+    skip = pytest.mark.skip(reason="Needs PostgreSQL; CI's postgres-only job runs it (pytest -m postgres_only).")
+    for item in marked:
+        item.add_marker(skip)
 
 
 @pytest.fixture(autouse=True)
