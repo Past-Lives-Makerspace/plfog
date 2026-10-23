@@ -869,6 +869,8 @@ def describe_the_approval():
         assert (found.approved_cents, found.approved_note) == (80_000, "Their note")
 
     def it_locks_the_settings_before_the_stale_check(hub):
+        if not connection.features.has_select_for_update:
+            pytest.skip("SQLite has no row locks; run on PostgreSQL to check the lock.")
         found = LedgerSettingsFactory(hub=hub)
         seen = {"approved_cents": found.approved_cents, "approved_note": found.approved_note}
 
@@ -1032,6 +1034,8 @@ def describe_the_budget_lines():
         assert kegs.name == "Kegs"
 
     def it_saves_a_line_in_the_service_under_its_lock(hub, kegs):
+        if not connection.features.has_select_for_update:
+            pytest.skip("SQLite has no row locks; run on PostgreSQL to check the lock.")
         with CaptureQueriesContext(connection) as queries:
             saved = services.update_budget_line(kegs, {"name": "Taps"}, seen=kegs.updated_at.isoformat())
 
@@ -1079,6 +1083,8 @@ def describe_the_budget_lines():
             services.delete_budget_line(kegs)
 
     def it_locks_the_line_before_counting_its_entries(hub, kegs):
+        if not connection.features.has_select_for_update:
+            pytest.skip("SQLite has no row locks; run on PostgreSQL to check the lock.")
         with CaptureQueriesContext(connection) as queries:
             services.delete_budget_line(kegs)
 
