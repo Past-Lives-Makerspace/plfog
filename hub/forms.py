@@ -203,6 +203,7 @@ class GuildEditForm(forms.ModelForm):
             "discord_welcome_message",
             "website_url",
             "show_members",
+            "show_location_status",
             "featured_class",
             "faq_label",
         ]
@@ -261,6 +262,7 @@ class GuildEditForm(forms.ModelForm):
             "discord_welcome_message": "Discord welcome message",
             "website_url": "Website URL",
             "show_members": "Show members roster",
+            "show_location_status": "Show location lights on the guild page",
             "featured_class": "Featured class",
             "faq_label": "FAQ / info section heading",
         }

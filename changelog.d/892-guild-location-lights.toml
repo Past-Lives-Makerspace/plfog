@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-23"
+title = "Location lights take less room, and guilds can hide them"
+changes = [
+  "On a guild page, the free, starting soon and in use lights for each location now sit side by side instead of one per row.",
+  "Guild Settings has a new switch to hide the location lights from the guild page.",
+]
