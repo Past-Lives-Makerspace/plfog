@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-23"
+title = "Reconciliation shows who Stripe already pays"
+changes = [
+  "On the Reconciliation tab, each instructor, orientator and equipment manager now shows whether automatic payouts are on for them, paused, not finished, or paid by hand.",
+  "Each class, orientation and reservation in Transaction Detail says whether its share was sent through Stripe, will be sent, or needs paying by hand.",
+  "A line above the tables says to pay only what Owed manually shows, so nobody is paid twice.",
+]
