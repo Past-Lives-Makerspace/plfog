@@ -1,8 +1,8 @@
 """Admin Tools > Spotlight at /manage/spotlight/ (#708).
 
 One page: the announcements (#889, hub.announcement_admin_views), shown on Home and, since #890,
-in the Spotlight; the Spotlight text and meeting with a live preview; and the Past polls table,
-kept as history now that polls have left the Spotlight (#890). Every view is admin only
+in the Spotlight; and the Spotlight text and meeting with a live preview. Polls were removed in
+#890, their Past polls table with them. Every view is admin only
 (``@fog_admin_required``); saves are plain POSTs that redirect back with a message, shown as a
 toast. Nothing here sends an email, push, Discord post or bell.
 """
@@ -13,23 +13,19 @@ from typing import TYPE_CHECKING, Any
 
 from django.contrib import messages
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from classes.table import prepare_table
 from core.models import SiteConfiguration
 from hub.announcement_admin_views import announcement_rows
 from hub.spotlight import SECOND_LINE_DEFAULT, Spotlight, SpotlightMeeting
 from hub.spotlight_forms import SpotlightTextForm
 from hub.view_as import fog_admin_required
 from hub.views import _get_hub_context
-from polls.models import Poll
 
 if TYPE_CHECKING:
     from datetime import datetime
-
-_SORTABLE = frozenset({"question", "opens_at", "closes_at", "total_votes", "top_answer"})
 
 
 def _meeting_previews(form: SpotlightTextForm, now: datetime) -> dict[str, dict[str, str | bool] | None]:
@@ -57,14 +53,6 @@ def _render_page(request: HttpRequest, *, text_form: SpotlightTextForm | None = 
     # processor's, which is falsy for an admin without a member record (#709).
     admin_spotlight = Spotlight.load(now)
     text_form = text_form or SpotlightTextForm(instance=SiteConfiguration.load())
-    table = prepare_table(
-        request,
-        Poll.objects.closed_at(now).with_totals(),
-        search_fields=[],
-        default_sort="opens_at",
-        default_dir="desc",
-        sortable=_SORTABLE,
-    )
     context: dict[str, Any] = {
         **_get_hub_context(request),
         "admin_spotlight": admin_spotlight,
@@ -81,10 +69,6 @@ def _render_page(request: HttpRequest, *, text_form: SpotlightTextForm | None = 
             "showWhenEmpty": bool(text_form["spotlight_show_when_empty"].value()),
             "hasAnnouncement": bool(admin_spotlight.announcements),
         },
-        "page": table["page"],
-        "sort": table["sort"],
-        "sort_dir": table["sort_dir"],
-        "base_params": table["base_params"],
     }
     return render(request, "hub/admin/spotlight.html", context)
 
@@ -110,14 +94,3 @@ def hub_admin_spotlight_text(request: HttpRequest) -> HttpResponse:
     form.save_at(timezone.now())
     messages.success(request, "Spotlight saved.")
     return redirect("hub_admin_spotlight")
-
-
-@fog_admin_required
-def hub_admin_spotlight_poll(request: HttpRequest, pk: int) -> HttpResponse:
-    """One poll's results: counts and percents only, never who voted."""
-    poll = get_object_or_404(Poll.objects.with_totals(), pk=pk)
-    return render(
-        request,
-        "hub/admin/spotlight_poll.html",
-        {**_get_hub_context(request), "poll": poll, "results": poll.results(), "is_open": poll.is_open(timezone.now())},
-    )

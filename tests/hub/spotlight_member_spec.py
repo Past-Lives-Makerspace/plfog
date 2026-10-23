@@ -20,7 +20,6 @@ from membership.models import CommunityEvent, Member
 from plfog.version import VERSION
 from membership.services.provisioning import provision_user_for_member
 from tests.membership.factories import CommunityEventFactory, MemberFactory
-from tests.polls.factories import poll_with
 
 pytestmark = pytest.mark.django_db
 
@@ -162,19 +161,10 @@ def describe_standard():
         assert standard.count("<button") == 3  # minimize, the version pill, Details
         assert standard.count("data-spotlight-details") == 1
 
-    def it_never_shows_a_poll_or_a_link_to_the_polls():
+    def it_has_no_polls_page_any_more():
         client, _member = _client_for()
-        poll_with("Laser", "Lathe", question="Zorblax poll?")
-        _settings(spotlight_meeting_event=_meeting())
 
-        html = client.get(HOME).content.decode()
-        sidebar = _section(html, 'class="hub-sidebar__spotlight"', "hub-sidebar__nav")
-        panel = html.split("data-spotlight-panel", 1)[1]
-
-        for spotlight_copy in (sidebar, panel):
-            assert "Zorblax poll?" not in spotlight_copy
-            assert "data-poll-card" not in spotlight_copy
-            assert f'href="{reverse("polls:index")}"' not in spotlight_copy
+        assert client.get("/polls/").status_code == 404
 
     def it_replaces_the_version_number_in_the_sidebar():
         client, _member = _client_for()
@@ -299,7 +289,7 @@ def describe_phones():
     def it_keeps_it_off_other_pages_main_area():
         client, _member = _client_for()
 
-        assert "data-spotlight-home" not in client.get(reverse("polls:index")).content.decode()
+        assert "data-spotlight-home" not in client.get(reverse("hub_beta_feedback")).content.decode()
 
     def it_leaves_the_announcements_to_the_banner_above_it():
         client, _member = _client_for()
@@ -364,42 +354,6 @@ def describe_who_sees_it():
         assert "data-spotlight" not in html
         assert 'id="changelog-modal"' in html
         assert 'id="changelog-modal-pages" data-changelog-pages' in html
-
-
-def describe_the_polls_compact_card():
-    """polls:vote's "spotlight" variant, from #709. The Spotlight no longer posts it (#890); the polls app is untouched."""
-
-    def it_returns_the_compact_card_with_the_answer_marked():
-        client, _member = _client_for()
-        poll = poll_with("Laser", "Lathe")
-
-        response = client.post(
-            reverse("polls:vote", args=[poll.pk]),
-            {"choice": poll.choices.get(text="Laser").pk, "variant": "spotlight", "next": HOME},
-            HTTP_HX_REQUEST="true",
-        )
-
-        html = response.content.decode()
-        assert "pl-poll-card--spotlight" in html
-        assert "This week's poll" in html
-        assert "Your vote" in html
-        assert 'id="poll-' not in html
-
-    def it_ignores_an_unknown_variant():
-        client, _member = _client_for()
-        poll = poll_with("Laser", "Lathe")
-
-        response = client.post(
-            reverse("polls:vote", args=[poll.pk]),
-            {"choice": poll.choices.first().pk, "variant": "zorblax"},
-            HTTP_HX_REQUEST="true",
-        )
-
-        assert (
-            response.content.decode()
-            .lstrip()
-            .startswith(f'<article class="pl-poll-card pl-poll-card--open" id="poll-{poll.pk}"')
-        )
 
 
 def _spotlight_cost(client: Client, monkeypatch: pytest.MonkeyPatch) -> int:
@@ -530,14 +484,6 @@ def describe_with_no_announcement_and_no_meeting():
         for gone in ('data-spotlight-state="standard"', 'data-spotlight-state="minimized"', "data-spotlight-foot"):
             assert gone not in sidebar
         assert "data-spotlight-minimize" not in sidebar
-
-    def it_stays_quiet_with_an_open_poll():
-        client, _member = _client_for()
-        poll_with("Laser", "Lathe")
-
-        sidebar = _section(client.get(HOME).content.decode(), 'class="hub-sidebar__spotlight', "hub-sidebar__nav")
-
-        assert 'data-spotlight-state="quiet"' in sidebar
 
     def it_goes_back_to_the_logo_and_version_while_the_toggle_is_off():
         client, _member = _client_for()

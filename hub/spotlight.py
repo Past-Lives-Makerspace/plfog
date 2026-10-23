@@ -18,12 +18,22 @@ from django.utils import timezone
 from core.models import Announcement, SiteConfiguration
 
 if TYPE_CHECKING:
-    from membership.models import CommunityEvent
+    from membership.models import CommunityEvent, Member
 
 #: The second minimized line when the admin leaves it empty.
 SECOND_LINE_DEFAULT = "Feature Request Meeting"
 #: How far ahead the next meeting is looked for; a yearly series still has a date in it.
 SEARCH_DAYS = 400
+
+
+def sees_spotlight(member: Member | None) -> bool:
+    """Whether this account sees the Spotlight: a member record that is not a guest (#691) or a former member.
+
+    The rule the removed polls app's ``can_vote`` had (#709), moved here unchanged in #890.
+    """
+    from membership.models import Member
+
+    return member is not None and member.status not in (Member.Status.GUEST, Member.Status.FORMER)
 
 
 def _clock(moment: datetime) -> str:

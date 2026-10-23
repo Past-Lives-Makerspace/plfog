@@ -962,8 +962,6 @@ urlpatterns = [
     path("manage/door-code/", door_code_views.hub_admin_door_code, name="hub_admin_door_code"),
     path("manage/spotlight/", spotlight_views.hub_admin_spotlight, name="hub_admin_spotlight"),
     path("manage/spotlight/text/", spotlight_views.hub_admin_spotlight_text, name="hub_admin_spotlight_text"),
-    # One past poll's results, from the Past polls table; polls left the Spotlight in #890, so none is posted or closed here.
-    path("manage/spotlight/polls/<int:pk>/", spotlight_views.hub_admin_spotlight_poll, name="hub_admin_spotlight_poll"),
     # The Home announcements (#889), in the Spotlight page's Announcements section.
     path(
         "manage/spotlight/announcements/new/",

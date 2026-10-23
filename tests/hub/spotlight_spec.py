@@ -10,10 +10,9 @@ import pytest
 
 from core.factories import AnnouncementFactory
 from core.models import Announcement, SiteConfiguration
-from hub.spotlight import SECOND_LINE_DEFAULT, Spotlight
-from membership.models import CommunityEvent
-from tests.membership.factories import CommunityEventFactory
-from tests.polls.factories import poll_with
+from hub.spotlight import SECOND_LINE_DEFAULT, Spotlight, sees_spotlight
+from membership.models import CommunityEvent, Member
+from tests.membership.factories import CommunityEventFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -143,11 +142,6 @@ def describe_the_lines():
         monkeypatch.setattr("plfog.version.CHANGELOG", [])
 
         assert _build().first_line == ""
-
-    def it_never_falls_back_to_a_poll():
-        poll_with("Laser", "Lathe", question="Zorblax poll?", opens_at=NOW - timedelta(hours=1))
-
-        assert _build().first_line != "Zorblax poll?"
 
 
 def describe_the_announcements():
@@ -288,12 +282,6 @@ def describe_seen_signature():
 
         assert _build().seen_signature == before
 
-    def it_never_includes_a_poll():
-        before = _build().seen_signature
-        poll_with("Laser", "Lathe", opens_at=NOW - timedelta(hours=1))
-
-        assert _build().seen_signature == before
-
     def it_changes_when_the_text_changes():
         before = _build().seen_signature
 
@@ -344,11 +332,6 @@ def describe_no_announcement_and_no_meeting():
     def it_is_gone_while_the_toggle_is_off():
         assert bool(_build(spotlight_show_when_empty=False)) is False
 
-    def it_stays_quiet_with_an_open_poll():
-        poll_with("Laser", "Lathe", opens_at=NOW - timedelta(hours=1))
-
-        assert _build().is_empty is True
-
     def it_defaults_to_on():
         assert SiteConfiguration.load().spotlight_show_when_empty is True
 
@@ -361,3 +344,22 @@ def describe_the_dot_and_releases():
         monkeypatch.setattr("plfog.version.CHANGELOG", [{**ENTRY, "title": "Newer", "slug": "702-newer"}, ENTRY])
 
         assert _build().seen_signature == before
+
+
+def describe_sees_spotlight():
+    """Who sees the Spotlight: the polls app's can_vote rule (#709), moved here unchanged in #890."""
+
+    @pytest.mark.parametrize(
+        ("status", "allowed"),
+        [
+            (Member.Status.ACTIVE, True),
+            (Member.Status.SUSPENDED, True),
+            (Member.Status.GUEST, False),
+            (Member.Status.FORMER, False),
+        ],
+    )
+    def it_lets_members_in_but_not_guests_or_former_members(status: str, allowed: bool):
+        assert sees_spotlight(MemberFactory(status=status)) is allowed
+
+    def it_leaves_out_an_account_with_no_member():
+        assert sees_spotlight(None) is False

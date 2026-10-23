@@ -1,4 +1,4 @@
-"""Admin Tools > Spotlight (#708): permissions, the text and meeting with its preview, the past polls table; no poll posting since #890."""
+"""Admin Tools > Spotlight (#708): permissions, the text and meeting with its preview; polls removed in #890."""
 
 from __future__ import annotations
 
@@ -13,9 +13,7 @@ from django.utils import timezone
 from core.factories import AnnouncementFactory
 from core.models import SiteConfiguration
 from membership.models import CommunityEvent
-from polls.models import Poll
-from tests.membership.factories import CommunityEventFactory, MemberFactory
-from tests.polls.factories import PollVoteFactory, poll_with
+from tests.membership.factories import CommunityEventFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -47,20 +45,12 @@ def _meeting() -> CommunityEvent:
     )
 
 
-def _past_poll(question: str, days_ago: int, votes: tuple[int, ...] = (1, 0)) -> Poll:
-    opens = timezone.now() - timedelta(days=days_ago + 7)
-    return poll_with(
-        "Laser", "Lathe", votes=votes, question=question, opens_at=opens, closes_at=opens + timedelta(days=7)
-    )
-
-
 def describe_permissions():
     @pytest.mark.parametrize(
         ("method", "url"),
         [
             ("get", PAGE),
             ("post", reverse("hub_admin_spotlight_text")),
-            ("get", reverse("hub_admin_spotlight_poll", args=[1])),
         ],
     )
     def it_refuses_a_member_who_is_not_an_admin(member_client: Client, method: str, url: str):
@@ -150,7 +140,7 @@ def describe_the_text_and_meeting():
         SiteConfiguration.objects.filter(pk=SiteConfiguration.load().pk).update(spotlight_meeting_event=_meeting())
 
         html = admin_client.get(PAGE).content.decode()
-        preview = html.split("data-spotlight-preview", 1)[1].split('id="past-polls"', 1)[0]
+        preview = html.split("data-spotlight-preview", 1)[1].split("</main>", 1)[0]
 
         assert 'data-spotlight-state="standard"' in preview
         assert 'data-spotlight-state="minimized"' in preview
@@ -164,16 +154,6 @@ def describe_the_text_and_meeting():
         assert '"fallback": "Zorblax first"' in html
         assert '"hasAnnouncement": true' in html
         assert 'x-show="hasAnnouncement || meetings[meeting]" data-spotlight-preview-states' in html
-
-    def it_never_previews_a_poll(admin_client: Client):
-        poll_with("Laser", "Lathe", question="Zorblax poll?")
-
-        html = admin_client.get(PAGE).content.decode()
-        preview = html.split("data-spotlight-preview", 1)[1].split('id="past-polls"', 1)[0]
-
-        assert "Zorblax poll?" not in preview
-        assert "data-spotlight-choice" not in preview
-        assert '"hasAnnouncement": false' in html
 
     def it_rerenders_an_invalid_save_at_200_with_its_errors_and_what_was_typed(admin_client: Client):
         too_long = "Z" * 121
@@ -213,77 +193,24 @@ def describe_the_text_and_meeting():
 
 
 def describe_polls_have_left_the_page():
-    @pytest.mark.parametrize("path", ["/manage/spotlight/polls/new/", "/manage/spotlight/polls/1/close/"])
-    def it_no_longer_answers_new_poll_or_close_now(admin_client: Client, path: str):
+    @pytest.mark.parametrize(
+        "path", ["/manage/spotlight/polls/new/", "/manage/spotlight/polls/1/close/", "/manage/spotlight/polls/1/"]
+    )
+    def it_no_longer_answers_new_poll_close_now_or_a_polls_results(admin_client: Client, path: str):
         assert admin_client.post(path).status_code == 404
 
     def it_has_no_open_poll_or_new_poll_section(admin_client: Client):
-        poll_with("Laser", "Lathe", question="Zorblax open?")
-
         html = admin_client.get(PAGE).content.decode()
 
         for gone in ('id="open-poll"', 'id="new-poll"', "data-close-poll", "data-post-poll", "replace-poll"):
             assert gone not in html
-        assert "Zorblax open?" not in html
+        assert 'id="past-polls"' not in html
 
     def it_says_the_page_is_about_announcements_and_the_meeting(admin_client: Client):
         html = admin_client.get(PAGE).content.decode()
 
         assert "Announcements for the banner on Home and the top left of the Member Portal" in html
         assert "Short notices in a banner at the top of Home and in the Spotlight on every page." in html
-
-
-def describe_past_polls():
-    def it_shows_the_empty_state(admin_client: Client):
-        assert "No past polls yet." in admin_client.get(PAGE).content.decode()
-
-    def it_lists_closed_polls_newest_first_with_totals(admin_client: Client):
-        _past_poll("Zorblax older", days_ago=20, votes=(0, 2))
-        _past_poll("Zorblax newer", days_ago=3, votes=(1, 0))
-        poll_with("Laser", "Lathe", question="Zorblax open now")
-
-        html = admin_client.get(PAGE).content.decode()
-        table = html.split("data-past-polls>", 1)[1].split("</table>", 1)[0]
-
-        assert table.index("Zorblax newer") < table.index("Zorblax older")
-        assert "Zorblax open now" not in table
-        assert '<td data-label="Top answer">Lathe</td>' in table
-        assert '<td data-label="Total votes">2</td>' in table
-
-    def it_says_no_votes_for_a_poll_nobody_answered(admin_client: Client):
-        _past_poll("Zorblax quiet", days_ago=3, votes=(0, 0))
-
-        assert '<td data-label="Top answer">No votes</td>' in admin_client.get(PAGE).content.decode()
-
-    def it_sorts_by_total_votes(admin_client: Client):
-        _past_poll("Zorblax few", days_ago=3, votes=(1, 0))
-        _past_poll("Zorblax many", days_ago=10, votes=(3, 2))
-
-        html = admin_client.get(f"{PAGE}?sort=total_votes&dir=desc").content.decode()
-
-        assert html.index("Zorblax many") < html.index("Zorblax few")
-
-    def it_paginates(admin_client: Client):
-        for day in range(30):
-            _past_poll(f"Zorblax {day:02d}", days_ago=day + 1, votes=())
-
-        page_one = admin_client.get(PAGE).content.decode()
-        page_two = admin_client.get(f"{PAGE}?page=2").content.decode()
-
-        assert "Zorblax 00" in page_one
-        assert "Zorblax 29" not in page_one
-        assert "Zorblax 29" in page_two
-
-    def it_opens_a_polls_results_without_names(admin_client: Client):
-        voter = MemberFactory(full_legal_name="Zorblax Voterperson")
-        poll = _past_poll("Zorblax results", days_ago=3, votes=(0, 0))
-        PollVoteFactory(choice=poll.choices.get(text="Laser"), member=voter)
-
-        html = admin_client.get(reverse("hub_admin_spotlight_poll", args=[poll.pk])).content.decode()
-
-        assert "Zorblax results" in html
-        assert "1 vote · 100%" in html
-        assert "Zorblax Voterperson" not in html
 
 
 def describe_the_admins_own_spotlight_on_this_page():
@@ -304,7 +231,7 @@ def describe_the_admins_own_spotlight_on_this_page():
 def describe_the_show_when_empty_toggle():
     def it_renders_as_a_toggle_in_the_text_section(admin_client: Client):
         html = admin_client.get(PAGE).content.decode()
-        section = html.split('id="spotlight-text"', 1)[1].split('id="past-polls"', 1)[0]
+        section = html.split('id="spotlight-text"', 1)[1].split("</main>", 1)[0]
 
         assert "Show the Spotlight when there is no announcement and no meeting" in section
         assert "On: members see the version, its latest update and Details." in section
@@ -337,7 +264,7 @@ def describe_the_show_when_empty_toggle():
 
     def it_previews_the_quiet_state_while_there_is_no_announcement_and_no_meeting(admin_client: Client):
         html = admin_client.get(PAGE).content.decode()
-        preview = html.split("data-spotlight-preview ", 1)[1].split('id="past-polls"', 1)[0]
+        preview = html.split("data-spotlight-preview ", 1)[1].split("</main>", 1)[0]
 
         assert "data-spotlight-preview-quiet" in preview
         assert 'data-spotlight-state="quiet"' in preview

@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static classes_tags %}
+{% load static %}
 {% block title %}Spotlight{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/home-announcements.css' %}">
@@ -9,8 +9,7 @@
 Admin Tools > Spotlight (#708), built by hub.spotlight_views. The announcements, shown on Home and
 in the Spotlight (#889, #890). The text form saves the meeting and the two minimized lines; the
 preview beside it is hub/partials/_spotlight.html, the same markup members get (#709), with the
-real live announcements, bound to the form as the admin types. Then the Past polls table, history
-since polls left the Spotlight (#890). Nothing here notifies anyone.
+real live announcements, bound to the form as the admin types. Nothing here notifies anyone.
 {% endcomment %}
 {% include "components/page_header.html" with title="Spotlight" description="Announcements for the banner on Home and the top left of the Member Portal, and the next Feature Request Meeting. Members see changes the next time a page loads." %}
 
@@ -140,34 +139,4 @@ once, the order through the hidden form below (the script at the end of this sec
   </div>
 </div>
 
-<div class="hub-card pl-spotlight-admin" id="past-polls">
-  <h2 class="pl-spotlight-admin__title">Past Polls</h2>
-  {% if page.object_list %}
-  <table class="pl-members-table" data-past-polls>
-    <thead>
-      <tr>
-        {% sort_header "Question" "question" sort sort_dir base_params %}
-        {% sort_header "Opened" "opens_at" sort sort_dir base_params %}
-        {% sort_header "Closed" "closes_at" sort sort_dir base_params %}
-        {% sort_header "Total votes" "total_votes" sort sort_dir base_params %}
-        {% sort_header "Top answer" "top_answer" sort sort_dir base_params %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for poll in page.object_list %}
-      <tr data-past-poll="{{ poll.pk }}">
-        <td data-label="Question"><a href="{% url 'hub_admin_spotlight_poll' poll.pk %}">{{ poll.question }}</a></td>
-        <td data-label="Opened">{{ poll.opens_at|date:"M j, Y" }}</td>
-        <td data-label="Closed">{{ poll.closes_at|date:"M j, Y" }}</td>
-        <td data-label="Total votes">{{ poll.total_votes }}</td>
-        <td data-label="Top answer">{{ poll.top_answer|default:"No votes" }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% include "components/table_pagination.html" %}
-  {% else %}
-  <p class="hub-text-muted" data-past-polls-empty>No past polls yet.</p>
-  {% endif %}
-</div>
 {% endblock %}
