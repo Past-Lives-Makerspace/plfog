@@ -21,7 +21,8 @@ layer — the same stack :mod:`core.events.discord` uses.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from django.conf import settings
@@ -177,7 +178,7 @@ def _discord_error_code(response: httpx.Response) -> int | None:
     return code if isinstance(code, int) else None
 
 
-def send_dm_text(discord_user_id: str, content: str) -> bool:
+def send_dm_text(discord_user_id: str, content: str, *, mention_user_ids: Sequence[str] = ()) -> bool:
     """Send a plain-text DM through the bot, failing LOUDLY (unlike :func:`post_dm`).
 
     For callers that must know whether a send genuinely went out (e.g. the one-time
@@ -188,6 +189,10 @@ def send_dm_text(discord_user_id: str, content: str) -> bool:
     :class:`httpx.HTTPStatusError`, and network errors propagate as
     :class:`httpx.HTTPError` — the caller decides what an undelivered send means.
     A blank bot token is the one quiet outcome: logged, nothing sent, ``False``.
+
+    ``mention_user_ids`` names the users a ``<@id>`` in ``content`` may mention (Discord's
+    ``allowed_mentions``), so a DM can point the reader at a person; empty sends no
+    ``allowed_mentions`` at all, as before.
     """
     if bot_disabled("DM"):
         return False
@@ -202,9 +207,12 @@ def send_dm_text(discord_user_id: str, content: str) -> bool:
         return False
     response.raise_for_status()
     channel_id = str(response.json()["id"])
+    payload: dict[str, Any] = {"content": content}
+    if mention_user_ids:
+        payload["allowed_mentions"] = {"parse": [], "users": list(mention_user_ids)}
     response = httpx.post(
         f"{API_BASE}/channels/{channel_id}/messages",
-        json={"content": content},
+        json=payload,
         headers=_auth_headers(),
         timeout=_DEFAULT_TIMEOUT_SECONDS,
     )

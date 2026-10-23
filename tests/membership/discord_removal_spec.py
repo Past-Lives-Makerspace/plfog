@@ -16,9 +16,16 @@ from django.core.management import call_command
 
 from core.models import AutomationAction, SiteConfiguration
 from core.scheduled_jobs import Trigger, record_run
-from membership.discord_removal import RemovalPassError, process_removals
-from membership.models import DISCORD_REMOVAL_TASK_KEY, DiscordRemoval, Member, RemovalNotOpenError
-from tests.membership.factories import MemberFactory, UserFactory
+from membership.discord_removal import RemovalPassError, process_removals, put_back_if_removed, run_cleanup_list
+from membership.models import (
+    DISCORD_CLEANUP_TEXT,
+    DISCORD_REMOVAL_TASK_KEY,
+    DiscordRemoval,
+    GuildMembership,
+    Member,
+    RemovalNotOpenError,
+)
+from tests.membership.factories import GuildFactory, GuildMembershipFactory, MemberFactory, UserFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -447,3 +454,231 @@ def describe_command():
     def it_reports_the_steps(capsys):
         call_command("process_discord_removals")
         assert "Handled 0 Discord removal step(s)." in capsys.readouterr().out
+
+
+JOIN = "https://discord.com/api/v10/guilds/srv1/members/111"
+ROLE_RE = r"https://discord\.com/api/v10/guilds/srv1/members/111/roles/.+"
+
+
+def _kicked(**kwargs: object) -> DiscordRemoval:
+    removal = _warned()
+    removal.status = DiscordRemoval.Status.KICKED
+    removal.kicked_at = _morning(date(2026, 10, 24))
+    removal.save()
+    for key, value in kwargs.items():
+        setattr(removal, key, value)
+    removal.save()
+    return removal
+
+
+def describe_cleanup_rows():
+    def it_queues_one_warned_today(monkeypatch):
+        monkeypatch.setattr("django.utils.timezone.localdate", lambda: date(2026, 10, 23))
+        removal = DiscordRemoval.objects.queue_for_cleanup("222", "ghost")
+        assert (removal.source, removal.warn_on, removal.member) == (
+            DiscordRemoval.Source.CLEANUP,
+            date(2026, 10, 23),
+            None,
+        )
+        action = AutomationAction.objects.get()
+        assert (action.subject, action.detail) == ("ghost", "On the one-time cleanup list.")
+
+    def it_uses_the_tickets_text_and_mentions_felix():
+        removal = DiscordRemoval.objects.queue_for_cleanup("222", "ghost")
+        assert removal.warning_text() == DISCORD_CLEANUP_TEXT
+        assert "<@150063478210691081>" in DISCORD_CLEANUP_TEXT
+        assert removal.warning_mentions() == ("150063478210691081",)
+
+    def it_mentions_nobody_in_the_membership_ended_dm():
+        _former()
+        assert DiscordRemoval.objects.get().warning_mentions() == ()
+
+    @respx.mock
+    def it_sends_the_mention_and_waits_three_days():
+        post = _mock_dm()
+        removal = DiscordRemoval.objects.queue_for_cleanup("222", "ghost")
+        now = _morning(date(2026, 10, 23))
+        assert removal.send_warning(now) is True
+        body = post.calls.last.request.read().decode()
+        assert '"allowed_mentions":{"parse":[],"users":["150063478210691081"]}' in body
+        assert removal.kick_after == now + timedelta(days=3)
+
+
+def describe_awaiting_rejoin():
+    def it_finds_a_kicked_row_by_member_or_discord_id():
+        removal = _kicked()
+        other = MemberFactory()
+        assert DiscordRemoval.objects.awaiting_rejoin(removal.member, "999") == removal
+        assert DiscordRemoval.objects.awaiting_rejoin(other, "111") == removal
+        assert DiscordRemoval.objects.awaiting_rejoin(other, "999") is None
+
+    def it_ignores_one_already_undone():
+        removal = _kicked(rejoined_at=_morning(date(2026, 10, 25)))
+        assert DiscordRemoval.objects.awaiting_rejoin(removal.member, "111") is None
+
+
+def describe_put_back():
+    @respx.mock
+    def it_adds_them_and_stamps_it():
+        removal = _kicked()
+        respx.put(JOIN).mock(return_value=httpx.Response(201, json={}))
+        now = _morning(date(2026, 10, 26))
+        assert removal.put_back("srv1", "111", "user-tok", now) is True
+        assert removal.rejoined_at == now
+        action = AutomationAction.objects.get(kind=AutomationAction.Kind.DISCORD_REJOIN)
+        assert (action.result, action.detail) == ("ok", "Put back on the server.")
+
+    @respx.mock
+    def it_counts_someone_already_back():
+        removal = _kicked()
+        respx.put(JOIN).mock(return_value=httpx.Response(204))
+        assert removal.put_back("srv1", "111", "t", _morning(date(2026, 10, 26))) is True
+        assert AutomationAction.objects.get(kind="discord_rejoin").detail == "Already back on the server."
+
+    @respx.mock
+    def it_records_a_refusal():
+        removal = _kicked()
+        respx.put(JOIN).mock(return_value=httpx.Response(403))
+        assert removal.put_back("srv1", "111", "t", _morning(date(2026, 10, 26))) is False
+        assert removal.rejoined_at is None
+        assert AutomationAction.objects.get(kind="discord_rejoin").detail == "Discord answered refused."
+
+    @respx.mock
+    def it_records_an_error_without_raising():
+        removal = _kicked()
+        respx.put(JOIN).mock(return_value=httpx.Response(500, text="boom"))
+        assert removal.put_back("srv1", "111", "t", _morning(date(2026, 10, 26))) is False
+        assert "500 boom" in AutomationAction.objects.get(kind="discord_rejoin").detail
+
+
+def describe_put_back_if_removed():
+    def _active_again(removal: DiscordRemoval) -> Member:
+        member = removal.member
+        Member.objects.filter(pk=member.pk).update(status=Member.Status.ACTIVE)
+        member.refresh_from_db()
+        return member
+
+    @respx.mock
+    def it_puts_an_active_member_back_with_every_guild_role():
+        member = _active_again(_kicked())
+        app_guild = GuildFactory(discord_role_ids=["r1"])
+        discord_guild = GuildFactory(discord_role_ids=["r2"])
+        GuildMembershipFactory(member=member, guild=app_guild, source=GuildMembership.Source.APP)
+        GuildMembershipFactory(member=member, guild=discord_guild, source=GuildMembership.Source.DISCORD)
+        join = respx.put(JOIN).mock(return_value=httpx.Response(201, json={}))
+        roles = respx.put(url__regex=ROLE_RE).mock(return_value=httpx.Response(204))
+        assert put_back_if_removed(member, "111", "user-tok") is True
+        assert join.called
+        assert sorted(call.request.url.path.rsplit("/", 1)[-1] for call in roles.calls) == ["r1", "r2"]
+
+    @respx.mock
+    def it_adds_the_account_that_just_connected_when_it_is_a_different_one():
+        member = _active_again(_kicked())
+        Member.objects.filter(pk=member.pk).update(discord_user_id="555")
+        member.refresh_from_db()
+        old = respx.put(JOIN).mock(return_value=httpx.Response(403))
+        new = respx.put("https://discord.com/api/v10/guilds/srv1/members/555").mock(
+            return_value=httpx.Response(201, json={})
+        )
+        assert put_back_if_removed(member, "555", "new-account-tok") is True
+        assert new.called
+        assert not old.called
+        assert DiscordRemoval.objects.get(member=member).rejoined_at is not None
+
+    def it_leaves_a_member_who_is_not_active():
+        removal = _kicked()
+        assert put_back_if_removed(removal.member, "111", "t") is False
+
+    def it_needs_a_token():
+        member = _active_again(_kicked())
+        assert put_back_if_removed(member, "111", "") is False
+
+    def it_needs_a_removal():
+        assert put_back_if_removed(MemberFactory(), "111", "t") is False
+
+    def it_does_nothing_without_a_bot_token(settings):
+        member = _active_again(_kicked())
+        settings.DISCORD_BOT_TOKEN = ""
+        assert put_back_if_removed(member, "111", "t") is False
+
+    def it_does_nothing_without_a_server_id():
+        member = _active_again(_kicked())
+        config = SiteConfiguration.load()
+        config.discord_server_id = ""
+        config.save()
+        assert put_back_if_removed(member, "111", "t") is False
+
+    @respx.mock
+    def it_pushes_no_roles_when_the_re_add_fails():
+        member = _active_again(_kicked())
+        GuildMembershipFactory(member=member, guild=GuildFactory(discord_role_ids=["r1"]))
+        respx.put(JOIN).mock(return_value=httpx.Response(403))
+        roles = respx.put(url__regex=ROLE_RE).mock(return_value=httpx.Response(204))
+        assert put_back_if_removed(member, "111", "t") is False
+        assert not roles.called
+
+
+def describe_run_cleanup_list():
+    IDS = {"ghost": "222", "active": "333", "queued": "444"}
+
+    def _setup() -> None:
+        MemberFactory(discord_user_id="333", status=Member.Status.ACTIVE)
+        DiscordRemoval.objects.queue_for_cleanup("444", "queued")
+        AutomationAction.objects.all().delete()
+
+    def it_reports_without_writing_on_a_dry_run():
+        _setup()
+        result = run_cleanup_list(["ghost", "active", "queued", "nobody"], IDS, dry_run=True)
+        assert result.lines == [
+            "ghost: would be warned and queued",
+            "active: connected to an active member",
+            "queued: already queued",
+            "nobody: nobody on the server has this username",
+        ]
+        assert DiscordRemoval.objects.count() == 1
+        assert not AutomationAction.objects.exists()
+
+    @respx.mock
+    def it_warns_and_queues_the_rest_and_records_the_skips():
+        _setup()
+        _mock_dm()
+        result = run_cleanup_list(["ghost", "active", "nobody"], IDS, dry_run=False)
+        assert result.failed == 0
+        assert result.lines[0].startswith("ghost: warned, removal due ")
+        row = DiscordRemoval.objects.get(discord_user_id="222")
+        assert (row.status, row.source, row.discord_username) == ("warned", "cleanup", "ghost")
+        skipped = AutomationAction.objects.filter(result=AutomationAction.Result.SKIPPED)
+        assert sorted(a.subject for a in skipped) == ["active", "nobody"]
+
+    @respx.mock
+    def it_counts_a_failed_dm_and_leaves_the_row_queued():
+        respx.post(DM_OPEN).mock(return_value=httpx.Response(500))
+        result = run_cleanup_list(["ghost"], IDS, dry_run=False)
+        assert (result.failed, result.lines) == (1, ["ghost: DM failed"])
+        assert DiscordRemoval.objects.get().status == DiscordRemoval.Status.QUEUED
+
+
+def describe_needs_discord_rejoin():
+    def it_is_true_for_an_active_member_with_a_removal_not_undone():
+        removal = _kicked()
+        Member.objects.filter(pk=removal.member.pk).update(status=Member.Status.ACTIVE)
+        member = Member.objects.get(pk=removal.member.pk)
+        assert member.needs_discord_rejoin is True
+        step = next(step for step in member.onboarding.steps if step.key == "discord")
+        assert (step.label, step.done) == ("Rejoin the Discord", False)
+        assert step.hint == "Connect again to get back on the server"
+
+    def it_is_false_while_they_are_still_former():
+        assert _kicked().member.needs_discord_rejoin is False
+
+    def it_is_false_without_a_removal():
+        member = MemberFactory(discord_user_id="5")
+        assert member.needs_discord_rejoin is False
+        step = next(step for step in member.onboarding.steps if step.key == "discord")
+        assert (step.label, step.done) == ("Connect your Discord", True)
+
+    def it_matches_an_unlinked_member_by_account_only():
+        removal = _kicked()
+        Member.objects.filter(pk=removal.member.pk).update(status=Member.Status.ACTIVE, discord_user_id="")
+        assert Member.objects.get(pk=removal.member.pk).needs_discord_rejoin is True
+        assert DiscordRemoval.objects.awaiting_rejoin(MemberFactory(), "") is None

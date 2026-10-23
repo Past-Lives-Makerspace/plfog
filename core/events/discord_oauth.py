@@ -42,12 +42,15 @@ class DiscordIdentity(NamedTuple):
         email_verified: Whether Discord itself verified that email (``verified`` on
             ``/users/@me``). The no-login auto-link fires ONLY when this is True — an
             unverified email proves nothing.
+        access_token: The user's OAuth token. Its ``guilds.join`` scope is what lets the
+            bot put a removed member back on the server (#898); never stored.
     """
 
     user_id: str
     handle: str
     email: str = ""
     email_verified: bool = False
+    access_token: str = ""
 
 
 logger = logging.getLogger(__name__)
@@ -57,8 +60,9 @@ TOKEN_URL = "https://discord.com/api/v10/oauth2/token"
 IDENTITY_URL = "https://discord.com/api/v10/users/@me"
 
 # ``identify`` learns the member's Discord id; ``email`` lets the no-login link flow
-# match the account by its verified email (spec §5.1).
-_SCOPE = "identify email"
+# match the account by its verified email (spec §5.1); ``guilds.join`` lets the bot put a
+# member it removed back on the server when they return (#898).
+_SCOPE = "identify email guilds.join"
 _DEFAULT_TIMEOUT_SECONDS = 10.0
 
 
@@ -170,6 +174,7 @@ def fetch_identity(access_token: str) -> DiscordIdentity:
         handle=handle,
         email=(payload.get("email") or "").strip(),
         email_verified=bool(payload.get("verified", False)),
+        access_token=access_token,
     )
 
 
