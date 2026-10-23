@@ -410,6 +410,20 @@ def describe_class_announcement_embeds():
         (loaded,) = dcp._pending_offerings()
         assert _field(dcp.class_announcement_embeds(loaded)[0], "Duration") == "1 hour 30 minutes"
 
+    def it_words_a_session_under_an_hour_in_minutes_alone():
+        offering = ClassOfferingFactory(title="Quick", status=ClassOffering.Status.PUBLISHED)
+        start = timezone.now() + timedelta(days=2)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(minutes=45))
+        (loaded,) = dcp._pending_offerings()
+        assert _field(dcp.class_announcement_embeds(loaded)[0], "Duration") == "45 minutes"
+
+    def it_gives_a_fixed_class_with_no_sessions_no_duration_or_count():
+        # bookable() never hands the announcer such a class; the builder still copes.
+        offering = ClassOfferingFactory(title="No Dates Yet", status=ClassOffering.Status.PUBLISHED)
+        (embed, *_) = dcp.class_announcement_embeds(offering)
+        assert _field(embed, "When") == dcp._FLEXIBLE_WHEN
+        assert "Sessions" not in _field_names(embed) and "Duration" not in _field_names(embed)
+
     def it_names_every_instructor():
         from classes.factories import InstructorFactory
 
@@ -481,7 +495,8 @@ def describe_class_announcement_embeds():
         from classes.factories import InstructorFactory
 
         people = [InstructorFactory(full_legal_name=f"Instructor With A Long Name {i:03d}") for i in range(60)]
-        embeds = _announced(title="T" * 255, description="y" * 5000, instructor=people[0], instructors=people)
+        # The longest title PostgreSQL saves: grouping_key is "<slug>:<category id>" in 255 characters.
+        embeds = _announced(title="T" * 240, description="y" * 5000, instructor=people[0], instructors=people)
         main = embeds[0]
         assert all(len(field["value"]) <= 1024 for field in main["fields"])
         assert _field(main, "Instructor").endswith("…")
