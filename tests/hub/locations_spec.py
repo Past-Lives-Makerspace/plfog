@@ -457,6 +457,48 @@ def describe_the_guild_page():
         assert "In use: Private class until" in block
         assert "Secret Workshop Qw" not in html
 
+    def it_lays_the_lights_out_as_one_wrapping_row():
+        # #892: several lights share a row and wrap, each sized to its words, never stretched.
+        from django.conf import settings
+
+        css = (settings.BASE_DIR / "static" / "css" / "locations.css").read_text()
+        list_rule = css.split(".pl-area-status__list {")[1].split("}")[0]
+        assert "flex-wrap: wrap" in list_rule
+        assert "flex-direction: column" not in list_rule
+        item_rule = css.split(".pl-area-status__item {")[1].split("}")[0]
+        assert "flex: 0 1 auto" in item_rule
+        assert "max-width: 100%" in item_rule
+
+    def describe_when_the_guild_turns_the_lights_off():
+        def it_drops_the_section_and_skips_the_status_query(client: Client):
+            _login(client, "loc_guild_off")
+            guild = GuildFactory(show_location_status=False)
+            LocationFactory(name="Kiln Room", guild=guild)
+            with patch("membership.services.location_status.guild_location_statuses") as statuses:
+                response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
+            assert response.status_code == 200
+            statuses.assert_not_called()
+            assert response.context["location_statuses"] == []
+            assert "data-area-status" not in response.content.decode()
+
+        def it_drops_the_section_on_the_public_guilds_site_too(client: Client):
+            guild = GuildFactory(show_location_status=False)
+            LocationFactory(name="Print Studio", guild=guild)
+            with override_settings(**GUILDS_SETTINGS):
+                response = client.get(f"/guilds/{guild.slug}/", HTTP_HOST=GUILDS_HOST)
+            assert response.status_code == 200
+            assert "data-area-status" not in response.content.decode()
+
+        def it_shows_them_again_when_turned_back_on(client: Client):
+            _login(client, "loc_guild_on")
+            guild = GuildFactory(show_location_status=False)
+            LocationFactory(name="Kiln Room", guild=guild)
+            guild.show_location_status = True
+            guild.save(update_fields=["show_location_status"])
+            html = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            block = html.split("data-area-status")[1].split("</section>")[0]
+            assert 'data-area-light="free"' in block
+
     def it_renders_nothing_without_a_location(client: Client):
         _login(client, "loc_guild_none")
         guild = GuildFactory()
