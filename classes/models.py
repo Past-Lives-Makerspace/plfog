@@ -4037,15 +4037,6 @@ class ClassInstructor(models.Model):
 
 
 class ClassApprovalQuerySet(models.QuerySet["ClassApproval"]):
-    def delete(self) -> tuple[int, dict[str, int]]:
-        """Delete these gates, first marking read the bell entries asking about them (#894).
-
-        Resubmit, a guild move, withdraw, restore and unpublish all drop gates this way; a
-        gone gate's "A class needs your review" entry would otherwise sit unread forever.
-        """
-        ClassApproval.mark_review_bells_read(list(self.values_list("token", flat=True)))
-        return super().delete()
-
     def pending(self) -> "ClassApprovalQuerySet":
         return self.filter(decision="")
 
@@ -4183,11 +4174,6 @@ class ClassApproval(models.Model):
         if self._state.adding and self.role == self.Role.GUILD_LEAD and self.opened_for_guild_id is None:
             self.opened_for_guild_id = self.class_offering.category.guild_id
         super().save(*args, **kwargs)
-
-    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
-        """Delete this gate, first marking read the bell entries asking about it (#894)."""
-        ClassApproval.mark_review_bells_read([self.token])
-        return super().delete(*args, **kwargs)
 
     @property
     def review_path(self) -> str:

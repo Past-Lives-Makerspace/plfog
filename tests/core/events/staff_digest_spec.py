@@ -353,6 +353,12 @@ def describe_a_gate_deleted_rather_than_decided():
         assert Notification.objects.filter(url=gate.review_path, read_at__isnull=True).count() == 0
         assert _bell(shop.lead, other).is_unread
 
+    def it_marks_the_leads_bell_read_when_the_whole_class_is_deleted(shop: _Woodshop):
+        gate = shop.submit("Board One")
+        gate.class_offering.delete()
+        assert Notification.objects.filter(url=gate.review_path, read_at__isnull=True).count() == 0
+        assert Notification.objects.get(user=shop.lead.user, url=gate.review_path).is_unread is False
+
 
 def describe_clear_decided_review_bells():
     def _run() -> str:
