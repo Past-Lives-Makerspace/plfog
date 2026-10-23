@@ -19,7 +19,8 @@ from django.views.decorators.http import require_POST
 
 from core.models import SiteConfiguration
 from hub.announcement_admin_views import announcement_rows
-from hub.spotlight import SECOND_LINE_DEFAULT, Spotlight, SpotlightMeeting
+from hub.spotlight import SECOND_LINE_DEFAULT, SpotlightMeeting
+from hub.context_processors import request_spotlight
 from hub.spotlight_forms import SpotlightTextForm
 from hub.view_as import fog_admin_required
 from hub.views import _get_hub_context
@@ -51,7 +52,7 @@ def _render_page(request: HttpRequest, *, text_form: SpotlightTextForm | None = 
     now = timezone.now()
     # Read for the preview. It must not be called "spotlight": that key is the context
     # processor's, which is falsy for an admin without a member record (#709).
-    admin_spotlight = Spotlight.load(now)
+    admin_spotlight = request_spotlight(request)
     text_form = text_form or SpotlightTextForm(instance=SiteConfiguration.load())
     context: dict[str, Any] = {
         **_get_hub_context(request),
