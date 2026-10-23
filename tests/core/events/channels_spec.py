@@ -222,15 +222,15 @@ def describe_digest_adapter():
         pending = DigestAdapter.pending_for(user)
         assert [r.event_key for r in pending] == ["registration_confirmed", "class_cancelled"]
 
-    def it_flush_due_groups_per_recipient_and_marks_sent():
+    def it_flush_due_fails_loudly_for_an_event_with_no_still_open_check():
+        # Only digest events queue lines, and each registers a still-open check (#894).
+        from datetime import datetime
+
         user = _user()
         DigestAdapter().deliver(user, _message(trigger_kind="registration_confirmed"))
-        DigestAdapter().deliver(user, _message(trigger_kind="class_cancelled"))
-        grouped = DigestAdapter.flush_due()
-        assert set(grouped) == {f"user:{user.pk}"}
-        assert len(grouped[f"user:{user.pk}"]) == 2
-        # All flipped to SENT — nothing pending remains.
-        assert DigestAdapter.pending_for(user) == []
+        EventDelivery.objects.update(created_at=datetime(2026, 1, 1, tzinfo=channels.PACIFIC))
+        with pytest.raises(KeyError):
+            DigestAdapter.flush_due(datetime(2026, 1, 2, 9, tzinfo=channels.PACIFIC))
 
     def it_flush_due_returns_empty_when_nothing_pending():
         assert DigestAdapter.flush_due() == {}
