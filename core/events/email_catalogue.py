@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from django.urls import reverse
 
 from core.events import copy as copy_module
-from core.events.registry import Channel, EventType, all_events
+from core.events.registry import Channel, EmailDelivery, EventType, all_events
 
 # Human labels for the channels an event can fan out to, in display order. Kept here (not
 # imported from the notification catalogue view) so the service has no view dependency.
@@ -57,6 +57,12 @@ class EmailRow:
     schedule_note: str
     adjust_label: str
     adjust_url: str
+    is_digest: bool = False
+
+    @property
+    def delivery_label(self) -> str:
+        """When the email goes out (#894): at once, or in the 8 AM staff email."""
+        return "8 AM digest" if self.is_digest else "Instant"
 
     @property
     def kind_label(self) -> str:
@@ -116,6 +122,7 @@ def _row(event: EventType) -> EmailRow:
         schedule_note=_schedule_note(event),
         adjust_label=adjust_label,
         adjust_url=adjust_url,
+        is_digest=event.email_delivery is EmailDelivery.DIGEST,
     )
 
 

@@ -1,0 +1,62 @@
+{# Email Queue tab (#894): read only. What waits for the 8 AM email, what timed emails are due, what went out. Spacing in email-queue.css. #}
+<div class="pl-email-queue">
+<section class="hub-card pl-email-queue__section" data-queue-summary>
+  <p class="hub-member-name pl-email-queue__line">Next digest: {{ digest_queue.next_send|date:"l, F j" }} at 8:00 AM</p>
+  <p class="hub-text-muted pl-email-queue__line">{{ digest_queue.people|length }} {% if digest_queue.people|length == 1 %}person{% else %}people{% endif %} · {{ digest_queue.waiting_count }} item{{ digest_queue.waiting_count|pluralize }} waiting · {{ digest_queue.handled_count }} already handled (will be left out){% if digest_queue.skipped_count %} · {{ digest_queue.skipped_count }} will be skipped{% endif %}</p>
+  <p class="hub-text-muted pl-email-queue__line"><a href="{% url 'hub_admin_site_settings' %}?tab=automations">See the job's last run in Automations</a></p>
+</section>
+
+<section class="hub-card pl-email-queue__section" data-queue-waiting>
+  <h2 class="hub-detail-label">Waiting for the next digest</h2>
+  <div class="pl-email-queue__rows">
+    {% for person in digest_queue.people %}
+    <details class="pl-disclosure pl-email-queue__person" data-queue-person>
+      <summary class="pl-disclosure__summary">
+        <span class="hub-member-row pl-email-queue__who">
+          <span class="hub-member-avatar" aria-hidden="true">{{ person.name|slice:":1"|upper }}</span>
+          <span class="pl-disclosure__text">
+            <span class="pl-disclosure__title">{{ person.name }}</span>
+            <span class="pl-disclosure__hint">{{ person.email }} · {{ person.items|length }} item{{ person.items|length|pluralize }}</span>
+          </span>
+        </span>
+        <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+      </summary>
+      <div class="pl-disclosure__body pl-email-queue__items">
+        {% for item in person.items %}
+        <div class="hub-member-row pl-email-queue__row" data-queue-item>
+          <div class="hub-member-name"><a href="{{ item.url }}">{{ item.title }}</a></div>
+          <div class="hub-text-muted pl-email-queue__meta">{{ item.label }} · queued {{ item.queued_at|date:"M j, g:i A" }}</div>
+          <div class="pl-email-queue__pills"><span class="hub-pill hub-pill--{{ item.pill_tone }}">{{ item.pill_label }}</span></div>
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+    {% empty %}
+    <p class="hub-text-muted">Nothing is waiting for the next digest.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="hub-card pl-email-queue__section" data-queue-upcoming>
+  <h2 class="hub-detail-label">Coming up in the next 24 hours</h2>
+  {# Loaded when the tab opens: a hidden pane never intersects, so the other tabs never pay for it. #}
+  <div class="pl-email-queue__rows" hx-get="{% url 'manage_activity_upcoming' %}" hx-trigger="intersect once" hx-swap="innerHTML">
+    <p class="hub-text-muted">Loading…</p>
+  </div>
+</section>
+
+<section class="hub-card pl-email-queue__section" data-queue-sent>
+  <h2 class="hub-detail-label">Sent digests, last 7 days</h2>
+  <div class="pl-email-queue__rows">
+    {% for digest in sent_digests %}
+    <div class="hub-member-row pl-email-queue__row">
+      <div class="hub-member-name">{{ digest.name }}</div>
+      <div class="hub-text-muted pl-email-queue__meta">{{ digest.sent_on|date:"D, M j" }} · {{ digest.email }}</div>
+      <div class="pl-email-queue__pills"><span class="hub-pill hub-pill--ok">{{ digest.included }} included</span><span class="hub-pill hub-pill--neutral">{{ digest.left_out }} left out</span></div>
+    </div>
+    {% empty %}
+    <p class="hub-text-muted">No digests sent in the last 7 days.</p>
+    {% endfor %}
+  </div>
+</section>
+</div>

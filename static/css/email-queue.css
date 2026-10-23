@@ -1,0 +1,56 @@
+/* The Email Queue tab under Manage > Site Activity (#894 part 2), loaded by hub/admin/activity.html.
+   FRONTEND.md rule 26: every block carries its own top margin on the 8px grid, so no card,
+   row, line or pill row touches the one above it in either theme. */
+
+/* Each card clears the tab row or the card above by 1.5rem. */
+.pl-email-queue__section {
+    margin-top: 1.5rem;
+}
+
+/* A card's lines (the top card's summary) stack 0.5rem apart. */
+.pl-email-queue__line + .pl-email-queue__line {
+    margin-top: 0.5rem;
+}
+
+/* A list under its section label: 1rem below the label, rows split by a divider. */
+.pl-email-queue__rows {
+    margin-top: 1rem;
+}
+.pl-email-queue__row {
+    display: block;
+    padding: 0;
+}
+.pl-email-queue__row + .pl-email-queue__row {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-email-queue__meta {
+    margin-top: 0.25rem;
+    font-size: 0.8125rem;
+}
+.pl-email-queue__pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+/* One disclosure per person, 1rem apart; its row fills the summary so the chevron sits at
+   the right edge, and the open list starts clear of the summary's border. */
+.pl-email-queue__person + .pl-email-queue__person {
+    margin-top: 1rem;
+}
+.pl-email-queue__who {
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+}
+.pl-email-queue__items {
+    padding-top: 1.5rem;
+}
+
+/* The shared pill colours are pale on a light card; the same fix the Automations cards use. */
+[data-theme="light"] .pl-email-queue .hub-pill--ok { color: #1f7a52; }
+[data-theme="light"] .pl-email-queue .hub-pill--neutral { color: #5b6675; }
+[data-theme="light"] .pl-email-queue .hub-pill--warn { color: #9a6a00; }
