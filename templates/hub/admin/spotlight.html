@@ -115,7 +115,8 @@ once, the order through the hidden form below (the script at the end of this sec
      @change="if ($event.target.name === 'spotlight_meeting_event') meeting = $event.target.value; if ($event.target.name === 'spotlight_show_when_empty') showWhenEmpty = $event.target.checked">
   <h2 class="pl-spotlight-admin__title">Spotlight Text and Meeting</h2>
   <div class="pl-spotlight-admin__split">
-    <form method="post" action="{% url 'hub_admin_spotlight_text' %}" class="pl-spotlight-admin__form" data-spotlight-text-form>
+    {# hx-push-url off: an invalid save re-renders at 200 under the boost, and pushing /text/ would make a reload a 405. #}
+    <form method="post" action="{% url 'hub_admin_spotlight_text' %}" hx-push-url="false" class="pl-spotlight-admin__form" data-spotlight-text-form>
       {% csrf_token %}
       {% include "components/form_field.html" with field=text_form.spotlight_meeting_event %}
       {% include "components/form_field.html" with field=text_form.spotlight_first_line %}

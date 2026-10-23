@@ -7,9 +7,11 @@ prefers-reduced-motion), with previous, "2 of 3", next and the pause button in o
 and no timer. Every announcement sits in one grid cell, so the tallest sets the height.
 
   announcements — the live core.Announcement rows, in order
+  rotator_name  — optional, its plRotator name for the lasting pause; "spotlight" unless given (the admin preview's
+                  own is "spotlight-preview", so pausing the preview never pauses the admin's sidebar)
 {% endcomment %}
 {% with total=announcements|length %}
-<div class="pl-spotlight__ann pl-rotator" x-data="plRotator" data-rotator-interval="8000"{% if total > 1 %} role="group" aria-roledescription="carousel" aria-label="Announcements"{% endif %} data-spotlight-announcements data-announcement-count="{{ total }}">
+<div class="pl-spotlight__ann pl-rotator" x-data="plRotator" data-rotator-interval="8000" data-rotator-name="{{ rotator_name|default:'spotlight' }}"{% if total > 1 %} role="group" aria-roledescription="carousel" aria-label="Announcements"{% endif %} data-spotlight-announcements data-announcement-count="{{ total }}">
     <p class="pl-spotlight__eyebrow">Announcement</p>
     <div class="pl-rotator__stage">
         <div class="pl-rotator__slides">

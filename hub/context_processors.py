@@ -81,7 +81,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "kiln_nav": KilnNav(member),
         # Lazy as well (#709): the Spotlight's two queries run only when a page renders it. Who sees it is
         # still the polls app's voter rule (members, not guests or former members), which it was built on.
-        "spotlight": SimpleLazyObject(_spotlight) if can_vote(member) else None,
+        "spotlight": SimpleLazyObject(partial(request_spotlight, request)) if shows_spotlight(request) else None,
         # The Holiday Bizarre entry: one query, run only when the sidebar renders it.
         "hq_nav": SimpleLazyObject(partial(_hq_nav, request, member)),
     }
@@ -108,6 +108,21 @@ def _hq_nav(request: HttpRequest, member: Member | None) -> bool:
 def _spotlight() -> Spotlight:
     """The Spotlight now (#709); every member sees the same one."""
     return Spotlight.load(timezone.now())
+
+
+def shows_spotlight(request: HttpRequest) -> bool:
+    """Whether this request's pages carry the Spotlight: a signed in member, not a guest or former member (#709)."""
+    user = getattr(request, "user", None)
+    return bool(getattr(user, "is_authenticated", False)) and can_vote(getattr(user, "member", None))
+
+
+def request_spotlight(request: HttpRequest) -> Spotlight:
+    """This request's Spotlight, read once however many places ask: Home's banner shares its announcements (#890)."""
+    cached: Spotlight | None = getattr(request, "_pl_spotlight", None)
+    if cached is None:
+        cached = _spotlight()
+        request._pl_spotlight = cached  # type: ignore[attr-defined]
+    return cached
 
 
 def _classes_admin_nav_active(request: HttpRequest) -> bool:

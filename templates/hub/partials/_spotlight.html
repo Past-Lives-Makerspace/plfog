@@ -35,7 +35,7 @@ Spotlight, the newest update's date and Details.
 {% else %}
 <section class="pl-spotlight pl-spotlight--standard" data-spotlight-state="standard" aria-label="Spotlight">
     <button type="button" class="pl-spotlight__minimize" aria-label="Minimize the Spotlight" data-spotlight-minimize>&minus;</button>
-    {% if spotlight.shown_announcements %}{% include "hub/partials/_spotlight_announcements.html" with announcements=spotlight.shown_announcements %}{% endif %}
+    {% if spotlight.shown_announcements %}{% include "hub/partials/_spotlight_announcements.html" with announcements=spotlight.shown_announcements rotator_name="spotlight-preview" %}{% endif %}
     <div class="pl-spotlight__meeting" data-spotlight-meeting x-show="meetings[meeting]">
         <p class="pl-spotlight__eyebrow">Next Feature Request Meeting</p>
         <p class="pl-spotlight__when"><span data-spotlight-when x-text="meetings[meeting] && meetings[meeting].when">{{ spotlight.meeting.when }}</span><span class="pl-spotlight__virtual" x-show="meetings[meeting] && meetings[meeting].virtual">Virtual</span></p>

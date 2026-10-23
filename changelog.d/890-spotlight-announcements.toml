@@ -4,5 +4,5 @@ title = "Announcements in the Spotlight"
 changes = [
   "The Spotlight in the top left of every portal page now shows the current announcements, taking turns, where the weekly poll used to be.",
   "When it is minimized, its first line is the announcement, and the yellow dot lights up when a new one is posted.",
-  "Past polls and their results are still on the Polls page.",
+  "Pause the announcements, or the Upcoming carousel on Home, and they stay paused on every page until you press play or log out.",
 ]

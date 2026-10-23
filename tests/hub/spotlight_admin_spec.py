@@ -186,6 +186,18 @@ def describe_the_text_and_meeting():
         assert f'value="{too_long}"' in html
         assert SiteConfiguration.load().spotlight_first_line == ""
 
+    def it_keeps_the_page_url_after_an_invalid_save(admin_client: Client):
+        # A boosted 200 would otherwise push /manage/spotlight/text/ into the bar, and a reload of that is a 405.
+        html = admin_client.get(PAGE).content.decode()
+
+        assert f'action="{reverse("hub_admin_spotlight_text")}" hx-push-url="false"' in html
+        assert admin_client.get(reverse("hub_admin_spotlight_text")).status_code == 405
+
+    def it_describes_the_spotlight_card_in_admin_tools(admin_client: Client):
+        html = admin_client.get(reverse("hub_admin_tools")).content.decode()
+
+        assert "Announcements, the next Feature Request Meeting and its short text." in html
+
     def it_says_what_an_empty_first_line_falls_back_to(admin_client: Client):
         html = admin_client.get(PAGE).content.decode()
 

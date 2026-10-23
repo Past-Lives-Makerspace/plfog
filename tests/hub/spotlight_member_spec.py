@@ -117,7 +117,7 @@ def describe_standard():
         standard = _standard(client.get(HOME).content.decode())
 
         assert (
-            'class="pl-spotlight__ann pl-rotator" x-data="plRotator" data-rotator-interval="8000" role="group"'
+            'class="pl-spotlight__ann pl-rotator" x-data="plRotator" data-rotator-interval="8000" data-rotator-name="spotlight" role="group"'
             ' aria-roledescription="carousel" aria-label="Announcements"' in standard
         )
         assert [standard.index(f'data-spotlight-announcement="{row.pk}"') for row in rows] == sorted(

@@ -13,7 +13,7 @@ first carry data-rotator-src and load when their slide comes up.
   featured — a list of hub.home.FeaturedClass and hub.home.FeaturedEvent, each with its kind ("Class" or "Event")
 {% endcomment %}
 {% with total=featured|length %}
-<section class="pl-home-featured pl-rotator" x-data="plRotator" data-rotator-interval="6000" aria-roledescription="carousel" aria-label="Upcoming classes and events" data-home-featured data-featured-slides="{{ total }}">
+<section class="pl-home-featured pl-rotator" x-data="plRotator" data-rotator-interval="6000" data-rotator-name="home-upcoming" aria-roledescription="carousel" aria-label="Upcoming classes and events" data-home-featured data-featured-slides="{{ total }}">
   <div class="pl-rotator__stage">
     <div class="pl-rotator__slides">
       {% for item in featured %}
