@@ -156,6 +156,17 @@ def describe_send_dm_text():
         assert discord_dm.send_dm_text("555", "hello there") is True
         assert chan.called and msg.called
         assert "hello there" in msg.calls.last.request.read().decode()
+        assert "allowed_mentions" not in msg.calls.last.request.read().decode()
+
+    @respx.mock
+    def it_lets_the_named_users_be_mentioned(settings):
+        import json
+
+        settings.DISCORD_BOT_TOKEN = "tok"
+        _chan, msg = _mock_dm_ok()
+        assert discord_dm.send_dm_text("555", "ask <@42>", mention_user_ids=("42",)) is True
+        body = json.loads(msg.calls.last.request.read())
+        assert body == {"content": "ask <@42>", "allowed_mentions": {"parse": [], "users": ["42"]}}
 
     @respx.mock
     def it_returns_false_when_dms_are_closed_on_the_message_post(settings):

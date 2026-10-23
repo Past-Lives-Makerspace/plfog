@@ -1144,7 +1144,7 @@ The **Emails** tab manages every address a person can sign in with. Sign-in work
         "sort_order": 20,
         "related": ["members-and-invites", "become-an-instructor"],
         "body": """\
-The classes admin lives at `/classes/admin/`. Reach it from **Classes** in the left menu, then **Manage classes** (the button admins see where members see Manage My Classes). It requires an actual admin account; instructors and guild leads run their own classes from the teaching portal instead.
+The classes admin lives at `/classes/admin/`. Reach it from **Classes** in the left menu, then **Manage All Classes** (the button admins see where members see Manage My Classes), or from the Manage All Classes card in Admin Tools. It requires an actual admin account; instructors and guild leads run their own classes from the teaching portal instead.
 
 ### The Review Queue {#admin-review-queue}
 

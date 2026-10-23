@@ -1,6 +1,6 @@
 /* The Spotlight (#708, #709): the shared Standard and Minimized markup in
-   hub/partials/_spotlight.html, the poll tally, and the Admin Tools > Spotlight page.
-   Theme tokens only. */
+   hub/partials/_spotlight.html with its announcements (#890), and the Admin Tools > Spotlight
+   page. Polls and their tally were removed in #890. Theme tokens only. */
 
 /* ---- The Spotlight itself ---- */
 .pl-spotlight {
@@ -53,50 +53,15 @@
     color: var(--hub-link);
 }
 
-.pl-spotlight__question {
-    margin: 0 1.5rem 0.5rem 0;
-    font-family: var(--font-heading);
-    font-size: 0.95rem;
-    font-weight: 700;
-    line-height: 1.3;
-}
-
-.pl-spotlight__choices {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-}
-
-.pl-spotlight__choice {
-    padding: 0.45rem 0.75rem;
-    border: 1px solid var(--hub-input-border);
-    border-radius: 8px;
-    background-color: var(--hub-surface);
-    color: var(--hub-text);
-    font-family: var(--font-body);
-    font-size: 0.85rem;
-    text-align: left;
-    cursor: pointer;
-}
-
-.pl-spotlight__choice:hover:not(:disabled),
-.pl-spotlight__choice:focus-visible {
-    border-color: var(--color-tuscan-yellow);
-}
-
-.pl-spotlight__choice:disabled {
-    cursor: default;
-}
-
-.pl-spotlight__past {
-    align-self: flex-start;
-    font-size: 0.8rem;
-    color: var(--hub-text-muted);
-}
-
-.pl-spotlight__meeting {
+/* The meeting under the announcements takes a rule above it; alone, it leads the card. */
+.pl-spotlight__ann + .pl-spotlight__meeting {
     padding-top: 0.75rem;
     border-top: 1px solid var(--hub-input-border);
+}
+
+/* Every eyebrow in Standard stays clear of the minimize button in the corner. */
+.pl-spotlight--standard .pl-spotlight__eyebrow {
+    margin-right: 1.75rem;
 }
 
 .pl-spotlight__when {
@@ -127,10 +92,6 @@
 .pl-spotlight__pill {
     background-color: rgba(238, 180, 75, 0.18);
     color: var(--hub-link);
-}
-
-.pl-spotlight__details {
-    align-self: flex-start;
 }
 
 /* Minimized: two faded lines that brighten on hover or focus. */
@@ -184,55 +145,6 @@
     flex-shrink: 0;
 }
 
-/* ---- A poll's tally ---- */
-.pl-poll-results {
-    display: flex;
-    flex-direction: column;
-    gap: 0.625rem;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.pl-poll-results__label {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-    margin-bottom: 0.25rem;
-    font-size: 0.9rem;
-}
-
-.pl-poll-results__count {
-    flex-shrink: 0;
-    color: var(--hub-text-muted);
-    font-size: 0.8125rem;
-}
-
-.pl-poll-results__bar {
-    display: block;
-    width: 100%;
-    height: 8px;
-    border: none;
-    border-radius: 999px;
-    background-color: var(--hub-surface);
-    appearance: none;
-    overflow: hidden;
-}
-
-.pl-poll-results__bar::-webkit-progress-bar {
-    background-color: var(--hub-surface);
-}
-
-.pl-poll-results__bar::-webkit-progress-value {
-    background-color: var(--color-tuscan-yellow);
-    border-radius: 999px;
-}
-
-.pl-poll-results__bar::-moz-progress-bar {
-    background-color: var(--color-tuscan-yellow);
-    border-radius: 999px;
-}
-
 /* ---- Admin Tools > Spotlight ---- */
 .pl-spotlight-admin {
     display: flex;
@@ -281,60 +193,6 @@
     color: var(--hub-text-muted);
 }
 
-.pl-spotlight-admin__question {
-    margin: 0;
-    font-family: var(--font-heading);
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: var(--hub-text);
-}
-
-.pl-spotlight-admin__meta {
-    margin: -0.5rem 0 0;
-    font-size: 0.875rem;
-}
-
-.pl-spotlight-admin__choices {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-    margin: 0;
-    padding: 0;
-    border: none;
-}
-
-/* The legend and hint match form_field.html's label and hint beside it. */
-.pl-spotlight-admin__choices legend {
-    margin-bottom: 0.375rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--hub-text-muted);
-}
-
-.pl-spotlight-admin__choices small {
-    font-size: 0.8125rem;
-}
-
-.pl-spotlight-admin__choice {
-    display: flex;
-    gap: 0.5rem;
-    width: 100%;
-    max-width: 520px;
-}
-
-.pl-spotlight-admin__input {
-    flex: 1;
-    min-width: 0;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--hub-input-border);
-    border-radius: 6px;
-    background-color: var(--hub-input-bg);
-    color: var(--hub-text);
-    font-family: var(--font-body);
-    font-size: 0.9rem;
-}
-
 .pl-spotlight-admin__errors {
     padding: 0.75rem 1rem;
     border-radius: 8px;
@@ -356,107 +214,6 @@
 /* A button directly in a card keeps its own width rather than the column's. */
 .pl-spotlight-admin > .pl-btn {
     align-self: flex-start;
-}
-
-/* ---- Member polls: /polls/ and the poll card the Spotlight reuses (#708 part 2) ---- */
-.pl-poll-list {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    max-width: 720px;
-}
-
-.pl-poll-card {
-    display: flex;
-    flex-direction: column;
-    gap: 0.875rem;
-    padding: 1.25rem;
-    border-radius: 12px;
-    background-color: var(--hub-card-bg);
-    border: 1px solid var(--hub-input-border);
-}
-
-.pl-poll-card--open {
-    border-color: var(--color-tuscan-yellow);
-}
-
-.pl-poll-card__question {
-    margin: 0;
-    font-family: var(--font-heading);
-    font-size: 1.05rem;
-    font-weight: 700;
-    line-height: 1.3;
-    color: var(--hub-text);
-}
-
-.pl-poll-card__meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.375rem;
-    margin: 0.375rem 0 0;
-    font-size: 0.8125rem;
-    color: var(--hub-text-muted);
-}
-
-.pl-poll-card__status {
-    padding: 0.0625rem 0.5rem;
-    border-radius: 999px;
-    background-color: rgba(238, 180, 75, 0.18);
-    color: var(--hub-link);
-    font-weight: 700;
-}
-
-.pl-poll-card__choices {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.pl-poll-card__choice {
-    padding: 0.625rem 0.875rem;
-    border: 1px solid var(--hub-input-border);
-    border-radius: 8px;
-    background-color: var(--hub-surface);
-    color: var(--hub-text);
-    font-family: var(--font-body);
-    font-size: 0.9rem;
-    text-align: left;
-    cursor: pointer;
-}
-
-.pl-poll-card__choice:hover,
-.pl-poll-card__choice:focus-visible {
-    border-color: var(--color-tuscan-yellow);
-}
-
-.pl-poll-card__hint {
-    margin: 0.25rem 0 0;
-    font-size: 0.8125rem;
-    color: var(--hub-text-muted);
-}
-
-.pl-poll-results__row--mine .pl-poll-results__label {
-    font-weight: 600;
-}
-
-.pl-poll-results__mine {
-    display: inline-block;
-    margin-left: 0.375rem;
-    padding: 0 0.4375rem;
-    border-radius: 999px;
-    background-color: rgba(61, 139, 212, 0.16);
-    color: var(--hub-blue);
-    font-size: 0.6875rem;
-    font-weight: 700;
-    vertical-align: 0.1em;
-}
-
-.pl-poll-list__pages {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin-top: 1.5rem;
 }
 
 /* ---- The member Spotlight (#709) ---- */
@@ -488,36 +245,6 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
     border-radius: 50%;
     background-color: var(--color-tuscan-yellow);
     box-shadow: 0 0 0 3px rgba(238, 180, 75, 0.25);
-}
-
-/* The poll card's compact copy inside Standard. */
-.pl-poll-card--spotlight {
-    gap: 0.5rem;
-    padding: 0;
-    border: none;
-    background: none;
-}
-
-.pl-poll-card--spotlight .pl-poll-card__question {
-    margin-right: 1.5rem;
-    font-size: 0.95rem;
-}
-
-.pl-poll-card--spotlight .pl-poll-card__choice {
-    padding: 0.45rem 0.75rem;
-    font-size: 0.85rem;
-}
-
-.pl-poll-card--spotlight .pl-poll-results__label {
-    font-size: 0.8125rem;
-}
-
-.pl-poll-card--spotlight .pl-poll-results__count {
-    font-size: 0.75rem;
-}
-
-.pl-poll-card--panel {
-    padding: 1rem;
 }
 
 /* Phones: the Spotlight sits at the top of Home, since the sidebar starts closed. */
@@ -574,12 +301,6 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
     margin-top: 0.25rem;
 }
 
-.pl-spotlight-panel__link {
-    align-self: flex-start;
-    font-size: 0.875rem;
-    color: var(--hub-link);
-}
-
 .pl-spotlight-panel__version {
     align-self: flex-start;
     padding: 0;
@@ -601,16 +322,6 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
     align-self: flex-start;
 }
 
-/* In the narrow sidebar, the count sits under the answer instead of beside it. */
-.pl-poll-card--spotlight .pl-poll-results__label {
-    flex-direction: column;
-    gap: 0.125rem;
-}
-
-.pl-poll-results__mine {
-    white-space: nowrap;
-}
-
 /* Minimized in the narrow sidebar: room for the dot, and the date pill drops under the
    meeting name rather than cutting it short. */
 .pl-spotlight-live .pl-spotlight__min {
@@ -622,7 +333,7 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
     row-gap: 0.25rem;
 }
 
-/* No open poll: the newest update in the poll's place (#709). */
+/* The newest update, in Expanded when no announcement is live (#709, #890). */
 .pl-spotlight__update {
     display: flex;
     flex-direction: column;
@@ -664,19 +375,6 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
 }
 
 /* ---- Felix's visual fixes (#717) ---- */
-/* Standard: the Virtual pill and Details share one row; Details keeps the right. */
-.pl-spotlight__actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-}
-
-.pl-spotlight__actions .pl-spotlight__details {
-    margin-left: auto;
-}
-
 /* Minimized: the dot sits left of the two lines, centred on the first. The slot keeps its
    width with no dot, so the text never jumps when the dot clears. */
 .pl-spotlight-live .pl-spotlight__min {
@@ -705,28 +403,7 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
     min-width: 0;
 }
 
-/* Past polls reads as a link: the accent colour, an arrow, underline on hover, a real target. */
-.pl-spotlight__past,
-.pl-spotlight-panel__link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    align-self: flex-start;
-    min-height: 32px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--hub-link);
-    text-decoration: none;
-}
-
-.pl-spotlight__past:hover,
-.pl-spotlight__past:focus-visible,
-.pl-spotlight-panel__link:hover,
-.pl-spotlight-panel__link:focus-visible {
-    text-decoration: underline;
-}
-
-/* Quiet: no poll and no meeting. The version pill that sat under the logo before the
+/* Quiet: no announcement and no meeting. The version pill that sat under the logo before the
    Spotlight with the newest update's date under it, and an outlined Details on the right. */
 .pl-spotlight--quiet {
     display: flex;
@@ -786,4 +463,138 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
 .hub-sidebar__spotlight--quiet {
     padding: 0 0.75rem 1rem;
     border-bottom: 1px solid var(--hub-sidebar-border);
+}
+
+/* ---- Announcements in the Spotlight (#890) ---- */
+/* The announcement's own rich text, wherever it shows: the Spotlight, the Home banner and the admin rows. */
+.pl-ann-body p + p {
+    margin-top: 0.5rem;
+}
+
+.pl-ann-body strong {
+    font-weight: 700;
+}
+
+.pl-ann-body a {
+    color: var(--hub-link);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.pl-spotlight__ann-body {
+    color: var(--hub-text);
+    font-size: 0.875rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+/* With two or more, one compact row under the text: previous, "2 of 3", next, and the pause button on the right,
+   then the thin time bar. The controls partial's overlay and nav give their buttons to the stage's grid. */
+.pl-spotlight__ann .pl-rotator__stage {
+    display: grid;
+    grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 0.25rem;
+}
+
+.pl-spotlight__ann .pl-rotator__slides {
+    grid-column: 1 / -1;
+}
+
+.pl-spotlight__ann .pl-rotator__overlay,
+.pl-spotlight__ann .pl-rotator__nav {
+    display: contents;
+}
+
+.pl-spotlight__ann .pl-rotator__arrow,
+.pl-spotlight__ann .pl-rotator__count,
+.pl-spotlight__ann .pl-rotator__pause {
+    grid-row: 2;
+    margin-top: 0.625rem;
+}
+
+.pl-spotlight__ann .pl-rotator__arrow {
+    position: static;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 1px solid var(--hub-border-strong);
+    background: transparent;
+    color: var(--hub-text-muted);
+    opacity: 1;
+    transform: none;
+}
+
+.pl-spotlight__ann .pl-rotator__arrow:hover {
+    background: var(--hub-elevated);
+    color: var(--hub-text);
+}
+
+.pl-spotlight__ann .pl-rotator__arrow svg {
+    width: 14px;
+    height: 14px;
+}
+
+.pl-spotlight__ann .pl-rotator__arrow--prev {
+    grid-column: 1;
+}
+
+.pl-spotlight__ann .pl-rotator__count {
+    grid-column: 2;
+    min-width: 3rem;
+    color: var(--hub-text-muted);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.pl-spotlight__ann .pl-rotator__arrow--next {
+    grid-column: 3;
+}
+
+.pl-spotlight__ann .pl-rotator__pause {
+    grid-column: 5;
+}
+
+.pl-spotlight__ann .pl-rotator__track {
+    position: static;
+    grid-column: 1 / -1;
+    grid-row: 3;
+    height: 2px;
+    margin-top: 0.625rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-tuscan-yellow) 20%, transparent);
+}
+
+/* Standard's foot: the version pill and "Updated X" on the left, Details on the right, as in Quiet. */
+.pl-spotlight__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--hub-input-border);
+}
+
+/* Expanded: every live announcement in full, in order. */
+.pl-spotlight-panel__announcements {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.pl-spotlight-panel__announcement {
+    padding: 0.75rem 1rem;
+    border-left: 3px solid var(--color-tuscan-yellow);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--color-tuscan-yellow) 8%, var(--hub-card-bg));
+    color: var(--hub-text);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
 }

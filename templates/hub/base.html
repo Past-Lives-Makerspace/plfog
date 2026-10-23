@@ -1,7 +1,7 @@
 {% load static hub_tags %}
 {% static 'img/favicon.png' as fallback_logo %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-pl-user="{% if user.is_authenticated %}{{ user.pk }}{% endif %}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -11,6 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/hub.css' %}">
     <link rel="stylesheet" href="{% static 'css/components.css' %}">
+    <link rel="stylesheet" href="{% static 'css/rotator.css' %}">
     <link rel="stylesheet" href="{% static 'css/spotlight.css' %}">
     {% if IS_STAGING %}<link rel="stylesheet" href="{% static 'css/staging-ribbon.css' %}">{% endif %}
     <meta name="default-theme" content="{% block default_theme %}dark{% endblock %}">
@@ -142,7 +143,7 @@
             </span>
         </a>
         {# Quiet (no poll, no meeting) joins the logo above the divider, where the version pill sat. #}
-        {% if spotlight %}<div class="hub-sidebar__spotlight{% if spotlight.is_empty %} hub-sidebar__spotlight--quiet{% endif %}">{% include "hub/partials/_spotlight.html" with spotlight=spotlight next_url=request.get_full_path %}</div>{% endif %}
+        {% if spotlight %}<div class="hub-sidebar__spotlight{% if spotlight.is_empty %} hub-sidebar__spotlight--quiet{% endif %}">{% include "hub/partials/_spotlight.html" with spotlight=spotlight %}</div>{% endif %}
 
         <nav class="hub-sidebar__nav" aria-label="Hub navigation" data-help-key="nav.sidebar" hx-boost="false" @click="if ($event.target.closest('a') && window.innerWidth <= 768) sidebarOpen = false">
             {% if kiln_nav.guest_only %}

@@ -25,6 +25,8 @@ from django.utils import timezone
 from membership.models import CalendarEvent, CommunityEvent, GuildAnnouncement
 
 if TYPE_CHECKING:
+    from django.http import HttpRequest
+
     from classes.models import ClassOffering
     from core.models import Announcement
     from membership.models import Member
@@ -60,8 +62,27 @@ class HomeBanner:
         """The banner at ``now``, or None while nothing is live. One query."""
         from core.models import Announcement
 
-        rows = list(Announcement.objects.live(now))
+        return cls.of(list(Announcement.objects.live(now)))
+
+    @classmethod
+    def of(cls, rows: list[Announcement]) -> HomeBanner | None:
+        """The banner of these live announcements, in their order, or None with none."""
+        from core.models import Announcement
+
         return cls(rows, Announcement.signature(rows)) if rows else None
+
+    @classmethod
+    def for_request(cls, request: HttpRequest, now: datetime_type) -> HomeBanner | None:
+        """Home's banner, sharing the sidebar Spotlight's announcements when this page carries one (#890).
+
+        So Home reads the live announcements once: from the request's Spotlight for a member, and
+        with :meth:`load` for anyone the Spotlight leaves out (an unlinked account, a guest).
+        """
+        from hub.context_processors import request_spotlight, shows_spotlight
+
+        if shows_spotlight(request):
+            return cls.of(request_spotlight(request).announcements)
+        return cls.load(now)
 
 
 @dataclass(frozen=True)

@@ -47,6 +47,7 @@ class Cadence(models.TextChoices):
 class Trigger(models.TextChoices):
     SCHEDULED = "scheduled", "Scheduled"
     MANUAL = "manual", "Run now"
+    COMMAND = "command", "Command line"  # a one-time management command run by hand (#898)
 
 
 @dataclass(frozen=True)

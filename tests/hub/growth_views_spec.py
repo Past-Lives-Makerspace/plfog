@@ -175,8 +175,9 @@ def describe_query_count():
 
 
 #: The whole page as an admin sees it: the hub shell's reads plus the dashboard's aggregates. 35 with the Holiday
-#: Bizarre sidebar entry (HQ card sharing): one EXISTS over the HQs for an admin.
-QUERIES = 35
+#: Bizarre sidebar entry (HQ card sharing): one EXISTS over the HQs for an admin. 36 with the Spotlight's live
+#: announcements (#890), its second query.
+QUERIES = 36
 
 
 def describe_admin_tools_card():

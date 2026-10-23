@@ -10,10 +10,9 @@ from django.http import HttpRequest
 from django.utils import timezone
 from django.utils.functional import SimpleLazyObject
 
-from hub.spotlight import Spotlight
+from hub.spotlight import Spotlight, sees_spotlight
 from kiln.access import KilnNav
 from membership.models import AdminCapability, Guild, Member
-from polls.models import can_vote
 
 # The per-class management screen an admin lands on. After #399 that is
 # ``/classes/teach/classes/<pk>/…`` for everyone — the old ``/classes/admin/<pk>/`` pages
@@ -79,8 +78,9 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "classes_catalog_active_class": _classes_catalog_active_class(request, admin_nav_active, teach_nav),
         # The guest menu and the kiln pages' way back (#691); no query.
         "kiln_nav": KilnNav(member),
-        # Lazy as well (#709): the Spotlight's one query runs only when a page renders it.
-        "spotlight": SimpleLazyObject(partial(_spotlight, member)) if can_vote(member) else None,
+        # Lazy as well (#709): the Spotlight's two queries run only when a page renders it, once per request.
+        # Who sees it: hub.spotlight.sees_spotlight (members, not guests or former members).
+        "spotlight": SimpleLazyObject(partial(request_spotlight, request)) if shows_spotlight(request) else None,
         # The Holiday Bizarre entry: one query, run only when the sidebar renders it.
         "hq_nav": SimpleLazyObject(partial(_hq_nav, request, member)),
     }
@@ -104,9 +104,24 @@ def _hq_nav(request: HttpRequest, member: Member | None) -> bool:
     return HubCard.objects.filter(hub__is_open=True).open_to(viewer).exists()
 
 
-def _spotlight(member: Member | None) -> Spotlight:
-    """The Spotlight as ``member`` sees it now (#709)."""
-    return Spotlight.load(member, timezone.now())
+def _spotlight() -> Spotlight:
+    """The Spotlight now (#709); every member sees the same one."""
+    return Spotlight.load(timezone.now())
+
+
+def shows_spotlight(request: HttpRequest) -> bool:
+    """Whether this request's pages carry the Spotlight: a signed in account that :func:`hub.spotlight.sees_spotlight` lets in."""
+    user = getattr(request, "user", None)
+    return bool(getattr(user, "is_authenticated", False)) and sees_spotlight(getattr(user, "member", None))
+
+
+def request_spotlight(request: HttpRequest) -> Spotlight:
+    """This request's Spotlight, read once however many places ask: Home's banner shares its announcements (#890)."""
+    cached: Spotlight | None = getattr(request, "_pl_spotlight", None)
+    if cached is None:
+        cached = _spotlight()
+        request._pl_spotlight = cached  # type: ignore[attr-defined]
+    return cached
 
 
 def _classes_admin_nav_active(request: HttpRequest) -> bool:

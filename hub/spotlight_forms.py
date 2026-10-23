@@ -1,4 +1,4 @@
-"""Forms for Admin Tools > Spotlight (#708): the Spotlight text and meeting, and a new poll."""
+"""Forms for Admin Tools > Spotlight (#708): the Spotlight text and meeting, and the announcements (#889)."""
 
 from __future__ import annotations
 
@@ -14,16 +14,6 @@ from core.models import Announcement, SiteConfiguration
 from core.widgets import InlineRichTextWidget
 from hub.forms import _meeting_time_label, half_hour_time_choices
 from membership.models import CommunityEvent
-from polls.models import (
-    ANSWER_MAX_LENGTH,
-    DEFAULT_DAYS,
-    MAX_CHOICES,
-    MAX_DAYS,
-    MIN_CHOICES,
-    MIN_DAYS,
-    QUESTION_MAX_LENGTH,
-    Poll,
-)
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -54,6 +44,16 @@ class SpotlightTextForm(forms.ModelForm):
             "spotlight_show_when_empty",
         ]
         field_classes = {"spotlight_meeting_event": MeetingEventChoiceField}
+        # The model's own copy still names the poll, which left the Spotlight in #890; the form
+        # says what members see now, without a migration that would only rewrite help text.
+        labels = {"spotlight_show_when_empty": "Show the Spotlight when there is no announcement and no meeting"}
+        help_texts = {
+            "spotlight_first_line": "Empty uses the first announcement, else the latest update.",
+            "spotlight_show_when_empty": (
+                "On: members see the version, its latest update and Details. "
+                "Off: the corner goes back to the logo and version number."
+            ),
+        }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -77,59 +77,6 @@ class SpotlightTextForm(forms.ModelForm):
         # to any other setting.
         config.save(update_fields=fields)
         return config
-
-
-class NewPollForm(forms.Form):
-    """A question, two to six answers and how many days it stays open.
-
-    The answers arrive as repeated ``choice`` inputs (the page's + Add choice list), so they
-    are read from the raw data rather than declared as fields.
-    """
-
-    question = forms.CharField(max_length=QUESTION_MAX_LENGTH, label="Question")
-    days = forms.IntegerField(
-        min_value=MIN_DAYS,
-        max_value=MAX_DAYS,
-        initial=DEFAULT_DAYS,
-        label="Expires after",
-        help_text=f"Days, {MIN_DAYS} to {MAX_DAYS}. Posting opens the poll now.",
-    )
-    close_current = forms.BooleanField(required=False, widget=forms.HiddenInput)
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        data = cast("QueryDict", self.data)
-        self.choices: list[str] = [text.strip() for text in data.getlist("choice")] if self.is_bound else []
-
-    def clean(self) -> dict[str, Any]:
-        cleaned = cast(dict[str, Any], super().clean())
-        if any(not text for text in self.choices):
-            self.add_error(None, "Fill in every answer, or remove the empty one.")
-        elif len(self.choices) < MIN_CHOICES:
-            self.add_error(None, f"A poll needs at least {MIN_CHOICES} answers.")
-        elif len(self.choices) > MAX_CHOICES:
-            self.add_error(None, f"A poll can have at most {MAX_CHOICES} answers.")
-        elif any(len(text) > ANSWER_MAX_LENGTH for text in self.choices):
-            self.add_error(None, f"Keep each answer to {ANSWER_MAX_LENGTH} characters or fewer.")
-        elif len({text.casefold() for text in self.choices}) < len(self.choices):
-            self.add_error(None, "Two answers are the same. Make each one different.")
-        return cleaned
-
-    def post(self, *, by: User, now: datetime) -> Poll:
-        """Open the poll; raises ``PollAlreadyOpenError`` when one is open and not asked to close."""
-        return Poll.post(
-            question=self.cleaned_data["question"],
-            choices=self.choices,
-            days=self.cleaned_data["days"],
-            by=by,
-            now=now,
-            close_current=self.cleaned_data["close_current"],
-        )
-
-    @property
-    def rows(self) -> list[str]:
-        """The answer boxes to show: what was typed, or two empty ones on a fresh form."""
-        return self.choices or [""] * MIN_CHOICES
 
 
 ANNOUNCEMENT_EMPTY = "Write the announcement first."

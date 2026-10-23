@@ -5375,6 +5375,42 @@ FAILED_PAYMENT_CANCEL_REASON = "The delayed payment for this signup did not go t
 
 
 class RegistrationQuerySet(models.QuerySet["Registration"]):
+    def with_class_dates_in(self, start: date_type | None, end: date_type | None) -> "RegistrationQuerySet":
+        """Registrations whose class runs on a day from ``start`` through ``end``, inclusive (#911).
+
+        Days are the site's (Pacific) calendar days. A scheduled class is in range when one of
+        its sessions starts on such a day. A flexible class has no sessions to count, so it is
+        in range when its booking window overlaps the range, a blank end of the window being
+        open on that side. A flexible class with no window at all has no class date anywhere,
+        so it counts by the registration's own day: when payment confirmed, else when it was
+        made. Either bound may be ``None`` (open on that side); with neither, every row is
+        returned.
+        """
+        if start is None and end is None:
+            return self
+        zone = timezone.get_default_timezone()
+        flexible = Q(class_offering__scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
+        no_window = Q(class_offering__flexible_starts_on__isnull=True, class_offering__flexible_ends_on__isnull=True)
+        sessions = ClassSession.objects.filter(class_offering=OuterRef("class_offering"))
+        window = flexible & ~no_window
+        booked = Q()
+        if start is not None:
+            first_moment = datetime.combine(start, datetime.min.time(), tzinfo=zone)
+            sessions = sessions.filter(starts_at__gte=first_moment)
+            window &= Q(class_offering__flexible_ends_on__isnull=True) | Q(class_offering__flexible_ends_on__gte=start)
+            booked &= Q(registration_day__gte=first_moment)
+        if end is not None:
+            day_after = datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=zone)
+            sessions = sessions.filter(starts_at__lt=day_after)
+            window &= Q(class_offering__flexible_starts_on__isnull=True) | Q(
+                class_offering__flexible_starts_on__lte=end
+            )
+            booked &= Q(registration_day__lt=day_after)
+        scheduled = Exists(sessions) & ~flexible
+        return self.alias(registration_day=Coalesce("confirmed_at", "registered_at")).filter(
+            window | scheduled | (flexible & no_window & booked)
+        )
+
     def seat_holding(self) -> "RegistrationQuerySet":
         """Rows still occupying a place: confirmed, pending payment, or waitlisted."""
         return self.filter(status__in=SEAT_HOLDING_REGISTRATION_STATUSES)
