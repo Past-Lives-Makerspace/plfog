@@ -4,7 +4,8 @@ Home renders the code twice: a compact box in the header beside the title from 1
 card under the quick links below that; CSS shows exactly one. Either starts masked on every load:
 tapping it reveals the code, tapping again hides it, and the keyboard does the same. An admin sets
 a code through Change at desktop and phone width. A revealed 20 character code pushes nothing
-sideways at any width, and at 1280px the header box stays on the greeting's row. The repo is
+sideways at any width, and at 1280px the header box stays on the greeting's row. From 1200px the
+box is as tall as the title column, so Show me around ends level with its bottom. The repo is
 public, so every code is an obviously fake value. Run with ``pytest -m e2e`` on PostgreSQL.
 """
 
@@ -201,3 +202,24 @@ def it_keeps_the_header_box_on_the_greetings_row_at_1280(page, live_server, logi
     assert box["y"] < description["y"]
     assert box["x"] >= title["x"] + 1
     assert box["x"] >= description["x"] + description["width"] - 1
+
+
+@pytest.mark.parametrize("width", [1200, 1366, 1440, 1920])
+def it_lines_show_me_around_up_with_the_bottom_of_the_header_box(page, live_server, login_via_code, width):
+    _set_code("4242#")
+    _sign_in(login_via_code, f"door-align-{width}-e2e@example.com", fog_role=Member.FogRole.ADMIN)
+    _home(page, live_server, width)
+
+    header = page.locator(".hub-page-header")
+    row = header.bounding_box()
+    description = header.locator("p.hub-text-muted").first.bounding_box()
+    tour = header.get_by_role("link", name="Show me around").bounding_box()
+    box = page.locator(HEADER).bounding_box()
+    assert row is not None
+    assert description is not None
+    assert tour is not None
+    assert box is not None
+    # The description stays on one line, and the two sides share a top and a bottom edge.
+    assert description["height"] < 30
+    assert abs(box["y"] - row["y"]) <= 0.5
+    assert abs((tour["y"] + tour["height"]) - (box["y"] + box["height"])) <= 0.5

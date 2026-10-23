@@ -2,5 +2,5 @@ bump = "patch"
 date = "2026-10-20"
 title = "Show me around moves under the Home welcome"
 changes = [
-  "On Home, the Show me around button now sits on its own line under the welcome message instead of beside the door code.",
+  "On Home, the Show me around button now sits under the welcome message instead of beside the door code. On a computer screen the welcome fits on one line and the door code box lines up with it top and bottom.",
 ]

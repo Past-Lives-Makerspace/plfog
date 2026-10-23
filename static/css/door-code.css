@@ -27,18 +27,35 @@
 }
 @media (min-width: 1200px) {
     .pl-door-code--header {
-        display: block;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
     }
     .pl-door-code--card {
         display: none;
     }
-    /* Keep the box beside the title: the greeting and description narrow instead of wrapping. */
+    /* Keep the box beside the title, and make the two sides one height: the box stretches to the
+       title column, and Show me around sits at the column's foot, level with the box's bottom. */
     .hub-page-header:has(.pl-home-header-actions) {
         flex-wrap: nowrap !important;
+        align-items: stretch !important;
     }
     .hub-page-header:has(.pl-home-header-actions) > div:first-child {
+        display: flex;
+        flex-direction: column;
         flex: 1 1 0;
         min-width: 0;
+    }
+    /* The description stays on one line beside the box rather than wrapping at 65 characters. */
+    .hub-page-header:has(.pl-home-header-actions) > div:first-child > p {
+        max-width: none !important;
+    }
+    .hub-page-header:has(.pl-home-header-actions) .pl-home-tour-link {
+        margin-top: auto;
+        padding-top: 1rem;
+    }
+    .pl-home-header-actions {
+        align-items: stretch;
     }
 }
 
