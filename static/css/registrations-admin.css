@@ -1,0 +1,99 @@
+/* Manage All Classes > Registrations (#911): the filter toolbar and the totals line.
+   The fields sit in one grid (one column on a phone, two from 640px, three from 1100px),
+   the class date pair keeps its two inputs side by side at every width, and the bar under
+   the grid holds Apply and My Classes on the left and the admin actions on the right. */
+
+.pl-reg-toolbar {
+    margin-bottom: 1rem;
+}
+
+.pl-reg-toolbar__filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem 1rem;
+    align-items: start;
+}
+
+/* The grid owns the spacing: no form group adds its own bottom margin here. */
+.pl-reg-toolbar__filters .pl-form-group {
+    margin-bottom: 0;
+    min-width: 0;
+}
+
+/* One height for every control, so a select and a date input in the same row line up. */
+.pl-reg-toolbar__filters input,
+.pl-reg-toolbar__filters select {
+    min-height: 2.25rem;
+}
+
+.pl-reg-toolbar__dates {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 1rem;
+    align-items: start;
+}
+
+.pl-reg-toolbar__dates input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    cursor: pointer;
+}
+
+[data-theme="light"] .pl-reg-toolbar__dates input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: none;
+}
+
+/* Two columns from 640px and three from 1100px. The date pair spans two, so an admin's
+   six fields fill the grid with no gap: Search, Status / Class, Instructor / From, To, and
+   at three columns Search, Status, Class / Instructor, From, To. */
+@media (min-width: 640px) {
+    .pl-reg-toolbar__filters {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .pl-reg-toolbar__dates {
+        grid-column: span 2;
+    }
+}
+
+@media (min-width: 1100px) {
+    .pl-reg-toolbar__filters {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+.pl-reg-toolbar__bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+    margin-top: 1rem;
+}
+
+.pl-reg-toolbar__group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+}
+
+/* My Classes and its ? stay together on one line. */
+.pl-reg-toolbar__mine {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.pl-reg-totals {
+    margin: 1rem 0 0.75rem;
+    font-size: 0.875rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-reg-totals strong {
+    color: var(--hub-text);
+}
+
+.pl-reg-totals__sep {
+    margin: 0 0.5rem;
+}

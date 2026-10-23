@@ -5375,6 +5375,32 @@ FAILED_PAYMENT_CANCEL_REASON = "The delayed payment for this signup did not go t
 
 
 class RegistrationQuerySet(models.QuerySet["Registration"]):
+    def with_class_dates_in(self, start: date_type | None, end: date_type | None) -> "RegistrationQuerySet":
+        """Registrations whose class runs on a day from ``start`` through ``end``, inclusive (#911).
+
+        Days are the site's (Pacific) calendar days. A scheduled class is in range when one of
+        its sessions starts on such a day. A flexible class has no sessions to count, so it is
+        in range when its booking window overlaps the range; a blank end of the window is open
+        on that side, so a flexible class with no window at all matches every range. Either
+        bound may be ``None`` (open on that side); with neither, every row is returned.
+        """
+        if start is None and end is None:
+            return self
+        zone = timezone.get_default_timezone()
+        sessions = ClassSession.objects.filter(class_offering=OuterRef("class_offering"))
+        window = Q(class_offering__scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
+        if start is not None:
+            sessions = sessions.filter(starts_at__gte=datetime.combine(start, datetime.min.time(), tzinfo=zone))
+            window &= Q(class_offering__flexible_ends_on__isnull=True) | Q(class_offering__flexible_ends_on__gte=start)
+        if end is not None:
+            day_after = datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=zone)
+            sessions = sessions.filter(starts_at__lt=day_after)
+            window &= Q(class_offering__flexible_starts_on__isnull=True) | Q(
+                class_offering__flexible_starts_on__lte=end
+            )
+        scheduled = Exists(sessions) & ~Q(class_offering__scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
+        return self.filter(window | scheduled)
+
     def seat_holding(self) -> "RegistrationQuerySet":
         """Rows still occupying a place: confirmed, pending payment, or waitlisted."""
         return self.filter(status__in=SEAT_HOLDING_REGISTRATION_STATUSES)

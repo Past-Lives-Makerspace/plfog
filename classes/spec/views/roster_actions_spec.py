@@ -531,12 +531,15 @@ def describe_admin_registrations_instructor_filter():
         assert "mine@example.com" in content
         assert "other@example.com" not in content
 
-    def it_styles_the_filter_controls_with_the_shared_theme_class(admin_user, client):
-        # Rule 13: no inline background/color on controls — the filter bar's
-        # selects share one pl- class with theme tokens.
+    def it_styles_the_filter_controls_through_the_themed_form_group(admin_user, client):
+        # Rule 13: no inline background/color on controls. Since #911 each filter select
+        # sits in a .pl-form-group, which styles it with the theme's input tokens.
+        import re
+
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_registrations")).content.decode()
-        assert content.count('class="pl-admin-control"') >= 3  # status, class, instructor
+        wrapped = re.findall(r'<div class="pl-form-group">\s*<label[^>]*>[^<]*</label>\s*<select', content)
+        assert len(wrapped) == 3  # status, class, instructor
 
     def it_ignores_a_bogus_instructor_value(admin_user, client):
         client.force_login(admin_user)

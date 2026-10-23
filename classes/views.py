@@ -117,6 +117,7 @@ from classes.forms import (
     RegistrationQuestionForm,
     InstructorInquiryAddForm,
     InstructorInquiryFilterForm,
+    RegistrationDateRangeForm,
     TeachingApplicationForm,
     parse_gallery_focus,
     build_class_faq_formset,
@@ -1590,13 +1591,16 @@ def _scoped_registrations(request: HttpRequest) -> QuerySet[Registration]:
 
 
 def _filter_registrations(request: HttpRequest, qs: QuerySet[Registration]) -> QuerySet[Registration]:
-    """Apply the optional ``status``, ``class``, ``instructor``, and ``mine`` GET filters.
+    """Apply the optional ``status``, ``class``, ``instructor``, ``mine``, ``start`` and ``end`` GET filters.
 
     ``instructor`` mirrors the ``admin_classes`` pattern: validated as an int and
     silently ignored when bogus. ``mine=1`` narrows to registrations of classes the
-    real logged-in user teaches or authored (via ``ClassOffering.hosted_by``). The
-    CSV export reuses this, so every filter — including ``mine`` — applies there for free.
+    real logged-in user teaches or authored (via ``ClassOffering.hosted_by``). ``start``
+    and ``end`` are the class date range (``RegistrationDateRangeForm``, #911); a range
+    with an error filters nothing, and the page says why. The CSV export reuses this, so
+    every filter, including ``mine`` and the range, applies there for free.
     """
+    qs = RegistrationDateRangeForm(request.GET).apply(qs)
     status = request.GET.get("status", "")
     if status in Registration.Status.values:
         qs = qs.filter(status=status)
@@ -5458,19 +5462,31 @@ def _granted_instructor_class_pks(request: HttpRequest) -> set[int]:
 @classes_registrations_access_required
 def admin_registrations(request: HttpRequest) -> HttpResponse:
     scoped = _scoped_registrations(request)
+    filtered = _filter_registrations(request, scoped)
+    search_fields = ["first_name", "last_name", "email", "class_offering__title"]
     # The Class Date column and its sort: the class's sessions, the same span the admin
     # Classes list shows as Date(s). Annotated here rather than in _filter_registrations so
     # the CSV export keeps its own columns.
-    rows = _filter_registrations(request, scoped).annotate(
+    rows = filtered.annotate(
         class_first_session=Min("class_offering__sessions__starts_at"),
         class_last_session=Max("class_offering__sessions__starts_at"),
     )
     table = prepare_table(
         request,
         rows,
-        search_fields=["first_name", "last_name", "email", "class_offering__title"],
+        search_fields=search_fields,
         default_sort="registered_at",
         default_dir="desc",
+    )
+    # The totals line (#911): every filtered row, not just this page, in one query.
+    totals = table_search(filtered, table["q"], search_fields).aggregate(
+        count=Count("pk"), paid_cents=Coalesce(Sum("amount_paid_cents"), 0)
+    )
+    date_form = RegistrationDateRangeForm(request.GET)
+    report_start, report_end = date_form.payment_report_window(timezone.localdate())
+    payment_report_query = QueryDict(mutable=True)
+    payment_report_query.update(
+        {"tab": "reconciliation", "start": report_start.isoformat(), "end": report_end.isoformat()}
     )
     class_options = ClassOffering.objects.filter(registrations__in=scoped).distinct().order_by("title")
 
@@ -5526,6 +5542,9 @@ def admin_registrations(request: HttpRequest) -> HttpResponse:
             "mine_active": mine_active,
             "mine_toggle_url": mine_toggle_url,
             "mine_clear_url": mine_clear_url,
+            "date_form": date_form,
+            "totals": totals,
+            "payment_report_url": f"{reverse('billing_admin_dashboard')}?{payment_report_query.urlencode()}",
             **table,
         },
     )
