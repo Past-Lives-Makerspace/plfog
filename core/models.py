@@ -1171,6 +1171,136 @@ class SiteConfiguration(models.Model):
         return self.instructor_discount_codes_enabled and self.instructor_discount_codes_need_approval
 
 
+class AnnouncementOrderChangedError(ValueError):
+    """A reorder that does not name every announcement exactly once: the admin's page is out of date."""
+
+
+class AnnouncementQuerySet(models.QuerySet["Announcement"]):
+    """Query helpers for the Home banner and Admin Tools > Spotlight (#889)."""
+
+    def in_order(self) -> AnnouncementQuerySet:
+        """The admin's order: ``position``, then newest first, so a new one leads until it is moved."""
+        return self.order_by("position", "-created_at", "-pk")
+
+    def live(self, now: datetime) -> AnnouncementQuerySet:
+        """The ones members see at ``now``: on, begun (or no start) and not yet ended (or no end), in order."""
+        return (
+            self.filter(is_active=True)
+            .filter(models.Q(show_from__isnull=True) | models.Q(show_from__lte=now))
+            .filter(models.Q(show_until__isnull=True) | models.Q(show_until__gt=now))
+            .in_order()
+        )
+
+
+class Announcement(models.Model):
+    """A short notice an admin posts for every member, shown in the banner at the top of Home (#889).
+
+    Written in Admin Tools > Spotlight. The body is rich text (bold, italic and links), stored as
+    sanitized HTML of at most :data:`core.html_sanitize.ANNOUNCEMENT_MAX_CHARS` visible
+    characters. It shows while it is on and between its optional ``show_from`` and
+    ``show_until``; the live ones rotate in the admins' order. Nothing is ever sent: an
+    announcement is shown, not emailed, pushed or posted.
+    """
+
+    class Status(models.TextChoices):
+        LIVE = "live", "Live"
+        SCHEDULED = "scheduled", "Scheduled"
+        ENDED = "ended", "Ended"
+        OFF = "off", "Off"
+
+    body = models.TextField(
+        help_text="Sanitized rich text HTML (bold, italic, links and line breaks), at most 160 visible characters.",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Off hides it from Home whatever its dates say.",
+    )
+    show_from = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When it starts showing on Home. Empty shows it at once.",
+    )
+    show_until = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When it stops showing on Home. Empty keeps it until an admin turns it off.",
+    )
+    position = models.PositiveIntegerField(
+        default=0,
+        help_text="Its place in the banner's rotation, set by dragging in Admin Tools > Spotlight. Lower shows first.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was added.")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="site_announcements",
+        help_text="The admin who added it.",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="Its last save. Part of the banner's signature, so an edit brings a closed banner back.",
+    )
+
+    objects = AnnouncementQuerySet.as_manager()
+
+    def __str__(self) -> str:
+        return self.text[:60]
+
+    @property
+    def text(self) -> str:
+        """The visible words, tags gone and entities decoded: what the 160 limit counts."""
+        from core.html_sanitize import rich_html_to_text
+
+        return rich_html_to_text(self.body)
+
+    @property
+    def body_html(self) -> str:
+        """The body for a page, sanitized again on the way out."""
+        from django.utils.safestring import mark_safe
+
+        from core.html_sanitize import sanitize_announcement_html
+
+        return mark_safe(sanitize_announcement_html(self.body))  # noqa: S308  # sanitized just above
+
+    def status(self, now: datetime) -> Announcement.Status:
+        """Live, Scheduled, Ended or Off at ``now``, by the same rule as :meth:`AnnouncementQuerySet.live`."""
+        if not self.is_active:
+            return self.Status.OFF
+        if self.show_until is not None and self.show_until <= now:
+            return self.Status.ENDED
+        if self.show_from is not None and self.show_from > now:
+            return self.Status.SCHEDULED
+        return self.Status.LIVE
+
+    @classmethod
+    def reorder(cls, pks: list[int]) -> None:
+        """Put every announcement at its index in ``pks``.
+
+        Saved with ``bulk_update``, so ``updated_at`` stays put: a new order is not a new set, and
+        a member who closed the banner keeps it closed.
+
+        Raises:
+            AnnouncementOrderChangedError: ``pks`` does not name every announcement exactly once.
+        """
+        rows = {row.pk: row for row in cls.objects.all()}
+        if len(pks) != len(set(pks)) or set(pks) != set(rows):
+            raise AnnouncementOrderChangedError("The list changed since this page loaded. Reload it and try again.")
+        for index, pk in enumerate(pks):
+            rows[pk].position = index
+        cls.objects.bulk_update(rows.values(), ["position"])
+
+    @staticmethod
+    def signature(rows: list[Announcement]) -> str:
+        """The banner's identity: each row's id and last save, by id, so a new order alone keeps it.
+
+        A member's Close keeps this; any new, edited, ended or begun announcement changes it, so
+        the banner comes back.
+        """
+        return ",".join(f"{row.pk}:{row.updated_at.timestamp():.6f}" for row in sorted(rows, key=lambda row: row.pk))
+
+
 class CalendarFeed(models.Model):
     """A named iCal feed displayed on the Calendar.
 

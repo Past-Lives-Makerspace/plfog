@@ -1,0 +1,36 @@
+{% comment %}
+One row of Admin Tools > Spotlight's Announcements section (#889), built by hub.announcement_admin_views.AnnouncementRow:
+the grip and the up and down buttons (the Slideshow's reorder controls, saved at once by the section's script), the text
+as members see it, the status chip and the dates, the on and off switch (saves at once over htmx and swaps this row back
+with its new status), Edit and Delete (the section's confirm modal for this row). The toggle's answer renders this
+partial alone.
+
+  row — an AnnouncementRow
+{% endcomment %}
+{% with announcement=row.announcement announcement_short=row.announcement.text|truncatechars:40 %}
+<li class="pl-slide-card pl-ann-admin__row" data-announcement-row="{{ announcement.pk }}">
+  <span class="pl-slide-grip pl-ann-admin__grip" draggable="true" aria-hidden="true">⠿</span>
+  <div class="pl-ann-admin__main">
+    <div class="pl-ann-admin__text pl-ann-body" data-announcement-text>{{ announcement.body_html }}</div>
+    <p class="pl-ann-admin__meta">
+      <span class="hub-pill hub-pill--{{ row.tone }}" data-announcement-status="{{ row.status }}">{{ row.status.label }}</span>
+      <span class="hub-text-muted" data-announcement-dates>{{ row.dates }}</span>
+    </p>
+  </div>
+  <div class="pl-ann-admin__actions">
+    <form class="pl-ann-admin__switch" hx-post="{% url 'hub_admin_announcement_toggle' announcement.pk %}" hx-trigger="change" hx-target="closest [data-announcement-row]" hx-swap="outerHTML" data-announcement-toggle>
+      {% csrf_token %}
+      {# A name per row for screen readers; its visible copy is hidden in CSS, the status chip says the same. #}
+      {% with switch_label="Show on Home: "|add:announcement_short %}
+      {% include "components/toggle.html" with field=row.active_form.is_active toggle_label=switch_label %}
+      {% endwith %}
+    </form>
+    <span class="pl-slide-move" role="group" aria-label="Reorder announcement">
+      <button type="button" class="pl-slide-move__btn" data-move="up" aria-label="Move announcement up">↑</button>
+      <button type="button" class="pl-slide-move__btn" data-move="down" aria-label="Move announcement down">↓</button>
+    </span>
+    <a href="{% url 'hub_admin_announcement_edit' announcement.pk %}" class="pl-btn pl-btn--secondary pl-btn--sm" data-announcement-edit>Edit</a>
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'delete-announcement-{{ announcement.pk }}')" data-announcement-delete>Delete</button>
+  </div>
+</li>
+{% endwith %}

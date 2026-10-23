@@ -1,0 +1,321 @@
+/* home-announcements.css: the Home announcements (#889). First the banner at the very top of Home
+   (templates/hub/partials/_home_announcements.html): a tinted card with a gold edge, a megaphone, the
+   text and a close button; with two or more announcements it is a plRotator, whose slides, fade and
+   reduced-motion rules come from home-featured.css (loaded beside this file on Home). Here its dots and
+   pause sit along the foot under the text, the previous and next arrows at the foot's right end, and
+   the time bar along the banner's bottom edge. Then Admin Tools > Spotlight's Announcements section
+   (templates/hub/admin/spotlight.html, its rows in hub/admin/_announcement_row.html, which reuse
+   hub.css's Slideshow reorder controls) and the add and edit page (hub/admin/announcement_form.html). */
+
+/* ---- The banner ---- */
+
+.pl-home-ann {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+    padding: 0.75rem 0.5rem 0.75rem 1rem;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--color-tuscan-yellow) 35%, var(--hub-border));
+    border-left: 4px solid var(--color-tuscan-yellow);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--color-tuscan-yellow) 9%, var(--hub-card-bg));
+}
+
+/* With controls the foot row closes the banner, so it brings its own space. */
+.pl-home-ann--many {
+    padding-bottom: 0;
+}
+
+.pl-home-ann__icon {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--color-tuscan-yellow) 22%, transparent);
+    color: var(--hub-link);
+}
+
+/* The arrows and the time bar are placed against the whole banner, not the text column. */
+.pl-home-ann .pl-home-ann__stage {
+    position: static;
+    min-width: 0;
+}
+
+.pl-home-ann__body {
+    padding-top: 0.25rem;
+    color: var(--hub-text);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+/* The announcement's own rich text, on the banner and in the admin rows. */
+.pl-ann-body p + p {
+    margin-top: 0.5rem;
+}
+
+.pl-ann-body strong {
+    font-weight: 700;
+}
+
+.pl-ann-body a {
+    color: var(--hub-link);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.pl-home-ann__close {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+}
+
+.pl-home-ann__close:hover {
+    background: color-mix(in srgb, var(--hub-text) 10%, transparent);
+    color: var(--hub-text);
+}
+
+.pl-home-ann__close:focus-visible {
+    outline: 2px solid var(--color-tuscan-yellow);
+    outline-offset: 2px;
+}
+
+/* The foot row: dots and pause under the text; the overlay is the same strip, holding the arrows at its right end. */
+.pl-home-ann .pl-rotator__nav {
+    justify-content: flex-start;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+}
+
+.pl-home-ann .pl-rotator__overlay {
+    top: auto;
+    bottom: 0;
+    height: 2.75rem;
+    aspect-ratio: auto;
+}
+
+.pl-home-ann .pl-rotator__arrow {
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 1px solid var(--hub-border-strong);
+    background: transparent;
+    color: var(--hub-text-muted);
+}
+
+.pl-home-ann .pl-rotator__arrow:hover {
+    background: var(--hub-elevated);
+    color: var(--hub-text);
+}
+
+.pl-home-ann .pl-rotator__arrow--prev {
+    right: 3rem;
+    left: auto;
+}
+
+.pl-home-ann .pl-rotator__arrow--next {
+    right: 0.75rem;
+}
+
+.pl-home-ann .pl-rotator__track {
+    height: 2px;
+    background: color-mix(in srgb, var(--color-tuscan-yellow) 20%, transparent);
+}
+
+@media (max-width: 480px) {
+    .pl-home-ann {
+        gap: 0.5rem;
+        padding-left: 0.75rem;
+    }
+
+    .pl-home-ann__icon {
+        width: 1.75rem;
+        height: 1.75rem;
+    }
+
+    .pl-home-ann__body {
+        padding-top: 0.125rem;
+    }
+}
+
+/* ---- Admin Tools > Spotlight: the Announcements section ---- */
+
+.pl-ann-admin__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+}
+
+.pl-ann-admin__intro {
+    font-size: 0.875rem;
+}
+
+.pl-ann-admin__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* .pl-slide-card (hub.css) brings the drag states; the row lays itself out. */
+.pl-ann-admin__row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 10px;
+    background: var(--hub-surface);
+}
+
+.pl-ann-admin__main {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.pl-ann-admin__text {
+    color: var(--hub-text);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.pl-ann-admin__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    font-size: 0.8125rem;
+}
+
+.pl-ann-admin__actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+/* The switch alone, without the toggle row's padding and rule. Its row specific label stays as the
+   switch's screen reader name (toggle.html's sr-only span); the visible copy would repeat the row's text. */
+.pl-ann-admin__switch .pl-toggle-row {
+    padding: 0;
+    border-bottom: 0;
+}
+
+.pl-ann-admin__switch .pl-toggle-info {
+    display: none;
+}
+
+/* The shared Live and Scheduled pills are pale on the light theme (1.2:1 and 1.4:1 on this row), so the
+   section takes the darker values other light pages use. Neutral already reads the light muted token. */
+[data-theme="light"] .pl-ann-admin .hub-pill--ok {
+    color: #1f7a52;
+}
+
+[data-theme="light"] .pl-ann-admin .hub-pill--primary {
+    color: #9c5e0d;
+}
+
+@media (max-width: 640px) {
+    .pl-ann-admin__row {
+        flex-wrap: wrap;
+    }
+
+    .pl-ann-admin__main {
+        flex-basis: calc(100% - 2rem);
+    }
+
+    .pl-ann-admin__actions {
+        justify-content: flex-start;
+        width: 100%;
+    }
+}
+
+/* ---- The add and edit page ---- */
+
+.pl-ann-admin-form {
+    max-width: 760px;
+}
+
+/* 160 characters fit in three lines; the editor's usual 160px would read as asking for an essay. */
+.pl-ann-admin-form .pl-rte-wrap .ql-editor {
+    min-height: 5rem;
+}
+
+.pl-ann-admin-form__count-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+
+.pl-ann-admin-form__count-row .pl-field-hint {
+    margin: 0;
+}
+
+.pl-ann-admin-form__count {
+    flex: 0 0 auto;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.pl-ann-admin-form__count.is-over {
+    color: var(--hub-danger-text);
+    font-weight: 700;
+}
+
+.pl-ann-admin-form__when {
+    display: grid;
+    gap: 0 1.5rem;
+    margin-top: 1.5rem;
+}
+
+.pl-ann-admin-form__pair {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: start;
+}
+
+@media (min-width: 900px) {
+    .pl-ann-admin-form__when {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.pl-ann-admin__date::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    cursor: pointer;
+}
+
+[data-theme="light"] .pl-ann-admin__date::-webkit-calendar-picker-indicator {
+    filter: none;
+}
+
+.pl-ann-admin-form__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
