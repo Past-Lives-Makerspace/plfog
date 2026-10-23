@@ -322,3 +322,21 @@ def describe_push_channel_for():
         valid = {"urgent", "guilds", "classes", "general"}
         for event in all_events():
             assert push_channel_for(event.key) in valid, event.key
+
+
+def describe_digest_context():
+    def _row(event_key: str, url: str) -> EventDelivery:
+        return EventDelivery(event_key=event_key, title="Title", body="Body", url=url)
+
+    def it_names_classes_in_the_subject_when_every_line_is_a_class_review():
+        rows = [_row("class_review_requested", "/a/"), _row("class_validation_requested", "/b/")]
+        assert channels.digest_context(rows)["subject"] == "Action Needed: 2 Classes Awaiting Review"
+
+    def it_says_requests_when_anything_else_rides_along():
+        rows = [_row("class_review_requested", "/a/"), _row("orientation_requested", "/b/")]
+        assert channels.digest_context(rows)["subject"] == "Action Needed: 2 Requests Awaiting You"
+
+    def it_uses_the_singular_for_one_request():
+        assert channels.digest_context([_row("orientation_requested", "/a/")])["subject"] == (
+            "Action Needed: 1 Request Awaiting You"
+        )

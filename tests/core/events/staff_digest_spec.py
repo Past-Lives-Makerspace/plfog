@@ -86,7 +86,7 @@ _next_8am = next_8am
 
 
 def _digests(member: Member) -> list:
-    return [m for m in mail.outbox if m.to == [member.user.email] and "waiting on you" in m.subject]
+    return [m for m in mail.outbox if m.to == [member.user.email] and m.subject.startswith("Action Needed: ")]
 
 
 def _review_emails(member: Member) -> list:
@@ -155,7 +155,7 @@ def describe_the_8am_digest():
         flush_digests(_next_8am())
         for member in (shop.lead, shop.reviewer):
             (digest,) = _digests(member)
-            assert digest.subject == "3 things are waiting on you at Past Lives"
+            assert digest.subject == "Action Needed: 3 Classes Awaiting Review"
             for title in ("Board One", "Board Two", "Board Three"):
                 assert f"Review request: {title}" in digest.body
             assert _review_emails(member) == []
@@ -204,7 +204,7 @@ def describe_a_request_decided_before_8am():
         (digest,) = _digests(shop.lead)
         assert "Board One" not in digest.body
         assert "Board Two" in digest.body
-        assert digest.subject == "1 thing is waiting on you at Past Lives"
+        assert digest.subject == "Action Needed: 1 Class Awaiting Review"
         assert _bell(shop.lead, first).is_unread is False
         assert _bell(shop.reviewer, first).is_unread is False
         assert _bell(shop.lead, second).is_unread
@@ -256,8 +256,8 @@ def describe_once_a_day():
         assert flush_digests(datetime(2026, 11, 1, 15, 0, tzinfo=UTC)) == {}
         assert len(flush_digests(datetime(2026, 11, 1, 16, 0, tzinfo=UTC))) == 2
         assert [m.subject for m in _digests(shop.lead)] == [
-            "1 thing is waiting on you at Past Lives",
-            "1 thing is waiting on you at Past Lives",
+            "Action Needed: 1 Class Awaiting Review",
+            "Action Needed: 1 Class Awaiting Review",
         ]
 
     def it_never_sends_a_second_digest_on_the_same_pacific_date(shop: _Woodshop):
@@ -309,7 +309,7 @@ def describe_remind_lead():
         _remind(shop, gate)
         flush_digests(_next_8am())
         (digest,) = _digests(shop.lead)
-        assert digest.subject == "1 thing is waiting on you at Past Lives"
+        assert digest.subject == "Action Needed: 1 Class Awaiting Review"
         assert "Reminded by Alex Eason" in digest.body
 
     def it_names_the_instructors_when_the_account_has_no_member():

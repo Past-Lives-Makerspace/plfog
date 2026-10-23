@@ -580,6 +580,11 @@ class DigestAdapter:
         return True
 
 
+# A morning email holding only class reviews says so in its subject; anything else
+# queued alongside them falls back to the general wording.
+CLASS_REVIEW_EVENTS = frozenset({"class_review_requested", "class_validation_requested"})
+
+
 def digest_context(rows: list[EventDelivery]) -> dict[str, object]:
     """The staff digest template context for ``rows``, oldest first.
 
@@ -595,9 +600,14 @@ def digest_context(rows: list[EventDelivery]) -> dict[str, object]:
         line = {"title": row.title, "body": row.body, "url": row.url}
         sections.setdefault(get_event(row.event_key).label, []).append(line)
     count = len(newest_by_url)
-    noun = "thing is" if count == 1 else "things are"
+    if {row.event_key for row in newest_by_url.values()} <= CLASS_REVIEW_EVENTS:
+        noun = "Class" if count == 1 else "Classes"
+        subject = f"Action Needed: {count} {noun} Awaiting Review"
+    else:
+        noun = "Request" if count == 1 else "Requests"
+        subject = f"Action Needed: {count} {noun} Awaiting You"
     return {
-        "subject": f"{count} {noun} waiting on you at Past Lives",
+        "subject": subject,
         "count": count,
         "sections": [{"label": label, "lines": lines} for label, lines in sections.items()],
     }
