@@ -31,6 +31,7 @@ from django.db.models import (
     Max,
     OuterRef,
     Q,
+    Subquery,
     Value,
     When,
 )
@@ -376,6 +377,28 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             )
             .order_by(F("first_session_at").asc(nulls_last=True), "title")
             .distinct()
+        )
+
+    def featurable(self) -> "ClassOfferingQuerySet":
+        """The classes Home may feature (#888): :meth:`bookable` ones with a session still to come.
+
+        The catalog's set, narrowed to a class whose next session has not started, because the
+        featured card names that session's date and time: a flexible class with no session row
+        yet has none to name. Each row carries ``next_session_at``, the start of that session,
+        and the category is joined for the card's picture (:attr:`ClassOffering.card_photo_url`).
+        Ordered by pk, so a random offset into it picks one row (``hub.home``).
+        """
+        next_start = (
+            ClassSession.objects.filter(class_offering=OuterRef("pk"), starts_at__gt=timezone.now())
+            .order_by("starts_at")
+            .values("starts_at")[:1]
+        )
+        return (
+            ClassOffering.objects.filter(pk__in=self.bookable().values("pk"))
+            .annotate(next_session_at=Subquery(next_start))
+            .filter(next_session_at__isnull=False)
+            .select_related("category")
+            .order_by("pk")
         )
 
     def registration_open(self) -> "ClassOfferingQuerySet":
@@ -3237,6 +3260,20 @@ class ClassOffering(HeroCropMixin, models.Model):
         if self.hero_cropped:
             return self.hero_cropped.url
         return self.hero_source_url
+
+    @property
+    def card_photo_url(self) -> str:
+        """The photo a catalog card shows: :attr:`hero_image_url`, else the category's hero, else ``""``.
+
+        One rule for every card that pictures a class: the catalog (``_class_card_media.html``,
+        whose own photo branch adds the crop position and the composer's live bindings) and the
+        Featured Class on Home (#888). With ``""`` the card has no picture of the class at all.
+        """
+        if self.hero_image_url:
+            return self.hero_image_url
+        if self.category.hero_image:
+            return str(self.category.hero_image.url)
+        return ""
 
     @property
     def is_demo(self) -> bool:

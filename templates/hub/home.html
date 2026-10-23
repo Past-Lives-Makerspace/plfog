@@ -6,6 +6,8 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/door-code.css' %}">
 <link rel="stylesheet" href="{% static 'css/tour-banner.css' %}">
+<link rel="stylesheet" href="{% static 'css/home-featured.css' %}">
+<link rel="stylesheet" href="{% static 'css/event-flyer.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -131,6 +133,10 @@
 {# --- Upcoming at Past Lives --- #}
 <div class="hub-card pl-home-block">
     <h2 class="pl-home-heading">Upcoming at Past Lives</h2>
+    {# Featured Class and Featured Event (#888), picked at random on every load; left out when neither has anything to show. #}
+    {% if featured_class or featured_event %}
+    {% include "hub/partials/_home_featured.html" %}
+    {% endif %}
     {% if upcoming %}
     <ul class="pl-upcoming">
         {% for item in upcoming %}

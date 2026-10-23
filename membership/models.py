@@ -7916,6 +7916,19 @@ class CommunityEventQuerySet(models.QuerySet):
         guild_scoped = [CommunityEvent.EventType.GUILD_MEETING, CommunityEvent.EventType.STUDIO_HOURS]
         return self.filter(~Q(event_type__in=guild_scoped) | Q(guild__memberships__member=member)).distinct()
 
+    def featurable_for(self, member: "Member") -> CommunityEventQuerySet:
+        """The events Home may feature for ``member`` (#888): published, upcoming and theirs to see.
+
+        Only a community event or a guild meeting: studio hours and the Guild Lead Meeting are
+        standing business, not something to invite a member to. ``for_member`` joins through
+        guild memberships and so is ``distinct()``; the candidates are re-read by pk, ordered by
+        pk, so a random offset into them picks one row (``hub.home``) with the area the card's
+        place line and the flyer preview name.
+        """
+        featured_types = [CommunityEvent.EventType.COMMUNITY, CommunityEvent.EventType.GUILD_MEETING]
+        visible = self.published().upcoming().for_member(member).filter(event_type__in=featured_types)
+        return CommunityEvent.objects.filter(pk__in=visible.values("pk")).select_related("area").order_by("pk")
+
     def published(self) -> CommunityEventQuerySet:
         """Only events live on the calendar (eligible to push to Google)."""
         return self.filter(moderation_state=CommunityEvent.ModerationState.PUBLISHED)

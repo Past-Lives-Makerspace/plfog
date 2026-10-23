@@ -1,0 +1,135 @@
+/* home-featured.css: the Featured row at the top of Home's Upcoming at Past Lives card (#888,
+   templates/hub/partials/_home_featured.html). A Featured Class and a Featured Event, two equal columns
+   from 768px and stacked below it; one card alone takes the row. Every picture sits in the same 16:9
+   frame, so the two cards' pictures are the same height: a photo covers it, a class with no picture gets a
+   quiet accent block, and an event with no photo shows its flyer (event-flyer.css) scaled to the frame's
+   height on the navy of the flyer's own band. */
+
+.pl-home-featured {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+}
+
+@media (min-width: 768px) {
+    .pl-home-featured--pair {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* The list (or its empty line) under the row clears it; the row is new, so it owns the gap. */
+.pl-home-featured + .pl-upcoming,
+.pl-home-featured + .pl-home-empty {
+    margin-top: 1.5rem;
+}
+
+.pl-home-featured__card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--hub-border);
+    border-radius: 12px;
+    background: var(--hub-surface);
+}
+
+.pl-home-featured__media {
+    display: block;
+    flex: 0 0 auto;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background: var(--hub-elevated);
+}
+
+.pl-home-featured__img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* A class with no picture: a quiet wash in the two accents where the photo would be. */
+.pl-home-featured__accent {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background:
+        radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--color-tuscan-yellow) 26%, transparent), transparent 55%),
+        radial-gradient(circle at 85% 80%, color-mix(in srgb, var(--hub-blue) 24%, transparent), transparent 60%),
+        var(--hub-card-bg);
+}
+
+/* An event with no photo: the whole flyer, as tall as the frame, centred like a poster on a navy deeper than
+   the flyer's own band (#092E4C), with a hairline so the sheet's foot never melts into it. */
+.pl-home-featured__media--flyer {
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0.75rem;
+    background: radial-gradient(circle at 50% 35%, #0d3a5f, #041a2c 75%);
+}
+
+.pl-home-featured__sheet {
+    height: 100%;
+    aspect-ratio: 8.5 / 11;
+    outline: 1px solid rgba(255, 255, 255, 0.35);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    transition: transform 0.15s;
+}
+
+.pl-home-featured__media--flyer:hover .pl-home-featured__sheet {
+    transform: scale(1.03);
+}
+
+.pl-home-featured__body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 1rem 1.25rem 1.25rem;
+}
+
+.pl-home-featured__eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--hub-link);
+}
+
+.pl-home-featured__title {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+.pl-home-featured__title a {
+    color: var(--hub-text);
+    text-decoration: none;
+}
+
+.pl-home-featured__title a:hover {
+    color: var(--hub-link);
+}
+
+.pl-home-featured__when {
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.pl-home-featured__meta {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    overflow-wrap: anywhere;
+}
+
+/* Pushed to the card's foot, so the buttons line up across the pair whatever the text above runs to. */
+.pl-home-featured__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: auto;
+    padding-top: 0.75rem;
+}

@@ -1,0 +1,69 @@
+{% comment %}
+The Featured row at the top of Home's Upcoming at Past Lives card (#888): a Featured Class and a Featured Event,
+picked again at random on every load by hub.home (_featured_class, _featured_event). Two equal columns on wide
+screens, stacked on a phone; with one card it takes the row. Styles in static/css/home-featured.css.
+
+The class card shows the catalog card's picture (ClassOffering.card_photo_url), or a quiet accent block with none.
+The event card shows the event's photo as its page crops it, or else a small live preview of its flyer
+(hub/partials/_event_flyer_sheet.html, scaled in container units as the HQ's Flyer card shows it).
+
+  featured_class — a hub.home.FeaturedClass, or None
+  featured_event — a hub.home.FeaturedEvent, or None
+{% endcomment %}
+<div class="pl-home-featured{% if featured_class and featured_event %} pl-home-featured--pair{% endif %}" data-home-featured>
+  {% if featured_class %}
+  <article class="pl-home-featured__card" data-featured-class>
+    <a class="pl-home-featured__media" href="{{ featured_class.url }}" tabindex="-1">
+      {% if featured_class.photo_url %}
+      <img class="pl-home-featured__img" src="{{ featured_class.photo_url }}" alt="{{ featured_class.title }}" width="640" height="360" loading="lazy" data-featured-position="{{ featured_class.photo_position }}" data-featured-photo>
+      {% else %}
+      <span class="pl-home-featured__accent" aria-hidden="true" data-featured-accent></span>
+      {% endif %}
+    </a>
+    <div class="pl-home-featured__body">
+      <p class="pl-home-featured__eyebrow">Featured Class</p>
+      <h3 class="pl-home-featured__title"><a href="{{ featured_class.url }}">{{ featured_class.title }}</a></h3>
+      <p class="pl-home-featured__when">{{ featured_class.start|date:"D, M j" }} · {{ featured_class.start|date:"g:i A" }}</p>
+      {% if featured_class.instructors %}<p class="pl-home-featured__meta" data-featured-instructors>with {{ featured_class.instructors }}</p>{% endif %}
+      <div class="pl-home-featured__actions">
+        <a href="{{ featured_class.url }}" class="hub-btn hub-btn--sm hub-btn--ghost">View class</a>
+      </div>
+    </div>
+  </article>
+  {% endif %}
+  {% if featured_event %}
+  <article class="pl-home-featured__card" data-featured-event="{{ featured_event.event.pk }}">
+    {% if featured_event.photo_url %}
+    <a class="pl-home-featured__media" href="{{ featured_event.url }}" tabindex="-1">
+      <img class="pl-home-featured__img" src="{{ featured_event.photo_url }}" alt="{{ featured_event.title }}" width="640" height="360" loading="lazy" data-featured-position="{{ featured_event.photo_position }}" data-featured-photo>
+    </a>
+    {% else %}
+    {# No photo: the event's flyer, drawn in container units so it scales into the frame; a tap opens it full size. #}
+    <a class="pl-home-featured__media pl-home-featured__media--flyer" href="{{ featured_event.flyer_url }}" target="_blank" rel="noopener" aria-label="Open the flyer for {{ featured_event.title }}" data-featured-flyer>
+      <div class="pl-home-featured__sheet" aria-hidden="true">
+        {% include "hub/partials/_event_flyer_sheet.html" with event=featured_event.event qr_svg=featured_event.qr_svg preview=True %}
+      </div>
+    </a>
+    {% endif %}
+    <div class="pl-home-featured__body">
+      <p class="pl-home-featured__eyebrow">Featured Event</p>
+      <h3 class="pl-home-featured__title"><a href="{{ featured_event.url }}">{{ featured_event.title }}</a></h3>
+      <p class="pl-home-featured__when">{{ featured_event.start|date:"D, M j" }} · {{ featured_event.start|date:"g:i A" }}</p>
+      {% if featured_event.place %}<p class="pl-home-featured__meta" data-featured-place>{{ featured_event.place }}</p>{% endif %}
+      <div class="pl-home-featured__actions">
+        <a href="{{ featured_event.url }}" class="hub-btn hub-btn--sm hub-btn--ghost">View event</a>
+        <a href="{{ featured_event.flyer_url }}" class="hub-btn hub-btn--sm hub-btn--ghost" target="_blank" rel="noopener" data-featured-flyer-link>Flyer</a>
+      </div>
+    </div>
+  </article>
+  {% endif %}
+</div>
+{# Each photo's crop rides data-featured-position and lands here, so the markup carries no style attribute (FRONTEND rule 9); idempotent, and re-run on every boosted arrival. #}
+<script>
+  (function () {
+    var photos = document.querySelectorAll("[data-featured-position]");
+    for (var i = 0; i < photos.length; i += 1) {
+      photos[i].style.objectPosition = photos[i].getAttribute("data-featured-position");
+    }
+  })();
+</script>

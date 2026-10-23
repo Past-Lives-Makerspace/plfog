@@ -11,12 +11,14 @@ synthetic entries) and ``hub/calendar_service.py`` (orchestration) split query v
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
+from django.db.models import Model, QuerySet
 from django.urls import reverse
 from django.utils import timezone
 
@@ -24,6 +26,8 @@ from membership.models import CalendarEvent, CommunityEvent, GuildAnnouncement
 
 if TYPE_CHECKING:
     from membership.models import Member
+
+_Row = TypeVar("_Row", bound=Model)
 
 # How far out "Your upcoming" looks, and how many rows each section shows.
 UPCOMING_HORIZON_DAYS = 90
@@ -64,6 +68,42 @@ class UpcomingItem:
 
 
 @dataclass(frozen=True)
+class FeaturedClass:
+    """The Featured Class card at the top of Upcoming at Past Lives (#888).
+
+    ``photo_url`` is the catalog card's picture (``ClassOffering.card_photo_url``), ``""`` for
+    a class with none; ``photo_position`` is its crop, as the catalog card frames it.
+    """
+
+    title: str
+    url: str
+    start: datetime_type
+    instructors: str
+    photo_url: str
+    photo_position: str
+
+
+@dataclass(frozen=True)
+class FeaturedEvent:
+    """The Featured Event card at the top of Upcoming at Past Lives (#888).
+
+    ``event`` rides along for the flyer preview (``hub/partials/_event_flyer_sheet.html``),
+    shown in place of a photo when the event has none; ``qr_svg`` is that sheet's QR, made
+    only then. ``start`` is ``CommunityEvent.next_occurrence_start``, the date the flyer prints.
+    """
+
+    event: CommunityEvent
+    title: str
+    url: str
+    flyer_url: str
+    start: datetime_type
+    place: str
+    photo_url: str
+    photo_position: str
+    qr_svg: str
+
+
+@dataclass(frozen=True)
 class GuildShortcut:
     """A guild the member has joined, flagged when they also lead or staff it."""
 
@@ -88,7 +128,70 @@ def build_home_context(member: Member) -> dict[str, Any]:
         "show_onboarding": member.show_onboarding,
         "teaching": _teaching(member),
         "overdue_reviews": _overdue_reviews(member),
+        "featured_class": _featured_class(),
+        "featured_event": _featured_event(member),
     }
+
+
+def _pick_one(candidates: QuerySet[_Row]) -> _Row | None:
+    """One row of ``candidates`` at random, read by the database: a count, then that one row.
+
+    Picked again on every call, so each load of Home can show a different card (#888); no row
+    but the winner is loaded. ``candidates`` must be ordered, so an offset names one row. A row
+    gone between the count and the read leaves nothing to feature this time.
+    """
+    count = candidates.count()
+    if count == 0:
+        return None
+    try:
+        return candidates[random.randrange(count)]
+    except IndexError:
+        return None
+
+
+def _featured_class() -> FeaturedClass | None:
+    """A bookable class with a session to come, at random; ``None`` while the Classes switch is off.
+
+    The switch decides what Home advertises, as it does the Classes quick link above.
+    """
+    from classes.models import ClassOffering
+    from classes.templatetags.classes_tags import strip_date_suffix
+    from core.features import is_on
+
+    if not is_on("catalog"):
+        return None
+    offering = _pick_one(ClassOffering.objects.featurable())
+    if offering is None:
+        return None
+    return FeaturedClass(
+        title=strip_date_suffix(offering.title),
+        url=reverse("classes:public_class_detail", kwargs={"slug": offering.slug}),
+        start=offering.next_session_at,  # type: ignore[attr-defined]  # annotated by featurable()
+        instructors=offering.instructor_names,
+        photo_url=offering.card_photo_url,
+        photo_position=offering.card_object_position if offering.hero_image_url else "50% 50%",
+    )
+
+
+def _featured_event(member: Member) -> FeaturedEvent | None:
+    """A published, upcoming event the member can see, at random, with its photo or its flyer."""
+    event = _pick_one(CommunityEvent.objects.featurable_for(member))
+    if event is None:
+        return None
+    start = event.next_occurrence_start()
+    photo_url = event.hero_image_url
+    place = " · ".join(part for part in (event.area.name if event.area_id else "", event.location) if part)
+    return FeaturedEvent(
+        event=event,
+        title=event.title,
+        url=f"{reverse('hub_event_detail', args=[event.pk])}{event.date_query(start)}",
+        flyer_url=reverse("hub_event_flyer", args=[event.pk]),
+        start=start,
+        place=place,
+        photo_url=photo_url,
+        photo_position=event.hero_object_position,
+        qr_svg="" if photo_url else event.qr_svg(),
+    )
 
 
 def _overdue_reviews(member: Member) -> list[Any]:
