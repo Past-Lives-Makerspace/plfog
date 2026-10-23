@@ -1,2 +1,8 @@
 bump = "minor"
-audience = "internal"
+date = "2026-10-23"
+title = "Admins can see what emails are about to go out"
+changes = [
+  "Site Activity has a new Email Queue tab: what is waiting for the 8 AM review email, the reminders going out in the next 24 hours, and the morning emails sent this week.",
+  "Each waiting item says whether it will be sent, left out because someone already handled it, or skipped because that person turned the email off.",
+  "Site Settings, Emails now says which emails send right away and which wait for the 8 AM email.",
+]
