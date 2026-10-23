@@ -25,4 +25,4 @@ def digest_emails(address: str) -> list:
     Safe to call more than once in a spec: a second call sends nothing new (once per day).
     """
     flush_digests(next_8am())
-    return [m for m in mail.outbox if m.to == [address] and "waiting on you" in m.subject]
+    return [m for m in mail.outbox if m.to == [address] and m.subject.startswith("Action Needed:")]

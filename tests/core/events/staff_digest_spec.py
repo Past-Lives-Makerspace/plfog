@@ -339,6 +339,21 @@ def describe_admin_sign_off_request():
         assert "Admin sign-off needed: Board One" in digest.body
 
 
+def describe_a_gate_deleted_rather_than_decided():
+    def it_marks_its_bell_entries_read_when_the_instructor_withdraws(shop: _Woodshop):
+        gate = shop.submit("Board One")
+        gate.class_offering.withdraw_submission(shop.instructor.user)
+        assert Notification.objects.filter(url=gate.review_path, read_at__isnull=True).count() == 0
+        assert Notification.objects.filter(url=gate.review_path).count() == 2
+
+    def it_marks_its_bell_entries_read_when_the_gate_row_is_deleted(shop: _Woodshop):
+        gate = shop.submit("Board One")
+        other = shop.submit("Board Two")
+        gate.delete()
+        assert Notification.objects.filter(url=gate.review_path, read_at__isnull=True).count() == 0
+        assert _bell(shop.lead, other).is_unread
+
+
 def describe_clear_decided_review_bells():
     def _run() -> str:
         out = StringIO()
@@ -356,6 +371,13 @@ def describe_clear_decided_review_bells():
         assert _bell(shop.reviewer, decided).is_unread is False
         assert _bell(shop.lead, still_open).is_unread
         assert Notification.objects.get(url="/somewhere/").is_unread
+
+    def it_marks_read_the_bells_whose_gate_no_longer_exists(shop: _Woodshop):
+        gone = shop.submit("Board One")
+        # The pre-#894 shape: the gate deleted without clearing anyone's bell.
+        ClassApproval.objects.filter(pk=gone.pk)._raw_delete(ClassApproval.objects.db)
+        assert "Marked 2 review bell entries read." in _run()
+        assert _bell(shop.lead, gone).is_unread is False
 
     def it_reports_one_entry_in_the_singular(shop: _Woodshop):
         decided = shop.submit("Board One")
@@ -418,6 +440,23 @@ def describe_digest_adapter():
             assert flush_digests(eight) == {}
         assert len(DigestAdapter.pending_for(shop.lead.user)) == 1
         flush_digests(eight + timedelta(minutes=15))
+        assert len(_digests(shop.lead)) == 1
+
+    def it_tries_a_rejecting_address_twice_a_day_then_waits_for_tomorrow(shop: _Woodshop):
+        shop.submit("Board One")
+        eight = _next_8am()
+        attempts: list[str] = []
+
+        def reject(**kwargs: object) -> TransactionalEmailLog:
+            attempts.append(str(kwargs["to"]))
+            return TransactionalEmailLog(status=TransactionalEmailLog.Status.FAILED)
+
+        with patch("core.events.channels.send_email", side_effect=reject):
+            for tick in range(8):
+                flush_digests(eight + timedelta(minutes=15 * tick))
+        assert attempts.count("chris@example.com") == 2
+        assert len(DigestAdapter.pending_for(shop.lead.user)) == 1
+        flush_digests(eight + timedelta(days=1))
         assert len(_digests(shop.lead)) == 1
 
     def it_treats_a_lost_race_for_the_days_slot_as_already_sent(shop: _Woodshop):

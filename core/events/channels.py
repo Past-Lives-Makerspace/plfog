@@ -546,9 +546,11 @@ class DigestAdapter:
     def _send(user: User, rows: list[EventDelivery], day: date) -> bool:
         """Send ``user`` the digest of ``rows`` unless they already had one on ``day``.
 
-        The ``staff_digest`` ledger slot for the Pacific date is claimed before the send and
-        handed back when the send fails, so the next tick retries. With no address nothing
-        is claimed and the lines stay queued.
+        The ``staff_digest`` ledger slot for the Pacific date is claimed before the send. A
+        first failed send hands it back and records a ``digest:<date>:failed`` slot, so the
+        next tick retries once; a second failure keeps the day's slot, so a rejecting address
+        costs two attempts a day, not one every tick, and the lines wait for tomorrow's 8 AM.
+        With no address nothing is claimed and the lines stay queued.
         """
         from django.db import IntegrityError
         from django.template.loader import render_to_string
@@ -575,7 +577,14 @@ class DigestAdapter:
             best_effort=True,
         )
         if log.status != TransactionalEmailLog.Status.SENT:
-            row.delete()
+            _failed, first_failure = EventDelivery.objects.get_or_create(
+                event_key=DIGEST_TRIGGER_KIND,
+                target_ref=target_ref,
+                channel=Channel.EMAIL.value,
+                period=f"{period}:failed",
+            )
+            if first_failure:
+                row.delete()
             return False
         return True
 

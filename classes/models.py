@@ -4037,6 +4037,15 @@ class ClassInstructor(models.Model):
 
 
 class ClassApprovalQuerySet(models.QuerySet["ClassApproval"]):
+    def delete(self) -> tuple[int, dict[str, int]]:
+        """Delete these gates, first marking read the bell entries asking about them (#894).
+
+        Resubmit, a guild move, withdraw, restore and unpublish all drop gates this way; a
+        gone gate's "A class needs your review" entry would otherwise sit unread forever.
+        """
+        ClassApproval.mark_review_bells_read(list(self.values_list("token", flat=True)))
+        return super().delete()
+
     def pending(self) -> "ClassApprovalQuerySet":
         return self.filter(decision="")
 
@@ -4175,6 +4184,11 @@ class ClassApproval(models.Model):
             self.opened_for_guild_id = self.class_offering.category.guild_id
         super().save(*args, **kwargs)
 
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        """Delete this gate, first marking read the bell entries asking about it (#894)."""
+        ClassApproval.mark_review_bells_read([self.token])
+        return super().delete(*args, **kwargs)
+
     @property
     def review_path(self) -> str:
         """The tokenized review page, the link every request about this gate carries."""
@@ -4214,23 +4228,23 @@ class ClassApproval(models.Model):
 
     @classmethod
     def mark_decided_review_bells_read(cls) -> int:
-        """Mark read the unread bell entries whose review gate is already decided.
+        """Mark read the unread bell entries whose review gate is decided or gone.
 
-        The one-time cleanup for entries written before decisions cleared them (#894): read
-        each unread bell link, keep the review links, and mark the ones whose gate has a
-        decision. Returns how many entries were marked.
+        The one-time cleanup for entries written before decisions and deletions cleared them
+        (#894): read each unread bell link, keep the review links, and mark the ones whose
+        gate has a decision or no longer exists. Returns how many entries were marked.
         """
         from core.models import Notification
 
         # "/review/" is a cheap narrowing; review_token_from_url decides exactly.
         unread_links = Notification.objects.unread().filter(url__contains="/review/").values_list("pk", "url")
         tokens_by_pk = {pk: cls.review_token_from_url(url) for pk, url in unread_links}
-        decided = set(
-            cls.objects.exclude(decision="")
+        still_open = set(
+            cls.objects.pending()
             .filter(token__in=[t for t in tokens_by_pk.values() if t])
             .values_list("token", flat=True)
         )
-        stale = [pk for pk, token in tokens_by_pk.items() if token in decided]
+        stale = [pk for pk, token in tokens_by_pk.items() if token and token not in still_open]
         return Notification.objects.filter(pk__in=stale).update(read_at=timezone.now())
 
     def may_be_decided_by(self, user: "AbstractBaseUser | AnonymousUser | None") -> bool:
