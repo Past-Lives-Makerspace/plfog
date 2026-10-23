@@ -878,6 +878,14 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         acting_admin=bool(getattr(getattr(request, "view_as", None), "is_admin", False)),
     )
 
+    # The Meeting Notes tab (#891): the notes leads post in the editor, newest meeting first
+    # (Meta.ordering), attachments in the same prefetch. Members surface and signed in only,
+    # and never the Meetings switch: notes are their own thing. The tab shows when there is
+    # a note, or to a lead or admin so the empty state can point at the editor.
+    show_meeting_notes_to_viewer = not guilds_surface and request.user.is_authenticated
+    meeting_notes = list(guild.meeting_notes.prefetch_related("attachments")) if show_meeting_notes_to_viewer else []
+    show_meeting_notes = show_meeting_notes_to_viewer and (bool(meeting_notes) or can_edit_this_guild)
+
     guild_ct = ContentType.objects.get_for_model(Guild)
 
     from membership.services.location_status import guild_location_statuses
@@ -930,6 +938,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "wiki_tab_enabled": wiki_tab_enabled,
             **wiki_tab_context,
             "kiln_home": kiln_home,
+            "show_meeting_notes": show_meeting_notes,
+            "meeting_notes": meeting_notes,
             "location_statuses": guild_location_statuses(guild),
         },
     )

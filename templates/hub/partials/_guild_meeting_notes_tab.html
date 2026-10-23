@@ -1,0 +1,45 @@
+{% comment %}
+The guild page's Meeting Notes tab (#891): the notes leads post on the guild editor's
+Meeting Notes tab, newest meeting first, each with its date, title, rendered Markdown and
+attachments. Context from guild_detail: meeting_notes (attachments prefetched),
+can_edit_this_guild, guild. Read only; adding and editing stay in the editor. Never reads
+the Meetings switch.
+{% endcomment %}
+{% url 'hub_guild_edit' guild.pk as guild_edit_url %}
+<section class="pl-guild-section pl-guild-notes">
+    {% if can_edit_this_guild %}
+    <div class="pl-guild-notes__toolbar">
+        <a href="{{ guild_edit_url }}?tab=meeting_notes" class="pl-btn pl-btn--secondary pl-btn--sm" data-meeting-notes-edit>Edit notes</a>
+    </div>
+    {% endif %}
+
+    {% for note in meeting_notes %}
+    <article class="hub-card pl-guild-notes__note" data-meeting-note="{{ note.pk }}">
+        <p class="hub-text-muted pl-guild-notes__date">{{ note.meeting_date|date:"F j, Y" }}</p>
+        <h3 class="pl-guild-notes__title">{{ note.title }}</h3>
+        {% if note.body %}
+        <div class="pl-md pl-guild-notes__body">{{ note.body_html|safe }}</div>
+        {% endif %}
+        {% with attachments=note.attachments.all %}
+        {% if attachments %}
+        <ul class="pl-guild-notes__attachments">
+            {% for attachment in attachments %}
+            <li>
+                {% if attachment.is_file %}
+                <a href="{{ attachment.file.url }}" target="_blank" rel="noopener" hx-boost="false" class="pl-guild-notes__attachment" data-meeting-note-file>{{ attachment.display_name }}</a>
+                {% else %}
+                <a href="{{ attachment.url }}" target="_blank" rel="noopener noreferrer" class="pl-guild-notes__attachment" data-meeting-note-link>{{ attachment.display_name }}</a>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        {% endwith %}
+    </article>
+    {% empty %}
+    <div class="hub-card pl-guild-notes__empty" data-meeting-notes-empty>
+        <p class="hub-text-muted">No meeting notes yet. Post your agendas and recaps so members can catch up.</p>
+        <a href="{% url 'hub_guild_meeting_note_add' guild.pk %}" class="pl-btn pl-btn--primary pl-guild-notes__add">+ Add meeting notes</a>
+    </div>
+    {% endfor %}
+</section>
