@@ -7,7 +7,7 @@ import secrets
 import factory
 from django.contrib.auth import get_user_model
 
-from core.models import CopyReviewComment, ScheduledJobState, ScheduledTaskRun, UserProfile
+from core.models import Announcement, CopyReviewComment, ScheduledJobState, ScheduledTaskRun, UserProfile
 from core.scheduled_jobs import Trigger
 
 User = get_user_model()
@@ -59,3 +59,12 @@ class CopyReviewCommentFactory(factory.django.DjangoModelFactory):
     author_name = factory.Sequence(lambda n: f"Reviewer {n}")
     body = "The heading copy reads well; consider softening the button label."
     edit_token = factory.LazyFunction(lambda: secrets.token_hex(16))
+
+
+class AnnouncementFactory(factory.django.DjangoModelFactory):
+    """A live Home announcement (#889): on, with no dates."""
+
+    class Meta:
+        model = Announcement
+
+    body = factory.Sequence(lambda n: f"<p>Zorblax notice {n}</p>")
