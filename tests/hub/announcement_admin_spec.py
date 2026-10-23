@@ -155,7 +155,7 @@ def describe_the_section():
 
         assert 'id="announcements"' in html
         assert "data-announcements-empty" in html
-        assert "No announcements yet. Add one and it shows at the top of Home." in html
+        assert "No announcements yet. Add one and it shows at the top of Home and in the Spotlight." in html
         assert "pl-ann-admin__rows" not in html
         assert f'href="{NEW}" class="pl-btn pl-btn--primary pl-btn--sm" data-announcement-add' in html
 

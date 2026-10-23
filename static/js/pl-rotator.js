@@ -1,9 +1,10 @@
 // plRotator: a card that shows one slide at a time and moves on by itself (#896; Home's Featured
-// Class and Featured Event, and the Home announcements banner next, #889). Registered from
+// Class and Featured Event, the Home announcements banner, #889, and the sidebar Spotlight's
+// announcements on every hub page, #890). Each instance keeps its own clock. Registered from
 // hub/base.html's <head> before Alpine, on whichever side of alpine:init this lands (FRONTEND.md,
 // Scripts under hx-boost), so a boosted arrival finds it.
 //
-// Markup contract (styles: the .pl-rotator block in static/css/home-featured.css):
+// Markup contract (styles: static/css/rotator.css, loaded on every hub page):
 //   x-data="plRotator" on the root, with
 //     data-rotator-interval  milliseconds each slide shows (required, e.g. 6000)
 //     data-rotator-delay     extra milliseconds before the first move (optional, default 0), so two

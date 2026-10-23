@@ -11,7 +11,7 @@
 | `hub/` | Member-facing views (guild voting, directory, tab, profile, guild pages) |
 | `airtable_sync/` | Airtable bidirectional sync for members, spaces, leases, votes |
 | `kiln/` | Ceramics Guild kiln tickets (#691), a tab on that guild's page: tickets with photos and flags, loading, unloading with ready for pickup notices, the kiln log, the clay and glaze lists; see `kiln/AGENTS.md` |
-| `polls/` | Polls for the Spotlight (#708): a question, 2 to 6 answers, open until it expires, one vote per member; posted from Admin Tools > Spotlight; see `polls/AGENTS.md` |
+| `polls/` | Polls, built for the Spotlight (#708) and out of it since #890: a question, 2 to 6 answers, open until it expires, one vote per member; `/polls/` kept as history; see `polls/AGENTS.md` |
 | `hq/` | The Holiday Bizarre HQ (Track C): one hub page per event with a hero band, goal chips and nine door cards an admin opens to the public, to members or to named people; behind the `holiday_bizarre` switch; `manage.py seed_holiday_bizarre --event <pk>` writes Lee's hub, doors, goals and shifts from `hq/holiday_bizarre.py`; see `hq/AGENTS.md` |
 | `plfog/` | Django project: settings, urls, wsgi, auto_admin, adapters |
 
@@ -122,7 +122,7 @@ Those nine plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Oth
 /account/                       Book CMS account area (classes.account)
 /hq/                            The Holiday Bizarre HQ: 302 to the open hub's page (/hq/<slug>/, public); /hq/new/, /hq/<slug>/edit/ and /hq/<slug>/cards/<pk>/edit/ for admins
 /kiln/                          Kiln tickets (a guest's home; members land on the Ceramics Guild page's ?tab=kiln; /kiln/load/, /kiln/unload/, /kiln/log/, /kiln/lists/ for the crew and admins)
-/manage/spotlight/              Admin Tools > Spotlight (#708): Spotlight text and meeting with a preview, polls, past polls
+/manage/spotlight/              Admin Tools > Spotlight (#708): announcements, Spotlight text and meeting with a preview, past polls
 /manage/bookings/               Manage Bookings (#768): the one home for everyone who runs orientations or equipment; /orientations/manage/ 302s here
 /polls/                         Past polls (#708): every poll with results, members only; POST /polls/<pk>/vote/ casts a vote
 ```

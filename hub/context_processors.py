@@ -79,8 +79,9 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "classes_catalog_active_class": _classes_catalog_active_class(request, admin_nav_active, teach_nav),
         # The guest menu and the kiln pages' way back (#691); no query.
         "kiln_nav": KilnNav(member),
-        # Lazy as well (#709): the Spotlight's one query runs only when a page renders it.
-        "spotlight": SimpleLazyObject(partial(_spotlight, member)) if can_vote(member) else None,
+        # Lazy as well (#709): the Spotlight's two queries run only when a page renders it. Who sees it is
+        # still the polls app's voter rule (members, not guests or former members), which it was built on.
+        "spotlight": SimpleLazyObject(_spotlight) if can_vote(member) else None,
         # The Holiday Bizarre entry: one query, run only when the sidebar renders it.
         "hq_nav": SimpleLazyObject(partial(_hq_nav, request, member)),
     }
@@ -104,9 +105,9 @@ def _hq_nav(request: HttpRequest, member: Member | None) -> bool:
     return HubCard.objects.filter(hub__is_open=True).open_to(viewer).exists()
 
 
-def _spotlight(member: Member | None) -> Spotlight:
-    """The Spotlight as ``member`` sees it now (#709)."""
-    return Spotlight.load(member, timezone.now())
+def _spotlight() -> Spotlight:
+    """The Spotlight now (#709); every member sees the same one."""
+    return Spotlight.load(timezone.now())
 
 
 def _classes_admin_nav_active(request: HttpRequest) -> bool:

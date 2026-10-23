@@ -1,19 +1,21 @@
 {% comment %}
 The Spotlight (#708 admin preview, #709 member). spotlight is hub.spotlight.Spotlight.
 
-Admin preview (preview=True, state "standard" or "minimized"): one state, static, bound to the
-form beside it (an Alpine scope holding first, second, meeting, meetings, pollQuestion and
-secondDefault), choices disabled.
+Standard, top to bottom (#890): the live announcements (hub/partials/_spotlight_announcements.html, rotating with two or
+more), the Next Feature Request Meeting, then the version pill, "Updated X" and Details
+(hub/partials/_spotlight_quiet.html). Home's phone copy is spotlight.without_announcements, since the banner above it
+already shows them.
 
-Member (no preview): both states rendered; the stylesheet shows one from
-<html data-spotlight-min>, which the spotlight store (static/js/spotlight.js) keeps in step with
-localStorage. Minimized carries the yellow dot while something is unseen; tapping it opens
-Standard. Standard votes in place through polls:vote and its only button, Details, opens the
-Expanded panel. next_url is where a plain vote post lands.
+Admin preview (preview=True, state "standard", "minimized" or "quiet"): one state, static, bound to the form beside it
+(an Alpine scope holding first, second, meeting, meetings, fallback and secondDefault), with the real live
+announcements.
 
-Quiet (no poll and no meeting): no card and no Minimized, only the version pill the sidebar had
-before the Spotlight, the newest update's date and Details. The admin preview shows it as state
-"quiet".
+Member (no preview): both states rendered; the stylesheet shows one from <html data-spotlight-min>, which the spotlight
+store (static/js/spotlight.js) keeps in step with localStorage. Minimized carries the yellow dot while something is
+unseen; tapping it opens Standard. Details opens the Expanded panel.
+
+Quiet (no announcement and no meeting): no card and no Minimized, only the version pill the sidebar had before the
+Spotlight, the newest update's date and Details.
 {% endcomment %}
 {% if preview %}
 {% if state == "quiet" %}
@@ -23,7 +25,7 @@ before the Spotlight, the newest update's date and Details. The admin preview sh
 {% elif state == "minimized" %}
 <div class="pl-spotlight pl-spotlight--minimized" data-spotlight-state="minimized">
     <button type="button" class="pl-spotlight__min" aria-label="Open the Spotlight">
-        <span class="pl-spotlight__line" data-spotlight-first x-text="first || pollQuestion">{{ spotlight.first_line }}</span>
+        <span class="pl-spotlight__line" data-spotlight-first x-text="first || fallback">{{ spotlight.first_line }}</span>
         <span class="pl-spotlight__line pl-spotlight__line--second">
             <span data-spotlight-second x-text="second || secondDefault">{{ spotlight.second_line }}</span>
             <span class="pl-spotlight__pill" data-spotlight-pill x-show="meetings[meeting]" x-text="meetings[meeting] && meetings[meeting].pill">{{ spotlight.meeting.pill }}</span>
@@ -33,26 +35,12 @@ before the Spotlight, the newest update's date and Details. The admin preview sh
 {% else %}
 <section class="pl-spotlight pl-spotlight--standard" data-spotlight-state="standard" aria-label="Spotlight">
     <button type="button" class="pl-spotlight__minimize" aria-label="Minimize the Spotlight" data-spotlight-minimize>&minus;</button>
-    {% if spotlight.poll %}
-    <div class="pl-spotlight__poll" data-spotlight-poll>
-        <p class="pl-spotlight__eyebrow">This week's poll</p>
-        <p class="pl-spotlight__question">{{ spotlight.poll.question }}</p>
-        <div class="pl-spotlight__choices">
-            {% for result in spotlight.results %}<button type="button" class="pl-spotlight__choice" data-spotlight-choice="{{ result.pk }}" disabled>{{ result.text }}</button>{% endfor %}
-        </div>
-    </div>
-    {% elif spotlight.latest_update %}
-    {% include "hub/partials/_spotlight_update.html" with update=spotlight.latest_update %}
-    {% endif %}
-    {% if past_polls_url %}<a class="pl-spotlight__past" href="{{ past_polls_url }}" data-spotlight-past>Past polls</a>{% endif %}
+    {% if spotlight.shown_announcements %}{% include "hub/partials/_spotlight_announcements.html" with announcements=spotlight.shown_announcements %}{% endif %}
     <div class="pl-spotlight__meeting" data-spotlight-meeting x-show="meetings[meeting]">
         <p class="pl-spotlight__eyebrow">Next Feature Request Meeting</p>
-        <p class="pl-spotlight__when"><span data-spotlight-when x-text="meetings[meeting] && meetings[meeting].when">{{ spotlight.meeting.when }}</span></p>
+        <p class="pl-spotlight__when"><span data-spotlight-when x-text="meetings[meeting] && meetings[meeting].when">{{ spotlight.meeting.when }}</span><span class="pl-spotlight__virtual" x-show="meetings[meeting] && meetings[meeting].virtual">Virtual</span></p>
     </div>
-    <div class="pl-spotlight__actions">
-        <span class="pl-spotlight__virtual" x-show="meetings[meeting] && meetings[meeting].virtual">Virtual</span>
-        <button type="button" class="pl-btn pl-btn--primary pl-btn--sm pl-spotlight__details" data-spotlight-details>Details</button>
-    </div>
+    <div class="pl-spotlight__foot" data-spotlight-foot>{% include "hub/partials/_spotlight_quiet.html" %}</div>
 </section>
 {% endif %}
 {% elif spotlight.is_empty %}
@@ -77,19 +65,14 @@ before the Spotlight, the newest update's date and Details. The admin preview sh
     </div>
     <section class="pl-spotlight pl-spotlight--standard" data-spotlight-state="standard" aria-label="Spotlight">
         <button type="button" class="pl-spotlight__minimize" aria-label="Minimize the Spotlight" data-spotlight-minimize @click="$store.spotlight.minimize()">&minus;</button>
-        {% if spotlight.card %}{% include "polls/partials/_poll_card.html" with card=spotlight.card variant="spotlight" %}{% elif spotlight.latest_update %}{% include "hub/partials/_spotlight_update.html" with update=spotlight.latest_update %}{% endif %}
-        <a class="pl-spotlight__past" href="{% url 'polls:index' %}" data-spotlight-past>Past polls <span aria-hidden="true">&rarr;</span></a>
+        {% if spotlight.shown_announcements %}{% include "hub/partials/_spotlight_announcements.html" with announcements=spotlight.shown_announcements %}{% endif %}
         {% if spotlight.meeting %}
         <div class="pl-spotlight__meeting" data-spotlight-meeting>
             <p class="pl-spotlight__eyebrow">Next Feature Request Meeting</p>
-            <p class="pl-spotlight__when"><span data-spotlight-when>{{ spotlight.meeting.when }}</span></p>
+            <p class="pl-spotlight__when"><span data-spotlight-when>{{ spotlight.meeting.when }}</span>{% if spotlight.meeting.video_url %}<span class="pl-spotlight__virtual">Virtual</span>{% endif %}</p>
         </div>
         {% endif %}
-        {# Virtual on the left and Details on the right of one row; with no pill, Details keeps the right. #}
-        <div class="pl-spotlight__actions" data-spotlight-actions>
-            {% if spotlight.meeting.video_url %}<span class="pl-spotlight__virtual">Virtual</span>{% endif %}
-            <button type="button" class="pl-btn pl-btn--primary pl-btn--sm pl-spotlight__details" data-spotlight-details @click="$store.spotlight.expand()">Details</button>
-        </div>
+        <div class="pl-spotlight__foot" data-spotlight-foot>{% include "hub/partials/_spotlight_quiet.html" %}</div>
     </section>
 </div>
 {% endif %}

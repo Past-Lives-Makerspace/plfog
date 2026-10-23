@@ -1,4 +1,4 @@
-"""Admin Tools > Spotlight (#708): permissions, the text and meeting, polls, the past polls table."""
+"""Admin Tools > Spotlight (#708): permissions, the text and meeting with its preview, the past polls table; no poll posting since #890."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ from datetime import timedelta
 
 import pytest
 from django.contrib.auth.models import User
-from django.core import mail
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
+from core.factories import AnnouncementFactory
 from core.models import SiteConfiguration
 from membership.models import CommunityEvent
 from polls.models import Poll
@@ -47,10 +47,6 @@ def _meeting() -> CommunityEvent:
     )
 
 
-def _poll_post(question: str = "Zorblax next?", choices: tuple[str, ...] = ("Laser", "Lathe"), **extra: str) -> dict:
-    return {"question": question, "choice": list(choices), "days": "7", **extra}
-
-
 def _past_poll(question: str, days_ago: int, votes: tuple[int, ...] = (1, 0)) -> Poll:
     opens = timezone.now() - timedelta(days=days_ago + 7)
     return poll_with(
@@ -64,8 +60,6 @@ def describe_permissions():
         [
             ("get", PAGE),
             ("post", reverse("hub_admin_spotlight_text")),
-            ("post", reverse("hub_admin_spotlight_poll_new")),
-            ("post", reverse("hub_admin_spotlight_poll_close", args=[1])),
             ("get", reverse("hub_admin_spotlight_poll", args=[1])),
         ],
     )
@@ -150,20 +144,52 @@ def describe_the_text_and_meeting():
         assert pending not in field.queryset
         assert field.empty_label == "No meeting"
 
-    def it_previews_both_states_with_the_fallbacks(admin_client: Client):
-        poll_with("Laser", "Lathe", question="Zorblax next?")
+    def it_previews_both_states_with_the_real_announcements_and_the_fallbacks(admin_client: Client):
+        AnnouncementFactory(body="<p>Zorblax <strong>first</strong></p>", position=0)
+        AnnouncementFactory(body="<p>Zorblax second</p>", position=1)
         SiteConfiguration.objects.filter(pk=SiteConfiguration.load().pk).update(spotlight_meeting_event=_meeting())
 
         html = admin_client.get(PAGE).content.decode()
-        preview = html.split("data-spotlight-preview", 1)[1].split('id="open-poll"', 1)[0]
+        preview = html.split("data-spotlight-preview", 1)[1].split('id="past-polls"', 1)[0]
 
         assert 'data-spotlight-state="standard"' in preview
         assert 'data-spotlight-state="minimized"' in preview
-        assert 'x-text="first || pollQuestion">Zorblax next?</span>' in preview
+        assert '<div class="pl-ann-body pl-spotlight__ann-body"><p>Zorblax <strong>first</strong></p></div>' in preview
+        assert '<div class="pl-ann-body pl-spotlight__ann-body"><p>Zorblax second</p></div>' in preview
+        assert "of 2</span>" in preview
+        assert 'x-text="first || fallback">Zorblax first</span>' in preview
         assert 'x-text="second || secondDefault">Feature Request Meeting</span>' in preview
         assert "Next Feature Request Meeting" in preview
-        assert 'data-spotlight-choice="' in preview
-        assert '"pollQuestion": "Zorblax next?"' in html
+        assert "data-spotlight-foot" in preview
+        assert '"fallback": "Zorblax first"' in html
+        assert '"hasAnnouncement": true' in html
+        assert 'x-show="hasAnnouncement || meetings[meeting]" data-spotlight-preview-states' in html
+
+    def it_never_previews_a_poll(admin_client: Client):
+        poll_with("Laser", "Lathe", question="Zorblax poll?")
+
+        html = admin_client.get(PAGE).content.decode()
+        preview = html.split("data-spotlight-preview", 1)[1].split('id="past-polls"', 1)[0]
+
+        assert "Zorblax poll?" not in preview
+        assert "data-spotlight-choice" not in preview
+        assert '"hasAnnouncement": false' in html
+
+    def it_rerenders_an_invalid_save_at_200_with_its_errors_and_what_was_typed(admin_client: Client):
+        too_long = "Z" * 121
+
+        response = admin_client.post(reverse("hub_admin_spotlight_text"), {"spotlight_first_line": too_long})
+
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "Ensure this value has at most 120 characters" in html
+        assert f'value="{too_long}"' in html
+        assert SiteConfiguration.load().spotlight_first_line == ""
+
+    def it_says_what_an_empty_first_line_falls_back_to(admin_client: Client):
+        html = admin_client.get(PAGE).content.decode()
+
+        assert "Empty uses the first announcement, else the latest update." in html
 
     def it_escapes_the_lines_in_the_preview(admin_client: Client):
         SiteConfiguration.objects.filter(pk=SiteConfiguration.load().pk).update(spotlight_first_line="<b>Zorblax</b>")
@@ -174,107 +200,25 @@ def describe_the_text_and_meeting():
         assert "<b>Zorblax</b>" not in html
 
 
-def describe_posting_a_poll():
-    def it_opens_a_poll_now(admin_client: Client):
-        response = admin_client.post(
-            reverse("hub_admin_spotlight_poll_new"), _poll_post(choices=("Laser", "Lathe", "Kiln"))
-        )
+def describe_polls_have_left_the_page():
+    @pytest.mark.parametrize("path", ["/manage/spotlight/polls/new/", "/manage/spotlight/polls/1/close/"])
+    def it_no_longer_answers_new_poll_or_close_now(admin_client: Client, path: str):
+        assert admin_client.post(path).status_code == 404
 
-        assert response.status_code == 302
-        poll = Poll.objects.get()
-        assert poll.is_open(timezone.now())
-        assert [choice.text for choice in poll.choices.all()] == ["Laser", "Lathe", "Kiln"]
-
-    @pytest.mark.parametrize(
-        ("data", "message"),
-        [
-            (_poll_post(choices=("Laser",)), "at least 2 answers"),
-            (_poll_post(choices=tuple(f"Answer {n}" for n in range(7))), "at most 6 answers"),
-            (_poll_post(choices=("Laser", " ")), "Fill in every answer"),
-            (_poll_post(choices=("Laser", "laser")), "Two answers are the same"),
-            (_poll_post(question=""), "This field is required"),
-            ({**_poll_post(), "days": "61"}, "less than or equal to 60"),
-            (_poll_post(choices=("Laser", "L" * 121)), "Keep each answer to 120 characters or fewer"),
-            (_poll_post(question="Z" * 201), "at most 200 characters"),
-        ],
-    )
-    def it_refuses_a_poll_with_a_readable_message(admin_client: Client, data: dict, message: str):
-        response = admin_client.post(reverse("hub_admin_spotlight_poll_new"), data)
-
-        assert response.status_code == 400
-        assert message in response.content.decode()
-        assert not Poll.objects.exists()
-
-    def it_keeps_what_was_typed_after_a_refusal(admin_client: Client):
-        response = admin_client.post(reverse("hub_admin_spotlight_poll_new"), _poll_post(choices=("Zorblax one",)))
-
-        assert '["Zorblax one"]' in response.content.decode()
-
-    def it_asks_to_close_the_open_poll_before_posting(admin_client: Client):
-        poll_with("Laser", "Lathe")
+    def it_has_no_open_poll_or_new_poll_section(admin_client: Client):
+        poll_with("Laser", "Lathe", question="Zorblax open?")
 
         html = admin_client.get(PAGE).content.decode()
 
-        assert "open-confirm', 'replace-poll'" in html
-        assert "document.getElementById('id_close_current').value = 'on'" in html
+        for gone in ('id="open-poll"', 'id="new-poll"', "data-close-poll", "data-post-poll", "replace-poll"):
+            assert gone not in html
+        assert "Zorblax open?" not in html
 
-    def it_refuses_without_the_confirm_and_keeps_one_open(admin_client: Client):
-        current = poll_with("Laser", "Lathe")
-
-        response = admin_client.post(reverse("hub_admin_spotlight_poll_new"), _poll_post())
-
-        assert response.status_code == 409
-        assert "A poll is already open" in response.content.decode()
-        assert list(Poll.objects.open_at(timezone.now())) == [current]
-
-    def it_closes_the_open_poll_and_posts_when_confirmed(admin_client: Client):
-        current = poll_with("Laser", "Lathe")
-
-        admin_client.post(reverse("hub_admin_spotlight_poll_new"), _poll_post(close_current="on"))
-
-        open_now = list(Poll.objects.open_at(timezone.now()))
-        assert len(open_now) == 1
-        assert open_now[0] != current
-
-    def it_never_renders_close_current_as_already_set(admin_client: Client):
-        poll_with("Laser", "Lathe")
-
-        response = admin_client.post(
-            reverse("hub_admin_spotlight_poll_new"), _poll_post(choices=("Laser",), close_current="on")
-        )
-
-        assert '<input type="hidden" name="close_current" id="id_close_current" value="">' in response.content.decode()
-
-    def it_sends_nothing(admin_client: Client):
-        admin_client.post(reverse("hub_admin_spotlight_poll_new"), _poll_post())
-
-        assert mail.outbox == []
-
-
-def describe_the_open_poll():
-    def it_shows_counts_percents_and_time_left(admin_client: Client):
-        poll_with("Laser", "Lathe", votes=(3, 1), question="Zorblax next?")
-
+    def it_says_the_page_is_about_announcements_and_the_meeting(admin_client: Client):
         html = admin_client.get(PAGE).content.decode()
-        block = html.split('id="open-poll"', 1)[1].split('id="new-poll"', 1)[0]
 
-        assert "Zorblax next?" in block
-        assert "3 votes · 75%" in block
-        assert "1 vote · 25%" in block
-        assert "4 votes so far. Closes in" in block
-        assert "data-close-poll" in block
-
-    def it_says_so_when_none_is_open(admin_client: Client):
-        assert "data-open-poll-empty" in admin_client.get(PAGE).content.decode()
-
-    def it_closes_now(admin_client: Client):
-        poll = poll_with("Laser", "Lathe")
-
-        response = admin_client.post(reverse("hub_admin_spotlight_poll_close", args=[poll.pk]))
-
-        assert response.status_code == 302
-        poll.refresh_from_db()
-        assert not poll.is_open(timezone.now())
+        assert "Announcements for the banner on Home and the top left of the Member Portal" in html
+        assert "Short notices in a banner at the top of Home and in the Spotlight on every page." in html
 
 
 def describe_past_polls():
@@ -331,48 +275,27 @@ def describe_past_polls():
 
 
 def describe_the_admins_own_spotlight_on_this_page():
-    """The page's preview reads the Spotlight as nobody; the sidebar must still be the admin's own (#709)."""
+    """The page's preview is its own copy; the sidebar is still the admin's own Spotlight (#709)."""
 
     def _sidebar(html: str) -> str:
         return html.split('class="hub-sidebar__spotlight"', 1)[1].split("hub-sidebar__nav", 1)[0]
 
-    def it_offers_the_answers_to_an_admin_who_has_not_voted(admin_client: Client):
-        poll_with("Laser", "Lathe", question="Zorblax admin?")
+    def it_shows_the_announcements_in_the_sidebar_too(admin_client: Client):
+        announcement = AnnouncementFactory(body="<p>Zorblax sidebar</p>")
 
         sidebar = _sidebar(admin_client.get(PAGE).content.decode())
 
-        assert "data-poll-choices" in sidebar
-        assert "data-my-vote" not in sidebar
-
-    def it_marks_the_admins_own_vote(admin_client: Client):
-        poll = poll_with("Laser", "Lathe")
-        admin = User.objects.get(username="spotadmin")
-        lathe = poll.choices.get(text="Lathe")
-        PollVoteFactory(choice=lathe, member=admin.member)
-
-        html = admin_client.get(PAGE).content.decode()
-
-        assert f'data-poll-result="{lathe.pk}" data-my-vote' in _sidebar(html)
-        assert "Your vote" in html.split("data-spotlight-panel", 1)[1]
-
-    def it_still_previews_as_nobody(admin_client: Client):
-        poll = poll_with("Laser", "Lathe")
-        PollVoteFactory(choice=poll.choices.first(), member=User.objects.get(username="spotadmin").member)
-
-        preview = (
-            admin_client.get(PAGE).content.decode().split("data-spotlight-preview", 1)[1].split('id="open-poll"', 1)[0]
-        )
-
-        assert "data-spotlight-choice=" in preview
-        assert "data-my-vote" not in preview
+        assert f'data-spotlight-announcement="{announcement.pk}"' in sidebar
+        assert "data-spotlight-signature=" in sidebar
 
 
 def describe_the_show_when_empty_toggle():
     def it_renders_as_a_toggle_in_the_text_section(admin_client: Client):
         html = admin_client.get(PAGE).content.decode()
-        section = html.split('id="spotlight-text"', 1)[1].split('id="open-poll"', 1)[0]
+        section = html.split('id="spotlight-text"', 1)[1].split('id="past-polls"', 1)[0]
 
-        assert "Show the Spotlight when there is no poll and no meeting" in section
+        assert "Show the Spotlight when there is no announcement and no meeting" in section
+        assert "On: members see the version, its latest update and Details." in section
         assert 'name="spotlight_show_when_empty"' in section
         assert "pl-toggle-row" in section
 
@@ -397,11 +320,12 @@ def describe_the_show_when_empty_toggle():
 
         assert "data-spotlight-preview-hidden" in html
         assert '"showWhenEmpty": false' in html
-        assert '"hasPoll": false' in html
+        assert '"hasAnnouncement": false' in html
+        assert "Hidden. With no announcement and no meeting, members see the logo and version number." in html
 
-    def it_previews_the_quiet_state_while_there_is_no_poll_and_no_meeting(admin_client: Client):
+    def it_previews_the_quiet_state_while_there_is_no_announcement_and_no_meeting(admin_client: Client):
         html = admin_client.get(PAGE).content.decode()
-        preview = html.split("data-spotlight-preview ", 1)[1].split('id="open-poll"', 1)[0]
+        preview = html.split("data-spotlight-preview ", 1)[1].split('id="past-polls"', 1)[0]
 
         assert "data-spotlight-preview-quiet" in preview
         assert 'data-spotlight-state="quiet"' in preview

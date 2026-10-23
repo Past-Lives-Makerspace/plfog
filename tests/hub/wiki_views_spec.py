@@ -83,8 +83,9 @@ def _preview_as(client: Client, role: str) -> None:
 # asking about guilds and equipment separately. 38 with Pages Waiting For You: one query for
 # the stubs nobody has written yet. 39 with the Holiday Bizarre sidebar entry (HQ card sharing): one query
 # over the open HQ's cards for a member; if it ever grows with the cards or people, the lazy check broke.
-# That fixed cost must stay the same with one page or a full list of cards.
-_HOME_QUERY_BUDGET = 39
+# That fixed cost must stay the same with one page or a full list of cards. 40 with the Spotlight's
+# second query, its live announcements (#890).
+_HOME_QUERY_BUDGET = 40
 
 
 def describe_the_feature_switch():
