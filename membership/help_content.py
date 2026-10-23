@@ -160,7 +160,7 @@ Log in and you land on **Home**. It shows:
 
 - **Get started at Past Lives** — a short checklist for new members. Dismiss it once you're settled.
 - Quick links — one tap to the **Calendar**, **Classes**, **Guild Voting**, **Member Directory**, and **Settings**.
-- **Your upcoming** — classes and events you're signed up for.
+- **Upcoming** — a few classes and events with their pictures, changing every few seconds, then a list of what is coming up at Past Lives.
 - **Latest from your guilds** — recent announcements from guilds you follow.
 - **Your guilds** — a chip for each of your guilds, linking straight to its page.
 
@@ -1878,13 +1878,13 @@ When someone submits a class in a category tied to your guild, you're the first 
 
 ### How a Review Reaches You
 
-The moment a class is submitted, the guild lead and the staff marked **Class Reviewer** get a review request email, plus an in-app notice. Other staff don't. A lead or Class Reviewer who teaches the class is asked too, and may approve it. The instructor is told their class is in review. Any one of your reviewers can make the call, and the first decision is the guild's decision.
+The moment a class is submitted, the guild lead and the staff marked **Class Reviewer** get an in-app notice. Other staff don't. The email comes once a day, at 8 AM: one email listing every class still waiting on you. A class someone already decided is left out, and its notice is marked read. If nothing is waiting, no email comes. A lead or Class Reviewer who teaches the class is asked too, and may approve it. The instructor is told their class is in review. Any one of your reviewers can make the call, and the first decision is the guild's decision.
 
 ### Where to Review {#guild-approve-classes}
 
 Two doors lead to the same review page.
 
-**From the email (easiest):** the review request carries a direct review link. It's a signed, personal link that works without logging in, so you can review from anywhere.
+**From the 8 AM email (easiest):** each class in it carries a direct review link. It's a signed, personal link that works without logging in, so you can review from anywhere.
 
 **From your guild's settings page:**
 

@@ -1,0 +1,30 @@
+{% comment %}
+The controls of one plRotator (static/js/pl-rotator.js, #896), rendered only when it has two slides or more:
+previous and next arrows over the picture (shown on hover or focus with a mouse, always on touch), a thin bar along the
+picture's foot that fills over each slide's time, and under the card a dot per slide (the current one filled) with a
+pause and play button (WCAG 2.2.2). The pause button and the bar are left out under prefers-reduced-motion, where
+nothing moves by itself. Include inside the rotator's .pl-rotator__stage, after its slides.
+
+  slides — the rotator's items, one dot each
+  noun   — what a slide is, for the arrow and dot labels ("slide": "Next slide", "Show slide 2 of 8")
+{% endcomment %}
+<div class="pl-rotator__overlay">
+  <button type="button" class="pl-rotator__arrow pl-rotator__arrow--prev" @click="prev()" aria-label="Previous {{ noun }}" data-rotator-prev>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+  </button>
+  <button type="button" class="pl-rotator__arrow pl-rotator__arrow--next" @click="next()" aria-label="Next {{ noun }}" data-rotator-next>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+  </button>
+  <span class="pl-rotator__track" aria-hidden="true"><span class="pl-rotator__bar" data-rotator-bar></span></span>
+</div>
+<div class="pl-rotator__nav">
+  <div class="pl-rotator__dots">
+    {% for item in slides %}
+    <button type="button" class="pl-rotator__dot{% if forloop.first %} is-current{% endif %}" :class="{ 'is-current': index === {{ forloop.counter0 }} }" :aria-current="index === {{ forloop.counter0 }} ? 'true' : null" @click="go({{ forloop.counter0 }})" aria-label="Show {{ noun }} {{ forloop.counter }} of {{ slides|length }}" data-rotator-dot></button>
+    {% endfor %}
+  </div>
+  <button type="button" class="pl-rotator__pause" x-show="!reduced" @click="toggle()" :aria-label="userPaused ? 'Play the rotation' : 'Pause the rotation'" aria-label="Pause the rotation" data-rotator-pause>
+    <svg x-show="!userPaused" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+    <svg x-show="userPaused" x-cloak width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>
+  </button>
+</div>

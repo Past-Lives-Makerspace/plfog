@@ -22,6 +22,8 @@ from tests.e2e.email_gallery.registry import (
 )
 
 EXPECTED_PAIRS = {
+    # core
+    "staff_digest",
     # classes
     "admin_validation_request",
     "confirmation",
@@ -72,10 +74,10 @@ def describe_email_gallery_completeness():
             "on copy-review.pastlives.space."
         )
 
-    def it_discovers_the_expected_33_pairs():
+    def it_discovers_the_expected_34_pairs():
         """Pins the discovery rule so it never silently sweeps in (or drops) templates."""
         assert discover_template_pairs() == EXPECTED_PAIRS
-        assert len(EXPECTED_PAIRS) == 33
+        assert len(EXPECTED_PAIRS) == 34
 
     def it_excludes_shells_and_partials():
         discovered = discover_template_pairs()

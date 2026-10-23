@@ -1181,8 +1181,11 @@ class Member(models.Model):
         return TourState.objects.status_for(user, key) == TourState.Status.COMPLETED
 
     @property
-    def _has_finished_member_tour(self) -> bool:
-        """Whether the member tour is behind them: completed or dismissed (#824). Absent or offered is not."""
+    def has_finished_member_tour(self) -> bool:
+        """Whether the member tour is behind them: completed or dismissed (#824). Absent or offered is not.
+
+        The Get Started checklist marks Take the tour done on it, and Home hides Show me around on it.
+        """
         from core.models import TourState
 
         user = self.user
@@ -1359,7 +1362,7 @@ class Member(models.Model):
         profile_done = profile.essentials_complete
         from core.tours import TOURS, entry_url_for
 
-        tour_done = self._has_finished_member_tour
+        tour_done = self.has_finished_member_tour
         steps = [
             OnboardingStep(
                 key="tour",
@@ -8221,6 +8224,23 @@ class CommunityEventQuerySet(models.QuerySet):
         """
         guild_scoped = [CommunityEvent.EventType.GUILD_MEETING, CommunityEvent.EventType.STUDIO_HOURS]
         return self.filter(~Q(event_type__in=guild_scoped) | Q(guild__memberships__member=member)).distinct()
+
+    def featurable_for(self, member: "Member") -> CommunityEventQuerySet:
+        """The events Home may feature for ``member`` (#888): published, upcoming and theirs to see.
+
+        Only a community event or a guild meeting: studio hours and the Guild Lead Meeting are
+        standing business, not something to invite a member to. A one-off that has already
+        begun is left out, though ``upcoming()`` keeps it until it ends: the card invites a
+        member to come, so its start must still be ahead (a series is dated by its next
+        occurrence, ``CommunityEvent.next_occurrence_start``). ``for_member`` joins through
+        guild memberships and so is ``distinct()``; the candidates are re-read by pk, so
+        ``hub.home`` can shuffle them in the database, with the area the card's place line and
+        the flyer preview name.
+        """
+        featured_types = [CommunityEvent.EventType.COMMUNITY, CommunityEvent.EventType.GUILD_MEETING]
+        not_begun = Q(starts_at__gt=timezone.now()) | ~Q(recurrence=CommunityEvent.Recurrence.NONE)
+        visible = self.published().upcoming().for_member(member).filter(not_begun, event_type__in=featured_types)
+        return CommunityEvent.objects.filter(pk__in=visible.values("pk")).select_related("area")
 
     def published(self) -> CommunityEventQuerySet:
         """Only events live on the calendar (eligible to push to Google)."""

@@ -58,6 +58,22 @@ def _sent_embeds(route: respx.Route) -> list[dict]:
     return embeds
 
 
+def _field(embed: dict, name: str) -> str:
+    """The value of the labelled row ``name``; a KeyError when the row is absent."""
+    return {field["name"]: field["value"] for field in embed["fields"]}[name]
+
+
+def _field_names(embed: dict) -> list[str]:
+    return [field["name"] for field in embed["fields"]]
+
+
+def _announced(title: str = "Forge Basics", **kwargs) -> list[dict]:
+    """The embeds the announcer would post for one new class, loaded as the announcer loads it."""
+    _published_class(title, **kwargs)
+    (offering,) = dcp._pending_offerings()
+    return dcp.class_announcement_embeds(offering)
+
+
 def describe_build_weekly_classes_digest_embeds():
     def it_groups_sessions_by_local_day_with_time_link_and_instructor():
         offering = _published_class("Intro to Welding", days=2)
@@ -194,11 +210,9 @@ def describe_announce_new_classes():
         embed = _sent_embeds(route)[0]
         assert embed["title"] == "Forge Basics"
         assert embed["url"] == offering.public_url
-        assert f"New class in {offering.category.name}" in embed["description"]
         session_day = timezone.localtime(timezone.now() + timedelta(days=3)).strftime("%A, %B %-d")
-        assert session_day in embed["description"]
-        assert "**Price:** $50" in embed["description"]  # 5000 cents, whole dollars drop decimals
-        assert f"[Sign up →]({offering.public_url})" in embed["description"]
+        assert session_day in _field(embed, "When")
+        assert _field(embed, "Price") == "$50"  # 5000 cents, whole dollars drop decimals
         offering.refresh_from_db()
         assert offering.channel_announced_at is not None
 
@@ -212,7 +226,6 @@ def describe_announce_new_classes():
         assert dcp.announce_new_classes() == 1
         embed = _sent_embeds(route)[0]
         assert embed["url"] == offering.public_url
-        assert f"[Sign up →]({offering.public_url})" in embed["description"]
 
     @respx.mock
     def it_never_announces_the_same_class_twice(settings):
@@ -276,7 +289,7 @@ def describe_announce_new_classes():
         _flexible_class("Open Studio Ceramics")
 
         assert dcp.announce_new_classes() == 1
-        assert "Flexible scheduling — arrange with the instructor" in _sent_embeds(route)[0]["description"]
+        assert _field(_sent_embeds(route)[0], "When") == "Flexible scheduling — arrange with the instructor"
 
     @respx.mock
     def it_caps_at_ten_posts_and_silently_stamps_the_overflow(settings):
@@ -323,8 +336,8 @@ def describe_a_flexible_class_with_a_date_window():
 
         assert dcp.announce_new_classes() == 1
         assert (
-            "Flexible scheduling — arrange with the instructor · Nov 2 to Dec 1, 2026"
-            in _sent_embeds(route)[0]["description"]
+            _field(_sent_embeds(route)[0], "When")
+            == "Flexible scheduling — arrange with the instructor · Nov 2 to Dec 1, 2026"
         )
 
     @respx.mock
@@ -349,3 +362,164 @@ def describe_a_class_with_two_instructors():
         _published_class("Picture Framing", days=2, instructor=first, instructors=[first, second])
         description = dcp.build_weekly_classes_digest_embeds(timezone.now())[0]["description"]
         assert "with Alex Eason and Jenelle Giordano" in description
+
+
+def describe_class_announcement_embeds():
+    """#879: the new class post matches the #calendar event card, with the class's photos."""
+
+    def it_opens_with_the_description_cut_at_600_with_more_on_the_class_page():
+        (embed, *_) = _announced(description="<p>" + "x" * 700 + "</p>")
+        assert embed["description"] == "x" * 600 + "… more on the class page"
+
+    def it_shows_a_short_description_whole_as_plain_text():
+        (embed, *_) = _announced(description="<p>Learn to <strong>weld</strong>.</p>")
+        assert embed["description"] == "Learn to weld."
+
+    def it_leaves_the_description_out_when_the_class_has_none():
+        (embed, *_) = _announced(description="")
+        assert "description" not in embed
+
+    def it_shows_every_labelled_row_with_a_value():
+        from tests.membership.factories import LocationFactory
+
+        area = LocationFactory(name="Hot Shop")
+        (embed, *_) = _announced(days=3, area=area, price_cents=4500, capacity=8)
+        assert _field_names(embed) == ["When", "Duration", "Location", "Instructor", "Price", "Spots"]
+        session_day = timezone.localtime(timezone.now() + timedelta(days=3)).strftime("%A, %B %-d")
+        assert _field(embed, "When").startswith(f"{session_day} · ")
+        assert _field(embed, "Duration") == "2 hours"
+        assert _field(embed, "Location") == "Hot Shop"
+        assert _field(embed, "Price") == "$45"
+        assert _field(embed, "Spots") == "8"
+
+    def it_counts_the_sessions_only_when_there_is_more_than_one():
+        offering = _published_class("Forge Series", days=3)
+        start = timezone.now() + timedelta(days=10)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=3))
+        (loaded,) = dcp._pending_offerings()
+        embed = dcp.class_announcement_embeds(loaded)[0]
+        assert _field(embed, "Sessions") == "2"
+        assert _field(embed, "Duration") == "2 hours"  # the first session's
+        session_day = timezone.localtime(timezone.now() + timedelta(days=3)).strftime("%A, %B %-d")
+        assert _field(embed, "When").startswith(session_day)  # the next one
+
+    def it_words_an_odd_length_like_the_event_card():
+        offering = ClassOfferingFactory(title="Short", status=ClassOffering.Status.PUBLISHED)
+        start = timezone.now() + timedelta(days=2)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(minutes=90))
+        (loaded,) = dcp._pending_offerings()
+        assert _field(dcp.class_announcement_embeds(loaded)[0], "Duration") == "1 hour 30 minutes"
+
+    def it_words_a_session_under_an_hour_in_minutes_alone():
+        offering = ClassOfferingFactory(title="Quick", status=ClassOffering.Status.PUBLISHED)
+        start = timezone.now() + timedelta(days=2)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(minutes=45))
+        (loaded,) = dcp._pending_offerings()
+        assert _field(dcp.class_announcement_embeds(loaded)[0], "Duration") == "45 minutes"
+
+    def it_gives_a_fixed_class_with_no_sessions_no_duration_or_count():
+        # bookable() never hands the announcer such a class; the builder still copes.
+        offering = ClassOfferingFactory(title="No Dates Yet", status=ClassOffering.Status.PUBLISHED)
+        (embed, *_) = dcp.class_announcement_embeds(offering)
+        assert _field(embed, "When") == dcp._FLEXIBLE_WHEN
+        assert "Sessions" not in _field_names(embed) and "Duration" not in _field_names(embed)
+
+    def it_names_every_instructor():
+        from classes.factories import InstructorFactory
+
+        first = InstructorFactory(full_legal_name="Alex Eason")
+        second = InstructorFactory(full_legal_name="Jenelle Giordano")
+        (embed, *_) = _announced(instructor=first, instructors=[first, second])
+        assert _field(embed, "Instructor") == "Alex Eason and Jenelle Giordano"
+
+    def it_leaves_out_location_and_sessions_when_they_have_no_value():
+        (embed, *_) = _announced()
+        assert "Location" not in _field_names(embed)
+        assert "Sessions" not in _field_names(embed)
+
+    def it_gives_a_flexible_class_its_window_and_no_spots_or_duration():
+        _flexible_class("Open Studio Ceramics")
+        (offering,) = dcp._pending_offerings()
+        embed = dcp.class_announcement_embeds(offering)[0]
+        assert _field_names(embed) == ["When", "Instructor", "Price"]
+
+    def it_gives_a_flexible_class_with_old_session_rows_no_sessions_or_duration():
+        offering = _flexible_class("Open Forge")
+        for days in (2, 9):
+            start = timezone.now() + timedelta(days=days)
+            ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=3))
+        (loaded,) = dcp._pending_offerings()
+        names = _field_names(dcp.class_announcement_embeds(loaded)[0])
+        assert "Sessions" not in names
+        assert "Duration" not in names
+
+    def it_shows_the_hero_photo_as_an_absolute_url(settings):
+        settings.BOOK_BASE_URL = "https://classes.example.org"
+        (embed, *_) = _announced(gallery=0)
+        assert embed["image"]["url"].startswith("https://classes.example.org/")
+
+    def it_keeps_an_object_storage_url_as_it_is():
+        from unittest import mock
+
+        r2 = "https://pub.r2.dev/classes/hero.jpg"
+        with mock.patch.object(ClassOffering, "hero_image_url", new_callable=mock.PropertyMock, return_value=r2):
+            (embed,) = _announced(gallery=0)
+        assert embed["image"] == {"url": r2}
+
+    def it_leaves_out_a_photo_it_cannot_make_absolute(settings):
+        settings.BOOK_BASE_URL = ""
+        (embed,) = _announced()
+        assert "image" not in embed
+
+    def it_shows_up_to_three_gallery_photos_with_the_hero_as_one_grid():
+        embeds = _announced(gallery=5)
+        main, *grid = embeds
+        assert len(embeds) == 4  # the hero and three gallery photos, one message
+        assert main["image"]["url"].startswith("http")
+        assert [set(extra) for extra in grid] == [{"url", "image"}] * 3
+        assert all(extra["url"] == main["url"] for extra in grid)
+        urls = [embed["image"]["url"] for embed in embeds]
+        assert len(set(urls)) == 4 and all(url.startswith("http") for url in urls)
+
+    def it_posts_a_class_with_no_photos_as_a_card_with_no_picture():
+        embeds = _announced(image="", gallery=0)
+        assert len(embeds) == 1
+        assert "image" not in embeds[0]
+
+    def it_footers_sign_up_on_the_class_page_and_links_the_title_there():
+        (embed, *_) = _announced()
+        assert embed["footer"] == {"text": "Sign up on the class page"}
+        assert embed["url"].startswith("http") and embed["url"].endswith("/")
+
+    def it_fits_discords_caps_for_the_longest_class():
+        from classes.factories import InstructorFactory
+
+        people = [InstructorFactory(full_legal_name=f"Instructor With A Long Name {i:03d}") for i in range(60)]
+        # The longest title PostgreSQL saves: grouping_key is "<slug>:<category id>" in 255 characters.
+        embeds = _announced(title="T" * 240, description="y" * 5000, instructor=people[0], instructors=people)
+        main = embeds[0]
+        assert all(len(field["value"]) <= 1024 for field in main["fields"])
+        assert _field(main, "Instructor").endswith("…")
+        text = len(main["title"]) + len(main["description"]) + len(main["footer"]["text"])
+        text += sum(len(field["name"]) + len(field["value"]) for field in main["fields"])
+        assert text <= 6000
+        assert len(embeds) <= 10
+
+    def it_builds_the_post_without_a_query_per_class(django_assert_num_queries):
+        for i in range(3):
+            _published_class(f"Class {i}", gallery=2)
+        pending = dcp._pending_offerings()
+        with django_assert_num_queries(0):
+            for offering in pending:
+                dcp.class_announcement_embeds(offering)
+
+    @respx.mock
+    def it_sends_the_card_and_its_photos_in_one_message(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        _enable_posts()
+        _published_class("Forge Basics", gallery=3)
+
+        assert dcp.announce_new_classes() == 1
+        assert route.call_count == 1
+        assert len(_sent_embeds(route)) == 4

@@ -206,7 +206,8 @@ def describe_an_admin_saving_several_dates():
         first_run = _runs(past)[0]
         assert dcp.announce_new_classes() == 1
         embeds = [embed for call in route.calls for embed in json.loads(call.request.content)["embeds"]]
-        assert [embed["url"] for embed in embeds] == [first_run.public_url]
+        assert route.call_count == 1  # one post; its photo embeds share the class url (#879)
+        assert embeds[0]["url"] == first_run.public_url
         assert dcp.announce_new_classes() == 0
 
     def it_leaves_the_dates_alone_when_someone_holds_a_seat(live, admin_user, client):

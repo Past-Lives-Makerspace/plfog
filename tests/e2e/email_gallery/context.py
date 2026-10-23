@@ -261,6 +261,28 @@ def review_request_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def staff_digest_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``core.events.channels.digest_context``: three classes waiting on one reviewer (#894)."""
+    from classes.emails import _absolute_url
+    from core.events.channels import digest_context
+    from core.models import EventDelivery
+
+    review_url = _absolute_url(reverse("classes:class_review", kwargs={"token": data.approval_pending.token}))
+    titles = ["Cutting Board Basics", "Cutting Board: End Grain", "Cutting Board: Juice Groove"]
+    rows = [
+        EventDelivery(
+            event_key="class_review_requested",
+            title=f"Review request: {title}",
+            body="Alex Eason in the Woodworking Guild requests approval for their upcoming class dates.",
+            url=f"{review_url}?sample={index}",
+        )
+        for index, title in enumerate(titles)
+    ]
+    rows[-1].body = "Reminded by Alex Eason"
+    built = digest_context(rows)
+    return {"subject": built["subject"], "template_context": built}
+
+
 def review_submitted_instructor_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``classes.emails._emit_instructor_review_explainer``."""
     from classes.emails import _absolute_url

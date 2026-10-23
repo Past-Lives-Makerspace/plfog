@@ -11,6 +11,7 @@ python_functions = ["it_*", "test_*", "describe_*"]
 addopts = "-v --tb=short --cov=. --cov-report=term-missing -m 'not e2e'"
 markers = [
     "e2e: browser-based end-to-end test driven by Playwright (deselected by default; run with -m e2e)",
+    "postgres_only: needs PostgreSQL (row locks, pg_* functions); skipped on any other database, run by CI's postgres-only job",
 ]
 
 [tool.ruff]

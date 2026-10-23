@@ -57,31 +57,9 @@ jobs:
             echo "No Google Chrome apt source present; nothing to remove."
           fi
 
-      # Postgres comes from the PostgreSQL project's own apt repository (apt.postgresql.org),
-      # the same packages production's 18.x is built from, instead of a container image.
-      # Container registries meter anonymous pulls: Docker Hub refused postgres:18 (#743), then
-      # the AWS public mirror did the same on 2026-10-15, and either one fails the job before a
-      # test runs. Three attempts with a pause, like the Playwright install below.
+      # Postgres 18 from apt.postgresql.org, retried; the reasons live in the action.
       - name: Install and start Postgres 18
-        run: |
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
-          for attempt in 1 2 3; do
-            if sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends postgresql-18; then
-              break
-            fi
-            if [ "$attempt" = 3 ]; then echo "Postgres install failed three times"; exit 1; fi
-            echo "Postgres install failed on attempt $attempt; retrying in 20s"
-            sleep 20
-          done
-          # The runner image ships an older Postgres whose cluster claims 5432 in its config;
-          # give 18 its own cluster on 5432 so DATABASE_URL stays as it was.
-          sudo pg_dropcluster --stop 18 main 2>/dev/null || true
-          sudo pg_createcluster 18 main --port 5432 --start
-          sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE plfog LOGIN SUPERUSER PASSWORD 'plfog';" -c "CREATE DATABASE plfog OWNER plfog;"
-          pg_isready -h localhost -p 5432 -U plfog
-          psql "$DATABASE_URL" -tAc "show server_version"
+        uses: ./.github/actions/postgres
 
       - name: Install Playwright browser
         run: |

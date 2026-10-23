@@ -407,11 +407,17 @@ def _per_recipient_fan_out(
 
     ``override_preferences`` delivers every declared channel regardless of the user's saved
     preferences (the urgent-announcement path).
-    """
-    from core.events.registry import get_event
 
+    A digest event's EMAIL (``EventType.email_delivery``, #894) is claimed on the ledger the
+    same way, then buffered by :class:`~core.events.channels.DigestAdapter` under this
+    emit's ``period`` (the request itself) instead of sent, carrying the
+    :data:`Channel.DIGEST` message (a sender's override, else the fixed or copy message).
+    """
+    from core.events.registry import EmailDelivery, get_event
+
+    event = get_event(event_key)
     channels = (
-        [spec.channel for spec in get_event(event_key).channels]
+        [spec.channel for spec in event.channels]
         if override_preferences
         else preferences.enabled_channels(user, event_key)
     )
@@ -433,9 +439,14 @@ def _per_recipient_fan_out(
             # nobody used, and the recipient is then skipped by every later run — so
             # anything short of a real delivery must hand the slot back.
             try:
-                was_delivered = adapter.deliver(
-                    user, message_for(channel), attachments=channel_attachments.get(channel)
-                )
+                if channel is Channel.EMAIL and event.email_delivery is EmailDelivery.DIGEST:
+                    was_delivered = channel_module.digest_adapter().enqueue(
+                        user, message_for(Channel.DIGEST), event_key=event_key, period=period
+                    )
+                else:
+                    was_delivered = adapter.deliver(
+                        user, message_for(channel), attachments=channel_attachments.get(channel)
+                    )
             except BaseException:
                 # BaseException, not Exception: a worker being shut down raises SystemExit
                 # or KeyboardInterrupt, and that is precisely when a claimed-but-unsent slot

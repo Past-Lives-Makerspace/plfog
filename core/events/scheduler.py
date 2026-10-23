@@ -22,9 +22,9 @@ onto ``EventDelivery``'s ``period`` bucket (the class reminder uses
 ``booking:<pk>:reminder_48h`` — both one-shot via a stable ``period``).
 
 The cron (``run_scheduled_tasks``) calls :func:`run_sources` with the registered
-sources; Phase 6 (voting 48h, the digest flush) adds its source(s) here with zero
-changes to the walker. :func:`flush_digests` is the documented entry point the
-digest flush cron will call — it drains the buffered ``PENDING`` digest rows via
+sources; Phase 6 (voting 48h) adds its source(s) here with zero changes to the
+walker. :func:`flush_digests` is what the ``send_staff_digests`` job calls each tick —
+it sends the 8 AM Pacific staff digest of the buffered ``PENDING`` rows via
 :meth:`core.events.channels.DigestAdapter.flush_due`.
 """
 
@@ -156,16 +156,14 @@ def run_sources(
     return fired
 
 
-def flush_digests() -> dict[str, list[int]]:
-    """Drain buffered digest rows — the entry point the digest flush cron calls.
+def flush_digests(now: datetime | None = None) -> dict[str, list[int]]:
+    """Send today's staff digests once it is 8:00 Pacific (#894); the ``send_staff_digests`` job.
 
     Thin, documented re-export of
-    :meth:`core.events.channels.DigestAdapter.flush_due` so the scheduler is the one
-    place the cron reaches for both timed sends (:func:`run_sources`) and the digest
-    batch (this). Phase 6 wires the actual digest-email assembly on top of the
-    grouped result; here it simply groups + marks the pending rows sent so they do
-    not accumulate.
+    :meth:`core.events.channels.DigestAdapter.flush_due`, so the scheduler is the one
+    place the cron reaches for both timed sends (:func:`run_sources`) and the digest.
+    Returns ``{target_ref: [delivery_id, ...]}`` for each digest sent.
     """
     from core.events.channels import DigestAdapter
 
-    return DigestAdapter.flush_due()
+    return DigestAdapter.flush_due(now)

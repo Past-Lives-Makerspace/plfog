@@ -108,7 +108,8 @@ def describe_member_welcome_tour():
         assert "tour=" not in page.url
         page.goto(f"{live_server.url}{reverse('hub_home')}")
         expect(page.locator("[data-pl-tour-offer]")).not_to_be_visible()
-        expect(page.locator(".hub-page-header").get_by_role("link", name="Show me around")).to_be_visible()
+        # The tour is taken, so Show me around is gone too; Help's Guided Tours card retakes it.
+        expect(page.locator(".hub-page-header").get_by_role("link", name="Show me around")).to_have_count(0)
 
     def it_resumes_mid_tour_from_the_url_param(live_server, page, login_via_code):
         email = "tour-resume@example.com"

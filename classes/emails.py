@@ -254,11 +254,17 @@ def _emit_review_request(
     guild: "Guild | None",
     instructor_name: str,
     period: str = "",
+    digest_note: str = "",
 ) -> "EmitResult":
-    """Emit the stage-one ``class_review_requested`` event: review email + in-app row.
+    """Emit the stage-one ``class_review_requested`` event: digest line + in-app row.
 
     ``period`` defaults to the one-shot request bucket; the Remind lead action passes a
-    dated bucket so a reminder delivers once per day and dedupes after that.
+    dated bucket so a reminder queues once per day and dedupes after that, and a
+    ``digest_note`` ("Reminded by ...") that replaces the gate's one line in the digest.
+
+    The event is a digest event (#894): each reviewer's email waits for the 8 AM staff
+    digest as one line (the subject, the bell's one line, the review link), and drops out
+    if the gate is decided first. The bell row still appears at once.
 
     The reviewer email is the preserved ``review_request.{txt,html}`` shell (tokenized
     ``/classes/review/<token>/`` link). Email, bell, push and Discord DM all go to the
@@ -268,6 +274,7 @@ def _emit_review_request(
     (capability holders) for a lead-less one. Each person's own switches decide (#524), and
     the email goes to their notification address; a reviewer with no login gets nothing.
     """
+    from core.events.channels import Message
     from core.events.senders import emit_with_email_shell
 
     review_path = reverse("classes:class_review", kwargs={"token": row.token})
@@ -279,22 +286,25 @@ def _emit_review_request(
         "review_url": review_url,
         "role_label": role_label,
     }
+    subject = f"Review request: {offering.title}"
+    in_app_body = (
+        f"{instructor_name} in the {guild_name} Guild requests approval for their upcoming class dates."
+        if guild is not None
+        else f"{instructor_name} requests approval for their upcoming class dates."
+    )
     return emit_with_email_shell(
         "class_review_requested",
         target=offering,
         context={"guild": guild, "offering": offering},
-        subject=f"Review request: {offering.title}",
+        subject=subject,
         text_template="classes/emails/review_request.txt",
         html_template="classes/emails/review_request.html",
         template_context=template_context,
         in_app_title="A class needs your review",
-        in_app_body=(
-            f"{instructor_name} in the {guild_name} Guild requests approval for their upcoming class dates."
-            if guild is not None
-            else f"{instructor_name} requests approval for their upcoming class dates."
-        ),
+        in_app_body=in_app_body,
         url=review_path,
         period=period or f"approval:{row.pk}:request",
+        digest_message=Message(title=subject, body=digest_note or in_app_body, url=review_url),
     )
 
 
@@ -327,14 +337,16 @@ def reminded_names(result: "EmitResult") -> list[str]:
     return [by_user[user_id].display_name for user_id in user_ids if user_id in by_user]
 
 
-def send_guild_lead_review_reminder(row: "ClassApproval") -> "EmitResult | None":
-    """Remind lead: re-send the guild-lead review request for an open gate, once per day.
+def send_guild_lead_review_reminder(row: "ClassApproval", *, reminded_by: "User") -> "EmitResult | None":
+    """Remind lead: queue the open gate again for the reviewers' next digest, once per day.
 
-    The same ``class_review_requested`` email and bell row as the original request, on
-    the dated period ``approval:{pk}:reminder:{today}`` so a second click the same day
-    lands in ``EmitResult.skipped_duplicates`` and tomorrow's click delivers again. The
-    instructor explainer is deliberately NOT re-sent (the instructor already knows).
-    Returns ``None`` when the class has nobody left to remind
+    Sends no email (#894). The same ``class_review_requested`` bell row as the original
+    request, and a digest line reading "Reminded by <name>" (the person who clicked, or
+    the class's instructors for an account with no member row) that takes the gate's
+    place in the next 8 AM digest. The dated period ``approval:{pk}:reminder:{today}``
+    puts a second click the same day in ``EmitResult.skipped_duplicates``, and tomorrow's
+    click queues again. The instructor explainer is deliberately NOT re-sent (the
+    instructor already knows). Returns ``None`` when the class has nobody left to remind
     (:func:`class_has_reachable_reviewer`).
     """
     offering = row.class_offering
@@ -342,7 +354,11 @@ def send_guild_lead_review_reminder(row: "ClassApproval") -> "EmitResult | None"
         return None
     guild = offering.category.guild
     instructor_name = offering.instructor_names or "An instructor"
+    from core.models import EventDelivery
+
     today = timezone.localdate().isoformat()
+    member = getattr(reminded_by, "member", None)
+    reminder_name = member.display_name if member is not None else instructor_name
     return _emit_review_request(
         offering,
         row,
@@ -350,6 +366,7 @@ def send_guild_lead_review_reminder(row: "ClassApproval") -> "EmitResult | None"
         guild=guild,
         instructor_name=instructor_name,
         period=f"approval:{row.pk}:reminder:{today}",
+        digest_note=f"{EventDelivery.REMINDED_BY_PREFIX}{reminder_name}",
     )
 
 
@@ -438,6 +455,7 @@ def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApp
     (holders only) get it. ``class_validation_requested`` logs no SiteActivity, so
     the emit introduces no activity-row duplication.
     """
+    from core.events.channels import Message
     from core.events.senders import emit_with_email_shell
 
     review_path = reverse("classes:class_review", kwargs={"token": approval.token})
@@ -453,20 +471,24 @@ def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApp
     }
     instructor_name = template_context["instructor_name"]
     lead_name = template_context["guild_lead_name"]
+    subject = f"Admin sign-off needed: {offering.title}"
+    in_app_body = f"{lead_name} and {instructor_name} request admin sign-off to publish this class."
     emit_with_email_shell(
         "class_validation_requested",
         target=offering,
         context={},
-        subject=f"Admin sign-off needed: {offering.title}",
+        subject=subject,
         text_template="classes/emails/admin_validation_request.txt",
         html_template="classes/emails/admin_validation_request.html",
         template_context=template_context,
         in_app_title="A class needs admin sign-off",
-        in_app_body=f"{lead_name} and {instructor_name} request admin sign-off to publish this class.",
+        in_app_body=in_app_body,
         # The tokenized review page — /classes/admin/ is gated admin-only, so a
         # CMS Administrator clicking the bell row would have hit a 403 there.
         url=review_path,
         period=f"approval:{approval.pk}:validation",
+        # A digest event (#894): the email waits for the 8 AM staff digest as this line.
+        digest_message=Message(title=subject, body=in_app_body, url=review_url),
     )
 
 
