@@ -18,7 +18,7 @@
 {% if spotlight %}<div class="pl-spotlight-home" data-spotlight-home>{% include "hub/partials/_spotlight.html" with spotlight=spotlight next_url=request.get_full_path %}</div>{% endif %}
 {% if member %}
 {% with greeting="Welcome back, "|add:member.display_name %}
-{% include "components/page_header.html" with title=greeting description="Your home base — what's coming up, the latest from your guilds, and quick ways in." action_include="hub/partials/_home_header_actions.html" %}
+{% include "components/page_header.html" with title=greeting description="Your home base — what's coming up, the latest from your guilds, and quick ways in." action_include="hub/partials/_home_header_actions.html" lead_include="hub/partials/_home_tour_link.html" %}
 {% endwith %}
 
 {# --- Take the tour banner (#824): while the member tour is on offer, in place of the floating card --- #}

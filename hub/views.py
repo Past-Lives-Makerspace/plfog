@@ -930,7 +930,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "wiki_tab_enabled": wiki_tab_enabled,
             **wiki_tab_context,
             "kiln_home": kiln_home,
-            "location_statuses": guild_location_statuses(guild),
+            # Off in Guild Settings (#892): no section and no status query.
+            "location_statuses": guild_location_statuses(guild) if guild.show_location_status else [],
         },
     )
 

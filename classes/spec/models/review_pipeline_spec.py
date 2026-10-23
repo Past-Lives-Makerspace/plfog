@@ -11,7 +11,6 @@ from django.utils import timezone
 
 from classes.emails import (
     send_admin_review_request,
-    send_admin_validation_request,
     send_class_review_decision,
     send_guild_lead_review_request,
 )
@@ -346,7 +345,8 @@ def describe_review_emails_carry_the_pipeline():
         )
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
         send_guild_lead_review_request(offering, row)
-        assert len(mail.outbox) == 2
+        # The lead's request waits for the 8 AM digest (#894); the explainer goes at once.
+        assert len(mail.outbox) == 1
         for message in mail.outbox:
             text, html = _bodies(message)
             assert "[✓] Submitted  [●] Guild lead  [ ] Admin  [ ] Live" in text
@@ -384,8 +384,18 @@ def describe_review_emails_carry_the_pipeline():
         Member.objects.get(user=holder_user).admin_capabilities.create(
             capability=AdminCapability.Capability.CLASS_APPROVER
         )
-        send_admin_validation_request(offering, row)
-        text, html = _bodies(mail.outbox[0])
+        # The request itself rides the 8 AM digest (#894); its shell still renders the strip.
+        from django.template.loader import render_to_string
+
+        context = {
+            "offering": offering,
+            "approval": row,
+            "review_url": "https://classes.example.com/classes/review/x/",
+            "guild_lead_name": "A guild lead",
+            "instructor_name": "the instructor",
+        }
+        text = render_to_string("classes/emails/admin_validation_request.txt", context)
+        html = render_to_string("classes/emails/admin_validation_request.html", context)
         assert "[✓] Submitted  [✓] Guild lead  [●] Admin  [ ] Live" in text
         assert "Waiting on an admin" in html
         assert "[missing:" not in html

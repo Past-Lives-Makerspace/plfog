@@ -1180,8 +1180,11 @@ class Member(models.Model):
         return TourState.objects.status_for(user, key) == TourState.Status.COMPLETED
 
     @property
-    def _has_finished_member_tour(self) -> bool:
-        """Whether the member tour is behind them: completed or dismissed (#824). Absent or offered is not."""
+    def has_finished_member_tour(self) -> bool:
+        """Whether the member tour is behind them: completed or dismissed (#824). Absent or offered is not.
+
+        The Get Started checklist marks Take the tour done on it, and Home hides Show me around on it.
+        """
         from core.models import TourState
 
         user = self.user
@@ -1358,7 +1361,7 @@ class Member(models.Model):
         profile_done = profile.essentials_complete
         from core.tours import TOURS, entry_url_for
 
-        tour_done = self._has_finished_member_tour
+        tour_done = self.has_finished_member_tour
         steps = [
             OnboardingStep(
                 key="tour",
@@ -3057,6 +3060,11 @@ class Guild(HeroCropMixin, models.Model):
     )
     show_members = models.BooleanField(
         default=False, help_text="Show the opt-in members roster on the public guild page."
+    )
+    show_location_status = models.BooleanField(
+        default=True,
+        db_default=True,
+        help_text="Show whether each of the guild's locations is free, starting soon or in use on the guild page.",
     )
     is_featured = models.BooleanField(
         default=False, help_text="Pin this guild to the top of the public guilds directory."

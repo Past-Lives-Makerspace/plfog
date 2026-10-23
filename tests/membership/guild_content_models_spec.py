@@ -3,7 +3,7 @@
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from membership.models import GuildAnnouncement, GuildFAQItem, GuildImage, GuildLink
+from membership.models import Guild, GuildAnnouncement, GuildFAQItem, GuildImage, GuildLink
 from tests.membership.factories import GuildFactory
 
 pytestmark = pytest.mark.django_db
@@ -107,6 +107,13 @@ def describe_guild_new_fields():
         assert guild.meeting_schedule == ""
         assert guild.contact_email == ""
         assert guild.show_members is False
+
+    def it_shows_the_location_lights_by_default():
+        # #892: on in Python and in the database, so a row inserted by the previous release
+        # during the deploy window (which does not know the column) still shows its lights.
+        assert GuildFactory().show_location_status is True
+        field = Guild._meta.get_field("show_location_status")
+        assert field.db_default is True
 
     def it_defaults_the_faq_label_to_FAQ():
         assert GuildFactory().faq_label == "FAQ"

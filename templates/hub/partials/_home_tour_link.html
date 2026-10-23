@@ -1,0 +1,2 @@
+{# Home's Show me around, a row under the header description. It is gone once the member tour is behind them (taken or dismissed, the checklist's Done; Help's Guided Tours card still retakes it), and steps aside while the tour banner offers the tour (#824). #}
+{% if not member.has_finished_member_tour %}{% if not show_tour_offer or not tour.offer_banner %}<div class="pl-home-tour-link"><a href="?tour=member-welcome" class="hub-btn hub-btn--sm">Show me around</a></div>{% endif %}{% endif %}

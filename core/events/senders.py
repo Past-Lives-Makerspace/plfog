@@ -90,6 +90,7 @@ def emit_with_email_shell(
     email_trigger_kind: str | None = None,
     period: str = "",
     recipient_user_ids: set[int] | None = None,
+    digest_message: Message | None = None,
 ) -> EmitResult:
     """Emit an event whose EMAIL channel uses a rich structural shell template.
 
@@ -124,6 +125,9 @@ def emit_with_email_shell(
             the resolver's per-recipient fan-out. Pass an empty set for an email-only
             send (``email_to`` still delivers) whose resolver would otherwise fan bell
             rows, pushes, and Discord DMs to an unintended audience.
+        digest_message: For a digest event (#894), the line the 8 AM staff digest shows in
+            place of the shell email: title, one line, absolute link. ``None`` lets the
+            digest fall back to the in-app title and body.
 
     Returns:
         The :class:`~core.events.emit.EmitResult`.
@@ -138,6 +142,8 @@ def emit_with_email_shell(
         email_trigger_kind=email_trigger_kind,
     )
     messages = {Channel.EMAIL: email_message}
+    if digest_message is not None:
+        messages[Channel.DIGEST] = digest_message
     channel_attachments = {Channel.EMAIL: attachments} if attachments else None
     return emit(
         event_key,

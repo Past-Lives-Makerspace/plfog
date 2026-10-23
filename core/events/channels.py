@@ -23,8 +23,9 @@ Phase 2 makes the three remaining adapters real:
   no-op when no webhook is configured and is best-effort (logged, never raises).
 * :class:`ScheduledEmailAdapter` renders + sends through the email choke-point when
   invoked, and exposes a due-window helper for the (Phase-5) scheduler.
-* :class:`DigestAdapter` does not send immediately — it **buffers** the delivery as a
-  ``PENDING`` :class:`core.models.EventDelivery` row for a later batch flush.
+* :class:`DigestAdapter` does not send immediately — it **buffers** a digest event's
+  email as a ``PENDING`` :class:`core.models.EventDelivery` row, and sends each person
+  one 8 AM Pacific digest of what is still open (#894).
 
 :class:`ChannelNotImplemented` and :class:`_ShellAdapter` remain for any future
 register-before-build channel; the three above no longer use them.
@@ -34,7 +35,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from zoneinfo import ZoneInfo
 
+from django.utils import timezone
 from django.utils.text import Truncator
 
 from core.email import send as send_email
@@ -53,7 +56,7 @@ from core.push import send_web_push
 from core.urls_util import notification_click_url
 
 if TYPE_CHECKING:
-    from datetime import datetime, timedelta
+    from datetime import date, datetime, timedelta
 
     from django.contrib.auth.models import User
 
@@ -415,30 +418,47 @@ class ScheduledEmailAdapter:
         return _is_due(anchor, offset, now=now)
 
 
+#: The staff digest goes out from this Pacific hour (#894), and takes only what was
+#: queued before it, so a request filed at 3 PM waits for tomorrow morning.
+DIGEST_HOUR = 8
+PACIFIC = ZoneInfo("America/Los_Angeles")
+#: The audit label on each digest's ``TransactionalEmailLog`` row, and the ledger key that
+#: makes it once per person per Pacific date.
+DIGEST_TRIGGER_KIND = "staff_digest"
+
+
 class DigestAdapter:
-    """Buffers a delivery for a later batched digest email (#9) — does NOT send now.
+    """Buffers a staff request for the 8 AM Pacific digest email (#894) — does NOT send now.
 
-    Instead of delivering immediately, :meth:`deliver` writes a ``PENDING``
-    :class:`core.models.EventDelivery` row keyed to the recipient + event, carrying
-    the rendered message. A later flush batches every pending row for a user into
-    one email and flips them to ``SENT``.
+    :meth:`enqueue` writes one ``PENDING`` :class:`core.models.EventDelivery` row per
+    (event, recipient, request), the request being the emit's ``period`` (a class review
+    gate's ``approval:<pk>:request``), so a second request never overwrites the first.
+    The row carries the line the digest shows: title, one line, link.
 
-    FLUSH/CRON HANDOFF (Phase 5): the flush cron is NOT wired here. :meth:`flush_due`
-    is the documented entry point the Phase-5 scheduler will call (today it groups
-    pending rows per recipient and marks them sent; the actual digest-email
-    rendering + the cron registration land with the scheduler).
+    :meth:`flush_due` is the daily send, called by the ``send_staff_digests`` job every
+    tick. From 8:00 Pacific it takes the rows queued before today's 8:00, drops the
+    requests decided since (each event's still-open check in
+    :func:`core.events.resolvers.open_request_urls`) and the events a person has since
+    switched their email off for, and sends each person one email, at most once per
+    Pacific date. Nobody left with anything gets no email.
     """
 
     channel = Channel.DIGEST
     is_broadcast = False
 
-    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> bool:
-        # Buffered digest rows carry no attachments — the later batch is plain text.
+    def enqueue(self, user: User, message: Message, *, event_key: str, period: str) -> bool:
+        """Buffer ``message`` as ``user``'s digest line for the request ``period`` names.
+
+        Returns ``False`` (nothing queued, so the spine hands its claim back) when the user
+        has no address to send the digest to, the same rule :class:`EmailAdapter` keeps.
+        """
+        if not notification_email_for(user).strip():
+            return False
         EventDelivery.objects.update_or_create(
-            event_key=message.trigger_kind or "",
+            event_key=event_key,
             target_ref=f"user:{user.pk}",
             channel=self.channel.value,
-            period="digest",
+            period=period,
             defaults={
                 "status": EventDelivery.Status.PENDING,
                 "title": message.title,
@@ -446,8 +466,12 @@ class DigestAdapter:
                 "url": message.url,
             },
         )
-        # The buffer row IS the delivery for this channel; the flush sends it later.
         return True
+
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> bool:
+        # No event declares Channel.DIGEST; the digest is chosen by EventType.email_delivery
+        # and reached through enqueue. Kept for the adapter interface, keyed on the link.
+        return self.enqueue(user, message, event_key=message.trigger_kind, period=message.url)
 
     @staticmethod
     def pending_for(user: User) -> list[EventDelivery]:
@@ -461,27 +485,141 @@ class DigestAdapter:
         )
 
     @classmethod
-    def flush_due(cls) -> dict[str, list[int]]:
-        """Phase-5 entry point — group pending rows per recipient + mark them sent.
+    def flush_due(cls, now: datetime | None = None) -> dict[str, list[int]]:
+        """Send today's digests if it is 8:00 Pacific or later; return what each one carried.
 
-        Returns ``{target_ref: [delivery_id, ...]}`` describing what would batch into
-        each recipient's digest, and flips those rows to ``SENT``. The actual digest
-        email assembly + the cron that calls this on a cadence are the Phase-5
-        scheduler's job; this method exists so the buffering has a documented,
-        tested drain point and the rows do not accumulate forever.
+        Returns ``{target_ref: [delivery_id, ...]}`` for every digest sent this call.
+        Safe to run on every tick: a person already sent today is skipped on the ledger.
         """
+        from django.contrib.auth.models import User
+
+        current = (now or timezone.now()).astimezone(PACIFIC)
+        cutoff = current.replace(hour=DIGEST_HOUR, minute=0, second=0, microsecond=0)
+        if current < cutoff:
+            return {}
         pending = EventDelivery.objects.filter(
-            channel=Channel.DIGEST.value,
-            status=EventDelivery.Status.PENDING,
+            channel=Channel.DIGEST.value, status=EventDelivery.Status.PENDING, created_at__lt=cutoff
         ).order_by("created_at")
-        grouped: dict[str, list[int]] = {}
-        ids: list[int] = []
-        for row in pending:
-            grouped.setdefault(row.target_ref, []).append(row.pk)
-            ids.append(row.pk)
-        if ids:
-            EventDelivery.objects.filter(pk__in=ids).update(status=EventDelivery.Status.SENT)
-        return grouped
+        by_target: dict[str, list[EventDelivery]] = {}
+        for row in cls._drop_decided(list(pending)):
+            by_target.setdefault(row.target_ref, []).append(row)
+        users = User.objects.select_related("member").in_bulk(
+            [int(target_ref.removeprefix("user:")) for target_ref in by_target]
+        )
+        sent: dict[str, list[int]] = {}
+        for target_ref, rows in by_target.items():
+            user_pk = int(target_ref.removeprefix("user:"))
+            if user_pk not in users:
+                EventDelivery.objects.filter(pk__in=[row.pk for row in rows]).delete()
+                continue
+            wanted = cls._drop_switched_off(users[user_pk], rows)
+            if wanted and cls._send(users[user_pk], wanted, current.date()):
+                ids = [row.pk for row in wanted]
+                EventDelivery.objects.filter(pk__in=ids).update(status=EventDelivery.Status.SENT)
+                sent[target_ref] = ids
+        return sent
+
+    @staticmethod
+    def _drop_decided(rows: list[EventDelivery]) -> list[EventDelivery]:
+        """Delete the rows whose request was decided since it was queued; return the rest."""
+        from core.events.resolvers import open_request_urls
+
+        urls_by_event: dict[str, set[str]] = {}
+        for row in rows:
+            urls_by_event.setdefault(row.event_key, set()).add(row.url)
+        open_urls = {key: open_request_urls(key, sorted(urls)) for key, urls in urls_by_event.items()}
+        keep = [row for row in rows if row.url in open_urls[row.event_key]]
+        kept_ids = {row.pk for row in keep}
+        EventDelivery.objects.filter(pk__in=[row.pk for row in rows if row.pk not in kept_ids]).delete()
+        return keep
+
+    @staticmethod
+    def _drop_switched_off(user: User, rows: list[EventDelivery]) -> list[EventDelivery]:
+        """Delete the rows for events ``user`` has since switched their email off for."""
+        from core.events import preferences
+
+        wanted_keys = {key for key in {row.event_key for row in rows} if preferences.wants(user, key, Channel.EMAIL)}
+        EventDelivery.objects.filter(pk__in=[row.pk for row in rows if row.event_key not in wanted_keys]).delete()
+        return [row for row in rows if row.event_key in wanted_keys]
+
+    @staticmethod
+    def _send(user: User, rows: list[EventDelivery], day: date) -> bool:
+        """Send ``user`` the digest of ``rows`` unless they already had one on ``day``.
+
+        The ``staff_digest`` ledger slot for the Pacific date is claimed before the send. A
+        first failed send hands it back and records a ``digest:<date>:failed`` slot, so the
+        next tick retries once; a second failure keeps the day's slot, so a rejecting address
+        costs two attempts a day, not one every tick, and the lines wait for tomorrow's 8 AM.
+        With no address nothing is claimed and the lines stay queued.
+        """
+        from django.db import IntegrityError
+        from django.template.loader import render_to_string
+
+        address = notification_email_for(user)
+        if not address.strip():
+            return False
+        target_ref, period = f"user:{user.pk}", f"digest:{day.isoformat()}"
+        try:
+            row, created = EventDelivery.objects.get_or_create(
+                event_key=DIGEST_TRIGGER_KIND, target_ref=target_ref, channel=Channel.EMAIL.value, period=period
+            )
+        except IntegrityError:
+            return False
+        if not created:
+            return False
+        context = digest_context(rows)
+        log = send_email(
+            to=address,
+            subject=str(context["subject"]),
+            trigger_kind=DIGEST_TRIGGER_KIND,
+            text_body=render_to_string("core/emails/staff_digest.txt", context),
+            html_body=render_to_string("core/emails/staff_digest.html", context),
+            best_effort=True,
+        )
+        if log.status != TransactionalEmailLog.Status.SENT:
+            _failed, first_failure = EventDelivery.objects.get_or_create(
+                event_key=DIGEST_TRIGGER_KIND,
+                target_ref=target_ref,
+                channel=Channel.EMAIL.value,
+                period=f"{period}:failed",
+            )
+            if first_failure:
+                row.delete()
+            return False
+        return True
+
+
+# A morning email holding only class reviews says so in its subject; anything else
+# queued alongside them falls back to the general wording.
+CLASS_REVIEW_EVENTS = frozenset({"class_review_requested", "class_validation_requested"})
+
+
+def digest_context(rows: list[EventDelivery]) -> dict[str, object]:
+    """The staff digest template context for ``rows``, oldest first.
+
+    One line per request link: a request queued twice (the original ask and a Remind
+    lead) shows once, with the newest row's line ("Reminded by ..."). Lines group under
+    their event's label, in the order the first of each arrived.
+    """
+    from core.events.registry import get_event
+
+    newest_by_url = {row.url: row for row in rows}
+    sections: dict[str, list[dict[str, str]]] = {}
+    for row in newest_by_url.values():
+        line = {"title": row.title, "body": row.body, "url": row.url}
+        sections.setdefault(get_event(row.event_key).label, []).append(line)
+    count = len(newest_by_url)
+    if {row.event_key for row in newest_by_url.values()} <= CLASS_REVIEW_EVENTS:
+        noun = "Class" if count == 1 else "Classes"
+        subject = f"Action Needed: {count} {noun} Awaiting Review"
+    else:
+        noun = "Request" if count == 1 else "Requests"
+        subject = f"Action Needed: {count} {noun} Awaiting You"
+    return {
+        "subject": subject,
+        "count": count,
+        "sections": [{"label": label, "lines": lines} for label, lines in sections.items()],
+    }
 
 
 class DiscordAdapter:
@@ -551,12 +689,14 @@ class DiscordDMAdapter:
 
 # --- Registry ----------------------------------------------------------------
 
+_DIGEST_ADAPTER = DigestAdapter()
+
 _ADAPTERS: dict[Channel, ChannelAdapter] = {
     Channel.IN_APP: InAppAdapter(),
     Channel.EMAIL: EmailAdapter(),
     Channel.PUSH: PushAdapter(),
     Channel.SCHEDULED_EMAIL: ScheduledEmailAdapter(),
-    Channel.DIGEST: DigestAdapter(),
+    Channel.DIGEST: _DIGEST_ADAPTER,
     Channel.DISCORD: DiscordAdapter(),
     Channel.DISCORD_DM: DiscordDMAdapter(),
 }
@@ -565,6 +705,11 @@ _ADAPTERS: dict[Channel, ChannelAdapter] = {
 def get_adapter(channel: Channel) -> ChannelAdapter:
     """Return the adapter for ``channel``. Raises ``KeyError`` if unregistered."""
     return _ADAPTERS[channel]
+
+
+def digest_adapter() -> DigestAdapter:
+    """The registered :class:`DigestAdapter`, typed as itself so emit can call ``enqueue``."""
+    return _DIGEST_ADAPTER
 
 
 def is_implemented(channel: Channel) -> bool:
