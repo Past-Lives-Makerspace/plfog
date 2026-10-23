@@ -388,8 +388,8 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         flexible class has no cap and is never full), and narrowed to a class whose next session
         has not started, because the featured card names that session's date and time. Each row
         carries ``next_session_at``, the start of that session, and the category is joined for
-        the card's picture (:attr:`ClassOffering.card_photo_url`). Ordered by pk, so a random
-        offset into it picks one row (``hub.home``). One query; the counts are subqueries.
+        the card's picture (:attr:`ClassOffering.card_photo_url`). ``hub.home`` shuffles it in
+        the database and takes the first few. One query; the counts are subqueries.
         """
         from django.db.models import Count
 
@@ -416,7 +416,6 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             .filter(next_session_at__isnull=False)
             .filter(Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE) | Q(seats_taken_now__lt=F("capacity")))
             .select_related("category")
-            .order_by("pk")
         )
 
     def registration_open(self) -> "ClassOfferingQuerySet":

@@ -1,4 +1,4 @@
-"""BDD specs for Home's Featured Class and Featured Event (#888), in ``hub.home`` and its partial."""
+"""BDD specs for the carousel at the top of Home's Upcoming card (#888, #896), in ``hub.home`` and its partials."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from PIL import Image
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory, RegistrationFactory
 from classes.models import ClassOffering, RegistrationStatus
-from hub.home import _featured_class, _featured_event, _pick_one
+from hub.home import FEATURED_LIMIT, FeaturedClass, FeaturedEvent, _featured, _pick_some, _random_order
 from membership.models import CommunityEvent, Member
 from tests.features import coming_soon, hide, turn_on
 from tests.membership.factories import (
@@ -54,31 +54,108 @@ def _member() -> Member:
     return MemberFactory()
 
 
-def _first(candidates: object) -> int:
-    """A stand in for ``random.randrange`` that always picks the first row."""
-    return 0
+def _classes(member: Member | None = None) -> list[FeaturedClass]:
+    return [slide for slide in _featured(member or MemberFactory()) if isinstance(slide, FeaturedClass)]
 
 
-def describe_pick_one():
-    def it_returns_none_without_reading_a_row_when_there_are_no_candidates():
-        with patch("hub.home.random.randrange") as randrange:
-            assert _pick_one(ClassOffering.objects.featurable()) is None
-        randrange.assert_not_called()
+def _events(member: Member) -> list[FeaturedEvent]:
+    return [slide for slide in _featured(member) if isinstance(slide, FeaturedEvent)]
 
-    def it_reads_the_row_at_the_random_offset_out_of_the_whole_count():
-        first = _class("First")
-        second = _class("Second")
-        third = _class("Third")
-        rows = sorted([first, second, third], key=lambda o: o.pk)
-        with patch("hub.home.random.randrange", return_value=1) as randrange:
-            picked = _pick_one(ClassOffering.objects.featurable())
-        randrange.assert_called_once_with(3)
-        assert picked == rows[1]
 
-    def it_returns_none_when_the_row_went_between_the_count_and_the_read():
-        _class("Only")
-        with patch("hub.home.random.randrange", return_value=1):
-            assert _pick_one(ClassOffering.objects.featurable()) is None
+def _featured_class() -> FeaturedClass | None:
+    """The first class slide, for the specs about which classes may be featured at all."""
+    picks = _classes()
+    return picks[0] if picks else None
+
+
+def _featured_event(member: Member) -> FeaturedEvent | None:
+    """The first event slide, for the specs about which events may be featured at all."""
+    picks = _events(member)
+    return picks[0] if picks else None
+
+
+def _in_pick_order() -> object:
+    """No shuffle of the mixed slides: classes first, then events, each in the chooser's order."""
+    return patch("hub.home.random.shuffle")
+
+
+def _by_pk() -> object:
+    """Order the picks by pk instead of at random, so a spec names the winners."""
+    return patch("hub.home._random_order", return_value="pk")
+
+
+def describe_pick_some():
+    def it_shuffles_in_the_database():
+        assert _random_order() == "?"
+
+    def it_is_empty_with_no_candidates():
+        assert _pick_some(ClassOffering.objects.featurable()) == []
+
+    def it_takes_eight_distinct_rows_in_the_choosers_order():
+        made = [_class(f"Class {n}") for n in range(FEATURED_LIMIT + 2)]
+        with _by_pk():
+            picked = _pick_some(ClassOffering.objects.featurable())
+        assert FEATURED_LIMIT == 8
+        assert picked == sorted(made, key=lambda o: o.pk)[:8]
+
+    def it_takes_fewer_when_fewer_exist():
+        made = [_class(f"Class {n}") for n in range(3)]
+        picked = _pick_some(ClassOffering.objects.featurable())
+        assert sorted(o.pk for o in picked) == sorted(o.pk for o in made)
+
+
+def describe_mixing_classes_and_events():
+    def _kinds(member: Member) -> list[str]:
+        with _by_pk(), _in_pick_order():
+            return [slide.kind for slide in _featured(member)]
+
+    def it_takes_four_of_each_when_both_have_plenty():
+        member = _member()
+        for n in range(6):
+            _class(f"Class {n}")
+            CommunityEventFactory(community=True)
+        assert _kinds(member) == ["Class"] * 4 + ["Event"] * 4
+
+    def it_fills_with_events_when_classes_are_short():
+        member = _member()
+        for n in range(2):
+            _class(f"Class {n}")
+        for _ in range(9):
+            CommunityEventFactory(community=True)
+        assert _kinds(member) == ["Class"] * 2 + ["Event"] * 6
+
+    def it_fills_with_classes_when_events_are_short():
+        member = _member()
+        for n in range(9):
+            _class(f"Class {n}")
+        CommunityEventFactory(community=True)
+        assert _kinds(member) == ["Class"] * 7 + ["Event"]
+
+    def it_shows_every_pick_when_there_are_fewer_than_eight():
+        member = _member()
+        _class("Only class")
+        CommunityEventFactory(community=True)
+        assert _kinds(member) == ["Class", "Event"]
+
+    def it_fills_with_events_alone_while_the_classes_switch_is_off():
+        member = _member()
+        _class("Hidden")
+        for _ in range(9):
+            CommunityEventFactory(community=True)
+        hide("catalog")
+        assert _kinds(member) == ["Event"] * 8
+
+    def it_is_empty_with_nothing_to_show():
+        assert _featured(_member()) == []
+
+    def it_shuffles_the_two_kinds_together():
+        member = _member()
+        _class("A class")
+        CommunityEventFactory(community=True)
+        with patch("hub.home.random.shuffle") as shuffle:
+            slides = _featured(member)
+        shuffle.assert_called_once_with(slides)
+        assert [slide.kind for slide in slides] == ["Class", "Event"]
 
 
 def describe_featured_class():
@@ -106,14 +183,12 @@ def describe_featured_class():
         assert featured is not None
         assert featured.start == sooner
 
-    def it_picks_the_row_the_chooser_names():
+    def it_lists_the_picks_in_the_choosers_order():
         first = _class("Pottery")
         second = _class("Weaving")
-        later = max(first, second, key=lambda o: o.pk)
-        with patch("hub.home.random.randrange", return_value=1):
-            featured = _featured_class()
-        assert featured is not None
-        assert featured.title == later.title
+        with _by_pk(), _in_pick_order():
+            titles = [item.title for item in _classes()]
+        assert titles == [o.title for o in sorted([first, second], key=lambda o: o.pk)]
 
     def it_never_features_a_class_that_has_already_begun():
         _class("Started", days=-1)
@@ -158,16 +233,6 @@ def describe_featured_class():
         RegistrationFactory(class_offering=offering, status=RegistrationStatus.CONFIRMED)
         RegistrationFactory(class_offering=offering, status=RegistrationStatus.CONFIRMED)
         assert _featured_class() is not None
-
-    def it_counts_the_offset_from_the_lowest_pk_not_the_newest_class():
-        # ClassOffering's default ordering is newest first; created lowest pk first, so only a pk
-        # order puts pk 9100 at offset 0.
-        lowest = _class("Lowest pk", pk=9100)
-        _class("Highest pk", pk=9300)
-        with patch("hub.home.random.randrange", return_value=0):
-            featured = _featured_class()
-        assert featured is not None
-        assert featured.title == lowest.title
 
     def it_never_features_a_class_the_catalog_does_not_list():
         _class("Draft", status=ClassOffering.Status.DRAFT)
@@ -279,14 +344,12 @@ def describe_featured_event():
         event = CommunityEventFactory(guild=guild, guild_meeting=True)
         assert _featured_event(member).event == event
 
-    def it_picks_the_row_the_chooser_names():
+    def it_lists_the_picks_in_the_choosers_order():
         member = _member()
-        first = CommunityEventFactory(community=True)
-        second = CommunityEventFactory(community=True)
-        with patch("hub.home.random.randrange", return_value=1):
-            featured = _featured_event(member)
-        assert featured is not None
-        assert featured.event == max(first, second, key=lambda e: e.pk)
+        made = [CommunityEventFactory(community=True) for _ in range(FEATURED_LIMIT + 1)]
+        with _by_pk(), _in_pick_order():
+            events = [item.event for item in _events(member)]
+        assert events == sorted(made, key=lambda e: e.pk)[:8]
 
     def it_never_features_a_meeting_of_a_guild_the_member_is_not_in():
         CommunityEventFactory(guild_meeting=True)
@@ -304,17 +367,6 @@ def describe_featured_event():
         begun = timezone.now() - timedelta(hours=1)
         CommunityEventFactory(community=True, starts_at=begun, ends_at=begun + timedelta(hours=3))
         assert _featured_event(_member()) is None
-
-    def it_counts_the_offset_from_the_lowest_pk_not_the_soonest_start():
-        # CommunityEvent's default ordering is by start; the lowest pk starts last, so only a pk
-        # order puts it at offset 0.
-        member = _member()
-        lowest = CommunityEventFactory(community=True, pk=9100, starts_at=timezone.now() + timedelta(days=9))
-        CommunityEventFactory(community=True, pk=9300, starts_at=timezone.now() + timedelta(days=3))
-        with patch("hub.home.random.randrange", return_value=0):
-            featured = _featured_event(member)
-        assert featured is not None
-        assert featured.event == lowest
 
     def it_never_features_a_past_or_unpublished_event():
         past = timezone.now() - timedelta(days=3)
@@ -360,44 +412,36 @@ def describe_home_page():
         MembershipPlanFactory()
         return User.objects.create_user(username="featured", password="pass").member
 
-    def it_leaves_the_upcoming_card_as_it_was_with_nothing_to_feature(client: Client):
+    def it_leaves_out_the_carousel_with_nothing_to_show(client: Client):
         html = _home(client, _linked_member())
         assert "data-home-featured" not in html
+        assert '<h2 class="pl-home-heading">Upcoming</h2>' in html
         assert "home-featured.css" in html
 
-    def it_shows_both_cards_side_by_side_above_the_list(client: Client):
+    def it_opens_the_card_with_the_carousel_then_the_upcoming_heading_and_list(client: Client):
         member = _linked_member()
         offering = _class("Glass Fusing")
         event = CommunityEventFactory(community=True, title="Holiday Market")
 
         html = _home(client, member)
 
-        assert 'class="pl-home-featured pl-home-featured--pair"' in html
+        assert 'aria-roledescription="carousel" aria-label="Upcoming classes and events"' in html
         assert "data-featured-class" in html
         assert f'data-featured-event="{event.pk}"' in html
-        assert html.index("data-home-featured") < html.index('class="pl-upcoming"')
+        heading = html.index('<h2 class="pl-home-heading">Upcoming</h2>')
+        assert html.index("data-home-featured") < heading < html.index('class="pl-upcoming"')
         assert f'href="{reverse("classes:public_class_detail", kwargs={"slug": offering.slug})}"' in html
         assert f'href="{reverse("hub_event_flyer", args=[event.pk])}"' in html
 
-    def it_lets_the_class_card_take_the_row_alone(client: Client):
+    def it_tags_each_slide_class_or_event(client: Client):
         member = _linked_member()
         _class("Glass Fusing")
-        html = _home(client, member)
-        assert 'class="pl-home-featured"' in html
-        assert "data-featured-class" in html
-        assert "data-featured-event" not in html
-
-    def it_lets_the_event_card_take_the_row_alone(client: Client):
-        member = _linked_member()
         CommunityEventFactory(community=True)
-        hide("catalog")
-        _class("Hidden by the switch")
         html = _home(client, member)
-        assert 'class="pl-home-featured"' in html
-        assert "data-featured-event" in html
-        assert "data-featured-class" not in html
+        assert '<span class="pl-upcoming__kind pl-home-featured__kind" data-featured-kind>Class</span>' in html
+        assert '<span class="pl-upcoming__kind pl-home-featured__kind" data-featured-kind>Event</span>' in html
 
-    def it_draws_the_class_photo_lazily_with_its_title_for_alt(client: Client):
+    def it_draws_the_class_photo_with_its_title_for_alt(client: Client):
         member = _linked_member()
         offering = _class("Glass Fusing")
         html = _home(client, member)
@@ -427,6 +471,62 @@ def describe_home_page():
         assert "data-event-flyer=" not in html
         assert "data-featured-flyer-link" in html
 
+    def describe_the_rotator():
+        def it_is_a_rotator_moving_every_six_seconds(client: Client):
+            member = _linked_member()
+            _class("Glass Fusing")
+            html = _home(client, member)
+            assert 'x-data="plRotator" data-rotator-interval="6000"' in html
+            assert '<script defer src="/static/js/pl-rotator.js"></script>' in html
+
+        def it_labels_each_slide_with_its_place_and_shows_the_first(client: Client):
+            member = _linked_member()
+            for n in range(2):
+                _class(f"Class {n}")
+            CommunityEventFactory(community=True)
+            html = _home(client, member)
+            assert 'data-featured-slides="3"' in html
+            for n in (1, 2, 3):
+                assert f'role="group" aria-roledescription="slide" aria-label="{n} of 3"' in html
+            assert html.count("pl-home-featured__slide is-active") == 1
+            assert html.count("data-rotator-slide") == 3
+
+        def it_loads_only_the_first_picture_and_defers_the_rest(client: Client):
+            member = _linked_member()
+            made = sorted([_class(f"Class {n}") for n in range(3)], key=lambda o: o.pk)
+            with _by_pk(), _in_pick_order():
+                html = _home(client, member)
+            assert f'src="{made[0].hero_image_url}" alt="{made[0].title}"' in html
+            for later in made[1:]:
+                assert f'data-rotator-src="{later.hero_image_url}" alt="{later.title}"' in html
+                assert f' src="{later.hero_image_url}"' not in html
+
+        def it_gives_several_slides_a_dot_each_arrows_and_a_pause_button(client: Client):
+            member = _linked_member()
+            for n in range(4):
+                _class(f"Class {n}")
+            html = _home(client, member)
+            assert html.count("data-rotator-dot") == 4
+            assert 'aria-label="Show slide 4 of 4"' in html
+            assert 'aria-label="Previous slide"' in html
+            assert 'aria-label="Next slide"' in html
+            assert 'aria-label="Pause the rotation"' in html
+            assert "data-rotator-bar" in html
+
+        def it_gives_one_slide_no_controls(client: Client):
+            member = _linked_member()
+            _class("Only one")
+            html = _home(client, member)
+            assert 'data-featured-slides="1"' in html
+            for control in (
+                "data-rotator-dot",
+                "data-rotator-prev",
+                "data-rotator-next",
+                "data-rotator-pause",
+                "data-rotator-bar",
+            ):
+                assert control not in html
+
     def describe_query_budget():
         def _count_home_queries(client: Client) -> int:
             with CaptureQueriesContext(connection) as captured:
@@ -438,29 +538,25 @@ def describe_home_page():
             client.force_login(member.user)
             _class("One")
             CommunityEventFactory(community=True)
-            with patch("hub.home.random.randrange", side_effect=_first):
-                _count_home_queries(client)  # the first load also does once per session work
-                few = _count_home_queries(client)
-            for n in range(4):
-                _class(f"More {n}")
-                CommunityEventFactory(community=True)
-            with patch("hub.home.random.randrange", side_effect=_first):
-                many = _count_home_queries(client)
+            _count_home_queries(client)  # the first load also does once per session work
+            few = _count_home_queries(client)
+            for n in range(10):
+                _class(f"More {n}", instructors=[MemberFactory()])
+                CommunityEventFactory(community=True, area=LocationFactory())
+            many = _count_home_queries(client)
             assert many == few
 
-        def it_reads_the_featured_class_in_five_queries(django_assert_num_queries):
-            # The Classes switch, the demo gate's settings row, the count, the row and its instructors.
-            # No photo of their own, so the card reads the category's: one query only while it is joined.
-            category = CategoryFactory(hero_image=_png("category.png"))
-            for n in range(3):
-                _class(f"Class {n}", image="", category=category)
-            with django_assert_num_queries(5):
-                assert _featured_class() is not None
-
-        def it_reads_the_featured_event_in_two_queries(django_assert_num_queries):
-            # The count and the row, its area joined.
+        def it_reads_eight_slides_in_five_queries(django_assert_num_queries):
+            # The Classes switch, the demo gate's settings row, the classes, every instructor between
+            # them and the events. No class photo of their own, so each reads its category's: free
+            # only while it is joined; each event's area is joined too.
             member = _member()
-            for _ in range(3):
+            category = CategoryFactory(hero_image=_png("category.png"))
+            for n in range(6):
+                _class(f"Class {n}", image="", category=category, instructors=[MemberFactory()])
                 CommunityEventFactory(community=True, area=LocationFactory())
-            with django_assert_num_queries(2):
-                assert _featured_event(member) is not None
+            with django_assert_num_queries(5):
+                slides = _featured(member)
+                assert len(slides) == 8
+                assert all(slide.instructors for slide in slides if isinstance(slide, FeaturedClass))
+                assert all(slide.place for slide in slides if isinstance(slide, FeaturedEvent))

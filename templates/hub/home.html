@@ -130,13 +130,12 @@
 </div>
 {% endif %}
 
-{# --- Upcoming at Past Lives --- #}
+{# --- Upcoming: a carousel of classes and events picked at random on every load (#888, #896), left out with none, then the list --- #}
 <div class="hub-card pl-home-block">
-    <h2 class="pl-home-heading">Upcoming at Past Lives</h2>
-    {# Featured Class and Featured Event (#888), picked at random on every load; left out when neither has anything to show. #}
-    {% if featured_class or featured_event %}
+    {% if featured %}
     {% include "hub/partials/_home_featured.html" %}
     {% endif %}
+    <h2 class="pl-home-heading">Upcoming</h2>
     {% if upcoming %}
     <ul class="pl-upcoming">
         {% for item in upcoming %}

@@ -29,6 +29,10 @@ if TYPE_CHECKING:
 
 _Row = TypeVar("_Row", bound=Model)
 
+# Home's carousel (#888, #896): up to FEATURED_PER_KIND classes and as many events, the one kind
+# topping the other up when it is short, never more than FEATURED_LIMIT slides in all.
+FEATURED_LIMIT = 8
+FEATURED_PER_KIND = 4
 # How far out "Your upcoming" looks, and how many rows each section shows.
 UPCOMING_HORIZON_DAYS = 90
 UPCOMING_CAP = 5
@@ -69,7 +73,7 @@ class UpcomingItem:
 
 @dataclass(frozen=True)
 class FeaturedClass:
-    """The Featured Class card at the top of Upcoming at Past Lives (#888).
+    """A class slide of the carousel at the top of Home's Upcoming card (#888, #896).
 
     ``photo_url`` is the catalog card's picture (``ClassOffering.card_photo_url``), ``""`` for
     a class with none; ``photo_position`` is its crop, as the catalog card frames it.
@@ -81,11 +85,12 @@ class FeaturedClass:
     instructors: str
     photo_url: str
     photo_position: str
+    kind: str = "Class"
 
 
 @dataclass(frozen=True)
 class FeaturedEvent:
-    """The Featured Event card at the top of Upcoming at Past Lives (#888).
+    """An event slide of the carousel at the top of Home's Upcoming card (#888, #896).
 
     ``event`` rides along for the flyer preview (``hub/partials/_event_flyer_sheet.html``),
     shown in place of a photo when the event has none; ``qr_svg`` is that sheet's QR, made
@@ -101,6 +106,7 @@ class FeaturedEvent:
     photo_url: str
     photo_position: str
     qr_svg: str
+    kind: str = "Event"
 
 
 @dataclass(frozen=True)
@@ -128,59 +134,73 @@ def build_home_context(member: Member) -> dict[str, Any]:
         "show_onboarding": member.show_onboarding,
         "teaching": _teaching(member),
         "overdue_reviews": _overdue_reviews(member),
-        "featured_class": _featured_class(),
-        "featured_event": _featured_event(member),
+        "featured": _featured(member),
     }
 
 
-def _pick_one(candidates: QuerySet[_Row]) -> _Row | None:
-    """One row of ``candidates`` at random, read by the database: a count, then that one row.
+def _random_order() -> str:
+    """The ordering that shuffles the candidates in the database: ``"?"``, ``ORDER BY RANDOM()``.
 
-    Picked again on every call, so each load of Home can show a different card (#888); no row
-    but the winner is loaded. ``candidates`` must be ordered, so an offset names one row. A row
-    gone between the count and the read leaves nothing to feature this time.
+    A seam of its own so a spec can order by ``"pk"`` instead and name which rows win.
     """
-    count = candidates.count()
-    if count == 0:
-        return None
-    try:
-        return candidates[random.randrange(count)]
-    except IndexError:
-        return None
+    return "?"
 
 
-def _featured_class() -> FeaturedClass | None:
-    """A bookable class with a session to come, at random; ``None`` while the Classes switch is off.
+def _pick_some(candidates: QuerySet[_Row]) -> list[_Row]:
+    """Up to :data:`FEATURED_LIMIT` distinct rows of ``candidates``, shuffled by the database.
 
-    The switch decides what Home advertises, as it does the Classes quick link above.
+    Picked again on every call, so each load of Home rotates through a different set (#896);
+    one query, and no row past the limit is loaded.
+    """
+    return list(candidates.order_by(_random_order())[:FEATURED_LIMIT])
+
+
+def _featured(member: Member) -> list[FeaturedClass | FeaturedEvent]:
+    """The carousel's slides: classes and events at random, mixed (#896).
+
+    Up to :data:`FEATURED_PER_KIND` of each; when one kind has fewer, the other fills the
+    carousel up to :data:`FEATURED_LIMIT`. The two kinds are shuffled together, so a class and
+    an event take turns at random. Classes only while the Classes switch is on, as the Classes
+    quick link above. Three queries for the picks (the classes, their instructors, the events)
+    plus the switch and the settings row the catalog's demo gate reads.
     """
     from classes.models import ClassOffering
-    from classes.templatetags.classes_tags import strip_date_suffix
     from core.features import is_on
 
-    if not is_on("catalog"):
-        return None
-    offering = _pick_one(ClassOffering.objects.featurable())
-    if offering is None:
-        return None
+    classes: list[ClassOffering] = []
+    if is_on("catalog"):
+        classes = _pick_some(ClassOffering.objects.featurable().prefetch_related("instructor_rows"))
+    events = _pick_some(CommunityEvent.objects.featurable_for(member))
+    class_room = max(FEATURED_PER_KIND, FEATURED_LIMIT - len(events))
+    kept_classes = classes[:class_room]
+    kept_events = events[: FEATURED_LIMIT - len(kept_classes)]
+    slides: list[FeaturedClass | FeaturedEvent] = [
+        *(_featured_class(offering) for offering in kept_classes),
+        *(_featured_event(event) for event in kept_events),
+    ]
+    random.shuffle(slides)
+    return slides
+
+
+def _featured_class(offering: Any) -> FeaturedClass:
+    """One class's slide: its next session, instructors, link, and the catalog card's picture."""
+    from classes.templatetags.classes_tags import strip_date_suffix
+
     return FeaturedClass(
         title=strip_date_suffix(offering.title),
         url=reverse("classes:public_class_detail", kwargs={"slug": offering.slug}),
-        start=offering.next_session_at,  # type: ignore[attr-defined]  # annotated by featurable()
+        start=offering.next_session_at,
         instructors=offering.instructor_names,
         photo_url=offering.card_photo_url,
         photo_position=offering.card_object_position if offering.hero_image_url else "50% 50%",
     )
 
 
-def _featured_event(member: Member) -> FeaturedEvent | None:
-    """A published, upcoming event the member can see, at random, with its photo or its flyer."""
-    event = _pick_one(CommunityEvent.objects.featurable_for(member))
-    if event is None:
-        return None
+def _featured_event(event: CommunityEvent) -> FeaturedEvent:
+    """One event's slide: its next date, links, place, and its photo or else its flyer's QR."""
     start = event.next_occurrence_start()
     photo_url = event.hero_image_url
-    place = " · ".join(part for part in (event.area.name if event.area_id else "", event.location) if part)
+    place = " · ".join(part for part in (event.area.name if event.area is not None else "", event.location) if part)
     return FeaturedEvent(
         event=event,
         title=event.title,

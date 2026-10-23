@@ -7924,14 +7924,14 @@ class CommunityEventQuerySet(models.QuerySet):
         begun is left out, though ``upcoming()`` keeps it until it ends: the card invites a
         member to come, so its start must still be ahead (a series is dated by its next
         occurrence, ``CommunityEvent.next_occurrence_start``). ``for_member`` joins through
-        guild memberships and so is ``distinct()``; the candidates are re-read by pk, ordered by
-        pk, so a random offset into them picks one row (``hub.home``) with the area the card's
-        place line and the flyer preview name.
+        guild memberships and so is ``distinct()``; the candidates are re-read by pk, so
+        ``hub.home`` can shuffle them in the database, with the area the card's place line and
+        the flyer preview name.
         """
         featured_types = [CommunityEvent.EventType.COMMUNITY, CommunityEvent.EventType.GUILD_MEETING]
         not_begun = Q(starts_at__gt=timezone.now()) | ~Q(recurrence=CommunityEvent.Recurrence.NONE)
         visible = self.published().upcoming().for_member(member).filter(not_begun, event_type__in=featured_types)
-        return CommunityEvent.objects.filter(pk__in=visible.values("pk")).select_related("area").order_by("pk")
+        return CommunityEvent.objects.filter(pk__in=visible.values("pk")).select_related("area")
 
     def published(self) -> CommunityEventQuerySet:
         """Only events live on the calendar (eligible to push to Google)."""
