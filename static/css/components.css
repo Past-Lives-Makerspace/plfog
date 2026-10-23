@@ -1586,10 +1586,12 @@ select[multiple] option:checked {
     color: #6b7280;
 }
 
+/* background-color, not the shorthand: the shorthand also cleared the select's chevron
+   image, leaving every light theme select with no arrow at all (#911). */
 [data-theme="light"] .pl-form-group input,
 [data-theme="light"] .pl-form-group select,
 [data-theme="light"] .pl-form-group textarea {
-    background: #fff;
+    background-color: #fff;
     border-color: #d1d5db;
     color: #1f2937;
 }
