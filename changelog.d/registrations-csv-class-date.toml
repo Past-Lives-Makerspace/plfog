@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-23"
+title = "Class date and instructor in the registrations export"
+changes = [
+  "The Export CSV on Manage All Classes now lists each class's date and its instructor right after the class name.",
+  "A class that runs on several days shows its first and last day, and a flexible class shows its booking window.",
+]
