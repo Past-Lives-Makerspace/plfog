@@ -16,6 +16,7 @@ from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorF
 from classes.models import ClassApproval, ClassOffering
 from core.models import Notification, NotificationPreference
 from membership.models import AdminCapability, Guild, GuildStaffMembership, Member
+from tests.core.events.digest_support import digest_emails
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MemberFactory
 
 
@@ -56,7 +57,8 @@ def _email_off(member: Member) -> None:
 
 
 def _review_emails(address: str) -> list:
-    return [m for m in mail.outbox if m.to == [address] and m.subject.startswith("Review request:")]
+    """The review requests that reached ``address``: since #894, lines in the 8 AM digest."""
+    return digest_emails(address)
 
 
 def _bells(member: Member) -> int:
@@ -79,12 +81,11 @@ def describe_send_guild_lead_review_request():
 
         send_guild_lead_review_request(offering, row)
 
-        # One review-request email to the guild lead + one instructor explainer.
-        assert len(mail.outbox) == 2
+        # Only the instructor explainer goes at once; the lead's request waits for 8 AM (#894).
+        assert [m.to for m in mail.outbox] == [[offering.instructor.primary_email]]
         review_email = _review_emails("emailguildlead@example.com")[0]
-        assert offering.title in review_email.subject
+        assert f"Review request: {offering.title}" in review_email.body
         assert f"/classes/review/{row.token}/" in review_email.body
-        assert "Guild Lead" in review_email.body
 
     def it_emails_the_explainer_to_every_instructor(db):
         # #686: the instructor explainer goes to each listed instructor at their own address.
@@ -98,11 +99,10 @@ def describe_send_guild_lead_review_request():
 
         send_guild_lead_review_request(offering, row)
 
+        # The lead's request waits for the 8 AM digest (#894); the explainers go at once.
         recipients = sorted(addr for message in mail.outbox for addr in message.to)
-        assert recipients == sorted(
-            ["lead-two@example.com", offering.instructor.primary_email, "partner-two@example.com"]
-        )
-        assert len(mail.outbox) == 3
+        assert recipients == sorted([offering.instructor.primary_email, "partner-two@example.com"])
+        assert len(mail.outbox) == 2
 
     def it_also_emails_class_reviewers_but_not_plain_staff_on_the_review_request(db):
         """The review request fans out to the lead and the staff marked Class Reviewer (#816)."""
@@ -199,10 +199,11 @@ def describe_guild_lead_review_request_no_double_send():
 
         offering.submit_for_review()
 
-        # Exactly one email to the lead (the dedicated review-request), not two.
+        # Exactly one email to the lead (the 8 AM digest, #894), not two.
+        _review_emails("leaduser@example.com")
         lead_emails = [m for m in mail.outbox if m.to == ["leaduser@example.com"]]
         assert len(lead_emails) == 1
-        assert offering.title in lead_emails[0].subject
+        assert offering.title in lead_emails[0].body
         # The in-app row is present, and the SiteActivity is logged exactly once.
         assert Notification.objects.filter(trigger="class_review_requested", user=lead_user).count() == 1
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.CLASS_SUBMITTED).count() == 1
@@ -226,9 +227,9 @@ def describe_send_admin_review_request():
 
         send_admin_review_request(offering, row)
 
-        assert len(mail.outbox) == 2
+        assert len(mail.outbox) == 1  # the instructor explainer; the request waits for 8 AM
         review_email = _review_emails("classadmin@example.com")[0]
-        assert offering.title in review_email.subject
+        assert offering.title in review_email.body
 
     def it_sends_no_review_email_to_a_cms_administrator_who_switched_it_off(db):
         admin = _class_admin("quietadmin@example.com")
@@ -248,13 +249,13 @@ def describe_send_admin_review_request():
 def describe_send_guild_lead_review_reminder():
     def it_returns_none_for_a_guild_with_no_leadership(db):
         _offering, row = _pending_guild_class(GuildFactory(name="Empty Guild", guild_lead=None))
-        assert send_guild_lead_review_reminder(row) is None
+        assert send_guild_lead_review_reminder(row, reminded_by=row.class_offering.instructor.user) is None
         assert mail.outbox == []
 
     def it_returns_none_for_a_class_whose_category_has_no_guild(db):
         offering = ClassOfferingFactory(category=CategoryFactory(guild=None))
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
-        assert send_guild_lead_review_reminder(row) is None
+        assert send_guild_lead_review_reminder(row, reminded_by=row.class_offering.instructor.user) is None
 
     def it_emails_leadership_whose_switch_is_on_and_skips_those_whose_switch_is_off(db):
         lead = _leader("remindlead@example.com")
@@ -266,7 +267,7 @@ def describe_send_guild_lead_review_reminder():
         _email_off(quiet)
         _offering, row = _pending_guild_class(guild)
 
-        result = send_guild_lead_review_reminder(row)
+        result = send_guild_lead_review_reminder(row, reminded_by=row.class_offering.instructor.user)
 
         assert result is not None
         assert len(_review_emails("remindlead@example.com")) == 1
@@ -279,7 +280,7 @@ def describe_send_guild_lead_review_reminder():
         guild = _guild_led_by(MemberFactory(_pre_signup_email="ghost@example.com"), "Ghost Guild")
         _offering, row = _pending_guild_class(guild)
 
-        assert send_guild_lead_review_reminder(row) is None
+        assert send_guild_lead_review_reminder(row, reminded_by=row.class_offering.instructor.user) is None
         assert mail.outbox == []
 
 
@@ -293,10 +294,10 @@ def describe_send_admin_validation_request():
 
         send_admin_validation_request(offering, row)
 
-        assert len(mail.outbox) == 1
-        email = mail.outbox[0]
-        assert email.to == ["classadmin@example.com"]
-        assert email.subject == f"Admin sign-off needed: {offering.title}"
+        # A digest event (#894): nothing at once, then one line in the 8 AM digest.
+        assert mail.outbox == []
+        (email,) = _review_emails("classadmin@example.com")
+        assert f"Admin sign-off needed: {offering.title}" in email.body
         assert "request admin sign-off" in email.body.lower()
         assert f"/classes/review/{row.token}/" in email.body
 

@@ -118,9 +118,13 @@ def describe_remind_lead_for_the_instructor():
         first = client.post(_url(offering))
         assert first.status_code == 204
         assert "Reminder sent to Wanda Lead." in first["HX-Trigger"]
-        assert [m.to for m in mail.outbox] == [["wlead@example.com"]]
+        # No email now (#894): the reminder rides the lead's next 8 AM digest, once.
+        assert mail.outbox == []
         second = client.post(_url(offering))
         assert "Already reminded today." in second["HX-Trigger"]
+        from tests.core.events.digest_support import digest_emails
+
+        assert len(digest_emails("wlead@example.com")) == 1
         assert len(mail.outbox) == 1
 
     def it_never_reminds_plain_staff(client: Client, shop: _Woodshop):

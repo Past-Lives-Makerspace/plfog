@@ -4,22 +4,29 @@
    the same thing in both themes, and the words beside each dot carry the state as well. */
 
 .pl-area-status { margin: 0 0 1rem; }
-.pl-area-status__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+/* The lights share a row (#892): each pill sizes to its words and the row wraps when the width
+   runs out. Flex rather than an auto-fill grid, so a long "In use" message gets the room it needs
+   (up to the whole row, then it wraps inside its pill) instead of being squeezed into a column. */
+.pl-area-status__list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .pl-area-status__item {
   display: flex;
+  flex: 0 1 auto;
   align-items: flex-start;
-  gap: 0.625rem;
-  padding: 0.625rem 0.875rem;
+  gap: 0.5rem;
+  max-width: 100%;
+  padding: 0.375rem 0.875rem 0.375rem 0.75rem;
   border: 1px solid var(--hub-border, rgba(127, 127, 127, 0.25));
-  border-radius: 10px;
+  border-radius: 1rem;
   background: var(--hub-card-bg, transparent);
+  font-size: 0.875rem;
+  line-height: 1.4;
   min-width: 0;
 }
 .pl-area-status__dot {
   flex: none;
-  width: 0.75rem;
-  height: 0.75rem;
-  margin-top: 0.3rem;
+  width: 0.625rem;
+  height: 0.625rem;
+  margin-top: 0.3125rem;
   border-radius: 50%;
   background: #34d399;
   box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.2);
@@ -28,7 +35,7 @@
 .pl-area-status__item--in_use .pl-area-status__dot { background: #ef4444; box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2); }
 .pl-area-status__item--in_use { border-color: rgba(239, 68, 68, 0.45); }
 .pl-area-status__item--soon { border-color: rgba(251, 191, 36, 0.45); }
-.pl-area-status__text { display: flex; flex-wrap: wrap; column-gap: 0.5rem; min-width: 0; overflow-wrap: anywhere; }
+.pl-area-status__text { display: flex; flex-wrap: wrap; column-gap: 0.375rem; min-width: 0; overflow-wrap: anywhere; }
 .pl-area-status__name { font-weight: 700; color: var(--hub-text, inherit); }
 .pl-area-status__message { color: var(--hub-text-muted, inherit); }
 

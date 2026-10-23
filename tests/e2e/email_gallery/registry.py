@@ -393,10 +393,10 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Teaching",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when an instructor submits a class for review. Goes to the category's guild lead and "
-            "the staff marked Class Reviewer, a reviewer who teaches the class included "
-            "(or to the CMS Administrators when the category has no guild lead), with a tokenized "
-            "review link. Each reviewer's Email switch for Class review request decides."
+            "No longer sent on its own (#894): the request reaches reviewers as a line in the 8 AM "
+            "staff digest. Was sent when an instructor submitted a class for review, to the category's "
+            "guild lead and the staff marked Class Reviewer (or the CMS Administrators when the category "
+            "has no guild lead)."
         ),
         edit_pointer=_tpl("classes/emails", "review_request"),
         audience="The guild's lead + Class Reviewers, or the CMS Administrators for lead-less categories.",
@@ -404,6 +404,22 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         text_template="classes/emails/review_request.txt",
         html_template="classes/emails/review_request.html",
         context_builder="review_request_context",
+    ),
+    GalleryEmail(
+        key="staff_digest",
+        name="Staff request digest (8 AM)",
+        section="Teaching",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent at 8 AM Pacific to each reviewer with class review requests still waiting on them: "
+            "one line per class, with its review link. A request decided before 8 AM is left out, and "
+            "nobody gets an empty email. At most one a day."
+        ),
+        edit_pointer="Template in code (templates/core/emails/staff_digest.{txt,html})",
+        audience="Each guild lead, Class Reviewer and CMS Administrator with an open request.",
+        text_template="core/emails/staff_digest.txt",
+        html_template="core/emails/staff_digest.html",
+        context_builder="staff_digest_context",
     ),
     GalleryEmail(
         key="review_submitted_instructor",
@@ -427,8 +443,9 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Teaching",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when a guild lead approves a class and the admin sign-off gate opens. "
-            "Goes to the CMS Administrators (CLASS_APPROVER holders), with a tokenized review link."
+            "No longer sent on its own (#894): the request reaches the CMS Administrators as a line in "
+            "the 8 AM staff digest. Was sent when a guild lead approved a class and the admin sign-off "
+            "gate opened."
         ),
         edit_pointer=_tpl("classes/emails", "admin_validation_request"),
         audience="The CMS Administrators (CLASS_APPROVER holders).",
@@ -977,6 +994,7 @@ def no_email_events() -> list[tuple[EventType, str]]:
 
 # The email template dirs the app renders standalone emails from.
 _TEMPLATE_DIRS: tuple[str, ...] = (
+    "templates/core/emails",
     "templates/classes/emails",
     "templates/membership/emails",
     "templates/billing/email",

@@ -791,3 +791,43 @@ def resolve(reference: Recipients, context: dict[str, Any]) -> list[Recipient]:
 def get_resolver(reference: Recipients) -> ResolverFn:
     """Return the resolver callable for a reference. Raises ``KeyError`` if unknown."""
     return _RESOLVERS[reference]
+
+
+# --- Still-open checks for digest events (#894) -------------------------------
+#
+# A digest event's email waits for the 8 AM staff digest, and the digest drops any request
+# decided since it was queued. Each digest event registers here how to tell, from the links
+# its queued lines carry, which requests are still open. Keyed by event key; a digest event
+# with no check fails loudly at the flush.
+
+
+class OpenCheckFn(Protocol):
+    """A still-open check: the queued lines' links → the links whose request is still open."""
+
+    def __call__(self, urls: list[str]) -> set[str]: ...
+
+
+def open_class_review_urls(urls: list[str]) -> set[str]:
+    """The class review links whose gate has no decision yet (the gate the request was sent for)."""
+    from classes.models import ClassApproval
+
+    return ClassApproval.objects.open_review_urls(urls)
+
+
+_OPEN_CHECKS: dict[str, OpenCheckFn] = {
+    "class_review_requested": open_class_review_urls,
+    "class_validation_requested": open_class_review_urls,
+}
+
+
+def open_request_urls(event_key: str, urls: list[str]) -> set[str]:
+    """Which of ``urls`` (queued digest lines for ``event_key``) point at a still-open request.
+
+    Raises ``KeyError`` for an event with no registered check (a registry wiring error).
+    """
+    return _OPEN_CHECKS[event_key](urls)
+
+
+def has_open_check(event_key: str) -> bool:
+    """Whether ``event_key`` registers a still-open check (every digest event must)."""
+    return event_key in _OPEN_CHECKS
