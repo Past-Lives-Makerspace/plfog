@@ -802,14 +802,15 @@ def registration_payouts(registration_pks: Iterable[int]) -> dict[int, LinePayou
     from billing.models import BillingSettings, TransactionAdjustment
     from classes.models import Registration
 
+    pks = list(registration_pks)
     registrations = (
-        Registration.objects.filter(pk__in=list(registration_pks), amount_paid_cents__gt=0)
+        Registration.objects.filter(pk__in=pks, amount_paid_cents__gt=0)
         .filter(confirmed_at__isnull=False)
         .select_related("class_offering__instructor", "class_offering__category__guild", "member")
         .prefetch_related("refunds")
     )
     percents = _class_percents(BillingSettings.load())
-    adjustments = TransactionAdjustment.objects.filter(source_kind="class").as_map()
+    adjustments = TransactionAdjustment.objects.filter(source_kind="class", source_pk__in=pks).as_map()
     lines, _accounts, _states = _attach_payouts([_class_line(reg, percents, adjustments) for reg in registrations])
     return {line.source_pk: line.payout for line in lines if line.payout is not None}
 
