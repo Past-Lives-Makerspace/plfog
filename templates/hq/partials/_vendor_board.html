@@ -84,5 +84,6 @@ view. Delete is a plain post through the confirm modal.
     </div>
   </section>
 
-  {% include "hq/partials/_vendor_floor.html" %}
+  {# The space map capacity is a setting: admins only by the effective role, never the Team (admin_required on its POST). #}
+  {% if request.view_as.is_admin %}{% include "hq/partials/_vendor_floor.html" %}{% endif %}
 </div>

@@ -3,7 +3,7 @@
 {% comment %}
 The organisers' volunteer hours behind the Market Check-in: the total hours and volunteers, then every entry
 newest date first as a table that stacks on a phone, each with a Delete through the confirm modal (back here
-afterwards), and Download CSV. organizer_page keeps it to admins and the card's named members, by the effective
+afterwards), and Download CSV. organizer_page keeps it to admins and the card's Team, by the effective
 role; the Delete reads the actual one.
 {% endcomment %}
 {% block title %}Volunteer Hours{% endblock %}
@@ -16,7 +16,7 @@ role; the Delete reads the actual one.
   <header class="pl-hq-ci__header">
     <div class="pl-hq-ci__heading">
       <h1 class="pl-hq-ci__page-title">Volunteer Hours</h1>
-      <p class="pl-hq-ci__subline">{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %} · Organisers only</p>
+      <p class="pl-hq-ci__subline">{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %} · Team only</p>
     </div>
     <a href="{% url 'hq:checkin' hub.slug %}" class="pl-hq-ci__back" data-hq-ci-back>&larr; {{ card.title }}</a>
   </header>

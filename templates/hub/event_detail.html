@@ -4,13 +4,16 @@
 The public event page (#831, part 5): the canonical link a QR, a flyer or the signage
 resolves to, in the look of the Holiday Bizarre HQ (static/css/event-page.css). Extends
 hub/base.html, which auto-degrades for a signed-out visitor (public topbar, no sidebar)
-and shows the hub chrome for a member. PUBLISHED events only (the view 404s the rest).
+and shows the hub chrome for a member. PUBLISHED events only (the view 404s the rest). A guest
+account (#654) is no member: viewer_is_member is False for it, so it sees the page a signed-out
+visitor sees (the count without names, the guest form), in base.html's guest chrome.
 
-Top to bottom: the hero (photo or navy band), the going band with the people count, the
-goal meter and the pitch, Count Me In, the description, the gallery, the video, the
-location card, Who's Going (members only), the actions row, Share & Print for editors and
-the footer line. Nothing here carries a style attribute (FRONTEND rule 9): the hero's
-focal point rides data-hero-position and the script at the end lands it.
+Top to bottom: a way back to the HQ when its RSVP card opened the page (?from=hq), the
+hero (photo or navy band), the going band with the people count, the goal meter and the
+pitch, Count Me In, the description, the gallery, the video, the location card, Who's
+Going (members only), the actions row, Share & Print for editors and the footer line.
+Nothing here carries a style attribute (FRONTEND rule 9): the hero's focal point rides
+data-hero-position and the script at the end lands it.
 {% endcomment %}
 {% block title %}{{ event.title }}{% endblock %}
 {% block extra_head %}
@@ -21,6 +24,10 @@ focal point rides data-hero-position and the script at the end lands it.
 {% endblock %}
 {% block content %}
 <div class="pl-event-page" data-event-page>
+  {% if hq_back_hub %}
+  {# Opened from the HQ's RSVP card (?from=hq): the way back every HQ door has, named by the hub's title. #}
+  <a href="{{ hq_back_hub.get_absolute_url }}" class="pl-event-page__back" data-event-hq-back>&larr; {{ hq_back_hub.title }}</a>
+  {% endif %}
   {% comment %}
   The hero: the photo cut to the composer's crop box (CommunityEvent.hero_image_url) under
   the navy shade, or the navy band alone. The photo is decorative, the title beside it
@@ -67,7 +74,7 @@ focal point rides data-hero-position and the script at the end lands it.
   is a native progress element drawn by its value, as the HQ's goal chips are, so no width
   has to be written as a style; its ARIA values carry the real numbers.
   {% endcomment %}
-  <section class="pl-event-page__band"{% if not user.is_authenticated %} id="whos-coming"{% endif %} data-event-going aria-label="Who is going">
+  <section class="pl-event-page__band"{% if not viewer_is_member %} id="whos-coming"{% endif %} data-event-going aria-label="Who is going">
     <p class="pl-event-page__count">
       <span class="pl-event-page__count-number" data-people-count="{{ people_count }}">{{ people_count }}</span>
       <span class="pl-event-page__count-label" data-people-label>{% if people_count == 1 %}person is going{% else %}people are going{% endif %}</span>
@@ -95,8 +102,8 @@ focal point rides data-hero-position and the script at the end lands it.
     {% if is_recurring %}<p class="pl-event-page__note" data-rsvp-series-note>One RSVP is for the whole series.</p>{% endif %}
     {# Track B lists an event on Eventbrite; until then this property is False and the line never renders. #}
     {% if event.eventbrite_listed %}<p class="pl-event-page__note" data-eventbrite-counts>Bought a ticket on Eventbrite? You are already counted.</p>{% endif %}
-    {% if user.is_authenticated %}
-    <form method="post" action="{% url 'hub_event_rsvp' event.pk %}{{ date_query }}" class="pl-event-page__rsvp-form" data-member-rsvp-form>
+    {% if viewer_is_member %}
+    <form method="post" action="{% url 'hub_event_rsvp' event.pk %}{{ page_query }}" class="pl-event-page__rsvp-form" data-member-rsvp-form>
       {% csrf_token %}
       {% if viewer_rsvp %}
       <p class="pl-event-page__going" data-rsvp-state="going">You're on the list{% if is_recurring %} for the whole series{% endif %}. See you there.</p>
@@ -115,12 +122,12 @@ focal point rides data-hero-position and the script at the end lands it.
     {% elif guest_going %}
     <div class="pl-event-page__going-card" data-rsvp-going>
       <p class="pl-event-page__going">You're on the list. See you there.</p>
-      <p class="pl-event-page__note">Changed plans? <a href="{% url 'hub_event_detail' event.pk %}{{ date_query }}">Fill the form again</a> with the same email and it updates your RSVP.</p>
+      <p class="pl-event-page__note">Changed plans? <a href="{% url 'hub_event_detail' event.pk %}{{ page_query }}">Fill the form again</a> with the same email and it updates your RSVP.</p>
     </div>
     {% else %}
-    <form method="post" action="{% url 'hub_event_rsvp_guest' event.pk %}{{ date_query }}" class="pl-event-page__guest-form" data-guest-rsvp-form>
+    <form method="post" action="{% url 'hub_event_rsvp_guest' event.pk %}{{ page_query }}" class="pl-event-page__guest-form" data-guest-rsvp-form>
       {% csrf_token %}
-      <p class="pl-event-page__note pl-event-page__guest-hint">No account needed. A Past Lives member can <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" hx-boost="false">log in</a> to RSVP with one tap.</p>
+      <p class="pl-event-page__note pl-event-page__guest-hint">No account needed. A Past Lives member can <a href="{% url 'account_login' %}?next={{ request.path|add:page_query|urlencode }}" hx-boost="false" data-guest-login>log in</a> to RSVP with one tap.</p>
       {% include "components/form_field.html" with field=guest_form.name %}
       {% include "components/form_field.html" with field=guest_form.email %}
       {% include "components/form_field.html" with field=guest_form.phone %}
@@ -186,7 +193,7 @@ focal point rides data-hero-position and the script at the end lands it.
   more. The HQ flyer's "See who's coming" link lands on #whos-coming: this card for a
   member, the going band for everyone else.
   {% endcomment %}
-  {% if user.is_authenticated %}
+  {% if viewer_is_member %}
   <section class="pl-event-page__card" id="whos-coming" data-event-rsvps aria-labelledby="event-whos-going">
     <h2 class="pl-event-page__card-title" id="event-whos-going">Who's Going</h2>
     {% if rsvps %}
@@ -256,7 +263,7 @@ focal point rides data-hero-position and the script at the end lands it.
     {% endwith %}
     {% endwith %}
     {% endwith %}
-    {% if user.is_authenticated %}
+    {% if viewer_is_member %}
     <a class="pl-event-page__btn pl-event-page__btn--ghost" href="{% url 'hub_community_calendar' %}">View the Calendar</a>
     {% else %}
     <a class="pl-event-page__btn pl-event-page__btn--ghost" href="{% url 'classes:public_list' %}">Browse Past Lives classes</a>
@@ -271,11 +278,12 @@ focal point rides data-hero-position and the script at the end lands it.
   </div>
 
   {% if can_edit %}
-  {# Share & Print for editors: the shared QR card, whose downloads carry hx-boost="false" and data-pl-download (FRONTEND rule 24). #}
+  {# Share & Print for editors: the shared QR card, whose downloads carry hx-boost="false" and data-pl-download (FRONTEND rule 24), and its Flyer link to the printable flyer. #}
   {% url 'hub_event_qr' event.pk 'svg' as event_qr_svg_url %}
   {% url 'hub_event_qr' event.pk 'png' as event_qr_png_url %}
+  {% url 'hub_event_flyer' event.pk as event_flyer_url %}
   <div class="pl-event-page__qr" data-event-qr>
-    {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens this page. Print it on signage, add it to a flyer, or hand it out." qr_svg=event.qr_svg share_url=event.public_url svg_url=event_qr_svg_url png_url=event_qr_png_url %}
+    {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens this page. Print it on signage, add it to a flyer, or hand it out." qr_svg=event.qr_svg share_url=event.public_url svg_url=event_qr_svg_url png_url=event_qr_png_url flyer_url=event_flyer_url %}
   </div>
   {% endif %}
 

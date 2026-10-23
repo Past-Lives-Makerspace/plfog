@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from django.db import connection
+from django.http import HttpResponse
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -24,6 +25,17 @@ def _page(hub: EventHub) -> str:
     return reverse("hq:page", args=[hub.slug])
 
 
+def _everyone_door(hub: EventHub) -> HubCard:
+    """A door open to everyone: without one the HQ page is a 404 for a signed-out visitor (HQ card sharing)."""
+    return HubCardFactory(hub=hub, title="Spec Everyone Door", audience=HubCard.Audience.PUBLIC)
+
+
+def _visit(hub: EventHub) -> HttpResponse:
+    """The HQ page as a signed-out visitor sees it, with a door open to them."""
+    _everyone_door(hub)
+    return Client().get(_page(hub))
+
+
 def _noon() -> datetime:
     """A fixed local noon, clear of midnight on either side of a day boundary."""
     return timezone.localtime(timezone.now()).replace(hour=12, minute=0, second=0, microsecond=0)
@@ -36,7 +48,7 @@ def describe_the_hero_band():
         open_hub.eyebrow = "Past Lives Makerspace · 2nd Annual"
         open_hub.save()
 
-        body = Client().get(_page(open_hub)).content.decode()
+        body = _visit(open_hub).content.decode()
 
         assert "Past Lives Makerspace · 2nd Annual" in body
         assert f'<h1 class="pl-hq-hero__title">{open_hub.title}</h1>' in body
@@ -45,7 +57,7 @@ def describe_the_hero_band():
         assert event.when_display in body
 
     def it_renders_with_no_event_at_all(open_hub):
-        body = Client().get(_page(open_hub)).content.decode()
+        body = _visit(open_hub).content.decode()
 
         assert "data-hq-hero" in body
         assert "data-hq-date" not in body
@@ -74,7 +86,7 @@ def describe_the_hero_band():
         open_hub.footer_note = "An Oregon nonprofit corporation."
         open_hub.save()
 
-        body = Client().get(_page(open_hub)).content.decode()
+        body = _visit(open_hub).content.decode()
 
         assert "<p>First line.</p>" in body
         assert "<p>Second line.</p>" in body
@@ -113,7 +125,7 @@ def describe_the_countdown():
         open_hub.save()
 
         with patch("hq.views.timezone.now", return_value=now):
-            body = Client().get(_page(open_hub)).content.decode()
+            body = _visit(open_hub).content.decode()
 
         assert 'data-hq-countdown="Today"' in body
         assert '<span class="pl-hq-hero__figure">Today</span>' in body
@@ -125,7 +137,7 @@ def describe_the_countdown():
         open_hub.save()
 
         with patch("hq.views.timezone.now", return_value=now):
-            body = Client().get(_page(open_hub)).content.decode()
+            body = _visit(open_hub).content.decode()
 
         assert 'data-hq-countdown="3 days to go"' in body
         assert '<span class="pl-hq-hero__figure">3</span>' in body
@@ -200,7 +212,7 @@ def describe_the_goal_band():
     def it_renders_a_goal_with_a_meter_under_the_goal_tracker_heading(open_hub):
         HubGoalFactory(hub=open_hub, label="Bottles", target=100, current_value=40)
 
-        body = Client().get(_page(open_hub)).content.decode()
+        body = _visit(open_hub).content.decode()
 
         assert body.count("data-hq-goal>") == 1
         assert '<h2 class="pl-hq-goals__title" id="hq-goals-title">' in body
@@ -209,6 +221,7 @@ def describe_the_goal_band():
         assert "Bottles" in body
 
     def it_shows_the_empty_state_to_admins_and_nothing_to_anyone_else(open_hub, admin_client, member_client):
+        HubCardFactory(hub=open_hub, audience=HubCard.Audience.MEMBERS)
         assert "data-hq-goals-empty" in admin_client.get(_page(open_hub)).content.decode()
         member_body = member_client.get(_page(open_hub)).content.decode()
         assert "data-hq-goals-empty" not in member_body
@@ -223,7 +236,7 @@ def describe_bottles_by_type():
         WineBottleFactory(hub=open_hub, kind=WineBottle.Kind.WHITE)
         WineBottleFactory(kind=WineBottle.Kind.BEER, qty=9)  # another hub's wall
 
-        body = Client().get(_page(open_hub)).content.decode()
+        body = _visit(open_hub).content.decode()
 
         line = body.split("data-hq-bottle-kinds>")[1].split("</p>")[0]
         assert line.startswith("Bottles by type:")
@@ -235,7 +248,7 @@ def describe_bottles_by_type():
     def it_is_left_out_while_the_wall_is_empty(open_hub):
         HubGoalFactory(hub=open_hub, kind=HubGoal.Kind.BOTTLES, target=100)
 
-        assert "data-hq-bottle-kinds" not in Client().get(_page(open_hub)).content.decode()
+        assert "data-hq-bottle-kinds" not in _visit(open_hub).content.decode()
 
     def it_reads_the_wall_band_for_every_kind():
         band = WineBand(
@@ -253,6 +266,7 @@ def describe_bottles_by_type():
     def it_keeps_the_page_to_a_fixed_number_of_queries_as_bottles_grow(open_hub, django_assert_num_queries):
         HubGoalFactory(hub=open_hub, kind=HubGoal.Kind.BOTTLES, target=100)
         WineBottleFactory(hub=open_hub)
+        _everyone_door(open_hub)
         client = Client()
         client.get(_page(open_hub))  # warm the session and the site configuration
         with CaptureQueriesContext(connection) as first:
@@ -302,7 +316,7 @@ def describe_the_doors():
         body = Client().get(_page(open_hub)).content.decode()
         door = body.split(f'data-hq-card-pk="{card.pk}"')[1].split("</a>")[0]
 
-        assert card.url == reverse("hub_event_detail", args=[event.pk])
+        assert card.url == f"{reverse('hub_event_detail', args=[event.pk])}?from=hq"
         assert f'<a href="{card.url}" class="pl-hq-card" data-hq-card-link>' in door
         assert "M9.5 12l1.8 1.8 3.4-3.6" in door  # the ticket with a check, the RSVP door's icon
         assert "Members and guests" in door
@@ -342,35 +356,34 @@ def describe_the_doors():
         assert "data-hq-card-placeholder" in body
         assert "data-hq-card-link" not in body
 
-    def it_shows_the_audience_and_named_count_under_each_card_to_an_admin(open_hub, admin_client, member):
-        HubCardFactory(hub=open_hub, audience=HubCard.Audience.MEMBERS, named=[member])
+    def it_shows_who_can_open_each_card_to_an_admin(open_hub, admin_client, member):
+        HubCardFactory(hub=open_hub, audience=HubCard.Audience.MEMBERS, team=[member])
 
         body = admin_client.get(_page(open_hub)).content.decode()
 
-        assert "Members · 1 named" in body
+        assert "Members · 1 person</span>" in body
 
-    def it_tells_a_visitor_with_no_open_door_and_offers_sign_in(open_hub, member_client):
+    def it_is_a_404_for_a_visitor_or_member_with_no_open_door(open_hub, member_client, admin_client):
         HubCardFactory(hub=open_hub, audience=HubCard.Audience.ADMINS)
 
-        anonymous_body = Client().get(_page(open_hub)).content.decode()
-        member_body = member_client.get(_page(open_hub)).content.decode()
+        assert Client().get(_page(open_hub)).status_code == 404
+        assert member_client.get(_page(open_hub)).status_code == 404
+        assert admin_client.get(_page(open_hub)).status_code == 200
 
-        assert "data-hq-doors-empty" in anonymous_body
-        assert f"/accounts/login/?next={_page(open_hub)}" in anonymous_body
-        assert "data-hq-doors-empty" in member_body
-        assert "/accounts/login/" not in member_body.split("data-hq-doors-empty")[1].split("</p>")[0]
+    def it_tells_an_admin_when_the_hq_has_no_doors(open_hub, admin_client):
+        assert "data-hq-doors-empty" in admin_client.get(_page(open_hub)).content.decode()
 
-    def it_keeps_its_queries_flat_however_many_doors_and_named_members(open_hub, admin_client, make_member):
+    def it_keeps_its_queries_flat_however_many_doors_and_people(open_hub, admin_client, make_member):
         def render() -> int:
             with CaptureQueriesContext(connection) as queries:
                 assert admin_client.get(_page(open_hub)).status_code == 200
             return len(queries)
 
-        HubCardFactory(hub=open_hub, named=[make_member()])
+        HubCardFactory(hub=open_hub, team=[make_member()])
         render()  # the first visit pays for session and sign in bookkeeping; measure the second
         few = render()
         for _ in range(4):
-            HubCardFactory(hub=open_hub, named=[make_member(), make_member()])
+            HubCardFactory(hub=open_hub, team=[make_member(), make_member()])
 
         assert render() == few
 

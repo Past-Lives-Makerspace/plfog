@@ -25,6 +25,7 @@ urlpatterns = [
     path("<slug:slug>/doors/update/", views.doors_update, name="doors_update"),
     path("<slug:slug>/cards/<int:pk>/edit/", views.card_edit, name="card_edit"),
     path("<slug:slug>/cards/<int:pk>/move/", views.card_move, name="card_move"),
+    path("<slug:slug>/cards/<int:pk>/share/", views.card_share, name="card_share"),
     path("<slug:slug>/volunteers/", views.volunteers, name="volunteers"),
     path("<slug:slug>/volunteers/info/", views.volunteer_info, name="volunteer_info"),
     path("<slug:slug>/volunteers/<int:shift_pk>/signup/", views.shift_signup, name="shift_signup"),

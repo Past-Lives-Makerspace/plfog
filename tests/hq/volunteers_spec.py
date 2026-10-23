@@ -540,9 +540,9 @@ def describe_the_roster():
         assert zed.shifts == ["B", "A"]
         assert services.roster_emails([amy, zed]) == "amy@example.com, zed@example.com"
 
-    def it_is_on_the_page_for_admins_and_named_members_only(card, people, admin_client, member_client, make_member):
+    def it_is_on_the_page_for_admins_and_the_team_only(card, people, admin_client, member_client, make_member):
         named = make_member()
-        card.named_members.add(named)
+        card.team.add(named)
 
         admin_body = admin_client.get(_page(card.hub)).content.decode()
         named_body = signed_in(named).get(_page(card.hub)).content.decode()
@@ -570,7 +570,7 @@ def describe_the_roster():
         card, people, admin_client, member_client, make_member
     ):
         named = make_member()
-        card.named_members.add(named)
+        card.team.add(named)
 
         assert admin_client.get(_roster_url(card.hub)).status_code == 200
         named_body = signed_in(named).get(_roster_url(card.hub)).content.decode()

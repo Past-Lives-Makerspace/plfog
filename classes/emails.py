@@ -263,8 +263,8 @@ def _emit_review_request(
     The reviewer email is the preserved ``review_request.{txt,html}`` shell (tokenized
     ``/classes/review/<token>/`` link). Email, bell, push and Discord DM all go to the
     event's ``GUILD_LEADERSHIP_OR_CLASS_APPROVERS`` resolver against ``guild`` and
-    ``offering``: the guild's lead and Class Reviewers for a guild-led class, never the
-    class's own instructors unless one is the lead (#816), and the CMS Administrators
+    ``offering``: the guild's lead and Class Reviewers for a guild-led class (#816), a
+    reviewer who teaches the class included (#883), and the CMS Administrators
     (capability holders) for a lead-less one. Each person's own switches decide (#524), and
     the email goes to their notification address; a reviewer with no login gets nothing.
     """
@@ -302,8 +302,8 @@ def class_has_reachable_reviewer(offering: "ClassOffering") -> bool:
     """Whether anyone who reviews ``offering`` for its guild can be sent a review request.
 
     The request goes through the ``class_review_requested`` resolver, which reaches only
-    the guild's lead and Class Reviewers (#816) with a login and an email, leaving out the
-    class's own instructors unless one is the lead. A class with nobody there to ask, or
+    the guild's lead and Class Reviewers (#816) with a login and an email, a reviewer who
+    teaches the class included (#883). A class with nobody there to ask, or
     only people the event system cannot reach, has nobody to remind: the admin queue
     offers "Review it yourself" and Remind lead refuses, instead of claiming a reminder
     went out.
@@ -311,7 +311,7 @@ def class_has_reachable_reviewer(offering: "ClassOffering") -> bool:
     from core.events import resolvers
 
     guild = offering.category.guild if offering.category_id else None
-    return guild is not None and bool(resolvers.guild_class_reviewers({"guild": guild, "offering": offering}))
+    return guild is not None and bool(resolvers.guild_class_reviewers({"guild": guild}))
 
 
 def reminded_names(result: "EmitResult") -> list[str]:

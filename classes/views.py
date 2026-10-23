@@ -1819,7 +1819,7 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
         else []
     )
 
-    # A guild lead who teaches a PENDING class in their OWN guild is in two of the merged card's
+    # A guild lead or Class Reviewer who teaches a PENDING class in their OWN guild is in two of the merged card's
     # queues at once: their review queue (where they can act) and their own "waiting on a
     # reviewer" list (where they can only watch). Show it once, in the queue that names the
     # action actually blocking it, and count distinct classes. This is display-only — it does
@@ -4669,7 +4669,7 @@ def admin_class_remind_lead(request: HttpRequest, pk: int) -> HttpResponse:
     if result is None and access.can_administer:
         trigger_toast(response, "This guild has no lead. Review it yourself.", "error")
     elif result is None:
-        # An instructor cannot review their own class; an admin takes it from here.
+        # The guild has nobody reachable to remind; an admin takes it from here.
         trigger_toast(response, "This guild has nobody to remind. An admin will review your class.", "error")
     elif result.delivered:
         trigger_toast(response, f"Reminder sent to {join_names(reminded_names(result))}.")

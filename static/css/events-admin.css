@@ -13,6 +13,14 @@
 .pl-events-admin .admin-table-wrap td.pl-class-list__title {
     min-width: 12rem;
 }
+/* The row's Flyer link, on its own line under the title. */
+.pl-events-admin__flyer {
+    display: block;
+    width: fit-content;
+    margin-top: 0.25rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
 .pl-events-admin__kind {
     white-space: nowrap;
 }

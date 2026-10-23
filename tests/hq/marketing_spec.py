@@ -64,6 +64,13 @@ def describe_the_door():
         assert card.url == _page(card.hub)
         assert f'href="{_page(card.hub)}" class="pl-hq-card" data-hq-card-link' in body
 
+    def it_carries_a_way_back_to_the_hq_in_its_header(card):
+        body = Client().get(_page(card.hub)).content.decode()
+        header = body.split('<header class="pl-hq-mk__header">')[1].split("</header>")[0]
+
+        assert f'<a href="{card.hub.get_absolute_url()}" class="pl-hq-mk__back" data-hq-mk-back>&larr; HQ</a>' in header
+        assert card.hub.get_absolute_url() == reverse("hq:page", args=[card.hub.slug])
+
     def it_shows_a_door_with_no_page_as_not_shared(open_hub):
         """Every Track D door has its page now (D6a built the last); a placeholder still opens nothing."""
         HubCardFactory(hub=open_hub, kind=HubCard.Kind.PLACEHOLDER, audience=HubCard.Audience.PUBLIC)
@@ -113,7 +120,7 @@ def describe_who_may_open_it():
     def it_gives_the_form_to_a_named_member_on_an_admins_card(card, member):
         card.audience = HubCard.Audience.ADMINS
         card.save(update_fields=["audience"])
-        card.named_members.set([member])
+        card.team.set([member])
 
         body = signed_in(member).get(_page(card.hub)).content.decode()
 
@@ -248,8 +255,8 @@ def describe_logging_an_action():
         action = MarketingAction.objects.get()
         assert (action.reach, action.who, action.details, action.link) == (0, "Kate", "Flyer at Rocking Frog", "")
 
-    def it_starts_on_a_flyer_today_and_suggests_the_cards_named_members(card, admin_client, make_member):
-        card.named_members.set([make_member(preferred_name="Anjali"), make_member(preferred_name="Kate")])
+    def it_starts_on_a_flyer_today_and_suggests_the_cards_team(card, admin_client, make_member):
+        card.team.set([make_member(preferred_name="Anjali"), make_member(preferred_name="Kate")])
 
         body = admin_client.get(_page(card.hub)).content.decode()
 
@@ -322,7 +329,7 @@ def describe_the_log():
 
 def describe_deleting_an_action():
     def it_takes_the_row_off_the_log_for_an_organiser(card, member):
-        card.named_members.set([member])
+        card.team.set([member])
         action = MarketingActionFactory(hub=card.hub)
 
         response = signed_in(member).post(_delete(action), follow=True)

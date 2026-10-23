@@ -3,12 +3,14 @@
 - The open hub's page is public: the sidebar entry and ``/hq/`` land there, and a signed-out
   visitor sees every card whose audience is ``public``. A closed hub is reachable by admins
   only, so an HQ can be built before it is shown.
-- A card's audience is the one gate (``HubCard.is_open_to``): admins and the card's named
-  members always; ``public`` everyone; ``members`` an ACTIVE member. A hidden card is kept to
-  admins on the page and at its URL.
+- A card's audience and its two people lists are the one gate (``HubCard.is_open_to``): admins
+  and the card's Team always; on any door but a Team-only one (``TEAM_ONLY_KINDS``) the Can open
+  people, ``public`` everyone and ``members`` an ACTIVE member. A hidden card is kept to admins on
+  the page and at its URL.
 - Rendering reads the effective role, ``request.view_as.is_admin``, so an admin previewing as
   a member or a guest sees that viewer's page. Action gates read the actual role
-  (:func:`organizer_required`), and the edit pages use ``hub.view_as.fog_admin_required``.
+  (:func:`organizer_required` for the Team's work, :func:`admin_required` for settings and uploads), and the
+  edit pages use ``hub.view_as.fog_admin_required``.
 - A guest account (#654) reaches ``/hq/`` on the members surface
   (``core.middleware.MemberLockoutMiddleware``), because the volunteer and wine wall doors are
   for people with or without an account; what it may open is still the card's audience.
@@ -76,7 +78,7 @@ def hub_for_action(slug: str, request: HttpRequest) -> EventHub:
 
 
 def _hub(slug: str, *, admin: bool) -> EventHub:
-    hub = EventHub.objects.filter(slug=slug).select_related("event").first()
+    hub = EventHub.objects.filter(slug=slug).select_related("event__area").first()
     if hub is None or (not hub.is_open and not admin):
         raise Http404("No such HQ.")
     return hub
@@ -89,7 +91,7 @@ def card_or_404(hub: EventHub, kind: str, request: HttpRequest) -> HubCard:
     :class:`SignInRequired` so the view can send the visitor through login and back; any other
     card the viewer may not open is a 404, so a closed door never reveals what is behind it.
     """
-    card = hub.cards.prefetch_related("named_members").filter(kind=kind).first()
+    card = hub.cards.prefetch_related("team", "can_open").filter(kind=kind).first()
     if card is None:
         raise Http404("No such card.")
     is_admin = renders_as_admin(request)
@@ -140,7 +142,7 @@ def organizer_page(kind: str) -> Callable[[Callable[..., HttpResponseBase]], Cal
         @wraps(view)
         def wrapped(request: HttpRequest, *args: Any, hub: EventHub, card: HubCard, **kwargs: Any) -> HttpResponseBase:
             if not card.can_organize(viewer_member(request), is_admin=renders_as_admin(request)):
-                raise PermissionDenied("Only the organisers of this part of the event can open this page.")
+                raise PermissionDenied("Only this card's Team can open this page.")
             return view(request, *args, hub=hub, card=card, **kwargs)
 
         return wrapped
@@ -149,7 +151,7 @@ def organizer_page(kind: str) -> Callable[[Callable[..., HttpResponseBase]], Cal
 
 
 def organizer_required(kind: str) -> Callable[[Callable[..., HttpResponseBase]], Callable[..., HttpResponseBase]]:
-    """Admit admins and the ``kind`` card's named members, by their actual roles, on the hub at ``slug``.
+    """Admit admins and the ``kind`` card's Team, by their actual roles, on the hub at ``slug``.
 
     The view is called as ``view(request, hub=hub, card=card, **rest)``. Anyone else gets a 403,
     and a card the hub does not have is a 404.
@@ -159,11 +161,36 @@ def organizer_required(kind: str) -> Callable[[Callable[..., HttpResponseBase]],
         @wraps(view)
         def wrapped(request: HttpRequest, *args: Any, slug: str, **kwargs: Any) -> HttpResponseBase:
             hub = hub_for_action(slug, request)
-            card = hub.cards.prefetch_related("named_members").filter(kind=kind).first()
+            card = hub.cards.prefetch_related("team", "can_open").filter(kind=kind).first()
             if card is None:
                 raise Http404("No such card.")
             if not card.can_organize(actual_member(request), is_admin=is_actual_admin(request)):
-                raise PermissionDenied("Only the organisers of this part of the event can do this.")
+                raise PermissionDenied("Only this card's Team can do this.")
+            return view(request, *args, hub=hub, card=card, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
+def admin_required(kind: str) -> Callable[[Callable[..., HttpResponseBase]], Callable[..., HttpResponseBase]]:
+    """Admit actual admins only, on the hub at ``slug`` whose ``kind`` card exists: the settings and uploads
+    behind a door (the flyer files and links, winery logos, the ledger's approval, prices and budget lines, the
+    vendor floor's capacity), which the Team never changes whatever the card's lists say.
+
+    The view is called as ``view(request, hub=hub, card=card, **rest)``. Anyone else gets a 403, a preview
+    included (it reads the actual role), and a card the hub does not have is a 404.
+    """
+
+    def decorator(view: Callable[..., HttpResponseBase]) -> Callable[..., HttpResponseBase]:
+        @wraps(view)
+        def wrapped(request: HttpRequest, *args: Any, slug: str, **kwargs: Any) -> HttpResponseBase:
+            hub = hub_for_action(slug, request)
+            card = hub.cards.filter(kind=kind).first()
+            if card is None:
+                raise Http404("No such card.")
+            if not is_actual_admin(request):
+                raise PermissionDenied("Only admins can change this.")
             return view(request, *args, hub=hub, card=card, **kwargs)
 
         return wrapped
@@ -173,12 +200,12 @@ def organizer_required(kind: str) -> Callable[[Callable[..., HttpResponseBase]],
 
 def can_check_in(card: HubCard, member: Member, *, is_admin: bool) -> bool:
     """Who may file a market report and log hours behind the Market Check-in card (D4): a signed in member the card
-    is open to who is ACTIVE, an admin, or named on the card. Members only by design: there is no guest path, and
+    is open to who is ACTIVE, an admin, or on the card's Team. Members only by design: there is no guest path, and
     identity is the member, never a typed email. A GUEST account the card is open to reads the page but files
     nothing. ``is_admin`` is the role being checked: the effective one to render, the actual one to act. Signed
     out is nobody to check, so callers ask only with a member.
     """
-    if is_admin or card.is_named(member):
+    if is_admin or card.is_team(member):
         return True
     return member.status == Member.Status.ACTIVE and card.is_open_to(member, is_admin=False)
 
@@ -195,7 +222,7 @@ def check_in_required(kind: str) -> Callable[[Callable[..., HttpResponseBase]], 
         @wraps(view)
         def wrapped(request: HttpRequest, *args: Any, slug: str, **kwargs: Any) -> HttpResponseBase:
             hub = hub_for_action(slug, request)
-            card = hub.cards.prefetch_related("named_members").filter(kind=kind).first()
+            card = hub.cards.prefetch_related("team", "can_open").filter(kind=kind).first()
             is_admin = is_actual_admin(request)
             if card is None or (card.is_hidden and not is_admin):
                 raise Http404("No such card.")

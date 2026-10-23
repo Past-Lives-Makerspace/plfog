@@ -19,7 +19,7 @@ from django.conf import settings
 from django.core.validators import URLValidator
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.utils import timezone
 
@@ -169,66 +169,168 @@ HubGoalFormSet = inlineformset_factory(
 
 
 @dataclass(frozen=True)
-class MemberRow:
-    """One line of the named members checklist."""
+class PersonOption:
+    """One person the share panel's pickers offer or show as a chip: their name and primary email."""
 
     pk: int
     name: str
     email: str
-    checked: bool
 
     @property
     def search_text(self) -> str:
-        """What the search box matches, lowercased."""
+        """What the picker's search box matches, lowercased."""
         return f"{self.name} {self.email}".lower()
 
 
-class HubCardForm(forms.ModelForm):
-    named_members = forms.ModelMultipleChoiceField(
+@dataclass(frozen=True)
+class PeoplePicker:
+    """One of the two pickers (Can open, Team): the field, the people chosen as the form stands and everyone it
+    offers. Rendered by ``hq/partials/_people_picker.html``."""
+
+    field: forms.BoundField
+    chosen: list[PersonOption]
+    options: list[PersonOption]
+    dom_id: str
+
+
+CAN_OPEN_HELP = "They see the card and use it as a member would: sign up for shifts, log a bottle, file a check-in."
+TEAM_HELP = (
+    "Everything Can open gives, plus the work behind the door: add and edit rows, see rosters, donors and reports, "
+    "and download the lists. Settings and uploads stay with admins."
+)
+TEAM_ONLY_CAN_OPEN = "This door is for the Team only, so nobody can be added to Can open."
+TEAM_ONLY_TEAM_HELP = (
+    "They open this door and do the work behind it: add and edit rows, see the reports, and download the lists. "
+    "Settings and uploads stay with admins."
+)
+AUDIENCE_HELP = "Admins, the Can open people and the Team can always open it."
+TEAM_ONLY_AUDIENCE_HELP = "Admins and the Team can always open it."
+
+
+class CardSharingForm(forms.ModelForm):
+    """Who may open a card: the audience and the two people lists (Can open, Team). The share panel on the HQ page
+    is this form alone, and the card edit page carries the same fields, so there is one way to share.
+
+    The pickers offer ACTIVE members, plus anyone already on either list (shown even when no longer active, so
+    they can be removed). A Team-only door (``HubCard.is_team_only``) offers Admins only and no Can open list;
+    the model's ``clean`` refuses a wider audience too. Someone on both lists is kept on the Team alone.
+    """
+
+    can_open = forms.ModelMultipleChoiceField(
         queryset=Member.objects.none(),
         required=False,
-        widget=forms.CheckboxSelectMultiple,
-        label="Named members",
-        help_text="People who may open this card whatever its audience, and who organise what is behind it.",
+        widget=forms.MultipleHiddenInput,
+        label="Can open",
+        help_text=CAN_OPEN_HELP,
+    )
+    team = forms.ModelMultipleChoiceField(
+        queryset=Member.objects.none(),
+        required=False,
+        widget=forms.MultipleHiddenInput,
+        label="Team",
+        help_text=TEAM_HELP,
     )
 
     class Meta:
         model = HubCard
-        fields = ["title", "who_for", "bullets", "button_text", "audience", "is_hidden", "named_members"]
-        labels = {"who_for": "Who it is for", "button_text": "Button text", "is_hidden": "Hidden"}
+        fields = ["audience", "can_open", "team"]
+        labels = {"audience": "Who can open it"}
+        widgets = {"audience": forms.RadioSelect}
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        card: HubCard = self.instance
+        on_lists = set(card.team.values_list("pk", flat=True)) | set(card.can_open.values_list("pk", flat=True))
+        offered = Member.objects.filter(Q(status=Member.Status.ACTIVE) | Q(pk__in=on_lists)).order_by(
+            "full_legal_name", "pk"
+        )
+        self.fields["can_open"].queryset = offered  # type: ignore[attr-defined]  # a ModelMultipleChoiceField
+        self.fields["team"].queryset = offered  # type: ignore[attr-defined]  # a ModelMultipleChoiceField
+        allowed = [HubCard.Audience.ADMINS] if card.is_team_only else list(HubCard.Audience)
+        self.fields["audience"].choices = [  # type: ignore[attr-defined]  # a TypedChoiceField
+            (value, HubCard.AUDIENCE_CHIPS[value]) for value in allowed
+        ]
+        self.fields["audience"].help_text = TEAM_ONLY_AUDIENCE_HELP if card.is_team_only else AUDIENCE_HELP
+        if card.is_team_only:
+            self.fields["team"].help_text = TEAM_ONLY_TEAM_HELP
+            if not self.is_bound:
+                # A Team-only door stored with a wider audience (from before sharing) would render with no choice
+                # ticked, and Save would fail as required: start it on Admins only, its one choice.
+                self.initial["audience"] = HubCard.Audience.ADMINS
+        self._options: list[PersonOption] | None = None
+
+    @property
+    def audience_lines(self) -> dict[str, str]:
+        """The one line under each audience choice saying who that is; a Team-only door's says why it has one."""
+        card: HubCard = self.instance
+        if card.is_team_only:
+            return {HubCard.Audience.ADMINS: card.team_only_reason}
+        return {str(value): line for value, line in HubCard.AUDIENCE_LINES.items()}
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean() or self.cleaned_data
+        card: HubCard = self.instance
+        can_open = cleaned.get("can_open")
+        team = cleaned.get("team")
+        if card.is_team_only and can_open:
+            # A form level error: a Team-only door draws no Can open picker to hang it on.
+            self.add_error(None, TEAM_ONLY_CAN_OPEN)
+        elif can_open is not None and team is not None:
+            # Someone on both lists is on the Team, which already gives everything Can open does.
+            on_team = {member.pk for member in team}
+            cleaned["can_open"] = can_open.exclude(pk__in=on_team)
+        return cleaned
+
+    def people_options(self) -> list[PersonOption]:
+        """Everyone the pickers offer, in two queries (the members, their primary addresses), read once."""
+        if self._options is None:
+            queryset = self.fields["can_open"].queryset  # type: ignore[attr-defined]  # a ModelMultipleChoiceField
+            members = queryset.select_related("user").prefetch_related(_primary_emails())
+            self._options = [
+                PersonOption(pk=member.pk, name=member.display_name, email=member.primary_email) for member in members
+            ]
+        return self._options
+
+    def pickers(self) -> list[PeoplePicker]:
+        """The pickers this card offers, Can open then Team; a Team-only door has the Team alone."""
+        card: HubCard = self.instance
+        names = ["team"] if card.is_team_only else ["can_open", "team"]
+        prefix = f"hq-share-{card.pk}" if card.pk is not None else "hq-share"
+        return [self._picker(name, f"{prefix}-{name.replace('_', '-')}") for name in names]
+
+    def _picker(self, name: str, dom_id: str) -> PeoplePicker:
+        options = self.people_options()
+        chosen_pks = [str(getattr(value, "pk", value)) for value in self[name].value() or []]
+        by_pk = {str(option.pk): option for option in options}
+        chosen = [by_pk[pk] for pk in chosen_pks if pk in by_pk]
+        return PeoplePicker(field=self[name], chosen=chosen, options=options, dom_id=dom_id)
+
+
+class HubCardForm(CardSharingForm):
+    """The card edit page: the card's words and Hidden, and the sharing fields (:class:`CardSharingForm`)."""
+
+    class Meta(CardSharingForm.Meta):
+        fields = ["title", "who_for", "bullets", "button_text", "audience", "can_open", "team", "is_hidden"]
+        labels = {
+            "who_for": "Who it is for",
+            "button_text": "Button text",
+            "is_hidden": "Hidden",
+            "audience": "Who can open it",
+        }
         help_texts = {
             "bullets": "One per line, up to 4.",
             "is_hidden": "A hidden card shows to admins only, with a Hidden chip.",
         }
-        widgets = {
+        widgets: dict[str, Any] = {
             "bullets": forms.Textarea(attrs={"rows": 5}),
             "audience": forms.RadioSelect,
         }
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.fields["named_members"].queryset = _active_members()  # type: ignore[attr-defined]  # a ModelMultipleChoiceField
 
     def clean_bullets(self) -> str:
         lines = [line.strip() for line in self.cleaned_data["bullets"].splitlines() if line.strip()]
         if len(lines) > HubCard.MAX_BULLETS:
             raise ValidationError(f"Up to {HubCard.MAX_BULLETS} bullets, one per line. This has {len(lines)}.")
         return "\n".join(lines)
-
-    def member_rows(self) -> list[MemberRow]:
-        """Every ACTIVE member for the checklist, ticked as the form stands (posted or saved), in two queries."""
-        chosen = {str(value) for value in self["named_members"].value() or []}
-        members = _active_members().select_related("user").prefetch_related(_primary_emails())
-        return [
-            MemberRow(
-                pk=member.pk, name=member.display_name, email=member.primary_email, checked=str(member.pk) in chosen
-            )
-            for member in members
-        ]
-
-
-def _active_members() -> Any:
-    return Member.objects.active().order_by("full_legal_name", "pk")
 
 
 def _primary_emails() -> Prefetch:
@@ -436,7 +538,7 @@ class WineryLogoForm(forms.Form):
         return logo
 
 
-# The datalist the Who field suggests from: the Marketing card's named members.
+# The datalist the Who field suggests from: the Marketing card's Team.
 MARKETING_TEAM_LIST_ID = "hq-marketing-team"
 
 
@@ -485,7 +587,7 @@ class MarketingActionForm(forms.ModelForm):
 
 # ---- Sponsorship Tracker (Track D, part 2) ----
 
-# The datalist Who's asking and the log's By suggest from: the Sponsorship card's named members.
+# The datalist Who's asking and the log's By suggest from: the Sponsorship card's Team.
 SPONSOR_TEAM_LIST_ID = "hq-sponsor-team"
 
 # The whole field opens the date picker, not just its icon (FRONTEND rule 14).
@@ -1425,7 +1527,7 @@ class BarBatchForm(forms.Form):
 # ---- PL Ledger, team and tally (Track D, part 6c) ----
 
 # The datalist the launch checklist's Owner, the staff time's Who and the guild demos' Contacted by suggest from: the
-# ledger card's named members.
+# ledger card's Team.
 LEDGER_TEAM_LIST_ID = "hq-lg-team"
 
 

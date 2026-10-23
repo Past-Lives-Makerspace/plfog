@@ -28,6 +28,7 @@ from core.htmx import wants_fragment
 from hq import services
 from hq.access import (
     actual_member,
+    admin_required,
     can_check_in,
     card_view,
     check_in_required,
@@ -59,6 +60,7 @@ from hq.forms import (
     BarQuickForm,
     BudgetLineEditForm,
     BudgetLineForm,
+    CardSharingForm,
     DoorCountForm,
     FlyerLinksForm,
     FlyerUploadForm,
@@ -136,7 +138,7 @@ from hq.models import (
     format_money,
 )
 from hq.services import VolunteerBand, VolunteerInfo, goal_rows
-from hub.toast import trigger_toast
+from hub.toast import trigger_client_event, trigger_toast
 from hub.view_as import fog_admin_required, has_events_admin_access
 from membership.models import Guild, Member
 
@@ -160,13 +162,19 @@ def index(request: HttpRequest) -> HttpResponse:
 
 
 def hub_page(request: HttpRequest, slug: str) -> HttpResponse:
-    """The HQ page. No login required: a signed-out visitor sees the public doors."""
+    """The HQ page. No login required: a signed-out visitor sees the Everyone doors.
+
+    A non-admin sees only the doors they may open; with none, the page is the themed 404 (as a closed hub is),
+    signed in or out, so the sidebar entry and the page agree on who has an HQ.
+    """
     hub = hub_or_404(slug, request)
     is_admin = renders_as_admin(request)
     member = viewer_member(request)
-    cards = list(hub.cards.prefetch_related("named_members"))
+    cards = list(hub.cards.prefetch_related("team", "can_open"))
     if not is_admin:
         cards = [card for card in cards if not card.is_hidden and card.is_open_to(member, is_admin=False)]
+        if not cards:
+            raise Http404("No doors are open to you.")
     wine = services.wine_band(hub)
     return render(
         request,
@@ -259,7 +267,8 @@ def hero_delete(request: HttpRequest, slug: str) -> HttpResponse:
 
 @fog_admin_required
 def card_edit(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
-    """One card: its words, who may open it, the named members, hidden, and its place in the order.
+    """One card: its words, who may open it (the audience, Can open and Team, as the share panel has them), hidden,
+    and its place in the order.
 
     The volunteers card's page also carries the shifts formset; the one Save posts both.
     """
@@ -286,17 +295,57 @@ def _shift_formset(hub: EventHub, card: HubCard, data: Any) -> ShiftFormSet | No
 
 
 def _card_context(hub: EventHub, card: HubCard, form: HubCardForm, shifts: ShiftFormSet | None) -> dict[str, Any]:
-    rows = form.member_rows()
     return {
         "hub": hub,
         "card": card,
         "form": form,
         "shift_formset": shifts,
-        "member_rows": rows,
-        # A failed save on the named members opens the row so the error is in view.
-        "named_open": "named_members" in form.errors,
         "directions": HubCard.Direction,
     }
+
+
+@fog_admin_required
+def card_share(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
+    """The share panel for one card: the audience and the Can open and Team pickers, saved in one POST.
+
+    Admins only, by the actual role. The HQ page loads the panel into its modal over htmx; a GET without htmx is the
+    panel on its own page, so it works with no script. A saved htmx post answers with the panel (as saved), the
+    card's chip out of band, a toast and ``hq-share-saved`` (which closes the modal); a refused one with the panel
+    and its errors. A plain post lands on the HQ page with a message, or renders the panel's page with its errors.
+    """
+    hub = get_object_or_404(EventHub, slug=slug)
+    card = get_object_or_404(hub.cards, pk=pk)
+    if request.method == "POST":
+        form = CardSharingForm(request.POST, instance=card)
+        if form.is_valid():
+            card = form.save()
+            message = f"{card.title} is shared with {card.audience_chip.lower()}{_people_words(card)}."
+            if not wants_fragment(request):
+                messages.success(request, message)
+                return redirect(hub.get_absolute_url())
+            card = hub.cards.prefetch_related("team", "can_open").get(pk=card.pk)
+            response = render(
+                request,
+                "hq/partials/_share_answer.html",
+                {"hub": hub, "card": card, "form": CardSharingForm(instance=card)},
+            )
+            trigger_toast(response, message)
+            trigger_client_event(response, "hq-share-saved", {"pk": card.pk})
+            return response
+    else:
+        form = CardSharingForm(instance=card)
+    context = {"hub": hub, "card": card, "form": form}
+    if wants_fragment(request):
+        return render(request, "hq/partials/_share_form.html", context)
+    return render(request, "hq/card_share.html", context)
+
+
+def _people_words(card: HubCard) -> str:
+    """ " and 3 people" for the share toast, "" when the lists name nobody."""
+    count = card.people_count
+    if not count:
+        return ""
+    return f" and {count} {'person' if count == 1 else 'people'}"
 
 
 @fog_admin_required
@@ -368,7 +417,7 @@ def _wine_url(hub: EventHub, member: Member | None, is_admin: bool) -> str:
 
 def _door_url(hub: EventHub, kind: str, member: Member | None, is_admin: bool) -> str:
     """Where a link to the ``kind`` door goes, or "" when that card is missing, hidden or not open to this viewer."""
-    card = hub.cards.prefetch_related("named_members").filter(kind=kind).first()
+    card = hub.cards.prefetch_related("team", "can_open").filter(kind=kind).first()
     if card is None or (card.is_hidden and not is_admin) or not card.is_open_to(member, is_admin=is_admin):
         return ""
     return card.url
@@ -529,17 +578,19 @@ def _wine_page(
     """Render the wall. ``form`` bound means Log a Bottle failed and opens with its errors.
 
     Rendering reads the effective role, as the volunteer page does: an admin previewing as a
-    guest sees no donors, no logo form and no Delete. The action views keep the actual role.
+    guest sees no donors, no logo form and no Delete. The action views keep the actual role. The logo form is a
+    setting, so it shows to admins alone, never to the card's Team.
     """
     member = viewer_member(request)
-    can_organize = card.can_organize(member, is_admin=renders_as_admin(request))
+    is_admin = renders_as_admin(request)
+    can_organize = card.can_organize(member, is_admin=is_admin)
     _name, email = _identity(request, member)
     bottles = list(hub.bottles.all())
     rows = services.wineries(hub)
     donors = services.donor_rows(hub) if can_organize else []
     # Organisers see Lee's Under $25 flag on a bottle worth less than one ticket; nobody else pays for the read.
     ticket_cents = services.ticket_price_cents(hub) if can_organize else 0
-    if can_organize and logo_form is None:
+    if is_admin and logo_form is None:
         logo_form = WineryLogoForm(names=[row.name for row in rows])
     return render(
         request,
@@ -557,7 +608,7 @@ def _wine_page(
                 b.pk for b in bottles if b.can_be_deleted_by(member, email=email, is_organizer=can_organize)
             },
             "wineries": rows,
-            "logo_form": logo_form if can_organize else None,
+            "logo_form": logo_form if is_admin else None,
             "can_organize": can_organize,
             "donors": donors,
             "donor_emails": services.donor_emails(donors),
@@ -588,7 +639,7 @@ def bottle_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int
 
 
 @require_POST
-@organizer_required(HubCard.Kind.WINE_WALL)
+@admin_required(HubCard.Kind.WINE_WALL)
 def winery_logo(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
     """Upload a logo for a winery named on the wall, replacing the one under that name."""
     form = WineryLogoForm(request.POST, request.FILES, names=[row.name for row in services.wineries(hub)])
@@ -673,7 +724,7 @@ def _marketing_context(request: HttpRequest, hub: EventHub, card: HubCard, form:
         "can_organize": card.can_organize(viewer_member(request), is_admin=renders_as_admin(request)),
         "tiles": services.marketing_tiles(services.marketing_totals(hub)),
         "actions": list(hub.marketing_actions.all()),
-        "team": sorted({member.display_name for member in card.named_members.all()}),
+        "team": sorted({member.display_name for member in card.team.all()}),
         "team_list_id": MARKETING_TEAM_LIST_ID,
     }
 
@@ -822,7 +873,7 @@ def _sponsors_context(
             for value, label in services.SPONSOR_FILTERS
             if can_organize or value != services.SPONSOR_FILTER_DONORS
         ],
-        "team": sorted({named.display_name for named in card.named_members.all()}),
+        "team": sorted({named.display_name for named in card.team.all()}),
         "team_list_id": SPONSOR_TEAM_LIST_ID,
         "tiers": SPONSOR_TIERS,
         "wine_benefit": WINE_WALL_BENEFIT,
@@ -984,9 +1035,9 @@ def _vendor_edit_form(table: VendorTable, guilds: list[Guild], data: Any = None)
 
 
 def _vendor_team(card: HubCard) -> tuple[str, str]:
-    """Who manages the door, from its first named member by pk: their display name for the header ("" for nobody
+    """Who manages the door, from the first person on its Team by pk: their display name for the header ("" for nobody
     or a blank name) and their first name for the Requested tile, else the vendor team."""
-    first = card.named_members.order_by("pk").first()
+    first = card.team.order_by("pk").first()
     if first is None:
         return "", services.VENDOR_TEAM_FALLBACK
     name = first.display_name.strip()
@@ -1141,7 +1192,7 @@ def vendor_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int
 
 
 @require_POST
-@organizer_required(HubCard.Kind.VENDOR_TABLES)
+@admin_required(HubCard.Kind.VENDOR_TABLES)
 def vendor_floor(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
     """Save the space map's capacity and note, by the actual role. Over htmx the capacity form comes back with the
     band out of band and a toast; a plain post lands back on the page with a message."""
@@ -1440,19 +1491,25 @@ def _flyer_context(
 ) -> dict[str, Any]:
     """What the page renders, by the effective role. The RSVP figure and the businesses with flyers are read live
     (the event's people count, the Marketing Tracker's flyer count); the Marketing Tracker link shows only when that
-    card is open to the viewer. Organisers get Update this page: the two upload forms (``upload_form`` in place of
-    its slot's fresh one when it came back with errors) and the links form."""
+    card is open to the viewer. Admins get Update this page: the two upload forms (``upload_form`` in place of
+    its slot's fresh one when it came back with errors) and the links form. The files and links are settings, so the
+    card's Team never gets the box (``admin_required`` on each POST)."""
     member = viewer_member(request)
     is_admin = renders_as_admin(request)
     page = services.flyer_page(hub)
     event = hub.event
-    can_organize = card.can_organize(member, is_admin=is_admin)
     # The Marketing Tracker and Vendor Tables links, in one read of the cards: only the doors open to this viewer.
     door_urls = _door_urls(hub, member, is_admin)
+    # With no 2026 flyer uploaded, the poster is the flyer the event system makes for the hub's event (hub_event_flyer),
+    # once that event is published (its QR opens the event page, which an unpublished event does not have) and until a
+    # one-off has ended, when its date would read as still to come.
+    flyer_event = event if not page.flyer and event is not None and event.is_published and not event.has_ended else None
     context: dict[str, Any] = {
         **_flyer_share_context(hub, page),
         "card": card,
-        "can_organize": can_organize,
+        "flyer_event": flyer_event,
+        "flyer_qr_svg": flyer_event.qr_svg() if flyer_event is not None else "",
+        "can_configure": is_admin,
         "coming_soon": FLYER_COMING_SOON,
         "last_year_note": FLYER_LAST_YEAR_NOTE,
         "rsvp_count": services.rsvp_count(event) if event is not None else None,
@@ -1468,7 +1525,7 @@ def _flyer_context(
         "setup_note": VENDOR_SETUP_NOTE,
         "vendors_url": door_urls.get(HubCard.Kind.VENDOR_TABLES, ""),
     }
-    if can_organize:
+    if is_admin:
         uploads = []
         for slot in FlyerSlot:
             form = upload_form if upload_form is not None and upload_form.slot == slot else None
@@ -1526,7 +1583,7 @@ def flyer_download(request: HttpRequest, *, hub: EventHub, card: HubCard, slot: 
 
 
 @require_POST
-@organizer_required(HubCard.Kind.FLYER)
+@admin_required(HubCard.Kind.FLYER)
 def flyer_upload(request: HttpRequest, *, hub: EventHub, card: HubCard, slot: str) -> HttpResponse:
     """Upload or replace one flyer, by the actual role. A plain multipart post (the form opts out of hx-boost); a
     refused file renders the page with the form's error."""
@@ -1540,7 +1597,7 @@ def flyer_upload(request: HttpRequest, *, hub: EventHub, card: HubCard, slot: st
 
 
 @require_POST
-@organizer_required(HubCard.Kind.FLYER)
+@admin_required(HubCard.Kind.FLYER)
 def flyer_remove(request: HttpRequest, *, hub: EventHub, card: HubCard, slot: str) -> HttpResponse:
     """Take one flyer off the page and out of storage, by the actual role."""
     which = _flyer_slot(slot)
@@ -1552,7 +1609,7 @@ def flyer_remove(request: HttpRequest, *, hub: EventHub, card: HubCard, slot: st
 
 
 @require_POST
-@organizer_required(HubCard.Kind.FLYER)
+@admin_required(HubCard.Kind.FLYER)
 def flyer_links(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
     """Save the two links and the share message, by the actual role. Over htmx the form comes back with a toast,
     and Help spread the word and Find the event out of band; a plain post lands back on the page with a message."""
@@ -1766,7 +1823,7 @@ def ledger(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpRespons
 
 
 @require_POST
-@organizer_required(HubCard.Kind.LEDGER)
+@admin_required(HubCard.Kind.LEDGER)
 def ledger_approval(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
     """Change the board's approval and its note, by the actual role. A plain post: the approval names the kinds, the
     filters and a column, so the page comes back whole. A refused one renders the page with the form open.
@@ -1796,7 +1853,7 @@ def _line_select_context(hub: EventHub, band: services.LedgerBand, chosen: int) 
 
 
 @require_POST
-@organizer_required(HubCard.Kind.LEDGER)
+@admin_required(HubCard.Kind.LEDGER)
 def ledger_line_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
     """Add a budget line, by the actual role. Over htmx the lines section comes back with the form open and empty,
     and the log form's line select out of band with the new line chosen; a plain post lands back with a message."""
@@ -1829,7 +1886,7 @@ def ledger_line_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> Ht
 
 
 @require_POST
-@organizer_required(HubCard.Kind.LEDGER)
+@admin_required(HubCard.Kind.LEDGER)
 def ledger_line_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
     """Save one budget line, by the actual role. Over htmx only that line comes back, with the totals, the log form's
     line select, the ledger, the Drink sales tiles, the goals and the board panel's figures out of band (they name the
@@ -1897,7 +1954,7 @@ def ledger_line_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: 
 
 
 @require_POST
-@organizer_required(HubCard.Kind.LEDGER)
+@admin_required(HubCard.Kind.LEDGER)
 def ledger_line_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
     """Take a budget line off, by the actual role; a line with entries is refused by name. Then the page."""
     line = get_object_or_404(hub.budget_lines, pk=pk)
@@ -2036,7 +2093,7 @@ def _wine_links(request: HttpRequest, hub: EventHub) -> tuple[str, str]:
     and the donors page (when the viewer organises the wall); "" for either the viewer may not open."""
     member = viewer_member(request)
     is_admin = renders_as_admin(request)
-    card = hub.cards.prefetch_related("named_members").filter(kind=HubCard.Kind.WINE_WALL).first()
+    card = hub.cards.prefetch_related("team", "can_open").filter(kind=HubCard.Kind.WINE_WALL).first()
     if card is None or (card.is_hidden and not is_admin) or not card.is_open_to(member, is_admin=is_admin):
         return "", ""
     donors = reverse("hq:wine_donors", args=[hub.slug]) if card.can_organize(member, is_admin=is_admin) else ""
@@ -2182,7 +2239,7 @@ def _prices_refused(
 
 
 @require_POST
-@organizer_required(HubCard.Kind.LEDGER)
+@admin_required(HubCard.Kind.LEDGER)
 def ledger_bar_prices(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
     """Set drink prices and last year's bar sales, by the actual role. A save from a page older than the prices is
     refused (:data:`hq.services.SETTINGS_STALE_SAVE`) and the form comes back with what the database holds. Over htmx
@@ -2288,7 +2345,7 @@ def ledger_tickets(request: HttpRequest, *, hub: EventHub, card: HubCard) -> Htt
 
 
 @require_POST
-@organizer_required(HubCard.Kind.LEDGER)
+@admin_required(HubCard.Kind.LEDGER)
 def ledger_ticket_prices(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
     """The wine wall's two ticket prices, by the actual role; the ticket inputs' labels follow them."""
     found = services.ledger_settings(hub)
@@ -2311,7 +2368,7 @@ def _door_urls(hub: EventHub, member: Member | None, is_admin: bool) -> dict[str
     """Where each door's page is for this viewer, in one read of the cards: a ``HubCard.Kind`` to its page, for every
     live door that is shown and open to them (:func:`_door_url`'s rule for all of them at once)."""
     urls: dict[str, str] = {}
-    for card in hub.cards.prefetch_related("named_members").exclude(kind=HubCard.Kind.PLACEHOLDER):
+    for card in hub.cards.prefetch_related("team", "can_open").exclude(kind=HubCard.Kind.PLACEHOLDER):
         if (card.is_hidden and not is_admin) or not card.is_open_to(member, is_admin=is_admin):
             continue
         if card.url:
@@ -2320,8 +2377,8 @@ def _door_urls(hub: EventHub, member: Member | None, is_admin: bool) -> dict[str
 
 
 def _team_names(card: HubCard) -> list[str]:
-    """The ledger card's named members' display names, for the team datalist (Owner, Who, Contacted by)."""
-    return sorted({named.display_name for named in card.named_members.all() if named.display_name.strip()})
+    """The ledger card Team's display names, for the team datalist (Owner, Who, Contacted by)."""
+    return sorted({named.display_name for named in card.team.all() if named.display_name.strip()})
 
 
 @dataclass(frozen=True)
@@ -2723,9 +2780,7 @@ def ledger_staff_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> H
         figures = _ledger_figures(request, hub)
         context = {"hub": hub, "team_list_id": LEDGER_TEAM_LIST_ID, **_staff_context(hub, figures, form=form)}
         return render(request, "hq/partials/_ledger_staff_answer.html", context)
-    entry = services.log_staff_time(
-        hub, form.to_fields(), team=list(card.named_members.all()), member=actual_member(request)
-    )
+    entry = services.log_staff_time(hub, form.to_fields(), team=list(card.team.all()), member=actual_member(request))
     message = f"Logged {entry.hours_words}."
     if not fragment:
         messages.success(request, message)

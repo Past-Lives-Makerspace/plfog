@@ -40,7 +40,8 @@ enabled and htmx re-enables Undo last. This is the bar on event night, on a phon
       <button type="submit" class="pl-hq-lg__btn pl-hq-lg__btn--ghost" data-hq-lg-undo>Undo last</button>
       <span class="pl-hq-lg__muted pl-hq-lg__helper">Takes back your own newest tap.</span>
     </form>
-    {% include "hq/partials/_ledger_bar_prices.html" %}
+    {# Drink prices are a setting: admins only by the effective role, never the Team (admin_required on its POST). #}
+    {% if request.view_as.is_admin %}{% include "hq/partials/_ledger_bar_prices.html" %}{% endif %}
   </div>
 
   {% include "hq/partials/_ledger_bar_batch.html" %}

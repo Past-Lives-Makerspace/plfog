@@ -387,13 +387,13 @@ def describe_editing_a_card():
 
         assert admin_client.get(reverse("hq:card_edit", args=[open_hub.slug, card.pk])).status_code == 404
 
-    def it_saves_the_words_audience_hidden_and_named_members(open_hub, admin_client, make_member):
+    def it_saves_the_words_audience_hidden_and_both_lists(open_hub, admin_client, make_member):
         card = HubCardFactory(hub=open_hub)
         one, two = make_member(), make_member()
 
         response = admin_client.post(
             _card_edit(card),
-            _card_post(audience=HubCard.Audience.PUBLIC, is_hidden="on", named_members=[str(one.pk), str(two.pk)]),
+            _card_post(audience=HubCard.Audience.PUBLIC, is_hidden="on", team=[str(one.pk)], can_open=[str(two.pk)]),
         )
 
         assert response.status_code == 302
@@ -404,7 +404,8 @@ def describe_editing_a_card():
         assert card.button_text == "Sign up"
         assert card.audience == HubCard.Audience.PUBLIC
         assert card.is_hidden is True
-        assert set(card.named_members.all()) == {one, two}
+        assert list(card.team.all()) == [one]
+        assert list(card.can_open.all()) == [two]
 
     def it_caps_the_bullets_at_four_and_tidies_them(open_hub, admin_client):
         card = HubCardFactory(hub=open_hub)
@@ -418,31 +419,73 @@ def describe_editing_a_card():
         card.refresh_from_db()
         assert card.bullets == "1\n2\n3\n4"
 
-    def it_refuses_a_named_member_who_is_not_active(open_hub, admin_client, make_member):
+    def it_refuses_adding_someone_who_is_not_active(open_hub, admin_client, make_member):
         card = HubCardFactory(hub=open_hub)
         former = make_member(status=Member.Status.FORMER)
 
-        response = admin_client.post(_card_edit(card), _card_post(named_members=[str(former.pk)]))
+        response = admin_client.post(_card_edit(card), _card_post(team=[str(former.pk)]))
 
         assert response.status_code == 200
-        assert card.named_members.count() == 0
-        # A refused pick opens the named members row so the error is in view.
-        assert 'x-data="{ editing: true,' in response.content.decode()
+        assert card.team.count() == 0
+        assert "Select a valid choice" in response.content.decode()
 
-    def it_lists_active_members_with_their_emails_and_ticks_the_named(open_hub, admin_client, make_member):
-        named = make_member(preferred_name="Lee")
+    def it_keeps_someone_already_on_a_list_who_is_no_longer_active(open_hub, admin_client, make_member):
+        gone = make_member(preferred_name="Gone Former")
+        card = HubCardFactory(hub=open_hub, team=[gone])
+        Member.objects.filter(pk=gone.pk).update(status=Member.Status.FORMER)
+
+        body = admin_client.get(_card_edit(card)).content.decode()
+        response = admin_client.post(_card_edit(card), _card_post(team=[str(gone.pk)]))
+
+        # Shown as a chip so they can be removed, and kept by a Save that leaves them on.
+        assert f'data-hq-person="{gone.pk}"' in body
+        assert response.status_code == 302
+        assert list(card.team.all()) == [gone]
+
+    def it_shows_both_pickers_with_the_chosen_as_chips_and_offers_active_members(open_hub, admin_client, make_member):
+        on_team = make_member(preferred_name="Lee")
         other = make_member(preferred_name="Other Person")
         make_member(status=Member.Status.FORMER, preferred_name="Gone Former")
-        card = HubCardFactory(hub=open_hub, named=[named])
+        card = HubCardFactory(hub=open_hub, team=[on_team])
 
         body = admin_client.get(_card_edit(card)).content.decode()
 
-        assert f'value="{named.pk}" data-name="Lee" checked' in body
-        assert f'value="{other.pk}" data-name="Other Person" @change' in body
-        assert named.primary_email in body
+        assert 'data-hq-people="can_open"' in body
+        assert 'data-hq-people="team"' in body
+        assert f'<input type="hidden" name="team" value="{on_team.pk}" data-hq-person-input>' in body
+        assert on_team.primary_email in body
+        assert f'data-hq-person-option="{other.pk}"' in body
         assert "Gone Former" not in body
-        assert 'x-data="{ editing: false,' in body
-        assert "data-hq-named-pills" in body
+        # The 300 row checkbox list is gone: one way to share.
+        assert 'type="checkbox" name="team"' not in body
+
+    def it_offers_only_admins_only_and_the_team_on_a_team_only_door(open_hub, admin_client, make_member):
+        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.LEDGER, title="PL Ledger")
+        member = make_member()
+
+        body = admin_client.get(_card_edit(card)).content.decode()
+        widened = admin_client.post(_card_edit(card), _card_post(audience=HubCard.Audience.MEMBERS))
+        shared = admin_client.post(
+            _card_edit(card), _card_post(audience=HubCard.Audience.ADMINS, can_open=[str(member.pk)])
+        )
+
+        assert 'value="members"' not in body
+        assert 'data-hq-people="can_open"' not in body
+        assert "PL Ledger is for the Team only" in body
+        assert widened.status_code == 200
+        assert shared.status_code == 200
+        card.refresh_from_db()
+        assert card.audience == HubCard.Audience.ADMINS
+        assert card.can_open.count() == 0
+
+    def it_ticks_admins_only_on_a_team_only_door_stored_with_a_wider_audience(open_hub, admin_client):
+        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.VENDOR_TABLES, title="Vendor Tables")
+        HubCard.objects.filter(pk=card.pk).update(audience=HubCard.Audience.PUBLIC)
+
+        body = admin_client.get(_card_edit(card)).content.decode()
+
+        admins = body.split('value="admins"', 1)[1].split(">", 1)[0]
+        assert "checked" in admins
 
     def it_offers_move_up_and_move_down(open_hub, admin_client):
         card = HubCardFactory(hub=open_hub)
@@ -507,13 +550,13 @@ def describe_moving_a_card():
 
 
 def describe_the_card_url():
-    def it_points_the_rsvp_card_at_the_event_page(open_hub):
+    def it_points_the_rsvp_card_at_the_event_page_marked_as_from_the_hq(open_hub):
         event = CommunityEventFactory(community=True)
         open_hub.event = event
         open_hub.save()
         card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.RSVP)
 
-        assert HubCard.objects.get(pk=card.pk).url == reverse("hub_event_detail", args=[event.pk])
+        assert HubCard.objects.get(pk=card.pk).url == f"{reverse('hub_event_detail', args=[event.pk])}?from=hq"
 
     def it_reads_the_c2_and_c3_routes_once_they_exist(open_hub):
         from unittest.mock import patch

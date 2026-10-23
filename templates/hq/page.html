@@ -5,7 +5,8 @@ The Holiday Bizarre HQ page (Track C, part 1). Extends hub/base.html, which auto
 a signed-out visitor (public topbar, no sidebar) and shows the hub chrome for a member; the
 view has no login gate, so the public doors open for anyone with the link. The view already
 filtered the cards by the viewer's effective role: an admin gets every card, hidden ones
-included, with Edit links and the Edit HQ action; everyone else gets only the doors open to them. Under the goals,
+included, with who can open it, Share and Edit, and the Edit HQ action; everyone else gets only
+the doors open to them (and a 404 with none). Under the goals,
 Lee's Bottles by type: every kind, zeros included, once the wine wall has a bottle.
 {% endcomment %}
 {% block title %}{{ hub.title }}{% endblock %}
@@ -78,9 +79,8 @@ Lee's Bottles by type: every kind, zeros included, once the wine wall has a bott
       {% for card in cards %}
       {% include "hq/partials/_card.html" with card=card hub=hub can_edit=can_edit %}
       {% empty %}
-      <p class="pl-hq-empty" data-hq-doors-empty>
-        No doors are open to you yet.{% if not request.user.is_authenticated %} <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}">Sign in</a> if you are a member.{% endif %}
-      </p>
+      {# Admins alone reach this: anyone else with no door open to them gets the 404 (hq.views.hub_page). #}
+      <p class="pl-hq-empty" data-hq-doors-empty>No doors on this HQ yet. Update the doors from Edit HQ.</p>
       {% endfor %}
     </div>
   </section>

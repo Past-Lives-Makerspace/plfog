@@ -1,0 +1,11 @@
+{% comment %}
+Who can open a card, on the admin line under it on the HQ page: the audience in plain words ("Admins only", "Members",
+"Everyone"), and "· N people" when its Can open and Team lists name anyone (each person counted once). The share
+panel's saved answer sends it back out of band by its id.
+
+  card — required, a HubCard (team and can_open prefetched)
+  oob  — optional, True marks it for an out of band swap
+{% endcomment %}
+{% with count=card.people_count %}
+<span class="pl-hq-door__audience" id="hq-share-chip-{{ card.pk }}"{% if oob %} hx-swap-oob="true"{% endif %} data-hq-share-chip>{{ card.audience_chip }}{% if count %} · {{ count }} {% if count == 1 %}person{% else %}people{% endif %}{% endif %}</span>
+{% endwith %}

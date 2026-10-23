@@ -2711,7 +2711,7 @@ def log_staff_time(
 ) -> StaffTime:
     """Log a stretch of staff time on ``hub`` from the form's fields, stamped with the organiser who logged it.
 
-    When Who names one of ``team`` (the ledger card's named members) by display name, whatever the capitalisation,
+    When Who names one of ``team`` (the ledger card's Team) by display name, whatever the capitalisation,
     the row is linked to that member too.
     """
     who = fields["who"].strip().lower()

@@ -1,0 +1,26 @@
+{% comment %}
+The share panel for one card: who can open it (three plain choices, each with a line saying who that is; a Team-only
+door offers Admins only with a line saying why) and the Can open and Team pickers. One Save posts all three.
+
+In the HQ page's Share modal it posts over htmx into the modal's body: a saved post answers with this panel as saved,
+the card's chip out of band and a toast, and closes the modal; a refused one comes back here with its errors. On its
+own page (as_page, the no-script fallback) it is a plain post that lands on the HQ page.
+
+  hub     — required, the EventHub
+  card    — required, the HubCard
+  form    — required, a hq.forms.CardSharingForm
+  as_page — optional, True renders a plain post for the share page
+{% endcomment %}
+{% url 'hq:card_share' hub.slug card.pk as share_url %}
+<form method="post" action="{{ share_url }}"{% if not as_page %} hx-post="{{ share_url }}" hx-target="#hq-share-{{ card.pk }}-body" hx-swap="innerHTML"{% endif %} class="hub-form pl-hq-share" data-hq-share-form="{{ card.pk }}">
+  {% csrf_token %}
+  {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+  {% include "components/radio_group.html" with field=form.audience choice_hints=form.audience_lines %}
+  {% for picker in form.pickers %}
+  {% include "hq/partials/_people_picker.html" with picker=picker %}
+  {% endfor %}
+  <div class="pl-hq-share__actions">
+    <a href="{% url 'hq:page' hub.slug %}" class="pl-btn pl-btn--secondary"{% if not as_page %} @click.prevent="$dispatch('close-modal', 'hq-share-{{ card.pk }}')"{% endif %} data-hq-share-cancel>Cancel</a>
+    <button type="submit" class="pl-btn pl-btn--primary" data-hq-share-save>Save</button>
+  </div>
+</form>

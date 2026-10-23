@@ -172,15 +172,11 @@ def describe_admin_tools_manage_events_card():
 
 
 def describe_admin_tools_holiday_bizarre_card():
-    """Admins reach the Holiday Bizarre HQ from Admin Tools even while its sidebar switch is Hidden."""
+    """Admins reach the Holiday Bizarre HQ from Admin Tools, as well as from the sidebar."""
 
     _HQ_HREF = reverse("hq:index")
 
-    def it_shows_to_an_admin_while_the_sidebar_switch_is_hidden(client: Client):
-        from core.features import FeatureState
-        from core.models import FeatureSwitch
-
-        FeatureSwitch.objects.update_or_create(feature_key="holiday_bizarre", defaults={"state": FeatureState.HIDDEN})
+    def it_shows_to_an_admin(client: Client):
         _login_superuser(client, "hq_card_admin")
         grid = _tools_grid(client)
         assert "data-tool-holiday-bizarre" in grid

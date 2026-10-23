@@ -180,6 +180,18 @@ class NextMeeting(NamedTuple):
     has_time: bool
 
 
+class FlyerWhen(NamedTuple):
+    """When an event's printed flyer says it is, in words with no dash (``CommunityEvent.flyer_when``).
+
+    ``date`` is the whole weekday and month ("Saturday, December 6"), ``time`` the start and end
+    ("5:00 PM to 9:00 PM"), and ``cadence`` a series' repeat ("Every week"), blank for a one-off.
+    """
+
+    date: str
+    time: str
+    cadence: str
+
+
 # ---------------------------------------------------------------------------
 # MembershipPlan
 # ---------------------------------------------------------------------------
@@ -2871,16 +2883,6 @@ class GuildManager(models.Manager["Guild"]):
         return self.filter(is_active=True).filter(models.Q(name__icontains=query) | models.Q(slug__icontains=query))
 
 
-def _offering_instructor_ids(offering: ClassOffering | None) -> set[int]:
-    """Member pks teaching ``offering`` (every instructor row plus the payee), or none without one."""
-    if offering is None:
-        return set()
-    ids = {member.pk for member in offering.instructor_list}
-    if offering.instructor_id is not None:
-        ids.add(offering.instructor_id)
-    return ids
-
-
 class Guild(HeroCropMixin, models.Model):
     # Queryset annotation (set by GuildAdmin.get_queryset)
     sublet_count: int
@@ -3412,35 +3414,32 @@ class Guild(HeroCropMixin, models.Model):
             self.staff_memberships.filter(can_review_classes=True).values_list("member_id", flat=True).distinct()
         )
 
-    def class_reviewers(self, offering: ClassOffering | None = None) -> list[Member]:
+    def class_reviewers(self) -> list[Member]:
         """Who reviews this guild's classes (#816): the lead, then the staff marked Class Reviewer.
 
-        De-duplicated, lead first, staff in name order. With ``offering``, its instructors are
-        dropped unless they are the guild lead: nobody is asked to review a class they teach,
-        but a lead who teaches in their own guild still holds its gate.
+        De-duplicated, lead first, staff in name order. The same people review every class in
+        the guild, including classes they teach (#883).
         """
         members: list[Member] = []
         seen: set[int] = set()
         if self.guild_lead_id is not None and self.guild_lead is not None:
             members.append(self.guild_lead)
             seen.add(self.guild_lead_id)
-        teaching = _offering_instructor_ids(offering)
         rows = self.staff_memberships.filter(can_review_classes=True).select_related("member__user")
         for staff in sorted(rows, key=lambda row: (row.member.full_legal_name or "").lower()):
-            if staff.member_id not in seen and staff.member_id not in teaching:
+            if staff.member_id not in seen:
                 members.append(staff.member)
                 seen.add(staff.member_id)
         return members
 
-    def reviews_classes(self, member: Member, offering: ClassOffering | None = None) -> bool:
-        """Whether ``member`` is in :meth:`class_reviewers` for ``offering``.
+    def reviews_classes(self, member: Member) -> bool:
+        """Whether ``member`` is in :meth:`class_reviewers`.
 
-        The lead always is; a staff member is when marked Class Reviewer and not teaching ``offering``.
+        The lead always is; a staff member is when marked Class Reviewer, including on a class
+        they teach (#883).
         """
         if self.guild_lead_id == member.pk:
             return True
-        if member.pk in _offering_instructor_ids(offering):
-            return False
         return self.staff_memberships.filter(member=member, can_review_classes=True).exists()
 
     def set_class_reviewer(self, member: Member, on: bool) -> int:
@@ -8818,6 +8817,40 @@ class CommunityEvent(HeroCropMixin, models.Model):
             f"{local_start.strftime('%-I:%M %p')} – {local_end.strftime('%-I:%M %p')}"
         )
 
+    @property
+    def is_published(self) -> bool:
+        """Whether the event is live (``PUBLISHED``): it has a public page, and so its flyer is public too."""
+        return self.moderation_state == self.ModerationState.PUBLISHED
+
+    #: The printed flyer's title steps: (longest title in characters, size), shortest first; longer than the last is
+    #: ``"xlong"``. Read by :attr:`flyer_title_size`, so a title up to the 200 character cap prints whole.
+    FLYER_TITLE_STEPS: tuple[tuple[int, str], ...] = ((28, ""), (60, "mid"), (110, "long"))
+
+    @property
+    def flyer_title_size(self) -> str:
+        """The flyer title's size step for its length: ``""`` (the largest), ``"mid"``, ``"long"`` or ``"xlong"``."""
+        for longest, size in self.FLYER_TITLE_STEPS:
+            if len(self.title) <= longest:
+                return size
+        return "xlong"
+
+    @property
+    def flyer_when(self) -> FlyerWhen:
+        """The date and time the printed flyer shows (``hub_event_flyer``), for the next date anyone can come to.
+
+        Not :attr:`when_display`: a flyer goes on a wall for weeks, so it names the next date of a
+        series rather than its first (which may be past, :meth:`next_occurrence_start`), spells the
+        weekday and month out, and joins the times with "to", since member copy carries no dash.
+        """
+        start = self.next_occurrence_start()
+        local_start = timezone.localtime(start)
+        local_end = timezone.localtime(start + (self.ends_at - self.starts_at))
+        return FlyerWhen(
+            date=local_start.strftime("%A, %B %-d"),
+            time=f"{local_start.strftime('%-I:%M %p')} to {local_end.strftime('%-I:%M %p')}",
+            cadence=self.get_recurrence_display() if self.recurrence != self.Recurrence.NONE else "",
+        )
+
     def enabled_reminder_offsets(self) -> list[int]:
         """Days-before values whose reminder toggle is on (e.g. ``[7, 1]``)."""
         return [days for attr, days in self.REMINDER_OFFSETS if getattr(self, attr)]
@@ -9034,6 +9067,11 @@ class CommunityEvent(HeroCropMixin, models.Model):
     def absolute_url(self) -> str:
         """Absolute URL for notifications, signage, and calendar links — the event's own page."""
         return self.public_url
+
+    @property
+    def short_url(self) -> str:
+        """:attr:`public_url` without its scheme, the line printed under the flyer's QR for someone to type."""
+        return self.public_url.removeprefix("https://").removeprefix("http://")
 
     def qr_svg(self) -> str:
         """Inline, CSS-scalable SVG QR of the event's public page (crisp at any print size)."""

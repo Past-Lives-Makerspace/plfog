@@ -5217,7 +5217,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_site_settings": is_admin,
             "tool_slideshow": is_admin,
             "tool_growth": is_admin,
-            # Admins reach the HQ here whatever the sidebar switch says (Hidden only drops the entry).
+            # Admins reach the HQ here as well as from the sidebar, which shows it to them once an HQ exists.
             "tool_holiday_bizarre": is_admin,
             "tool_instructor_inquiries": is_admin,
             "tool_leadership": is_admin,
@@ -7656,6 +7656,38 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
     return response
 
 
+def _is_guest_account(request: HttpRequest) -> bool:
+    """Whether a guest account (``Member.Status.GUEST``, #654) is signed in: the public event page treats it as a
+    signed-out visitor, since it is not a member (``core.middleware.GUEST_EVENT_URL_NAMES`` lets it reach the page)."""
+    member = _get_member(request) if request.user.is_authenticated else None
+    return member is not None and member.status == Member.Status.GUEST
+
+
+def _from_hq(request: HttpRequest) -> bool:
+    """Whether the HQ's RSVP card opened this event page (``?from=hq``, ``hq.models.HQ_MARKER``)."""
+    from hq.models import HQ_MARKER
+
+    return request.GET.get("from") == HQ_MARKER
+
+
+def _event_page_query(request: HttpRequest, date_query: str) -> str:
+    """The query an event page's own forms and links carry back to it: the ``?date=`` (or nothing), plus the HQ
+    marker when the RSVP card opened the page, so an RSVP made from the HQ lands back on a page with its way back.
+
+    Args:
+        request: The request for the event page or one of its posts.
+        date_query: ``CommunityEvent.date_query`` for the date the page shows, ``""`` for a one-off.
+
+    Returns:
+        ``date_query`` with ``from=hq`` added when the request carries it.
+    """
+    from hq.models import HQ_MARKER
+
+    if not _from_hq(request):
+        return date_query
+    return f"{date_query}{'&' if date_query else '?'}from={HQ_MARKER}"
+
+
 def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     """The public detail page for a Community Event — the canonical link a QR/flyer/signage
     resolves to. **No login required** so a scanned code opens for anyone.
@@ -7685,7 +7717,13 @@ def _render_event_page(
     The page's going band (#831, part 5) reads the count against ``rsvp_goal`` through
     ``CommunityEvent.rsvp_goal_percent``; Manage links an administrator to the event's
     Manage Events screen, on the member surface like Edit.
+
+    Opened from the HQ's RSVP card (``?from=hq``), the page leads with a way back to the hub the
+    viewer may open that is linked to the event (``EventHub.objects.back_from_event``, by the
+    effective role); its own forms keep the marker (``_event_page_query``). Without the marker the
+    page is unchanged, and the canonical, QR and share links never carry it (``public_url``).
     """
+    from hq.models import EventHub
     from hub.calendar_entries import google_calendar_event_url
     from membership.models import CommunityEvent
 
@@ -7695,7 +7733,10 @@ def _render_event_page(
     can_edit = on_member_surface and edit_url is not None
     can_manage = on_member_surface and can_administer_events(request)
     is_recurring = event.recurrence != CommunityEvent.Recurrence.NONE
-    member = _get_member(request)
+    # A guest account sees the page a signed-out visitor sees: the count, never the member names, and the guest form
+    # (with its honeypot and rate limit) rather than the members' one tap RSVP.
+    viewer_is_member = request.user.is_authenticated and not _is_guest_account(request)
+    member = _get_member(request) if viewer_is_member else None
     hidden_rsvp = Q(member__hide_from_directory=True)
     if member is not None:
         hidden_rsvp &= ~Q(member=member)
@@ -7710,6 +7751,9 @@ def _render_event_page(
     start = EventDateForm(request.GET).occurrence_start(event)
     date_query = event.date_query(start)
     google_event_url = google_calendar_event_url(event, start, request.build_absolute_uri(request.path))
+    hq_back_hub = (
+        EventHub.objects.back_from_event(event, admin=_viewing_as_admin(request)) if _from_hq(request) else None
+    )
     if guest_form is None:
         guest_form = EventGuestRSVPForm()
     member_form = EventMemberRSVPForm(initial={"party_size": viewer_rsvp.party_size if viewer_rsvp else 1})
@@ -7727,6 +7771,8 @@ def _render_event_page(
             "google_event_url": google_event_url,
             "ics_url": reverse("hub_event_ics", args=[event.pk]) + date_query,
             "date_query": date_query,
+            "page_query": _event_page_query(request, date_query),
+            "hq_back_hub": hq_back_hub,
             # A non-recurring event that has already ended is still viewable; show an honest
             # "already taken place" note. A recurring series is ongoing, so never flag it.
             "show_past_note": not is_recurring and event.ends_at < dj_timezone.now(),
@@ -7741,7 +7787,8 @@ def _render_event_page(
             "member_form": member_form,
             "guest_form": guest_form,
             # A guest just RSVPed: the page says so from the URL, with no session to carry it.
-            "guest_going": not request.user.is_authenticated and request.GET.get("going") == "1",
+            "guest_going": not viewer_is_member and request.GET.get("going") == "1",
+            "viewer_is_member": viewer_is_member,
         },
     )
 
@@ -7761,7 +7808,8 @@ def event_rsvp(request: HttpRequest, pk: int) -> HttpResponse:
     from membership.models import CommunityEvent, EventRSVP
 
     event = get_object_or_404(CommunityEvent.objects.published(), pk=pk)
-    page = reverse("hub_event_detail", args=[pk]) + event.date_query(EventDateForm(request.GET).occurrence_start(event))
+    date_query = event.date_query(EventDateForm(request.GET).occurrence_start(event))
+    page = reverse("hub_event_detail", args=[pk]) + _event_page_query(request, date_query)
     member = _get_member(request)
     if member is None:
         messages.error(request, "Connect your Past Lives account to RSVP.")
@@ -7797,9 +7845,9 @@ def event_rsvp_guest(request: HttpRequest, pk: int) -> HttpResponse:
     """Count me in on the public event page for someone with no account (#831, part 4).
 
     No login, like the page: a scanned flyer leads here. The order is the cheap refusals first
-    (an unpublished event 404s, a signed-in user goes back to the page, where their RSVP is the
+    (an unpublished event 404s, a signed-in member goes back to the page, where their RSVP is the
     member one tap and never a guest row, an ended event is turned away with the page's own
-    note), then
+    note; a signed-in guest account is no member, so it RSVPs here like a signed-out visitor), then
     one rate limit attempt per POST whatever follows, then the honeypot (a filled one is
     answered exactly like a success and writes nothing), then the form. A valid form upserts
     the guest by email (``EventGuestRSVPForm.save``: an email that is a member's already on the
@@ -7811,9 +7859,9 @@ def event_rsvp_guest(request: HttpRequest, pk: int) -> HttpResponse:
     from membership.models import CommunityEvent
 
     event = get_object_or_404(CommunityEvent.objects.published().select_related("guild", "area"), pk=pk)
-    date_query = event.date_query(EventDateForm(request.GET).occurrence_start(event))
-    page = reverse("hub_event_detail", args=[pk]) + date_query
-    if request.user.is_authenticated:
+    page_query = _event_page_query(request, event.date_query(EventDateForm(request.GET).occurrence_start(event)))
+    page = reverse("hub_event_detail", args=[pk]) + page_query
+    if request.user.is_authenticated and not _is_guest_account(request):
         return redirect(page)
     if event.rsvps_closed:
         messages.info(request, "This event has already taken place.")
@@ -7828,7 +7876,7 @@ def event_rsvp_guest(request: HttpRequest, pk: int) -> HttpResponse:
         logger.warning("Guest RSVP rate limited (%s) for event %s", reason, event.pk)
         messages.error(request, "Too many sign-ups from this connection. Try again in an hour.")
         return redirect(page)
-    going_page = f"{page}{'&' if date_query else '?'}going=1"
+    going_page = f"{page}{'&' if page_query else '?'}going=1"
     form = EventGuestRSVPForm(request.POST)
     if form.honeypot_tripped:
         return redirect(going_page)
@@ -7875,6 +7923,24 @@ def event_qr(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
         raise Http404
     resp["Content-Disposition"] = f'attachment; filename="event-{event.pk}-qr.{fmt}"'
     return resp
+
+
+def event_flyer(request: HttpRequest, pk: int) -> HttpResponse:
+    """The printable one-page flyer for a Community Event, beside its public page (Print, then Save as PDF).
+
+    Seen by whoever may see the event: a published event's flyer is public, like its page, and an
+    unpublished one only by those who may edit the event (``can_edit_event``), so the composer can
+    print it before publishing. Anyone else, and an unknown pk, gets the same themed 404 the page
+    gives, so an unreviewed proposal never shows on a guessed URL. The sheet itself is
+    ``hub/partials/_event_flyer_sheet.html``, which the HQ's Event flyer and sharing page also shows.
+    """
+    from membership.models import CommunityEvent
+    from membership.permissions import can_edit_event
+
+    event = get_object_or_404(CommunityEvent.objects.select_related("area"), pk=pk)
+    if not event.is_published and not can_edit_event(request, event):
+        raise Http404("No such event.")
+    return render(request, "hub/event_flyer.html", {"event": event, "qr_svg": event.qr_svg()})
 
 
 @require_POST

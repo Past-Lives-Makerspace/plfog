@@ -260,7 +260,7 @@ def describe_logging_a_bottle():
         logger = make_member()
         WineBottleFactory(hub=card.hub, logged_by=logger, note="Knows the giver personally")
         named = make_member()
-        card.named_members.add(named)
+        card.team.add(named)
 
         for client in (signed_in(logger), admin_client, signed_in(named)):
             assert "data-hq-bottle-note" in client.get(_wall(card.hub)).content.decode()
@@ -272,6 +272,113 @@ def describe_logging_a_bottle():
             "data-hq-donor-notes>Knows the giver personally<"
             in admin_client.get(_donors_url(card.hub)).content.decode()
         )
+
+
+_BOUNDARY = "SpecBoundary7MA4YWxk"
+
+
+def _browser_post(client: Client, url: str, photo_parts: list[tuple[str, bytes]]) -> Any:
+    """POST Log a Bottle as a browser sends it: every field, then one ``photo`` part per file input in page order.
+
+    A browser sends an input with nothing chosen as a part with ``filename=""``; Django drops that part, so only the
+    input that holds a photo reaches the form. ``photo_parts`` is ``(filename, bytes)`` per input.
+    """
+    lines: list[bytes] = []
+    for name, value in BOTTLE.items():
+        lines += [
+            f"--{_BOUNDARY}".encode(),
+            f'Content-Disposition: form-data; name="{name}"'.encode(),
+            b"",
+            value.encode(),
+        ]
+    for filename, content in photo_parts:
+        lines += [
+            f"--{_BOUNDARY}".encode(),
+            f'Content-Disposition: form-data; name="photo"; filename="{filename}"'.encode(),
+            b"Content-Type: " + (b"image/jpeg" if filename else b"application/octet-stream"),
+            b"",
+            content,
+        ]
+    lines += [f"--{_BOUNDARY}--".encode(), b""]
+    return client.post(url, data=b"\r\n".join(lines), content_type=f"multipart/form-data; boundary={_BOUNDARY}")
+
+
+def describe_the_photo_field():
+    def it_offers_take_a_photo_with_the_rear_camera_and_choose_a_photo(card):
+        body = Client().get(_wall(card.hub)).content.decode()
+        form = body.split("data-hq-wine-form>")[1].split("</form>")[0]
+
+        camera = form.split("data-image-field-take>")[1].split("</label>")[0]
+        assert (
+            '<input type="file" name="photo" id="id_photo_camera" accept="image/*" capture="environment" '
+            'class="pl-image-field__camera" data-image-field-camera>'
+        ) in camera
+        assert "Take a photo" in camera
+        chooser = form.split('id="image-upload-zone-id_photo">')[1].split("</label>")[0]
+        # Focusable in capture mode: the class rule hides it, with no inline display:none.
+        assert '<input type="file" name="photo" id="id_photo" accept="image/*">' in chooser
+        assert "capture" not in chooser
+        assert '<span class="cls-image-upload-label">Choose a photo</span>' in chooser
+        assert form.count('name="photo"') == 2
+        assert form.index("data-image-field-take") < form.index("image-upload-zone-id_photo")
+
+    def it_keeps_one_preview_and_the_10_mb_check_for_both_inputs(card, settings):
+        body = Client().get(_wall(card.hub)).content.decode()
+        form = body.split("data-hq-wine-form>")[1].split("</form>")[0]
+
+        assert form.count('id="image-preview-id_photo"') == 1
+        assert "document.getElementById('id_photo_camera')" in form
+        assert f"this.files[0].size > {settings.MAX_UPLOAD_IMAGE_BYTES}" in form
+        assert "inputs.forEach(each => each.addEventListener('change', onChange));" in form
+        assert "preview.innerHTML = firstPreview; preview.style.display = firstDisplay;" in form
+
+    def it_leaves_the_winery_logo_field_without_a_camera(card, admin_client):
+        WineBottleFactory(hub=card.hub, winery="Abacela")
+        body = admin_client.get(_wall(card.hub)).content.decode()
+        logo_form = body.split("data-hq-logo-form>")[1].split("</form>")[0]
+
+        assert 'name="logo"' in logo_form
+        assert '<span class="cls-image-upload-label">+ Upload logo</span>' in logo_form
+        assert "data-image-field-take" not in logo_form
+        assert "capture=" not in logo_form
+        assert 'id="id_logo" accept="image/*" style="display:none;">' in logo_form  # the non-capture path is unchanged
+        assert "preview.innerHTML = firstPreview" not in logo_form
+
+    def it_saves_a_photo_taken_with_the_camera(card, member):
+        response = _browser_post(signed_in(member), _wall(card.hub), [("camera.jpg", _jpeg()), ("", b"")])
+
+        assert response.status_code == 302
+        bottle = WineBottle.objects.get()
+        assert bottle.photo.name.startswith("hq/bottles/")
+        with Image.open(bottle.photo.path) as image:
+            assert image.size == (1600, 1200)
+
+    def it_saves_a_photo_chosen_from_the_phone(card, member):
+        response = _browser_post(signed_in(member), _wall(card.hub), [("", b""), ("chosen.jpg", _jpeg())])
+
+        assert response.status_code == 302
+        bottle = WineBottle.objects.get()
+        assert bottle.photo.name.startswith("hq/bottles/")
+        with Image.open(bottle.photo.path) as image:
+            assert image.size == (1600, 1200)
+
+    def it_logs_a_bottle_with_neither_input_filled(card, member):
+        response = _browser_post(signed_in(member), _wall(card.hub), [("", b""), ("", b"")])
+
+        assert response.status_code == 302
+        assert not WineBottle.objects.get().photo
+
+    def it_still_refuses_a_camera_photo_over_the_cap(card, member, settings):
+        settings.MAX_UPLOAD_IMAGE_BYTES = 100
+
+        response = _browser_post(signed_in(member), _wall(card.hub), [("camera.jpg", _jpeg()), ("", b"")])
+
+        assert response.status_code == 200
+        assert not WineBottle.objects.exists()
+
+
+def _jpeg() -> bytes:
+    return photo_upload("bottle.jpg", size=(3200, 2400)).read()
 
 
 def describe_deleting():
@@ -289,7 +396,7 @@ def describe_deleting():
 
     def it_lets_an_organiser_delete_any_bottle(card, admin_client, make_member):
         named = make_member()
-        card.named_members.add(named)
+        card.team.add(named)
         by_guest = WineBottleFactory(hub=card.hub)
         by_other = WineBottleFactory(hub=card.hub, logged_by=make_member())
 
@@ -562,10 +669,11 @@ def describe_the_wineries():
         assert response.status_code == 200
         assert "MB or smaller" in response.content.decode()
 
-    def it_keeps_the_logo_form_and_its_endpoint_to_organisers(card, member_client, make_member):
+    def it_keeps_the_logo_form_and_its_endpoint_to_admins(card, member_client, admin_client, make_member):
+        """A winery logo is an upload: admins only, never the wall's Team (HQ card sharing)."""
         WineBottleFactory(hub=card.hub, winery="Abacela")
-        named = make_member()
-        card.named_members.add(named)
+        team = make_member()
+        card.team.add(team)
 
         def upload() -> dict[str, Any]:
             return {"name": "Abacela", "logo": photo_upload("one.png")}
@@ -573,8 +681,10 @@ def describe_the_wineries():
         assert "data-hq-logo-form" not in member_client.get(_wall(card.hub)).content.decode()
         assert member_client.post(_logo_url(card.hub), upload()).status_code == 403
         assert Client().post(_logo_url(card.hub), upload()).status_code == 403
-        assert "data-hq-logo-form" in signed_in(named).get(_wall(card.hub)).content.decode()
-        assert signed_in(named).post(_logo_url(card.hub), upload()).status_code == 302
+        assert "data-hq-logo-form" not in signed_in(team).get(_wall(card.hub)).content.decode()
+        assert signed_in(team).post(_logo_url(card.hub), upload()).status_code == 403
+        assert "data-hq-logo-form" in admin_client.get(_wall(card.hub)).content.decode()
+        assert admin_client.post(_logo_url(card.hub), upload()).status_code == 302
         assert not WineryLogo.objects.exclude(hub=card.hub).exists()
         assert WineryLogo.objects.count() == 1
 
@@ -642,9 +752,9 @@ def describe_the_donors():
         assert amy.logged_by == ["Guest"]
         assert services.donor_emails([amy]) == ""
 
-    def it_is_on_the_page_for_admins_and_named_members_only(card, givers, admin_client, member_client, make_member):
+    def it_is_on_the_page_for_admins_and_the_team_only(card, givers, admin_client, member_client, make_member):
         named = make_member()
-        card.named_members.add(named)
+        card.team.add(named)
 
         admin_body = admin_client.get(_wall(card.hub)).content.decode()
         named_body = signed_in(named).get(_wall(card.hub)).content.decode()
@@ -664,7 +774,7 @@ def describe_the_donors():
         card, givers, admin_client, member_client, make_member
     ):
         named = make_member()
-        card.named_members.add(named)
+        card.team.add(named)
 
         assert admin_client.get(_donors_url(card.hub)).status_code == 200
         named_body = signed_in(named).get(_donors_url(card.hub)).content.decode()
