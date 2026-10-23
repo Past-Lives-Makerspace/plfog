@@ -148,6 +148,10 @@ def describe_featured_class():
         RegistrationFactory(class_offering=offering, status=RegistrationStatus.CANCELLED)
         assert _featured_class() is not None
 
+    def it_features_a_one_seat_class_nobody_has_booked():
+        _class("One seat", capacity=1)
+        assert _featured_class() is not None
+
     def it_features_a_flexible_class_however_many_have_booked():
         # A flexible class has no seat cap (spots_remaining is None), so it is never full.
         offering = _class("Flexible with a date", capacity=1, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
