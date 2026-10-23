@@ -5,7 +5,8 @@ card under the quick links below that; CSS shows exactly one. Either starts mask
 tapping it reveals the code, tapping again hides it, and the keyboard does the same. An admin sets
 a code through Change at desktop and phone width. A revealed 20 character code pushes nothing
 sideways at any width, and at 1280px the header box stays on the greeting's row. From 1200px the
-box is as tall as the title column, so Show me around ends level with its bottom. The repo is
+box is as tall as the title column, so Show me around ends level with its bottom; once the tour is
+taken there is no Show me around and the box stays level with the title. The repo is
 public, so every code is an obviously fake value. Run with ``pytest -m e2e`` on PostgreSQL.
 """
 
@@ -34,17 +35,20 @@ def _viewport(width: int) -> dict[str, int]:
     return {"width": width, "height": 900}
 
 
-def _sign_in(login_via_code, email: str, *, fog_role: str = Member.FogRole.MEMBER) -> None:
+def _sign_in(login_via_code, email: str, *, fog_role: str = Member.FogRole.MEMBER, tour_done: bool = False) -> None:
     MembershipPlanFactory()
     login_via_code(email)
     user = get_user_model().objects.get(username=email)
     member = Member.objects.get(user=user)
     member.fog_role = fog_role
     member.welcome_dismissed_at = timezone.now()
-    member.save(update_fields=["fog_role", "welcome_dismissed_at"])
+    # Tours switched off, so no Take the tour banner (#824); with the tour not yet taken, Home shows
+    # Show me around. tour_done records the tour as taken, which hides Show me around.
+    member.guided_tours_enabled = False
+    member.save(update_fields=["fog_role", "welcome_dismissed_at", "guided_tours_enabled"])
     member.sync_user_permissions()
-    # The tour is behind them, so Home shows Show me around rather than the Take the tour banner (#824).
-    TourState.objects.mark_completed(user, "member-welcome")
+    if tour_done:
+        TourState.objects.mark_completed(user, "member-welcome")
 
 
 def _set_code(code: str) -> None:
@@ -223,3 +227,28 @@ def it_lines_show_me_around_up_with_the_bottom_of_the_header_box(page, live_serv
     assert description["height"] < 30
     assert abs(box["y"] - row["y"]) <= 0.5
     assert abs((tour["y"] + tour["height"]) - (box["y"] + box["height"])) <= 0.5
+
+
+@pytest.mark.parametrize("width", [1200, 1440, 1920])
+def it_keeps_the_header_box_level_with_the_title_once_the_tour_is_taken(page, live_server, login_via_code, width):
+    _set_code("4242#")
+    _sign_in(login_via_code, f"door-taken-{width}-e2e@example.com", fog_role=Member.FogRole.ADMIN, tour_done=True)
+    _home(page, live_server, width)
+
+    header = page.locator(".hub-page-header")
+    expect(header.get_by_role("link", name="Show me around")).to_have_count(0)
+    row = header.bounding_box()
+    title = header.locator(".hub-page-title").bounding_box()
+    description = header.locator("p.hub-text-muted").first.bounding_box()
+    box = page.locator(HEADER).bounding_box()
+    assert row is not None
+    assert title is not None
+    assert description is not None
+    assert box is not None
+    # The box and the title start on one line; the box, taller than title and description, sets the
+    # header's height, so nothing below it rides up under the box.
+    assert description["height"] < 30
+    assert abs(box["y"] - row["y"]) <= 0.5
+    assert abs(title["y"] - row["y"]) <= 0.5
+    assert abs((box["y"] + box["height"]) - (row["y"] + row["height"])) <= 0.5
+    assert description["y"] + description["height"] <= box["y"] + box["height"]
