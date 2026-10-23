@@ -44,6 +44,7 @@ _DISPATCHER_ALWAYS = {
     "send_queued_announcements",
     "announce_live_requests",
     "fetch_video_thumbnails",
+    "process_discord_removals",
 }
 _DISPATCHER_DAILY = {
     "sync_all_sources",
@@ -121,9 +122,13 @@ def describe_registry():
         # The new-member welcome automation must ship OFF and be turned on deliberately.
         assert JOBS_BY_KEY["welcome_new_members"].default_enabled is False
 
+    def it_ships_the_discord_removal_job_off():
+        # It DMs and removes people from Discord; an admin turns it on from Automations (#898).
+        assert JOBS_BY_KEY["process_discord_removals"].default_enabled is False
+
     def it_leaves_every_other_job_default_on():
         for job in SCHEDULED_JOBS:
-            if job.key != "welcome_new_members":
+            if job.key not in ("welcome_new_members", "process_discord_removals"):
                 assert job.default_enabled is True
 
 

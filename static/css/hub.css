@@ -805,6 +805,23 @@ a:hover { color: var(--hub-link-hover); }
 [data-theme="light"] .pl-automation-subnote--off { color: #b03030; }
 [data-theme="light"] .pl-automation-badge { background: rgba(224, 85, 85, 0.12); color: #b03030; }
 
+/* One automation's history page (#898): its runs with their actions, and the removal queue. */
+.pl-automation-history-link { font-size: 0.78rem; }
+.pl-automation-history__back { margin-top: 0.75rem; }
+.pl-automation-history__tabs { margin-top: 1.5rem; }
+.pl-automation-history__card { margin-top: 1.5rem; padding: 1.5rem; }
+.pl-automation-history__title { font-size: 1rem; color: var(--hub-text); text-transform: capitalize; }
+.pl-automation-history__card > * + * { margin-top: 0.75rem; }
+.pl-automation-history__run { padding-top: 1rem; border-top: 1px solid var(--hub-card-border); }
+.pl-automation-history__run-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.pl-automation-history__error { margin-top: 0.5rem; color: #f0a0a0; font-size: 0.82rem; }
+.pl-automation-history__actions { margin-top: 0.75rem; }
+[data-theme="light"] .pl-automation-history__card .hub-pill--ok { color: #1f7a52; }
+[data-theme="light"] .pl-automation-history__card .hub-pill--neutral { color: #5b6675; }
+[data-theme="light"] .pl-automation-history__card .hub-pill--danger { color: #b03030; }
+[data-theme="light"] .pl-automation-history__card .hub-pill--warn { color: #9a6a00; }
+[data-theme="light"] .pl-automation-history__error { color: #b03030; }
+
 @media (max-width: 640px) {
     .pl-automation-card {
         grid-template-columns: 1fr;

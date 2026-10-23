@@ -625,6 +625,7 @@
                 <span class="hub-pill hub-pill--neutral">Never run</span>
                 <span class="pl-automation-time">—</span>
               {% endif %}
+              <a href="{% url 'hub_admin_automation_history' row.job.key %}" class="pl-automation-history-link" data-history-link="{{ row.job.key }}">History</a>
             </span>
           </div>
 

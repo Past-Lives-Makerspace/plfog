@@ -1,0 +1,449 @@
+"""Ex-member Discord removal (#898): the queue, the warning DM, the kick, and the 15-minute pass.
+
+Discord HTTP is mocked with ``respx``. The pass is driven with an explicit ``now`` so the 9 AM
+DM gate and the 24-hour wait are exact.
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import httpx
+import pytest
+import respx
+from django.core.management import call_command
+
+from core.models import AutomationAction, SiteConfiguration
+from core.scheduled_jobs import Trigger, record_run
+from membership.discord_removal import RemovalPassError, process_removals
+from membership.models import DISCORD_REMOVAL_TASK_KEY, DiscordRemoval, Member, RemovalNotOpenError
+from tests.membership.factories import MemberFactory, UserFactory
+
+pytestmark = pytest.mark.django_db
+
+PACIFIC = ZoneInfo("America/Los_Angeles")
+DM_OPEN = "https://discord.com/api/v10/users/@me/channels"
+DM_POST = "https://discord.com/api/v10/channels/dm1/messages"
+KICK_RE = r"https://discord\.com/api/v10/guilds/srv1/members/\d+"
+
+
+@pytest.fixture(autouse=True)
+def _discord(settings):
+    settings.DISCORD_BOT_TOKEN = "bot-tok"
+    config = SiteConfiguration.load()
+    config.discord_server_id = "srv1"
+    config.save()
+
+
+def _morning(day: date, hour: int = 10) -> datetime:
+    return datetime(day.year, day.month, day.day, hour, 0, tzinfo=PACIFIC)
+
+
+def _former(discord_user_id: str = "111", **kwargs: object) -> Member:
+    """A linked active member who then turns Former, which queues them."""
+    member = MemberFactory(discord_user_id=discord_user_id, discord_handle="maker", **kwargs)
+    member.status = Member.Status.FORMER
+    member.save()
+    return member
+
+
+def _mock_dm(status: int = 200) -> respx.Route:
+    respx.post(DM_OPEN).mock(return_value=httpx.Response(200, json={"id": "dm1"}))
+    return respx.post(DM_POST).mock(return_value=httpx.Response(status, json={}))
+
+
+def describe_queueing_at_save():
+    def it_queues_a_linked_member_who_turns_former():
+        member = _former(cancellation_date=date(2026, 10, 20))
+        removal = DiscordRemoval.objects.get()
+        assert removal.member == member
+        assert removal.discord_user_id == "111"
+        assert removal.discord_username == "maker"
+        assert removal.source == DiscordRemoval.Source.FORMER
+        assert removal.status == DiscordRemoval.Status.QUEUED
+        assert removal.warn_on == date(2026, 10, 21)
+        action = AutomationAction.objects.get()
+        assert action.task_key == DISCORD_REMOVAL_TASK_KEY
+        assert action.kind == AutomationAction.Kind.REMOVAL_QUEUED
+        assert action.member == member
+        assert "October 21, 2026" in action.detail
+
+    def it_counts_from_today_when_there_is_no_cancellation_date(monkeypatch):
+        monkeypatch.setattr("django.utils.timezone.localdate", lambda: date(2026, 10, 23))
+        _former(cancellation_date=None)
+        assert DiscordRemoval.objects.get().warn_on == date(2026, 10, 24)
+
+    def it_queues_when_the_save_names_status_in_update_fields():
+        member = MemberFactory(discord_user_id="111")
+        member.status = Member.Status.FORMER
+        member.save(update_fields=["status"])
+        assert DiscordRemoval.objects.count() == 1
+
+    def it_skips_a_save_whose_update_fields_leave_status_out():
+        member = MemberFactory(discord_user_id="111")
+        member.status = Member.Status.FORMER
+        member.save(update_fields=["phone"])
+        assert not DiscordRemoval.objects.exists()
+
+    def it_skips_a_member_without_discord():
+        _former(discord_user_id="")
+        assert not DiscordRemoval.objects.exists()
+
+    def it_skips_a_member_who_was_already_former():
+        member = _former()
+        member.phone = "555"
+        member.save()
+        assert DiscordRemoval.objects.count() == 1
+
+    def it_skips_a_member_created_former():
+        MemberFactory(discord_user_id="111", status=Member.Status.FORMER)
+        assert not DiscordRemoval.objects.exists()
+
+    def it_skips_suspended():
+        member = MemberFactory(discord_user_id="111")
+        member.status = Member.Status.SUSPENDED
+        member.save()
+        assert not DiscordRemoval.objects.exists()
+
+    def it_queues_one_open_row_per_discord_account():
+        member = _former()
+        member.status = Member.Status.ACTIVE
+        member.save()
+        member.status = Member.Status.FORMER
+        member.save()
+        assert DiscordRemoval.objects.count() == 1
+
+
+def describe_queryset():
+    def it_finds_due_warnings_and_kicks():
+        due = _former(discord_user_id="1", cancellation_date=date(2026, 10, 1))
+        _former(discord_user_id="2", cancellation_date=date(2026, 10, 30))
+        today = date(2026, 10, 23)
+        assert [r.member for r in DiscordRemoval.objects.due_warnings(today)] == [due]
+        now = _morning(today)
+        row = DiscordRemoval.objects.get(member=due)
+        row.status = DiscordRemoval.Status.WARNED
+        row.kick_after = now - timedelta(minutes=1)
+        row.save()
+        assert list(DiscordRemoval.objects.due_kicks(now)) == [row]
+        assert not DiscordRemoval.objects.due_kicks(now - timedelta(hours=1)).exists()
+        assert DiscordRemoval.objects.open().count() == 2
+
+
+def describe_removal():
+    def it_names_a_cleanup_row_by_username_then_id():
+        row = DiscordRemoval(discord_user_id="9", discord_username="ghost", source=DiscordRemoval.Source.CLEANUP)
+        assert row.subject == "ghost"
+        row.discord_username = ""
+        assert row.subject == "9"
+        assert str(row) == "Discord removal 9 (queued)"
+
+    @pytest.mark.parametrize(
+        ("status", "label"),
+        [
+            (Member.Status.ACTIVE, "Active"),
+            (Member.Status.SUSPENDED, "Suspended"),
+            (Member.Status.INVITED, "Invited"),
+            (Member.Status.GUEST, "Guest"),
+        ],
+    )
+    def it_keeps_a_member_who_is_no_longer_former(status: str, label: str):
+        # Airtable's Paused maps to Suspended and Pending to Invited: only Former is removable.
+        member = _former()
+        Member.objects.filter(pk=member.pk).update(status=status)
+        assert DiscordRemoval.objects.get().keep_reason() == f"No longer Former: now {label}."
+
+    def it_keeps_an_id_connected_to_another_active_member():
+        _former()
+        MemberFactory(discord_user_id="111", status=Member.Status.ACTIVE)
+        assert DiscordRemoval.objects.get().keep_reason() == "Their Discord is connected to an active member."
+
+    def it_goes_ahead_otherwise():
+        _former()
+        assert DiscordRemoval.objects.get().keep_reason() == ""
+
+    def it_lets_an_admin_cancel_an_open_row():
+        _former()
+        admin = UserFactory()
+        removal = DiscordRemoval.objects.get()
+        removal.cancel(by=admin)
+        removal.refresh_from_db()
+        assert removal.status == DiscordRemoval.Status.CANCELLED
+        assert removal.closed_by == admin
+        assert removal.closed_at is not None
+        action = AutomationAction.objects.get(kind=AutomationAction.Kind.REMOVAL_CANCELLED)
+        assert action.actor == admin
+        assert action.run is None
+
+    def it_refuses_to_cancel_a_closed_row():
+        _former()
+        removal = DiscordRemoval.objects.get()
+        removal.close("Kept.")
+        with pytest.raises(RemovalNotOpenError, match=r"already ran \(Closed\), so nothing was cancelled"):
+            removal.cancel(by=UserFactory())
+
+    def it_cancels_under_a_lock_by_pk():
+        _former()
+        admin = UserFactory()
+        removal = DiscordRemoval.objects.cancel_locked(DiscordRemoval.objects.get().pk, by=admin)
+        assert (removal.status, removal.closed_by) == (DiscordRemoval.Status.CANCELLED, admin)
+
+    def it_will_not_cancel_a_removal_the_job_already_ran():
+        removal = _warned()
+        DiscordRemoval.objects.filter(pk=removal.pk).update(status=DiscordRemoval.Status.KICKED)
+        with pytest.raises(RemovalNotOpenError, match=r"already ran \(Removed\)"):
+            DiscordRemoval.objects.cancel_locked(removal.pk, by=UserFactory())
+        removal.refresh_from_db()
+        assert removal.status == DiscordRemoval.Status.KICKED
+        assert not AutomationAction.objects.filter(kind=AutomationAction.Kind.REMOVAL_CANCELLED).exists()
+
+    def it_raises_for_an_unknown_pk():
+        with pytest.raises(DiscordRemoval.DoesNotExist):
+            DiscordRemoval.objects.cancel_locked(999999, by=UserFactory())
+
+    def it_names_the_support_email_in_the_warning():
+        _former()
+        assert "info@pastlives.space" in DiscordRemoval.objects.get().warning_text()
+        assert "next 24 hours" in DiscordRemoval.objects.get().warning_text()
+
+    def it_falls_back_to_an_admin_without_a_support_email():
+        config = SiteConfiguration.load()
+        config.org_support_email = ""
+        config.save()
+        _former()
+        assert "contact a Past Lives admin" in DiscordRemoval.objects.get().warning_text()
+
+
+def describe_send_warning():
+    @respx.mock
+    def it_dms_and_starts_the_24_hour_wait():
+        _former()
+        post = _mock_dm()
+        removal = DiscordRemoval.objects.get()
+        now = _morning(date(2026, 10, 23))
+        assert removal.send_warning(now) is True
+        assert "next 24 hours" in post.calls.last.request.read().decode()
+        removal.refresh_from_db()
+        assert removal.status == DiscordRemoval.Status.WARNED
+        assert removal.warned_at == now
+        assert removal.kick_after == now + timedelta(hours=24)
+        action = AutomationAction.objects.get(kind=AutomationAction.Kind.DISCORD_DM)
+        assert (action.result, action.detail) == (AutomationAction.Result.OK, "Delivered.")
+
+    @respx.mock
+    def it_still_starts_the_wait_when_dms_are_closed():
+        _former()
+        _mock_dm(status=403)
+        removal = DiscordRemoval.objects.get()
+        assert removal.send_warning(_morning(date(2026, 10, 23))) is True
+        assert removal.status == DiscordRemoval.Status.WARNED
+        action = AutomationAction.objects.get(kind=AutomationAction.Kind.DISCORD_DM)
+        assert action.result == AutomationAction.Result.FAILED
+        assert action.detail.startswith("DM not delivered:")
+        assert "removal still follows" in action.detail
+
+    @respx.mock
+    def it_stays_queued_on_a_discord_error():
+        _former()
+        _mock_dm(status=500)
+        removal = DiscordRemoval.objects.get()
+        assert removal.send_warning(_morning(date(2026, 10, 23))) is False
+        removal.refresh_from_db()
+        assert removal.status == DiscordRemoval.Status.QUEUED
+        action = AutomationAction.objects.get(kind=AutomationAction.Kind.DISCORD_DM)
+        assert action.result == AutomationAction.Result.FAILED
+        assert action.detail.startswith("Will retry:")
+
+    @respx.mock
+    def it_closes_instead_of_warning_a_kept_member():
+        member = _former()
+        Member.objects.filter(pk=member.pk).update(status=Member.Status.ACTIVE)
+        removal = DiscordRemoval.objects.get()
+        assert removal.send_warning(_morning(date(2026, 10, 23))) is True
+        assert removal.status == DiscordRemoval.Status.CLOSED
+        assert not respx.calls
+        closed = AutomationAction.objects.get(kind=AutomationAction.Kind.REMOVAL_CLOSED)
+        assert closed.detail == "No longer Former: now Active."
+
+
+def _warned() -> DiscordRemoval:
+    _former()
+    removal = DiscordRemoval.objects.get()
+    removal.status = DiscordRemoval.Status.WARNED
+    removal.kick_after = _morning(date(2026, 10, 23))
+    removal.save()
+    return removal
+
+
+def describe_remove_from_server():
+    @respx.mock
+    def it_removes_them():
+        removal = _warned()
+        route = respx.delete(url__regex=KICK_RE).mock(return_value=httpx.Response(204))
+        now = _morning(date(2026, 10, 24))
+        assert removal.remove_from_server("srv1", now) is True
+        assert route.calls.last.request.url.path.endswith("/members/111")
+        assert route.calls.last.request.headers["X-Audit-Log-Reason"] == "Past Lives: Membership ended"
+        removal.refresh_from_db()
+        assert (removal.status, removal.kicked_at) == (DiscordRemoval.Status.KICKED, now)
+        action = AutomationAction.objects.get(kind=AutomationAction.Kind.DISCORD_KICK)
+        assert (action.result, action.detail) == (AutomationAction.Result.OK, "Removed.")
+
+    @respx.mock
+    def it_counts_someone_already_gone_as_removed():
+        removal = _warned()
+        respx.delete(url__regex=KICK_RE).mock(return_value=httpx.Response(404))
+        assert removal.remove_from_server("srv1", _morning(date(2026, 10, 24))) is True
+        assert removal.status == DiscordRemoval.Status.KICKED
+        assert AutomationAction.objects.get(kind=AutomationAction.Kind.DISCORD_KICK).detail == (
+            "Already gone from the server."
+        )
+
+    @respx.mock
+    def it_stops_on_a_refusal():
+        removal = _warned()
+        respx.delete(url__regex=KICK_RE).mock(return_value=httpx.Response(403, text="Missing Permissions"))
+        assert removal.remove_from_server("srv1", _morning(date(2026, 10, 24))) is False
+        removal.refresh_from_db()
+        assert removal.status == DiscordRemoval.Status.KICK_FAILED
+        assert AutomationAction.objects.get(kind=AutomationAction.Kind.DISCORD_KICK).result == "failed"
+
+    @respx.mock
+    def it_stays_warned_on_a_discord_error():
+        removal = _warned()
+        respx.delete(url__regex=KICK_RE).mock(return_value=httpx.Response(503))
+        assert removal.remove_from_server("srv1", _morning(date(2026, 10, 24))) is False
+        removal.refresh_from_db()
+        assert removal.status == DiscordRemoval.Status.WARNED
+        assert AutomationAction.objects.get(kind=AutomationAction.Kind.DISCORD_KICK).detail.startswith("Will retry:")
+
+    def it_does_nothing_without_a_bot_token(settings):
+        removal = _warned()
+        settings.DISCORD_BOT_TOKEN = ""
+        assert removal.remove_from_server("srv1", _morning(date(2026, 10, 24))) is True
+        assert removal.status == DiscordRemoval.Status.WARNED
+
+    @respx.mock
+    def it_closes_instead_of_removing_a_kept_member():
+        removal = _warned()
+        MemberFactory(discord_user_id="111", status=Member.Status.ACTIVE)
+        assert removal.remove_from_server("srv1", _morning(date(2026, 10, 24))) is True
+        assert removal.status == DiscordRemoval.Status.CLOSED
+        assert not respx.calls
+
+    @respx.mock
+    def it_closes_instead_of_removing_a_member_paused_since_the_dm():
+        removal = _warned()
+        Member.objects.filter(pk=removal.member.pk).update(status=Member.Status.SUSPENDED)
+        removal.refresh_from_db()
+        assert removal.remove_from_server("srv1", _morning(date(2026, 10, 24))) is True
+        assert removal.status == DiscordRemoval.Status.CLOSED
+        assert not respx.calls
+
+
+def describe_process_removals():
+    def it_does_nothing_without_a_bot_token(settings):
+        settings.DISCORD_BOT_TOKEN = ""
+        _former(cancellation_date=date(2026, 10, 1))
+        assert process_removals(_morning(date(2026, 10, 23))).ran is False
+        assert DiscordRemoval.objects.get().status == DiscordRemoval.Status.QUEUED
+
+    def it_does_nothing_on_staging(settings):
+        settings.IS_STAGING = True
+        _former(cancellation_date=date(2026, 10, 1))
+        assert process_removals(_morning(date(2026, 10, 23))).ran is False
+
+    def it_does_nothing_without_a_server_id():
+        config = SiteConfiguration.load()
+        config.discord_server_id = ""
+        config.save()
+        assert process_removals(_morning(date(2026, 10, 23))).ran is False
+
+    @respx.mock
+    def it_warns_on_the_due_day_and_removes_24_hours_later():
+        _former(cancellation_date=date(2026, 10, 22))
+        _mock_dm()
+        kick = respx.delete(url__regex=KICK_RE).mock(return_value=httpx.Response(204))
+        assert process_removals(_morning(date(2026, 10, 22))).handled == 0
+        first = _morning(date(2026, 10, 23))
+        assert process_removals(first).handled == 1
+        assert process_removals(first + timedelta(minutes=15)).handled == 0
+        assert process_removals(first + timedelta(hours=23, minutes=45)).handled == 0
+        assert not kick.called
+        assert process_removals(first + timedelta(hours=24)).handled == 1
+        assert kick.call_count == 1
+        assert DiscordRemoval.objects.get().status == DiscordRemoval.Status.KICKED
+
+    @respx.mock
+    def it_holds_the_dm_until_9_am():
+        _former(cancellation_date=date(2026, 10, 1))
+        post = _mock_dm()
+        assert process_removals(_morning(date(2026, 10, 23), hour=8)).handled == 0
+        assert not post.called
+        assert process_removals(_morning(date(2026, 10, 23), hour=9)).handled == 1
+
+    @respx.mock
+    def it_raises_after_the_pass_when_a_step_failed():
+        _former(discord_user_id="1", cancellation_date=date(2026, 10, 1))
+        _former(discord_user_id="2", cancellation_date=date(2026, 10, 1))
+        respx.post(DM_OPEN).mock(side_effect=[httpx.Response(500), httpx.Response(200, json={"id": "dm1"})])
+        respx.post(DM_POST).mock(return_value=httpx.Response(200, json={}))
+        with pytest.raises(RemovalPassError, match="1 of 2"):
+            process_removals(_morning(date(2026, 10, 23)))
+        assert DiscordRemoval.objects.filter(status=DiscordRemoval.Status.WARNED).count() == 1
+
+    @respx.mock
+    def it_counts_a_failed_kick():
+        _warned()
+        respx.delete(url__regex=KICK_RE).mock(return_value=httpx.Response(403))
+        with pytest.raises(RemovalPassError, match="1 of 1"):
+            process_removals(_morning(date(2026, 10, 24)))
+
+    @respx.mock
+    def it_skips_a_row_another_pass_moved(monkeypatch):
+        _former(cancellation_date=date(2026, 10, 1))
+        removal = DiscordRemoval.objects.get()
+        real = DiscordRemoval.objects.due_warnings
+
+        def _stale(today: date):
+            ids = list(real(today).values_list("pk", flat=True))
+            DiscordRemoval.objects.filter(pk=removal.pk).update(status=DiscordRemoval.Status.CANCELLED)
+            return DiscordRemoval.objects.filter(pk__in=ids)
+
+        monkeypatch.setattr(DiscordRemoval.objects, "due_warnings", _stale)
+        assert process_removals(_morning(date(2026, 10, 23))).handled == 0
+        assert not respx.calls
+
+    @respx.mock
+    def it_skips_a_kick_another_pass_moved(monkeypatch):
+        removal = _warned()
+        real = DiscordRemoval.objects.due_kicks
+
+        def _stale(now: datetime):
+            ids = list(real(now).values_list("pk", flat=True))
+            DiscordRemoval.objects.filter(pk=removal.pk).update(status=DiscordRemoval.Status.KICKED)
+            return DiscordRemoval.objects.filter(pk__in=ids)
+
+        monkeypatch.setattr(DiscordRemoval.objects, "due_kicks", _stale)
+        assert process_removals(_morning(date(2026, 10, 24))).handled == 0
+        assert not respx.calls
+
+    @respx.mock
+    def it_records_actions_under_the_open_run():
+        _former(cancellation_date=date(2026, 10, 1))
+        _mock_dm()
+        with record_run(DISCORD_REMOVAL_TASK_KEY, trigger=Trigger.SCHEDULED) as run:
+            process_removals(_morning(date(2026, 10, 23)))
+        assert AutomationAction.objects.get(kind=AutomationAction.Kind.DISCORD_DM).run == run
+
+
+def describe_command():
+    def it_says_when_it_is_not_configured(settings, capsys):
+        settings.DISCORD_BOT_TOKEN = ""
+        call_command("process_discord_removals")
+        assert "skipped" in capsys.readouterr().out
+
+    def it_reports_the_steps(capsys):
+        call_command("process_discord_removals")
+        assert "Handled 0 Discord removal step(s)." in capsys.readouterr().out

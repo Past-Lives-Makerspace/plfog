@@ -893,6 +893,16 @@ urlpatterns = [
     ),
     path("manage/site-settings/", views.admin_site_settings, name="hub_admin_site_settings"),
     path(
+        "manage/site-settings/automations/<slug:key>/",
+        views.admin_automation_history,
+        name="hub_admin_automation_history",
+    ),
+    path(
+        "manage/discord-removals/<int:pk>/cancel/",
+        views.admin_discord_removal_cancel,
+        name="hub_admin_discord_removal_cancel",
+    ),
+    path(
         "manage/site-settings/brand/logo/delete/",
         views.admin_brand_logo_delete,
         name="hub_admin_brand_logo_delete",
