@@ -268,15 +268,18 @@ def describe_the_two_boxes():
         assert content.count('id="door-code-value-header"') == 1
         assert content.count('id="door-code-value-card"') == 1
 
-    def it_puts_the_header_box_in_the_page_header_before_show_me_around(client: Client):
+    def it_puts_the_header_box_in_the_page_header_and_show_me_around_under_the_description(client: Client):
         _set_code()
         _login(client, "doorbox")
 
         header = _element(client.get(HOME).content.decode(), 'class="hub-page-header"')
 
         actions = _element(header, 'class="pl-home-header-actions"')
-        assert actions.index('data-door-code-box="header"') < actions.index('href="?tour=member-welcome"')
-        assert ">Show me around</a>" in actions
+        assert 'data-door-code-box="header"' in actions
+        assert "Show me around" not in actions
+        tour_row = _element(header, 'class="pl-home-tour-link"')
+        assert header.index("Your home base") < header.index(tour_row)
+        assert ">Show me around</a>" in tour_row
         assert 'data-door-code-box="card"' not in header
 
     def it_keeps_show_me_around_in_the_header_without_a_door_code(client: Client):

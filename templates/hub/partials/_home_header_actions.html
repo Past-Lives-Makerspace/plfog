@@ -1,5 +1,4 @@
-{# Home's header actions (#813): the compact Door Code box on wide screens, then Show me around, which steps aside while the tour banner offers the tour (#824). #}
+{# Home's header action (#813): the compact Door Code box, shown on wide screens. #}
 <div class="pl-home-header-actions">
     {% include "hub/partials/_door_code.html" with variant="header" %}
-    {% if not show_tour_offer or not tour.offer_banner %}<a href="?tour=member-welcome" class="hub-btn hub-btn--sm">Show me around</a>{% endif %}
 </div>

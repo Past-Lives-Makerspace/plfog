@@ -2,8 +2,8 @@
 
 A member who has not taken or dismissed the member tour sees the banner at the top of Home, never
 beside the floating offer card, and no Show me around in the header. The close button removes the
-banner, records ``dismissed`` through ``hub_tour_state`` and the banner stays gone on reload, where
-the header link is back. On a phone the Take the tour button stacks under the text. The tour itself
+banner, records ``dismissed`` through ``hub_tour_state`` and the banner stays gone on reload, and
+so does Show me around: dismissed counts as done, as on the Get Started checklist. On a phone the Take the tour button stacks under the text. The tour itself
 running from the banner is ``guided_tour_spec``. Run with ``pytest -m e2e``.
 """
 
@@ -61,7 +61,7 @@ def describe_the_banner():
 
         page.reload()
         expect(page.locator(BANNER)).to_have_count(0)
-        expect(_header_link(page)).to_be_visible()
+        expect(_header_link(page)).to_have_count(0)
 
 
 def describe_on_a_phone():
