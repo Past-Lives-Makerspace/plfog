@@ -8076,8 +8076,12 @@ class DiscordRemoval(models.Model):
         """The users the warning DM may mention: Felix, in the cleanup DM only."""
         return (DISCORD_CLEANUP_CONTACT_ID,) if self.source == self.Source.CLEANUP else ()
 
-    def put_back(self, server_id: str, access_token: str, now: datetime_type) -> bool:
+    def put_back(self, server_id: str, discord_user_id: str, access_token: str, now: datetime_type) -> bool:
         """Put a removed person back on the server with their own OAuth token. Never raises.
+
+        ``discord_user_id`` is the account that just connected, which owns ``access_token``: a
+        member who comes back on a different Discord account is added as that account, because
+        Discord refuses a token used for anyone else.
 
         Returns True once they are on the server again (added now, or already there).
         """
@@ -8085,7 +8089,7 @@ class DiscordRemoval(models.Model):
 
         kind = AutomationAction.Kind.DISCORD_REJOIN
         try:
-            outcome = add_member(server_id, self.discord_user_id, access_token)
+            outcome = add_member(server_id, discord_user_id, access_token)
         except httpx.HTTPError as exc:
             self._record(kind, AutomationAction.Result.FAILED, str(exc))
             return False

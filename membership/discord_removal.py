@@ -121,7 +121,7 @@ def put_back_if_removed(member: Member, discord_user_id: str, access_token: str)
     if removal is None or bot_disabled("member re-add"):
         return False
     server_id = SiteConfiguration.load().discord_server_id.strip()
-    if not server_id or not removal.put_back(server_id, access_token, timezone.now()):
+    if not server_id or not removal.put_back(server_id, discord_user_id, access_token, timezone.now()):
         return False
     for membership in GuildMembership.objects.filter(member=member).select_related("guild"):
         on_membership_changed(membership.guild, member, joined=True)

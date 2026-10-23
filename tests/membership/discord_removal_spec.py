@@ -523,7 +523,7 @@ def describe_put_back():
         removal = _kicked()
         respx.put(JOIN).mock(return_value=httpx.Response(201, json={}))
         now = _morning(date(2026, 10, 26))
-        assert removal.put_back("srv1", "user-tok", now) is True
+        assert removal.put_back("srv1", "111", "user-tok", now) is True
         assert removal.rejoined_at == now
         action = AutomationAction.objects.get(kind=AutomationAction.Kind.DISCORD_REJOIN)
         assert (action.result, action.detail) == ("ok", "Put back on the server.")
@@ -532,14 +532,14 @@ def describe_put_back():
     def it_counts_someone_already_back():
         removal = _kicked()
         respx.put(JOIN).mock(return_value=httpx.Response(204))
-        assert removal.put_back("srv1", "t", _morning(date(2026, 10, 26))) is True
+        assert removal.put_back("srv1", "111", "t", _morning(date(2026, 10, 26))) is True
         assert AutomationAction.objects.get(kind="discord_rejoin").detail == "Already back on the server."
 
     @respx.mock
     def it_records_a_refusal():
         removal = _kicked()
         respx.put(JOIN).mock(return_value=httpx.Response(403))
-        assert removal.put_back("srv1", "t", _morning(date(2026, 10, 26))) is False
+        assert removal.put_back("srv1", "111", "t", _morning(date(2026, 10, 26))) is False
         assert removal.rejoined_at is None
         assert AutomationAction.objects.get(kind="discord_rejoin").detail == "Discord answered refused."
 
@@ -547,7 +547,7 @@ def describe_put_back():
     def it_records_an_error_without_raising():
         removal = _kicked()
         respx.put(JOIN).mock(return_value=httpx.Response(500, text="boom"))
-        assert removal.put_back("srv1", "t", _morning(date(2026, 10, 26))) is False
+        assert removal.put_back("srv1", "111", "t", _morning(date(2026, 10, 26))) is False
         assert "500 boom" in AutomationAction.objects.get(kind="discord_rejoin").detail
 
 
@@ -570,6 +570,20 @@ def describe_put_back_if_removed():
         assert put_back_if_removed(member, "111", "user-tok") is True
         assert join.called
         assert sorted(call.request.url.path.rsplit("/", 1)[-1] for call in roles.calls) == ["r1", "r2"]
+
+    @respx.mock
+    def it_adds_the_account_that_just_connected_when_it_is_a_different_one():
+        member = _active_again(_kicked())
+        Member.objects.filter(pk=member.pk).update(discord_user_id="555")
+        member.refresh_from_db()
+        old = respx.put(JOIN).mock(return_value=httpx.Response(403))
+        new = respx.put("https://discord.com/api/v10/guilds/srv1/members/555").mock(
+            return_value=httpx.Response(201, json={})
+        )
+        assert put_back_if_removed(member, "555", "new-account-tok") is True
+        assert new.called
+        assert not old.called
+        assert DiscordRemoval.objects.get(member=member).rejoined_at is not None
 
     def it_leaves_a_member_who_is_not_active():
         removal = _kicked()
