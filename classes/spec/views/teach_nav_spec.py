@@ -61,11 +61,17 @@ def describe_teach_portal_naming():
         html = client.get(reverse("classes:teach_overview")).content.decode()
         assert f'href="{reverse("classes:teach_profile")}" class="vote-tab">Instructor Profile</a>' in html
 
-    def it_leaves_the_admin_classes_tab_alone(admin_user, client, db):
-        """Only the instructor portal's tab was renamed."""
+    def it_names_the_admin_classes_tab_all_classes(admin_user, client, db):
+        """#912 renamed the whole catalog tab to All Classes; its URL is unchanged."""
         client.force_login(admin_user)
         html = client.get(reverse("classes:admin_overview")).content.decode()
-        assert f'href="{reverse("classes:admin_classes")}" class="vote-tab">Classes</a>' in html
+        assert f'href="{reverse("classes:admin_classes")}" class="vote-tab">All Classes</a>' in html
+
+    def it_lights_all_classes_on_its_own_page_and_keeps_the_title(admin_user, client, db):
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_classes")).content.decode()
+        assert 'vote-tab vote-tab--active" aria-current="page">All Classes</a>' in html
+        assert "<title>Manage All Classes — All Classes" in html
 
 
 def describe_new_class_button():

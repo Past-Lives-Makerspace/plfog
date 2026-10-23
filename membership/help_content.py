@@ -1155,7 +1155,7 @@ The Overview's **Needs Attention** card lists everything waiting on you, under *
 
 When the class's category belongs to a guild that has a lead, the guild lead reviews first, through a tokenized link emailed to them (no admin access needed). A guild lead approval hands the class to admins for the final sign off. Your admin approval is final: the moment you approve, the class publishes and opens for sign-ups, even if the guild lead has not weighed in yet (any still-open guild lead review is closed automatically). **Ask for changes** and **Decline** send it back to the instructor as a draft, with your notes.
 
-Admins can also create classes directly from the **Classes** tab; those publish immediately, with no review chain.
+Admins can also create classes directly from the **All Classes** tab; those publish immediately, with no review chain.
 
 ![Needs Attention: every class waiting on a review decision.](/static/help/reviewing-classes-admin/01-review-queue.png)
 

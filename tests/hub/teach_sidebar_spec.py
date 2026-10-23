@@ -101,7 +101,7 @@ def describe_manage_classes():
     def it_is_an_admin_tools_card(admin_user, client):
         client.force_login(admin_user)
         html = client.get(reverse("hub_admin_tools")).content.decode()
-        assert "Manage Classes" in html
+        assert "Manage All Classes" in html
         assert f'href="{reverse("classes:admin_overview")}"' in html
 
     def it_is_absent_from_admin_tools_for_a_non_admin(plain_user, client):

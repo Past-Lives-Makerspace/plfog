@@ -5205,13 +5205,50 @@ def hub_push_test(request: HttpRequest) -> HttpResponse:
     )
 
 
+# Admin Tools' sections in page order, each naming its cards' ``tool_*`` flags in card order (#912).
+# The template lays the cards out in the same order; this table decides which sections render.
+ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("manage", ("tool_manage_classes", "tool_manage_events", "tool_manage_members", "tool_instructor_inquiries")),
+    (
+        "tools",
+        (
+            "tool_announcements",
+            "tool_push_test",
+            "tool_orientations",
+            "tool_spotlight",
+            "tool_feedback",
+            "tool_holiday_bizarre",
+            "tool_slideshow",
+        ),
+    ),
+    ("reports", ("tool_payments", "tool_reports", "tool_growth")),
+    ("webmaster", ("tool_site_settings", "tool_notifications", "tool_activity", "tool_leadership", "tool_locations")),
+)
+
+
+def admin_tool_sections(flags: dict[str, bool]) -> dict[str, bool]:
+    """Which Admin Tools sections render: a section shows when at least one of its cards does.
+
+    Args:
+        flags: every card's ``tool_*`` visibility flag, as the view hands them to the template.
+
+    Returns:
+        Each section key from :data:`ADMIN_TOOL_SECTIONS` mapped to whether it renders.
+
+    Raises:
+        KeyError: a section names a flag the view did not compute.
+    """
+    return {key: any(flags[name] for name in names) for key, names in ADMIN_TOOL_SECTIONS}
+
+
 @login_required
 def hub_admin_tools(request: HttpRequest) -> HttpResponse:
-    """The admin tools hub: announcements, orientations, members, activity, notifications, settings.
+    """The admin tools hub: its cards grouped into Manage, Tools, Reports and Webmaster (#912).
 
     Open to anyone whose elevated perms unlock a tool (admin, guild lead/staff, or instructor);
-    each card shows only to whoever can use it. View-as-aware for actual admins — an admin
-    previewing as a plain member is bounced home. Others are bounced home too.
+    each card shows only to whoever can use it, and a section with no card it may open is not
+    rendered. View-as-aware for actual admins — an admin previewing as a plain member is bounced
+    home. Others are bounced home too.
     """
     from hub.view_as import has_billing_admin_access, has_events_admin_access
 
@@ -5226,33 +5263,37 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
     # capability holder has no view-as machinery. Do not "fix" this to is_admin.
     tool_payments = tool_reports = has_billing_admin_access(request)
     tool_manage_events = has_events_admin_access(request)
+    flags = {
+        "tool_announcements": _can_compose(request, member),
+        "tool_orientations": can_orient,
+        "tool_manage_members": is_admin,
+        "tool_manage_classes": is_admin,
+        "tool_manage_events": tool_manage_events,
+        "tool_payments": tool_payments,
+        "tool_reports": tool_reports,
+        "tool_activity": is_admin,
+        "tool_notifications": is_admin,
+        "tool_site_settings": is_admin,
+        "tool_slideshow": is_admin,
+        "tool_growth": is_admin,
+        # Admins reach the HQ here as well as from the sidebar, which shows it to them once an HQ exists.
+        "tool_holiday_bizarre": is_admin,
+        "tool_instructor_inquiries": is_admin,
+        "tool_leadership": is_admin,
+        "tool_locations": is_admin,
+        "tool_feedback": is_admin,
+        "tool_spotlight": is_admin,
+        "tool_push_test": is_admin,
+    }
     ctx = _get_hub_context(request)
     return render(
         request,
         "hub/admin_tools.html",
         {
             **ctx,
-            "tool_announcements": _can_compose(request, member),
-            "tool_orientations": can_orient,
-            "tool_manage_members": is_admin,
-            "tool_manage_classes": is_admin,
-            "tool_manage_events": tool_manage_events,
-            "tool_payments": tool_payments,
-            "tool_reports": tool_reports,
-            "tool_activity": is_admin,
-            "tool_notifications": is_admin,
-            "tool_site_settings": is_admin,
-            "tool_slideshow": is_admin,
-            "tool_growth": is_admin,
-            # Admins reach the HQ here as well as from the sidebar, which shows it to them once an HQ exists.
-            "tool_holiday_bizarre": is_admin,
-            "tool_instructor_inquiries": is_admin,
-            "tool_leadership": is_admin,
-            "tool_locations": is_admin,
-            "tool_feedback": is_admin,
-            "tool_spotlight": is_admin,
+            **flags,
+            "tool_sections": admin_tool_sections(flags),
             "feedback_received_count": FeedbackRequest.objects.received().count() if is_admin else 0,
-            "tool_push_test": is_admin,
         },
     )
 
