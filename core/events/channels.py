@@ -538,7 +538,9 @@ class DigestAdapter:
         kept_ids = {row.pk for row in keep}
         dropped = [row for row in rows if row.pk not in kept_ids]
         EventDelivery.objects.filter(pk__in=[row.pk for row in dropped]).delete()
-        return keep, Counter(target_ref for target_ref, _url in {(row.target_ref, row.url) for row in dropped})
+        return keep, Counter(
+            target_ref for target_ref, _key in {(row.target_ref, digest_line_key(row)) for row in dropped}
+        )
 
     @staticmethod
     def wanted_event_keys(user: User, event_keys: set[str]) -> set[str]:
@@ -560,7 +562,7 @@ class DigestAdapter:
         wanted_keys = DigestAdapter.wanted_event_keys(user, {row.event_key for row in rows})
         dropped = [row for row in rows if row.event_key not in wanted_keys]
         EventDelivery.objects.filter(pk__in=[row.pk for row in dropped]).delete()
-        return [row for row in rows if row.event_key in wanted_keys], len({row.url for row in dropped})
+        return [row for row in rows if row.event_key in wanted_keys], len({digest_line_key(row) for row in dropped})
 
     @staticmethod
     def _send(user: User, rows: list[EventDelivery], day: date, *, left_out: int) -> bool:
@@ -618,16 +620,28 @@ class DigestAdapter:
 CLASS_REVIEW_EVENTS = frozenset({"class_review_requested", "class_validation_requested"})
 
 
+def digest_line_key(row: EventDelivery) -> str:
+    """Which morning email line a queued row belongs to: one line per request.
+
+    Usually the request's link, so the original ask and a Remind lead (same link) make one
+    line. A request nothing decides never repeats, and its link can be shared (a class change
+    request links to the class), so each of its rows is its own line (#894 part 3).
+    """
+    from core.events.resolvers import is_always_included
+
+    return row.period if is_always_included(row.event_key) else row.url
+
+
 def digest_context(rows: list[EventDelivery]) -> dict[str, object]:
     """The staff digest template context for ``rows``, oldest first.
 
-    One line per request link: a request queued twice (the original ask and a Remind
-    lead) shows once, with the newest row's line ("Reminded by ..."). Lines group under
+    One line per request (:func:`digest_line_key`): a request queued twice (the original ask
+    and a Remind lead) shows once, with the newest row's line ("Reminded by ..."). Lines group under
     their event's label, in the order the first of each arrived.
     """
     from core.events.registry import get_event
 
-    newest_by_url = {row.url: row for row in rows}
+    newest_by_url = {digest_line_key(row): row for row in rows}
     sections: dict[str, list[dict[str, str]]] = {}
     for row in newest_by_url.values():
         # Senders pass the bell's link, often a path; the email needs a host (#894 part 3).

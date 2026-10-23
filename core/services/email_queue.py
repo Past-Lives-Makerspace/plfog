@@ -148,7 +148,7 @@ class DigestQueue:
         """
         from django.contrib.auth.models import User
 
-        from core.events.channels import DigestAdapter, notification_email_for
+        from core.events.channels import DigestAdapter, digest_line_key, notification_email_for
         from core.events.resolvers import open_request_urls
 
         pending = list(
@@ -163,7 +163,7 @@ class DigestQueue:
         users = User.objects.select_related("member").in_bulk({row.recipient_user_id for row in pending})
         newest: dict[int, dict[str, EventDelivery]] = {}
         for row in pending:
-            newest.setdefault(row.recipient_user_id, {})[row.url] = row
+            newest.setdefault(row.recipient_user_id, {})[digest_line_key(row)] = row
         people = []
         for user_pk, rows in newest.items():
             if user_pk not in users:

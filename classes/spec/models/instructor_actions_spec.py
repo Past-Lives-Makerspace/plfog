@@ -106,8 +106,7 @@ def describe_request_change():
         # Criterion 39: the LEGACY name, deliberately. This URL is persisted on the
         # Notification row and mailed out, so it has to keep resolving after a revert — one
         # 302 hop while the merge is live is the cheaper half of that trade.
-        # Anchored on this request so each is its own line in the 8 AM email (#894 part 3).
-        assert bell.url == f"{reverse('classes:admin_class_edit', kwargs={'pk': offering.pk})}#change-{row.pk}"
+        assert bell.url == reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
         assert [m for m in mail.outbox if m.to == ["cms-change@example.com"]] == []
         (sent,) = digest_emails("cms-change@example.com")
         assert "Move it to Friday." in sent.body

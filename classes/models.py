@@ -2368,8 +2368,7 @@ class ClassOffering(HeroCropMixin, models.Model):
                 "note": note,
                 "edit_url": _absolute_url(edit_path),
             },
-            # Anchored on this request, so two on one class are two lines in the 8 AM email (#894).
-            url=f"{edit_path}#change-{row.pk}",
+            url=edit_path,
             period=f"offering:{self.pk}:change_request:{row.pk}",
         )
         return True
@@ -4857,6 +4856,9 @@ class DiscountCode(StaffRequestMixin, models.Model):
         creating = self._state.adding
         self.code = self.code.strip().upper()
         super().save(*args, **kwargs)
+        if not creating and not self.is_approved and not self.is_active:
+            # Switched off while waiting for approval: nobody is asked any more (#894 part 3).
+            self.clear_request_bells()
         if creating:
             from classes import activity
 

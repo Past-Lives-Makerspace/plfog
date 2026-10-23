@@ -856,7 +856,8 @@ def _discount_requests() -> dict[str, QuerySet[Any]]:
     from classes.models import DiscountCode, DiscountCodeRequest
 
     return {
-        "discount": DiscountCode.objects.filter(is_approved=False),
+        # An unapproved code an instructor switched off asks nobody any more.
+        "discount": DiscountCode.objects.filter(is_approved=False, is_active=True),
         "discount_request": DiscountCodeRequest.objects.pending(),
     }
 
@@ -919,6 +920,16 @@ def open_request_urls(event_key: str, rows: list[EventDelivery]) -> set[str]:
     Raises ``KeyError`` for an event with no registered check (a registry wiring error).
     """
     return _OPEN_CHECKS[event_key](rows)
+
+
+def is_always_included(event_key: str) -> bool:
+    """Whether nothing decides ``event_key``'s requests, so each queued row is its own request.
+
+    Such a request never repeats (no Remind lead), and its link need not be unique to it: a
+    class change request links to the class's edit page, which every request on that class
+    shares. The morning email gives each of these rows its own line.
+    """
+    return _OPEN_CHECKS[event_key] is always_open
 
 
 def has_open_check(event_key: str) -> bool:

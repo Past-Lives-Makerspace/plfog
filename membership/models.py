@@ -1087,8 +1087,8 @@ class Member(StaffRequestMixin, models.Model):
 
     @property
     def request_bell_path(self) -> str:
-        """The admin queue's teaching applications, named for this member so the bell link is theirs."""
-        return f"{reverse('classes:admin_overview')}?applicant={self.pk}#teaching-applications"
+        """This member's row in the admin queue's teaching applications: the admins' bell link."""
+        return f"{reverse('classes:admin_overview')}#applicant-{self.pk}"
 
     def __str__(self) -> str:
         return self.display_name
@@ -2604,10 +2604,14 @@ class Member(StaffRequestMixin, models.Model):
         )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        # Member records are otherwise managed in Airtable; this override only
-        # cleans up the orphaned profile_photo file when the user replaces it.
+        # Member records are otherwise managed in Airtable; this override cleans up the
+        # orphaned profile_photo file when the user replaces it.
         delete_orphan_on_replace(self, "profile_photo")
         super().save(*args, **kwargs)
+        if self.teaching_applied_at is not None and self.status != self.Status.ACTIVE:
+            # Only an active member's application waits on an admin (awaiting_teaching_decision),
+            # so one who leaves ACTIVE no longer asks in the admins' bell (#894 part 3).
+            self.clear_request_bells()
 
 
 # A handle: letters, digits, dots and underscores, with or without a leading "@". One trailing
@@ -19700,8 +19704,8 @@ class WikiPage(StaffRequestMixin, models.Model):
 
     @property
     def request_bell_path(self) -> str:
-        """The wiki review queue, anchored on this proposed page: the moderators' bell link."""
-        return f"{reverse('hub_wiki_review')}#page-{self.pk}"
+        """The wiki review queue's card for this proposed page (``#safety-<pk>``): the moderators' bell link."""
+        return f"{reverse('hub_wiki_review')}#safety-{self.pk}"
 
     def __str__(self) -> str:
         return f"{self.title} ({self.get_kind_display()})"

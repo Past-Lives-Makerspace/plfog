@@ -182,8 +182,32 @@ def describe_discount_code_requested():
             code = DiscountCodeFactory(is_approved=False, class_offering=ClassOfferingFactory())
         assert notification_click_url(_emitted(fake, "discount_code.requested")["url"]) == code.request_bell_path
         assert code.request_bell_path.endswith(f"#code-{code.pk}")
+        admin = _approver_admin()
+        admin.is_superuser = True
+        admin.save(update_fields=["is_superuser"])
+        client = Client()
+        client.force_login(admin)
+        assert f'id="code-{code.pk}"' in client.get(reverse("classes:admin_discount_codes")).content.decode()
         _assert_delete_clears(code, "discount_code.requested")
         _assert_delete_clears(DiscountCodeRequestFactory(), "discount_code.requested")
+
+
+def describe_a_pending_discount_code_switched_off():
+    def it_closes_and_clears_the_bell():
+        code = DiscountCodeFactory(is_approved=False)
+        bell = _bell(code, "discount_code.requested", _approver())
+        row = _queued(code, "discount_code.requested", _approver_admin(), f"discount:{code.pk}:requested")
+        code.is_active = False
+        code.save()
+        assert _read(bell)
+        assert not _is_open("discount_code.requested", row)
+
+    def it_leaves_an_approved_code_switched_off_alone():
+        code = DiscountCodeFactory(is_approved=True)
+        bell = _bell(code, "discount_code.requested", _approver())
+        code.is_active = False
+        code.save()
+        assert not _read(bell)
 
 
 def describe_event_submitted():
@@ -287,6 +311,15 @@ def describe_wiki_page_proposed():
         with patch("core.events.emit.emit") as fake:
             page.notify_scope_of_proposal(by=MemberFactory())
         assert notification_click_url(_emitted(fake, "wiki.page_proposed")["url"]) == page.request_bell_path
+        assert page.request_bell_path == f"{reverse('hub_wiki_review')}#safety-{page.pk}"
+
+    def it_lands_on_the_pages_card_in_the_review_queue(client: Client):
+        from tests.hub.wiki_mod_helpers import enable_wiki, login_lead
+
+        enable_wiki()
+        _user, guild = login_lead(client, "safety_anchor")
+        page = WikiPageFactory(guild=guild, official=True, is_published=False)
+        assert f'id="safety-{page.pk}"' in client.get(reverse("hub_wiki_review")).content.decode()
         _assert_delete_clears(page, "wiki.page_proposed")
 
 
@@ -322,7 +355,25 @@ def describe_instructor_application_received():
             member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         sent = _emitted(fake, "instructor_application_received")
         assert notification_click_url(sent["url"]) == member.request_bell_path
-        assert f"?applicant={member.pk}#teaching-applications" in member.request_bell_path
+        assert member.request_bell_path == f"{reverse('classes:admin_overview')}#applicant-{member.pk}"
+
+    def it_lands_on_the_applicants_row_in_the_admin_queue(client: Client):
+        member = _applicant()
+        admin = _approver_admin()
+        admin.is_superuser = True
+        admin.save(update_fields=["is_superuser"])
+        client.force_login(admin)
+        html = client.get(reverse("classes:admin_overview")).content.decode()
+        assert f'id="applicant-{member.pk}"' in html
+
+    def it_closes_and_clears_the_bell_when_the_applicant_leaves_active():
+        member = _applicant()
+        bell = _bell(member, "instructor_application_received", _approver())
+        row = _queued(member, "instructor_application_received", _approver_admin(), f"member:{member.pk}:x:y")
+        member.status = Member.Status.FORMER
+        member.save()
+        assert _read(bell)
+        assert not _is_open("instructor_application_received", row)
 
     def it_clears_the_bell_when_the_member_is_deleted():
         _assert_delete_clears(_applicant(), "instructor_application_received")
@@ -335,9 +386,21 @@ def describe_class_change_requested():
         with patch("core.events.emit.emit") as fake:
             offering.request_change(instructor, "Move it to Friday.")
         url = _emitted(fake, "class_change_requested")["url"]
-        assert url.startswith(f"{reverse('classes:admin_class_edit', kwargs={'pk': offering.pk})}#change-")
+        # The edit page shows no change request to anchor on, so the link is the page itself.
+        assert url == reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
         row = EventDelivery(event_key="class_change_requested", url=url, period="offering:1:change_request:2")
         assert resolvers.open_request_urls("class_change_requested", [row]) == {url}
+
+    def it_gives_two_requests_on_one_class_two_lines_in_the_8am_email():
+        holder = UserFactory(username="cms@example.com", email="cms@example.com")
+        Member.objects.get(user=holder).admin_capabilities.create(capability=AdminCapability.Capability.CLASS_APPROVER)
+        instructor = InstructorFactory(user=UserFactory(username="alex@example.com", email="alex@example.com"))
+        offering = ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.PUBLISHED)
+        offering.request_change(instructor, "Move it to Friday.")
+        offering.request_change(instructor, "Also add a seat.")
+        (email,) = digest_emails("cms@example.com")
+        assert email.subject == "Action Needed: 2 Requests Awaiting You"
+        assert "Move it to Friday." in email.body and "Also add a seat." in email.body
 
 
 def describe_the_8am_email_for_a_part_3_request():
