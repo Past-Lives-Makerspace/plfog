@@ -18,7 +18,7 @@ from dataclasses import dataclass, replace
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Iterator, cast
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, cast
 
 from django.http import StreamingHttpResponse
 from django.utils import timezone
@@ -731,7 +731,7 @@ def build_reconciliation(
     lines.extend(_reservation_lines(window, reservation_percents, adjustments))
     lines.sort(key=lambda line: line.date, reverse=True)
 
-    from billing.payouts import kept_share_notes, line_payouts, producer_accounts
+    from billing.payouts import kept_share_notes
 
     kept = kept_share_notes(lines)
     if kept:
@@ -745,12 +745,7 @@ def build_reconciliation(
             else line
             for line in lines
         ]
-    # One query for every producer's account (#905): producer keys always carry a Member pk.
-    accounts = producer_accounts(
-        cast(int, key[1]) for line in lines for key in line.shares if key[0] in _PRODUCER_KINDS
-    )
-    payouts_by_line = line_payouts(lines, accounts)
-    lines = [_with_payout(line, payouts_by_line) for line in lines]
+    lines, accounts, payouts_by_line = _attach_payouts(lines)
     stripe_keys = {key for key, state in payouts_by_line.items() if state.through_stripe}
     aggregate = _aggregate_lines(lines, stripe_keys)
 
@@ -776,6 +771,48 @@ def build_reconciliation(
         voting_projected=voting_projected,
         voting_snapshotted_on=voting_on,
     )
+
+
+def _attach_payouts(
+    lines: list[TransactionLine],
+) -> tuple[list[TransactionLine], dict[int, PayoutAccount], dict[AdjustmentKey, LinePayout]]:
+    """``lines`` with their payout states (#905), the producers' accounts, and the states by line.
+
+    The one path from lines to what Transaction Detail shows, shared by ``build_reconciliation``
+    and ``registration_payouts``. One query for every producer's account: producer keys always
+    carry a Member pk.
+    """
+    from billing.payouts import line_payouts, producer_accounts
+
+    accounts = producer_accounts(
+        cast(int, key[1]) for line in lines for key in line.shares if key[0] in _PRODUCER_KINDS
+    )
+    payouts_by_line = line_payouts(lines, accounts)
+    return [_with_payout(line, payouts_by_line) for line in lines], accounts, payouts_by_line
+
+
+def registration_payouts(registration_pks: Iterable[int]) -> dict[int, LinePayout]:
+    """What Transaction Detail shows for each registration's instructor share, by registration pk (#910).
+
+    Each paid, confirmed registration gets the same line Reconciliation builds for it (split,
+    refunds, adjustments) and goes through the same ``_attach_payouts``, so the two always agree.
+    A registration with no state (unpaid, free, not confirmed, omitted, or no instructor share)
+    is left out. A fixed number of queries for any number of registrations.
+    """
+    from billing.models import BillingSettings, TransactionAdjustment
+    from classes.models import Registration
+
+    pks = list(registration_pks)
+    registrations = (
+        Registration.objects.filter(pk__in=pks, amount_paid_cents__gt=0)
+        .filter(confirmed_at__isnull=False)
+        .select_related("class_offering__instructor", "class_offering__category__guild", "member")
+        .prefetch_related("refunds")
+    )
+    percents = _class_percents(BillingSettings.load())
+    adjustments = TransactionAdjustment.objects.filter(source_kind="class", source_pk__in=pks).as_map()
+    lines, _accounts, _states = _attach_payouts([_class_line(reg, percents, adjustments) for reg in registrations])
+    return {line.source_pk: line.payout for line in lines if line.payout is not None}
 
 
 def _with_payout(line: TransactionLine, payouts_by_line: dict[AdjustmentKey, LinePayout]) -> TransactionLine:
