@@ -90,7 +90,10 @@ FEATURES: list[Feature] = [
     Feature(
         key="meetings",
         name="Meetings",
-        off_description="Takes Meetings out of the sidebar, and the Meetings tab off guild pages.",
+        off_description=(
+            "Takes Meetings out of the sidebar, and the agenda, proposal and minutes parts off guild "
+            "pages. A guild's meeting notes stay on its Meetings tab."
+        ),
     ),
     Feature(
         key="directory",

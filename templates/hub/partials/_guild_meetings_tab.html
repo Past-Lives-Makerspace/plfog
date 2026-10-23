@@ -8,7 +8,13 @@ published for everyone, slipped drafts for editors), and the editor extras
 Context comes from guild_detail: next_guild_meeting (topic_count annotated),
 can_propose_next, propose_form, recent_minutes, awaiting_minutes,
 pending_proposal_count, plus guild / can_edit_this_guild.
+
+Those feature parts render only while the Meetings switch is on (guild_detail builds their
+context only then). The guild's meeting notes (#891) render after them whatever the switch
+says, from _guild_meeting_notes.html with meeting_notes; the view's show_meetings_tab decides
+whether the tab exists at all.
 {% endcomment %}
+{% if features.meetings.is_on %}
 <section class="pl-guild-section pl-guild-meetings">
     {% if can_edit_this_guild %}
     <div class="pl-guild-meetings__toolbar">
@@ -94,3 +100,6 @@ pending_proposal_count, plus guild / can_edit_this_guild.
 {% if can_propose_next %}
 {% include "hub/partials/_propose_modal.html" with meeting=next_guild_meeting modal_key="propose-item" form=propose_form %}
 {% endif %}
+{% endif %}
+
+{% include "hub/partials/_guild_meeting_notes.html" %}

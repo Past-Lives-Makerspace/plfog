@@ -8805,6 +8805,36 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font-size: 0.875rem;
 }
 
+/* --- The Meeting Notes section of the guild detail Meetings tab (#891) --- */
+.pl-guild-notes { display: flex; flex-direction: column; gap: 1.5rem; }
+.pl-guild-notes__header { align-items: center; margin-bottom: 0; }
+.pl-guild-notes__heading { margin: 0; }
+.pl-guild-notes__note { padding: 1.5rem; }
+.pl-guild-notes__date { font-size: 0.875rem; }
+.pl-guild-notes__title { margin-top: 0.25rem; font-size: 1.125rem; font-weight: 600; color: var(--hub-text); }
+.pl-guild-notes__body { margin-top: 0.75rem; overflow-wrap: anywhere; }
+.pl-guild-notes__attachments {
+    margin-top: 1rem;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.pl-guild-notes__attachment {
+    display: inline-block;
+    padding: 0.375rem 0.75rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+    color: var(--hub-link);
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+}
+.pl-guild-notes__attachment:hover { border-color: var(--hub-link); }
+.pl-guild-notes__empty { padding: 1.5rem; }
+.pl-guild-notes__add { margin-top: 1rem; }
+
 /* --- Mobile --- */
 @media (max-width: 480px) {
     .pl-meeting-action { flex-wrap: wrap; }
