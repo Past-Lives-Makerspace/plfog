@@ -6,8 +6,8 @@ admin who also teaches gets all of them, and a plain admin gets no empty "My Cla
 is why an admin's Registrations now sits one slot earlier than it used to.
 
 Ruling 22: an admin who also teaches KEEPS "My Classes". Ruling 15: the labels are today's —
-"My Classes" for the instructor's own, "Classes" for the whole catalog — and the order is the
-only thing separating them.
+"My Classes" for the instructor's own, "All Classes" for the whole catalog (renamed from
+"Classes" in #912, so the two read apart as well as by order).
 
 The two facts the rows read are about the VIEWER, not about a class, so they come off the
 request rather than from a context key every view would have to remember to set:
@@ -34,7 +34,7 @@ permission decorator is the real gate; this only decides whether the tab is offe
     <a href="{% url 'classes:teach_profile' %}" class="vote-tab{% if active_tab == 'profile' %} vote-tab--active{% endif %}"{% if active_tab == 'profile' %} aria-current="page"{% endif %}>Instructor Profile</a>
     {% endif %}
     {% if actually_admin %}
-    <a href="{% url 'classes:admin_classes' %}" class="vote-tab{% if active_tab == 'classes' %} vote-tab--active{% endif %}"{% if active_tab == 'classes' %} aria-current="page"{% endif %}>Classes</a>
+    <a href="{% url 'classes:admin_classes' %}" class="vote-tab{% if active_tab == 'classes' %} vote-tab--active{% endif %}"{% if active_tab == 'classes' %} aria-current="page"{% endif %}>All Classes</a>
     <a href="{% url 'classes:admin_activity' %}" class="vote-tab{% if active_tab == 'activity' %} vote-tab--active{% endif %}"{% if active_tab == 'activity' %} aria-current="page"{% endif %}>Catalog Activity</a>
     <a href="{% url 'classes:admin_settings_hub' %}" class="vote-tab{% if active_tab in settings_tabs.split %} vote-tab--active{% endif %}"{% if active_tab in settings_tabs.split %} aria-current="page"{% endif %}>Settings</a>
     {% endif %}
