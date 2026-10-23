@@ -31,7 +31,7 @@ def pytest_sessionstart(session):
     Path(django_settings.STATIC_ROOT).mkdir(parents=True, exist_ok=True)
 
 
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Skip ``postgres_only`` specs on a database that is not PostgreSQL, with the reason.
 
     SQLite has no row locks (it never writes FOR UPDATE) and no ``pg_*`` functions, so a spec
