@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-23"
+title = "Read your guild's meeting notes on the guild page"
+changes = [
+  "Guild pages have a new Meeting Notes tab with the notes, files and links your guild leads post, newest meeting first.",
+  "Guild leads keep posting notes from their guild's edit page; the tab gives them an Edit notes button to get there.",
+]
