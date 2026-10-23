@@ -803,16 +803,25 @@ def _badge_producers(
     """Give every producer row its payee's automatic payouts badge (#905) from the accounts already loaded.
 
     While payouts are switched off site wide (``BillingSettings.connect_enabled``, the switch
-    ``payouts.payouts_on`` reads) Stripe sends nothing, so every row reads Paid by hand, as its
-    lines and Owed manually do, whatever the account's status.
+    ``payouts.payouts_on`` reads) Stripe starts nothing new, so the account's status no longer
+    says who Stripe pays. A row with nothing in Sent through Stripe reads Paid by hand, as its
+    lines and Owed manually do. A row that still has shares recorded through Stripe (sent,
+    pending or taken back before the switch went off) reads Payouts switched off instead, since
+    part of it is not the treasurer's to pay.
     """
-    from billing.payouts import account_badge
+    from billing.payouts import PayoutBadge, account_badge
 
+    switched_off = PayoutBadge("Payouts switched off", "warn")
     for kind in GROUP_ORDER:
-        if kind.is_producer:
-            for alloc in groups[kind]:
-                account = accounts.get(cast(int, alloc.recipient_id)) if payouts_switched_on else None
-                alloc.payout_badge = account_badge(account)
+        if not kind.is_producer:
+            continue
+        for alloc in groups[kind]:
+            if payouts_switched_on:
+                alloc.payout_badge = account_badge(accounts.get(cast(int, alloc.recipient_id)))
+            elif alloc.stripe_cents > 0:
+                alloc.payout_badge = switched_off
+            else:
+                alloc.payout_badge = account_badge(None)
 
 
 @dataclass(frozen=True)

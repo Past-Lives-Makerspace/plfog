@@ -734,9 +734,15 @@ def account_badge(account: PayoutAccount | None) -> PayoutBadge:
 class LinePayout:
     """How one class, orientation or reservation line's producer share is paid (#905).
 
-    ``state`` is "sent" (``sent_at`` set when Stripe confirmed it), "will_send" (recorded and
-    pending, or not yet due but going through Stripe) or "by_hand" (owed by hand, failed, or
-    with no Stripe route).
+    ``state`` is one of:
+
+    - "sent": Stripe accepted the transfer (``sent_at`` set when it did).
+    - "taken_back": sent, then a refund took some or all of it back.
+    - "will_send": recorded and pending, or not yet due but going through Stripe.
+    - "retrying": Stripe rejected the transfer and the send job retries it daily until it gives
+      up (``PayoutQuerySet.to_send``). It counts in Owed manually, as it always has, but it is
+      not to be paid by hand, or the payee could be paid twice.
+    - "by_hand": owed by hand, or with no Stripe route.
     """
 
     state: str
@@ -745,19 +751,27 @@ class LinePayout:
     @property
     def through_stripe(self) -> bool:
         """True when the share counts in Sent through Stripe rather than Owed manually."""
-        return self.state != "by_hand"
+        return self.state in _THROUGH_STRIPE_LINE_STATES
 
     @property
     def badge(self) -> PayoutBadge:
         """The line's Transaction Detail badge."""
-        if self.state == "sent":
-            if self.sent_at is None:
-                return PayoutBadge("Sent through Stripe", "ok")
-            sent = timezone.localtime(self.sent_at)
-            return PayoutBadge(f"Sent through Stripe {sent:%b} {sent.day}", "ok")
+        if self.state in ("sent", "taken_back"):
+            words = "Sent through Stripe"
+            if self.sent_at is not None:
+                sent = timezone.localtime(self.sent_at)
+                words = f"{words} {sent:%b} {sent.day}"
+            if self.state == "taken_back":
+                words = f"{words}, refund taken back"
+            return PayoutBadge(words, "ok")
         if self.state == "will_send":
             return PayoutBadge("Will be sent through Stripe", "warn")
+        if self.state == "retrying":
+            return PayoutBadge("Stripe is retrying", "warn")
         return PayoutBadge("Pay by hand", "muted")
+
+
+_THROUGH_STRIPE_LINE_STATES = frozenset({"sent", "taken_back", "will_send"})
 
 
 PAY_BY_HAND = LinePayout("by_hand")
@@ -793,10 +807,16 @@ def line_payouts(
     states: dict[tuple[str, int], LinePayout] = {}
     for earning in earnings:
         payout = earning.payout
-        if payout is not None and payout.status in _SENT_STATUSES:
+        if payout is not None and payout.status == Payout.Status.SENT:
             state = LinePayout("sent", payout.sent_at)
+        elif payout is not None and payout.status == Payout.Status.TAKEN_BACK:
+            state = LinePayout("taken_back", payout.sent_at)
+        elif payout is not None and payout.status in _THROUGH_STRIPE_STATUSES:
+            state = LinePayout("will_send")  # pending: the only through status left
+        elif payout is not None and payout.status == Payout.Status.FAILED:
+            state = LinePayout("retrying")
         elif payout is not None:
-            state = LinePayout("will_send") if payout.status in _THROUGH_STRIPE_STATUSES else PAY_BY_HAND
+            state = PAY_BY_HAND
         elif goes_through_stripe(earning, accounts.get(earning.payee.pk), since):
             state = LinePayout("will_send")
         else:

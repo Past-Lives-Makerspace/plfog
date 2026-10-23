@@ -183,6 +183,17 @@ def describe_line_payout():
         assert state.badge == PayoutBadge("Will be sent through Stripe", "warn")
         assert state.through_stripe is True
 
+    def it_names_a_refund_taken_back_from_a_sent_share():
+        state = LinePayout("taken_back", datetime(2026, 10, 13, 18, 0, tzinfo=UTC))
+        assert state.badge == PayoutBadge("Sent through Stripe Oct 13, refund taken back", "ok")
+        assert state.through_stripe is True
+        assert LinePayout("taken_back").badge == PayoutBadge("Sent through Stripe, refund taken back", "ok")
+
+    def it_says_stripe_is_retrying_a_rejected_transfer_but_counts_it_owed():
+        state = LinePayout("retrying")
+        assert state.badge == PayoutBadge("Stripe is retrying", "warn")
+        assert state.through_stripe is False
+
     def it_says_to_pay_by_hand():
         state = LinePayout("by_hand")
         assert state.badge == PayoutBadge("Pay by hand", "muted")
@@ -219,6 +230,15 @@ def describe_producer_rows():
         assert row.payout_badge == PayoutBadge("Paid by hand", "muted")
         assert _line(result, "class", reg.pk).payout == LinePayout("by_hand")
         assert (row.stripe_cents, row.manual_cents) == (0, 7000)
+
+    def it_says_payouts_switched_off_for_a_row_with_shares_already_through_stripe():
+        _turn_on()
+        on = _producer("Alex Eason")
+        _payout(_registration(on), Payout.Status.SENT, sent_at=datetime(2026, 10, 14, 18, tzinfo=UTC))
+        BillingSettings.objects.filter(pk=1).update(connect_enabled=False)
+        row = _row(build_reconciliation(window=WINDOW), RecipientKind.INSTRUCTOR, on)
+        assert row.payout_badge == PayoutBadge("Payouts switched off", "warn")
+        assert (row.stripe_cents, row.manual_cents) == (7000, 0)
 
     def it_counts_only_accounts_in_the_current_stripe_mode():
         # Testing Mode is on by default, so a live mode account is not this payee's account now.
@@ -273,10 +293,10 @@ def describe_transaction_lines():
         labels = {name: _line(result, "class", reg.pk).payout.badge.label for name, reg in setup["regs"].items()}
         assert labels == {
             "sent": "Sent through Stripe Oct 14",
-            "taken_back": "Sent through Stripe Oct 13",
+            "taken_back": "Sent through Stripe Oct 13, refund taken back",
             "pending": "Will be sent through Stripe",
             "not_yet_due": "Will be sent through Stripe",
-            "failed": "Pay by hand",
+            "failed": "Stripe is retrying",
             "owed": "Pay by hand",
             "legacy": "Pay by hand",
             "no_sessions": "Pay by hand",
@@ -290,6 +310,16 @@ def describe_transaction_lines():
         by_hand = sum(line.shares[key] for line in result.lines if line.payout and not line.payout.through_stripe)
         row = _row(result, RecipientKind.INSTRUCTOR, instructor)
         assert (row.stripe_cents, row.manual_cents) == (through, by_hand) == (28000, 28000)
+
+    def it_marks_a_failed_transfer_retrying_and_leaves_the_columns_as_they_were():
+        _turn_on()
+        instructor = _producer("Alex Eason")
+        reg = _registration(instructor)
+        _payout(reg, Payout.Status.FAILED)
+        result = build_reconciliation(window=WINDOW)
+        assert _line(result, "class", reg.pk).payout == LinePayout("retrying")
+        row = _row(result, RecipientKind.INSTRUCTOR, instructor)
+        assert (row.total_cents, row.stripe_cents, row.manual_cents) == (7000, 0, 7000)
 
     def it_leaves_an_omitted_line_unbadged():
         reg = _registration(_producer("Alex Eason"))
@@ -335,6 +365,7 @@ def describe_reconciliation_tab():
         _payout(reg, Payout.Status.SENT, sent_at=datetime(2026, 10, 14, 18, tzinfo=UTC))
         content = client.get(reverse("billing_admin_reconciliation_table"), WINDOW_QUERY).content.decode()
         assert "data-recon-pay-lead" in content
+        assert "Pay by hand only the shares marked Pay by hand in Transaction Detail." in content
         assert "data-payee-payout-state" in content
         assert "Automatic payouts on since Oct 1, 2026" in content
         assert 'data-line-payout-state="sent"' in content

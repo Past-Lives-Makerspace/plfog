@@ -70,8 +70,8 @@
 
 {% for kind, heading, rows in reconciliation.ordered_groups %}
 {% if kind.value == "instructor" %}
-{# #905: the producer tables' badges and columns come from one rule, so this line holds. #}
-<p class="pl-recon-pay-lead" data-recon-pay-lead>Pay instructors, orientators and equipment managers only what Owed manually shows. Stripe pays the rest.</p>
+{# #905: the line badges come from the same rule as the columns, so this line holds. #}
+<p class="pl-recon-pay-lead" data-recon-pay-lead>Pay by hand only the shares marked Pay by hand in Transaction Detail. Stripe pays the rest, including any share it is retrying.</p>
 {% endif %}
 <div class="pl-card" style="margin-bottom:1.25rem">
   <div class="pl-section-label">{{ heading }}</div>
