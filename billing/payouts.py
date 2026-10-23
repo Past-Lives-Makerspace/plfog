@@ -755,22 +755,33 @@ class LinePayout:
 
     @property
     def badge(self) -> PayoutBadge:
-        """The line's Transaction Detail badge."""
+        """The line's Transaction Detail badge: the sent day as "Oct 14"."""
+        sent_on = None
+        if self.sent_at is not None:
+            sent = timezone.localtime(self.sent_at)
+            sent_on = f"{sent:%b} {sent.day}"
+        return PayoutBadge(self._words(sent_on), _LINE_TONES[self.state])
+
+    @property
+    def export_label(self) -> str:
+        """The same words for a spreadsheet (#910): the sent day in Pacific time as "2026-10-14"."""
+        sent_on = None if self.sent_at is None else timezone.localtime(self.sent_at).date().isoformat()
+        return self._words(sent_on)
+
+    def _words(self, sent_on: str | None) -> str:
+        """The state in words; ``sent_on`` is the sent day as the surface writes it, or None."""
         if self.state in ("sent", "taken_back"):
-            words = "Sent through Stripe"
-            if self.sent_at is not None:
-                sent = timezone.localtime(self.sent_at)
-                words = f"{words} {sent:%b} {sent.day}"
-            if self.state == "taken_back":
-                words = f"{words}, refund taken back"
-            return PayoutBadge(words, "ok")
-        if self.state == "will_send":
-            return PayoutBadge("Will be sent through Stripe", "warn")
-        if self.state == "retrying":
-            return PayoutBadge("Stripe is retrying", "warn")
-        return PayoutBadge("Pay by hand", "muted")
+            words = "Sent through Stripe" if sent_on is None else f"Sent through Stripe {sent_on}"
+            return f"{words}, refund taken back" if self.state == "taken_back" else words
+        return _LINE_WORDS[self.state]
 
 
+_LINE_WORDS = {
+    "will_send": "Will be sent through Stripe",
+    "retrying": "Stripe is retrying",
+    "by_hand": "Pay by hand",
+}
+_LINE_TONES = {"sent": "ok", "taken_back": "ok", "will_send": "warn", "retrying": "warn", "by_hand": "muted"}
 _THROUGH_STRIPE_LINE_STATES = frozenset({"sent", "taken_back", "will_send"})
 
 
