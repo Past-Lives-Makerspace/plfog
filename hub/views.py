@@ -956,7 +956,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "kiln_home": kiln_home,
             "show_meetings_tab": show_meetings_tab,
             "meeting_notes": meeting_notes,
-            "location_statuses": guild_location_statuses(guild),
+            # Off in Guild Settings (#892): no section and no status query.
+            "location_statuses": guild_location_statuses(guild) if guild.show_location_status else [],
         },
     )
 
