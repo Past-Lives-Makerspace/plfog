@@ -29,11 +29,11 @@ def describe_discount_code_requested_notification():
     def it_notifies_a_discount_approver_on_creation():
         approver = _member("dapprover")
         approver.admin_capabilities.create(capability=AdminCapability.Capability.DISCOUNT_APPROVER)
-        DiscountCode.objects.create(code="spring20", discount_pct=20)
+        code = DiscountCode.objects.create(code="spring20", discount_pct=20)
         row = Notification.objects.get(user=approver.user, trigger="discount_code.requested")
         # The sender passes an absolute url for the email; the bell keeps only the path, so a
-        # click stays on the member's host.
-        assert row.url == reverse("classes:admin_discount_codes")
+        # click stays on the member's host, anchored on the code so a decision clears it (#894).
+        assert row.url == f"{reverse('classes:admin_discount_codes')}#code-{code.pk}"
 
     def it_does_not_notify_a_plain_member():
         bystander = _member("bystander")

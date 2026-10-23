@@ -49,7 +49,7 @@ from core.integrations import eventbrite_choices
 from core.integrations.eventbrite_choices import EventbriteCategory, EventbriteSubcategory
 from core.html_sanitize import is_editor_html, rich_body_to_text, rich_html_to_text
 from core.images import cut_hero_crop, normalize_field_if_uploaded
-from core.models import HERO_CROP_FIELDS, HeroCropMixin
+from core.models import HERO_CROP_FIELDS, HeroCropMixin, StaffRequestMixin
 from core.validators import validate_image_content, validate_image_size
 from membership.names import user_name_or_email
 
@@ -2368,7 +2368,8 @@ class ClassOffering(HeroCropMixin, models.Model):
                 "note": note,
                 "edit_url": _absolute_url(edit_path),
             },
-            url=edit_path,
+            # Anchored on this request, so two on one class are two lines in the 8 AM email (#894).
+            url=f"{edit_path}#change-{row.pk}",
             period=f"offering:{self.pk}:change_request:{row.pk}",
         )
         return True
@@ -4760,7 +4761,7 @@ class DiscountApprover(NamedTuple):
         return self.self_approves and code.created_by_id == self.user_pk
 
 
-class DiscountCode(models.Model):
+class DiscountCode(StaffRequestMixin, models.Model):
     class Scope(models.TextChoices):
         """Where a code works (#764). Derived from the scope fields, never stored."""
 
@@ -4839,6 +4840,16 @@ class DiscountCode(models.Model):
             ),
         ]
 
+    #: The bell rows a decision clears (#894 part 3, :class:`core.models.StaffRequestMixin`).
+    REQUEST_EVENT_KEYS: ClassVar[tuple[str, ...]] = ("discount_code.requested",)
+
+    @property
+    def request_bell_path(self) -> str:
+        """The admin discount code list, anchored on this code: the approvers' bell link."""
+        from django.urls import reverse
+
+        return f"{reverse('classes:admin_discount_codes')}#code-{self.pk}"
+
     def __str__(self) -> str:
         return self.code
 
@@ -4857,8 +4868,6 @@ class DiscountCode(models.Model):
             )
             # A code born approved (DiscountCodeRequest.approve) needs no approval ping; every other new code still gets one.
             if not self.is_approved:
-                from django.urls import reverse
-
                 from core.events.emit import emit
 
                 emit(
@@ -4869,7 +4878,7 @@ class DiscountCode(models.Model):
                     title="A discount code needs approval",
                     body=f"The discount code {self.code} was created and needs approval before it can be used.",
                     # Absolute: the email channel uses this verbatim, and a bare path is dead in mail.
-                    url=f"{settings.MEMBER_BASE_URL}{reverse('classes:admin_discount_codes')}",
+                    url=f"{settings.MEMBER_BASE_URL}{self.request_bell_path}",
                     period=f"discount:{self.pk}:requested",
                 )
 
@@ -4963,6 +4972,7 @@ class DiscountCode(models.Model):
         """
         self.is_approved = True
         self.save(update_fields=["is_approved"])
+        self.clear_request_bells()
 
     def unapprove(self) -> None:
         """Revoke approval, returning the code to pending so it can't be used.
@@ -5043,7 +5053,7 @@ class DiscountCodeRequestAlreadyDecided(Exception):
     """Raised when approve() or decline() is called on a request that is no longer pending."""
 
 
-class DiscountCodeRequest(models.Model):
+class DiscountCodeRequest(StaffRequestMixin, models.Model):
     """An instructor's ask for a class discount code, decided by an admin.
 
     Under approval mode (both instructor discount code settings on) an instructor cannot
@@ -5125,6 +5135,16 @@ class DiscountCodeRequest(models.Model):
             ),
         ]
 
+    #: The bell rows a decision clears (#894 part 3, :class:`core.models.StaffRequestMixin`).
+    REQUEST_EVENT_KEYS: ClassVar[tuple[str, ...]] = ("discount_code.requested",)
+
+    @property
+    def request_bell_path(self) -> str:
+        """This request's review page: the approvers' bell link."""
+        from django.urls import reverse
+
+        return reverse("classes:admin_discount_code_request_review", kwargs={"pk": self.pk})
+
     def __str__(self) -> str:
         return f"{self.code} for {self.class_offering.title} ({self.get_status_display()})"
 
@@ -5205,6 +5225,7 @@ class DiscountCodeRequest(models.Model):
             self.decided_by = user
             self.decided_at = timezone.now()
             self.save(update_fields=["discount_code", "status", "decided_by", "decided_at"])
+            self.clear_request_bells()
         self._emit_decision(
             "discount_code.request_approved",
             title=f"Your discount code {code.code} was approved",
@@ -5235,6 +5256,7 @@ class DiscountCodeRequest(models.Model):
             self.decided_by = user
             self.decided_at = timezone.now()
             self.save(update_fields=["decision_note", "status", "decided_by", "decided_at"])
+            self.clear_request_bells()
         self._emit_decision(
             "discount_code.request_declined",
             title=f"Your discount code request {self.code} was declined",

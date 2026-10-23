@@ -19,3 +19,17 @@ def clear_review_bells_on_gate_delete(sender: type[ClassApproval], instance: Cla
     deleting the class, and only ``pre_delete`` fires for all three.
     """
     ClassApproval.mark_review_bells_read([instance.token])
+
+
+def _connect_request_bell_clearing() -> None:
+    """A discount code request deleted unanswered stops asking in the bell (#894 part 3)."""
+    from core.signals import clear_request_bells_on_delete
+    from classes.models import DiscountCode, DiscountCodeRequest
+
+    for model in (DiscountCode, DiscountCodeRequest):
+        pre_delete.connect(
+            clear_request_bells_on_delete, sender=model, dispatch_uid=f"classes.request_bells.{model.__name__}"
+        )
+
+
+_connect_request_bell_clearing()

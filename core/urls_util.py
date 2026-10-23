@@ -17,6 +17,19 @@ def book_absolute_url(path: str) -> str:
     return f"{base}{path}"
 
 
+def member_absolute_url(url: str) -> str:
+    """An email-ready link: an absolute URL unchanged, a path on the members host.
+
+    Senders pass the bell's link to every channel, often as a path; an email needs a host,
+    and every path resolves on the members host (see :func:`notification_click_url`).
+    """
+    from urllib.parse import urlsplit
+
+    if not url or urlsplit(url).netloc:
+        return url
+    return f"{settings.MEMBER_BASE_URL.rstrip('/')}{url}"
+
+
 def notification_click_url(url: str) -> str:
     """Where a bell or push click should go: our own links as a path on the member's host.
 

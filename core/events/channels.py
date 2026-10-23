@@ -54,7 +54,7 @@ from core.fcm import (
 )
 from core.models import EventDelivery, FcmDevice, Notification, PushSubscription, TransactionalEmailLog
 from core.push import send_web_push
-from core.urls_util import notification_click_url
+from core.urls_util import member_absolute_url, notification_click_url
 
 if TYPE_CHECKING:
     from datetime import date, datetime, timedelta
@@ -530,10 +530,10 @@ class DigestAdapter:
         """
         from core.events.resolvers import open_request_urls
 
-        urls_by_event: dict[str, set[str]] = {}
+        rows_by_event: dict[str, list[EventDelivery]] = {}
         for row in rows:
-            urls_by_event.setdefault(row.event_key, set()).add(row.url)
-        open_urls = {key: open_request_urls(key, sorted(urls)) for key, urls in urls_by_event.items()}
+            rows_by_event.setdefault(row.event_key, []).append(row)
+        open_urls = {key: open_request_urls(key, event_rows) for key, event_rows in rows_by_event.items()}
         keep = [row for row in rows if row.url in open_urls[row.event_key]]
         kept_ids = {row.pk for row in keep}
         dropped = [row for row in rows if row.pk not in kept_ids]
@@ -630,7 +630,8 @@ def digest_context(rows: list[EventDelivery]) -> dict[str, object]:
     newest_by_url = {row.url: row for row in rows}
     sections: dict[str, list[dict[str, str]]] = {}
     for row in newest_by_url.values():
-        line = {"title": row.title, "body": row.body, "url": row.url}
+        # Senders pass the bell's link, often a path; the email needs a host (#894 part 3).
+        line = {"title": row.title, "body": row.body, "url": member_absolute_url(row.url)}
         sections.setdefault(get_event(row.event_key).label, []).append(line)
     count = len(newest_by_url)
     if {row.event_key for row in newest_by_url.values()} <= CLASS_REVIEW_EVENTS:

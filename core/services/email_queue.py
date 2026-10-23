@@ -156,10 +156,10 @@ class DigestQueue:
                 "created_at"
             )
         )
-        urls_by_event: dict[str, set[str]] = {}
+        rows_by_event: dict[str, list[EventDelivery]] = {}
         for row in pending:
-            urls_by_event.setdefault(row.event_key, set()).add(row.url)
-        open_urls = {key: open_request_urls(key, sorted(urls)) for key, urls in urls_by_event.items()}
+            rows_by_event.setdefault(row.event_key, []).append(row)
+        open_urls = {key: open_request_urls(key, event_rows) for key, event_rows in rows_by_event.items()}
         users = User.objects.select_related("member").in_bulk({row.recipient_user_id for row in pending})
         newest: dict[int, dict[str, EventDelivery]] = {}
         for row in pending:
