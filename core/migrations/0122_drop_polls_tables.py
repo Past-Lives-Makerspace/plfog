@@ -3,6 +3,9 @@
 The polls app is gone from the code; its tables stayed one release so the release before #890
 kept working while it deployed. A JSON backup of every row was taken before this ran. The
 ``polls`` migration history and content types go too, so nothing points at the removed app.
+
+One way on purpose (Felix, 2026-10-23, #917): with no reverse, a rollback stops with
+IrreversibleError rather than reporting success. Recovery is the JSON backup and git history.
 """
 
 from django.db import migrations
@@ -20,9 +23,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL("DROP TABLE IF EXISTS polls_pollvote", reverse_sql=migrations.RunSQL.noop),
-        migrations.RunSQL("DROP TABLE IF EXISTS polls_pollchoice", reverse_sql=migrations.RunSQL.noop),
-        migrations.RunSQL("DROP TABLE IF EXISTS polls_poll", reverse_sql=migrations.RunSQL.noop),
-        migrations.RunSQL("DELETE FROM django_migrations WHERE app = 'polls'", reverse_sql=migrations.RunSQL.noop),
-        migrations.RunPython(forget_polls_content_types, migrations.RunPython.noop),
+        migrations.RunSQL("DROP TABLE IF EXISTS polls_pollvote"),
+        migrations.RunSQL("DROP TABLE IF EXISTS polls_pollchoice"),
+        migrations.RunSQL("DROP TABLE IF EXISTS polls_poll"),
+        migrations.RunSQL("DELETE FROM django_migrations WHERE app = 'polls'"),
+        migrations.RunPython(forget_polls_content_types),
     ]
