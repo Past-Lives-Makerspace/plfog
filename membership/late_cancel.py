@@ -1,6 +1,6 @@
 """The late cancellation policy: one resolver for the fee, the notice window and lateness (#456).
 
-Site Settings holds the switch, the notice members are told and the grace they are not told;
+Manage Features holds the switch, the notice members are told and the grace they are not told;
 a guild or a piece of equipment holds only the amount. Nothing else reads those columns or
 computes lateness: every surface asks :func:`policy_for` (a booking or a reservation),
 :func:`policy_for_type` (a bookable orientation type) or :func:`policy_for_equipment` (a

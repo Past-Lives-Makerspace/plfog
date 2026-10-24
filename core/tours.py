@@ -700,7 +700,7 @@ def tour_offer_context(request: HttpRequest, tour_key: str) -> dict[str, Any]:
     if not member.guided_tours_enabled or show_welcome_modal:
         return empty
     if not SiteConfiguration.load().guided_tours_enabled:
-        # The site-wide switch (Site Settings, Features). Checked after the member guards so
+        # The site-wide switch (Manage Features). Checked after the member guards so
         # the query only runs for someone who would otherwise be offered a tour, and before
         # any ``offered`` row is written, so turning it back on offers afresh.
         return empty

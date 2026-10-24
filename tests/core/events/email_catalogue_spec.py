@@ -64,10 +64,10 @@ def describe_build_email_catalogue():
             assert row.adjust_url == reverse("hub_admin_voting_settings")
             assert "Voting settings" in row.adjust_label
 
-        def it_links_other_scheduled_emails_to_the_automations_tab():
+        def it_links_other_scheduled_emails_to_the_automations_page():
             row = _rows()["class_reminder"]
             assert row.is_automatic
-            assert "tab=automations" in row.adjust_url
+            assert row.adjust_url == reverse("hub_admin_automations")
             assert "Automations" in row.adjust_label
             assert row.schedule_note == "Sent automatically before each class starts."
 

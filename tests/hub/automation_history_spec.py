@@ -125,7 +125,7 @@ def describe_history_page():
 
     def it_is_linked_from_every_automation_card(client: Client):
         _admin(client)
-        html = client.get(f"{reverse('hub_admin_site_settings')}?tab=automations").content.decode()
+        html = client.get(reverse("hub_admin_automations")).content.decode()
         assert f'href="{_history()}"' in html
         assert f'href="{_history("send_class_reminders")}"' in html
 
