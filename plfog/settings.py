@@ -269,7 +269,6 @@ INSTALLED_APPS = [
     "billing",
     "airtable_sync",
     "kiln",
-    "polls",
     "hq",
     # REST API
     "rest_framework",
