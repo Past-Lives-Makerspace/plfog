@@ -1559,6 +1559,9 @@ class _OwnFieldErrorsOnly(forms.ModelForm):
     and raises "has no field named", a 500 on a page that cannot fix it anyway. The rule is about
     another page's fields, so this page drops the error and saves; the Member Agreement page,
     which has the field, still shows it (#922).
+
+    A new ``clean`` rule spanning fields on two pages must key its error on the field the saving
+    page owns, or raise it as a non-field error; an error keyed on another page's field is dropped.
     """
 
     def _update_errors(self, errors: forms.ValidationError) -> None:
