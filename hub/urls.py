@@ -897,6 +897,10 @@ urlpatterns = [
         name="hub_admin_user_email_toggle_verified",
     ),
     path("manage/site-settings/", views.admin_site_settings, name="hub_admin_site_settings"),
+    path("manage/member-agreement/", views.admin_member_agreement, name="hub_admin_member_agreement"),
+    path("manage/automations/", views.admin_automations, name="hub_admin_automations"),
+    path("manage/features/", views.admin_manage_features, name="hub_admin_features"),
+    path("manage/cms/", views.admin_manage_cms, name="hub_admin_cms"),
     path(
         "manage/site-settings/automations/<slug:key>/",
         views.admin_automation_history,

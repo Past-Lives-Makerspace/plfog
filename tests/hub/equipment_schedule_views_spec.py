@@ -1295,7 +1295,7 @@ def describe_hours_and_limits_tab_layout():
                 "The most time a member can book in one reservation, in minutes.",
                 "How many days ahead a member can reserve. 30 means they can book up to 30 days from today.",
                 "How many future reservations one member can hold at a time.",
-                "Charged when a member cancels inside the notice window set in Site Settings. Leave blank for no fee.",
+                "Charged when a member cancels inside the notice window set in Manage Features. Leave blank for no fee.",
             ):
                 assert f'<span class="pl-help__bubble" role="tooltip">{text}</span>' in page
 

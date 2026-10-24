@@ -36,7 +36,6 @@ INLINE_STYLE_RE = re.compile(r"<style[\s>]", re.IGNORECASE)
 BASELINE: frozenset[str] = frozenset(
     {
         "templates/hub/admin/members.html",
-        "templates/hub/admin/site_settings.html",
         "templates/hub/community_calendar.html",
     }
 )

@@ -1551,11 +1551,16 @@ class MemberBadgesForm(forms.Form):
 
 
 class SiteSettingsForm(forms.ModelForm):
-    """Admin form for the SiteConfiguration singleton.
+    """Site Settings' slice of the SiteConfiguration singleton: Brand, General, Calendar and Discord.
 
     Calendar feed rows live on the separate ``CalendarFeedFormSet`` below — keeping
     them off this form lets the Calendar tab manage an arbitrary number of feeds
     via a Django inline-style formset.
+
+    The Member Agreement, Manage Features, Manage CMS and Automations pages each own the rest
+    (#922), on the forms after this one. A field belongs to exactly one of them, because a
+    ModelForm writes every field it lists and a checkbox missing from a POST reads as off: a field
+    on two pages' forms would be switched off by every save of the page that does not show it.
     """
 
     class Meta:
@@ -1576,14 +1581,8 @@ class SiteSettingsForm(forms.ModelForm):
             "suspended_members_locked_out",
             "kiln_tickets_open",
             "suspended_member_signin_message",
-            "member_agreement_required",
-            "member_agreement_url",
-            "member_agreement_version",
             "sync_classes_enabled",
             "classes_calendar_color",
-            "legacy_cms_sync_enabled",
-            "instructor_discount_codes_enabled",
-            "instructor_discount_codes_need_approval",
             "mailchimp_api_key",
             "mailchimp_list_id",
             "google_analytics_measurement_id",
@@ -1594,17 +1593,6 @@ class SiteSettingsForm(forms.ModelForm):
             "discord_server_id",
             "discord_role_message_channel_id",
             "discord_role_message_id",
-            "late_cancel_fees_enabled",
-            "late_cancel_notice_hours",
-            "late_cancel_grace_hours",
-            "class_registration_enabled",
-            "class_registration_disabled_note",
-            "help_page_enabled",
-            "guided_tours_enabled",
-            "guild_welcome_email_enabled",
-            "display_demo_classes",
-            "display_demo_guild",
-            "member_directory_public",
             "member_event_policy",
             "member_google_calendar_id",
             "public_google_calendar_id",
@@ -1622,7 +1610,6 @@ class SiteSettingsForm(forms.ModelForm):
         widgets = {
             "org_primary_color": forms.TextInput(attrs={"type": "color"}),
             "classes_calendar_color": forms.TextInput(attrs={"type": "color"}),
-            "class_registration_disabled_note": forms.Textarea(attrs={"rows": 3}),
             "former_member_signin_message": forms.Textarea(attrs={"rows": 2}),
             "guest_member_signin_message": forms.Textarea(attrs={"rows": 2}),
             "suspended_member_signin_message": forms.Textarea(attrs={"rows": 2}),
@@ -1630,27 +1617,6 @@ class SiteSettingsForm(forms.ModelForm):
             "public_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
             "discord_info_links_content": forms.Textarea(attrs={"rows": 14}),
         }
-
-    def clean(self) -> dict[str, Any]:
-        cleaned = cast(dict[str, Any], super().clean())
-        required = cleaned.get("member_agreement_required")
-        url = cleaned.get("member_agreement_url")
-        if required and not url:
-            self.add_error("member_agreement_url", "A URL is required if the agreement is enabled.")
-        self._clean_late_cancel_window(cleaned)
-        return cleaned
-
-    def _clean_late_cancel_window(self, cleaned: dict[str, Any]) -> None:
-        """The notice members are told must be at least an hour, and the hidden grace shorter than it.
-
-        A grace equal to the notice would make every cancel free while the copy promises a fee.
-        """
-        notice = cleaned.get("late_cancel_notice_hours")
-        grace = cleaned.get("late_cancel_grace_hours")
-        if notice is not None and notice < 1:
-            self.add_error("late_cancel_notice_hours", "Give members at least 1 hour of notice.")
-        elif notice is not None and grace is not None and grace >= notice:
-            self.add_error("late_cancel_grace_hours", "The grace period must be shorter than the notice.")
 
     def clean_discord_info_links_content(self) -> str:
         """Cap the links copy at Discord's embed-description limit before it can 400 a sync."""
@@ -1662,6 +1628,97 @@ class SiteSettingsForm(forms.ModelForm):
                 f"Keep the links content under {EMBED_DESCRIPTION_MAX:,} characters (Discord's embed limit)."
             )
         return content
+
+
+class _SiteConfigurationSliceForm(forms.ModelForm):
+    """One page's own columns of the SiteConfiguration singleton, written alone (#922).
+
+    Four pages now save the same row. A whole row save would put back, from the copy this page
+    loaded, a setting another admin changed on another page in the meantime; writing only this
+    form's fields cannot (``SiteConfiguration.set_door_code`` does the same).
+    """
+
+    def save(self, commit: bool = True) -> SiteConfiguration:
+        instance = cast(SiteConfiguration, super().save(commit=False))
+        if commit:
+            instance.save(update_fields=list(self._meta.fields or ()))
+        return instance
+
+
+class MemberAgreementSettingsForm(_SiteConfigurationSliceForm):
+    """The Member Agreement page (#922): whether members must accept it, where it lives, and its edition."""
+
+    class Meta:
+        model = SiteConfiguration
+        fields = ["member_agreement_required", "member_agreement_url", "member_agreement_version"]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        if cleaned.get("member_agreement_required") and not cleaned.get("member_agreement_url"):
+            self.add_error("member_agreement_url", "A URL is required if the agreement is enabled.")
+        return cleaned
+
+
+class ManageFeaturesForm(_SiteConfigurationSliceForm):
+    """Manage Features' switches that stay flat booleans (#922), beside the ``FeatureSwitchFormSet`` cards.
+
+    They gate a page or a behaviour rather than a whole feature family, so they are fields on the
+    singleton and not registry features.
+    """
+
+    class Meta:
+        model = SiteConfiguration
+        fields = [
+            "late_cancel_fees_enabled",
+            "late_cancel_notice_hours",
+            "late_cancel_grace_hours",
+            "class_registration_enabled",
+            "class_registration_disabled_note",
+            "help_page_enabled",
+            "guided_tours_enabled",
+            "guild_welcome_email_enabled",
+            "display_demo_classes",
+            "display_demo_guild",
+            "member_directory_public",
+        ]
+        widgets = {"class_registration_disabled_note": forms.Textarea(attrs={"rows": 3})}
+
+    def clean(self) -> dict[str, Any]:
+        """The notice members are told must be at least an hour, and the hidden grace shorter than it.
+
+        A grace equal to the notice would make every cancel free while the copy promises a fee.
+        """
+        cleaned = cast(dict[str, Any], super().clean())
+        notice = cleaned.get("late_cancel_notice_hours")
+        grace = cleaned.get("late_cancel_grace_hours")
+        if notice is not None and notice < 1:
+            self.add_error("late_cancel_notice_hours", "Give members at least 1 hour of notice.")
+        elif notice is not None and grace is not None and grace >= notice:
+            self.add_error("late_cancel_grace_hours", "The grace period must be shorter than the notice.")
+        return cleaned
+
+
+class ManageCmsForm(_SiteConfigurationSliceForm):
+    """Manage CMS's own settings (#922): the instructor discount code switches.
+
+    The nightly pull's switch is not here: it is a scheduled job's, so it lives on the Automations
+    page (``AutomationsForm``) and this page only shows its state.
+    """
+
+    class Meta:
+        model = SiteConfiguration
+        fields = ["instructor_discount_codes_enabled", "instructor_discount_codes_need_approval"]
+
+
+class AutomationsForm(_SiteConfigurationSliceForm):
+    """The Automations page's one singleton field (#922): the legacy CMS pull under the nightly sync card.
+
+    The per job switches are ``ScheduledJobStateFormSet`` beside it.
+    """
+
+    class Meta:
+        model = SiteConfiguration
+        fields = ["legacy_cms_sync_enabled"]
 
 
 class CalendarFeedForm(forms.ModelForm):
@@ -1685,7 +1742,7 @@ CalendarFeedFormSet = forms.modelformset_factory(
 )
 
 
-# Site Settings → Automations tab. One ``enabled`` toggle per scheduled job, saved by the
+# The Automations page (#922). One ``enabled`` toggle per scheduled job, saved by the
 # page's Save. The row set is fixed by the code registry (not user-managed), so ``extra=0``
 # and no add/delete — admins pause or run jobs, they don't add or remove them.
 ScheduledJobStateFormSet: type[forms.BaseModelFormSet] = forms.modelformset_factory(
@@ -1696,7 +1753,7 @@ ScheduledJobStateFormSet: type[forms.BaseModelFormSet] = forms.modelformset_fact
 
 
 class FeatureSwitchForm(forms.ModelForm):
-    """One feature's card on Site Settings → Features: its state and its Coming soon message.
+    """One feature's card on Manage Features (#922): its state and its Coming soon message.
 
     The message input is always rendered and always saved — it only *means* anything in the
     Coming soon state, and keeping the typed text through a trip to Hidden and back is kinder
@@ -1712,7 +1769,7 @@ class FeatureSwitchForm(forms.ModelForm):
         }
 
 
-# Site Settings → Features. One card per registry feature, saved by the page's Save. The row set
+# Manage Features (#922). One card per registry feature, saved by the page's Save. The row set
 # is fixed by ``core.features.FEATURES`` (not user-managed), so ``extra=0`` and no add/delete —
 # admins change a feature's state, they don't add or remove features.
 FeatureSwitchFormSet: type[forms.BaseModelFormSet] = forms.modelformset_factory(
@@ -2439,7 +2496,7 @@ class LateCancelFeeFormMixin(forms.ModelForm):
     Shared by the guild's orientation settings and the equipment's Hours & Limits form, which
     both carry the column under the same name. Blank normalizes to 0 (no fee), a fee free
     owner renders the field empty rather than "0", and a POST that does not carry the field at
-    all (the templates render it only while Site Settings charges late fees) leaves the stored
+    all (the templates render it only while Manage Features charges late fees) leaves the stored
     fee alone, so switching the site feature off and on never wipes what a lead set.
     """
 
@@ -2450,7 +2507,7 @@ class LateCancelFeeFormMixin(forms.ModelForm):
         label="Late cancellation fee",
         help_text=(
             "In dollars. Charged when a member cancels inside the cancellation notice window set in "
-            "Site Settings. Blank means no fee."
+            "Manage Features. Blank means no fee."
         ),
         widget=forms.NumberInput(attrs={"placeholder": "No fee", "min": "0", "step": "0.01"}),
     )

@@ -1,0 +1,148 @@
+/* Site Settings and the four pages split from it in #922: Member Agreement, Automations,
+   Manage Features and Manage CMS. The form controls are themed the same way on all five; the
+   rest is the new pages' own layout, and the Run now spinner the Automations and CMS pages share.
+   The Automations and Features cards themselves (.pl-automation-*) stay in hub.css. */
+
+.site-settings-form input[type="text"],
+.site-settings-form input[type="url"],
+.site-settings-form input[type="email"],
+.site-settings-form input[type="number"],
+.site-settings-form select,
+.site-settings-form textarea {
+  background: rgba(255,255,255,0.04);
+  color: var(--hub-text);
+  border: 1px solid var(--hub-border);
+  border-radius: 6px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.9375rem;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+.site-settings-form input:focus,
+.site-settings-form select:focus,
+.site-settings-form textarea:focus {
+  outline: none;
+  border-color: #EEB44B;
+  background: rgba(255,255,255,0.06);
+}
+.site-settings-form select option {
+  background: #092E4C;
+  color: #F4EFDD;
+}
+.site-settings-form input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #EEB44B;
+  cursor: pointer;
+}
+/* Boolean fields render as pl-toggle switches (components/form_field.html). The rule above would
+   otherwise force the toggle's visually hidden checkbox back to 18px, so keep it collapsed and
+   only the themed slider shows. */
+.site-settings-form .pl-toggle input[type="checkbox"] {
+  width: 0;
+  height: 0;
+}
+.site-settings-form .field-row { display: flex; flex-direction: column; gap: 0.35rem; }
+.site-settings-form .field-checkbox { flex-direction: row; align-items: center; gap: 0.625rem; }
+
+/* Site Settings' Calendar tab: the iCal feeds list. */
+.pl-feed-list { display: flex; flex-direction: column; gap: 0.75rem; }
+.pl-feed-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr auto auto;
+  gap: 0.5rem;
+  align-items: end;
+  padding: 0.75rem;
+  border: 1px solid var(--hub-border);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.02);
+}
+.pl-feed-row label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--hub-text-muted);
+  margin-bottom: 0.25rem;
+}
+.pl-feed-row__remove {
+  height: 40px;
+}
+.pl-feed-add {
+  align-self: flex-start;
+  background: rgba(238,180,75,0.12);
+  color: #EEB44B;
+  border: 1px dashed rgba(238,180,75,0.4);
+  padding: 0.5rem 0.9rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.pl-feed-add:hover { background: rgba(238,180,75,0.18); }
+.pl-feed-empty {
+  color: var(--hub-text-muted);
+  font-style: italic;
+  padding: 0.75rem 0;
+}
+
+/* ── The pages split from Site Settings (#922) ─────────────────────────────── */
+.pl-settings-page__title { margin: 0 0 0.25rem; }
+.pl-settings-page__lead { color: var(--hub-text-muted); margin: 0 0 1.5rem; max-width: 760px; }
+.pl-settings-page__form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-width: 760px;
+}
+.pl-settings-page__actions { margin: 0.5rem 0 1.5rem; }
+.pl-settings-page__errors { color: #f87171; font-size: 0.875rem; }
+
+.pl-settings-section__title { margin: 0 0 0.25rem; font-size: 1rem; color: var(--hub-text); }
+.pl-settings-section__title--spaced { margin-bottom: 0.5rem; }
+.pl-settings-section__desc { margin: 0; color: var(--hub-text-muted); font-size: 0.875rem; }
+.pl-settings-section__desc--spaced { margin-bottom: 1rem; }
+.pl-settings-section__pill { margin: 0 0 0.5rem; }
+.pl-settings-muted { color: var(--hub-text-muted); }
+
+.pl-agreement-count { margin: 0; font-weight: 600; color: var(--hub-text); }
+
+/* Manage CMS: Sync Now with its progress bar, and the instructor match table. */
+.pl-sync-now {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-start;
+  max-width: 320px;
+}
+.pl-sync-now__hint { display: block; margin-top: 0.5rem; color: var(--hub-text-muted); }
+.pl-cms-match { width: 100%; border-collapse: collapse; }
+.pl-cms-match th,
+.pl-cms-match td { padding: 0.5rem; border-bottom: 1px solid var(--hub-border); text-align: left; }
+.pl-cms-match th:last-child,
+.pl-cms-match td:last-child { text-align: right; }
+.pl-cms-match__empty,
+.pl-cms-match__unmatched td { color: var(--hub-text-muted); }
+.pl-cms-match__unmatched { font-style: italic; }
+.pl-cms-match__unmatched td { border-bottom: 0; }
+
+/* Run now and Sync Now: the spinner on the pressed button, and Sync Now's estimated progress
+   bar (estimate = the last run's duration). Driven by hub/admin/_run_now_script.html. */
+[data-run-now] .sync-spinner {
+  display: none; width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px;
+  border: 2px solid rgba(255, 255, 255, 0.45); border-top-color: #fff; border-radius: 50%;
+  animation: sync-spin 0.7s linear infinite;
+}
+[data-run-now].is-syncing .sync-spinner { display: inline-block; }
+[data-run-now][disabled] { opacity: 0.85; cursor: progress; }
+@keyframes sync-spin { to { transform: rotate(360deg); } }
+#sync-now-wrap .sync-progress {
+  width: 100%; height: 6px; border-radius: 3px; overflow: hidden;
+  background: var(--hub-border, #e5e7eb);
+}
+#sync-now-wrap .sync-progress__fill {
+  height: 100%; width: 0; border-radius: 3px;
+  background: linear-gradient(90deg, #60a5fa, #34d399); transition: width 0.25s linear;
+}
+#sync-now-wrap .sync-progress__fill.is-indeterminate {
+  width: 35% !important; animation: sync-indet 1.1s ease-in-out infinite;
+}
+@keyframes sync-indet { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }

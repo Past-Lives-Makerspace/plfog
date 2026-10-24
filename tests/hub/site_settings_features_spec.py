@@ -1,7 +1,8 @@
-"""Site Settings → Features — the save path for the three-state feature switches (#405).
+"""Manage Features (#922, once Site Settings' Features tab): the save path for the three-state
+feature switches (#405).
 
-The tab renders inside ``#site-settings-form`` and its formset saves with the page's Save, the
-same way the Automations toggles beside it do. Everything here drives that POST rather than the
+The cards render inside the page's one form and the formset saves with its Save, the same way
+the Automations page's toggles do. Everything here drives that POST rather than the
 form in isolation, because the form was already covered and the *view* path was not: nothing in
 the suite posted ``features-TOTAL_FORMS``, so the bound branch of ``_bind_feature_formset``, the
 whole of ``_save_feature_formset`` and ``_resolve_feature_context`` with a bound formset never
@@ -13,6 +14,8 @@ sibling jobstate formset.
 
 from __future__ import annotations
 
+from collections import Counter
+
 import pytest
 from django.test import Client
 from django.urls import reverse
@@ -22,7 +25,7 @@ from core.models import FeatureSwitch, SiteConfiguration
 
 pytestmark = pytest.mark.django_db
 
-URL = reverse("hub_admin_site_settings")
+URL = reverse("hub_admin_features")
 
 
 def _superuser(client: Client, username: str = "featadmin"):
@@ -58,20 +61,8 @@ def _feature_post_data(states: dict[str, str] | None = None, messages: dict[str,
 
 
 def _settings_post(**kwargs) -> dict[str, str]:
-    """A full Features-tab save: the shared SiteSettingsForm fields + feeds management form +
-    the feature formset."""
-    data = {
-        "org_name": "Past Lives Makerspace",
-        "registration_mode": SiteConfiguration.RegistrationMode.INVITE_ONLY,
-        "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
-        "late_cancel_notice_hours": "24",
-        "late_cancel_grace_hours": "2",
-        "feeds-TOTAL_FORMS": "0",
-        "feeds-INITIAL_FORMS": "0",
-        "feeds-MIN_NUM_FORMS": "0",
-        "feeds-MAX_NUM_FORMS": "1000",
-        "submitted_tab": "features",
-    }
+    """A Manage Features Save: the page's two required hour fields + the feature formset."""
+    data = {"late_cancel_notice_hours": "24", "late_cancel_grace_hours": "2"}
     data.update(_feature_post_data(**kwargs))
     return data
 
@@ -132,7 +123,7 @@ def describe_saving_the_coming_soon_message():
                 messages={"voting": "Launching Sept 30th!"},
             ),
         )
-        html = client.get(f"{URL}?tab=features").content
+        html = client.get(URL).content
         assert b"Launching Sept 30th!" in html
 
     def it_keeps_a_typed_message_through_a_trip_back_to_on(client: Client):
@@ -164,47 +155,19 @@ def describe_the_updated_by_stamp():
         assert FeatureSwitch.objects.get(feature_key="equipment").updated_by is not None
         assert FeatureSwitch.objects.get(feature_key="teach").updated_by is None
 
-    def describe_when_there_is_no_user_to_credit():
-        def it_stores_no_stamp(client: Client):
-            """The ``else None`` half of the stamp.
-
-            Unreachable through the view — ``fog_admin_required`` guarantees a saved User — so
-            the helper is called directly rather than left as an uncovered branch. An
-            AnonymousUser has no pk, which is the condition the guard actually tests.
-            """
-            from django.contrib.auth.models import AnonymousUser
-
-            from hub.forms import FeatureSwitchFormSet
-            from hub.views import _feature_switch_queryset, _save_feature_formset
-
-            FeatureSwitch.objects.sync_registry()
-            data = _feature_post_data(states={"voting": FeatureState.HIDDEN})
-            formset = FeatureSwitchFormSet(data, queryset=_feature_switch_queryset(), prefix="features")
-            _save_feature_formset(formset, True, AnonymousUser())
-
-            row = FeatureSwitch.objects.get(feature_key="voting")
-            assert row.state == FeatureState.HIDDEN
-            assert row.updated_by is None
-
 
 def describe_when_the_formset_is_not_posted():
-    def it_leaves_every_state_untouched(client: Client):
-        """Another tab's save must not reset the switches.
-
-        ``_bind_feature_formset`` only binds when the management form is present, so a POST from
-        the Brand or Discord tab carries no feature data and must be a no-op here.
-        """
+    def it_is_left_untouched_by_a_site_settings_save(client: Client):
+        """Site Settings' Save carries no feature data, so it must not reset the switches."""
         _superuser(client)
         FeatureSwitch.objects.sync_registry()
         FeatureSwitch.objects.filter(feature_key="voting").update(state=FeatureState.SOON)
         client.post(
-            URL,
+            reverse("hub_admin_site_settings"),
             {
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.INVITE_ONLY,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
-                "late_cancel_notice_hours": "24",
-                "late_cancel_grace_hours": "2",
                 "feeds-TOTAL_FORMS": "0",
                 "feeds-INITIAL_FORMS": "0",
                 "feeds-MIN_NUM_FORMS": "0",
@@ -214,31 +177,73 @@ def describe_when_the_formset_is_not_posted():
         )
         assert _state_of("voting") == FeatureState.SOON
 
+    def it_saves_nothing_on_this_page_and_shows_the_error(client: Client):
+        """Without its management form the formset is invalid, so neither half of the page saves."""
+        _superuser(client)
+        # help_page_enabled is left out, so a save would have switched it off.
+        response = client.post(URL, {"late_cancel_notice_hours": "48", "late_cancel_grace_hours": "2"})
+        assert response.status_code == 200
+        assert "pl-settings-page__errors" in response.content.decode()
+        config = SiteConfiguration.load()
+        assert config.late_cancel_notice_hours == 24
+        assert config.help_page_enabled is True
 
-def describe_the_settings_form_renders_each_field_once():
-    """Every SiteConfiguration field belongs to exactly one tab.
 
-    The page renders the whole form inside ONE ``<form>``, and each tab's markup names the
-    fields it owns. The leftover fields fall through a generic loop on the General tab guarded
-    by a long ``field.name != '...'`` chain, so putting a field on a tab without ALSO adding it
-    to that chain renders the same input twice in the same form. That is how
+def describe_a_save():
+    def it_says_so_and_comes_back_here(client: Client):
+        _superuser(client)
+        response = client.post(URL, _settings_post(), follow=True)
+        assert response.redirect_chain == [(URL, 302)]
+        assert any(m.message == "Features saved." for m in response.context["messages"])
+
+    def it_saves_neither_half_when_a_feature_message_is_too_long(client: Client):
+        _superuser(client)
+        data = _settings_post(messages={"voting": "x" * 201})
+        data["late_cancel_notice_hours"] = "48"
+        response = client.post(URL, data)
+        assert response.status_code == 200
+        assert SiteConfiguration.load().late_cancel_notice_hours == 24
+        assert FeatureSwitch.objects.get(feature_key="voting").message == ""
+
+
+def describe_each_page_renders_its_own_fields_once():
+    """Every SiteConfiguration field belongs to exactly one page, and renders there once (#922).
+
+    Site Settings renders its form inside ONE ``<form>``, and its General tab picks up the
+    leftover fields through a generic loop guarded by a long ``field.name != '...'`` chain, so a
+    field given its own place without ALSO joining that chain renders twice. That is how
     ``member_directory_public`` came to render as a styled toggle on Features and a raw,
     cramped checkbox on General at the same time.
 
     A duplicate is not merely ugly. Two inputs, one name: the browser submits the state of
     whichever the admin did not touch alongside the one they did, and for a checkbox the value
-    that survives depends on DOM order rather than on intent.
-
-    Checked by name rather than by eye, because the chain is a wall of text nobody re-reads.
+    that survives depends on DOM order rather than on intent. A field its page does not render
+    at all is worse: that page's Save reads its missing checkbox as off.
     """
 
-    def _rendered_names(client: Client) -> list[str]:
+    from hub.forms import (
+        AutomationsForm,
+        ManageCmsForm,
+        ManageFeaturesForm,
+        MemberAgreementSettingsForm,
+        SiteSettingsForm,
+    )
+
+    PAGES = [
+        ("hub_admin_site_settings", SiteSettingsForm),
+        ("hub_admin_features", ManageFeaturesForm),
+        ("hub_admin_cms", ManageCmsForm),
+        ("hub_admin_automations", AutomationsForm),
+        ("hub_admin_member_agreement", MemberAgreementSettingsForm),
+    ]
+
+    def _rendered_names(client: Client, url: str) -> list[str]:
         import re
 
-        body = client.get(URL).content.decode()
+        body = client.get(url).content.decode()
         # Inputs only, and not the radio groups: a radio group is several inputs sharing one
         # name BY DESIGN (the Features state selector is three of them), which is the one
-        # legitimate repeat on this page.
+        # legitimate repeat on these pages.
         tags = re.findall(r"<(?:input|select|textarea)\b[^>]*>", body)
         names = []
         for tag in tags:
@@ -249,25 +254,15 @@ def describe_the_settings_form_renders_each_field_once():
                 names.append(match.group(1))
         return names
 
-    def it_names_no_configuration_field_twice(client: Client):
-        from collections import Counter
-
-        from hub.forms import SiteSettingsForm
-
+    @pytest.mark.parametrize(("url_name", "form_class"), PAGES)
+    def it_renders_every_field_of_its_form_exactly_once(client: Client, url_name, form_class):
         _superuser(client, "dupeadmin")
-        counts = Counter(_rendered_names(client))
-        duplicated = sorted(name for name in SiteSettingsForm().fields if counts[name] > 1)
-        assert duplicated == [], f"rendered more than once inside #site-settings-form: {duplicated}"
+        counts = Counter(_rendered_names(client, reverse(url_name)))
+        assert {name: counts[name] for name in form_class.base_fields} == dict.fromkeys(form_class.base_fields, 1)
 
-    def it_still_renders_the_public_directory_switch_somewhere(client: Client):
-        """The fix for the duplicate is to drop ONE of the two, never both.
-
-        Deleting the wrong line would leave the real access switch for the member directory
-        unreachable in the admin UI, which is a worse bug than the one being fixed and would
-        not fail the assertion above.
-        """
-        _superuser(client, "dirswitchadmin")
-        assert "member_directory_public" in _rendered_names(client)
+    def it_gives_every_field_to_exactly_one_page():
+        owners = Counter(name for _url, form_class in PAGES for name in form_class.base_fields)
+        assert [name for name, n in owners.items() if n > 1] == []
 
 
 def describe_saving_the_late_cancel_fee_settings():
@@ -288,7 +283,7 @@ def describe_saving_the_late_cancel_fee_settings():
 
     def it_renders_the_three_together_ahead_of_class_registration(client: Client):
         _superuser(client, "latefeerender")
-        html = client.get(f"{URL}?tab=features").content.decode()
+        html = client.get(URL).content.decode()
         positions = [
             html.index(f'name="{name}"')
             for name in (
@@ -316,7 +311,7 @@ def describe_the_my_tab_card():
     def it_shows_a_my_tab_card_with_the_three_states(client: Client):
         _superuser(client, "mytabcard")
         FeatureSwitch.objects.sync_registry()
-        html = client.get(f"{URL}?tab=features").content.decode()
+        html = client.get(URL).content.decode()
         index = [row.feature_key for row in FeatureSwitch.objects.all()].index("my_tab")
         assert "My Tab" in html
         assert "The one switch here that does more than the sidebar." in html
@@ -325,7 +320,7 @@ def describe_the_my_tab_card():
 
     def it_no_longer_renders_a_flat_my_tab_toggle(client: Client):
         _superuser(client, "mytabflat")
-        html = client.get(f"{URL}?tab=features").content.decode()
+        html = client.get(URL).content.decode()
         assert 'id="id_my_tab' not in html
         assert 'name="my_tab' not in html
 

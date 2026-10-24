@@ -1,8 +1,8 @@
-"""Site Settings → Automations tab — the scheduled-job dashboard (toggles + Run now).
+"""The Automations page (#922, once a Site Settings tab): the scheduled-job dashboard (toggles + Run now).
 
 Covers the run-now handler (gating, no --force, run recording, no 500), toggle persistence,
 the money-job confirm guard, and the per-job render states (never-run / failed / paused / the
-legacy-CMS OFF sentence). The tab lives inside #site-settings-form; toggles save with the page.
+legacy-CMS OFF sentence). Every card sits inside the page's one form; toggles save with Save.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from core.scheduled_jobs import SCHEDULED_JOBS, Trigger
 
 pytestmark = pytest.mark.django_db
 
-URL = reverse("hub_admin_site_settings")
+URL = reverse("hub_admin_automations")
 
 
 def _superuser(client: Client):
@@ -50,21 +50,9 @@ def _jobstate_post_data(disabled_keys: tuple[str, ...] = ()) -> dict[str, str]:
 
 
 def _settings_post(**overrides: str) -> dict[str, str]:
-    """A full Automations-tab save: the shared SiteSettingsForm fields + feeds management form +
-    the jobstate formset."""
-    data = {
-        "org_name": "Past Lives Makerspace",
-        "registration_mode": SiteConfiguration.RegistrationMode.INVITE_ONLY,
-        "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
-        "late_cancel_notice_hours": "24",
-        "late_cancel_grace_hours": "2",
-        "feeds-TOTAL_FORMS": "0",
-        "feeds-INITIAL_FORMS": "0",
-        "feeds-MIN_NUM_FORMS": "0",
-        "feeds-MAX_NUM_FORMS": "1000",
-        "submitted_tab": "automations",
-    }
-    data.update(_jobstate_post_data(disabled_keys=tuple(overrides.pop("_disabled_keys", ()))))
+    """An Automations page Save, as the page posts it: the jobstate formset, plus the legacy CMS
+    checkbox when it is on."""
+    data = _jobstate_post_data(disabled_keys=tuple(overrides.pop("_disabled_keys", ())))
     data.update(overrides)
     return data
 
@@ -75,13 +63,13 @@ def describe_automations_access():
 
         User.objects.create_user(username="plain", email="plain@x.com", password="p")
         client.login(username="plain", password="p")
-        assert client.get(f"{URL}?tab=automations").status_code == 403
+        assert client.get(URL).status_code == 403
 
     def it_lists_every_registry_job_for_an_admin(client: Client):
         from django.utils.html import escape
 
         _superuser(client)
-        html = client.get(f"{URL}?tab=automations").content.decode()
+        html = client.get(URL).content.decode()
         for job in SCHEDULED_JOBS:
             assert escape(job.name) in html
 
@@ -97,7 +85,7 @@ def describe_run_now():
         assert run.actor == user
         assert run.succeeded
         assert response.status_code == 302
-        assert "tab=automations" in response.url
+        assert response.url == URL
 
     def it_reports_success_in_a_message(client: Client):
         _superuser(client)
@@ -135,7 +123,7 @@ def describe_money_job_guard():
 
     def it_renders_a_confirm_modal_and_danger_button_for_bill_tabs(client: Client):
         _superuser(client)
-        html = client.get(f"{URL}?tab=automations").content.decode()
+        html = client.get(URL).content.decode()
         assert "open-confirm', 'run-bill_tabs'" in html
         assert "Run tab billing now?" in html  # the confirm modal include expanded
         assert "This attempts real card charges" in html
@@ -143,7 +131,7 @@ def describe_money_job_guard():
 
     def it_renders_a_plain_primary_run_button_for_a_normal_job(client: Client):
         _superuser(client)
-        html = client.get(f"{URL}?tab=automations").content.decode()
+        html = client.get(URL).content.decode()
         assert 'name="run_job" value="send_class_reminders"' in html
         assert "Always on" in html  # bill_tabs shows the non-toggleable chip
 
@@ -151,7 +139,7 @@ def describe_money_job_guard():
 def describe_confirm_before_run_guard():
     def it_renders_a_confirm_modal_and_danger_button_for_welcome_new_members(client: Client):
         _superuser(client)
-        html = client.get(f"{URL}?tab=automations").content.decode()
+        html = client.get(URL).content.decode()
         assert "open-confirm', 'run-welcome_new_members'" in html
         assert "Send welcome emails now?" in html  # the confirm modal include expanded
         assert "Emails cannot be recalled." in html
@@ -162,12 +150,12 @@ def describe_confirm_before_run_guard():
         # confirmation, and the send cannot be recalled. The danger button must be the
         # only route, so the `data-run-now` submit branch must not render for this job.
         _superuser(client)
-        html = client.get(f"{URL}?tab=automations").content.decode()
+        html = client.get(URL).content.decode()
         assert 'value="welcome_new_members" data-run-now' not in html
 
     def it_badges_the_job_as_one_that_emails_members(client: Client):
         _superuser(client)
-        html = client.get(f"{URL}?tab=automations").content.decode()
+        html = client.get(URL).content.decode()
         assert "emails members" in html
 
     def it_leaves_the_job_toggleable_unlike_the_money_job(client: Client):
@@ -241,7 +229,7 @@ def describe_run_now_never_writes_the_settings_singleton():
 def describe_render_states():
     def it_shows_never_run_for_a_job_that_has_no_history(client: Client):
         _superuser(client)
-        html = client.get(f"{URL}?tab=automations").content.decode()
+        html = client.get(URL).content.decode()
         assert "Never run" in html
 
     def it_shows_a_failed_pill_and_the_error_title(client: Client):
@@ -251,7 +239,7 @@ def describe_render_states():
             status=ScheduledTaskRun.Status.FAILED,
             error="connection refused",
         )
-        html = client.get(f"{URL}?tab=automations").content.decode()
+        html = client.get(URL).content.decode()
         assert "hub-pill--danger" in html
         assert 'title="connection refused"' in html
 
@@ -259,21 +247,35 @@ def describe_render_states():
         _superuser(client)
         ScheduledJobState.objects.sync_registry()
         ScheduledJobState.objects.set_enabled("send_class_reminders", False)
-        html = client.get(f"{URL}?tab=automations").content.decode()
-        assert "Paused — won't run on schedule." in html
+        html = client.get(URL).content.decode()
+        assert "Paused. Won't run on schedule." in html
 
     def it_states_the_legacy_pull_is_off_when_the_flag_is_off(client: Client):
         _superuser(client)
         config = SiteConfiguration.load()
         config.legacy_cms_sync_enabled = False
         config.save()
-        html = client.get(f"{URL}?tab=automations").content.decode()
+        html = client.get(URL).content.decode()
         assert "is NOT running" in html
 
-    def it_cross_links_from_the_legacy_tab_to_automations(client: Client):
+    def it_cross_links_from_manage_cms_to_automations(client: Client):
         _superuser(client)
-        html = client.get(f"{URL}?tab=legacy-cms").content.decode()
-        assert 'href="?tab=automations"' in html
+        html = client.get(reverse("hub_admin_cms")).content.decode()
+        assert f'href="{URL}" data-automations-link' in html
+
+    def it_states_the_legacy_pull_is_running_when_the_flag_is_on(client: Client):
+        _superuser(client)
+        config = SiteConfiguration.load()
+        config.legacy_cms_sync_enabled = True
+        config.save()
+        html = client.get(URL).content.decode()
+        assert "is running." in html
+        assert "is NOT running" not in html
+
+    def it_posts_both_confirm_modals_to_this_page(client: Client):
+        _superuser(client)
+        html = client.get(URL).content.decode()
+        assert html.count(f'action="{URL}"') == 2
 
 
 def describe_a_retired_job_key():
@@ -293,7 +295,7 @@ def describe_a_retired_job_key():
     def it_renders_the_page_without_listing_the_retired_job(client: Client):
         _superuser(client)
         _leave_retired_rows()
-        response = client.get(f"{URL}?tab=automations")
+        response = client.get(URL)
         assert response.status_code == 200
         html = response.content.decode()
         assert _RETIRED not in html
@@ -316,3 +318,52 @@ def describe_a_retired_job_key():
         cc.assert_not_called()
         assert any("Unknown automation" in m.message for m in response.context["messages"])
         assert ScheduledTaskRun.objects.filter(task_key=_RETIRED).count() == 1
+
+
+def describe_saving_the_page():
+    def it_says_so_and_comes_back_here(client: Client):
+        _superuser(client)
+        response = client.post(URL, data=_settings_post(), follow=True)
+        assert response.redirect_chain == [(URL, 302)]
+        assert any(m.message == "Automations saved." for m in response.context["messages"])
+
+    def it_writes_no_setting_but_the_legacy_pull(client: Client):
+        # The page's form is AutomationsForm alone, so a Save cannot reach another page's field.
+        _superuser(client)
+        config = SiteConfiguration.load()
+        config.member_agreement_version = "7.0"
+        config.instructor_discount_codes_enabled = True
+        config.kiln_tickets_open = True
+        config.save()
+        response = client.post(URL, data=_settings_post(legacy_cms_sync_enabled="on"))
+        assert response.url == URL
+        config.refresh_from_db()
+        assert config.legacy_cms_sync_enabled is True
+        assert config.member_agreement_version == "7.0"
+        assert config.instructor_discount_codes_enabled is True
+        assert config.kiln_tickets_open is True
+
+    def describe_when_the_management_form_is_missing():
+        def it_saves_nothing_and_shows_the_error(client: Client):
+            _superuser(client)
+            response = client.post(URL, data={"legacy_cms_sync_enabled": "on"})
+            assert response.status_code == 200
+            assert "pl-settings-page__errors" in response.content.decode()
+            assert SiteConfiguration.load().legacy_cms_sync_enabled is False
+
+
+def describe_sync_now_from_the_nightly_sync_card():
+    def it_pulls_and_comes_back_to_this_page(client: Client):
+        _superuser(client)
+        with patch("classes.import_service.sync_legacy_cms", return_value=4) as sync:
+            response = client.post(URL, data={"action": "sync_now"}, follow=True)
+        sync.assert_called_once_with()
+        assert response.redirect_chain == [(URL, 302)]
+        assert any("Synced 4 offering(s)" in m.message for m in response.context["messages"])
+
+    def it_runs_before_the_save_so_no_job_switch_is_written(client: Client):
+        _superuser(client)
+        data = _settings_post(_disabled_keys=("send_class_reminders",), action="sync_now")
+        with patch("classes.import_service.sync_legacy_cms", return_value=0):
+            client.post(URL, data=data)
+        assert ScheduledJobState.objects.get(task_key="send_class_reminders").enabled is True

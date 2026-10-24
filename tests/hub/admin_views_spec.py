@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from core.models import Invite, SiteConfiguration
 from membership.models import Member, MemberAgreementAcceptance
+from tests.hub.settings_posts import features_post, site_settings_post
 from tests.membership.factories import MemberFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
@@ -784,7 +785,7 @@ def describe_admin_site_settings():
             member=m_former, agreement_url="https://example.com", ip_address="127.0.0.1"
         )
 
-        response = client.get(reverse("hub_admin_site_settings"))
+        response = client.get(reverse("hub_admin_member_agreement"))
         assert response.status_code == 200
         active_count = Member.objects.active().count()
         accepted_count = Member.objects.active().accepted_agreement().count()
@@ -818,46 +819,44 @@ def describe_admin_site_settings():
         config = SiteConfiguration.load()
         assert config.registration_mode == SiteConfiguration.RegistrationMode.OPEN
 
-    def it_saves_the_guided_tours_switch_from_the_features_tab(client):
+    def it_saves_the_guided_tours_switch_from_manage_features(client):
         _create_superuser(client)
-        base = {
-            "org_name": "Past Lives Makerspace",
-            "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
-            "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
-            "late_cancel_notice_hours": "24",
-            "late_cancel_grace_hours": "2",
-            "classes_calendar_color": "#abcdef",
-            "feeds-TOTAL_FORMS": "0",
-            "feeds-INITIAL_FORMS": "0",
-            "feeds-MIN_NUM_FORMS": "0",
-            "feeds-MAX_NUM_FORMS": "1000",
-        }
+        url = reverse("hub_admin_features")
         assert SiteConfiguration.load().guided_tours_enabled is True
 
-        html = client.get(reverse("hub_admin_site_settings")).content.decode()
-        assert html.count('name="guided_tours_enabled"') == 1, "rendered once, on the Features tab only"
+        html = client.get(url).content.decode()
+        assert html.count('name="guided_tours_enabled"') == 1, "rendered once, on Manage Features only"
+        assert 'name="guided_tours_enabled"' not in client.get(reverse("hub_admin_site_settings")).content.decode()
 
-        off = client.post(reverse("hub_admin_site_settings"), data=base)
+        off = client.post(url, data=features_post())
         assert off.status_code == 302
         assert SiteConfiguration.load().guided_tours_enabled is False
 
-        on = client.post(reverse("hub_admin_site_settings"), data={**base, "guided_tours_enabled": "on"})
+        on = client.post(url, data=features_post(guided_tours_enabled="on"))
         assert on.status_code == 302
         assert SiteConfiguration.load().guided_tours_enabled is True
 
     def it_keeps_the_save_button_inside_the_settings_form(client):
-        # Regression: the Sync Now control used to be its own nested <form>, which is invalid
-        # HTML — the browser closed the main settings form at the nested </form>, orphaning the
-        # Save button so every save silently did nothing. (Test-client POSTs don't parse HTML, so
-        # the bug was invisible to the other specs.) Assert no nested form and the Save button +
-        # Sync Now control live inside the settings form.
         _create_superuser(client)
         html = client.get(reverse("hub_admin_site_settings")).content.decode()
         start = html.index('<form method="post" id="site-settings-form"')
         main_form = html[start : html.index("</form>", start)]
         assert "<form" not in main_form[1:], "no nested <form> inside the settings form"
         assert "Save settings" in main_form, "Save button must be inside the settings form"
-        assert 'name="action" value="sync_now"' in main_form, "Sync Now submits the main form"
+
+    def it_keeps_sync_now_and_save_in_one_form_on_manage_cms(client):
+        # Regression: the Sync Now control used to be its own nested <form>, which is invalid
+        # HTML — the browser closed the main settings form at the nested </form>, orphaning the
+        # Save button so every save silently did nothing. (Test-client POSTs don't parse HTML, so
+        # the bug was invisible to the other specs.) Assert no nested form and the Save button +
+        # Sync Now control live inside the one form.
+        _create_superuser(client)
+        html = client.get(reverse("hub_admin_cms")).content.decode()
+        start = html.index('<form method="post" class="site-settings-form pl-settings-page__form" data-run-now-form>')
+        main_form = html[start : html.index("</form>", start)]
+        assert "<form" not in main_form[1:], "no nested <form> inside the CMS form"
+        assert ">Save</button>" in main_form, "Save button must be inside the form"
+        assert 'name="action" value="sync_now"' in main_form, "Sync Now submits the same form"
         assert 'id="sync-now-form"' not in html, "the old nested Sync Now form must be gone"
 
     def it_re_renders_with_errors_on_invalid_settings(client):
@@ -980,38 +979,78 @@ def describe_admin_site_settings():
         assert response.status_code == 200
 
 
-def describe_admin_site_settings_legacy_cms():
-    def it_renders_legacy_cms_tab_when_active(client):
+def describe_admin_manage_cms():
+    def it_forbids_plain_members(client):
+        user = _create_member_user(username="plaincms")
+        client.login(username=user.username, password="p")
+        assert client.get(reverse("hub_admin_cms")).status_code == 403
+
+    def it_renders_the_cms_page(client):
         _create_superuser(client)
-        response = client.get(reverse("hub_admin_site_settings") + "?tab=legacy-cms")
+        response = client.get(reverse("hub_admin_cms"))
         assert response.status_code == 200
-        # The tab is renamed to "CMS" / "CMS Sync". The historical changelog at the bottom of
+        # The tab was renamed to "CMS" / "CMS Sync". The historical changelog at the bottom of
         # every hub page (the Spotlight's panel since #709) still legitimately mentions
         # "Legacy CMS", so the absence check is scoped to the page body above it.
         page_body = response.content.split(b"data-changelog-pages")[0]
         assert b"CMS Sync" in page_body
         assert b"Legacy CMS" not in page_body
-        assert response.context["active_tab"] == "legacy-cms"
 
-    def it_renders_the_instructor_discount_codes_flag_on_the_cms_tab(client):
+    def it_renders_the_instructor_discount_codes_flag(client):
         _create_superuser(client)
-        response = client.get(reverse("hub_admin_site_settings") + "?tab=legacy-cms")
+        response = client.get(reverse("hub_admin_cms"))
         assert response.status_code == 200
         assert b"Instructor Discount Codes" in response.content
         assert b'id="id_instructor_discount_codes_enabled"' in response.content
         assert b'id="id_instructor_discount_codes_need_approval"' in response.content
+
+    def it_shows_the_nightly_pull_state_without_a_switch(client):
+        _create_superuser(client)
+        config = SiteConfiguration.load()
+        config.legacy_cms_sync_enabled = True
+        config.save()
+        html = client.get(reverse("hub_admin_cms")).content.decode()
+        assert "Nightly pull is on" in html
+        assert 'name="legacy_cms_sync_enabled"' not in html
+
+    def it_shows_the_nightly_pull_off(client):
+        _create_superuser(client)
+        html = client.get(reverse("hub_admin_cms")).content.decode()
+        assert "Nightly pull is off" in html
+        assert "Never synced." in html
+
+    def it_shows_the_last_sync_and_how_long_it_takes(client):
+        _create_superuser(client)
+        config = SiteConfiguration.load()
+        config.legacy_cms_last_synced_at = timezone.now()
+        config.legacy_cms_last_sync_duration = 30
+        config.save()
+        html = client.get(reverse("hub_admin_cms")).content.decode()
+        assert "Last synced:" in html
+        assert "Typically takes about 30s." in html
+        assert 'data-estimate="30' in html
+
+    def it_saves_the_discount_code_switches(client):
+        _create_superuser(client)
+        response = client.post(
+            reverse("hub_admin_cms"),
+            data={"instructor_discount_codes_enabled": "on", "instructor_discount_codes_need_approval": "on"},
+            follow=True,
+        )
+        assert response.redirect_chain == [(reverse("hub_admin_cms"), 302)]
+        assert any(m.message == "CMS settings saved." for m in response.context["messages"])
+        config = SiteConfiguration.load()
+        assert config.instructor_discount_codes_enabled is True
+        assert config.instructor_discount_codes_need_approval is True
 
     def it_syncs_now_on_post_with_sync_now_action(client):
         from unittest.mock import patch
 
         _create_superuser(client)
         with patch("classes.import_service.sync_legacy_cms", return_value=5) as mock_sync:
-            response = client.post(
-                reverse("hub_admin_site_settings"),
-                data={"action": "sync_now"},
-            )
-        assert response.status_code == 302
-        assert "tab=legacy-cms" in response["Location"]
+            response = client.post(reverse("hub_admin_cms"), data={"action": "sync_now"}, follow=True)
+        assert response.redirect_chain == [(reverse("hub_admin_cms"), 302)]
+        assert any(m.message == "Synced 5 offering(s) from the legacy CMS." for m in response.context["messages"])
         mock_sync.assert_called_once()
 
     def it_handles_sync_now_failure_gracefully(client):
@@ -1019,22 +1058,42 @@ def describe_admin_site_settings_legacy_cms():
 
         _create_superuser(client)
         with patch("classes.import_service.sync_legacy_cms", side_effect=RuntimeError("connection refused")):
-            response = client.post(
-                reverse("hub_admin_site_settings"),
-                data={"action": "sync_now"},
+            response = client.post(reverse("hub_admin_cms"), data={"action": "sync_now"}, follow=True)
+        assert response.redirect_chain == [(reverse("hub_admin_cms"), 302)]
+        assert any(m.message == "Sync failed: connection refused" for m in response.context["messages"])
+
+    def it_does_not_save_the_switches_on_sync_now(client):
+        from unittest.mock import patch
+
+        _create_superuser(client)
+        with patch("classes.import_service.sync_legacy_cms", return_value=0):
+            client.post(
+                reverse("hub_admin_cms"), data={"action": "sync_now", "instructor_discount_codes_enabled": "on"}
             )
-        assert response.status_code == 302
-        assert "tab=legacy-cms" in response["Location"]
+        assert SiteConfiguration.load().instructor_discount_codes_enabled is False
 
     def it_includes_instructor_sync_rows_in_context(client):
         from classes.factories import InstructorFactory
 
         _create_superuser(client)
         InstructorFactory(full_legal_name="Test Instructor")
-        response = client.get(reverse("hub_admin_site_settings") + "?tab=legacy-cms")
+        response = client.get(reverse("hub_admin_cms"))
         assert response.status_code == 200
         rows = response.context["instructor_sync_rows"]
         assert any(row["instructor"].display_name == "Test Instructor" for row in rows)
+        assert b"Test Instructor" in response.content
+
+    def it_shows_the_unmatched_row_only_when_a_class_is_unmatched(client):
+        from classes.factories import ClassOfferingFactory
+
+        _create_superuser(client)
+        assert b"Unmatched (no instructor)" not in client.get(reverse("hub_admin_cms")).content
+        ClassOfferingFactory(legacy_cms_id="node-nobody", instructor=None)
+        assert b"Unmatched (no instructor)" in client.get(reverse("hub_admin_cms")).content
+
+    def it_says_so_when_there_are_no_instructors(client):
+        _create_superuser(client)
+        assert b"No active instructors found." in client.get(reverse("hub_admin_cms")).content
 
     def it_counts_a_legacy_class_for_every_listed_instructor_and_an_unlisted_one_as_unmatched(client):
         # #686: matched counts go through the instructors rows; nobody listed is unmatched.
@@ -1055,38 +1114,28 @@ def describe_admin_site_settings_legacy_cms():
         assert unmatched == 1
 
 
-def describe_admin_site_settings_features():
-    def it_renders_the_features_tab_when_requested(client):
+def describe_admin_manage_features():
+    def it_forbids_plain_members(client):
+        user = _create_member_user(username="plainfeatures")
+        client.login(username=user.username, password="p")
+        assert client.get(reverse("hub_admin_features")).status_code == 403
+
+    def it_renders_the_features_page(client):
         _create_superuser(client)
-        response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
+        response = client.get(reverse("hub_admin_features"))
         assert response.status_code == 200
-        assert response.context["active_tab"] == "features"
         assert b"The one switch here that does more than the sidebar." in response.content  # the My Tab card
         assert b"Allow class registration" in response.content
 
-    def _features_panel(response) -> bytes:
-        """Just the Features tab panel.
-
-        Every Alpine panel is in the same document, so asserting on whole-page content
-        proves only that a control rendered *somewhere* — it passes even when the field
-        falls through to the General catch-all loop as a bare, unstyled checkbox.
-        """
+    def _features_form(response) -> bytes:
+        """Just the page's form, so a control has to render inside what Save posts."""
         body = response.content
-        # Anchor on x-show, not a bare match: the same expression appears in the tab
-        # BUTTON's :class binding, which sits before the panel.
-        marker = b"x-show=\"tab === 'features'\""
-        stop = b"x-show=\"tab === 'automations'\""
-        start = body.index(marker)
-        return body[start : body.index(stop, start)]
+        start = body.index(b'<form method="post" class="site-settings-form pl-settings-page__form">')
+        return body[start : body.index(b"</form>", start)]
 
-    def it_renders_the_help_and_wiki_sidebar_toggles(client):
-        # Two separate wiki switches now: the member wiki itself, and the link out to
-        # the old MediaWiki that it replaces.
+    def it_renders_the_help_sidebar_toggle(client):
         _create_superuser(client)
-        response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
-        assert response.status_code == 200
-        panel = _features_panel(response)
-        assert b"Show Help in the sidebar" in panel
+        assert b"Show Help in the sidebar" in _features_form(client.get(reverse("hub_admin_features")))
 
     def it_renders_a_card_for_every_registry_feature(client):
         # The three-state features are a registry list now, not one boolean each (#405).
@@ -1095,131 +1144,103 @@ def describe_admin_site_settings_features():
         from core.features import FEATURES
 
         _create_superuser(client)
-        response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
-        panel = _features_panel(response)
+        form = _features_form(client.get(reverse("hub_admin_features")))
         for feature in FEATURES:
-            assert feature.name.encode() in panel, feature.key
-            assert feature.off_description[:40].encode() in panel, feature.key
+            assert feature.name.encode() in form, feature.key
+            assert feature.off_description[:40].encode() in form, feature.key
 
     def it_offers_all_three_states_and_a_message_box_per_feature(client):
         from core.features import FEATURES
 
         _create_superuser(client)
-        panel = _features_panel(client.get(reverse("hub_admin_site_settings") + "?tab=features"))
+        form = _features_form(client.get(reverse("hub_admin_features")))
         for index in range(len(FEATURES)):
-            assert f'name="features-{index}-state"'.encode() in panel
-            assert f'name="features-{index}-message"'.encode() in panel
-        assert panel.count(b'value="soon"') == len(FEATURES)
-        assert panel.count(b'value="hidden"') == len(FEATURES)
+            assert f'name="features-{index}-state"'.encode() in form
+            assert f'name="features-{index}-message"'.encode() in form
+        assert form.count(b'value="soon"') == len(FEATURES)
+        assert form.count(b'value="hidden"') == len(FEATURES)
 
-    def it_renders_the_feature_fields_only_once(client):
-        # Excluded from the General loop — each control renders only in the Features panel.
+    def it_mutes_a_feature_that_is_not_on(client):
+        from core.models import FeatureSwitch
+
         _create_superuser(client)
-        response = client.get(reverse("hub_admin_site_settings"))
-        assert response.content.count(b'id="id_class_registration_enabled"') == 1
-        assert response.content.count(b'id="id_class_registration_disabled_note"') == 1
-        assert response.content.count(b'id="id_help_page_enabled"') == 1
-        assert response.content.count(b'id="id_instructor_discount_codes_enabled"') == 1
-        assert response.content.count(b'id="id_instructor_discount_codes_need_approval"') == 1
-        assert response.content.count(b'id="id_guild_welcome_email_enabled"') == 1
+        FeatureSwitch.objects.sync_registry()
+        FeatureSwitch.objects.filter(feature_key="wiki").update(state="hidden")
+        form = _features_form(client.get(reverse("hub_admin_features")))
+        assert form.count(b"pl-automation-card--paused") == 1
 
     def it_saves_the_feature_switches(client):
         _create_superuser(client)
+        # Both switches omitted → unchecked → False.
         response = client.post(
-            reverse("hub_admin_site_settings"),
-            data={
-                "org_name": "Past Lives Makerspace",
-                "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
-                "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
-                "late_cancel_notice_hours": "24",
-                "late_cancel_grace_hours": "2",
-                "sync_classes_enabled": "",
-                "classes_calendar_color": "#abcdef",
-                "mailchimp_api_key": "",
-                "mailchimp_list_id": "",
-                "google_analytics_measurement_id": "",
-                # Both switches omitted → unchecked → False.
-                "class_registration_disabled_note": "We'll be back soon.",
-                "submitted_tab": "features",
-                "feeds-TOTAL_FORMS": "0",
-                "feeds-INITIAL_FORMS": "0",
-                "feeds-MIN_NUM_FORMS": "0",
-                "feeds-MAX_NUM_FORMS": "1000",
-            },
+            reverse("hub_admin_features"),
+            data=features_post(class_registration_disabled_note="We'll be back soon."),
         )
         assert response.status_code == 302
-        assert "tab=features" in response["Location"]
+        assert response["Location"] == reverse("hub_admin_features")
         config = SiteConfiguration.load()
         assert config.class_registration_enabled is False
         assert config.class_registration_disabled_note == "We'll be back soon."
 
     def it_keeps_the_switches_on_when_checked(client):
         _create_superuser(client)
-        response = client.post(
-            reverse("hub_admin_site_settings"),
-            data={
-                "org_name": "Past Lives Makerspace",
-                "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
-                "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
-                "late_cancel_notice_hours": "24",
-                "late_cancel_grace_hours": "2",
-                "sync_classes_enabled": "",
-                "classes_calendar_color": "#abcdef",
-                "mailchimp_api_key": "",
-                "mailchimp_list_id": "",
-                "google_analytics_measurement_id": "",
-                "class_registration_enabled": "on",
-                "class_registration_disabled_note": "",
-                "feeds-TOTAL_FORMS": "0",
-                "feeds-INITIAL_FORMS": "0",
-                "feeds-MIN_NUM_FORMS": "0",
-                "feeds-MAX_NUM_FORMS": "1000",
-            },
-        )
+        response = client.post(reverse("hub_admin_features"), data=features_post(class_registration_enabled="on"))
         assert response.status_code == 302
-        config = SiteConfiguration.load()
-        assert config.class_registration_enabled is True
+        assert SiteConfiguration.load().class_registration_enabled is True
 
     def it_saves_the_guild_welcome_email_switch_off_and_back_on(client):
         _create_superuser(client)
-        base_data = _settings_post_data()
-        # Switch omitted → unchecked → False.
-        response = client.post(reverse("hub_admin_site_settings"), data=base_data)
+        response = client.post(reverse("hub_admin_features"), data=features_post())
         assert response.status_code == 302
-        config = SiteConfiguration.load()
-        assert config.guild_welcome_email_enabled is False
-        # Checked again → back on.
-        response = client.post(
-            reverse("hub_admin_site_settings"),
-            data={**base_data, "guild_welcome_email_enabled": "on"},
+        assert SiteConfiguration.load().guild_welcome_email_enabled is False
+        response = client.post(reverse("hub_admin_features"), data=features_post(guild_welcome_email_enabled="on"))
+        assert response.status_code == 302
+        assert SiteConfiguration.load().guild_welcome_email_enabled is True
+
+
+def describe_admin_member_agreement():
+    def it_forbids_plain_members(client):
+        user = _create_member_user(username="plainagreement")
+        client.login(username=user.username, password="p")
+        assert client.get(reverse("hub_admin_member_agreement")).status_code == 403
+
+    def it_saves_the_three_fields_and_comes_back(client):
+        user = _create_superuser(client)
+        # Already accepted edition 3.0, so switching the agreement on does not send the admin to it.
+        MemberAgreementAcceptance.objects.create(
+            member=Member.objects.get(user=user),
+            agreement_url="https://kb.example.com/agreement",
+            ip_address="127.0.0.1",
+            document_version="3.0",
         )
-        assert response.status_code == 302
+        url = reverse("hub_admin_member_agreement")
+        response = client.post(
+            url,
+            data={
+                "member_agreement_required": "on",
+                "member_agreement_url": "https://kb.example.com/agreement",
+                "member_agreement_version": "3.0",
+            },
+            follow=True,
+        )
+        assert response.redirect_chain == [(url, 302)]
+        assert any(m.message == "Member Agreement saved." for m in response.context["messages"])
         config = SiteConfiguration.load()
-        assert config.guild_welcome_email_enabled is True
+        assert config.member_agreement_required is True
+        assert config.member_agreement_url == "https://kb.example.com/agreement"
+        assert config.member_agreement_version == "3.0"
 
-
-def _settings_post_data() -> dict[str, str]:
-    """A complete, valid Site Settings save from the Features tab."""
-    from core.models import SiteConfiguration
-
-    return {
-        "org_name": "Past Lives Makerspace",
-        "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
-        "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
-        "late_cancel_notice_hours": "24",
-        "late_cancel_grace_hours": "2",
-        "sync_classes_enabled": "",
-        "classes_calendar_color": "#abcdef",
-        "mailchimp_api_key": "",
-        "mailchimp_list_id": "",
-        "google_analytics_measurement_id": "",
-        "class_registration_disabled_note": "",
-        "submitted_tab": "features",
-        "feeds-TOTAL_FORMS": "0",
-        "feeds-INITIAL_FORMS": "0",
-        "feeds-MIN_NUM_FORMS": "0",
-        "feeds-MAX_NUM_FORMS": "1000",
-    }
+    def it_re_renders_the_missing_url_error_with_what_was_typed(client):
+        _create_superuser(client)
+        response = client.post(
+            reverse("hub_admin_member_agreement"),
+            data={"member_agreement_required": "on", "member_agreement_url": "", "member_agreement_version": "3.1"},
+        )
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "A URL is required if the agreement is enabled." in html
+        assert 'value="3.1"' in html
+        assert SiteConfiguration.load().member_agreement_required is False
 
 
 def describe_admin_site_settings_announcements():
@@ -1266,7 +1287,7 @@ def describe_admin_site_settings_announcements():
         from core.models import SiteConfiguration
 
         _create_superuser(client)
-        data = {**_settings_post_data(), "org_name": "Renamed Makerspace"}
+        data = site_settings_post(org_name="Renamed Makerspace")
         response = client.post(reverse("hub_admin_site_settings") + "?tab=announcements", data=data)
         assert response.status_code == 302
         assert SiteConfiguration.load().org_name == "Renamed Makerspace"
