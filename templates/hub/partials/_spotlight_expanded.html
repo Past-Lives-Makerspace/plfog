@@ -11,8 +11,8 @@ announcement in full, else the latest update (#890); the meeting, Have an idea, 
      x-init="if (location.hash.indexOf('#changelog-') === 0) { const pages = document.getElementById('spotlight-changelog'); const entry = pages && pages.plShowEntry ? pages.plShowEntry(location.hash.slice(1)) : null; if (entry) { view = 'changelog'; $store.spotlight.markSeen(); $dispatch('open-modal', 'spotlight-expanded'); setTimeout(() => entry.scrollIntoView({ block: 'start' }), 50) } }">
     <div class="pl-spotlight-panel__main" x-show="view === 'main'" data-spotlight-panel-main>
         {% if spotlight.announcements %}
-        <section class="pl-spotlight-panel__section" aria-label="Announcements" data-spotlight-panel-announcements>
-            <p class="pl-spotlight__eyebrow">Announcements</p>
+        <section class="pl-spotlight-panel__section" aria-label="Spotlight messages" data-spotlight-panel-announcements>
+            <p class="pl-spotlight__eyebrow">Spotlight Messages</p>
             <ul class="pl-spotlight-panel__announcements">
                 {% for announcement in spotlight.announcements %}<li class="pl-ann-body pl-spotlight-panel__announcement" data-spotlight-panel-announcement="{{ announcement.pk }}">{{ announcement.body_html }}</li>{% endfor %}
             </ul>

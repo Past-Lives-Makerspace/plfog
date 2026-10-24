@@ -136,12 +136,6 @@
       Automations
     </button>
     <button type="button"
-            @click="tab = 'announcements'"
-            :class="{ 'vote-tab--active': tab === 'announcements' }"
-            class="vote-tab">
-      Announcements
-    </button>
-    <button type="button"
             @click="tab = 'emails'"
             :class="{ 'vote-tab--active': tab === 'emails' }"
             class="vote-tab">
@@ -685,7 +679,7 @@
         <div style="margin-bottom:1.25rem;">
           <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Shared Discord Channels</h2>
           <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
-            Set these so guild leads can post announcements to #general-chat, #leadership, and #guild-officers. Leave a field blank to hide that option from leads.
+            Set these so guild leads can post to #general-chat, #leadership, and #guild-officers when they use Email Members. Leave a field blank to hide that option from leads.
             In Discord: Server Settings → Integrations → Webhooks → New Webhook → pick the channel → Copy Webhook URL.
           </p>
         </div>
@@ -823,7 +817,7 @@
       </div>
     </div>
 
-    <div x-show="tab !== 'announcements' && tab !== 'emails'" style="margin-bottom:1.5rem;">
+    <div x-show="tab !== 'emails'" style="margin-bottom:1.5rem;">
       <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
     </div>
   </form>
@@ -854,25 +848,6 @@
   {% include "components/confirm_modal.html" with confirm_id="run-bill_tabs" confirm_title="Run tab billing now?" confirm_message="This attempts real card charges. It still only runs if it's a scheduled billing day." confirm_action_url=automations_post_url confirm_button_text="Run billing" confirm_field_name="run_job" confirm_field_value="bill_tabs" %}
   {% include "components/confirm_modal.html" with confirm_id="run-welcome_new_members" confirm_title="Send welcome emails now?" confirm_message="This emails every new member who has not been welcomed yet, right now, even while the automation is switched off. Emails cannot be recalled." confirm_action_url=automations_post_url confirm_button_text="Send welcome emails" confirm_field_name="run_job" confirm_field_value="welcome_new_members" %}
 
-  {# -------- Announcements tab (own form — compose, preview, then send) -------- #}
-  <div x-show="tab === 'announcements'" x-cloak class="pl-announce-tab">
-    {% if release_mode %}
-    {% include "hub/admin/_release_announcement.html" %}
-    {% else %}
-    <div>
-      <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Sitewide Announcement</h2>
-      <p style="color:var(--hub-text-muted);margin:0 0 1rem;">
-        Announcements has its own page now. Write one in the Announcement Composer, save a draft to finish later, and see everything already sent.
-      </p>
-      <a href="{% url 'hub_announcements' %}" class="hub-btn hub-btn--primary" data-open-announcements>Open Announcements</a>
-    </div>
-
-    <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
-      <a href="?tab=announcements&amp;draft=release" class="hub-btn hub-btn--sm">Draft from latest release</a>
-      <small style="color:var(--hub-text-muted);margin-left:0.5rem;">Composes the sectioned release update, with feature cards and screenshots from this release's changelog (Discord left off — it auto-posts on deploy).</small>
-    </div>
-    {% endif %}
-  </div>
 </div>
 
 {# Sync Now loading state: spinner + estimated progress bar (estimate = last run's duration). #}

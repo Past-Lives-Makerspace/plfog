@@ -1,6 +1,7 @@
 {% comment %}
-Release-update email composer + upgraded preview (Site Settings → Announcements, Release mode).
-Reached via "Draft from latest release" (?draft=release / mode=release). Uses the themed
+Release-update email composer + upgraded preview, on the Release Update page
+(hub/email_members_release.html, #922; it was Site Settings' Announcements tab). Reached via
+"Draft from latest release" on the Email Members page. Uses the themed
 form_field/toggle components so every control is dark/light safe. Rule 12: the preview panes
 and the mobile toggle-group get their display from `pl-` classes, never inline on an x-show
 element; the one allowed inline nudge is the bound `:style="width:…"` on the iframe.
@@ -9,13 +10,9 @@ element; the one allowed inline nudge is the bound `:style="width:…"` on the i
   <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Release Update</h2>
   <p style="color:var(--hub-text-muted);margin:0;">
     The sectioned "what's new" email, assembled from this release's changelog. Preview it, send a
-    test to yourself, then send it to every <strong>activated</strong> member. Discord is left off —
-    it auto-posts on deploy.
+    test to yourself, then send it to every <strong>activated</strong> member. Discord is left off,
+    because it posts on deploy.
   </p>
-</div>
-
-<div>
-  <a href="?tab=announcements" class="hub-btn hub-btn--sm hub-btn--ghost">&larr; Plain announcement</a>
 </div>
 
 <form method="post" class="pl-release-form"
@@ -43,7 +40,7 @@ element; the one allowed inline nudge is the bound `:style="width:…"` on the i
           {% for bullet in row.card.bullets %}<li>{{ bullet }}</li>{% endfor %}
         </ul>
         {% if row.default_uncaptured %}
-        <p class="pl-release-card__note">Screenshot for &ldquo;{{ row.card.title }}&rdquo; hasn't been captured yet — run the capture or pick another.</p>
+        <p class="pl-release-card__note">Screenshot for &ldquo;{{ row.card.title }}&rdquo; hasn't been captured yet. Run the capture or pick another.</p>
         {% endif %}
       </div>
       <div class="pl-release-card__controls">
@@ -73,7 +70,7 @@ element; the one allowed inline nudge is the bound `:style="width:…"` on the i
      style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
   <h3 class="pl-email-preview__title">Email Preview</h3>
   <p class="pl-email-preview__lead">
-    Exactly what lands in their inbox. Reaches <strong>{{ release_preview.count }}</strong> activated member{{ release_preview.count|pluralize }} (Discord off — it auto-posts on deploy).
+    Exactly what lands in their inbox. Reaches <strong>{{ release_preview.count }}</strong> activated member{{ release_preview.count|pluralize }} (Discord off, because it posts on deploy).
   </p>
 
   {# Inbox row — sender · subject · preheader; both are otherwise invisible in the HTML body. #}

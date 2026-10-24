@@ -5111,7 +5111,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 
 /* ============================================================================
-   Release-update email composer + preview  (Site Settings → Announcements)
+   Release-update email composer + preview  (the Release Update page, #922)
    Admin-page chrome only — the iframe content is the email itself.
    ========================================================================== */
 .pl-announce-tab {

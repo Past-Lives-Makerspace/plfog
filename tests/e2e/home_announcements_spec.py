@@ -79,7 +79,7 @@ def describe_the_banner_rotating():
         _open_home(page, live_server, login_via_code, "ann-pause-e2e@example.com")
         pause = page.locator(f"{BANNER} [data-rotator-pause]")
         pause.click()
-        expect(pause).to_have_attribute("aria-label", "Play the announcements")
+        expect(pause).to_have_attribute("aria-label", "Play the Spotlight messages")
         page.mouse.move(0, 0)
         page.evaluate("() => document.activeElement.blur()")
         page.clock.run_for(30000)

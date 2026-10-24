@@ -111,7 +111,7 @@ def describe_the_spotlight():
 
         pause = page.locator(f"{ROTATOR} [data-rotator-pause]")
         pause.click()
-        expect(pause).to_have_attribute("aria-label", "Play the announcements")
+        expect(pause).to_have_attribute("aria-label", "Play the Spotlight messages")
         page.mouse.move(1200, 800)
         page.evaluate("() => document.activeElement.blur()")
         page.clock.run_for(30000)

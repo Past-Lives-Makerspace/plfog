@@ -269,3 +269,58 @@
         margin-bottom: 0.5rem;
     }
 }
+
+/* --- Manage Mailing Lists (hub/mailing_lists.html, #920) ----------------- */
+
+.pl-mailing-lists__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.pl-mailing-lists__row + .pl-mailing-lists__row {
+    border-top: 1px solid var(--hub-border);
+}
+.pl-mailing-lists__link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 0;
+    color: var(--hub-text);
+    text-decoration: none;
+}
+.pl-mailing-lists__row:first-child .pl-mailing-lists__link {
+    padding-top: 0;
+}
+.pl-mailing-lists__row:last-child .pl-mailing-lists__link {
+    padding-bottom: 0;
+}
+.pl-mailing-lists__name {
+    font-weight: 700;
+}
+.pl-mailing-lists__go {
+    flex-shrink: 0;
+    color: var(--hub-link);
+    font-size: 0.875rem;
+}
+.pl-mailing-lists__link:hover .pl-mailing-lists__go {
+    text-decoration: underline;
+}
+
+/* --- The Release Update card on Email Members (#922) ---------------------- */
+
+.pl-release-entry {
+    margin-top: 1.5rem;
+}
+.pl-release-entry__title {
+    margin: 0;
+}
+.pl-release-entry__text {
+    margin: 0.5rem 0 0;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+.pl-release-entry__action {
+    margin-top: 1rem;
+}

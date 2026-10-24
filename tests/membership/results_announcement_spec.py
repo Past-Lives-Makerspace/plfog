@@ -568,7 +568,7 @@ def describe_queue_send():
             assert snapshot.deletion_blocker == ""
             draft.queue_send()
             assert snapshot.deletion_blocker == (
-                "Its results announcement is sending. Delete it after the announcement has gone out."
+                "Its results email is sending. Delete it after the email has gone out."
             )
 
         def it_says_why_the_newest_given_up_draft_failed():
@@ -644,7 +644,7 @@ def describe_send_for_a_results_announcement():
             draft = snapshot.draft_results_announcement(_author())
             draft.audience = AnnouncementDraft.Audience.GUILD
             draft.guild = guild
-            with pytest.raises(ValidationError, match="A results announcement goes to everyone."):
+            with pytest.raises(ValidationError, match="A results email goes to everyone."):
                 draft.send()
             snapshot.refresh_from_db()
             assert snapshot.results_sent_at is None
@@ -657,7 +657,7 @@ def describe_send_for_a_results_announcement():
             draft = _snapshot().draft_results_announcement(_author())
             draft.audience = AnnouncementDraft.Audience.CLASS
             draft.class_offering = ClassOfferingFactory()
-            with pytest.raises(ValidationError, match="A results announcement goes to everyone."):
+            with pytest.raises(ValidationError, match="A results email goes to everyone."):
                 draft.queue_send()
             assert AnnouncementDraft.objects.get(pk=draft.pk).send_requested_at is None
 
@@ -675,7 +675,7 @@ def describe_send_for_a_results_announcement():
                 "discord_channel": "none",
                 "mention": "none",
             }
-            with pytest.raises(ValidationError, match="A results announcement goes to everyone."):
+            with pytest.raises(ValidationError, match="A results email goes to everyone."):
                 AnnouncementDraft.save_from_form(types.SimpleNamespace(cleaned_data=cleaned), author, instance=draft)
             draft.refresh_from_db()
             assert draft.audience == AnnouncementDraft.Audience.SITE

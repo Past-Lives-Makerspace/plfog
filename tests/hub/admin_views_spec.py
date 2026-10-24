@@ -1216,26 +1216,35 @@ def describe_admin_site_settings_features():
 
 
 def describe_admin_site_settings_announcements():
-    # The plain sitewide composer moved to the /announcements/compose/ wizard (covered by
-    # tests/hub/announcement_compose_spec.py + tests/membership/announcement_draft_spec.py).
-    # The Announcements tab now links to the Announcements page and still hosts the sectioned
-    # Release composer.
-    def it_renders_the_announcements_tab_linking_to_the_announcements_page(client):
+    # The Announcements tab left Site Settings (#922): its release update composer is the Release
+    # Update page, linked from Email Members, so old links redirect there.
+    def it_has_no_announcements_tab(client):
+        _create_superuser(client)
+        html = client.get(reverse("hub_admin_site_settings")).content.decode()
+        assert "@click=\"tab = 'announcements'\"" not in html
+        assert "data-open-announcements" not in html
+
+    def it_redirects_the_old_tab_to_email_members(client):
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings") + "?tab=announcements")
-        assert response.status_code == 200
-        link = f'<a href="{reverse("hub_announcements")}" class="hub-btn hub-btn--primary" data-open-announcements>'
-        assert link.encode() in response.content
-        assert f'href="{reverse("hub_compose")}"'.encode() not in response.content
+        assert response.status_code == 302
+        assert response["Location"] == reverse("hub_announcements")
 
-    def it_prefills_a_release_draft(client):
+    def it_redirects_the_old_release_draft_to_the_release_update_page(client):
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings") + "?tab=announcements&draft=release")
-        assert response.status_code == 200
-        # "Draft from latest release" enters the sectioned Release composer with a
-        # prefilled subject from the current release line's changelog.
-        assert response.context["release_mode"] is True
-        assert b"Heads-Up: New Member Portal Features" in response.content
+        assert response.status_code == 302
+        assert response["Location"] == reverse("hub_email_members_release")
+
+    def it_hands_a_stale_release_post_on_without_saving_the_settings(client):
+        from core.models import SiteConfiguration
+
+        _create_superuser(client)
+        before = SiteConfiguration.load().org_name
+        response = client.post(reverse("hub_admin_site_settings"), data={"action": "announce_preview", "subject": "S"})
+        assert response.status_code == 307
+        assert response["Location"] == reverse("hub_email_members_release")
+        assert SiteConfiguration.load().org_name == before
 
 
 def describe_fog_admin_required():

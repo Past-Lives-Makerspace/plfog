@@ -186,7 +186,7 @@ def describe_the_all_instructors_audience():
         assert draft.title == "Instructors Announcement"
         assert draft.sent_at is not None
         assert draft.send_requested_at is None
-        assert [str(m) for m in get_messages(response.wsgi_request)] == ["Announcement sent to 3 recipient(s)."]
+        assert [str(m) for m in get_messages(response.wsgi_request)] == ["Email sent to 3 recipient(s)."]
 
     def it_titles_an_urgent_send(client: Client):
         _admin(client)

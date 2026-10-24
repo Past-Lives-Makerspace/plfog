@@ -1,6 +1,6 @@
 """The announcement compose wizard views (/announcements/compose/) — page, drafts, send, mention.
 
-Covers: GET renders both phases, the Back to Announcements link and both Save draft buttons;
+Covers: GET renders both phases, the Back to Email Members link and both Save draft buttons;
 audience gating (admins see site-wide, leads see their guilds, plain members get bounced to
 propose); shared drafts (anyone who may address a draft's stored audience may resume, save over,
 send or delete it; anyone else gets a 404 or a refusal, never the row); Save draft's upsert, its
@@ -108,7 +108,7 @@ def describe_hub_compose_page():
         assert "pl-wizard-nav" not in content
         # The send path is intact: one form posting to send, with a Send submit.
         assert f'action="{reverse("hub_compose_send")}"' in content
-        assert "Send announcement" in content
+        assert "Send email" in content
 
     def it_renders_the_back_link_and_both_save_draft_buttons(client: Client):
         # Replaces it_hides_the_drafts_panel_and_the_save_draft_button: Save draft is back, in
@@ -1018,7 +1018,7 @@ def describe_teaching_instructor_gate():
         guild = GuildFactory()
         _login_lead(client, guild)
         content = client.get(f"{reverse('hub_compose')}?audience=guild:{guild.pk}&lock=1").content.decode()
-        assert f"Announce to {guild.name}" in content
+        assert f"Email the members of {guild.name}" in content
         assert "This goes to everyone registered for this class." not in content
 
     def it_admits_the_instructor_of_an_unpublished_class_via_the_lock(client: Client):
@@ -1101,14 +1101,14 @@ def describe_send_announcement_entry_points():
         _user, _member, offering = _instructor(client, username="teachbtn")
         content = client.get(reverse("classes:teach_class_detail", args=[offering.pk])).content.decode()
         assert "</svg>Send Email</a>" in content
-        assert "Send Announcement" not in content
+        assert "</svg>Email Members</a>" not in content
         assert f"audience=class:{offering.pk}" in content
 
-    def it_shows_a_send_announcement_button_to_guild_editors(client: Client):
+    def it_shows_an_email_members_button_to_guild_editors(client: Client):
         guild = GuildFactory()
         _login_lead(client, guild)
         content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
-        assert "Send Announcement" in content
+        assert "</svg>Email Members</a>" in content
         assert f"audience=guild:{guild.pk}" in content
 
     def it_shows_a_send_email_button_on_the_class_page(client: Client):
@@ -1118,7 +1118,7 @@ def describe_send_announcement_entry_points():
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         content = client.get(reverse("classes:teach_class_detail", args=[offering.pk])).content.decode()
         assert "</svg>Send Email</a>" in content
-        assert "Send Announcement" not in content
+        assert "</svg>Email Members</a>" not in content
         assert f"audience=class:{offering.pk}" in content
 
     def it_lets_an_admin_send_to_a_class_they_do_not_teach_when_locked(client: Client):
@@ -1174,7 +1174,10 @@ def describe_admin_tools_page():
     def it_shows_every_tool_to_an_admin(client: Client):
         _login_admin(client)
         content = client.get(reverse("hub_admin_tools")).content.decode()
-        assert f'<a class="hub-card pl-tool-card" href="{reverse("hub_announcements")}">' in content
+        assert (
+            f'<a class="hub-card pl-tool-card" href="{reverse("hub_announcements")}" data-tool-email-members>'
+            in content
+        )
         assert f'href="{reverse("hub_orientations")}?view=bookings"' in content
         assert reverse("hub_admin_members") in content
         assert reverse("hub_push_test") in content
@@ -1183,7 +1186,10 @@ def describe_admin_tools_page():
         guild = GuildFactory()
         _login_lead(client, guild)
         content = client.get(reverse("hub_admin_tools")).content.decode()
-        assert f'<a class="hub-card pl-tool-card" href="{reverse("hub_announcements")}">' in content
+        assert (
+            f'<a class="hub-card pl-tool-card" href="{reverse("hub_announcements")}" data-tool-email-members>'
+            in content
+        )
         assert f'href="{reverse("hub_orientations")}?view=bookings"' in content
         assert reverse("hub_admin_members") not in content  # admin-only card
         assert reverse("hub_push_test") not in content
@@ -1191,7 +1197,10 @@ def describe_admin_tools_page():
     def it_shows_only_announcements_to_a_pure_instructor(client: Client):
         _instructor(client)
         content = client.get(reverse("hub_admin_tools")).content.decode()
-        assert f'<a class="hub-card pl-tool-card" href="{reverse("hub_announcements")}">' in content
+        assert (
+            f'<a class="hub-card pl-tool-card" href="{reverse("hub_announcements")}" data-tool-email-members>'
+            in content
+        )
         assert f'href="{reverse("hub_orientations")}?view=bookings"' not in content  # lead/staff only
         assert reverse("hub_push_test") not in content  # admin-only
 

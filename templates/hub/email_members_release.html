@@ -1,0 +1,15 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Release Update{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/announcements.css' %}">
+{% endblock %}
+{% block content %}
+{# The Release Update page (#922): Site Settings' old Announcements tab in Release mode, reached from the Email Members page. #}
+<p class="pl-announcements-back">
+  <a href="{% url 'hub_announcements' %}" class="hub-btn hub-btn--sm hub-btn--ghost" data-release-back>&larr; Back to Email Members</a>
+</p>
+<div class="hub-card pl-announce-tab" data-release-update>
+  {% include "hub/admin/_release_announcement.html" %}
+</div>
+{% endblock %}

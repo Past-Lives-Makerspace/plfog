@@ -106,7 +106,7 @@ def describe_the_announcements_page():
         expect(page.locator(EDITOR)).to_contain_text("The votes for September 2026 are in.")
         expect(page.locator("[data-compose-draft-automatic]")).to_contain_text("September 2026 voting results")
 
-        # Back to Announcements, then a new guild announcement, saved as a draft.
+        # Back to Email Members, then a new guild announcement, saved as a draft.
         page.locator("[data-compose-back]").click()
         expect(results_row).to_be_visible()
         _start_a_guild_announcement(page, guild, reader, "Factory forge night moves to Thursday.")
@@ -115,7 +115,7 @@ def describe_the_announcements_page():
         saved_pk = int(page.locator("#compose-draft-pk").input_value())
         expect(page).to_have_url(f"{live_server.url}{reverse('hub_compose_resume', args=[saved_pk])}")
 
-        # Back to Announcements finds it on the Drafts tab.
+        # Back to Email Members finds it on the Drafts tab.
         page.locator("[data-compose-back]").click()
         saved_row = _row(page, saved_pk)
         expect(saved_row).to_be_visible()
@@ -136,7 +136,7 @@ def describe_the_announcements_page():
         # A guild announcement sent from the composer lands on the Sent tab, sent, with its reach.
         _start_a_guild_announcement(page, guild, reader, "Factory forge is open late on Friday.")
         page.get_by_role("tab", name="2. Preview & send").click()
-        page.get_by_role("button", name="Send announcement").click()
+        page.get_by_role("button", name="Send email").click()
         page.get_by_role("button", name="Yes, send it").click()
         sent = AnnouncementDraft.objects.filter(sent_at__isnull=False)
         expect(page.locator('[data-announcements-tab="sent"]')).to_have_attribute("aria-current", "page")
@@ -206,7 +206,7 @@ def describe_the_announcements_page():
         expect(reach).to_have_text(str(logged_in + 1))
         expect(page.locator("select[name=discord_channel]")).to_have_value("none")
 
-        page.get_by_role("button", name="Send announcement").click()
+        page.get_by_role("button", name="Send email").click()
         page.get_by_role("button", name="Yes, send it").click()
         expect(page.locator('[data-announcements-tab="sent"]')).to_have_attribute("aria-current", "page")
         queued = AnnouncementDraft.objects.get(pk=made.pk)
@@ -292,7 +292,7 @@ def describe_the_announcements_page():
         page.get_by_role("tab", name="2. Preview & send").click()
         expect(reach).to_have_text(str(everyone + 1))
 
-        page.get_by_role("button", name="Send announcement").click()
+        page.get_by_role("button", name="Send email").click()
         page.get_by_role("button", name="Yes, send it").click()
         expect(page.locator('[data-announcements-tab="sent"]')).to_have_attribute("aria-current", "page")
         queued = AnnouncementDraft.objects.get(pk=made.pk)

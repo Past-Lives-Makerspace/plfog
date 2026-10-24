@@ -353,7 +353,7 @@ def describe_sending_from_the_composer():
         assert response.status_code == 302
         assert response.url == f"{reverse('hub_announcements')}?tab=sent"
         assert _messages(response) == [
-            "Your announcement is sending in the background. It reaches 1 recipient(s) within 15 minutes."
+            "Your email is sending in the background. It reaches 1 recipient(s) within 15 minutes."
         ]
         draft.refresh_from_db()
         assert draft.send_requested_at is not None
@@ -481,7 +481,7 @@ def describe_a_results_draft_only_goes_to_everyone():
         draft = _results_draft()
         response = admin_client.post(reverse("hub_compose_send"), _compose_post(draft, audience=f"guild:{guild.pk}"))
         assert response.status_code == 200
-        assert response.context["form"].non_field_errors() == ["A results announcement goes to everyone."]
+        assert response.context["form"].non_field_errors() == ["A results email goes to everyone."]
         assert '<span class="pl-compose-locked__label">Sending to:</span>' in response.content.decode()
         _nothing_went_out(draft, mailoutbox)
 
@@ -497,7 +497,7 @@ def describe_a_results_draft_only_goes_to_everyone():
             reverse("hub_compose_send"), _compose_post(draft, audience=f"class:{offering.pk}", lock="1")
         )
         assert response.status_code == 200
-        assert response.context["form"].non_field_errors() == ["A results announcement goes to everyone."]
+        assert response.context["form"].non_field_errors() == ["A results email goes to everyone."]
         _nothing_went_out(draft, mailoutbox)
 
     def it_refuses_a_retarget_on_save_too(admin_client, mailoutbox):
@@ -510,7 +510,7 @@ def describe_a_results_draft_only_goes_to_everyone():
         )
         assert response.status_code == 204
         toast = json.loads(response["HX-Trigger"])["showToast"]
-        assert toast["message"] == "A results announcement goes to everyone."
+        assert toast["message"] == "A results email goes to everyone."
         assert toast["type"] == "error"
         _nothing_went_out(draft, mailoutbox)
 
@@ -520,7 +520,7 @@ def describe_a_results_draft_only_goes_to_everyone():
         FundingSnapshot.objects.filter(pk=draft.funding_snapshot_id).update(results_sent_at=timezone.now())
         response = admin_client.post(reverse("hub_compose_send"), _compose_post(draft, audience=f"guild:{guild.pk}"))
         assert response.status_code == 200
-        assert response.context["form"].non_field_errors() == ["A results announcement goes to everyone."]
+        assert response.context["form"].non_field_errors() == ["A results email goes to everyone."]
         assert mailoutbox == []
 
 
@@ -618,9 +618,7 @@ def describe_deleting_a_snapshot():
         response = admin_client.post(reverse("hub_admin_voting_snapshot_delete", args=[snapshot.pk]))
         assert response.status_code == 302
         assert response.url == reverse("hub_admin_voting_history_detail", args=[snapshot.pk])
-        assert _messages(response) == [
-            "Its results announcement is sending. Delete it after the announcement has gone out."
-        ]
+        assert _messages(response) == ["Its results email is sending. Delete it after the email has gone out."]
         assert FundingSnapshot.objects.filter(pk=snapshot.pk).exists()
         assert AnnouncementDraft.objects.get().funding_snapshot == snapshot
 
@@ -658,7 +656,7 @@ def describe_a_results_announcement_the_queue_gave_up_on():
         _given_up(snapshot)
         html = admin_client.get(reverse("hub_admin_voting_overview")).content.decode()
         assert (
-            '<span class="pl-results-send__status" data-results-state="failed">The results announcement could not '
+            '<span class="pl-results-send__status" data-results-state="failed">The results email could not '
             "be sent: provider down.</span>"
         ) in html
         assert f'action="{_draft_url(snapshot)}" data-results-draft-form' in html

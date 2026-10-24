@@ -47,7 +47,7 @@ def describe_guild_announcement_settings_save():
         client.login(username="as_msg", password="pass")
         resp = client.post(reverse("hub_guild_announcement_settings_save", args=[guild.pk]), data={}, follow=True)
         messages = [m.message for m in resp.context["messages"]]
-        assert "Announcement settings saved." in messages
+        assert "Member suggestions saved." in messages
 
     def it_forbids_a_non_editor(client: Client):
         _member("as_reg")

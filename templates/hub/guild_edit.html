@@ -114,7 +114,7 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
   <button type="button" class="vote-tab" :class="section === 'images' ? 'vote-tab--active' : ''" @click="section = 'images'">Images</button>
   <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">FAQ</button>
   <button type="button" class="vote-tab" :class="section === 'links' ? 'vote-tab--active' : ''" @click="section = 'links'">Links</button>
-  <button type="button" class="vote-tab" data-help-key="guild.announcements" :class="section === 'announcements' ? 'vote-tab--active' : ''" @click="section = 'announcements'">Announcements</button>
+  <button type="button" class="vote-tab" data-help-key="guild.announcements" :class="section === 'announcements' ? 'vote-tab--active' : ''" @click="section = 'announcements'">Email Members</button>
   <button type="button" class="vote-tab" data-help-key="guild.manage-staff" :class="section === 'staff' ? 'vote-tab--active' : ''" @click="section = 'staff'">Staff</button>
 </div>
 
@@ -594,16 +594,16 @@ confirm modal carries its own POST form, and template content can't nest a form.
   </form>
 </div>
 
-{# ── Announcements (separate forms, live outside the main form) ── #}
+{# ── Email Members (#920; the tab key stays announcements, separate forms, live outside the main form) ── #}
 <div x-show="section === 'announcements'" x-cloak>
 
   {# ── Your Mailing List (own forms/endpoints — not nested in another form) ── #}
-  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+  <div class="hub-card" id="mailing-list" style="padding:1.5rem; margin-bottom:1.5rem;">
     <div style="display:flex; align-items:center; gap:0.4rem; margin-bottom:0.5rem;">
       <h2 class="hub-detail-label" style="margin:0;">Your Mailing List</h2>
-      <span class="pl-help" tabindex="0" aria-label="Who receives your guild's announcements">
+      <span class="pl-help" tabindex="0" aria-label="Who receives your guild's emails">
         <span class="pl-help__icon" aria-hidden="true">?</span>
-        <span class="pl-help__bubble" role="tooltip">Everyone here gets your guild's announcement emails: members are added automatically, plus any custom addresses below. By default an announcement goes out to email <strong>and</strong> your guild's Discord channel — you can turn either off when you compose.</span>
+        <span class="pl-help__bubble" role="tooltip">Everyone here gets the emails you send your guild from Email Members: members are added automatically, plus any custom addresses below. By default it goes out by email <strong>and</strong> to your guild's Discord channel, and you can turn either off while you write it.</span>
       </span>
     </div>
     {% if announcement_recipient_count %}
@@ -621,9 +621,9 @@ confirm modal carries its own POST form, and template content can't nest a form.
         </ul>
       </div>
     </div>
-    <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.75rem 0 0;">Members without an email on file aren't counted — they won't receive the announcement.</p>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.75rem 0 0;">Members without an email on file aren't counted, so they won't receive the email.</p>
     {% else %}
-    <p class="hub-text-muted" style="margin:0;">No members in this guild yet — only the custom addresses below will receive announcements.</p>
+    <p class="hub-text-muted" style="margin:0;">No members in this guild yet, so only the custom addresses below will receive your emails.</p>
     {% endif %}
   </div>
 
@@ -632,7 +632,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
     {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.contact-emails">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Custom addresses</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Add addresses outside the guild (a booster, a partner org, your own inbox) that should also receive this guild's announcement emails. People you add to an announcement are saved here when you send it; saved members get it in the app too.</p>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Add addresses outside the guild (a booster, a partner org, your own inbox) that should also receive this guild's emails. People you add to an email are saved here when you send it; saved members get it in the app too.</p>
       {{ mailing_list_formset.management_form }}
       {% for error in mailing_list_formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
       <div id="mailing-list-rows" style="display:flex; flex-direction:column; gap:1rem;" data-formset-rows>
@@ -712,10 +712,10 @@ confirm modal carries its own POST form, and template content can't nest a form.
     </div>
   </form>
   <div class="hub-card" style="padding:1.5rem;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.5rem;">Post an Announcement</h2>
-    <p class="hub-text-muted" style="font-size:0.875rem; margin:0 0 1rem;">Compose in the step-through wizard — write the message, design the email with a live preview, choose the Discord channel, and save a draft to finish later. It reaches your mailing list above.</p>
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.5rem;">Email Your Members</h2>
+    <p class="hub-text-muted" style="font-size:0.875rem; margin:0 0 1rem;">Write the message, preview the email, choose the Discord channel, and save a draft to finish later. It reaches your mailing list above, posts on your guild page and sends an app notification.</p>
     <div class="pl-btn-row">
-      <a href="{% url 'hub_compose' %}?audience=guild:{{ guild.pk }}" class="hub-btn hub-btn--primary">Compose announcement &rarr;</a>
+      <a href="{% url 'hub_compose' %}?audience=guild:{{ guild.pk }}" class="hub-btn hub-btn--primary">Write an email &rarr;</a>
       <a href="{% url 'hub_announcements' %}" class="hub-btn hub-btn--ghost" data-guild-announcements-overview>Drafts and sent</a>
     </div>
   </div>

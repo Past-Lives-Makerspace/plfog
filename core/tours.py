@@ -310,8 +310,8 @@ TOURS: dict[str, Tour] = {
             ),
             TourStep(
                 target='[data-help-key="guild.announcements"]',
-                title="Announcements",
-                body="Write to your members here: draft, preview, send. Member proposals wait in your review queue.",
+                title="Email Members",
+                body="Email your members here: draft, preview, send. Your mailing list is here too, and member proposals wait in your review queue.",
                 tab_set=("section", "announcements"),
             ),
             TourStep(
@@ -453,7 +453,7 @@ TOURS: dict[str, Tour] = {
             TourStep(
                 target='[data-help-key="announcements.compose"]',
                 title="Message Your Class",
-                body="Need to reach everyone in this class? Write an announcement here. It is already aimed at just this class.",
+                body="Need to reach everyone in this class? Write an email here. It is already aimed at just this class.",
                 navigate="hub_compose",
                 query=_instructor_class_audience,
             ),
@@ -481,8 +481,8 @@ TOURS: dict[str, Tour] = {
             ),
             TourStep(
                 target='[data-help-key="announcements.compose"]',
-                title="Site Wide Announcements",
-                body="Send a site wide announcement here. Pick who gets it, write once, and it can go to email, push, and Discord.",
+                title="Email Members",
+                body="Email everyone, a guild or a class here. Pick who gets it, write once, and it can go to email, push, and Discord.",
                 navigate="hub_compose",
             ),
             TourStep(

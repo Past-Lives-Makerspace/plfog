@@ -58,12 +58,22 @@
     <h2 class="hub-detail-label pl-tools-section__title" id="tools-section-tools">Tools</h2>
     <div class="pl-tools-grid">
       {% if tool_announcements %}
-      <a class="hub-card pl-tool-card" href="{% url 'hub_announcements' %}">
+      <a class="hub-card pl-tool-card" href="{% url 'hub_announcements' %}" data-tool-email-members>
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
         </span>
-        <span class="pl-tool-card__title">Announcements</span>
-        <span class="pl-tool-card__desc">Write, save, and look back on announcements to a class, a guild, or the whole makerspace.</span>
+        <span class="pl-tool-card__title">Email Members</span>
+        <span class="pl-tool-card__desc">Email a class, a guild or everyone, post it to Discord and send an app notification.</span>
+        <span class="hub-pill hub-pill--neutral pl-tool-card__formerly" data-formerly-announcements>Formerly called Announcements</span>
+      </a>
+      {% endif %}
+      {% if tool_mailing_lists %}
+      <a class="hub-card pl-tool-card" href="{% url 'hub_mailing_lists' %}" data-tool-mailing-lists>
+        <span class="pl-tool-card__icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+        </span>
+        <span class="pl-tool-card__title">Manage Mailing Lists</span>
+        <span class="pl-tool-card__desc">Who your guild's emails reach: its members, plus the addresses you add or import.</span>
       </a>
       {% endif %}
       {% if tool_push_test %}
@@ -90,7 +100,7 @@
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/></svg>
         </span>
         <span class="pl-tool-card__title">Spotlight</span>
-        <span class="pl-tool-card__desc">Announcements, the next Feature Request Meeting and its short text.</span>
+        <span class="pl-tool-card__desc">Spotlight messages, the next Feature Request Meeting and its short text.</span>
       </a>
       {% endif %}
       {% if tool_feedback %}
