@@ -223,7 +223,8 @@ _ADMIN_SECTIONS = [
         "tools",
         "Tools",
         [
-            "Announcements",
+            "Email Members",
+            "Manage Mailing Lists",
             "Push Notification Test",
             "Orientations",
             "Spotlight",
@@ -247,12 +248,14 @@ def describe_admin_tools_sections():
 
     def it_shows_a_fog_admin_the_four_sections_with_their_cards_in_order(client: Client):
         _login_superuser(client, "sections_admin")
+        GuildFactory()  # Manage Mailing Lists shows once there is a guild whose list to open
         assert _sections(client) == _ADMIN_SECTIONS
 
     def it_puts_every_card_in_exactly_one_section(client: Client):
         _login_superuser(client, "sections_once")
+        GuildFactory()
         titles = _card_titles(client)
-        assert len(titles) == len(set(titles)) == 19
+        assert len(titles) == len(set(titles)) == 20
 
     def it_keeps_the_help_key_on_the_wrapper_the_admin_tour_targets(client: Client):
         _login_superuser(client, "sections_help_key")
@@ -262,7 +265,7 @@ def describe_admin_tools_sections():
         _login_guild_lead(client, "sections_lead")
         sections = _sections(client)
         assert [key for key, _, _ in sections] == ["tools"]
-        assert sections[0][2] == ["Announcements", "Orientations"]
+        assert sections[0][2] == ["Email Members", "Manage Mailing Lists", "Orientations"]
 
     def it_gives_a_billing_approver_only_the_reports_section_without_growth(client: Client):
         _login_billing_approver(client, "sections_biller")

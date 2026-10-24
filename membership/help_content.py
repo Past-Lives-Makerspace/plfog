@@ -256,7 +256,7 @@ A few notices are locked on, because missing them would cause real problems: sig
 
 If you hold a role or an admin permission, the notices it brings you sit together in **Admin / Permissions** at the top of the page, grouped by the permission. Every section has buttons to turn all Email, all Push or all Discord on or off at once. Nothing changes until you press Save.
 
-Announcements can also be marked **urgent** by whoever sends them. An urgent announcement reaches you even if you've turned that kind of email off — it's saved for the things you truly need to know.
+An email from your guild, your class or the makerspace can be marked **urgent** by whoever sends it. An urgent one reaches you even if you've turned that kind of email off. It's saved for the things you truly need to know.
 
 ## Heads-Up: Some Updates Start Switched On {#defaults}
 
@@ -706,7 +706,7 @@ Announcements are how guilds share news — a restock, a schedule change, a call
 
 - Every guild page has an **Announcements** section with that guild's posts.
 - Your **Home** dashboard shows **Latest from your guilds** — recent announcements from the guilds you follow.
-- A guild's leads can also send an announcement to guild members by email, so keep an eye on your inbox.
+- A guild's leads post them with **Email Members**, which also emails the guild's members, so keep an eye on your inbox.
 
 ![The Announcements section on a guild page, with the Suggest an announcement button.](/static/help/announcements/01-guild-announcements.png)
 
@@ -853,7 +853,7 @@ All four are covered in [Run Your Class](/help/teaching/run-your-class/).
 
 **Reach further:**
 
-- **Announce to your class**: open **Admin Tools** in the sidebar, then **Announcements** and **New announcement**, and pick one of your published classes as the recipient group. Everyone registered for it gets the announcement in the app, by push, and by email. See [The Announcement Composer](/help/running-a-guild/announcement-composer/). (Admin Tools shows up once an admin has given you the Instructor role. Ask if you don't see it.)
+- **Email your class**: open **Admin Tools** in the sidebar, then **Email Members** and **New email**, and pick one of your published classes as the recipient group. Everyone registered for it gets it in the app, by push, and by email. See [Email Members](/help/running-a-guild/announcement-composer/). (Admin Tools shows up once an admin has given you the Instructor role. Ask if you don't see it.)
 - **Your public instructor page**: with the Instructor role, the catalog links your bio and your classes from every class you teach.
 
 ### The Ground Rules {#instructor-ground-rules}
@@ -1034,9 +1034,9 @@ Open the class's **Emails** sub-tab, switch the welcome email on, and write the 
 
 Discount codes are created by admins. Want one for your class — a percent off, a flat amount off, or an auto-apply sale? Ask an admin.
 
-### Announce to Your Class {#teach-announce-class}
+### Email Your Whole Class {#teach-announce-class}
 
-For bigger news, like a schedule change or a supply list, send a real announcement instead of a plain email: open **Admin Tools** in the sidebar, then **Announcements** and **New announcement**. Your published classes appear as audiences, and the announcement reaches every registrant in the app, by push notification on their phones, and by email. [The Announcement Composer](/help/running-a-guild/announcement-composer/) guide walks the whole tool. (Admin Tools appears once an admin has given you the Instructor role.)
+For bigger news, like a schedule change or a supply list, use Email Members: open **Admin Tools** in the sidebar, then **Email Members** and **New email**. Your published classes appear as audiences, and it reaches every registrant in the app, by push notification on their phones, and by email. The [Email Members](/help/running-a-guild/announcement-composer/) guide walks the whole tool. (Admin Tools appears once an admin has given you the Instructor role.)
 
 ### The Waitlist
 
@@ -1211,7 +1211,7 @@ Discount codes are created by admins — instructors ask you when they want one 
         "sort_order": 30,
         "related": ["guild-voting", "members-and-invites"],
         "body": """\
-Guild voting mostly runs itself. Members keep one ranked ballot each, editable any time, and it counts every month until they change it. The cycle is the calendar month, closing on the last day, and the standings are always live; there is no hard lock. Your job as admin is to watch turnout, freeze the month's results into a snapshot, and announce the results to members.
+Guild voting mostly runs itself. Members keep one ranked ballot each, editable any time, and it counts every month until they change it. The cycle is the calendar month, closing on the last day, and the standings are always live; there is no hard lock. Your job as admin is to watch turnout, freeze the month's results into a snapshot, and email the results to members.
 
 As an admin, the Guild Voting page grows a tab bar: **Overview** (the same ballot page members see), **At a Glance**, **Funding History**, **Snapshots**, and **Settings**.
 
@@ -1219,13 +1219,13 @@ As an admin, the Guild Voting page grows a tab bar: **Overview** (the same ballo
 
 The read-only dashboard for the current cycle: members with votes, active members, participation rate, paying voters, and the funding pool. The pool is the larger of paying voters times $10 and the pool floor from Settings.
 
-When a snapshot exists whose results have not gone out yet, a "Results are in" banner sits at the top with **Review numbers** and **Draft announcement** buttons. While the results announcement is sending, the banner says so in place of the button.
+When a snapshot exists whose results have not gone out yet, a "Results are in" banner sits at the top with **Review numbers** and **Draft results email** buttons. While the results email is sending, the banner says so in place of the button.
 
 ![At a Glance: this cycle's turnout, pool, and live leaders.](/static/help/voting-admin/01-at-a-glance.png)
 
 ### The Automatic Month-End Snapshot
 
-You usually do not have to take the snapshot yourself. On the first cron tick of a new month, the app snapshots the cycle that just closed, exactly once, and lets the admins know the results are ready. It sends members nothing: the results go out when you send the results announcement (below). Two guards keep it sane:
+You usually do not have to take the snapshot yourself. On the first cron tick of a new month, the app snapshots the cycle that just closed, exactly once, and lets the admins know the results are ready. It sends members nothing: the results go out when you send the results email (below). Two guards keep it sane:
 
 - It is gated on the **Auto snapshot enabled** switch in Settings.
 - It skips itself if any snapshot was already taken during that cycle's window. So if you took a manual snapshot, the automatic one stands down; you will not get doubles.
@@ -1240,16 +1240,16 @@ The commit always captures the full, unfiltered live state; the analyzer's filte
 
 ![The Take a snapshot form on the Snapshots tab.](/static/help/voting-admin/02-take-snapshot.png)
 
-### Send the Results Announcement {#voting-send-results}
+### Send the Results Email {#voting-send-results}
 
-1. Click **Draft announcement** on the At a Glance banner or on the snapshot's history page. The Announcement Composer opens with the results announcement already written: a short message with the turnout, the pool and a link to the results page. It is set to go to every active member who has signed in, by email, push and the app, and to post in #general-chat with an @everyone ping.
+1. Click **Draft results email** on the At a Glance banner or on the snapshot's history page. Email Members opens with the results email already written: a short message with the turnout, the pool and a link to the results page. It is set to go to every active member who has signed in, by email, push and the app, and to post in #general-chat with an @everyone ping.
 2. Check the numbers and edit the message as you like. The title is the month and "Voting Results", for example "September 2026 Voting Results". Under your message, the email shows a bar chart of how the pool was split and the Discord post shows one bar per guild. Those numbers come straight from the snapshot, so they can't be mistyped.
 3. Open **Preview & send** to see the email with its chart and the Discord post exactly as they will go out. You can send yourself a test first.
-4. Click **Send announcement**. It sends in the background and reaches everyone within 15 minutes. The banner says it is sending, then moves on once it has gone, and the snapshot's history page shows when the results were sent.
+4. Click **Send email**. It sends in the background and reaches everyone within 15 minutes. The banner says it is sending, then moves on once it has gone, and the snapshot's history page shows when the results were sent.
 
-If the announcement could not be sent, the banner and the snapshot's history page say why. Sending it again reaches only the members who did not get it, so edits you make after a failure do not reach people who already have the first version.
+If the email could not be sent, the banner and the snapshot's history page say why. Sending it again reaches only the members who did not get it, so edits you make after a failure do not reach people who already have the first version.
 
-Clicking **Draft announcement** again reopens the same draft. Each snapshot's results go out once: after they are sent, another results announcement for that snapshot is refused. The announcement follows each member's settings for makerspace-wide announcements, and members no longer get a recap of their own ballot with the results.
+Clicking **Draft results email** again reopens the same draft. Each snapshot's results go out once: after they are sent, another results email for that snapshot is refused. It follows each member's settings for makerspace-wide announcements, and members no longer get a recap of their own ballot with the results.
 
 ### Funding History
 
@@ -1329,7 +1329,7 @@ Open your guild's page and click **Guild Settings**. Every tool below lives on o
 
 **Reaching members:**
 
-- **Announcements** — write to your whole guild (in-app, push, email, and Discord from one wizard), manage your mailing list, and review member-proposed announcements. See [Guild Announcements](/help/running-a-guild/guild-announcements/) and [The Announcement Composer](/help/running-a-guild/announcement-composer/).
+- **Email Members**: write to your whole guild (in the app, push, email, and Discord, all from one composer), manage your mailing list, and review member-proposed announcements. See [Emailing Your Guild](/help/running-a-guild/guild-announcements/) and [Email Members](/help/running-a-guild/announcement-composer/).
 - **One automatic email** — a thank-you after their orientation. See [Your Guild Page](/help/running-a-guild/your-guild-page/).
 
 **Calendar and records:**
@@ -1342,7 +1342,7 @@ Open your guild's page and click **Guild Settings**. Every tool below lives on o
 
 - **Approve classes** — when a class is submitted in your guild's category, you're the first gate before the admin. See [Approving Classes](/help/running-a-guild/approving-classes/).
 
-The two tools you'll reach for most — Announcements and Orientations — are also collected under **Admin Tools**, in the sidebar and on your Home page.
+The tools you'll reach for most, Email Members, Manage Mailing Lists and Orientations, are also collected under **Admin Tools**, in the sidebar and on your Home page.
 
 ### The One Rule Worth Repeating {#guild-lead-staff-rule}
 
@@ -1375,9 +1375,9 @@ Wondering how far you can take the page? The [Cartographers Guild](/guilds/carto
 
 ### The Tabs {#guild-edit-page}
 
-Guild Settings is one page with tabs across the top: **Basic Information**, **Meetings**, **Studio Hours**, **Meeting Notes**, **Events**, **Orientations**, **Welcome Email**, **Images**, **FAQ**, **Links**, **Announcements**, and **Staff**. Basic Information, Meetings, and Images share one **Save Changes** button. Every other tab has its own Save button, so save each tab before you leave it.
+Guild Settings is one page with tabs across the top: **Basic Information**, **Meetings**, **Studio Hours**, **Meeting Notes**, **Events**, **Orientations**, **Welcome Email**, **Images**, **FAQ**, **Links**, **Email Members**, and **Staff**. Basic Information, Meetings, and Images share one **Save Changes** button. Every other tab has its own Save button, so save each tab before you leave it.
 
-This guide covers the page itself. Orientations, announcements, events, studio hours, and staff each have their own guide.
+This guide covers the page itself. Orientations, Email Members, events, studio hours, and staff each have their own guide.
 
 ### Basic Information
 
@@ -1454,7 +1454,7 @@ Concretely, every staff member can:
 - Edit the guild page: the About text, banner, gallery, FAQ, links, meetings, everything.
 - Manage the guild's classes.
 - Run orientations: confirm and decline requests, and mark members oriented.
-- Send announcements to the whole guild and review member-proposed ones.
+- Email the whole guild with Email Members and review member-proposed announcements.
 - Add and remove other staff members, including you.
 - Receive the orientation requests the lead receives.
 
@@ -1626,27 +1626,27 @@ Every 15 minutes, a background job marks confirmed orientations complete once th
     {
         "slug": "guild-announcements",
         "category": "running-a-guild",
-        "title": "Guild Announcements",
+        "title": "Emailing Your Guild",
         "sort_order": 50,
         "related": ["announcements", "your-guild-page"],
         "body": """\
-Guild leads and staff can announce things to their whole guild: in the app, by email, and on Discord, all from one composer. Admins can announce site-wide too. Regular members can't send announcements directly, but they can propose one for your review (more on that below).
+Guild leads and staff write to their whole guild with **Email Members**: in the app, by email, and on Discord, all from one composer. It was called Announcements until October 2026. Admins can email everyone too. Each email also posts as an announcement on your guild page. Regular members can't use Email Members, but they can suggest an announcement for your review (more on that below).
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
-### The Compose Wizard {#announcements-compose}
+### Write an Email {#announcements-compose}
 
-From **Guild Settings**, open the **Announcements** tab and click **Compose announcement**; it opens already pointed at your guild. Two tabs: **Compose** (message, recipients, and the push/email/Discord delivery switches) and **Preview & send** (the push phone line, the email preview, the Discord channel and ping, and the confirm button).
+From **Guild Settings**, open the **Email Members** tab and click **Write an email**; it opens already pointed at your guild. The **Email Members** button on your guild page does the same. Two tabs: **Compose** (message, recipients, and the push/email/Discord delivery switches) and **Preview & send** (the push phone line, the email preview, the Discord channel and ping, and the confirm button).
 
 ![The composer's Compose tab: message, recipients, and the delivery switches.](/static/help/guild-announcements/01-compose-wizard.png)
 
-The full walkthrough — including push notifications, the urgent switch, and test-sends to yourself — lives in [The Announcement Composer](/help/running-a-guild/announcement-composer/). The short version: everyone in your recipient list always gets it in their notification bell; push and email are on by default and members can tune those in their own settings; Discord is one post to the channel you pick. Sending can't be undone.
+The full walkthrough — including push notifications, the urgent switch, and test-sends to yourself — lives in [Email Members](/help/running-a-guild/announcement-composer/). The short version: everyone in your recipient list always gets it in their notification bell; push and email are on by default and members can tune those in their own settings; Discord is one post to the channel you pick. Sending can't be undone.
 
 ### Your Mailing List
 
-The **Announcements** tab shows exactly who your emails reach. Guild members are on the list automatically. You can add custom addresses too (a booster, a partner org) one at a time or by importing a CSV or text file, one email per line.
+The **Email Members** tab shows exactly who your emails reach. **Admin Tools → Manage Mailing Lists** opens it too: straight to your guild's list, or a short list of guilds to pick from if you help run more than one. Guild members are on the list automatically. You can add custom addresses too (a booster, a partner org) one at a time or by importing a CSV or text file, one email per line.
 
-![The Announcements tab: your mailing list, the compose button, and recent announcements.](/static/help/guild-announcements/02-announcements-tab.png)
+![The Email Members tab: your mailing list, the Write an email button, and recent announcements.](/static/help/guild-announcements/02-announcements-tab.png)
 
 ### Edit or Delete a Posted Announcement
 
@@ -1654,7 +1654,7 @@ Under **Recent Announcements** on the same tab, each announcement has **Edit** a
 
 ### Review Member Proposals {#announcements-review-proposals}
 
-Any logged-in member can propose an announcement for any guild. Nothing posts until a lead, staff member, or admin approves it. When proposals are waiting, the Announcements tab shows a banner with a **Review proposals** button; the queue shows proposals for the guilds you help run (admins see every guild's).
+Any logged-in member can propose an announcement for any guild. Nothing posts until a lead, staff member, or admin approves it. When proposals are waiting, the Email Members tab shows a banner with a **Review proposals** button; the queue shows proposals for the guilds you help run (admins see every guild's).
 
 ![The review queue for member-proposed announcements.](/static/help/guild-announcements/03-review-queue.png)
 
@@ -1668,7 +1668,7 @@ The proposer is notified of your decision either way.
 
 ### Turning Member Suggestions Off {#announcements-member-suggestions}
 
-If you'd rather not take member-proposed announcements, open the **Member Suggestions** card on the **Announcements** tab and switch it off. The **+ Suggest an announcement** button disappears from your guild page, and the suggest page stops offering your guild in its picker. Proposals already in your queue stay decidable, and anyone mid-revision on a changes-requested proposal can still resubmit it. Turn it back on any time.""",
+If you'd rather not take member-proposed announcements, open the **Member Suggestions** card on the **Email Members** tab and switch it off. The **+ Suggest an announcement** button disappears from your guild page, and the suggest page stops offering your guild in its picker. Proposals already in your queue stay decidable, and anyone mid-revision on a changes-requested proposal can still resubmit it. Turn it back on any time.""",
         "screenshots": [
             {
                 "file": "01-compose-wizard.png",
@@ -1681,7 +1681,7 @@ If you'd rather not take member-proposed announcements, open the **Member Sugges
                 "file": "02-announcements-tab.png",
                 "page": "/guilds/1/edit/?tab=announcements",
                 "selector": "[x-show=\"section === 'announcements'\"]",
-                "caption": "The Announcements tab: your mailing list, the compose button, and recent announcements.",
+                "caption": "The Email Members tab: your mailing list, the Write an email button, and recent announcements.",
                 "as_role": "guild_lead",
             },
             {
@@ -1696,83 +1696,85 @@ If you'd rather not take member-proposed announcements, open the **Member Sugges
     {
         "slug": "announcement-composer",
         "category": "running-a-guild",
-        "title": "The Announcement Composer",
+        "title": "Email Members",
         "sort_order": 55,
         "related": ["guild-announcements", "notifications"],
         "body": """\
-One composer sends an announcement everywhere it needs to go: the notification bell, phones (push), email, and Discord. Admins, guild leads and staff, and instructors all use the same tool. This guide walks it end to end — especially push notifications, which put your announcement straight on members' phones.
+One tool, **Email Members**, sends your message everywhere it needs to go: the notification bell, phones (push), email, and Discord. It was called Announcements until October 2026. Admins, guild leads and staff, and instructors all use the same tool. This guide walks it end to end, especially push notifications, which put your message straight on members' phones.
 
-<!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
+<!-- Video slot: paste a Loom embed here. See docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
 ### Who Can Send, and to Whom {#composer-who}
 
 - **Admins** can send to **Everyone (site-wide)** or to any guild.
 - **Guild leads and staff** can send to the guilds they help run.
-- **Instructors** can send to the roster of any published class they teach. (Admins reach a class's roster from that class's page — its **Send Announcement** button.)
+- **Instructors** can send to the roster of any published class they teach. (Admins reach a class's roster from that class's page and its **Send Email** button.)
 
-Ways in: **Admin Tools → Announcements** opens the Announcements page, where **New announcement** starts one. The other ways in are the **Send Announcement** button on your guild page or class pages (those arrive already aimed at that guild or class), and **Compose announcement** on your guild's Announcements tab.
+Ways in: **Admin Tools → Email Members** opens the Email Members page, where **New email** starts one. The other ways in are the **Email Members** button on your guild page and the **Send Email** button on class pages (those arrive already aimed at that guild or class), and **Write an email** on your guild's Email Members tab in Guild Settings.
 
-### Drafts and Sent Announcements {#composer-drafts}
+### Drafts and Sent Emails {#composer-drafts}
 
-**Admin Tools → Announcements** opens the Announcements page. It has two tabs.
+**Admin Tools → Email Members** opens the Email Members page. It has two tabs.
 
-![The Announcements page: drafts waiting to go out, and the Sent tab beside them.](/static/help/announcement-composer/03-announcements-page.png)
+![The Email Members page: drafts waiting to go out, and the Sent tab beside them.](/static/help/announcement-composer/03-announcements-page.png)
 
-- **Drafts** lists announcements that have not gone out yet. Press **Save draft** in the composer to keep one here. Use **Edit** to pick it up again, or **Delete** to throw it away.
-- **Sent** lists what already went out: when, who sent it, how many people it reached, and how many emails it sent. **View** shows what went out on each channel. People reached are counted for announcements sent since this page arrived; older ones show **Not recorded**.
-- A site-wide announcement sends in the background. While it does, its status reads **Sent to 50 of 298 so far**, and the page updates on its own when it finishes.
-- Click the **Emails** number (or **See who it reached** on the announcement's own page) for the list of everyone it reached: each person's email address and whether they got the email, the notification bell and a push. An email that failed shows the reason. Push says yes only for members who have the app or browser notifications set up.
+- **Drafts** lists emails that have not gone out yet. Press **Save draft** while you write to keep one here. Use **Edit** to pick it up again, or **Delete** to throw it away.
+- **Sent** lists what already went out: when, who sent it, how many people it reached, and how many emails it sent. **View** shows what went out on each channel. People reached are counted for emails sent since this page arrived; older ones show **Not recorded**.
+- An email to everyone sends in the background. While it does, its status reads **Sent to 50 of 298 so far**, and the page updates on its own when it finishes.
+- Click the **Emails** number (or **See who it reached** on the email's own page) for the list of everyone it reached: each person's email address and whether they got the email, the notification bell and a push. An email that failed shows the reason. Push says yes only for members who have the app or browser notifications set up.
 
-Drafts are shared. Admins see every draft. Guild leads and staff see the drafts and sent announcements for the guilds they help run, and instructors see the ones for their classes. Whoever saved a draft last shows as its editor. Whoever sends it is the sender, and their name is on the email's From line when **Show who it's from** is on.
+Drafts are shared. Admins see every draft. Guild leads and staff see the drafts and sent emails for the guilds they help run, and instructors see the ones for their classes. Whoever saved a draft last shows as its editor. Whoever sends it is the sender, and their name is on the email's From line when **Show who it's from** is on.
 
-Once a month's voting results are in, a draft called "September 2026 Voting Results" (with that month's name) appears on the Drafts tab on its own, ready for an admin to check and send. If you delete it, it does not come back. You can start a new one from the Voting page with **Draft announcement**.
+Once a month's voting results are in, a draft called "September 2026 Voting Results" (with that month's name) appears on the Drafts tab on its own, ready for an admin to check and send. If you delete it, it does not come back. You can start a new one from the Voting page with **Draft results email**.
 
-An announcement to everyone shows as **Sending** until it goes out, within 15 minutes. If it could not be sent, it moves back to Drafts marked **Could not send**, with the reason.
+An email to everyone shows as **Sending** until it goes out, within 15 minutes. If it could not be sent, it moves back to Drafts marked **Could not send**, with the reason.
+
+Admins also see a **Release Update** card at the bottom of the page. **Draft from latest release** opens the sectioned what's new email built from the release's changelog, with a test send to yourself before it goes to every activated member.
 
 ### Tab 1: Compose {#composer-compose}
 
 ![The Compose tab: audience, message, recipients, and the delivery switches.](/static/help/announcement-composer/01-compose-tab.png)
 
-- **Who is this for?** — pick the audience. If you came from a guild or class page, it's locked to that audience.
-- **Message** — a rich-text editor. The formatted version goes out by email; the bell, push, and Discord get a plain-text version.
-- **Recipients** (guild and class audiences) — everyone is checked by default. Uncheck anyone, or add a member who isn't on the list. Class audiences also get an **Also include the waitlist** toggle.
+- **Who is this for?** Pick the audience. If you came from a guild or class page, it's locked to that audience.
+- **Message**: a rich-text editor. The formatted version goes out by email; the bell, push, and Discord get a plain-text version.
+- **Recipients** (guild and class audiences): everyone is checked by default. Uncheck anyone, or add a member who isn't on the list. Class audiences also get an **Also include the waitlist** toggle.
 - **Recipients** (site-wide): **Everyone** means active members who have logged in to the app at least once, and the note under Recipients gives the count. Turn on **Also include members who haven't logged in yet** to reach every active member: those who have never logged in get it by email when **Email** is on, and in their notification bell once they log in. To reach someone everyone doesn't, use **Add a member** for a former, invited or suspended member, or **Add email addresses** for anyone else (separate several with commas). Someone with no account gets the email only, and only when **Email** is on. Uncheck a row to take that person off.
-- **Delivery** — three switches, all on to start: **Push notification**, **Email**, and **Post to Discord**. (Class announcements never post to Discord — they go straight to your students.)
-- **Mark as urgent** — see below. Use sparingly.
-- **Hide after** (guild announcements only) — an optional date after which the post hides from your guild page.
+- **Delivery**: three switches, all on to start: **Push notification**, **Email**, and **Post to Discord**. (Class emails never post to Discord; they go straight to your students.)
+- **Mark as urgent**: see below. Use sparingly.
+- **Hide after** (guild emails only): an optional date after which its post hides from your guild page.
 
 ![The Delivery switches: push, email, Discord, and the urgent toggle.](/static/help/announcement-composer/02-delivery-switches.png)
 
-Everyone in your recipient list **always** gets the announcement in their notification bell, no matter how you set the switches.
+Everyone in your recipient list **always** gets it in their notification bell, no matter how you set the switches.
 
 ### Push Notifications {#composer-push}
 
-This is the channel that lands on phones, and announcements send it **on by default**.
+This is the channel that lands on phones, and it is **on by default**.
 
-- **The phone line.** On the Preview & send tab, the **Push Notification Message** box holds the short text shown on the phone (max 180 characters). It starts as an auto-shortened copy of your message — edit it into one clean sentence; that's what people read on their lock screen.
-- **The title is automatic**: "&lt;Your Guild&gt; Announcement", "Class Announcement", or "Makerspace Announcement" — with "Urgent:" in front when you mark it urgent.
-- **Test it on yourself.** Click **Send a Push Notification test to me** and check your own phone. If it says no push devices are registered, your account has no phone set up yet — install the Android app, or add the Member Portal to your home screen and allow notifications.
-- **Who receives it:** members who have the app installed and notifications allowed, and who haven't switched announcement pushes off in **Settings → Notifications**. Class guests without accounts and custom mailing-list addresses are email-only — push and the bell can't reach them.
+- **The phone line.** On the Preview & send tab, the **Push Notification Message** box holds the short text shown on the phone (max 180 characters). It starts as an auto-shortened copy of your message. Edit it into one clean sentence; that's what people read on their lock screen.
+- **The title is automatic**: "&lt;Your Guild&gt; Announcement", "Class Announcement", or "Makerspace Announcement", with "Urgent:" in front when you mark it urgent.
+- **Test it on yourself.** Click **Send a Push Notification test to me** and check your own phone. If it says no push devices are registered, your account has no phone set up yet: install the Android app, or add the Member Portal to your home screen and allow notifications.
+- **Who receives it:** members who have the app installed and notifications allowed, and who haven't switched announcement pushes off in **Settings → Notifications**. Class guests without accounts and custom mailing-list addresses are email-only; push and the bell can't reach them.
 
 ### Tab 2: Preview & Send {#composer-send}
 
-- **Push** — the phone line and a live preview card of exactly what the phone shows.
-- **Email** — click **Refresh preview** to see the real branded email, **Send a test to me** to check your own inbox, and flip **Show who it's from** to add your name to the email (email only; push and the bell never show a sender).
-- **Discord** — pick the channel (or **Don't post**) and the ping: **@everyone**, **@here**, your guild's own role ping when it's configured (the gentlest option that still notifies your people), or no ping. It's one post to the channel, not direct messages.
-- The reach line totals it up — "Reaching N recipients in the app and by push, plus email" — and **Send announcement** asks you to confirm. Sending can't be undone.
+- **Push**: the phone line and a live preview card of exactly what the phone shows.
+- **Email**: click **Refresh preview** to see the real branded email, **Send a test to me** to check your own inbox, and flip **Show who it's from** to add your name to the email (email only; push and the bell never show a sender).
+- **Discord**: pick the channel (or **Don't post**) and the ping: **@everyone**, **@here**, your guild's own role ping when it's configured (the gentlest option that still notifies your people), or no ping. It's one post to the channel, not direct messages.
+- The reach line totals it up, "Reaching N recipients in the app and by push, plus email", and **Send email** asks you to confirm. Sending can't be undone.
 
 ### Mark as Urgent {#composer-urgent}
 
-Urgent is the break-glass switch: it bypasses each recipient's notification preferences, so the announcement reaches everyone **even if they turned announcement emails or pushes off**. Two honest caveats:
+Urgent is the break-glass switch: it bypasses each recipient's notification preferences, so it reaches everyone **even if they turned announcement emails or pushes off**. Two honest caveats:
 
 - It only overrides the *recipients'* settings. If **you** switched Email or Push off in Delivery, urgent doesn't turn them back on.
-- Every copy gets "Urgent:" in front of the title. Save it for closures, safety issues, and genuine emergencies — it spends trust.
+- Every copy gets "Urgent:" in front of the title. Save it for closures, safety issues, and genuine emergencies; it spends trust.
 
 ### Where It Lands Afterward {#composer-afterward}
 
-- A **guild** announcement also posts to your guild page (and members' Home dashboards) until its hide-after date, if you set one.
-- A **class** announcement goes straight to the roster — no public post anywhere.
-- A **site-wide** announcement is a notice to everyone, with no page post.
+- A **guild** email also posts as an announcement on your guild page (and members' Home dashboards) until its hide-after date, if you set one.
+- A **class** email goes straight to the roster, with no public post anywhere.
+- An email to **everyone** is a notice to every member, with no page post.
 """,
         "screenshots": [
             {
@@ -1793,7 +1795,7 @@ Urgent is the break-glass switch: it bypasses each recipient's notification pref
                 "file": "03-announcements-page.png",
                 "page": "hub_announcements",
                 "selector": None,
-                "caption": "The Announcements page: drafts waiting to go out, and the Sent tab beside them.",
+                "caption": "The Email Members page: drafts waiting to go out, and the Sent tab beside them.",
                 "as_role": "admin",
             },
         ],

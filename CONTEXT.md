@@ -68,6 +68,18 @@ _Avoid_: private guild, hidden guild, gating anything on guild visibility.
 The catalog category a class belongs to (the `classes.Category` model). User-facing copy calls it a "Class Type" — not "category" or bare "Guild". A Class Type may link to a hub Guild to route a submitted class's approval to that Guild's Lead, but a Class Type (catalog category) and a Guild (member group) are distinct.
 _Avoid_: category (in user-facing copy), Guild Type (the name until October 2026), bare "guild".
 
+**Email Members**:
+The one tool that sends a message to a class's registrants, a guild's mailing list, the guild leads, all instructors or everyone: by email, as an app notification (bell and push) and, for a guild or everyone, as a Discord post (#920). A guild send also posts on the guild page. Opened from Admin Tools, the guild page's Email Members button, a class page's Send Email button and the Email Members tab of Guild Settings. One send is an "email" in its copy ("New email", "Send email"). In code it is still `AnnouncementDraft`, the `hub_announcements` and `hub_compose*` URL names and the `/announcements/` path, kept so links already sent still land; its Release Update page (`/announcements/release/`, #922) sends the sectioned what's new email. A guild's **mailing list** (Your Mailing List, `GuildMailingListEmail`) is who a guild send reaches beyond its members, opened from Admin Tools > Manage Mailing Lists.
+_Avoid_: Announcements, announcement composer (its name until October 2026).
+
+**Spotlight message**:
+A short notice an admin posts for every member, shown in the Spotlight at the top left of the hub and in the banner at the top of Home, taking turns with the other live ones (`core.Announcement`, #889; written in Admin Tools > Spotlight). Named Announcements until #920.
+_Avoid_: announcement for this, now that the word belongs to neither tool.
+
+**Guild announcement**:
+A news post on a guild page (`membership.GuildAnnouncement`): what an Email Members send to a guild leaves behind, or a member's suggestion a lead approved. Members read these as their guild's announcements (the guild page section, Home's Latest From Your Guilds, "Suggest an announcement"), and that reading stays.
+_Avoid_: calling the tool that makes them "Announcements".
+
 **Kiln ticket**:
 One piece, or a set of identical pieces, a maker puts on the Ceramics Guild's shelf to be fired (`kiln.KilnTicket`, #691): photos with one cover, the guild's questions, and its status (Draft, In the queue, In the kiln, Ready for pickup). The **kiln crew** is the Ceramics Guild's lead and staff; a **flag** asks the crew to double check a ticket and never blocks it.
 _Avoid_: slip (the paper form it replaces), order, job.

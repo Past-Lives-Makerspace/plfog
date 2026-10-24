@@ -1,6 +1,6 @@
 {% extends "hub/base.html" %}
 {% load static %}
-{% block title %}{% if form.instance.pk %}Edit Announcement{% else %}New Announcement{% endif %}{% endblock %}
+{% block title %}{% if form.instance.pk %}Edit Spotlight Message{% else %}New Spotlight Message{% endif %}{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/home-announcements.css' %}">
 {% endblock %}
@@ -13,9 +13,9 @@ and Active. Save goes back to the Spotlight page's Announcements section.
 {% endcomment %}
 {% include "_components/rich_editor_assets.html" %}
 {% if form.instance.pk %}
-{% include "components/page_header.html" with title="Edit Announcement" description="Shown in the banner at the top of Home while it is live. A member who closed the banner sees it again after this is saved." %}
+{% include "components/page_header.html" with title="Edit Spotlight Message" description="Shown in the banner at the top of Home while it is live. A member who closed the banner sees it again after this is saved." %}
 {% else %}
-{% include "components/page_header.html" with title="New Announcement" description="Shown in the banner at the top of Home while it is live, taking turns with the other live ones." %}
+{% include "components/page_header.html" with title="New Spotlight Message" description="Shown in the banner at the top of Home while it is live, taking turns with the other live ones." %}
 {% endif %}
 <div class="hub-card pl-ann-admin-form">
   <form method="post" data-announcement-form>

@@ -25,7 +25,7 @@ from django.utils.html import escape
 from classes.factories import ClassOfferingFactory
 from classes.models import ClassOffering
 from core.models import EventDelivery
-from hub.views import _compose_refusal_message
+from hub.views import COMPOSE_REFUSAL, _compose_refusal_message
 from membership.models import AnnouncementDraft, GuildAnnouncement
 from tests.membership.factories import (
     AnnouncementDraftFactory,
@@ -528,9 +528,7 @@ def describe_who_sees_what():
             response = client.get(reverse("hub_announcements"))
             assert response.status_code == 302
             assert response.url == reverse("hub_guild_announcement_propose")
-            assert _messages(response) == [
-                "Your account cannot send announcements. You can propose one here for a lead to review."
-            ]
+            assert _messages(response) == [COMPOSE_REFUSAL]
 
         def it_cannot_open_a_sent_record(client: Client):
             MembershipPlanFactory()
@@ -652,10 +650,7 @@ def describe_the_draft_meta_line_in_the_composer():
         admin = _login_admin(client)
         draft = AnnouncementDraftFactory(author=admin, given_up=True)
         html = client.get(reverse("hub_compose_resume", args=[draft.pk])).content.decode()
-        assert (
-            "data-compose-draft-failed>This announcement could not be sent: Factory provider timed out. Check it"
-            in html
-        )
+        assert "data-compose-draft-failed>This email could not be sent: Factory provider timed out. Check it" in html
 
     def it_shows_no_meta_line_on_a_fresh_compose(client: Client):
         _login_admin(client)

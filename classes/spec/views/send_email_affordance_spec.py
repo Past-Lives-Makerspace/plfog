@@ -55,6 +55,7 @@ from classes.factories import (
     UserFactory,
 )
 from classes.models import ClassOffering, Registration
+from hub.views import COMPOSE_REFUSAL
 from membership.models import AdminCapability, AnnouncementDraft, Member
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MembershipPlanFactory
 
@@ -109,7 +110,7 @@ REVIEWER_SCREEN = {
 }
 
 #: The exact sentence every viewer who simply cannot compose is given.
-GENERIC_REFUSAL = "Your account cannot send announcements. You can propose one here for a lead to review."
+GENERIC_REFUSAL = COMPOSE_REFUSAL
 
 
 @pytest.fixture

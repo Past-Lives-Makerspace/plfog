@@ -257,7 +257,7 @@ class GuildEditForm(forms.ModelForm):
             "meeting_schedule": "Meeting notes",
             "contact_email": "Contact email",
             "discord_url": "Discord channel link (shown to members)",
-            "discord_webhook_url": "Announcement webhook (auto-posts here — keep private)",
+            "discord_webhook_url": "Email Members webhook (posts here, keep it private)",
             "discord_post_enabled": "Also post to our Discord",
             "discord_welcome_message": "Discord welcome message",
             "website_url": "Website URL",
@@ -5502,13 +5502,13 @@ class AnnouncementComposeForm(forms.Form):
         required=False,
         initial=False,
         label="Also include the waitlist",
-        help_text="Class announcements only — send to waitlisted registrants too, not just confirmed ones.",
+        help_text="Class emails only: send to waitlisted registrants too, not just confirmed ones.",
     )
     include_never_logged_in = forms.BooleanField(
         required=False,
         initial=False,
         label="Also include members who haven't logged in yet",
-        help_text="Site announcements only: also reach active members who have never logged in.",
+        help_text="Emails to everyone only: also reach active members who have never logged in.",
     )
     recipients = _RecipientChoiceField(
         required=False,
@@ -5531,7 +5531,7 @@ class AnnouncementComposeForm(forms.Form):
         required=False,
         widget=forms.DateInput(attrs={"type": "date"}),
         label="Hide after (optional)",
-        help_text="Guild announcements only. Leave blank to keep it up indefinitely.",
+        help_text="Guild emails only: the day its post leaves your guild page. Leave blank to keep it up.",
     )
 
     def __init__(
@@ -5798,14 +5798,14 @@ class AnnouncementComposeForm(forms.Form):
         cleaned = cast(dict[str, Any], super().clean())
         audience, guild, offering = split_audience(cleaned.get("audience") or "")
         if not audience:
-            raise forms.ValidationError("Choose who this announcement is for.")
+            raise forms.ValidationError("Choose who this email is for.")
         cleaned["audience"] = audience
         cleaned["guild"] = guild
         cleaned["class_offering"] = offering
         if audience == AnnouncementDraft.Audience.GUILD.value and guild is None:
-            self.add_error("audience", "Choose a guild for this announcement.")
+            self.add_error("audience", "Choose a guild for this email.")
         if audience == AnnouncementDraft.Audience.CLASS.value and offering is None:
-            self.add_error("audience", "Choose a class for this announcement.")
+            self.add_error("audience", "Choose a class for this email.")
         if self._results_announcement and audience != AnnouncementDraft.Audience.SITE.value:
             # Not an "audience" field error: a results draft's audience is locked (hidden), so a
             # field error would never show. The composer renders non-field errors at the top.
@@ -5900,7 +5900,7 @@ class AnnouncementComposeForm(forms.Form):
 
 
 class ReleaseAnnouncementForm(forms.Form):
-    """Compose the sectioned release-update email (the Announcements tab's Release mode).
+    """Compose the sectioned release-update email (the Release Update page, #922).
 
     Subject / preheader / intro are freeform; the feature **cards** are derived from the
     current release line's changelog — not created or deleted here — so each card gets a

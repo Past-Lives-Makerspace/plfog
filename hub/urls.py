@@ -327,13 +327,17 @@ urlpatterns = [
         views.guild_announcement_edit,
         name="hub_guild_announcement_edit",
     ),
-    # Staff / leadership tools hub (announcements, orientations, push diagnostics).
+    # Staff / leadership tools hub (Email Members, orientations, push diagnostics).
     path("tools/", views.hub_admin_tools, name="hub_admin_tools"),
     # Push notification diagnostics (admin-only): inspect a member's devices, send a test push.
     path("announcements/push-test/", views.hub_push_test, name="hub_push_test"),
-    # The Announcements page: drafts and sent, shared by everyone who may address each audience.
+    # The Email Members page (#920; the sending feature was called Announcements): drafts and sent,
+    # shared by everyone who may address each audience. The path keeps its old name, so every link
+    # in an email or notification already sent still lands.
     # The sent view is not announcements/<pk>/: announcements/<pk>/withdraw/ is a member's proposal.
     path("announcements/", views.announcements_overview, name="hub_announcements"),
+    path("announcements/release/", views.email_members_release, name="hub_email_members_release"),
+    path("mailing-lists/", views.manage_mailing_lists, name="hub_mailing_lists"),
     path("announcements/sent/<int:pk>/", views.announcement_sent, name="hub_announcement_sent"),
     path("announcements/sent/<int:pk>/progress/", views.announcement_progress, name="hub_announcement_progress"),
     path(

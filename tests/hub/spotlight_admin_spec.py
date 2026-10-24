@@ -176,12 +176,12 @@ def describe_the_text_and_meeting():
     def it_describes_the_spotlight_card_in_admin_tools(admin_client: Client):
         html = admin_client.get(reverse("hub_admin_tools")).content.decode()
 
-        assert "Announcements, the next Feature Request Meeting and its short text." in html
+        assert "Spotlight messages, the next Feature Request Meeting and its short text." in html
 
     def it_says_what_an_empty_first_line_falls_back_to(admin_client: Client):
         html = admin_client.get(PAGE).content.decode()
 
-        assert "Empty uses the first announcement, else the latest update." in html
+        assert "Empty uses the first Spotlight message, else the latest update." in html
 
     def it_escapes_the_lines_in_the_preview(admin_client: Client):
         SiteConfiguration.objects.filter(pk=SiteConfiguration.load().pk).update(spotlight_first_line="<b>Zorblax</b>")
@@ -209,7 +209,7 @@ def describe_polls_have_left_the_page():
     def it_says_the_page_is_about_announcements_and_the_meeting(admin_client: Client):
         html = admin_client.get(PAGE).content.decode()
 
-        assert "Announcements for the banner on Home and the top left of the Member Portal" in html
+        assert "Spotlight messages for the banner on Home and the top left of the Member Portal" in html
         assert "Short notices in a banner at the top of Home and in the Spotlight on every page." in html
 
 
@@ -233,7 +233,7 @@ def describe_the_show_when_empty_toggle():
         html = admin_client.get(PAGE).content.decode()
         section = html.split('id="spotlight-text"', 1)[1].split("</main>", 1)[0]
 
-        assert "Show the Spotlight when there is no announcement and no meeting" in section
+        assert "Show the Spotlight when there is no Spotlight message and no meeting" in section
         assert "On: members see the version, its latest update and Details." in section
         assert 'name="spotlight_show_when_empty"' in section
         assert "pl-toggle-row" in section
@@ -260,7 +260,7 @@ def describe_the_show_when_empty_toggle():
         assert "data-spotlight-preview-hidden" in html
         assert '"showWhenEmpty": false' in html
         assert '"hasAnnouncement": false' in html
-        assert "Hidden. With no announcement and no meeting, members see the logo and version number." in html
+        assert "Hidden. With no Spotlight message and no meeting, members see the logo and version number." in html
 
     def it_previews_the_quiet_state_while_there_is_no_announcement_and_no_meeting(admin_client: Client):
         html = admin_client.get(PAGE).content.decode()

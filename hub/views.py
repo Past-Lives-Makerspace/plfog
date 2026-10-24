@@ -121,6 +121,7 @@ from membership.permissions import (
     can_edit_event,
     event_create_mode,
     is_own_open_proposal,
+    manageable_guilds,
 )
 from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
@@ -4388,6 +4389,12 @@ def _can_enter_compose(request: HttpRequest, member: Member | None, raw_audience
     return offering is not None and _can_announce_to_class(request, offering)
 
 
+# What everyone who simply cannot compose is told; specs import it, so the copy cannot drift.
+COMPOSE_REFUSAL = (
+    "Your account cannot use Email Members. You can suggest an announcement for a guild here, and a lead reviews it."
+)
+
+
 def _compose_refusal_message(request: HttpRequest) -> str:
     """Why the composer turned this request away, in the refused viewer's own terms.
 
@@ -4414,10 +4421,10 @@ def _compose_refusal_message(request: HttpRequest) -> str:
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.actual_is_admin:
         return (
-            "Sending an announcement is an admin action, and your Viewing as switcher is set to "
+            "Sending this email is an admin action, and your Viewing as switcher is set to "
             f"{view_as.current_label}. Switch it back to Admin to send this."
         )
-    return "Your account cannot send announcements. You can propose one here for a lead to review."
+    return COMPOSE_REFUSAL
 
 
 def _compose_refused(request: HttpRequest) -> HttpResponse:
@@ -4815,7 +4822,7 @@ def _compose_lock(requested: str | None, want_lock: bool) -> tuple[bool, str, st
             "This goes to everyone registered for this class. Delivered by email plus their app notifications.",
         )
     if guild is not None:
-        return True, f"Members of {guild.name}", f"Announce to {guild.name}", ""
+        return True, f"Members of {guild.name}", f"Email the members of {guild.name}", ""
     return False, "", "", ""
 
 
@@ -5213,6 +5220,7 @@ ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools",
         (
             "tool_announcements",
+            "tool_mailing_lists",
             "tool_push_test",
             "tool_orientations",
             "tool_spotlight",
@@ -5265,6 +5273,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
     tool_manage_events = has_events_admin_access(request)
     flags = {
         "tool_announcements": _can_compose(request, member),
+        "tool_mailing_lists": manageable_guilds(request).exists(),
         "tool_orientations": can_orient,
         "tool_manage_members": is_admin,
         "tool_manage_classes": is_admin,
@@ -5408,7 +5417,7 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
             return _compose_send_refused(request, draft, exc)
         messages.success(
             request,
-            "Your announcement is sending in the background. "
+            "Your email is sending in the background. "
             f"It reaches {draft.recipient_count()} recipient(s) within 15 minutes.",
         )
         return redirect(_announcements_sent_url())
@@ -5416,7 +5425,7 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
         emailed, total = draft.send()
     except refusals as exc:
         return _compose_send_refused(request, draft, exc)
-    messages.success(request, f"Announcement sent to {total} recipient(s).")
+    messages.success(request, f"Email sent to {total} recipient(s).")
     return redirect(_announcements_sent_url())
 
 
@@ -5501,8 +5510,37 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
             "base_params": table["base_params"],
             "drafts_count": drafts.count(),
             "sent_count": sent.count(),
+            # The release update composer moved here from Site Settings (#922); admins only.
+            "can_send_release": _viewing_as_admin(request),
         },
     )
+
+
+@login_required
+def manage_mailing_lists(request: HttpRequest) -> HttpResponse:
+    """Manage Mailing Lists (#920): open the Your Mailing List card of a guild the viewer may edit.
+
+    The guilds are :func:`membership.permissions.manageable_guilds`, the gate on Guild Settings
+    itself: every active guild for an admin or officer, the guilds a lead or staffer helps run
+    otherwise. One guild goes straight to its Guild Settings' Email Members tab, several get a
+    short picker, and none goes home with a message.
+    """
+    guilds = list(manageable_guilds(request))
+    if not guilds:
+        messages.error(request, "You don't help run a guild, so there is no mailing list to manage.")
+        return redirect("hub_home")
+    if len(guilds) == 1:
+        return redirect(_mailing_list_url(guilds[0]))
+    return render(
+        request,
+        "hub/mailing_lists.html",
+        {**_get_hub_context(request), "rows": [(guild, _mailing_list_url(guild)) for guild in guilds]},
+    )
+
+
+def _mailing_list_url(guild: Guild) -> str:
+    """Where a guild's mailing list lives: Guild Settings, Email Members tab, at the list's card."""
+    return f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements#mailing-list"
 
 
 @login_required
@@ -5666,7 +5704,7 @@ def guild_announcement_settings_save(request: HttpRequest, pk: int) -> HttpRespo
     form.save()
     if wants_autosave(request):
         return autosave_saved()
-    messages.success(request, "Announcement settings saved.")
+    messages.success(request, "Member suggestions saved.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements")
 
 
@@ -9161,7 +9199,7 @@ def _send_release_announcement(request: HttpRequest, subject: str, html: str, te
 def _handle_release_announcement_action(
     request: HttpRequest, action: str
 ) -> tuple[HttpResponse | None, ReleaseAnnouncementForm, dict[str, object] | None]:
-    """Process a Release-mode Announcements POST. Returns ``(redirect_or_none, form, preview)``.
+    """Process a Release Update POST. Returns ``(redirect_or_none, form, preview)``.
 
     ``announce_send`` (valid) redirects; ``announce_preview`` / ``announce_test`` (valid)
     re-render with the assembled preview (test additionally sends a copy to the admin and
@@ -9186,7 +9224,7 @@ def _handle_release_announcement_action(
         summary = render_rich_email_text(intro).strip() or "See what's new at Past Lives."
         count = _send_release_announcement(request, subject, html, text, summary)
         messages.success(request, f"Release update sent to {count} member(s).")
-        return redirect(f"{reverse('hub_admin_site_settings')}?tab=announcements"), form, None
+        return redirect("hub_announcements"), form, None
 
     if action == "announce_test":
         send_release_test(admin_user, html, text, subject)
@@ -9200,6 +9238,36 @@ def _handle_release_announcement_action(
         "preheader": preheader,
     }
     return None, form, preview
+
+
+# The Release Update page's submit buttons (``action``), also how Site Settings knows a stale
+# release form posted to it (#922).
+_RELEASE_ACTIONS = frozenset({"announce_preview", "announce_send", "announce_test"})
+
+
+@fog_admin_required
+def email_members_release(request: HttpRequest) -> HttpResponse:
+    """The Release Update page (#922): the sectioned "what's new" email, linked from Email Members.
+
+    It was Site Settings' Announcements tab in Release mode; ``?tab=announcements&draft=release``
+    there redirects here. A GET opens a draft prefilled from the unswept changelog; a POST with a
+    :data:`_RELEASE_ACTIONS` button previews, sends a test to the admin, or sends it to every
+    activated member (:func:`_handle_release_announcement_action`), and anything else is a fresh
+    draft again.
+    """
+    action = request.POST.get("action") if request.method == "POST" else None
+    preview: dict[str, object] | None = None
+    if action in _RELEASE_ACTIONS:
+        response, form, preview = _handle_release_announcement_action(request, cast(str, action))
+        if response is not None:
+            return response
+    else:
+        form = ReleaseAnnouncementForm(initial=_release_announcement_initial())
+    return render(
+        request,
+        "hub/email_members_release.html",
+        {**_get_hub_context(request), "release_form": form, "release_preview": preview},
+    )
 
 
 def _discord_editor_querysets() -> tuple[Any, Any]:
@@ -9504,7 +9572,6 @@ _SITE_SETTINGS_TABS = frozenset(
         "calendar",
         "legacy-cms",
         "automations",
-        "announcements",
         "features",
         "member-agreement",
         "discord",
@@ -9517,7 +9584,9 @@ def _resolve_site_settings_tab(request: HttpRequest) -> tuple[str, HttpResponse 
     """The Site Settings tab to render, plus a redirect that pre-empts rendering at all.
 
     ``?tab=slideshow`` is an old bookmark: the Slideshow admin is its own page now, so it
-    302s there rather than silently landing on General.
+    302s there rather than silently landing on General. ``?tab=announcements`` is another
+    (#922): that tab moved onto the Email Members page, and its ``&draft=release`` onto the
+    Release Update page. Those redirect on GET only; a POST to them renders or saves General.
 
     Args:
         request: The current request.
@@ -9528,6 +9597,12 @@ def _resolve_site_settings_tab(request: HttpRequest) -> tuple[str, HttpResponse 
     tab = request.GET.get("tab", "general")
     if tab == "slideshow":
         return tab, redirect("hub_admin_slideshow")
+    # GET only: a form loaded from the old URL still posts to it, and that POST must reach the release
+    # hand-off or the settings save in admin_site_settings rather than turn into a GET and lose its input.
+    if tab == "announcements" and request.method == "GET":
+        return tab, redirect(
+            "hub_email_members_release" if request.GET.get("draft") == "release" else "hub_announcements"
+        )
     return (tab if tab in _SITE_SETTINGS_TABS else "general"), None
 
 
@@ -9538,9 +9613,9 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
     Tabs: ``brand`` (organization name, logo, and color), ``general``, ``calendar``,
     ``legacy-cms``, ``features`` (the My Tab/Payments and class-registration kill switches),
     ``automations`` (the scheduled-job dashboard — ON/OFF toggles + Run now, from the shared
-    job registry), and ``announcements`` (a sitewide announcement composer with a
-    preview-then-send step). The Calendar tab owns a ``CalendarFeedFormSet`` so admins can
-    add/remove iCal feeds inline.
+    job registry), ``member-agreement``, ``emails`` and ``discord``. The Calendar tab owns a
+    ``CalendarFeedFormSet`` so admins can add/remove iCal feeds inline. The release update
+    composer that was the Announcements tab is :func:`email_members_release` now (#922).
     """
     from core.models import CalendarFeed, SiteConfiguration
 
@@ -9550,9 +9625,6 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
         return moved
 
     feed_queryset = CalendarFeed.objects.all()
-    release_mode = False
-    release_form: ReleaseAnnouncementForm | None = None
-    release_preview: dict[str, object] | None = None
     jobstate_formset: Any = None
     feature_formset: Any = None
 
@@ -9576,38 +9648,22 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
         if "run_job" in request.POST:
             return _handle_run_job(request, config)
 
-        # Announcements tab — the Release composer (preview-then-send), separate from the
-        # settings form. The plain sitewide composer moved to the /announcements/compose/
-        # wizard, so only the release mode (mode=release) is handled here now.
-        if action in ("announce_preview", "announce_send", "announce_test"):
-            active_tab = "announcements"
-            release_mode = True
-            form = SiteSettingsForm(instance=config)
-            feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
-            emoji_queryset, role_queryset = _discord_editor_querysets()
-            emoji_formset = DiscordGuildEmojiFormSet(queryset=emoji_queryset, prefix="emoji")
-            role_formset = GuildRoleFormSet(queryset=role_queryset, prefix="guildroles")
-            response, release_form, release_preview = _handle_release_announcement_action(request, action)
-            if response is not None:
-                return response
-            # else fall through to render (preview, or send with validation errors)
-        else:
-            response, form, feed_formset, emoji_formset, role_formset, jobstate_formset, feature_formset = (
-                _save_site_settings(request, config, feed_queryset, active_tab)
-            )
-            if response is not None:
-                return response
+        # A release update form left open from before it moved (#922) posts here: hand the POST
+        # on to the Release Update page (307 keeps the method and body), so it is never read as
+        # a settings save, which would overwrite the settings with a form that holds none of them.
+        if action in _RELEASE_ACTIONS:
+            return redirect("hub_email_members_release", preserve_request=True)
+        response, form, feed_formset, emoji_formset, role_formset, jobstate_formset, feature_formset = (
+            _save_site_settings(request, config, feed_queryset, active_tab)
+        )
+        if response is not None:
+            return response
     else:
         form = SiteSettingsForm(instance=config)
         feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
         emoji_queryset, role_queryset = _discord_editor_querysets()
         emoji_formset = DiscordGuildEmojiFormSet(queryset=emoji_queryset, prefix="emoji")
         role_formset = GuildRoleFormSet(queryset=role_queryset, prefix="guildroles")
-        # "Draft from latest release" — enter Release mode with a prefilled draft.
-        if request.GET.get("draft") == "release":
-            release_mode = True
-            release_form = ReleaseAnnouncementForm(initial=_release_announcement_initial())
-            active_tab = "announcements"
 
     instructor_sync_rows, legacy_cms_unmatched = _legacy_instructor_sync_status()
 
@@ -9645,9 +9701,6 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "active_members_count": active_members_count,
             "accepted_members_count": accepted_members_count,
             "config": config,
-            "release_mode": release_mode,
-            "release_form": release_form,
-            "release_preview": release_preview,
             "automation_rows": automation_rows,
             "jobstate_formset": jobstate_formset,
             "feature_rows": feature_rows,
