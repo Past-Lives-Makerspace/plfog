@@ -94,10 +94,12 @@ def _video_url_widget() -> forms.TextInput:
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser, User
+    from django.db.models import QuerySet
 
     from django.utils.safestring import SafeString
 
     from classes.inquiries import BoardReport
+    from classes.models import RegistrationQuerySet
     from membership.models import Member, MemberQuerySet
 
 
@@ -1717,6 +1719,49 @@ class InstructorInquiryFilterForm(forms.Form):
 
         data = self.cleaned_data
         return board_report(self.in_range(), applied_from=data["date_from"], applied_to=data["date_to"], now=now)
+
+
+class RegistrationDateRangeForm(forms.Form):
+    """The class date range on Manage All Classes > Registrations (#911).
+
+    Read from GET, so the page, its CSV export and its Payment Report link share one query
+    string. ``start`` and ``end`` match Reconciliation's own parameter names, so the link
+    passes them straight through. Both are optional; a To before the From, or a date that
+    does not parse, is a field error and the range filters nothing.
+    """
+
+    start = forms.DateField(required=False, label="From", widget=forms.DateInput(attrs=_INQUIRY_DATE_ATTRS))
+    end = forms.DateField(required=False, label="To", widget=forms.DateInput(attrs=_INQUIRY_DATE_ATTRS))
+
+    def clean(self) -> dict:
+        data = super().clean() or {}
+        start = data.get("start")
+        end = data.get("end")
+        if start and end and end < start:
+            self.add_error("end", "To is before From. Pick a later date.")
+        return data
+
+    def apply(self, registrations: QuerySet[Registration]) -> QuerySet[Registration]:
+        """``registrations`` narrowed to the range, or untouched when the range has an error."""
+        if not self.is_valid():
+            return registrations
+        rows = cast("RegistrationQuerySet", registrations)
+        return rows.with_class_dates_in(self.cleaned_data["start"], self.cleaned_data["end"])
+
+    def payment_report_window(self, today: date) -> tuple[date, date]:
+        """The start and end the Payment Report opens Reconciliation on.
+
+        The chosen range when it is valid. A missing From is the first of the To's month (or
+        of this month), and a missing To is today, or the From when that is later. With no
+        valid range at all it is Reconciliation's own default: this month through today.
+        """
+        start = self.cleaned_data["start"] if self.is_valid() else None
+        end = self.cleaned_data["end"] if self.is_valid() else None
+        if start is None:
+            start = (end or today).replace(day=1)
+        if end is None:
+            end = max(today, start)
+        return start, end
 
 
 class InstructorInquiryAddForm(TeachingApplicationForm):

@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-23"
+title = "More staff requests come once a day"
+changes = [
+  "Requests for spaces, discount codes, events, guild announcements, meeting items, wiki pages and teaching, and class change requests, now reach approvers in the 8 AM email instead of one email each.",
+  "A request someone already handled is left out of that email, and its notice in the app is marked read.",
+  "Orientation requests still arrive right away, because many are for the next day or two.",
+]

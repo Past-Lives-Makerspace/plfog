@@ -205,6 +205,9 @@ def emit(
     )
 
     def message_for(channel: Channel) -> Message:
+        if channel is Channel.DIGEST and channel not in channel_messages:
+            # A morning email line with no sender override is the bell's own line (#894).
+            return message_for(Channel.IN_APP)
         if channel in channel_messages:
             base = channel_messages[channel]
         elif fixed_message is not None:

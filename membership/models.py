@@ -7,7 +7,7 @@ import os
 import re
 import secrets
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
@@ -54,7 +54,8 @@ from PIL import UnidentifiedImageError
 
 from core.files import delete_orphan_on_replace
 from core.images import cut_hero_crop, image_upload_refusal, normalize_field_if_uploaded
-from core.models import HERO_CROP_FIELDS, AutomationAction, EventDelivery, HeroCropMixin
+from core.models import HERO_CROP_FIELDS, AutomationAction, EventDelivery, HeroCropMixin, StaffRequestMixin
+from core.urls_util import member_absolute_url
 from core.phone import phone_tel_number
 from core.validators import (
     ALLOWED_WIKI_IMAGE_EXTENSIONS,
@@ -586,7 +587,7 @@ class OnboardingChecklist:
     complete: bool
 
 
-class Member(models.Model):
+class Member(StaffRequestMixin, models.Model):
     # Queryset annotation (set by MemberQuerySet.with_lease_totals)
     total_monthly_rent: Decimal
     # Queryset annotations (set by MemberQuerySet.with_email_status)
@@ -1082,6 +1083,14 @@ class Member(models.Model):
 
     MAX_SKILLS = 15
 
+    #: The bell rows a decision clears (#894 part 3, :class:`core.models.StaffRequestMixin`).
+    REQUEST_EVENT_KEYS: ClassVar[tuple[str, ...]] = ("instructor_application_received",)
+
+    @property
+    def request_bell_path(self) -> str:
+        """This member's row in the admin queue's teaching applications: the admins' bell link."""
+        return f"{reverse('classes:admin_overview')}#applicant-{self.pk}"
+
     def __str__(self) -> str:
         return self.display_name
 
@@ -1106,6 +1115,14 @@ class Member(models.Model):
         if len(parts) < 2:
             return self.display_name
         return f"{parts[0]} {parts[-1][0]}."
+
+    @cached_property
+    def needs_discord_rejoin(self) -> bool:
+        """An Active member the bot removed from the Discord, who must connect Discord again to be
+        put back: re-adding needs their own ``guilds.join`` token, so it cannot happen without the click (#898)."""
+        if self.status != self.Status.ACTIVE:
+            return False
+        return DiscordRemoval.objects.awaiting_rejoin(self, self.discord_user_id) is not None
 
     @property
     def discord_is_linked(self) -> bool:
@@ -1390,13 +1407,18 @@ class Member(models.Model):
             ),
             OnboardingStep(
                 key="discord",
-                label="Connect your Discord",
+                label="Rejoin the Discord" if self.needs_discord_rejoin else "Connect your Discord",
                 # Keyed specifically off ``discord_is_linked`` (a linked OAuth account), NOT the
-                # free-text ``discord_handle`` — a typed handle does not satisfy this step.
-                done=self.discord_is_linked,
+                # free-text ``discord_handle`` — a typed handle does not satisfy this step. A member
+                # the bot removed is linked but not back on the server until they connect again (#898).
+                done=self.discord_is_linked and not self.needs_discord_rejoin,
                 url=reverse("hub_discord_connect"),
                 optional=True,
-                hint="" if self.discord_is_linked else "We'll set up your guilds instantly",
+                hint=(
+                    "Connect again to get back on the server"
+                    if self.needs_discord_rejoin
+                    else ("" if self.discord_is_linked else "We'll set up your guilds instantly")
+                ),
             ),
             OnboardingStep(
                 key="voting",
@@ -2077,6 +2099,7 @@ class Member(models.Model):
         self.teaching_decided_at = timezone.now()
         self.teaching_decline_reason = reason[:300]
         self.save(update_fields=["teaching_decided_at", "teaching_decline_reason"])
+        self.clear_request_bells()
         SiteActivity.log(
             SiteActivity.Kind.TEACHING_APPLICATION_DECLINED,
             actor=decided_by.user if decided_by is not None else None,
@@ -2100,7 +2123,7 @@ class Member(models.Model):
     def _teaching_review_url(self) -> str:
         """Absolute URL of the admin queue where a teaching application is decided."""
         base = settings.MEMBER_BASE_URL.rstrip("/")
-        return f"{base}{reverse('classes:admin_overview')}#teaching-applications"
+        return f"{base}{self.request_bell_path}"
 
     def _teaching_why_url(self) -> str:
         """Absolute URL of the Teach at Past Lives page — where the member reads their state."""
@@ -2135,6 +2158,7 @@ class Member(models.Model):
         self.teaching_decided_at = timezone.now()
         self.teaching_decline_reason = ""
         self.save(update_fields=["instructor_oriented_at", "teaching_decided_at", "teaching_decline_reason"])
+        self.clear_request_bells()
         SiteActivity.log(
             SiteActivity.Kind.TEACHING_GRANTED,
             actor=granted_by.user if granted_by is not None else None,
@@ -2423,6 +2447,7 @@ class Member(models.Model):
             self.fog_role = picked_role
         self.save()
         if unlocked_via_promotion:
+            self.clear_request_bells()
             from core.models import SiteActivity
 
             # System-attributed row (actor=None) — the method has no actor parameter.
@@ -2593,14 +2618,25 @@ class Member(models.Model):
         )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        # Cleans up the orphaned profile_photo file when the user replaces it, and queues a
-        # member who just turned Former for removal from Discord (#898). Every path that
-        # makes someone Former (the Airtable pull, an admin's edit) saves through here.
+        # Cleans up the orphaned profile_photo file when the user replaces it, queues a
+        # member who just turned Former for removal from Discord (#898), and clears the
+        # admins' teaching-application bell when a member leaves ACTIVE (#894 part 3).
+        # Every path that changes a member's status (the Airtable pull, an admin's edit)
+        # saves through here.
         delete_orphan_on_replace(self, "profile_photo")
         turning_former = self._turning_former(kwargs.get("update_fields"))
+        left_active = (
+            not self._state.adding and self._loaded_status == self.Status.ACTIVE and self.status != self.Status.ACTIVE
+        )
         super().save(*args, **kwargs)
+        self._loaded_status = self.status
         if turning_former:
             DiscordRemoval.objects.queue_for_former(self)
+        if left_active and self.teaching_applied_at is not None:
+            # Only an active member's application waits on an admin (awaiting_teaching_decision),
+            # so one who leaves ACTIVE no longer asks in the admins' bell. Only on that change:
+            # an ordinary save costs no query.
+            self.clear_request_bells()
 
     def _turning_former(self, update_fields: Iterable[str] | None) -> bool:
         """Whether this save moves an existing member from another status to Former.
@@ -2613,6 +2649,18 @@ class Member(models.Model):
             return False
         previous = Member.objects.filter(pk=self.pk).values_list("status", flat=True).first()
         return previous != self.Status.FORMER
+
+    #: ``status`` as last read from or written to the database; ``save`` compares against it.
+    #: ``None`` when unknown (never loaded, or loaded with ``status`` deferred).
+    _loaded_status: str | None = None
+
+    @classmethod
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        """Remember the loaded ``status`` so ``save`` can see a member leave ACTIVE (#894 part 3)."""
+        instance = super().from_db(db, field_names, values, **kwargs)
+        # A deferred status is absent from __dict__; the save then sees no transition.
+        instance._loaded_status = instance.__dict__.get("status")
+        return instance
 
 
 # A handle: letters, digits, dots and underscores, with or without a leading "@". One trailing
@@ -5408,7 +5456,7 @@ class InvalidAnnouncementTransition(ValueError):
     that does not permit it (e.g. approving an already-declined proposal)."""
 
 
-class GuildAnnouncement(models.Model):
+class GuildAnnouncement(StaffRequestMixin, models.Model):
     """A news post on a guild page.
 
     Posting an announcement notifies the guild's members via :meth:`notify_members`
@@ -5497,6 +5545,14 @@ class GuildAnnouncement(models.Model):
 
     class Meta:
         ordering = ["-published_at"]
+
+    #: The bell rows a decision clears (#894 part 3, :class:`core.models.StaffRequestMixin`).
+    REQUEST_EVENT_KEYS: ClassVar[tuple[str, ...]] = ("guild_announcement.submitted",)
+
+    @property
+    def request_bell_path(self) -> str:
+        """The review queue, anchored on this announcement: the reviewers' bell link."""
+        return f"{reverse('hub_guild_announcement_review_queue')}#announcement-{self.pk}"
 
     def __str__(self) -> str:
         return f"{self.title} ({self.guild.name})"
@@ -5740,6 +5796,7 @@ class GuildAnnouncement(models.Model):
             ]
         )
         self.notify_members()
+        self.clear_request_bells()
         self._emit_decision(
             "guild_announcement.approved",
             url=self._guild_url(),
@@ -5764,6 +5821,7 @@ class GuildAnnouncement(models.Model):
         self.review_notes = notes
         self.moderation_state = self.ModerationState.CHANGES_REQUESTED
         self.save(update_fields=["reviewed_by", "reviewed_at", "review_notes", "moderation_state", "updated_at"])
+        self.clear_request_bells()
         from django.urls import reverse
 
         edit_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_guild_announcement_propose_edit', args=[self.pk])}"
@@ -5789,6 +5847,7 @@ class GuildAnnouncement(models.Model):
         self.review_notes = notes
         self.moderation_state = self.ModerationState.DECLINED
         self.save(update_fields=["reviewed_by", "reviewed_at", "review_notes", "moderation_state", "updated_at"])
+        self.clear_request_bells()
         self._emit_decision(
             "guild_announcement.declined",
             url=self._guild_url(),
@@ -7808,6 +7867,19 @@ class DiscordLinkNudge(models.Model):
 # The registry key the removal job and every action it records sit under (#898).
 DISCORD_REMOVAL_TASK_KEY = "process_discord_removals"
 
+# Felix's Discord account, mentioned in the cleanup DM so a person kept by special agreement
+# knows whom to message (#898). A public Discord id, already in the public issue.
+DISCORD_CLEANUP_CONTACT_ID = "150063478210691081"
+DISCORD_CLEANUP_TEXT = (
+    "Hi there! We're doing some member cleanup on the Past Lives Makerspace Discord, and it looks like "
+    "you might be a former active member, or we just don't have your Discord handle matched up in our "
+    "system. Because of that, your access to the server is scheduled to be removed in 3 days. If you're "
+    "still an active member, please connect your Discord here so we can keep you in: "
+    "https://members.pastlives.space/settings/discord/connect/ If you have a special agreement in place "
+    f"or believe this is an error, message Felix (<@{DISCORD_CLEANUP_CONTACT_ID}>, @covo) and we will "
+    "keep you in. Thanks!"
+)
+
 
 class DiscordRemovalQuerySet(models.QuerySet["DiscordRemoval"]):
     """Removal queue lookups for the job and the history page."""
@@ -7851,6 +7923,29 @@ class DiscordRemovalQuerySet(models.QuerySet["DiscordRemoval"]):
             detail=f"Membership ended; the warning DM is due {removal.warn_on:%B %-d, %Y}.",
         )
         return removal
+
+    def queue_for_cleanup(self, discord_user_id: str, username: str) -> DiscordRemoval:
+        """Queue one Discord account from Felix's one-time cleanup list, warned today."""
+        removal = self.create(
+            discord_user_id=discord_user_id,
+            discord_username=username,
+            source=DiscordRemoval.Source.CLEANUP,
+            warn_on=timezone.localdate(),
+        )
+        removal._record(
+            AutomationAction.Kind.REMOVAL_QUEUED, AutomationAction.Result.OK, "On the one-time cleanup list."
+        )
+        return removal
+
+    def awaiting_rejoin(self, member: Member, discord_user_id: str) -> DiscordRemoval | None:
+        """The newest removal of this member, or of this Discord account, not yet undone."""
+        whose = Q(member=member) | Q(discord_user_id=discord_user_id) if discord_user_id else Q(member=member)
+        return (
+            self.filter(whose, status=DiscordRemoval.Status.KICKED)
+            .filter(rejoined_at__isnull=True)
+            .order_by("-kicked_at", "-pk")
+            .first()
+        )
 
     def cancel_locked(self, pk: int, by: Any) -> DiscordRemoval:
         """Cancel one removal under a row lock, so it cannot race the job's DM or kick.
@@ -8012,8 +8107,11 @@ class DiscordRemoval(models.Model):
         )
 
     def warning_text(self) -> str:
-        """The warning DM for a member whose membership ended."""
+        """The warning DM: the ticket's fixed text for the cleanup list, else the membership-ended one."""
         from core.models import SiteConfiguration
+
+        if self.source == self.Source.CLEANUP:
+            return DISCORD_CLEANUP_TEXT
 
         email = SiteConfiguration.load().org_support_email
         contact = f"email {email}" if email else "contact a Past Lives admin"
@@ -8022,6 +8120,36 @@ class DiscordRemoval(models.Model):
             f"Makerspace Discord in the next 24 hours. If you have rejoined or believe this is an error, please "
             f"{contact}. Thanks for being part of the space!"
         )
+
+    def warning_mentions(self) -> tuple[str, ...]:
+        """The users the warning DM may mention: Felix, in the cleanup DM only."""
+        return (DISCORD_CLEANUP_CONTACT_ID,) if self.source == self.Source.CLEANUP else ()
+
+    def put_back(self, server_id: str, discord_user_id: str, access_token: str, now: datetime_type) -> bool:
+        """Put a removed person back on the server with their own OAuth token. Never raises.
+
+        ``discord_user_id`` is the account that just connected, which owns ``access_token``: a
+        member who comes back on a different Discord account is added as that account, because
+        Discord refuses a token used for anyone else.
+
+        Returns True once they are on the server again (added now, or already there).
+        """
+        from core.events.discord_members import JoinOutcome, add_member
+
+        kind = AutomationAction.Kind.DISCORD_REJOIN
+        try:
+            outcome = add_member(server_id, discord_user_id, access_token)
+        except httpx.HTTPError as exc:
+            self._record(kind, AutomationAction.Result.FAILED, str(exc))
+            return False
+        if outcome in (JoinOutcome.REFUSED, JoinOutcome.DISABLED):
+            self._record(kind, AutomationAction.Result.FAILED, f"Discord answered {outcome}.")
+            return False
+        self.rejoined_at = now
+        self.save(update_fields=["rejoined_at"])
+        detail = "Put back on the server." if outcome is JoinOutcome.ADDED else "Already back on the server."
+        self._record(kind, AutomationAction.Result.OK, detail)
+        return True
 
     def send_warning(self, now: datetime_type) -> bool:
         """Send the warning DM and start the wait before the kick. Returns False when it must be retried.
@@ -8037,7 +8165,9 @@ class DiscordRemoval(models.Model):
             self.close(reason)
             return True
         try:
-            delivered = send_dm_text(self.discord_user_id, self.warning_text())
+            delivered = send_dm_text(
+                self.discord_user_id, self.warning_text(), mention_user_ids=self.warning_mentions()
+            )
         except httpx.HTTPError as exc:
             self._record(AutomationAction.Kind.DISCORD_DM, AutomationAction.Result.FAILED, f"Will retry: {exc}")
             return False
@@ -8350,7 +8480,7 @@ class EventUnpublishError(Exception):
     """
 
 
-class CommunityEvent(HeroCropMixin, models.Model):
+class CommunityEvent(StaffRequestMixin, HeroCropMixin, models.Model):
     """A FOG-native event on the Calendar (a guild meeting/event, a site-wide
     community event, or the cross-guild Guild Lead Meeting).
 
@@ -8776,6 +8906,14 @@ class CommunityEvent(HeroCropMixin, models.Model):
                 name="uq_communityevent_import_source_uid",
             ),
         ]
+
+    #: The bell rows a decision clears (#894 part 3, :class:`core.models.StaffRequestMixin`).
+    REQUEST_EVENT_KEYS: ClassVar[tuple[str, ...]] = ("event.submitted",)
+
+    @property
+    def request_bell_path(self) -> str:
+        """The review queue, anchored on this event: the reviewers' bell link."""
+        return f"{reverse('hub_event_review_queue')}#event-{self.pk}"
 
     def __str__(self) -> str:
         where = self.guild.name if self.guild is not None else "Site-wide"
@@ -10117,6 +10255,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
         # (announced only when the cron promotes it); blank/past publishes it now. A member
         # can never self-publish at their chosen time — only the reviewer reaches this branch.
         self.schedule_or_go_live(actor=reviewer)
+        self.clear_request_bells()
         self._emit_decision("event.approved", url=self.absolute_url, period=f"event:{self.pk}:approved")
 
     def request_changes(self, *, reviewer: User, notes: str) -> None:
@@ -10135,6 +10274,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
         self.review_notes = notes
         self.moderation_state = self.ModerationState.CHANGES_REQUESTED
         self.save(update_fields=["reviewed_by", "reviewed_at", "review_notes", "moderation_state", "updated_at"])
+        self.clear_request_bells()
         from django.urls import reverse
 
         edit_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_event_edit', args=[self.pk])}"
@@ -10160,6 +10300,7 @@ class CommunityEvent(HeroCropMixin, models.Model):
         self.review_notes = notes
         self.moderation_state = self.ModerationState.DECLINED
         self.save(update_fields=["reviewed_by", "reviewed_at", "review_notes", "moderation_state", "updated_at"])
+        self.clear_request_bells()
         from django.urls import reverse
 
         propose_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_propose_event')}"
@@ -11549,7 +11690,8 @@ class Meeting(models.Model):
                 "meeting_title": self.display_title,
                 "proposal_title": title,
             },
-            url=self.absolute_url,
+            # Anchored on the proposal, so each one's bell link is its own and clears on its decision (#894).
+            url=member_absolute_url(proposal.request_bell_path),
             period=f"meeting-proposal:{proposal.pk}:submitted",
         )
         return proposal
@@ -11915,7 +12057,7 @@ class MeetingItemProposalQuerySet(models.QuerySet):
         return qs.select_related("meeting", "proposed_by__member").order_by("meeting__scheduled_date", "pk")
 
 
-class MeetingItemProposal(models.Model):
+class MeetingItemProposal(StaffRequestMixin, models.Model):
     """A member's proposed agenda item for an upcoming meeting, awaiting a decision."""
 
     class State(models.TextChoices):
@@ -11995,6 +12137,14 @@ class MeetingItemProposal(models.Model):
             models.Index(fields=["state"], name="idx_meetingproposal_carryover", condition=Q(state="carried_over")),
         ]
 
+    #: The bell rows a decision clears (#894 part 3, :class:`core.models.StaffRequestMixin`).
+    REQUEST_EVENT_KEYS: ClassVar[tuple[str, ...]] = ("meeting.item_proposed",)
+
+    @property
+    def request_bell_path(self) -> str:
+        """The meeting page, anchored on this proposal, so each proposal's bell link is its own."""
+        return f"{reverse('hub_meeting', args=[self.meeting_id])}#proposal-{self.pk}"
+
     def __str__(self) -> str:
         return f"{self.title} → {self.meeting} ({self.get_state_display()})"
 
@@ -12023,6 +12173,7 @@ class MeetingItemProposal(models.Model):
         self.reviewed_at = timezone.now()
         self.created_item = item
         self.save(update_fields=["state", "reviewed_by", "reviewed_at", "created_item"])
+        self.clear_request_bells()
         self._emit_decided(period=f"meeting-proposal:{self.pk}:approved")
         return item
 
@@ -12041,6 +12192,7 @@ class MeetingItemProposal(models.Model):
         self.reviewed_at = timezone.now()
         self.review_note = note
         self.save(update_fields=["state", "reviewed_by", "reviewed_at", "review_note"])
+        self.clear_request_bells()
         self._emit_decided(period=f"meeting-proposal:{self.pk}:declined")
 
     def withdraw(self, *, by: User) -> None:
@@ -12058,6 +12210,7 @@ class MeetingItemProposal(models.Model):
             raise ValueError("Only the proposer can withdraw their proposal.")
         self.state = self.State.WITHDRAWN
         self.save(update_fields=["state"])
+        self.clear_request_bells()
 
     def carry_over(self, *, reviewer: User) -> MeetingItemProposal | None:
         """Move to next month's agenda instead of declining — the default outcome for a
@@ -12090,6 +12243,7 @@ class MeetingItemProposal(models.Model):
         self.reviewed_by = reviewer
         self.reviewed_at = timezone.now()
         self.save(update_fields=update_fields)
+        self.clear_request_bells()
         self._emit_decided(period=f"meeting-proposal:{self.pk}:carried_over")
         return new_proposal
 
@@ -12108,6 +12262,7 @@ class MeetingItemProposal(models.Model):
         self.reviewed_at = timezone.now()
         self.review_note = note
         self.save(update_fields=["state", "reviewed_by", "reviewed_at", "review_note"])
+        self.clear_request_bells()
         self._emit_decided(period=f"meeting-proposal:{self.pk}:tabled")
 
     def attach_carryover_to(self, target: Meeting) -> MeetingItemProposal:
@@ -16703,7 +16858,7 @@ class SpaceRequestQuerySet(models.QuerySet):
         return self.filter(kind=SpaceRequest.RequestKind.CUBBY, space__sublet_guild__in=scope)
 
 
-class SpaceRequest(models.Model):
+class SpaceRequest(StaffRequestMixin, models.Model):
     """A member's ask for a studio lease or a cubby, routed to a human approver.
 
     Django-owned and purely advisory: approving one notifies the member and tells the
@@ -16795,6 +16950,14 @@ class SpaceRequest(models.Model):
             models.Index(fields=["space", "state"], name="idx_spacerequest_space_state"),
         ]
 
+    #: The bell rows a decision clears (#894 part 3, :class:`core.models.StaffRequestMixin`).
+    REQUEST_EVENT_KEYS: ClassVar[tuple[str, ...]] = ("space.lease_requested", "space.cubby_requested")
+
+    @property
+    def request_bell_path(self) -> str:
+        """The review queue, anchored on this request: the reviewers' bell link."""
+        return f"{reverse('hub_space_request_review_queue')}#request-{self.pk}"
+
     def __str__(self) -> str:
         return f"{self.requester.display_name} → {self.space.space_id} ({self.get_state_display()})"
 
@@ -16838,6 +17001,7 @@ class SpaceRequest(models.Model):
         self.reviewed_by = reviewer
         self.reviewed_at = timezone.now()
         self.save(update_fields=["state", "reviewed_by", "reviewed_at", "updated_at"])
+        self.clear_request_bells()
         self._notify_decision("space.request_approved", period=f"spacereq:{self.pk}:approved")
 
     def decline(self, *, reviewer: User, notes: str) -> None:
@@ -16855,6 +17019,7 @@ class SpaceRequest(models.Model):
         self.reviewed_at = timezone.now()
         self.review_notes = notes
         self.save(update_fields=["state", "reviewed_by", "reviewed_at", "review_notes", "updated_at"])
+        self.clear_request_bells()
         self._notify_decision("space.request_declined", period=f"spacereq:{self.pk}:declined")
 
     def withdraw(self, *, by: User) -> None:
@@ -16872,6 +17037,7 @@ class SpaceRequest(models.Model):
             raise InvalidSpaceRequestTransition("Only the member who made a request can withdraw it.")
         self.state = self.ModerationState.WITHDRAWN
         self.save(update_fields=["state", "updated_at"])
+        self.clear_request_bells()
 
     def _require_pending(self, action: str) -> None:
         if self.state != self.ModerationState.PENDING:
@@ -19471,6 +19637,11 @@ class WikiPageQuerySet(models.QuerySet["WikiPage"]):
     too little, never too much.
     """
 
+    def awaiting_publication(self) -> WikiPageQuerySet:
+        """Held safety proposals: the review queue's own filter (hub/wiki_views.py), so a page
+        sent back with a note is still waiting (#894 part 3)."""
+        return self.filter(archived_at__isnull=True, is_published=False, status=WikiPage.Status.OFFICIAL)
+
     def published(self) -> Self:
         """Only pages that are live — excludes the ones spec D's safety gate held back."""
         return self.filter(is_published=True)
@@ -19702,7 +19873,7 @@ class WikiPageQuerySet(models.QuerySet["WikiPage"]):
         return page
 
 
-class WikiPage(models.Model):
+class WikiPage(StaffRequestMixin, models.Model):
     """A member-written page about the space, the machines, the materials, or the craft.
 
     Any active member may create one and edit any Community or Guild-verified one, live,
@@ -19931,6 +20102,14 @@ class WikiPage(models.Model):
                 name="uq_wikipage_machine_equip",
             ),
         ]
+
+    #: The bell rows a decision clears (#894 part 3, :class:`core.models.StaffRequestMixin`).
+    REQUEST_EVENT_KEYS: ClassVar[tuple[str, ...]] = ("wiki.page_proposed",)
+
+    @property
+    def request_bell_path(self) -> str:
+        """The wiki review queue's card for this proposed page (``#safety-<pk>``): the moderators' bell link."""
+        return f"{reverse('hub_wiki_review')}#safety-{self.pk}"
 
     def __str__(self) -> str:
         return f"{self.title} ({self.get_kind_display()})"
@@ -20654,6 +20833,7 @@ class WikiPage(models.Model):
         self.archive_reason = cleaned
         self.archive_redirect = redirect
         self.save(update_fields=["archived_at", "archived_by", "archive_reason", "archive_redirect"])
+        self.clear_request_bells()
         # Nobody may be signposted at a tombstone. _check_redirect refuses an archived
         # target when a redirect is SET, but a page can be archived after others already
         # point at it, which would walk a reader tombstone to tombstone.
@@ -20952,6 +21132,8 @@ class WikiPage(models.Model):
                 "scope_label": self.guild.name if self.guild is not None else "Space-wide",
                 "review_url": hub_url("hub_wiki_review"),
             },
+            # The bell links to this page in the queue, so publishing it can clear the bell (#894).
+            url=member_absolute_url(self.request_bell_path),
             period=f"wiki_proposed:{self.pk}",
         )
 
@@ -20991,6 +21173,7 @@ class WikiPage(models.Model):
             self.verified_at = timezone.now()
             fields = ["is_published", "status", "verified_by", "verified_at"]
         self.save(update_fields=fields)
+        self.clear_request_bells()
         if not newly_created:
             SiteActivity.log(
                 SiteActivity.Kind.WIKI_PAGE_EDITED,
@@ -21496,7 +21679,7 @@ class WikiReportQuerySet(models.QuerySet["WikiReport"]):
         return self.filter(condition)
 
 
-class WikiReport(models.Model):
+class WikiReport(StaffRequestMixin, models.Model):
     """One member's "this page is wrong" — the pressure valve that makes open editing safe.
 
     Filing one raises an amber banner on the page quoting the reporter's own words, **and
@@ -21567,6 +21750,14 @@ class WikiReport(models.Model):
             ),
         ]
 
+    #: The bell rows a decision clears (#894 part 3, :class:`core.models.StaffRequestMixin`).
+    REQUEST_EVENT_KEYS: ClassVar[tuple[str, ...]] = ("wiki.page_reported",)
+
+    @property
+    def request_bell_path(self) -> str:
+        """The wiki review queue, anchored on this report: the moderators' bell link."""
+        return f"{reverse('hub_wiki_review')}#report-{self.pk}"
+
     def __str__(self) -> str:
         who = self.reporter.display_name if self.reporter is not None else "a member"
         state = "resolved" if self.resolved_at is not None else "open"
@@ -21634,6 +21825,8 @@ class WikiReport(models.Model):
                 "scope_label": page.guild.name if page.guild is not None else "Space-wide",
                 "review_url": hub_url("hub_wiki_review"),
             },
+            # The bell links to this report in the queue, so deciding it can clear the bell (#894).
+            url=member_absolute_url(report.request_bell_path),
             # Unique per report, so a second report on the same page still delivers.
             period=f"wiki_report:{report.pk}",
         )
@@ -21656,6 +21849,7 @@ class WikiReport(models.Model):
         self.resolved_by = by
         self.resolution = note.strip()
         self.save(update_fields=["resolved_at", "resolved_by", "resolution"])
+        self.clear_request_bells()
         self.page.mark_needs_review()
 
     def withdraw(self, *, by: Member) -> None:
@@ -21680,6 +21874,7 @@ class WikiReport(models.Model):
         self.resolved_by = self.reporter
         self.resolution = "Withdrawn by the reporter."
         self.save(update_fields=["resolved_at", "resolved_by", "resolution"])
+        self.clear_request_bells()
         self.page.mark_needs_review()
 
 

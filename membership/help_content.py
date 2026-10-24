@@ -1144,7 +1144,7 @@ The **Emails** tab manages every address a person can sign in with. Sign-in work
         "sort_order": 20,
         "related": ["members-and-invites", "become-an-instructor"],
         "body": """\
-The classes admin lives at `/classes/admin/`. Reach it from **Classes** in the left menu, then **Manage classes** (the button admins see where members see Manage My Classes). It requires an actual admin account; instructors and guild leads run their own classes from the teaching portal instead.
+The classes admin lives at `/classes/admin/`. Reach it from **Classes** in the left menu, then **Manage All Classes** (the button admins see where members see Manage My Classes), or from the Manage All Classes card in Admin Tools. It requires an actual admin account; instructors and guild leads run their own classes from the teaching portal instead.
 
 ### The Review Queue {#admin-review-queue}
 
@@ -1155,7 +1155,7 @@ The Overview's **Needs Attention** card lists everything waiting on you, under *
 
 When the class's category belongs to a guild that has a lead, the guild lead reviews first, through a tokenized link emailed to them (no admin access needed). A guild lead approval hands the class to admins for the final sign off. Your admin approval is final: the moment you approve, the class publishes and opens for sign-ups, even if the guild lead has not weighed in yet (any still-open guild lead review is closed automatically). **Ask for changes** and **Decline** send it back to the instructor as a draft, with your notes.
 
-Admins can also create classes directly from the **Classes** tab; those publish immediately, with no review chain.
+Admins can also create classes directly from the **All Classes** tab; those publish immediately, with no review chain.
 
 ![Needs Attention: every class waiting on a review decision.](/static/help/reviewing-classes-admin/01-review-queue.png)
 

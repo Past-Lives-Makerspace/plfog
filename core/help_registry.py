@@ -811,8 +811,9 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "admin.tools-grid": {
         "title": "Your admin tools",
         "short_text": (
-            "Every staff and leadership tool you can reach, in alphabetical order. Cards you do not "
-            "have access to are hidden rather than greyed out."
+            "Every staff and leadership tool you can reach, grouped into Manage, Tools, Reports and "
+            "Webmaster. Cards you do not have access to are hidden rather than greyed out, and so is a "
+            "section with none."
         ),
         "article_slug": None,
         "anchor": None,

@@ -7,7 +7,7 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
@@ -22,6 +22,8 @@ from core.scheduled_jobs import Trigger
 from core.validators import validate_hex_color, validate_image_size
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from django.contrib.auth.models import AbstractBaseUser, User
     from django.core.files.uploadedfile import UploadedFile
 
@@ -1907,6 +1909,35 @@ class NotificationQuerySet(models.QuerySet["Notification"]):
     def unread(self) -> NotificationQuerySet:
         """Only notifications the user hasn't read yet."""
         return self.filter(read_at__isnull=True)
+
+    def mark_read_for(self, *, url: str, triggers: Iterable[str]) -> int:
+        """Mark read every unread bell row of ``triggers`` linking to ``url`` (#894); returns the count.
+
+        A decided staff request clears the bell rows that asked about it, for everyone it
+        reached; the link is unique to the request (:class:`StaffRequestMixin`).
+        """
+        return self.unread().filter(url=url, trigger__in=list(triggers)).update(read_at=timezone.now())
+
+
+class StaffRequestMixin:
+    """A request staff are asked to decide, whose bell rows clear once it is decided (#894 part 3).
+
+    The model names the events that ask about it (:attr:`REQUEST_EVENT_KEYS`) and the bell
+    link, which is unique to the request (:attr:`request_bell_path`); its decision methods
+    call :meth:`clear_request_bells`, and ``core.signals.clear_request_bells_on_delete``
+    covers a delete, cascades included. The link is what ``Notification.url`` stores: the
+    path (and any query or fragment) of what the emit passed as ``url``.
+    """
+
+    REQUEST_EVENT_KEYS: ClassVar[tuple[str, ...]] = ()
+
+    @property
+    def request_bell_path(self) -> str:
+        raise NotImplementedError(f"{type(self).__name__} must name its request's bell link")
+
+    def clear_request_bells(self) -> int:
+        """Mark read every unread bell row asking about this request; returns how many."""
+        return Notification.objects.mark_read_for(url=self.request_bell_path, triggers=self.REQUEST_EVENT_KEYS)
 
 
 class Notification(models.Model):

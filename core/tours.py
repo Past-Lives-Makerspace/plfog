@@ -477,7 +477,7 @@ TOURS: dict[str, Tour] = {
             TourStep(
                 target='[data-help-key="admin.tools-grid"]',
                 title="The Admin Controls",
-                body="Every admin tool is on this grid. I will walk you through the ones you will reach for most.",
+                body="Every admin tool is on this page, grouped into sections. I will walk you through the ones you will reach for most.",
             ),
             TourStep(
                 target='[data-help-key="announcements.compose"]',
@@ -548,7 +548,7 @@ TOURS: dict[str, Tour] = {
             TourStep(
                 target='[data-help-key="admin.tools-grid"]',
                 title="Your Admin Home",
-                body="Every staff tool lives on this page, in alphabetical order. That is the lap.",
+                body="Every staff tool lives on this page, in its section. That is the lap.",
                 navigate="hub_admin_tools",
             ),
         ),

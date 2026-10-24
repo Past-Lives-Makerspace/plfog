@@ -634,7 +634,7 @@ def describe_the_portal_tab_strip():
             ">My Classes<",
             ">Registrations<",
             ">Instructor Profile<",
-            ">Classes<",
+            ">All Classes<",
             ">Catalog Activity<",
             ">Settings<",
         ):
@@ -645,14 +645,14 @@ def describe_the_portal_tab_strip():
         strip = _strip(client, reverse("classes:admin_overview"))
         assert ">My Classes<" not in strip
         assert ">Instructor Profile<" not in strip
-        assert ">Classes<" in strip
+        assert ">All Classes<" in strip
 
     def it_hides_the_site_wide_tabs_from_an_instructor(instructor, client):
         client.force_login(instructor.user)
         strip = _strip(client, reverse("classes:teach_overview"))
         assert ">My Classes<" in strip
         assert ">Instructor Profile<" in strip
-        assert ">Classes<" not in strip
+        assert ">All Classes<" not in strip
         assert ">Catalog Activity<" not in strip
         assert ">Settings<" not in strip
 
@@ -661,14 +661,14 @@ def describe_the_portal_tab_strip():
         # of one order that works for everyone, and it was drawn and approved.
         client.force_login(admin_who_teaches.user)
         strip = _strip(client, reverse("classes:admin_overview"))
-        order = [strip.index(label) for label in (">Overview<", ">My Classes<", ">Registrations<", ">Classes<")]
+        order = [strip.index(label) for label in (">Overview<", ">My Classes<", ">Registrations<", ">All Classes<")]
         assert order == sorted(order)
 
-    def it_lights_my_classes_and_not_classes_on_the_instructors_list(admin_who_teaches, client):
+    def it_lights_my_classes_and_not_all_classes_on_the_instructors_list(admin_who_teaches, client):
         client.force_login(admin_who_teaches.user)
         strip = _strip(client, reverse("classes:teach_dashboard"))
         assert 'vote-tab vote-tab--active" aria-current="page">My Classes</a>' in strip
-        assert 'vote-tab vote-tab--active" aria-current="page">Classes</a>' not in strip
+        assert 'vote-tab vote-tab--active" aria-current="page">All Classes</a>' not in strip
 
 
 def describe_ruling_five():

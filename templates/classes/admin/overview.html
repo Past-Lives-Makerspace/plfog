@@ -84,7 +84,8 @@
         {% concat "approve-teaching-" item.member.pk as approve_modal_id %}
         {% concat "decline-teaching-" item.member.pk as decline_modal_id %}
         {% concat "Let " item.member.display_name " teach?" as approve_title %}
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
+        {# applicant-<pk> is the admins' bell link for this application (Member.request_bell_path, #894). #}
+        <div id="applicant-{{ item.member.pk }}" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
           <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
             <span><a href="{% url 'hub_admin_member_edit' pk=item.member.pk %}?tab=permissions">{{ item.member.display_name }}</a> wants to be an instructor.</span>
             <span style="color:var(--hub-text-muted);font-size:0.85rem;">{% if item.days_waiting == 0 %}asked today{% else %}asked {{ item.days_waiting }} day{{ item.days_waiting|pluralize }} ago{% endif %}</span>
