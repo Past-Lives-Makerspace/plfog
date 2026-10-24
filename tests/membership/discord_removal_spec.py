@@ -224,6 +224,19 @@ def describe_removal():
 
 def describe_send_warning():
     @respx.mock
+    def it_says_the_next_day_and_waits_a_day_when_the_job_runs_daily():
+        from core.factories import ScheduledJobStateFactory
+
+        ScheduledJobStateFactory(task_key="process_discord_removals", cadence="daily")
+        _former()
+        post = _mock_dm()
+        removal = DiscordRemoval.objects.get()
+        now = _morning(date(2026, 10, 23))
+        assert removal.send_warning(now) is True
+        assert "within the next day" in post.calls.last.request.read().decode()
+        assert removal.kick_after == now + timedelta(hours=20)
+
+    @respx.mock
     def it_dms_and_waits_until_the_next_weekly_pass():
         _former()
         post = _mock_dm()

@@ -7987,12 +7987,14 @@ class DiscordRemoval(models.Model):
 
     OPEN_STATUSES: ClassVar[tuple[str, ...]] = (Status.QUEUED, Status.WARNED)
 
-    # How long after the warning DM the kick waits, per source. The job runs weekly, so a
-    # Former member warned on one pass is removed on the next one.
-    KICK_DELAYS: ClassVar[dict[str, timedelta]] = {
-        Source.FORMER: timedelta(days=6),
-        Source.CLEANUP: timedelta(days=3),
+    # How long a Former member's removal waits after the warning DM, per the job's frequency
+    # (an admin picks it on Automations): long enough that the next run removes them, short
+    # enough that it is not the one after. The cleanup list keeps its own fixed 3 days.
+    FORMER_WAITS: ClassVar[dict[str, tuple[timedelta, str]]] = {
+        "daily": (timedelta(hours=20), "within the next day"),
+        "weekly": (timedelta(days=6), "within the next week"),
     }
+    CLEANUP_WAIT: ClassVar[timedelta] = timedelta(days=3)
 
     member = models.ForeignKey(
         "Member",
@@ -8116,11 +8118,18 @@ class DiscordRemoval(models.Model):
 
         email = SiteConfiguration.load().org_support_email
         contact = f"email {email}" if email else "contact a Past Lives admin"
+        _, within = self._former_wait()
         return (
             "Hi! Your Past Lives Makerspace membership has ended, so you will be removed from the Past Lives "
-            f"Makerspace Discord within the next week. If you have rejoined or believe this is an error, please "
+            f"Makerspace Discord {within}. If you have rejoined or believe this is an error, please "
             f"{contact}. Thanks for being part of the space!"
         )
+
+    def _former_wait(self) -> tuple[timedelta, str]:
+        """The wait before a Former member's removal and how the DM says it, at the job's current frequency."""
+        from core.scheduled_jobs import current_cadence
+
+        return self.FORMER_WAITS[current_cadence("process_discord_removals")]
 
     def warning_mentions(self) -> tuple[str, ...]:
         """The users the warning DM may mention: Felix, in the cleanup DM only."""
@@ -8174,7 +8183,7 @@ class DiscordRemoval(models.Model):
             return False
         self.status = self.Status.WARNED
         self.warned_at = now
-        self.kick_after = now + self.KICK_DELAYS[self.source]
+        self.kick_after = now + (self.CLEANUP_WAIT if self.source == self.Source.CLEANUP else self._former_wait()[0])
         self.save(update_fields=["status", "warned_at", "kick_after"])
         if delivered:
             self._record(AutomationAction.Kind.DISCORD_DM, AutomationAction.Result.OK, "Delivered.")

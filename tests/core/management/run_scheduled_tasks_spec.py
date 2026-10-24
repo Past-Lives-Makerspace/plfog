@@ -255,3 +255,18 @@ def describe_window_deduplication():
             started_at=datetime(2026, 1, 1, 9, 1, tzinfo=UTC),
         )
         assert "auto_complete_orientations" in _tasks_called(hour=9, day=1)
+
+
+def describe_admin_chosen_frequency():
+    def it_runs_the_removal_job_on_a_weekday_once_an_admin_picks_daily():
+        ScheduledJobStateFactory(task_key="process_discord_removals", enabled=True, cadence="daily")
+        assert "process_discord_removals" in _tasks_called(hour=13, day=1)
+
+    def it_holds_the_removal_job_for_monday_at_its_own_weekly_schedule():
+        ScheduledJobStateFactory(task_key="process_discord_removals", enabled=True, cadence="")
+        assert "process_discord_removals" not in _tasks_called(hour=13, day=1)
+        assert "process_discord_removals" in _tasks_called(hour=13, day=5)
+
+    def it_ignores_a_pick_the_job_does_not_offer():
+        ScheduledJobStateFactory(task_key="process_discord_removals", enabled=True, cadence="always")
+        assert "process_discord_removals" not in _tasks_called(hour=9, day=1)

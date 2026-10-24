@@ -24,6 +24,7 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
+from core.models import ScheduledJobState
 from core.scheduled_jobs import SCHEDULED_JOBS, Cadence, Trigger, has_succeeded_since, is_enabled, record_run
 
 DAILY_UTC_HOUR = 13  # ~6 AM Portland
@@ -40,21 +41,23 @@ class Command(BaseCommand):
         # ``bill_tabs`` self-gates: it acquires a Postgres advisory lock and exits unless
         # ``BillingSettings.charge_frequency`` says it's billing time, so running it every
         # tick (no ``--force``) is safe — it no-ops outside the configured schedule.
+        chosen = ScheduledJobState.objects.cadences()
         for job in SCHEDULED_JOBS:
-            if job.cadence == Cadence.EXTERNAL:
+            cadence = job.cadence_from(chosen)
+            if cadence == Cadence.EXTERNAL:
                 # Runs from its own Render cron, which records around its own work.
                 continue
-            if job.cadence == Cadence.DAILY and now.hour != DAILY_UTC_HOUR:
+            if cadence == Cadence.DAILY and now.hour != DAILY_UTC_HOUR:
                 self.stdout.write(f"  – {job.key} skipped (daily, not {DAILY_UTC_HOUR}:xx UTC)")
                 continue
-            if job.cadence == Cadence.WEEKLY and (now.weekday() != WEEKLY_UTC_WEEKDAY or now.hour != DAILY_UTC_HOUR):
+            if cadence == Cadence.WEEKLY and (now.weekday() != WEEKLY_UTC_WEEKDAY or now.hour != DAILY_UTC_HOUR):
                 self.stdout.write(f"  – {job.key} skipped (weekly, not Monday {DAILY_UTC_HOUR}:xx UTC)")
                 continue
             # DAILY/WEEKLY jobs qualify for the whole DAILY_UTC_HOUR, but the cron ticks ~4x within
             # it. Run each at most once per window: skip if it already succeeded since the top of
             # this hour — which, given the hour gate above, is the start of today's / this Monday's
             # window. ALWAYS jobs are exempt (they run every tick); a FAILED run still retries.
-            if job.cadence in (Cadence.DAILY, Cadence.WEEKLY) and has_succeeded_since(
+            if cadence in (Cadence.DAILY, Cadence.WEEKLY) and has_succeeded_since(
                 job.key, now.replace(minute=0, second=0, microsecond=0)
             ):
                 self.stdout.write(f"  – {job.key} skipped (already ran this window)")
