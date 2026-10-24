@@ -1295,7 +1295,7 @@ def describe_guild_delete():
 
 @pytest.mark.django_db
 def describe_guild_announcement_reach():
-    """The pre-compose reach line + collapsible recipient list on the Announcements tab."""
+    """The pre-compose reach line + collapsible recipient list on the Email Members tab."""
 
     def it_shows_the_reach_count_on_the_announcements_tab(client: Client):
         user = _user_with_role("reach_lead", fog_role=Member.FogRole.MEMBER)

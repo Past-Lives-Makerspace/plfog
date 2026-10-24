@@ -1182,24 +1182,7 @@ def describe_admin_site_settings_features():
 
     def it_saves_the_guild_welcome_email_switch_off_and_back_on(client):
         _create_superuser(client)
-        base_data = {
-            "org_name": "Past Lives Makerspace",
-            "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
-            "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
-            "late_cancel_notice_hours": "24",
-            "late_cancel_grace_hours": "2",
-            "sync_classes_enabled": "",
-            "classes_calendar_color": "#abcdef",
-            "mailchimp_api_key": "",
-            "mailchimp_list_id": "",
-            "google_analytics_measurement_id": "",
-            "class_registration_disabled_note": "",
-            "submitted_tab": "features",
-            "feeds-TOTAL_FORMS": "0",
-            "feeds-INITIAL_FORMS": "0",
-            "feeds-MIN_NUM_FORMS": "0",
-            "feeds-MAX_NUM_FORMS": "1000",
-        }
+        base_data = _settings_post_data()
         # Switch omitted → unchecked → False.
         response = client.post(reverse("hub_admin_site_settings"), data=base_data)
         assert response.status_code == 302
@@ -1213,6 +1196,30 @@ def describe_admin_site_settings_features():
         assert response.status_code == 302
         config = SiteConfiguration.load()
         assert config.guild_welcome_email_enabled is True
+
+
+def _settings_post_data() -> dict[str, str]:
+    """A complete, valid Site Settings save from the Features tab."""
+    from core.models import SiteConfiguration
+
+    return {
+        "org_name": "Past Lives Makerspace",
+        "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+        "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+        "late_cancel_notice_hours": "24",
+        "late_cancel_grace_hours": "2",
+        "sync_classes_enabled": "",
+        "classes_calendar_color": "#abcdef",
+        "mailchimp_api_key": "",
+        "mailchimp_list_id": "",
+        "google_analytics_measurement_id": "",
+        "class_registration_disabled_note": "",
+        "submitted_tab": "features",
+        "feeds-TOTAL_FORMS": "0",
+        "feeds-INITIAL_FORMS": "0",
+        "feeds-MIN_NUM_FORMS": "0",
+        "feeds-MAX_NUM_FORMS": "1000",
+    }
 
 
 def describe_admin_site_settings_announcements():
@@ -1245,6 +1252,24 @@ def describe_admin_site_settings_announcements():
         assert response.status_code == 307
         assert response["Location"] == reverse("hub_email_members_release")
         assert SiteConfiguration.load().org_name == before
+
+    @pytest.mark.parametrize("action", ["announce_preview", "announce_test", "announce_send"])
+    def it_hands_a_release_form_left_open_at_the_old_url_on_and_sends_nothing(client, mailoutbox, action):
+        _create_superuser(client)
+        url = reverse("hub_admin_site_settings") + "?tab=announcements&draft=release"
+        response = client.post(url, data={"action": action, "mode": "release", "subject": "Hi", "include_0": "on"})
+        assert response.status_code == 307
+        assert response["Location"] == reverse("hub_email_members_release")
+        assert mailoutbox == []
+
+    def it_still_saves_a_settings_form_left_open_at_the_old_url(client):
+        from core.models import SiteConfiguration
+
+        _create_superuser(client)
+        data = {**_settings_post_data(), "org_name": "Renamed Makerspace"}
+        response = client.post(reverse("hub_admin_site_settings") + "?tab=announcements", data=data)
+        assert response.status_code == 302
+        assert SiteConfiguration.load().org_name == "Renamed Makerspace"
 
 
 def describe_fog_admin_required():

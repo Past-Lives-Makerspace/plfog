@@ -77,7 +77,7 @@ def _no_horizontal_scroll(page) -> bool:
 
 
 def _start_a_guild_announcement(page, guild, reader, message: str) -> None:
-    """From the Announcements page: New announcement, aim it at the guild, write the message."""
+    """From the Email Members page: New email, aim it at the guild, write the message."""
     page.locator('a[data-help-key="announcements.new"]').click()
     expect(page.locator(EDITOR)).to_be_visible()
     page.locator("select[name=audience]").select_option(f"guild:{guild.pk}")

@@ -4389,6 +4389,12 @@ def _can_enter_compose(request: HttpRequest, member: Member | None, raw_audience
     return offering is not None and _can_announce_to_class(request, offering)
 
 
+# What everyone who simply cannot compose is told; specs import it, so the copy cannot drift.
+COMPOSE_REFUSAL = (
+    "Your account cannot use Email Members. You can suggest an announcement for a guild here, and a lead reviews it."
+)
+
+
 def _compose_refusal_message(request: HttpRequest) -> str:
     """Why the composer turned this request away, in the refused viewer's own terms.
 
@@ -4418,7 +4424,7 @@ def _compose_refusal_message(request: HttpRequest) -> str:
             "Sending this email is an admin action, and your Viewing as switcher is set to "
             f"{view_as.current_label}. Switch it back to Admin to send this."
         )
-    return "Your account cannot use Email Members. You can suggest an announcement for a guild here, and a lead reviews it."
+    return COMPOSE_REFUSAL
 
 
 def _compose_refused(request: HttpRequest) -> HttpResponse:
@@ -9580,7 +9586,7 @@ def _resolve_site_settings_tab(request: HttpRequest) -> tuple[str, HttpResponse 
     ``?tab=slideshow`` is an old bookmark: the Slideshow admin is its own page now, so it
     302s there rather than silently landing on General. ``?tab=announcements`` is another
     (#922): that tab moved onto the Email Members page, and its ``&draft=release`` onto the
-    Release Update page.
+    Release Update page. Those redirect on GET only; a POST to them renders or saves General.
 
     Args:
         request: The current request.
@@ -9591,7 +9597,9 @@ def _resolve_site_settings_tab(request: HttpRequest) -> tuple[str, HttpResponse 
     tab = request.GET.get("tab", "general")
     if tab == "slideshow":
         return tab, redirect("hub_admin_slideshow")
-    if tab == "announcements":
+    # GET only: a form loaded from the old URL still posts to it, and that POST must reach the release
+    # hand-off or the settings save in admin_site_settings rather than turn into a GET and lose its input.
+    if tab == "announcements" and request.method == "GET":
         return tab, redirect(
             "hub_email_members_release" if request.GET.get("draft") == "release" else "hub_announcements"
         )

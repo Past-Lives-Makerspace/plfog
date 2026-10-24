@@ -9,6 +9,7 @@
 <p class="pl-announcements-back">
   <a href="{% url 'hub_announcements' %}" class="hub-btn hub-btn--sm hub-btn--ghost" data-release-back>&larr; Back to Email Members</a>
 </p>
+{% include "components/page_header.html" with title="Release Update" description="The sectioned what's new email from this release's changelog. Preview it, send a test to yourself, then send it to every activated member; Discord is left off because it posts on deploy." %}
 <div class="hub-card pl-announce-tab" data-release-update>
   {% include "hub/admin/_release_announcement.html" %}
 </div>

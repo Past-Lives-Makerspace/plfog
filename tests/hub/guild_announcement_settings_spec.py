@@ -1,4 +1,4 @@
-"""BDD specs for the guild Member Suggestions toggle save (Announcements tab)."""
+"""BDD specs for the guild Member Suggestions toggle save (Email Members tab)."""
 
 from __future__ import annotations
 

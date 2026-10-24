@@ -1,6 +1,6 @@
-"""The Voting page's Draft announcement control and the composer it opens.
+"""The Voting page's Draft results email control and the composer it opens.
 
-The Overview banner and a snapshot's history page offer one POST form, Draft announcement,
+The Overview banner and a snapshot's history page offer one POST form, Draft results email,
 that opens (or reopens) the month's results announcement in the composer. The composer shows
 the "<cycle> Voting Results" title on every surface, previews the email chart and the Discord
 bars, and queues the site send for the background job. Assertions anchor on markup (form

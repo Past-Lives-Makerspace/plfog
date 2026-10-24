@@ -1,6 +1,6 @@
 """The monthly results announcement: a site draft linked to a FundingSnapshot.
 
-An admin's Draft announcement click (``FundingSnapshot.draft_results_announcement``) opens a
+An admin's Draft results email click (``FundingSnapshot.draft_results_announcement``) opens a
 pre-filled site announcement in the composer. It takes the "<cycle> Voting Results" title,
 carries a results visual built from the snapshot (a bar chart in the email, ``/voting`` style
 bars on Discord), goes out through the background queue like every site send, and marks the
