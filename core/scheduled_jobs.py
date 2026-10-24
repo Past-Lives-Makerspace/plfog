@@ -389,12 +389,12 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         key="process_discord_removals",
         name="Remove ex-members from Discord",
         description=(
-            "Warns a member whose membership ended, by Discord DM, the day after it ends, and removes "
-            "them from the Discord 24 hours later unless they are active again. Off by default."
+            "Warns members whose membership ended by Discord DM, and removes them from the Discord "
+            "the following week unless they are active again. Off by default."
         ),
         command="process_discord_removals",
-        schedule_label="Every 15 min (DMs from 9 AM)",
-        cadence=Cadence.ALWAYS,
+        schedule_label="Weekly",
+        cadence=Cadence.WEEKLY,
         default_enabled=False,
     ),
 ]

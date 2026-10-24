@@ -1,6 +1,6 @@
 """Warn ex-members by Discord DM and remove them from the server when the wait is over (#898).
 
-Run every 15 minutes by ``run_scheduled_tasks`` while the job is on (it ships off). The
+Run weekly by ``run_scheduled_tasks`` while the job is on (it ships off). The
 work and its guards live in :func:`membership.discord_removal.process_removals`.
 """
 

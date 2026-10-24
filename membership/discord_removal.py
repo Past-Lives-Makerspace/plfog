@@ -1,8 +1,8 @@
-"""The ex-member Discord removal pass (#898), run every 15 minutes by ``process_discord_removals``.
+"""The ex-member Discord removal pass (#898), run weekly by ``process_discord_removals``.
 
 Each pass walks two lists of :class:`membership.models.DiscordRemoval` rows: queued rows whose
-warning day has come (from 9 AM Pacific, so nobody is DMed overnight), and warned rows whose
-wait is over. Every row is handled in its own transaction under ``select_for_update(skip_locked)``
+warning day has come, and warned rows whose wait is over. Weekly, that means a member whose
+membership ended is warned on the next pass and removed on the one after. Every row is handled in its own transaction under ``select_for_update(skip_locked)``
 and re-checked against the status it was picked for, so two overlapping passes never DM or
 kick the same person twice; the status change and its action record commit together.
 
@@ -26,9 +26,6 @@ if TYPE_CHECKING:
     from membership.models import DiscordRemoval, Member
 
 logger = logging.getLogger(__name__)
-
-#: The warning DM waits for the morning instead of going out as the Pacific date turns over.
-EARLIEST_DM_HOUR = 9
 
 
 class RemovalPassError(Exception):
@@ -63,15 +60,14 @@ def process_removals(now: datetime | None = None) -> RemovalPassStats:
     now = now or timezone.now()
     local = timezone.localtime(now)
     handled = failed = 0
-    if local.hour >= EARLIEST_DM_HOUR:
-        for pk in DiscordRemoval.objects.due_warnings(local.date()).values_list("pk", flat=True):
-            with transaction.atomic():
-                row = _claim(pk, DiscordRemoval.Status.QUEUED)
-                if row is None:
-                    continue
-                ok = row.send_warning(now)
-            handled += 1
-            failed += 0 if ok else 1
+    for pk in DiscordRemoval.objects.due_warnings(local.date()).values_list("pk", flat=True):
+        with transaction.atomic():
+            row = _claim(pk, DiscordRemoval.Status.QUEUED)
+            if row is None:
+                continue
+            ok = row.send_warning(now)
+        handled += 1
+        failed += 0 if ok else 1
     for pk in DiscordRemoval.objects.due_kicks(now).values_list("pk", flat=True):
         with transaction.atomic():
             row = _claim(pk, DiscordRemoval.Status.WARNED)

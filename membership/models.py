@@ -7987,9 +7987,10 @@ class DiscordRemoval(models.Model):
 
     OPEN_STATUSES: ClassVar[tuple[str, ...]] = (Status.QUEUED, Status.WARNED)
 
-    # How long after the warning DM the kick waits, per source.
+    # How long after the warning DM the kick waits, per source. The job runs weekly, so a
+    # Former member warned on one pass is removed on the next one.
     KICK_DELAYS: ClassVar[dict[str, timedelta]] = {
-        Source.FORMER: timedelta(hours=24),
+        Source.FORMER: timedelta(days=6),
         Source.CLEANUP: timedelta(days=3),
     }
 
@@ -8117,7 +8118,7 @@ class DiscordRemoval(models.Model):
         contact = f"email {email}" if email else "contact a Past Lives admin"
         return (
             "Hi! Your Past Lives Makerspace membership has ended, so you will be removed from the Past Lives "
-            f"Makerspace Discord in the next 24 hours. If you have rejoined or believe this is an error, please "
+            f"Makerspace Discord within the next week. If you have rejoined or believe this is an error, please "
             f"{contact}. Thanks for being part of the space!"
         )
 
@@ -8189,7 +8190,7 @@ class DiscordRemoval(models.Model):
         """Remove the person from the Discord server. Returns False when the step failed.
 
         A 404 counts as removed: they are already gone. A 403 is a standing refusal, so the row
-        moves to Removal failed instead of being retried every 15 minutes. A Discord or network
+        moves to Removal failed instead of being retried every pass. A Discord or network
         error leaves the row warned for the next pass.
         """
         from core.events.discord_members import KickOutcome, kick_member

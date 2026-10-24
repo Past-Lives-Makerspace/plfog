@@ -1,7 +1,7 @@
 """Ex-member Discord removal (#898): the queue, the warning DM, the kick, and the 15-minute pass.
 
-Discord HTTP is mocked with ``respx``. The pass is driven with an explicit ``now`` so the 9 AM
-DM gate and the 24-hour wait are exact.
+Discord HTTP is mocked with ``respx``. The pass is driven with an explicit ``now`` so the wait
+between the warning and the removal (one weekly pass to the next) is exact.
 """
 
 from __future__ import annotations
@@ -212,7 +212,7 @@ def describe_removal():
     def it_names_the_support_email_in_the_warning():
         _former()
         assert "info@pastlives.space" in DiscordRemoval.objects.get().warning_text()
-        assert "next 24 hours" in DiscordRemoval.objects.get().warning_text()
+        assert "within the next week" in DiscordRemoval.objects.get().warning_text()
 
     def it_falls_back_to_an_admin_without_a_support_email():
         config = SiteConfiguration.load()
@@ -224,17 +224,17 @@ def describe_removal():
 
 def describe_send_warning():
     @respx.mock
-    def it_dms_and_starts_the_24_hour_wait():
+    def it_dms_and_waits_until_the_next_weekly_pass():
         _former()
         post = _mock_dm()
         removal = DiscordRemoval.objects.get()
         now = _morning(date(2026, 10, 23))
         assert removal.send_warning(now) is True
-        assert "next 24 hours" in post.calls.last.request.read().decode()
+        assert "within the next week" in post.calls.last.request.read().decode()
         removal.refresh_from_db()
         assert removal.status == DiscordRemoval.Status.WARNED
         assert removal.warned_at == now
-        assert removal.kick_after == now + timedelta(hours=24)
+        assert removal.kick_after == now + timedelta(days=6)
         action = AutomationAction.objects.get(kind=AutomationAction.Kind.DISCORD_DM)
         assert (action.result, action.detail) == (AutomationAction.Result.OK, "Delivered.")
 
@@ -368,27 +368,25 @@ def describe_process_removals():
         assert process_removals(_morning(date(2026, 10, 23))).ran is False
 
     @respx.mock
-    def it_warns_on_the_due_day_and_removes_24_hours_later():
+    def it_warns_on_one_weekly_pass_and_removes_on_the_next():
         _former(cancellation_date=date(2026, 10, 22))
         _mock_dm()
         kick = respx.delete(url__regex=KICK_RE).mock(return_value=httpx.Response(204))
         assert process_removals(_morning(date(2026, 10, 22))).handled == 0
-        first = _morning(date(2026, 10, 23))
+        first = _morning(date(2026, 10, 26), hour=6)
         assert process_removals(first).handled == 1
-        assert process_removals(first + timedelta(minutes=15)).handled == 0
-        assert process_removals(first + timedelta(hours=23, minutes=45)).handled == 0
+        assert process_removals(first + timedelta(days=5)).handled == 0
         assert not kick.called
-        assert process_removals(first + timedelta(hours=24)).handled == 1
+        assert process_removals(first + timedelta(days=7)).handled == 1
         assert kick.call_count == 1
         assert DiscordRemoval.objects.get().status == DiscordRemoval.Status.KICKED
 
     @respx.mock
-    def it_holds_the_dm_until_9_am():
+    def it_sends_the_dm_at_the_early_weekly_run():
         _former(cancellation_date=date(2026, 10, 1))
         post = _mock_dm()
-        assert process_removals(_morning(date(2026, 10, 23), hour=8)).handled == 0
-        assert not post.called
-        assert process_removals(_morning(date(2026, 10, 23), hour=9)).handled == 1
+        assert process_removals(_morning(date(2026, 10, 26), hour=5)).handled == 1
+        assert post.called
 
     @respx.mock
     def it_raises_after_the_pass_when_a_step_failed():
