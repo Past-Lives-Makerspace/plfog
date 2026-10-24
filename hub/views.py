@@ -9275,13 +9275,19 @@ def _resolve_feature_context(bound_formset: Any) -> tuple[list[dict[str, Any]], 
 
 def _build_automation_rows(formset: Any) -> list[dict[str, Any]]:
     """Pair every registry job with its bound toggle form (matched by ``task_key``, never by
-    position — §11 #4) and its latest run, so the Automations panel loops once."""
+    position — §11 #4), its frequency picker when the job offers one, and its latest run, so the
+    Automations panel loops once."""
     from core.models import ScheduledTaskRun
     from core.scheduled_jobs import SCHEDULED_JOBS
 
     forms_by_key = {form.instance.task_key: form for form in formset.forms}
     latest = ScheduledTaskRun.objects.latest_per_task()
-    return [{"job": job, "form": forms_by_key.get(job.key), "last_run": latest.get(job.key)} for job in SCHEDULED_JOBS]
+    rows: list[dict[str, Any]] = []
+    for job in SCHEDULED_JOBS:
+        form = forms_by_key.get(job.key)
+        frequency = form["cadence"] if form is not None and "cadence" in form.fields else None
+        rows.append({"job": job, "form": form, "frequency": frequency, "last_run": latest.get(job.key)})
+    return rows
 
 
 def _bind_jobstate_formset(request: HttpRequest) -> tuple[Any, bool]:

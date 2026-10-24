@@ -68,6 +68,14 @@ class ScheduledJob:
     # and labelling an email job that way would be false to the admin reading it.
     confirm_before_run: bool = False
     default_enabled: bool = True  # False → OFF until an admin turns it on; absence of a state row means OFF, not ON
+    # The frequencies an admin may pick on Automations. Empty → the schedule is fixed at ``cadence``.
+    cadence_choices: tuple[str, ...] = ()
+
+    def cadence_from(self, chosen: dict[str, str]) -> str:
+        """The frequency this job runs at: the admin's pick from ``chosen`` when it is one this
+        job offers, else its own ``cadence``."""
+        pick = chosen.get(self.key, "")
+        return pick if pick in self.cadence_choices else self.cadence
 
 
 SCHEDULED_JOBS: list[ScheduledJob] = [
@@ -389,12 +397,13 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         key="process_discord_removals",
         name="Remove ex-members from Discord",
         description=(
-            "Warns a member whose membership ended, by Discord DM, the day after it ends, and removes "
-            "them from the Discord 24 hours later unless they are active again. Off by default."
+            "Warns members whose membership ended by Discord DM, and removes them from the Discord "
+            "on the next run unless they are active again. Off by default."
         ),
         command="process_discord_removals",
-        schedule_label="Every 15 min (DMs from 9 AM)",
-        cadence=Cadence.ALWAYS,
+        schedule_label="Weekly",
+        cadence=Cadence.WEEKLY,
+        cadence_choices=(Cadence.DAILY, Cadence.WEEKLY),
         default_enabled=False,
     ),
 ]
@@ -411,6 +420,13 @@ def is_enabled(key: str) -> bool:
     from core.models import ScheduledJobState
 
     return ScheduledJobState.objects.is_enabled(key)
+
+
+def current_cadence(key: str) -> str:
+    """The frequency a registry job runs at right now, with an admin's pick applied."""
+    from core.models import ScheduledJobState
+
+    return JOBS_BY_KEY[key].cadence_from(ScheduledJobState.objects.cadences())
 
 
 def has_succeeded_since(key: str, since: datetime) -> bool:

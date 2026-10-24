@@ -12,6 +12,7 @@ from core.scheduled_jobs import (
     SCHEDULED_JOBS,
     Cadence,
     Trigger,
+    current_cadence,
     is_enabled,
     record_run,
 )
@@ -241,3 +242,21 @@ def describe_record_run():
                 with record_run("sync_all_sources", trigger=Trigger.SCHEDULED):
                     raise ValueError("nope")
             assert ScheduledTaskRun.objects.filter(pk=stale.pk).exists()
+
+
+def describe_frequency_choice():
+    def it_offers_daily_and_weekly_for_the_removal_job_only():
+        offering = [job.key for job in SCHEDULED_JOBS if job.cadence_choices]
+        assert offering == ["process_discord_removals"]
+        assert JOBS_BY_KEY["process_discord_removals"].cadence_choices == (Cadence.DAILY, Cadence.WEEKLY)
+
+    def it_falls_back_to_the_jobs_own_cadence():
+        job = JOBS_BY_KEY["process_discord_removals"]
+        assert job.cadence_from({}) == Cadence.WEEKLY
+        assert job.cadence_from({job.key: "daily"}) == Cadence.DAILY
+        assert job.cadence_from({job.key: "always"}) == Cadence.WEEKLY
+
+    @pytest.mark.django_db
+    def it_reads_the_admins_pick_from_the_state_row():
+        ScheduledJobStateFactory(task_key="process_discord_removals", cadence="daily")
+        assert current_cadence("process_discord_removals") == Cadence.DAILY

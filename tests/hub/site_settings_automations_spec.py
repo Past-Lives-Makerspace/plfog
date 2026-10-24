@@ -7,6 +7,7 @@ legacy-CMS OFF sentence). The tab lives inside #site-settings-form; toggles save
 
 from __future__ import annotations
 
+import re
 from unittest.mock import patch
 
 import pytest
@@ -316,3 +317,38 @@ def describe_a_retired_job_key():
         cc.assert_not_called()
         assert any("Unknown automation" in m.message for m in response.context["messages"])
         assert ScheduledTaskRun.objects.filter(task_key=_RETIRED).count() == 1
+
+
+def describe_frequency_picker():
+    def _removal_index() -> int:
+        ScheduledJobState.objects.sync_registry()
+        toggleable = [job.key for job in SCHEDULED_JOBS if job.toggleable]
+        keys = list(
+            ScheduledJobState.objects.filter(task_key__in=toggleable)
+            .order_by("task_key")
+            .values_list("task_key", flat=True)
+        )
+        return keys.index("process_discord_removals")
+
+    def it_offers_daily_and_weekly_for_the_removal_job(client: Client):
+        _superuser(client)
+        html = client.get(URL).content.decode()
+        index = _removal_index()
+        assert f'name="jobstates-{index}-cadence"' in html
+        assert '<option value="weekly" selected>Weekly (Mon ~6 AM PT)</option>' in html
+        assert '<option value="daily">Once daily (~6 AM PT)</option>' in html
+
+    def it_shows_a_fixed_schedule_as_text_for_other_jobs(client: Client):
+        _superuser(client)
+        html = client.get(URL).content.decode()
+        assert len(re.findall(r'name="jobstates-\d+-cadence"', html)) == 1
+
+    def it_saves_the_admins_pick(client: Client):
+        _superuser(client)
+        client.post(URL, data=_settings_post(**{f"jobstates-{_removal_index()}-cadence": "daily"}))
+        assert ScheduledJobState.objects.get(task_key="process_discord_removals").cadence == "daily"
+
+    def it_refuses_a_frequency_the_job_does_not_offer(client: Client):
+        _superuser(client)
+        client.post(URL, data=_settings_post(**{f"jobstates-{_removal_index()}-cadence": "always"}))
+        assert ScheduledJobState.objects.get(task_key="process_discord_removals").cadence == ""
