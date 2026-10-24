@@ -1,2 +1,2 @@
-bump = "patch"
+bump = "minor"
 audience = "internal"
