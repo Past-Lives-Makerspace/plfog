@@ -151,6 +151,46 @@ def describe_SlideshowSettingsForm():
         assert config.signage_show_classes is False
 
 
+def describe_model_errors_on_fields_a_form_lacks():
+    """Each page keeps the model's errors it can show and drops those on another page's fields (#922)."""
+
+    from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
+
+    def _bound() -> ManageCmsForm:
+        form = ManageCmsForm({}, instance=SiteConfiguration.load())
+        form.is_valid()
+        return form
+
+    def it_drops_an_error_on_another_pages_field_and_keeps_its_own() -> None:
+        form = _bound()
+        form._update_errors(
+            ValidationError({"member_agreement_url": "elsewhere", "instructor_discount_codes_enabled": "mine"})
+        )
+        assert dict(form.errors) == {"instructor_discount_codes_enabled": ["mine"]}
+
+    def it_keeps_a_non_field_error_in_a_dict() -> None:
+        form = _bound()
+        form._update_errors(ValidationError({NON_FIELD_ERRORS: "whole row", "member_agreement_url": "elsewhere"}))
+        assert form.non_field_errors() == ["whole row"]
+        assert "member_agreement_url" not in form.errors
+
+    def it_keeps_a_plain_error_with_no_field() -> None:
+        form = _bound()
+        form._update_errors(ValidationError("whole row"))
+        assert form.non_field_errors() == ["whole row"]
+
+    def it_adds_nothing_when_every_error_belongs_elsewhere() -> None:
+        form = _bound()
+        form._update_errors(ValidationError({"member_agreement_url": "elsewhere"}))
+        assert form.is_valid()
+
+    def it_keeps_the_model_error_where_the_field_is() -> None:
+        form = MemberAgreementSettingsForm({}, instance=SiteConfiguration.load())
+        form.is_valid()
+        form._update_errors(ValidationError({"member_agreement_url": "here"}))
+        assert form.errors["member_agreement_url"] == ["here"]
+
+
 def describe_MemberAgreementSettingsForm():
     def it_fails_clean_if_required_but_no_url() -> None:
         form = MemberAgreementSettingsForm({"member_agreement_required": "on", "member_agreement_url": ""})

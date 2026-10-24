@@ -111,6 +111,13 @@ def describe_a_post_from_a_page_loaded_before_the_split():
         response = admin.post(SITE_SETTINGS, {"action": "sync_now", **data})
         _assert_handed_to(response, "hub_admin_cms")
 
+    def it_saves_on_site_settings_when_a_moved_tabs_address_posts_a_kept_tab(admin: Client):
+        # The ?tab= of the address only stands in for a missing submitted_tab; it never outranks it.
+        response = admin.post(f"{SITE_SETTINGS}?tab=features", site_settings_post(org_name="Saved Here"))
+        assert response.status_code == 302
+        assert response["Location"] == f"{SITE_SETTINGS}?tab=general"
+        assert SiteConfiguration.load().org_name == "Saved Here"
+
     def it_still_saves_a_post_from_a_tab_site_settings_kept(admin: Client):
         response = admin.post(SITE_SETTINGS, site_settings_post(submitted_tab="brand", org_name="Renamed"))
         assert response.status_code == 302
@@ -281,3 +288,38 @@ def describe_saving_one_page():
         _, jobs_before = _rows()
         admin.post(reverse(url_name), _post_for(url_name))
         assert _rows()[1] == jobs_before
+
+
+def describe_when_the_stored_agreement_is_required_with_no_url():
+    """``SiteConfiguration.clean`` refuses that row on every save, whichever page saves.
+
+    A row can reach that state outside the Member Agreement page (Django admin, a shell, a
+    migration). Every other page has no ``member_agreement_url`` field to hang the error on, which
+    once made Django raise "has no field named": a 500 on a page that cannot fix it.
+    """
+
+    @pytest.fixture
+    def inconsistent() -> None:
+        SiteConfiguration.objects.filter(pk=SiteConfiguration.load().pk).update(
+            member_agreement_required=True, member_agreement_url=""
+        )
+
+    @pytest.mark.parametrize(
+        "url_name", ["hub_admin_site_settings", "hub_admin_features", "hub_admin_cms", "hub_admin_automations"]
+    )
+    def it_still_saves_every_page_that_lacks_the_field(admin: Client, inconsistent: None, url_name: str):
+        response = admin.post(reverse(url_name), _post_for(url_name))
+        assert response.status_code == 302
+        assert response["Location"].startswith(reverse(url_name))
+        config = SiteConfiguration.load()
+        assert (config.member_agreement_required, config.member_agreement_url) == (True, "")
+
+    def it_shows_the_error_on_the_member_agreement_page(admin: Client, inconsistent: None):
+        response = admin.post(
+            reverse("hub_admin_member_agreement"),
+            {"member_agreement_required": "on", "member_agreement_url": "", "member_agreement_version": ""},
+        )
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "A URL is required if the agreement is enabled." in html
+        assert "Required when Member Agreement is enforced." in html

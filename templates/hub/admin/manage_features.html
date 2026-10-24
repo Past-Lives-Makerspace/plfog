@@ -33,6 +33,12 @@
     {% endcomment %}
     {{ feature_formset.management_form }}
     {% if feature_formset.non_form_errors %}<div class="pl-settings-page__errors">{{ feature_formset.non_form_errors }}</div>{% endif %}
+    {% if unmatched_row_errors %}
+    <div class="pl-settings-page__errors" data-unmatched-row-errors>
+      <p>A row on this page changed after you opened it, so nothing was saved. Reload the page and save again.</p>
+      <ul>{% for error in unmatched_row_errors %}<li>{{ error }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
 
     <div class="pl-automation-list">
       {% for row in feature_rows %}
@@ -53,6 +59,7 @@
           {{ row.form.message }}
           {% if row.form.message.errors %}<div class="pl-field-error">{{ row.form.message.errors }}</div>{% endif %}
         </div>
+        {% include "hub/admin/_settings_row_errors.html" with form=row.form %}
       </div>
       {% endfor %}
     </div>

@@ -367,3 +367,22 @@ def describe_sync_now_from_the_nightly_sync_card():
         with patch("classes.import_service.sync_legacy_cms", return_value=0):
             client.post(URL, data=data)
         assert ScheduledJobState.objects.get(task_key="send_class_reminders").enabled is True
+
+
+def describe_a_row_that_no_longer_exists():
+    def it_saves_nothing_and_says_so_above_the_cards(client: Client):
+        _superuser(client)
+        data = _settings_post(_disabled_keys=("send_class_reminders",))
+        data["jobstates-0-id"] = "999999"
+        response = client.post(URL, data)
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "data-unmatched-row-errors" in html
+        assert "Select a valid choice" in html
+        assert ScheduledJobState.objects.get(task_key="send_class_reminders").enabled is True
+
+    def it_shows_no_row_error_on_a_clean_load(client: Client):
+        _superuser(client)
+        html = client.get(URL).content.decode()
+        assert "data-row-errors" not in html
+        assert "data-unmatched-row-errors" not in html

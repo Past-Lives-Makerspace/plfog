@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 from django.db import transaction
 from django import forms
 from django.conf import settings
+from django.core.exceptions import NON_FIELD_ERRORS
 from django.db.models import Case, Q, QuerySet, Value, When
 from django.urls import reverse
 from django.utils import timezone
@@ -1550,7 +1551,26 @@ class MemberBadgesForm(forms.Form):
         return [MemberBadgeToggle(badge=badge, field=self[f"badge_{badge.pk}"]) for badge in self._badges]
 
 
-class SiteSettingsForm(forms.ModelForm):
+class _OwnFieldErrorsOnly(forms.ModelForm):
+    """Keep only the model validation errors this form can show, for a form over part of a model.
+
+    ``SiteConfiguration.clean`` checks the Member Agreement rule on every save, whichever page
+    saves. On a form without ``member_agreement_url`` Django cannot attach that error to a field
+    and raises "has no field named", a 500 on a page that cannot fix it anyway. The rule is about
+    another page's fields, so this page drops the error and saves; the Member Agreement page,
+    which has the field, still shows it (#922).
+    """
+
+    def _update_errors(self, errors: forms.ValidationError) -> None:
+        if hasattr(errors, "error_dict"):
+            for name in [name for name in errors.error_dict if name != NON_FIELD_ERRORS and name not in self.fields]:
+                del errors.error_dict[name]
+            if not errors.error_dict:
+                return
+        super()._update_errors(errors)  # type: ignore[misc]  # private hook django-stubs omits
+
+
+class SiteSettingsForm(_OwnFieldErrorsOnly):
     """Site Settings' slice of the SiteConfiguration singleton: Brand, General, Calendar and Discord.
 
     Calendar feed rows live on the separate ``CalendarFeedFormSet`` below — keeping
@@ -1630,7 +1650,7 @@ class SiteSettingsForm(forms.ModelForm):
         return content
 
 
-class _SiteConfigurationSliceForm(forms.ModelForm):
+class _SiteConfigurationSliceForm(_OwnFieldErrorsOnly):
     """One page's own columns of the SiteConfiguration singleton, written alone (#922).
 
     Four pages now save the same row. A whole row save would put back, from the copy this page

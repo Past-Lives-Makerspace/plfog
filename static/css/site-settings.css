@@ -95,6 +95,8 @@
 }
 .pl-settings-page__actions { margin: 0.5rem 0 1.5rem; }
 .pl-settings-page__errors { color: #f87171; font-size: 0.875rem; }
+.pl-settings-page__errors ul { margin: 0.5rem 0 0; padding-left: 1.25rem; }
+.pl-settings-row-errors { margin-top: 0.5rem; }
 
 .pl-settings-section__title { margin: 0 0 0.25rem; font-size: 1rem; color: var(--hub-text); }
 .pl-settings-section__title--spaced { margin-bottom: 0.5rem; }

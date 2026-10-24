@@ -27,6 +27,12 @@
     {% csrf_token %}
     {{ jobstate_formset.management_form }}
     {% if jobstate_formset.non_form_errors %}<div class="pl-settings-page__errors">{{ jobstate_formset.non_form_errors }}</div>{% endif %}
+    {% if unmatched_row_errors %}
+    <div class="pl-settings-page__errors" data-unmatched-row-errors>
+      <p>A row on this page changed after you opened it, so nothing was saved. Reload the page and save again.</p>
+      <ul>{% for error in unmatched_row_errors %}<li>{{ error }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
 
     <div class="pl-automation-list">
       {% for row in automation_rows %}
@@ -80,6 +86,7 @@
           {% else %}
             <span class="hub-pill hub-pill--primary">Always on</span>
           {% endif %}
+          {% include "hub/admin/_settings_row_errors.html" with form=row.form %}
         </div>
 
         <div class="pl-automation-cell pl-automation-run">

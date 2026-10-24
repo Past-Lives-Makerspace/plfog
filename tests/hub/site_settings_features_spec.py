@@ -329,3 +329,40 @@ def describe_the_my_tab_card():
         response = client.post(URL, _settings_post(states={"my_tab": FeatureState.SOON}))
         assert response.status_code == 302
         assert _state_of("my_tab") == FeatureState.SOON
+
+
+def describe_a_row_error():
+    """A row that fails blocks the whole Save, so the page must say which one and why (#922)."""
+
+    def it_shows_a_bad_state_in_its_own_card(client: Client):
+        _superuser(client)
+        data = _settings_post()
+        FeatureSwitch.objects.sync_registry()
+        index = [row.feature_key for row in FeatureSwitch.objects.all()].index("wiki")
+        data[f"features-{index}-state"] = "sideways"
+        before = _state_of("wiki")
+        response = client.post(URL, data)
+        assert response.status_code == 200
+        html = response.content.decode()
+        card = html[html.index('<div class="pl-automation-name">Member Wiki</div>') :]
+        card = card[: card.index('<div class="pl-automation-card')]
+        assert "data-row-errors" in card
+        assert "Select a valid choice" in card
+        assert _state_of("wiki") == before
+
+    def it_shows_a_row_that_no_longer_exists_above_the_cards(client: Client):
+        _superuser(client)
+        data = _settings_post()
+        data["features-0-id"] = "999999"
+        response = client.post(URL, data)
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "data-unmatched-row-errors" in html
+        assert "Reload the page and save again." in html
+        assert html.index("data-unmatched-row-errors") < html.index("pl-automation-list")
+
+    def it_shows_neither_on_a_clean_load(client: Client):
+        _superuser(client)
+        html = client.get(URL).content.decode()
+        assert "data-row-errors" not in html
+        assert "data-unmatched-row-errors" not in html

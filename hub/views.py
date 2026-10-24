@@ -9343,6 +9343,28 @@ def _build_feature_rows(formset: Any) -> list[dict[str, Any]]:
     return rows
 
 
+def _unmatched_row_errors(formset: Any, key_field: str) -> list[str]:
+    """The errors of every bound row that matched no card, so a hidden row never blocks Save unseen.
+
+    The cards match rows by registry key, so a row posted with a pk that no longer exists (a page
+    left open while the row was removed) binds a new, keyless instance and sits under no card.
+
+    Args:
+        formset: the Features or Automations formset.
+        key_field: the instance field the cards match on (``feature_key`` or ``task_key``).
+
+    Returns:
+        Each such row's messages, in row order; empty for an unbound or clean formset.
+    """
+    return [
+        message
+        for form in formset.forms
+        if not getattr(form.instance, key_field)
+        for messages in form.errors.values()
+        for message in messages
+    ]
+
+
 def _save_feature_formset(formset: Any, user: User) -> None:
     """Save a valid Features formset, stamping ``updated_by`` on each changed row so it records
     who turned a feature off: the question somebody always asks afterwards."""
@@ -9480,6 +9502,7 @@ def admin_manage_features(request: HttpRequest) -> HttpResponse:
             "form": form,
             "feature_formset": formset,
             "feature_rows": _build_feature_rows(formset),
+            "unmatched_row_errors": _unmatched_row_errors(formset, "feature_key"),
         },
     )
 
@@ -9518,6 +9541,7 @@ def admin_automations(request: HttpRequest) -> HttpResponse:
             "legacy_cms_sync_field": form["legacy_cms_sync_enabled"],
             "jobstate_formset": formset,
             "automation_rows": _build_automation_rows(formset),
+            "unmatched_row_errors": _unmatched_row_errors(formset, "task_key"),
         },
     )
 
