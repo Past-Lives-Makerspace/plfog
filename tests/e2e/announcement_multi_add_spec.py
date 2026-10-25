@@ -93,7 +93,7 @@ def describe_adding_many_people_to_a_guild_announcement():
 
         # Send it.
         page.get_by_role("button", name="Preview & send →").first.click()
-        page.get_by_role("button", name="Send announcement").click()
+        page.get_by_role("button", name="Send email").click()
         with page.expect_navigation():
             page.get_by_role("button", name="Yes, send it").click()
         expect(page).to_have_url(f"{live_server.url}{reverse('hub_announcements')}?tab=sent")

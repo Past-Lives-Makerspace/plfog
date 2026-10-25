@@ -1,0 +1,119 @@
+{% extends "hub/base.html" %}
+{% load static %}
+
+{% block title %}Manage CMS{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/site-settings.css' %}">
+{% endblock %}
+
+{% block content %}
+{# Was Site Settings' CMS tab (#922); hub.views.admin_manage_cms saves only the discount code switches. #}
+<div class="hub-card" data-settings-page="cms">
+  <h1 class="hub-page-title pl-settings-page__title">Manage CMS</h1>
+  <p class="pl-settings-page__lead">The legacy CMS at <code>classes.pastlives.space</code>: its sync, and the settings that are only about it.</p>
+
+  {% comment %}
+    Sync Now submits this form with action=sync_now. The view runs the sync (and redirects) before
+    the form is validated, so it never needs a valid form. It must NOT be its own form element: a
+    nested form is invalid HTML and closes this one early, orphaning the Save button below it.
+  {% endcomment %}
+  <form method="post" class="site-settings-form pl-settings-page__form" data-run-now-form>
+    {% csrf_token %}
+
+    <p class="pl-automation-callout">
+      The nightly pull from the legacy CMS is a scheduled job, so its on/off switch lives with
+      every other one on the <a href="{% url 'hub_admin_automations' %}" data-automations-link>Automations page</a>. This page shows its
+      status, runs it on demand, and holds the settings that are only about the CMS.
+    </p>
+
+    {% comment %}
+      Status here, control on the Automations page, which is exactly what the callout above
+      promises. This was once a second editable checkbox for legacy_cms_sync_enabled while both
+      sat in one form, and clearing it still submitted the other one's "on". The two are separate
+      pages and forms now, and ManageCmsForm does not list the field.
+    {% endcomment %}
+    <div>
+      <h2 class="pl-settings-section__title pl-settings-section__title--spaced">CMS Sync</h2>
+      <p class="pl-settings-section__desc pl-settings-section__desc--spaced">
+        When on, classes from <code>classes.pastlives.space</code> sync into plfog automatically each morning.
+        Use <strong>Sync Now</strong> below for an immediate pull.
+      </p>
+      <p class="pl-settings-section__pill">
+        {% if config.legacy_cms_sync_enabled %}
+          <span class="hub-pill hub-pill--ok">Nightly pull is on</span>
+        {% else %}
+          <span class="hub-pill hub-pill--danger">Nightly pull is off</span>
+        {% endif %}
+      </p>
+      {% if config.legacy_cms_last_synced_at %}
+        <small class="pl-settings-muted">Last synced: {{ config.legacy_cms_last_synced_at|date:"N j, Y g:i A" }}</small>
+      {% else %}
+        <small class="pl-settings-muted">Never synced.</small>
+      {% endif %}
+    </div>
+
+    <div>
+      <div id="sync-now-wrap" class="pl-sync-now" data-estimate="{{ config.legacy_cms_last_sync_duration|default_if_none:'' }}">
+        <button type="submit" name="action" value="sync_now" id="sync-now-btn" data-run-now class="hub-btn hub-btn--sm hub-btn--primary">
+          <span class="sync-spinner" aria-hidden="true"></span>
+          <span class="sync-now-label">Sync Now</span>
+        </button>
+        <div class="sync-progress" hidden>
+          <div class="sync-progress__fill"></div>
+        </div>
+        <small class="sync-status pl-settings-muted" hidden></small>
+      </div>
+      {% if config.legacy_cms_last_sync_duration %}
+        <small class="pl-sync-now__hint">Typically takes about {{ config.legacy_cms_last_sync_duration|floatformat:0 }}s.</small>
+      {% endif %}
+    </div>
+
+    <div>
+      <h2 class="pl-settings-section__title pl-settings-section__title--spaced">Instructor Discount Codes</h2>
+      {% include "components/form_field.html" with field=form.instructor_discount_codes_enabled %}
+      {% include "components/form_field.html" with field=form.instructor_discount_codes_need_approval %}
+    </div>
+
+    <div>
+      <h2 class="pl-settings-section__title pl-settings-section__title--spaced">Instructor Matching</h2>
+      <p class="pl-settings-section__desc pl-settings-section__desc--spaced">
+        Classes are matched to instructors by parsing "with [Name]" from the title.
+        Once matched, the instructor link is never overwritten.
+      </p>
+      <table class="hub-table pl-cms-match">
+        <thead>
+          <tr>
+            <th>Instructor</th>
+            <th>Matched classes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in instructor_sync_rows %}
+          <tr>
+            <td>{{ row.instructor.display_name }}</td>
+            <td>{{ row.matched }}</td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="2" class="pl-cms-match__empty">No active instructors found.</td>
+          </tr>
+          {% endfor %}
+          {% if legacy_cms_unmatched %}
+          <tr class="pl-cms-match__unmatched">
+            <td>Unmatched (no instructor)</td>
+            <td>{{ legacy_cms_unmatched }}</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="pl-settings-page__actions">
+      <button type="submit" class="hub-btn hub-btn--primary">Save</button>
+    </div>
+  </form>
+</div>
+
+{% include "hub/admin/_run_now_script.html" %}
+{% endblock %}

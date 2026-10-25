@@ -1,0 +1,32 @@
+{% extends "hub/base.html" %}
+{% load static %}
+
+{% block title %}Member Agreement{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/site-settings.css' %}">
+{% endblock %}
+
+{% block content %}
+{# Was Site Settings' Member Agreement tab (#922); hub.views.admin_member_agreement saves only these three fields. #}
+<div class="hub-card" data-settings-page="member-agreement">
+  <h1 class="hub-page-title pl-settings-page__title">Member Agreement</h1>
+  <p class="pl-settings-page__lead">When enabled, active members will be forced to accept this agreement before using the portal.</p>
+
+  <form method="post" class="site-settings-form pl-settings-page__form">
+    {% csrf_token %}
+    <p class="pl-agreement-count" data-agreement-count>{{ accepted_members_count }} of {{ active_members_count }} active members have accepted.</p>
+    {% include "components/form_field.html" with field=form.member_agreement_required %}
+    {% include "components/form_field.html" with field=form.member_agreement_url %}
+    {% comment %}
+      Beside the URL, because the two are read together: this names the edition published AT
+      that address. Setting it is what re-prompts members who accepted a different one, so it
+      belongs where an admin can see the count above it rather than in Django admin.
+    {% endcomment %}
+    {% include "components/form_field.html" with field=form.member_agreement_version %}
+    <div class="pl-settings-page__actions">
+      <button type="submit" class="hub-btn hub-btn--primary">Save</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

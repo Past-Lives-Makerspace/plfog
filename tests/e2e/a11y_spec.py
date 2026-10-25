@@ -193,7 +193,7 @@ def describe_accessibility():
 
     def it_has_no_violations_on_the_v22_admin_surfaces(live_server, page, login_via_code):
         # The v22 editor pages: the guild editor's Meetings tab (studio-hours formset)
-        # and Site Settings' Automations tab. Signed in as an admin; both live on the
+        # and the Automations page (once a Site Settings tab). Signed in as an admin; both live on the
         # members surface, so they share its chrome debt allowlist. The ?tab= param
         # seeds Alpine's active section, and axe only scans what's visible.
         MembershipPlanFactory()
@@ -207,7 +207,7 @@ def describe_accessibility():
 
         pages = {
             "guild-edit-meetings": f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=meetings",
-            "site-settings-automations": f"{reverse('hub_admin_site_settings')}?tab=automations",
+            "automations": reverse("hub_admin_automations"),
         }
         offenders = []
         for name, path in pages.items():

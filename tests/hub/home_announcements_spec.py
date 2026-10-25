@@ -115,7 +115,7 @@ def describe_the_banner_on_home():
         banner = _banner(_home(member_client))
 
         assert f'data-announcement-signature="{Announcement.signature([announcement])}"' in banner
-        assert 'aria-label="Close the announcements" data-announcement-close>' in banner
+        assert 'aria-label="Close the Spotlight messages" data-announcement-close>' in banner
 
     def it_renders_the_sanitized_text(member_client: Client):
         announcement = AnnouncementFactory()
@@ -146,14 +146,17 @@ def describe_one_and_many():
 
         assert 'class="pl-home-ann pl-rotator pl-home-ann--many"' in banner
         assert (
-            'data-rotator-interval="8000" data-rotator-name="home-banner" aria-roledescription="carousel" aria-label="Announcements"'
+            'data-rotator-interval="8000" data-rotator-name="home-banner" aria-roledescription="carousel" aria-label="Spotlight messages"'
             in banner
         )
         assert banner.count("data-rotator-dot") == 3
-        assert 'aria-label="Show announcement 2 of 3"' in banner
-        assert 'aria-label="Next announcement"' in banner
+        assert 'aria-label="Show Spotlight message 2 of 3"' in banner
+        assert 'aria-label="Next Spotlight message"' in banner
         assert "data-rotator-pause" in banner
-        assert "'Play the announcements' : 'Pause the announcements'\" aria-label=\"Pause the announcements\"" in banner
+        assert (
+            "'Play the Spotlight messages' : 'Pause the Spotlight messages'\" aria-label=\"Pause the Spotlight messages\""
+            in banner
+        )
         assert 'role="group" aria-roledescription="slide" aria-label="3 of 3"' in banner
         assert "aria-live" not in banner
 

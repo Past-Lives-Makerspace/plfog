@@ -218,12 +218,17 @@ def _sections(client: Client) -> list[tuple[str, str, list[str]]]:
 
 
 _ADMIN_SECTIONS = [
-    ("manage", "Manage", ["Manage All Classes", "Manage Events", "Manage Members", "Instructor Inquiries"]),
+    (
+        "manage",
+        "Manage",
+        ["Manage All Classes", "Manage Events", "Manage Members", "Member Agreement", "Instructor Inquiries"],
+    ),
     (
         "tools",
         "Tools",
         [
-            "Announcements",
+            "Email Members",
+            "Manage Mailing Lists",
             "Push Notification Test",
             "Orientations",
             "Spotlight",
@@ -236,7 +241,16 @@ _ADMIN_SECTIONS = [
     (
         "webmaster",
         "Webmaster",
-        ["Site Settings", "Notification Settings", "Activity", "Leadership Directory", "Locations"],
+        [
+            "Site Settings",
+            "Manage Features",
+            "Manage CMS",
+            "Automations",
+            "Notification Settings",
+            "Activity",
+            "Leadership Directory",
+            "Locations",
+        ],
     ),
 ]
 
@@ -247,12 +261,14 @@ def describe_admin_tools_sections():
 
     def it_shows_a_fog_admin_the_four_sections_with_their_cards_in_order(client: Client):
         _login_superuser(client, "sections_admin")
+        GuildFactory()  # Manage Mailing Lists shows once there is a guild whose list to open
         assert _sections(client) == _ADMIN_SECTIONS
 
     def it_puts_every_card_in_exactly_one_section(client: Client):
         _login_superuser(client, "sections_once")
+        GuildFactory()
         titles = _card_titles(client)
-        assert len(titles) == len(set(titles)) == 19
+        assert len(titles) == len(set(titles)) == 24
 
     def it_keeps_the_help_key_on_the_wrapper_the_admin_tour_targets(client: Client):
         _login_superuser(client, "sections_help_key")
@@ -262,7 +278,7 @@ def describe_admin_tools_sections():
         _login_guild_lead(client, "sections_lead")
         sections = _sections(client)
         assert [key for key, _, _ in sections] == ["tools"]
-        assert sections[0][2] == ["Announcements", "Orientations"]
+        assert sections[0][2] == ["Email Members", "Manage Mailing Lists", "Orientations"]
 
     def it_gives_a_billing_approver_only_the_reports_section_without_growth(client: Client):
         _login_billing_approver(client, "sections_biller")
@@ -310,6 +326,33 @@ def describe_admin_tools_sections():
 
 def describe_admin_tools_cards():
     """Per card gates, unchanged by the sections, and the two Quickstart guide cards stay gone."""
+
+    def describe_the_cards_split_from_site_settings():
+        """#922: Member Agreement, Manage Features, Manage CMS and Automations, each its own card."""
+
+        _CARDS = {
+            "data-tool-member-agreement": "hub_admin_member_agreement",
+            "data-tool-features": "hub_admin_features",
+            "data-tool-cms": "hub_admin_cms",
+            "data-tool-automations": "hub_admin_automations",
+        }
+
+        def it_links_each_card_to_its_page(client: Client):
+            _login_superuser(client, "split_cards_admin")
+            grid = _tools_grid(client)
+            for marker, url_name in _CARDS.items():
+                assert f'href="{reverse(url_name)}" {marker}' in grid
+
+        def it_shows_none_of_them_to_a_guild_lead(client: Client):
+            _login_guild_lead(client, "split_cards_lead")
+            grid = _tools_grid(client)
+            assert not [marker for marker in _CARDS if marker in grid]
+
+        def it_describes_what_site_settings_still_holds(client: Client):
+            _login_superuser(client, "split_cards_copy")
+            assert "brand, sign in and registration, Calendar feeds, emails and the Discord connection" in _tools_grid(
+                client
+            )
 
     def describe_the_slideshow_tile():
         def it_shows_for_a_fog_admin(client: Client):

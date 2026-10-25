@@ -82,7 +82,7 @@ def describe_standard():
 
         standard = _standard(client.get(HOME).content.decode())
 
-        assert '<p class="pl-spotlight__eyebrow">Announcement</p>' in standard
+        assert '<p class="pl-spotlight__eyebrow">Spotlight Message</p>' in standard
         assert f'data-spotlight-announcement="{announcement.pk}">' in standard
         assert '<div class="pl-ann-body pl-spotlight__ann-body"><p>Zorblax notice 1</p></div>' in standard
         assert '<span class="pl-spotlight__virtual">Virtual</span>' in standard
@@ -117,7 +117,7 @@ def describe_standard():
 
         assert (
             'class="pl-spotlight__ann pl-rotator" x-data="plRotator" data-rotator-interval="8000" data-rotator-name="spotlight" role="group"'
-            ' aria-roledescription="carousel" aria-label="Announcements"' in standard
+            ' aria-roledescription="carousel" aria-label="Spotlight messages"' in standard
         )
         assert [standard.index(f'data-spotlight-announcement="{row.pk}"') for row in rows] == sorted(
             standard.index(f'data-spotlight-announcement="{row.pk}"') for row in rows
@@ -127,9 +127,9 @@ def describe_standard():
             '<span class="pl-rotator__count" data-rotator-count><span x-text="index + 1">1</span> of 3</span>'
             in standard
         )
-        assert 'aria-label="Previous announcement" data-rotator-prev' in standard
-        assert 'aria-label="Next announcement" data-rotator-next' in standard
-        assert 'aria-label="Pause the announcements" data-rotator-pause' in standard
+        assert 'aria-label="Previous Spotlight message" data-rotator-prev' in standard
+        assert 'aria-label="Next Spotlight message" data-rotator-next' in standard
+        assert 'aria-label="Pause the Spotlight messages" data-rotator-pause' in standard
         assert "data-rotator-dot" not in standard
 
     def it_keeps_the_rich_text_and_its_links():
@@ -235,7 +235,7 @@ def describe_expanded():
         panel = client.get(HOME).content.decode().split("data-spotlight-panel", 1)[1]
 
         section = _section(panel, "data-spotlight-panel-announcements", "</section>")
-        assert '<p class="pl-spotlight__eyebrow">Announcements</p>' in section
+        assert '<p class="pl-spotlight__eyebrow">Spotlight Messages</p>' in section
         positions = [
             section.index(f'data-spotlight-panel-announcement="{row.pk}"><p>{row.text}</p></li>') for row in rows
         ]

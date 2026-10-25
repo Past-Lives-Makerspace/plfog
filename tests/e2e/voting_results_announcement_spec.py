@@ -1,6 +1,6 @@
-"""End-to-end: Draft announcement on the Voting page opens the month's results in the composer.
+"""End-to-end: Draft results email on the Voting page opens the month's results in the composer.
 
-The banner's Draft announcement is a boosted POST form, so the arrival at the composer is an
+The banner's Draft results email is a boosted POST form, so the arrival at the composer is an
 htmx body swap that has to leave Quill mounted with the pre-filled prose. Preview & send then
 fires the email preview, whose one HTMX response also swaps the Discord preview card out of
 band. The Python suite renders each piece; only a browser proves the click lands, the editor
@@ -54,7 +54,7 @@ def _sign_in_as_admin(login_via_code) -> None:
 
 
 def _open_the_draft_from_the_banner(page, live_server, snapshot) -> None:
-    """Overview banner, Draft announcement, and the composer it lands on."""
+    """Overview banner, Draft results email, and the composer it lands on."""
     page.goto(f"{live_server.url}{reverse('hub_admin_voting_overview')}")
     banner = page.locator(f'[data-results-banner="{snapshot.pk}"]')
     expect(banner).to_be_visible()

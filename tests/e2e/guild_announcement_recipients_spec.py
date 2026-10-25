@@ -1,4 +1,4 @@
-"""End-to-end: the Announcements tab shows exactly who a guild announcement reaches.
+"""End-to-end: the Email Members tab shows exactly who a guild announcement reaches.
 
 The recipient count and the Show-recipients list are single-sourced from the real send
 resolver (``Guild.announcement_recipients``), so what the lead sees here is exactly the
@@ -46,7 +46,7 @@ def describe_guild_announcement_recipients():
         user.is_superuser = True
         user.save(update_fields=["is_staff", "is_superuser"])
 
-        # Open the editor straight onto the Announcements tab.
+        # Open the editor straight onto the Email Members tab.
         page.goto(f"{live_server.url}{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements")
 
         # The count reflects only the reachable members; the list starts hidden.

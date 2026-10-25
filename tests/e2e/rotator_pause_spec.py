@@ -29,8 +29,8 @@ SPOTLIGHT = ".hub-sidebar__spotlight [data-spotlight-announcements]"
 SPOTLIGHT_COUNT = f"{SPOTLIGHT} [data-rotator-count]"
 SPOTLIGHT_PAUSE = f"{SPOTLIGHT} [data-rotator-pause]"
 CAROUSEL_ACTIVE = "[data-home-featured] .pl-rotator__slide.is-active"
-PAUSED = "Play the announcements"
-RUNNING = "Pause the announcements"
+PAUSED = "Play the Spotlight messages"
+RUNNING = "Pause the Spotlight messages"
 
 
 def _sign_in(page, login_via_code, email: str) -> int:

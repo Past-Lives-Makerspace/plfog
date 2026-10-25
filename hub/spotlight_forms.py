@@ -46,9 +46,9 @@ class SpotlightTextForm(forms.ModelForm):
         field_classes = {"spotlight_meeting_event": MeetingEventChoiceField}
         # The model's own copy still names the poll, which left the Spotlight in #890; the form
         # says what members see now, without a migration that would only rewrite help text.
-        labels = {"spotlight_show_when_empty": "Show the Spotlight when there is no announcement and no meeting"}
+        labels = {"spotlight_show_when_empty": "Show the Spotlight when there is no Spotlight message and no meeting"}
         help_texts = {
-            "spotlight_first_line": "Empty uses the first announcement, else the latest update.",
+            "spotlight_first_line": "Empty uses the first Spotlight message, else the latest update.",
             "spotlight_show_when_empty": (
                 "On: members see the version, its latest update and Details. "
                 "Off: the corner goes back to the logo and version number."
@@ -79,7 +79,7 @@ class SpotlightTextForm(forms.ModelForm):
         return config
 
 
-ANNOUNCEMENT_EMPTY = "Write the announcement first."
+ANNOUNCEMENT_EMPTY = "Write the Spotlight message first."
 ANNOUNCEMENT_ENDS_FIRST = "Show until must be after Show from."
 ANNOUNCEMENT_TIME_NEEDS_DATE = "Pick a date for this time."
 ANNOUNCEMENT_ORDER_UNREADABLE = "That order could not be read. Reload the page and try again."
@@ -122,7 +122,7 @@ class AnnouncementForm(forms.ModelForm):
         model = Announcement
         fields = ["body", "is_active"]
         widgets = {"body": InlineRichTextWidget()}
-        labels = {"body": "Announcement", "is_active": "Active"}
+        labels = {"body": "Spotlight message", "is_active": "Active"}
         help_texts = {
             "body": f"Up to {ANNOUNCEMENT_MAX_CHARS} characters. Bold, italic and links.",
             "is_active": "Off hides it from Home whatever its dates say.",

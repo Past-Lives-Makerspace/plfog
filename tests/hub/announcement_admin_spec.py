@@ -155,7 +155,7 @@ def describe_the_section():
 
         assert 'id="announcements"' in html
         assert "data-announcements-empty" in html
-        assert "No announcements yet. Add one and it shows at the top of Home and in the Spotlight." in html
+        assert "No Spotlight messages yet. Add one and it shows at the top of Home and in the Spotlight." in html
         assert "pl-ann-admin__rows" not in html
         assert f'href="{NEW}" class="pl-btn pl-btn--primary pl-btn--sm" data-announcement-add' in html
 
@@ -204,7 +204,7 @@ def describe_the_section():
 
         assert f'href="{_edit(announcement.pk)}"' in html
         assert f"$dispatch('open-confirm', 'delete-announcement-{announcement.pk}')" in html
-        assert "Delete this announcement?" in html
+        assert "Delete this Spotlight message?" in html
         assert "Members stop seeing it at once." in html
         assert f'action="{_delete(announcement.pk)}"' in html
 
@@ -233,7 +233,7 @@ def describe_adding():
     def it_shows_the_form_with_the_short_editor_and_a_count(admin_client: Client):
         html = admin_client.get(NEW).content.decode()
 
-        assert "New Announcement" in html
+        assert "New Spotlight Message" in html
         assert 'data-rte-toolbar="inline"' in html
         assert 'data-announcement-chars data-max="160" aria-live="polite">0 / 160</p>' in html
         assert 'name="show_from_date"' in html and 'name="show_until_time"' in html
@@ -293,7 +293,7 @@ def describe_editing():
 
         html = admin_client.get(_edit(announcement.pk)).content.decode()
 
-        assert "Edit Announcement" in html
+        assert "Edit Spotlight Message" in html
         assert ">14 / 160</p>" in html
         assert 'name="show_from_date" value="2026-10-24"' in html
         assert '<option value="09:30" selected>9:30 AM</option>' in html

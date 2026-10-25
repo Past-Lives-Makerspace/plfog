@@ -166,8 +166,8 @@ ANNOUNCEMENTS: list[dict[str, str]] = [
         "title": "Welcome to the Example Guild",
         "body": (
             "If you're reading this, you found the Cartographers Guild — the Help Center's "
-            "permanent example page. Announcements like this one are what guild leads publish "
-            "from the Announcements tab in Guild Settings."
+            "permanent example page. Announcements like this one are what guild leads post "
+            "with Email Members, from the Email Members tab in Guild Settings."
         ),
     },
 ]

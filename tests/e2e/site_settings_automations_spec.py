@@ -1,10 +1,10 @@
-"""End-to-end: the Site Settings → Automations tab in a real browser.
+"""End-to-end: the Automations page (#922, once a Site Settings tab) in a real browser.
 
 Three things only a browser can prove about this panel:
 
 1. the money job's "Run now" opens its teleported confirm modal (the modal's form
-   lives OUTSIDE the big settings form — nesting would break both) and Cancel closes it,
-2. a safe job's "Run now" submits the surrounding settings form and records a real run, and
+   lives OUTSIDE the page's form, nesting would break both) and Cancel closes it,
+2. a safe job's "Run now" submits the surrounding form and records a real run, and
 3. an unsaved pause-toggle edit is persisted by that same Run-now POST
    (``_persist_automation_toggles`` runs before the job), so no toggle work is lost.
 
@@ -36,8 +36,8 @@ def describe_site_settings_automations():
         user.is_superuser = True
         user.save(update_fields=["is_staff", "is_superuser"])
 
-        # Open Site Settings on the Automations tab: every registry job has a card.
-        page.goto(f"{live_server.url}{reverse('hub_admin_site_settings')}?tab=automations")
+        # Open the Automations page: every registry job has a card.
+        page.goto(f"{live_server.url}{reverse('hub_admin_automations')}")
         from core.scheduled_jobs import SCHEDULED_JOBS
 
         for job in SCHEDULED_JOBS:
@@ -59,14 +59,14 @@ def describe_site_settings_automations():
         publish_card = page.locator(".pl-automation-card", has_text="Publish scheduled events")
         publish_card.get_by_role("button", name="Run now").click()
 
-        # The run redirects back to the Automations tab with a recorded, successful run.
-        expect(page).to_have_url(re.compile(r"tab=automations"))
+        # The run redirects back to the Automations page with a recorded, successful run.
+        expect(page).to_have_url(re.compile(re.escape(reverse("hub_admin_automations")) + "$"))
         publish_card = page.locator(".pl-automation-card", has_text="Publish scheduled events")
         expect(publish_card.locator(".hub-pill--ok")).to_be_visible()
 
         # The pause edit survived the Run-now POST — on screen and in the database.
         voting_card = page.locator(".pl-automation-card", has_text="Guild voting reminders")
-        expect(voting_card).to_contain_text("Paused — won't run on schedule.")
+        expect(voting_card).to_contain_text("Paused. Won't run on schedule.")
         from core.models import ScheduledJobState, ScheduledTaskRun
 
         assert ScheduledJobState.objects.is_enabled("send_voting_reminders") is False
