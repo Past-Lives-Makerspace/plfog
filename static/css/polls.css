@@ -502,3 +502,11 @@
     flex-direction: column;
     gap: 0.25rem;
 }
+
+/* The write in switch in the settings rail (#925 part 3): its label clears the switch, and the rail's own
+   gap spaces it, so the shared row's padding and divider are dropped here. */
+.pl-poll-compose__rail .pl-toggle-row {
+    gap: 1rem;
+    padding: 0;
+    border-bottom: none;
+}
