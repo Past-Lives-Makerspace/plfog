@@ -4277,7 +4277,7 @@ def _compose_editable_classes(request: HttpRequest, member: Member | None) -> Qu
     screen. The gate is asked; it is never re-derived here.
 
     It is asked **once** where one answer provably covers the set, which is what keeps this off
-    the N+1 path that ``_can_compose`` and ``_can_use_admin_tools`` walk on ordinary renders.
+    the N+1 path that ``_can_compose`` and ``_tools_page_title`` walk on ordinary renders.
     Every row here shares ``instructor_id == member.pk``, so the only leg of ``class_access``
     that can answer differently between two rows is the guild leg — and that leg is reached only
     when the instructor leg has already failed, which with the grant in hand it never does. So
@@ -4446,29 +4446,44 @@ def _compose_refused(request: HttpRequest) -> HttpResponse:
     return response
 
 
-def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:
-    """True when the Admin Tools hub (sidebar entry + page) is available to this request.
+def _tools_page_title(request: HttpRequest, member: Member | None) -> str | None:
+    """What the tools page (``hub_admin_tools``, its sidebar entry and Home quick link) is called here, or None.
 
-    Anyone with elevated permissions that unlock a tool it collects sees it — a site admin, a
-    guild lead/staff (Announcements + Orientations), an instructor (Announcements — by the public
-    profile flag or by actually teaching, same as :func:`_can_compose`), a Billing
-    Administrator (Payments + Reports) or a Calendar Administrator (Manage Events). For an
-    ACTUAL admin it is view-as-aware: an admin previewing the site as a plain member does NOT
-    see it, while a real (non-admin) lead, instructor or capability holder always does.
+    "Admin Tools" for an admin (view as aware). "Guild Tools" for anyone else who runs a guild
+    (#921): a guild officer, or the lead or a staff member of a guild, through the ``view_as``
+    aware :func:`~hub.guild_tools.runs_a_guild`, so an admin previewing as a guild officer, or
+    as the member they are when they lead a guild, sees the page as that viewer would. Then,
+    unchanged, "Admin Tools" for an instructor (by the public profile flag or by actually
+    teaching, same as :func:`_can_compose`), a Billing Administrator (Payments and Reports) or a
+    Calendar Administrator (Manage Events). An actual admin previewing below admin who runs no
+    guild gets None, as before, and so does a member with none of these roles.
+
+    Args:
+        request: the request, carrying ``view_as`` from the middleware.
+        member: the signed in member, or None for an unlinked account.
+
+    Returns:
+        :data:`~hub.guild_tools.ADMIN_TOOLS_TITLE`, :data:`~hub.guild_tools.GUILD_TOOLS_TITLE`
+        or None when the page is not for this viewer.
     """
+    from hub.guild_tools import ADMIN_TOOLS_TITLE, GUILD_TOOLS_TITLE, runs_a_guild
+
+    if _viewing_as_admin(request):
+        return ADMIN_TOOLS_TITLE
+    if runs_a_guild(request):
+        return GUILD_TOOLS_TITLE
     is_actual_admin = getattr(request.user, "is_superuser", False) or (member is not None and member.is_fog_admin)
-    if is_actual_admin:
-        return _viewing_as_admin(request)
-    return member is not None and (
-        member.is_guild_lead
-        or member.is_guild_staff
-        or member.is_instructor
+    if is_actual_admin or member is None:
+        return None
+    unlocks_a_tool = (
+        member.is_instructor
         or _compose_editable_classes(request, member).exists()
         # One query for both grants: this runs on every hub page through the sidebar.
         or member.admin_capabilities.filter(
             capability__in=[AdminCapability.Capability.BILLING_APPROVER, AdminCapability.Capability.EVENTS_APPROVER]
         ).exists()
     )
+    return ADMIN_TOOLS_TITLE if unlocks_a_tool else None
 
 
 def _compose_form_kwargs(request: HttpRequest, requested: str | None = None) -> dict[str, Any]:
@@ -5218,7 +5233,10 @@ def hub_push_test(request: HttpRequest) -> HttpResponse:
 
 # Admin Tools' sections in page order, each naming its cards' ``tool_*`` flags in card order (#912).
 # The template lays the cards out in the same order; this table decides which sections render.
+# "guild" is Guild Tools' own section (#921): one guild's cards, under that guild's name, shown only
+# to a viewer who runs a guild and is not viewing as an admin, so Admin Tools never renders it.
 ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("guild", ("tool_guild",)),
     (
         "manage",
         (
@@ -5243,7 +5261,7 @@ ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tool_slideshow",
         ),
     ),
-    ("reports", ("tool_payments", "tool_reports", "tool_growth")),
+    ("reports", ("tool_payments", "tool_reports", "tool_growth", "tool_registrations", "tool_orientation_bookings")),
     (
         "webmaster",
         (
@@ -5277,30 +5295,48 @@ def admin_tool_sections(flags: dict[str, bool]) -> dict[str, bool]:
 
 @login_required
 def hub_admin_tools(request: HttpRequest) -> HttpResponse:
-    """The admin tools hub: its cards grouped into Manage, Tools, Reports and Webmaster (#912).
+    """The tools page: Admin Tools for an admin, Guild Tools for anyone else who runs a guild (#921).
 
-    Open to anyone whose elevated perms unlock a tool (admin, guild lead/staff, or instructor);
-    each card shows only to whoever can use it, and a section with no card it may open is not
-    rendered. View-as-aware for actual admins — an admin previewing as a plain member is bounced
-    home. Others are bounced home too.
+    Its cards are grouped into Manage, Tools, Reports and Webmaster (#912), and Guild Tools adds a
+    section for one guild the viewer runs (``?guild=<pk>`` picks it, :class:`GuildToolsGuilds`).
+    Open to whoever :func:`_tools_page_title` names it for (admin, guild officer, lead or staff,
+    instructor, Billing or Calendar Administrator); each card shows only to whoever can use it,
+    and a section with no card it may open is not rendered. View as aware for actual admins: an
+    admin previewing as a plain member is bounced home, and others with no tool are too.
+
+    In Guild Tools the Orientations card is the Reports section's Orientation Bookings (the
+    Orientations page's Bookings tab, scoped to what the viewer runs, with its CSV export), and
+    Registrations joins Reports while a guild they run has a class: both already scoped, so
+    nothing site wide is offered that the viewer could not open before.
     """
+    from classes.models import ClassOffering
+    from hub.guild_tools import GUILD_TOOLS_TITLE, GuildToolsGuilds
     from hub.view_as import has_billing_admin_access, has_events_admin_access
 
     member = _get_member(request)
-    if not _can_use_admin_tools(request, member):
+    tools_page_title = _tools_page_title(request, member)
+    if tools_page_title is None:
         return redirect("hub_home")
     is_admin = _viewing_as_admin(request)
-    can_orient = is_admin or (member is not None and (member.is_guild_lead or member.is_guild_staff))
+    guild_tools = GuildToolsGuilds.for_request(request) if tools_page_title == GUILD_TOOLS_TITLE else None
     # The billing and Manage Events cards use the has_*_admin_access twins (has_actual-based)
-    # rather than is_admin (view-as-aware) like the other tool_* flags. No leak: an actual admin
-    # previewing as a member is bounced home above before these flags matter, and a non-admin
-    # capability holder has no view-as machinery. Do not "fix" this to is_admin.
-    tool_payments = tool_reports = has_billing_admin_access(request)
-    tool_manage_events = has_events_admin_access(request)
+    # rather than is_admin (view-as-aware) like the other tool_* flags, so a non-admin capability
+    # holder keeps them whatever they preview. Do not "fix" this to is_admin. An actual admin
+    # previewing below admin reaches this page only as Guild Tools (#921), and sees it as the
+    # lead or officer they preview would, so their own admin standing must not add these cards.
+    view_as = getattr(request, "view_as", None)
+    previewing_admin = view_as is not None and view_as.actual_is_admin and not is_admin
+    tool_payments = tool_reports = has_billing_admin_access(request) and not previewing_admin
+    tool_manage_events = has_events_admin_access(request) and not previewing_admin
     flags = {
         "tool_announcements": _can_compose(request, member),
-        "tool_mailing_lists": manageable_guilds(request).exists(),
-        "tool_orientations": can_orient,
+        "tool_mailing_lists": bool(guild_tools.guilds) if guild_tools else manageable_guilds(request).exists(),
+        # Guild Tools shows the same page as Orientation Bookings under Reports instead.
+        "tool_orientations": is_admin,
+        "tool_guild": guild_tools is not None and guild_tools.selected is not None,
+        "tool_orientation_bookings": guild_tools is not None,
+        "tool_registrations": guild_tools is not None
+        and ClassOffering.objects.filter(category__guild__in=guild_tools.guilds).exists(),
         "tool_manage_members": is_admin,
         "tool_manage_classes": is_admin,
         "tool_manage_events": tool_manage_events,
@@ -5334,6 +5370,8 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             **ctx,
             **flags,
             "tool_sections": admin_tool_sections(flags),
+            "tools_page_title": tools_page_title,
+            "guild_tools": guild_tools,
             "feedback_received_count": FeedbackRequest.objects.received().count() if is_admin else 0,
         },
     )

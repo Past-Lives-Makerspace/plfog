@@ -61,6 +61,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
             photo_url = member.profile_photo.url
     admin_nav_active = _classes_admin_nav_active(request)
     teach_nav = _teach_nav(request, member, admin_nav_active)
+    tools_page_title = _tools_page_title(request, member)
     return {
         # Inactive guilds are hidden everywhere they're listed (directory, voting,
         # My Guilds) — the sidebar follows suit. Their detail pages stay reachable
@@ -68,7 +69,9 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "guilds": Guild.objects.filter(is_active=True).order_by("name"),
         "user_initials": initials,
         "user_profile_photo_url": photo_url,
-        "can_use_admin_tools": _can_use_admin_tools(request, member),
+        "can_use_admin_tools": tools_page_title is not None,
+        # "Admin Tools" or "Guild Tools" (#921): the sidebar entry and Home quick link say what the page says.
+        "tools_page_title": tools_page_title,
         "view_as_capabilities": _admin_capability_rows(request, member),
         "view_as_instructor": _instructor_row(request, member),
         "can_create_classes": member is not None and member.can_create_classes,
@@ -288,13 +291,14 @@ def _instructor_row(request: HttpRequest, member: Member | None) -> dict[str, An
     return {"checked": member.is_instructor, "description": Member.INSTRUCTOR_PERMISSION_DESCRIPTION}
 
 
-def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:
-    """Whether to show the Admin Tools sidebar entry.
+def _tools_page_title(request: HttpRequest, member: Member | None) -> str | None:
+    """The tools page's sidebar label, "Admin Tools" or "Guild Tools" (#921), or None for no entry.
 
-    Delegates to the page's own gate (``hub.views._can_use_admin_tools``) so the entry and the
-    page can never disagree: anyone whose elevated perms unlock a tool sees it (admin, guild
-    lead/staff, or instructor), and an actual admin previewing as a plain member does not.
+    Delegates to the page's own gate (``hub.views._tools_page_title``) so the entry, its label
+    and the page can never disagree: anyone whose elevated perms unlock a tool sees it (admin,
+    guild officer, lead or staff, instructor), and an actual admin previewing as a plain member
+    who runs no guild does not.
     """
-    from hub.views import _can_use_admin_tools as _gate
+    from hub.views import _tools_page_title as _gate
 
     return _gate(request, member)

@@ -84,8 +84,9 @@ def _preview_as(client: Client, role: str) -> None:
 # the stubs nobody has written yet. 39 with the Holiday Bizarre sidebar entry (HQ card sharing): one query
 # over the open HQ's cards for a member; if it ever grows with the cards or people, the lazy check broke.
 # That fixed cost must stay the same with one page or a full list of cards. 40 with the Spotlight's
-# second query, its live announcements (#890).
-_HOME_QUERY_BUDGET = 40
+# second query, its live announcements (#890). 39 with Guild Tools (#921): the tools entry asks
+# whether the member runs a guild in one EXISTS where it asked about leads and staff in two.
+_HOME_QUERY_BUDGET = 39
 
 
 def describe_the_feature_switch():

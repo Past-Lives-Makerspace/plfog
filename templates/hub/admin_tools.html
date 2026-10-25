@@ -1,15 +1,77 @@
 {% extends "hub/base.html" %}
 {% load static %}
-{% block title %}Admin Tools{% endblock %}
+{% block title %}{{ tools_page_title }}{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/admin-tools.css' %}">
 {% endblock %}
 {% block content %}
-<h1 class="hub-page-title">Admin Tools</h1>
+{# One page, two names (#921): Admin Tools for an admin, Guild Tools for anyone else who runs a guild (hub.views._tools_page_title). #}
+<h1 class="hub-page-title" data-tools-page-title>{{ tools_page_title }}</h1>
+{% if guild_tools %}
+<p class="pl-wizard-lead">Tools for the guilds you help run, in one place.</p>
+{% else %}
 <p class="pl-wizard-lead">Staff and leadership tools, in one place.</p>
+{% endif %}
 
-{# Four sections in Felix's order (#912); hub.views.ADMIN_TOOL_SECTIONS decides which render, so a section with no card the viewer may open is left out. #}
+{# Four sections in Felix's order (#912), after Guild Tools' own guild section (#921); hub.views.ADMIN_TOOL_SECTIONS decides which render, so a section with no card the viewer may open is left out. #}
 <div class="pl-tools-sections" data-help-key="admin.tools-grid">
+  {% if tool_sections.guild %}
+  {% with guild=guild_tools.selected %}
+  {% comment %}
+  Guild Tools only (#921): one guild's cards under its name. Every card opens a page gated by
+  can_edit_guild, and every guild here (the picker's too) comes from manageable_guilds, its
+  queryset form. A viewer who runs more than one guild picks which one with ?guild=<pk>.
+  {% endcomment %}
+  <section class="pl-tools-section" data-tools-section="guild" data-tools-guild="{{ guild.pk }}" aria-labelledby="tools-section-guild">
+    <div class="pl-tools-section__head">
+      <h2 class="hub-detail-label pl-tools-section__title" id="tools-section-guild">{{ guild.name }}</h2>
+      {% if guild_tools.shows_picker %}
+      <form method="get" class="pl-tools-guild-picker" data-tools-guild-picker>
+        <label class="pl-filter-field">
+          <span class="pl-filter-label">Guild</span>
+          <select name="guild" class="pl-filter-control" onchange="this.form.submit()">
+            {% for option in guild_tools.guilds %}
+            <option value="{{ option.pk }}"{% if option.pk == guild.pk %} selected{% endif %}>{{ option.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <noscript><button type="submit" class="hub-btn hub-btn--sm">Open</button></noscript>
+      </form>
+      {% endif %}
+    </div>
+    <div class="pl-tools-grid">
+      <a class="hub-card pl-tool-card" href="{% url 'hub_guild_edit' guild.pk %}" data-tool-guild-settings>
+        <span class="pl-tool-card__icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </span>
+        <span class="pl-tool-card__title">Guild Settings</span>
+        <span class="pl-tool-card__desc">The guild page, meetings, studio hours, staff and the welcome email.</span>
+      </a>
+      <a class="hub-card pl-tool-card" href="{% url 'hub_guild_orientations' guild.pk %}" data-tool-guild-orientations>
+        <span class="pl-tool-card__icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M16 11l2 2 4-4"/></svg>
+        </span>
+        <span class="pl-tool-card__title">Orientations</span>
+        <span class="pl-tool-card__desc">The guild's orientations, who runs them and their hours.</span>
+      </a>
+      <a class="hub-card pl-tool-card" href="{% url 'hub_guild_edit' guild.pk %}?tab=reservations" data-tool-guild-reservations>
+        <span class="pl-tool-card__icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </span>
+        <span class="pl-tool-card__title">Reservations</span>
+        <span class="pl-tool-card__desc">The guild's reservable equipment and its Reservations tab on the guild page.</span>
+      </a>
+      <a class="hub-card pl-tool-card" href="{% url 'hub_guild_edit' guild.pk %}?tab=events" data-tool-guild-events>
+        <span class="pl-tool-card__icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </span>
+        <span class="pl-tool-card__title">Events</span>
+        <span class="pl-tool-card__desc">Add and edit the guild's events on the calendar.</span>
+      </a>
+    </div>
+  </section>
+  {% endwith %}
+  {% endif %}
   {% if tool_sections.manage %}
   <section class="pl-tools-section" data-tools-section="manage" aria-labelledby="tools-section-manage">
     <h2 class="hub-detail-label pl-tools-section__title" id="tools-section-manage">Manage</h2>
@@ -171,6 +233,24 @@
         </span>
         <span class="pl-tool-card__title">Reports</span>
         <span class="pl-tool-card__desc">Revenue reports and guild payout summaries, with CSV export.</span>
+      </a>
+      {% endif %}
+      {% if tool_registrations %}
+      <a class="hub-card pl-tool-card" href="{% url 'classes:admin_registrations' %}" data-tool-registrations>
+        <span class="pl-tool-card__icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        </span>
+        <span class="pl-tool-card__title">Registrations</span>
+        <span class="pl-tool-card__desc">Who signed up for your guild's classes, with a date range and CSV export.</span>
+      </a>
+      {% endif %}
+      {% if tool_orientation_bookings %}
+      <a class="hub-card pl-tool-card" href="{% url 'hub_orientations' %}?view=bookings" data-tool-orientation-bookings>
+        <span class="pl-tool-card__icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M16 11l2 2 4-4"/></svg>
+        </span>
+        <span class="pl-tool-card__title">Orientation Bookings</span>
+        <span class="pl-tool-card__desc">Every booking for the orientations you run, with CSV export.</span>
       </a>
       {% endif %}
       {% if tool_growth %}
