@@ -11,3 +11,14 @@
 
 /* The Email Members card's "Formerly called Announcements" pill (#920); delete the line in the template to retire it. */
 .pl-tool-card__formerly { align-self: flex-start; }
+
+/* Guild Tools' guild section (#921): the guild's name, and beside it the picker for a viewer who
+   runs more than one guild. They wrap onto two lines on a phone, with a gap between them. */
+.pl-tools-section__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 0.75rem 1.5rem;
+}
+.pl-tools-guild-picker { display: flex; align-items: flex-end; gap: 0.75rem; }
