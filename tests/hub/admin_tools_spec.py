@@ -188,6 +188,22 @@ def describe_admin_tools_holiday_bizarre_card():
         assert "data-tool-holiday-bizarre" not in _tools_grid(client)
 
 
+def describe_admin_tools_polls_card():
+    """#925 AC 1: admins open Admin Tools > Polls from a card in the Tools section."""
+
+    _POLLS_HREF = reverse("polls:admin")
+
+    def it_shows_to_an_admin(client: Client):
+        _login_superuser(client, "polls_card_admin")
+        grid = _tools_grid(client)
+        assert "data-tool-polls" in grid
+        assert f'href="{_POLLS_HREF}"' in grid
+
+    def it_is_absent_for_a_guild_lead(client: Client):
+        _login_guild_lead(client, "polls_card_lead")
+        assert "data-tool-polls" not in _tools_grid(client)
+
+
 def _tools_grid(client: Client) -> str:
     """Just the tool card sections from /manage/tools/, not the whole page.
 
@@ -232,6 +248,7 @@ _ADMIN_SECTIONS = [
             "Push Notification Test",
             "Orientations",
             "Spotlight",
+            "Polls",
             "Feedback Inbox",
             "Holiday Bizarre HQ",
             "Slideshow",
@@ -268,7 +285,7 @@ def describe_admin_tools_sections():
         _login_superuser(client, "sections_once")
         GuildFactory()
         titles = _card_titles(client)
-        assert len(titles) == len(set(titles)) == 24
+        assert len(titles) == len(set(titles)) == 25
 
     def it_keeps_the_help_key_on_the_wrapper_the_admin_tour_targets(client: Client):
         _login_superuser(client, "sections_help_key")

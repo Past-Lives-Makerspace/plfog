@@ -20,6 +20,7 @@ from membership.models import CommunityEvent, Member
 from plfog.version import VERSION
 from membership.services.provisioning import provision_user_for_member
 from tests.membership.factories import CommunityEventFactory, MemberFactory
+from tests.polls.factories import poll_with
 
 pytestmark = pytest.mark.django_db
 
@@ -161,10 +162,16 @@ def describe_standard():
         assert standard.count("<button") == 3  # minimize, the version pill, Details
         assert standard.count("data-spotlight-details") == 1
 
-    def it_has_no_polls_page_any_more():
+    def it_carries_no_poll_even_while_one_is_open():
+        # #925 AC 5: polls came back on Home and guild pages, never in the Spotlight.
         client, _member = _client_for()
+        _settings(spotlight_meeting_event=_meeting())
+        poll_with("Laser", "Lathe", question="Zorblax spotlight poll?")
 
-        assert client.get("/polls/").status_code == 404
+        standard = _standard(client.get(HOME).content.decode())
+
+        assert "data-poll-card" not in standard
+        assert "Zorblax spotlight poll?" not in standard
 
     def it_replaces_the_version_number_in_the_sidebar():
         client, _member = _client_for()

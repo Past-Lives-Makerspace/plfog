@@ -1,0 +1,28 @@
+{% comment %}
+The New Poll form (#708, back in #925): the question, two to six answers added and removed in
+place, and how many days it runs. poll_form is polls.forms.NewPollForm, form_action the URL it
+posts to, max_choices and answer_max_length the model's limits. A refusal (a poll is already
+open, or a field is wrong) comes back on the same page with what was typed.
+{% endcomment %}
+{{ poll_form.rows|json_script:"new-poll-rows" }}
+<form method="post" action="{{ form_action }}" class="pl-polls-admin__form"
+      x-data="{ rows: JSON.parse(document.getElementById('new-poll-rows').textContent), max: {{ max_choices }} }" data-new-poll-form>
+  {% csrf_token %}
+  {% if poll_form.non_field_errors %}<div class="pl-polls-admin__errors" role="alert" data-poll-errors>{% for error in poll_form.non_field_errors %}<p>{{ error }}</p>{% endfor %}</div>{% endif %}
+  {% include "components/form_field.html" with field=poll_form.question %}
+  <fieldset class="pl-polls-admin__choices">
+    <legend>Answers</legend>
+    <template x-for="(row, index) in rows" :key="index">
+      <div class="pl-polls-admin__choice" data-poll-choice-row>
+        <input type="text" name="choice" maxlength="{{ answer_max_length }}" class="pl-polls-admin__input" :aria-label="'Answer ' + (index + 1)" x-model="rows[index]">
+        <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" @click="rows.splice(index, 1)" x-show="rows.length > 2">Remove</button>
+      </div>
+    </template>
+    <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" @click="rows.push('')" x-show="rows.length < max" data-add-choice>+ Add Answer</button>
+    <small class="hub-text-muted">2 to {{ max_choices }} answers.</small>
+  </fieldset>
+  {% include "components/form_field.html" with field=poll_form.days %}
+  <div class="pl-polls-admin__save">
+    <button type="submit" class="pl-btn pl-btn--primary" data-post-poll>Post Poll</button>
+  </div>
+</form>

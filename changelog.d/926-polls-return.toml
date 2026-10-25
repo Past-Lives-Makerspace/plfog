@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-25"
+title = "Polls are back on Home"
+changes = [
+  "While a poll is open, Home shows a Poll card. Tap an answer to vote and the results show right away.",
+  "You vote once per poll, and votes are anonymous: nobody sees who picked what.",
+  "Past Polls, linked from Home at all times, lists every closed poll with its results and your own answer.",
+  "Admins post and close polls from Admin Tools, Polls.",
+]
