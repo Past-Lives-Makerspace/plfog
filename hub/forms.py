@@ -1768,9 +1768,36 @@ CalendarFeedFormSet = forms.modelformset_factory(
 # The Automations page (#922). One ``enabled`` toggle per scheduled job, saved by the
 # page's Save. The row set is fixed by the code registry (not user-managed), so ``extra=0``
 # and no add/delete — admins pause or run jobs, they don't add or remove them.
+class ScheduledJobStateForm(forms.ModelForm):
+    """One job's controls on Site Settings → Automations: on or off, and how often it runs when
+    the job offers a choice. A job with a fixed schedule has no frequency field at all."""
+
+    class Meta:
+        model = ScheduledJobState
+        fields = ["enabled", "cadence"]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        from core.scheduled_jobs import JOBS_BY_KEY, Cadence
+
+        super().__init__(*args, **kwargs)
+        job = JOBS_BY_KEY.get(self.instance.task_key)
+        if job is None or not job.cadence_choices:
+            del self.fields["cadence"]
+            return
+        labels = dict(Cadence.choices)
+        self.fields["cadence"] = forms.ChoiceField(
+            label="Frequency",
+            choices=[(value, labels[value]) for value in job.cadence_choices],
+            required=False,
+            initial=job.cadence_from({job.key: self.instance.cadence}),
+        )
+        if not self.is_bound:
+            self.initial["cadence"] = job.cadence_from({job.key: self.instance.cadence})
+
+
 ScheduledJobStateFormSet: type[forms.BaseModelFormSet] = forms.modelformset_factory(
     ScheduledJobState,
-    fields=["enabled"],
+    form=ScheduledJobStateForm,
     extra=0,
 )
 

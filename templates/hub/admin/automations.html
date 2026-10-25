@@ -52,7 +52,14 @@
 
         <div class="pl-automation-cell">
           <span class="pl-automation-cell-label">Schedule</span>
-          <span class="pl-automation-schedule">{{ row.job.schedule_label }}</span>
+          {% if row.frequency %}
+            <div class="hub-form-group pl-automation-frequency">
+              <label class="sr-only" for="{{ row.frequency.id_for_label }}">How often {{ row.job.name }} runs</label>
+              {{ row.frequency }}
+            </div>
+          {% else %}
+            <span class="pl-automation-schedule">{{ row.job.schedule_label }}</span>
+          {% endif %}
         </div>
 
         <div class="pl-automation-cell">

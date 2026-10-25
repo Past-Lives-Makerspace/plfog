@@ -2732,6 +2732,10 @@ class ScheduledJobStateManager(models.Manager["ScheduledJobState"]):
         job = JOBS_BY_KEY.get(key)
         return job.default_enabled if job is not None else True
 
+    def cadences(self) -> dict[str, str]:
+        """Every admin-chosen frequency, keyed by task_key. A blank choice is left out."""
+        return dict(self.exclude(cadence="").values_list("task_key", "cadence"))
+
     def set_enabled(self, key: str, enabled: bool, *, user: "User | None" = None) -> ScheduledJobState:
         """Flip a job on/off, recording who did it."""
         row, _ = self.update_or_create(
@@ -2773,6 +2777,13 @@ class ScheduledJobState(models.Model):
         on_delete=models.SET_NULL,
         related_name="+",
         help_text="The admin who last flipped this job on or off.",
+    )
+    cadence = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        help_text="How often the job runs, chosen by an admin on Automations for a job that offers a choice. "
+        "Blank means the job's own schedule.",
     )
 
     objects = ScheduledJobStateManager()
