@@ -768,6 +768,8 @@ a:hover { color: var(--hub-link-hover); }
     color: var(--hub-text-muted);
 }
 .pl-automation-schedule { color: var(--hub-text); font-size: 0.85rem; white-space: nowrap; }
+.pl-automation-frequency { margin: 0; }
+.pl-automation-frequency select { min-width: 9rem; font-size: 0.85rem; }
 .pl-automation-lastrun { display: flex; flex-direction: column; gap: 0.2rem; }
 .pl-automation-time { color: var(--hub-text-muted); font-size: 0.78rem; }
 .pl-automation-error {
