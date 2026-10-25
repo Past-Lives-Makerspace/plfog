@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
 <link rel="stylesheet" href="{% static 'css/locations.css' %}">
 {% if kiln_home %}<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">{% endif %}
+{% if show_polls_tab %}<link rel="stylesheet" href="{% static 'css/polls.css' %}">{% endif %}
 {% if is_guilds_surface %}{# ── OG / SEO — only where the guild link is shared publicly ── #}
 <link rel="canonical" href="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}">
 <meta property="og:type" content="website">
@@ -125,7 +126,7 @@
 
 {% comment %} Legacy ?tab=notes deep links land on the renamed Meetings tab (spec §6.4); only the two known values map, so a garbage ?tab can't blank every pane. {% endcomment %}
 <div x-data="{ section: 'overview' }"
-     x-init="const t = new URLSearchParams(window.location.search).get('tab');{% if show_meetings_tab %} if (t === 'notes' || t === 'meetings') section = 'meetings';{% endif %}{% if show_orientation %} if (t === 'orientations' || window.location.hash === '#guild-orientation') { section = 'orientations'; const ot = new URLSearchParams(window.location.search).get('type'); const target = ot ? 'orientation-type-' + ot : (window.location.hash === '#guild-orientation' ? 'guild-orientation' : null); if (target) $nextTick(() => document.getElementById(target)?.scrollIntoView()); }{% endif %}{% if show_reservations %} if (t === 'reservations') section = 'reservations';{% endif %}{% if wiki_tab_enabled %} if (t === 'wiki') section = 'wiki';{% endif %}{% if kiln_home %} if (t === 'kiln') section = 'kiln';{% endif %}">
+     x-init="const t = new URLSearchParams(window.location.search).get('tab');{% if show_meetings_tab %} if (t === 'notes' || t === 'meetings') section = 'meetings';{% endif %}{% if show_orientation %} if (t === 'orientations' || window.location.hash === '#guild-orientation') { section = 'orientations'; const ot = new URLSearchParams(window.location.search).get('type'); const target = ot ? 'orientation-type-' + ot : (window.location.hash === '#guild-orientation' ? 'guild-orientation' : null); if (target) $nextTick(() => document.getElementById(target)?.scrollIntoView()); }{% endif %}{% if show_reservations %} if (t === 'reservations') section = 'reservations';{% endif %}{% if wiki_tab_enabled %} if (t === 'wiki') section = 'wiki';{% endif %}{% if kiln_home %} if (t === 'kiln') section = 'kiln';{% endif %}{% if show_polls_tab %} if (t === 'polls') section = 'polls';{% endif %}">
 {% tab_picker "Guild Sections" %}
 <nav role="tablist" class="pl-tabs">
     <button type="button" class="vote-tab" :class="section === 'overview' ? 'vote-tab--active' : ''" @click="section = 'overview'">Overview</button>
@@ -138,6 +139,7 @@
     {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">{{ guild.faq_label|default:"FAQ" }}</button>{% endif %}
     {% if guild.wishlist or guild.donate_url %}<button type="button" class="vote-tab" :class="section === 'wishlist' ? 'vote-tab--active' : ''" @click="section = 'wishlist'">Wishlist</button>{% endif %}
     {% if show_meetings_tab %}<button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>{% endif %}
+    {% if show_polls_tab %}<button type="button" class="vote-tab" :class="section === 'polls' ? 'vote-tab--active' : ''" @click="section = 'polls'" data-guild-tab="polls">Polls</button>{% endif %}
     {% if gallery_images %}<button type="button" class="vote-tab" :class="section === 'gallery' ? 'vote-tab--active' : ''" @click="section = 'gallery'">Gallery</button>{% endif %}
 </nav>
 {% endtab_picker %}
@@ -449,6 +451,8 @@
     </p>
     {% endif %}
 </div>
+
+{% if show_polls_tab %}<div x-show="section === 'polls'" x-cloak data-guild-polls>{% include "polls/partials/_guild_polls.html" with polls=guild_polls can_post=can_edit_this_guild %}</div>{% endif %}
 
 {% if kiln_home %}
 <div x-show="section === 'kiln'" x-cloak data-guild-kiln>{% include "kiln/partials/_guild_tab.html" with home=kiln_home %}</div>

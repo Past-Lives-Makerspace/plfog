@@ -1,9 +1,11 @@
-"""Polls (#708, back in #925): an admin asks one question, members pick one answer, and it closes on a date.
+"""Polls (#708, back in #925): someone asks one question, members pick one answer, and it closes on a date.
 
-A poll is open exactly while ``opens_at <= now < closes_at``, so it closes on its own and
-nothing has to run for that; Close now moves ``closes_at`` to now. Only one poll is open at a
-time, which :meth:`Poll.post` keeps true (a time range cannot be a unique index): posting while
-one is open is refused. A member votes once per poll, held by a database constraint. Who voted
+A poll is site wide (``guild`` blank, posted by an admin, shown on Home) or a guild's (posted by
+that guild's leads, staff, officers or an admin, shown on the guild's Polls tab). A poll is open
+exactly while ``opens_at <= now < closes_at``, so it closes on its own and nothing has to run for
+that; Close now moves ``closes_at`` to now. Only one poll is open at a time in each scope (site
+wide, or one guild), which :meth:`Poll.post` keeps true (a time range cannot be a unique index):
+posting while one is open there is refused. A member votes once per poll, held by a database constraint. Who voted
 for what is never shown to anyone: pages read counts only. Nothing here notifies anyone.
 """
 
@@ -21,13 +23,31 @@ from django.utils import timezone
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
-    from membership.models import Member
+    from membership.models import Guild, Member
 
 MIN_CHOICES = 2
 MAX_CHOICES = 6
 MIN_DAYS = 1
 MAX_DAYS = 60
 DEFAULT_DAYS = 7
+
+
+class RunLength(models.IntegerChoices):
+    """How long a poll runs, as the New Poll composer's Runs for chips offer it (#925)."""
+
+    ONE_DAY = 1, "1 day"
+    THREE_DAYS = 3, "3 days"
+    ONE_WEEK = 7, "1 week"
+    TWO_WEEKS = 14, "2 weeks"
+    THIRTY_DAYS = 30, "30 days"
+
+
+def closes_label(moment: datetime) -> str:
+    """A closing time in Portland: ``Tue, Oct 13 at 2:11 PM``. The composer's live line writes the same."""
+    local = timezone.localtime(moment)
+    return f"{local:%a}, {local:%b} {local.day} at {local.hour % 12 or 12}:{local.minute:02d} {local:%p}"
+
+
 QUESTION_MAX_LENGTH = 200
 ANSWER_MAX_LENGTH = 120
 
@@ -71,6 +91,14 @@ class PollQuerySet(models.QuerySet["Poll"]):
         """Polls whose closing time has passed by ``now``."""
         return self.filter(closes_at__lte=now)
 
+    def site_wide(self) -> PollQuerySet:
+        """Polls asked of the whole makerspace: no guild."""
+        return self.filter(guild__isnull=True)
+
+    def for_guild(self, guild: Guild) -> PollQuerySet:
+        """One guild's polls."""
+        return self.filter(guild=guild)
+
     def open_poll(self, now: datetime) -> Poll | None:
         """The one poll open at ``now``, or None. One query."""
         return self.open_at(now).first()
@@ -105,6 +133,14 @@ class Poll(models.Model):
         help_text="The admin who posted the poll.",
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the poll was posted.")
+    guild = models.ForeignKey(
+        "membership.Guild",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="polls",
+        help_text="The guild that asked, shown on its Polls tab. Blank for a site wide poll on Home.",
+    )
 
     objects = PollQuerySet.as_manager()
 
@@ -119,18 +155,22 @@ class Poll(models.Model):
         return self.question
 
     @classmethod
-    def post(cls, *, question: str, choices: list[str], days: int, by: User, now: datetime) -> Poll:
-        """Open a new poll now, unless one is already open.
+    def post(
+        cls, *, question: str, choices: list[str], days: int, by: User, now: datetime, guild: Guild | None = None
+    ) -> Poll:
+        """Open a new poll now, site wide or for ``guild``, unless one is already open there.
 
-        Posts are serialized on the site settings row, so two admins posting at once cannot
-        both open one.
+        A guild's polls never count against the site wide one, nor against another guild's.
+        Posts are serialized on the site settings row (site wide) or the guild's row, so two
+        people posting at once cannot both open one.
 
         Raises:
-            PollAlreadyOpenError: A poll is open at ``now``; its question is the message.
+            PollAlreadyOpenError: A poll is open in that scope at ``now``; its question is the message.
             ValueError: The question is blank or too long, the answers are not 2 to 6 or one is
                 too long, or days is not 1 to 60.
         """
         from core.models import SiteConfiguration
+        from membership.models import Guild
 
         answers = [choice.strip() for choice in choices]
         if not question.strip():
@@ -144,12 +184,21 @@ class Poll(models.Model):
         if not MIN_DAYS <= days <= MAX_DAYS:
             raise ValueError(f"A poll runs {MIN_DAYS} to {MAX_DAYS} days.")
         with transaction.atomic():
-            SiteConfiguration.objects.select_for_update().get_or_create(pk=1)
-            current = cls.objects.open_poll(now)
+            if guild is None:
+                SiteConfiguration.objects.select_for_update().get_or_create(pk=1)
+                scope = cls.objects.site_wide()
+            else:
+                Guild.objects.select_for_update().get(pk=guild.pk)
+                scope = cls.objects.for_guild(guild)
+            current = scope.open_poll(now)
             if current is not None:
                 raise PollAlreadyOpenError(current.question)
             poll = cls.objects.create(
-                question=question.strip(), opens_at=now, closes_at=now + timedelta(days=days), created_by=by
+                question=question.strip(),
+                opens_at=now,
+                closes_at=now + timedelta(days=days),
+                created_by=by,
+                guild=guild,
             )
             PollChoice.objects.bulk_create(
                 PollChoice(poll=poll, text=text, position=index) for index, text in enumerate(answers)
@@ -159,8 +208,7 @@ class Poll(models.Model):
     @property
     def closes_label(self) -> str:
         """When voting ends, in Portland time: ``Tue, Oct 13 at 2:11 PM``."""
-        local = timezone.localtime(self.closes_at)
-        return f"{local:%a}, {local:%b} {local.day} at {local.hour % 12 or 12}:{local.minute:02d} {local:%p}"
+        return closes_label(self.closes_at)
 
     def is_open(self, now: datetime) -> bool:
         """Whether members can vote at ``now``."""
@@ -280,7 +328,7 @@ class PollCard:
     """One poll as one member sees it: the tally, their own answer, and whether to offer choices.
 
     Built for a page of polls at once by :meth:`for_polls`, so a page costs two queries however
-    many polls it shows. The same card renders on Home and on Past Polls.
+    many polls it shows. The same card renders on Home, a guild's Polls tab and Past Polls.
     """
 
     poll: Poll
@@ -331,6 +379,26 @@ class PollCard:
 
     @classmethod
     def open_for(cls, member: Member | None, now: datetime) -> PollCard | None:
-        """The open poll's card for Home, or None when no poll is open (one query, three with one)."""
-        poll = Poll.objects.open_poll(now)
+        """The open site wide poll's card for Home, or None (one query, three with one open)."""
+        poll = Poll.objects.site_wide().open_poll(now)
         return None if poll is None else cls.for_poll(poll, member, now)
+
+
+@dataclass(frozen=True)
+class GuildPolls:
+    """A guild's Polls tab (#925 part 2): its open poll on top, its closed ones below, newest first."""
+
+    open: PollCard | None
+    past: list[PollCard]
+
+    def __bool__(self) -> bool:
+        """Whether the guild has any poll at all."""
+        return self.open is not None or bool(self.past)
+
+    @classmethod
+    def load(cls, guild: Guild, member: Member | None, now: datetime) -> GuildPolls:
+        """The tab for ``member``: one query for the polls, two for their cards (none with no polls)."""
+        polls = list(Poll.objects.for_guild(guild))
+        cards = PollCard.for_polls(polls, member, now) if polls else []
+        open_cards = [card for card in cards if card.is_open]
+        return cls(open=open_cards[0] if open_cards else None, past=[card for card in cards if not card.is_open])

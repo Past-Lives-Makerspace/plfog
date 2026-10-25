@@ -1,10 +1,11 @@
-"""Polls (#708, back in #925): vote from Home, browse Past Polls, and Admin Tools > Polls.
+"""Polls (#708, back in #925): vote, browse Past Polls, Admin Tools > Polls, and a guild's polls.
 
 The vote action answers an HTMX post with the poll's card (results, the member's answer
-marked) so it swaps in place on Home; a plain post redirects back to ``next``. Guests (#691)
-and former members cannot vote or open Past Polls. The admin views post a poll, close the
-open one and list past polls with their totals. Nothing here shows who voted for what, and
-nothing notifies anyone.
+marked) so it swaps in place on Home or a guild's Polls tab; a plain post redirects back to
+``next``. Guests (#691) and former members cannot vote or open Past Polls. The admin views post
+a site wide poll, close the open one and list past site wide polls with their totals. The guild
+views post and close a guild's poll, for whoever ``membership.permissions.can_edit_guild``
+allows. Nothing here shows who voted for what, and nothing notifies anyone.
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ from classes.table import prepare_table
 from hub.toast import trigger_toast
 from hub.view_as import fog_admin_required
 from hub.views import _get_hub_context, _get_member
+from membership.models import Guild
+from membership.permissions import can_edit_guild
 from polls.forms import NewPollForm
 from polls.models import (
     ANSWER_MAX_LENGTH,
@@ -43,8 +46,8 @@ if TYPE_CHECKING:
 
 #: Polls per page on Past Polls.
 PER_PAGE = 10
-#: The card copies a vote can come from: Past Polls ("") and Home's Poll card ("home").
-VARIANTS = frozenset({"", "home"})
+#: The card copies a vote can come from: Past Polls (""), Home's Poll card ("home") and a guild's Polls tab ("guild").
+VARIANTS = frozenset({"", "home", "guild"})
 #: The admin Past Polls table's sortable columns.
 _SORTABLE = frozenset({"question", "opens_at", "closes_at", "total_votes", "top_answer"})
 
@@ -64,7 +67,7 @@ def polls_index(request: HttpRequest) -> HttpResponse:
     if not can_vote(member):
         raise PermissionDenied("Polls are for members.")
     now = timezone.now()
-    page = Paginator(Poll.objects.closed_at(now), PER_PAGE).get_page(request.GET.get("page"))
+    page = Paginator(Poll.objects.closed_at(now).select_related("guild"), PER_PAGE).get_page(request.GET.get("page"))
     cards = PollCard.for_polls(list(page.object_list), member, now)
     return render(request, "polls/index.html", {**_get_hub_context(request), "page": page, "cards": cards})
 
@@ -93,13 +96,15 @@ def poll_vote(request: HttpRequest, pk: int) -> HttpResponse:
             messages.success(request, "Thanks, your vote is in.")
         return HttpResponseRedirect(_back(request))
     variant = request.POST.get("variant", "")
+    variant = variant if variant in VARIANTS else ""
     response = render(
         request,
         "polls/partials/_poll_card.html",
         {
             "card": PollCard.for_poll(poll, member, now),
             "next_url": _back(request),
-            "variant": variant if variant in VARIANTS else "",
+            "variant": variant,
+            "hide_guild": variant == "guild",
         },
     )
     trigger_toast(response, refusal or "Thanks, your vote is in.", "error" if refusal else "success")
@@ -107,16 +112,16 @@ def poll_vote(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 def _render_admin(request: HttpRequest, *, form: NewPollForm | None = None) -> HttpResponse:
-    """Admin Tools > Polls: the open poll, the New Poll form and the Past Polls table.
+    """Admin Tools > Polls: the open site wide poll, the New Poll form and the past site wide polls.
 
     An invalid or refused post renders here at 200 with its errors: a boosted 4xx becomes a
     fresh GET (``hub_boot.js``) and would drop what was typed.
     """
     now = timezone.now()
-    open_poll = Poll.objects.open_poll(now)
+    open_poll = Poll.objects.site_wide().open_poll(now)
     table = prepare_table(
         request,
-        Poll.objects.closed_at(now).with_totals(),
+        Poll.objects.site_wide().closed_at(now).with_totals(),
         search_fields=[],
         default_sort="opens_at",
         default_dir="desc",
@@ -179,3 +184,46 @@ def polls_admin_poll(request: HttpRequest, pk: int) -> HttpResponse:
         "polls/admin_poll.html",
         {**_get_hub_context(request), "poll": poll, "results": poll.results(), "is_open": poll.is_open(timezone.now())},
     )
+
+
+def _guild_tab(guild: Guild) -> str:
+    """The guild page opened on its Polls tab."""
+    return f"{reverse('hub_guild_detail', args=[guild.slug])}?tab=polls"
+
+
+@login_required
+@require_POST
+def guild_poll_new(request: HttpRequest, slug: str) -> HttpResponse:
+    """Open a guild poll now (#925 AC 7, 8): this guild's leads, staff, officers and admins only.
+
+    A refusal (a field is wrong, or the guild already has a poll open) comes back on the Polls
+    tab as an error message; the browser's own checks on the form catch the common mistakes first.
+    """
+    guild = get_object_or_404(Guild, slug=slug)
+    if not can_edit_guild(request, guild):
+        raise PermissionDenied("Only this guild's leads and admins post its polls.")
+    form = NewPollForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, " ".join(str(error) for errors in form.errors.values() for error in errors))
+        return redirect(_guild_tab(guild))
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees a User
+    try:
+        form.post(by=user, now=timezone.now(), guild=guild)
+    except PollAlreadyOpenError:
+        messages.error(request, "This guild already has a poll open. Close it first, then post this one.")
+        return redirect(_guild_tab(guild))
+    messages.success(request, "Poll posted. It is open now.")
+    return redirect(_guild_tab(guild))
+
+
+@login_required
+@require_POST
+def guild_poll_close(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
+    """Close now on one of this guild's polls, for whoever may post them."""
+    guild = get_object_or_404(Guild, slug=slug)
+    if not can_edit_guild(request, guild):
+        raise PermissionDenied("Only this guild's leads and admins close its polls.")
+    poll = get_object_or_404(Poll.objects.for_guild(guild), pk=pk)
+    poll.close(timezone.now())
+    messages.success(request, "Poll closed.")
+    return redirect(_guild_tab(guild))

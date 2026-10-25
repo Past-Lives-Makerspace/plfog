@@ -907,6 +907,20 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         acting_admin=bool(getattr(getattr(request, "view_as", None), "is_admin", False)),
     )
 
+    # The Polls tab (#925 part 2): members surface only (the guest guilds surface allowlists no
+    # poll view, so it could not vote or post there), shown when the guild has a poll or the viewer
+    # may post one (can_edit_guild). Three queries with polls, one without; none on the guilds surface.
+    from polls.forms import NewPollForm
+    from polls.models import ANSWER_MAX_LENGTH, MAX_CHOICES, GuildPolls
+
+    guild_polls = None if guilds_surface else GuildPolls.load(guild, member, dj_timezone.now())
+    show_polls_tab = guild_polls is not None and (bool(guild_polls) or can_edit_this_guild)
+    poll_form_context = (
+        {"poll_form": NewPollForm(), "max_choices": MAX_CHOICES, "answer_max_length": ANSWER_MAX_LENGTH}
+        if show_polls_tab and can_edit_this_guild
+        else {}
+    )
+
     guild_ct = ContentType.objects.get_for_model(Guild)
 
     from membership.services.location_status import guild_location_statuses
@@ -961,6 +975,9 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "kiln_home": kiln_home,
             "show_meetings_tab": show_meetings_tab,
             "meeting_notes": meeting_notes,
+            "guild_polls": guild_polls,
+            "show_polls_tab": show_polls_tab,
+            **poll_form_context,
             # Off in Guild Settings (#892): no section and no status query.
             "location_statuses": guild_location_statuses(guild) if guild.show_location_status else [],
         },
