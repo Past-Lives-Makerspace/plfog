@@ -310,6 +310,11 @@ def describe_crafted_requests():
         mine, _theirs = _staffer_of(client, "gt_crafted_junk")
         assert _guild_section_hrefs(client, "?guild=abc") == _guild_cards(mine)
 
+    def it_ignores_a_unicode_digit_rather_than_erroring(client: Client):
+        mine, _theirs = _staffer_of(client, "gt_crafted_sup")
+        assert client.get(f"{_TOOLS}?guild=%C2%B2").status_code == 200
+        assert _guild_section_hrefs(client, "?guild=%C2%B2") == _guild_cards(mine)
+
     def it_refuses_every_card_target_on_another_guild(client: Client):
         _mine, theirs = _staffer_of(client, "gt_crafted_targets")
         for href in _guild_cards(theirs):

@@ -57,13 +57,14 @@ class GuildToolsGuilds:
     def for_request(cls, request: HttpRequest) -> GuildToolsGuilds:
         """Read the viewer's guilds (one query) and pick the one ``?guild=`` asks for.
 
-        A ``?guild=`` that is not a number, or names a guild this viewer does not run, is
+        A ``?guild=`` that is not a guild's pk (compared as text, so a Unicode digit such as ``²``
+        cannot reach ``int``), or names a guild this viewer does not run, is
         ignored and the first guild shows, so a crafted link never puts another guild's cards
         on the page.
         """
         guilds = list(manageable_guilds(request))
         asked = request.GET.get("guild", "")
-        chosen = [guild for guild in guilds if asked.isdigit() and guild.pk == int(asked)]
+        chosen = [guild for guild in guilds if str(guild.pk) == asked]
         if chosen:
             return cls(guilds=guilds, selected=chosen[0])
         return cls(guilds=guilds, selected=guilds[0] if guilds else None)

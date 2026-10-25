@@ -1710,7 +1710,7 @@ One tool, **Email Members**, sends your message everywhere it needs to go: the n
 - **Guild leads and staff** can send to the guilds they help run.
 - **Instructors** can send to the roster of any published class they teach. (Admins reach a class's roster from that class's page and its **Send Email** button.)
 
-Ways in: **Guild Tools → Email Members** (Admin Tools for admins and instructors) opens the Email Members page, where **New email** starts one. The other ways in are the **Email Members** button on your guild page and the **Send Email** button on class pages (those arrive already aimed at that guild or class), and **Write an email** on your guild's Email Members tab in Guild Settings.
+Ways in: **Guild Tools → Email Members** (Admin Tools if you are an admin, or an instructor who runs no guild) opens the Email Members page, where **New email** starts one. The other ways in are the **Email Members** button on your guild page and the **Send Email** button on class pages (those arrive already aimed at that guild or class), and **Write an email** on your guild's Email Members tab in Guild Settings.
 
 ### Drafts and Sent Emails {#composer-drafts}
 

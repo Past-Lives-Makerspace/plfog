@@ -4,5 +4,5 @@ title = "Guild Tools for guild leads, staff and officers"
 changes = [
   "If you help run a guild, the sidebar now says Guild Tools. It opens your guild's settings, orientations, reservations and events, plus Email Members, Manage Mailing Lists and your guild's reports.",
   "If you help run more than one guild, pick the guild at the top of the page.",
-  "Admins still see Admin Tools, and members who do not run a guild see no tools entry.",
+  "Admins, instructors and other staff still see Admin Tools, and members with no staff role see no tools entry.",
 ]
