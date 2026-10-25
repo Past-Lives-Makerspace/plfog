@@ -85,8 +85,9 @@ def describe_posting_a_poll():
             (_poll_post(choices=("Laser", " ")), "Fill in every answer"),
             (_poll_post(choices=("Laser", "laser")), "Two answers are the same"),
             (_poll_post(question=""), "This field is required"),
-            ({**_poll_post(), "days": "0"}, "greater than or equal to 1"),
-            ({**_poll_post(), "days": "61"}, "less than or equal to 60"),
+            ({**_poll_post(), "days": "0"}, "Select a valid choice. 0 is not one of the available choices."),
+            ({**_poll_post(), "days": "5"}, "Select a valid choice. 5 is not one of the available choices."),
+            ({**_poll_post(), "days": "61"}, "Select a valid choice. 61 is not one of the available choices."),
             (_poll_post(choices=("Laser", "L" * 121)), "Keep each answer to 120 characters or fewer"),
             (_poll_post(question="Z" * 201), "at most 200 characters"),
         ],
@@ -126,6 +127,50 @@ def describe_posting_a_poll():
         admin_client.post(NEW, _poll_post())
 
         assert mail.outbox == []
+
+
+def describe_the_composer():
+    def it_offers_the_five_run_lengths_with_a_week_chosen(admin_client: Client):
+        html = admin_client.get(PAGE).content.decode()
+        chips = html.split("data-poll-lengths", 1)[1].split("</div>", 1)[0]
+
+        for value, label in [("1", "1 day"), ("3", "3 days"), ("7", "1 week"), ("14", "2 weeks"), ("30", "30 days")]:
+            assert f'value="{value}"' in chips
+            assert f"<span>{label}</span>" in chips
+        assert 'value="7" x-model.number="days" checked' in chips
+        assert chips.count(" checked") == 1
+
+    def it_types_the_question_into_a_textarea_and_shows_a_draft(admin_client: Client):
+        html = admin_client.get(PAGE).content.decode()
+
+        assert '<textarea name="question"' in html
+        assert 'class="pl-poll-compose__question"' in html
+        assert 'placeholder="Ask a question"' in html
+        assert '<span class="pl-poll-compose__status">Draft</span>' in html
+        assert "data-compose-closes>Closes " in html
+
+    @pytest.mark.parametrize(("days", "length"), [("1", 1), ("3", 3), ("14", 14), ("30", 30)])
+    def it_posts_a_poll_for_the_chosen_length(admin_client: Client, days: str, length: int):
+        admin_client.post(NEW, {**_poll_post(), "days": days})
+
+        poll = Poll.objects.get()
+        assert poll.closes_at - poll.opens_at == timedelta(days=length)
+
+    def it_keeps_the_chosen_length_after_a_refusal(admin_client: Client):
+        response = admin_client.post(NEW, {**_poll_post(choices=("Zorblax one",)), "days": "14"})
+
+        chips = response.content.decode().split("data-poll-lengths", 1)[1].split("</div>", 1)[0]
+        assert 'value="14" x-model.number="days" checked' in chips
+        assert chips.count(" checked") == 1
+
+    def it_puts_the_refusal_at_the_top_of_the_poll_column(admin_client: Client):
+        poll_with("Laser", "Lathe")
+
+        html = admin_client.post(NEW, _poll_post()).content.decode()
+        column = html.split('class="pl-poll-compose__poll"', 1)[1]
+
+        assert column.index("data-poll-errors") < column.index('<textarea name="question"')
+        assert column.index("data-new-poll-blocked") < column.index("data-poll-errors")
 
 
 def describe_the_open_poll():

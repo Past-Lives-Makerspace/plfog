@@ -1,29 +1,55 @@
 {% comment %}
-The New Poll form (#708, back in #925): the question, two to six answers added and removed in
-place, and how many days it runs. poll_form is polls.forms.NewPollForm, form_action the URL it
-posts to, max_choices and answer_max_length the model's limits. A refusal (a poll is already
-open, or a field is wrong) comes back on the same page with what was typed.
+The New Poll composer (#925, mockups/925-poll-composer.html): the composer is the poll card. The
+question is typed where it will show (an auto growing borderless textarea in the card's heading
+font), each answer into a pill shaped like the vote buttons, with x to remove shown only above two
+and a dashed "+ Add an answer" hidden at six. The meta line carries a dashed Draft pill and a
+"Closes ..." line that follows the Runs for chip live. The settings rail (Runs for, the "Let members
+write their own answer" switch of #925 part 3, then Post Poll) sits beside the poll from 860px and
+under it below that; with the switch on, the poll column shows the inert dashed box members will get.
+poll_form is polls.forms.NewPollForm, form_action the URL it posts to, max_choices and
+answer_max_length the model's limits, blocked True while a poll is already open in that scope. A
+refusal (a poll is already open, or a field is wrong) comes back at the top of the poll column
+with what was typed.
 {% endcomment %}
 {{ poll_form.rows|json_script:"new-poll-rows" }}
-<form method="post" action="{{ form_action }}" class="pl-polls-admin__form"
-      x-data="{ rows: JSON.parse(document.getElementById('new-poll-rows').textContent), max: {{ max_choices }} }" data-new-poll-form>
+<form method="post" action="{{ form_action }}" class="pl-poll-compose" data-new-poll-form
+      x-data="{ rows: JSON.parse(document.getElementById('new-poll-rows').textContent), max: {{ max_choices }}, days: {{ poll_form.selected_days }}, writeIn: {{ poll_form.allows_write_in.value|yesno:"true,false" }}, closes() { const when = new Date(Date.now() + this.days * 86400000); const zone = { timeZone: 'America/Los_Angeles' }; return 'Closes ' + when.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', ...zone }) + ' at ' + when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', ...zone }); } }">
   {% csrf_token %}
-  {% if poll_form.non_field_errors %}<div class="pl-polls-admin__errors" role="alert" data-poll-errors>{% for error in poll_form.non_field_errors %}<p>{{ error }}</p>{% endfor %}</div>{% endif %}
-  <div class="pl-polls-admin__field">{% include "components/form_field.html" with field=poll_form.question %}</div>
-  <fieldset class="pl-polls-admin__choices">
-    <legend>Answers</legend>
-    <template x-for="(row, index) in rows" :key="index">
-      <div class="pl-polls-admin__choice" data-poll-choice-row>
-        <input type="text" name="choice" required maxlength="{{ answer_max_length }}" class="pl-polls-admin__input" :aria-label="'Answer ' + (index + 1)" x-model="rows[index]">
-        <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" @click="rows.splice(index, 1)" x-show="rows.length > 2">Remove</button>
+  <section class="pl-poll-compose__poll" aria-label="The poll">
+    <p class="pl-poll-compose__eyebrow">New Poll</p>
+    {% if blocked %}<p class="hub-text-muted pl-poll-compose__note" data-new-poll-blocked>A poll is open. Close it before posting a new one.</p>{% endif %}
+    {% if poll_form.errors %}
+    <div class="pl-polls-admin__errors" role="alert" data-poll-errors>
+      {% for error in poll_form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+      {% for field in poll_form %}{% for error in field.errors %}<p>{{ field.label }}: {{ error }}</p>{% endfor %}{% endfor %}
+    </div>
+    {% endif %}
+    <div>
+      {{ poll_form.question }}
+      <p class="pl-poll-card__meta"><span class="pl-poll-compose__status">Draft</span><span x-text="closes()" data-compose-closes>Closes {{ poll_form.closes_preview }}</span></p>
+    </div>
+    <ul class="pl-poll-compose__answers" aria-label="Answers">
+      <template x-for="(row, index) in rows" :key="index">
+        <li class="pl-poll-compose__answer" data-poll-choice-row>
+          <input type="text" name="choice" required maxlength="{{ answer_max_length }}" :placeholder="'Answer ' + (index + 1)" :aria-label="'Answer ' + (index + 1)" x-model="rows[index]">
+          <button type="button" class="pl-poll-compose__remove" :aria-label="'Remove answer ' + (index + 1)" @click="rows.splice(index, 1)" x-show="rows.length > 2">×</button>
+        </li>
+      </template>
+    </ul>
+    <button type="button" class="pl-poll-compose__add" @click="rows.push('')" x-show="rows.length < max" data-add-choice>+ Add an answer</button>
+    <div class="pl-poll-compose__writein" x-show="writeIn" x-cloak data-compose-writein>Members can also write their own answer here</div>
+  </section>
+
+  <aside class="pl-poll-compose__rail" aria-label="Poll settings">
+    <div>
+      <p class="pl-poll-compose__label" id="poll-runs-for">Runs for</p>
+      <div class="pl-poll-compose__lengths" role="radiogroup" aria-labelledby="poll-runs-for" data-poll-lengths>
+        {% for value, label in poll_form.lengths %}
+        <label class="pl-poll-compose__length"><input type="radio" name="days" value="{{ value }}" x-model.number="days"{% if value == poll_form.selected_days %} checked{% endif %}><span>{{ label }}</span></label>
+        {% endfor %}
       </div>
-    </template>
-    <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" @click="rows.push('')" x-show="rows.length < max" data-add-choice>+ Add Answer</button>
-    <small class="hub-text-muted">2 to {{ max_choices }} answers.</small>
-  </fieldset>
-  <div class="pl-polls-admin__field pl-polls-admin__field--number">{% include "components/form_field.html" with field=poll_form.days %}</div>
-  {% include "components/form_field.html" with field=poll_form.allows_write_in %}
-  <div class="pl-polls-admin__save">
-    <button type="submit" class="pl-btn pl-btn--primary" data-post-poll>Post Poll</button>
-  </div>
+    </div>
+    {% include "components/toggle.html" with field=poll_form.allows_write_in toggle_label=poll_form.allows_write_in.label toggle_description=poll_form.allows_write_in.help_text %}
+    <div class="pl-poll-compose__post"><button type="submit" class="pl-btn pl-btn--primary" data-post-poll>Post Poll</button></div>
+  </aside>
 </form>

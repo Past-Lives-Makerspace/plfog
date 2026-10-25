@@ -6,7 +6,7 @@
 {% endblock %}
 {% block content %}
 {% comment %}
-Admin Tools > Polls (#925), built by polls.views: the open poll with Close now, the New Poll form
+Admin Tools > Polls (#925), built by polls.views: the open poll with Close now, the New Poll composer
 (refused with a message while a poll is open) and the Past Polls table with totals. Members see
 the open poll on Home and every closed one on Past Polls. Nothing here notifies anyone.
 {% endcomment %}
@@ -27,11 +27,9 @@ the open poll on Home and every closed one on Past Polls. Nothing here notifies 
   {% endif %}
 </div>
 
-<div class="hub-card pl-polls-admin" id="new-poll">
-  <h2 class="pl-polls-admin__title">New Poll</h2>
-  {% if open_poll %}<p class="hub-text-muted" data-new-poll-blocked>A poll is open. Close it before posting a new one.</p>{% endif %}
+<div class="pl-polls-compose-slot" id="new-poll">
   {% url 'polls:admin_new' as form_action %}
-  {% include "polls/partials/_poll_form.html" with form_action=form_action %}
+  {% include "polls/partials/_poll_form.html" with form_action=form_action blocked=open_poll %}
 </div>
 
 <div class="hub-card pl-polls-admin" id="past-polls">

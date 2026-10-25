@@ -374,9 +374,34 @@ def describe_the_create_forms():
 
         html = client.get(reverse("polls:admin")).content.decode()
 
-        assert "Let members write their own answer" in html
-        assert 'name="allows_write_in"' in html
-        assert 'name="allows_write_in" checked' not in html
+        rail = html.split('class="pl-poll-compose__rail"', 1)[1]
+        assert "Let members write their own answer" in rail
+        assert "It counts as their one vote." in rail
+        assert 'name="allows_write_in" x-model="writeIn"' in rail
+        assert 'name="allows_write_in" x-model="writeIn" id="id_allows_write_in" checked' not in rail
+        assert "writeIn: false" in html
+
+    def it_previews_the_write_in_box_live_in_the_poll_column(client: Client):
+        User.objects.create_superuser(username="zorblaxpreview", password="pass", email="zp@example.com")
+        client.login(username="zorblaxpreview", password="pass")
+
+        html = client.get(reverse("polls:admin")).content.decode()
+        column = html.split('class="pl-poll-compose__poll"', 1)[1].split("</section>", 1)[0]
+
+        assert (
+            '<div class="pl-poll-compose__writein" x-show="writeIn" x-cloak data-compose-writein>'
+            "Members can also write their own answer here</div>"
+        ) in column
+
+    def it_keeps_the_switch_on_after_a_refusal(client: Client):
+        User.objects.create_superuser(username="zorblaxkeepon", password="pass", email="zk@example.com")
+        client.login(username="zorblaxkeepon", password="pass")
+        data = {"question": "Zorblax?", "choice": ["A"], "days": "7", "allows_write_in": "on"}
+
+        html = client.post(reverse("polls:admin_new"), data).content.decode()
+
+        assert "writeIn: true" in html
+        assert 'id="id_allows_write_in" checked' in html
 
     def it_posts_a_site_wide_poll_with_the_toggle_on(client: Client):
         User.objects.create_superuser(username="zorblaxtoggleon", password="pass", email="zo@example.com")

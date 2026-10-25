@@ -5,20 +5,21 @@ One form for Admin Tools > Polls (site wide) and a guild's Polls tab.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
+from django.utils import timezone
 
 from polls.models import (
     ANSWER_MAX_LENGTH,
     DEFAULT_DAYS,
     MAX_CHOICES,
-    MAX_DAYS,
     MIN_CHOICES,
-    MIN_DAYS,
     QUESTION_MAX_LENGTH,
     Poll,
+    RunLength,
+    closes_label,
 )
 
 if TYPE_CHECKING:
@@ -29,25 +30,38 @@ if TYPE_CHECKING:
 
 
 class NewPollForm(forms.Form):
-    """A question, two to six answers and how many days it stays open.
+    """A question, two to six answers and how long it runs: the New Poll composer (#925).
 
-    The answers arrive as repeated ``choice`` inputs (the page's + Add Answer list), so they
-    are read from the raw data rather than declared as fields.
+    The answers arrive as repeated ``choice`` inputs (the composer's answer pills), so they are
+    read from the raw data rather than declared as fields. How long it runs is one of the
+    ``RunLength`` chips; ``Poll.post`` still holds every poll to 1 to 60 days.
     """
 
-    question = forms.CharField(max_length=QUESTION_MAX_LENGTH, label="Question")
-    days = forms.IntegerField(
-        min_value=MIN_DAYS,
-        max_value=MAX_DAYS,
+    question = forms.CharField(
+        max_length=QUESTION_MAX_LENGTH,
+        label="Question",
+        widget=forms.Textarea(
+            attrs={
+                "rows": 1,
+                "class": "pl-poll-compose__question",
+                "placeholder": "Ask a question",
+                "aria-label": "Question",
+            }
+        ),
+    )
+    days = forms.TypedChoiceField(
+        choices=RunLength.choices,
+        coerce=int,
         initial=DEFAULT_DAYS,
-        label="Expires after",
-        help_text=f"Days, {MIN_DAYS} to {MAX_DAYS}. Posting opens the poll now.",
+        label="Runs for",
+        widget=forms.RadioSelect,
     )
     allows_write_in = forms.BooleanField(
         required=False,
         initial=False,
         label="Let members write their own answer",
-        help_text="Members can write an answer instead of picking one. Their answers are listed under the results.",
+        help_text="It counts as their one vote.",
+        widget=forms.CheckboxInput(attrs={"x-model": "writeIn"}),
     )
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -80,6 +94,23 @@ class NewPollForm(forms.Form):
             guild=guild,
             allows_write_in=self.cleaned_data["allows_write_in"],
         )
+
+    @property
+    def selected_days(self) -> int:
+        """The chip to show as chosen: what was posted when it is one of the lengths, else a week."""
+        value = str(self["days"].value())
+        lengths = {str(length.value): length.value for length in RunLength}
+        return lengths[value] if value in lengths else DEFAULT_DAYS
+
+    @property
+    def lengths(self) -> list[tuple[int, str]]:
+        """The Runs for chips: each length in days with its label."""
+        return [(length.value, length.label) for length in RunLength]
+
+    @property
+    def closes_preview(self) -> str:
+        """The draft's "Closes ..." line before any script runs: now plus the chosen length."""
+        return closes_label(timezone.now() + timedelta(days=self.selected_days))
 
     @property
     def rows(self) -> list[str]:
