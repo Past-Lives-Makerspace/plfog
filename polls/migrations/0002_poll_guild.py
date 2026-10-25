@@ -4,6 +4,15 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
+def delete_guild_polls(apps, schema_editor):
+    """Reverse only: drop every guild poll (its answers and votes cascade) before the link goes.
+
+    Without this a rollback would turn each guild poll into a site wide one: it would show on
+    Home, and two site wide polls could be open at once.
+    """
+    apps.get_model("polls", "Poll").objects.filter(guild__isnull=False).delete()
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("membership", "0243_discordremoval"),
@@ -23,4 +32,6 @@ class Migration(migrations.Migration):
                 to="membership.guild",
             ),
         ),
+        # Forward has nothing to do: every existing poll stays site wide.
+        migrations.RunPython(migrations.RunPython.noop, delete_guild_polls),
     ]
