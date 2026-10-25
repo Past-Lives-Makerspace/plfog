@@ -414,9 +414,14 @@
 .pl-poll-compose__post { margin-top: auto; }
 .pl-poll-compose__post .pl-btn { width: 100%; justify-content: center; }
 
-/* Admin Tools > Polls: the composer stands as its own card in the page's column of cards. */
+/* Admin Tools > Polls: the composer stands as its own card in the page's column of cards, as wide as
+   the cards above and below it so their edges line up (the mockup's 960px cap left it 20px short). */
 .pl-polls-compose-slot {
     margin-bottom: 1.5rem;
+}
+
+.pl-polls-compose-slot .pl-poll-compose {
+    max-width: none;
 }
 
 .pl-poll-compose__note {
