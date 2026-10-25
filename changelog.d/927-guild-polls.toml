@@ -5,4 +5,5 @@ changes = [
   "A guild page has a Polls tab once the guild has a poll. Any member can vote there once, and the results show right away.",
   "Guild leads, guild staff, guild officers and admins post and close a guild's polls from that tab. One poll is open per guild at a time.",
   "Past Polls now shows guild polls too, each labelled with its guild.",
+  "A new poll is written the way members will see it: type the question and each answer in place, pick how long it runs, then Post Poll. Same on Admin Tools, Polls.",
 ]
