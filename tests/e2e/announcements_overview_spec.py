@@ -174,7 +174,10 @@ def describe_the_announcements_page():
         expect(page.locator(".pl-announcements-table thead")).to_be_hidden()
         expect(_row(page, made.pk).locator("[data-announcement-edit]")).to_be_visible()
 
-        page.locator('[data-announcements-tab="sent"]').click()
+        # Below 640px the tab row gives way to the section picker (FRONTEND tab row rule).
+        expect(page.locator('[data-announcements-tab="sent"]')).to_be_hidden()
+        page.locator(".pl-tab-picker__summary").click()
+        page.locator(".pl-tab-picker__item", has_text="Sent").click()
         expect(page.locator('[data-announcement-state="sent"]')).to_be_visible()
         assert _no_horizontal_scroll(page)
 
