@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="{% static 'css/home-featured.css' %}">
 <link rel="stylesheet" href="{% static 'css/home-announcements.css' %}">
 <link rel="stylesheet" href="{% static 'css/event-flyer.css' %}">
+<link rel="stylesheet" href="{% static 'css/polls.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -71,6 +72,15 @@
         <span class="pl-quicklink__label">Member Directory</span>
     </a>
     {% endif %}
+    {# Past Polls (#925 AC 10): always here for anyone who can vote, whether or not a poll is open; the page refuses everyone else. #}
+    {% if can_vote_polls %}
+    <a href="{% url 'polls:index' %}" class="pl-quicklink" data-quicklink-past-polls>
+        <span class="pl-quicklink__icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        </span>
+        <span class="pl-quicklink__label">Past Polls</span>
+    </a>
+    {% endif %}
     <a href="{% url 'hub_user_settings' %}" class="pl-quicklink">
         <span class="pl-quicklink__icon" aria-hidden="true">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -92,6 +102,16 @@
 {% include "hub/partials/_door_code.html" with variant="card" %}
 {% if door_code.can_change %}
 {% include "components/modal.html" with modal_id="door-code-change" modal_title="Change the Door Code" modal_size="sm" modal_body_include="hub/partials/_door_code_form.html" %}
+{% endif %}
+
+{# --- Poll (#925): only while a poll is open; with none, no card, heading or empty state --- #}
+{% if home_poll %}
+<section class="hub-card pl-home-block" data-block="poll">
+    <h2 class="pl-home-heading">Poll</h2>
+    {% url 'hub_home' as home_url %}
+    {% include "polls/partials/_poll_card.html" with card=home_poll variant="home" next_url=home_url %}
+    <a href="{% url 'polls:index' %}" class="pl-home-block__more pl-poll-home__more" data-poll-past-link>See past polls →</a>
+</section>
 {% endif %}
 
 {# --- Overdue reviews (#817): admins and CMS Administrators, omitted when none have waited 3 days --- #}

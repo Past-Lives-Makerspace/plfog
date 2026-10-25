@@ -5237,6 +5237,7 @@ ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tool_push_test",
             "tool_orientations",
             "tool_spotlight",
+            "tool_polls",
             "tool_feedback",
             "tool_holiday_bizarre",
             "tool_slideshow",
@@ -5322,6 +5323,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
         "tool_locations": is_admin,
         "tool_feedback": is_admin,
         "tool_spotlight": is_admin,
+        "tool_polls": is_admin,
         "tool_push_test": is_admin,
     }
     ctx = _get_hub_context(request)

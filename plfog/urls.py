@@ -95,6 +95,7 @@ urlpatterns = admin_custom_urls + [
     path("classes/", include("classes.urls")),
     path("kiln/", include("kiln.urls")),
     path("hq/", include("hq.urls")),
+    path("polls/", include("polls.urls")),
     path("account/", include("classes.account.urls", namespace="account")),
     # Old class pages from the Drupal site that used to live at classes.pastlives.space.
     path("", include("classes.legacy_urls")),
