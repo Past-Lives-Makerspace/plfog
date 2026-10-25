@@ -205,7 +205,10 @@ def describe_reminder_join_url():
     """The Meetings §6.6 rail: a linked meeting's video-call link rides the reminder context."""
 
     def _reminder_context(event: CommunityEvent) -> dict:
-        now = event.starts_at - timedelta(days=3)  # the 3-day reminder's own send time
+        # The 3-day reminder's own send time: three days earlier on the wall clock, as
+        # CommunityEvent.reminder_sends computes it, so a daylight saving change in between
+        # (the factory's start is a week out) does not move it an hour off the tick.
+        now = timezone.localtime(event.starts_at) - timedelta(days=3)
         occurrence = next(iter(event_reminder_occurrences(now)))
         return occurrence.context
 
