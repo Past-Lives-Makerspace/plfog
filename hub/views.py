@@ -5515,6 +5515,7 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
         messages.error(request, _compose_refusal_message(request))
         return redirect("hub_guild_announcement_propose")
     asked = request.GET.get("tab")
+    rows = _announcement_rows(request, member)
     if guilds and (asked == "mailing-lists" or not can_open):
         return render(
             request,
@@ -5524,14 +5525,12 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
                 "tab": "mailing-lists",
                 "can_open": can_open,
                 "mailing_lists": [(guild, _mailing_list_url(guild)) for guild in guilds],
-                "drafts_count": _announcement_rows(request, member).resumable().count() if can_open else 0,
-                "sent_count": _announcement_rows(request, member).sent_or_sending().count() if can_open else 0,
+                "drafts_count": rows.resumable().count() if can_open else 0,
+                "sent_count": rows.sent_or_sending().count() if can_open else 0,
             },
         )
     tab = "sent" if asked == "sent" else "drafts"
-    rows = _announcement_rows(request, member).select_related(
-        "guild", "class_offering", "author__member", "funding_snapshot"
-    )
+    rows = rows.select_related("guild", "class_offering", "author__member", "funding_snapshot")
     drafts = rows.resumable()
     sent = rows.sent_or_sending().annotate(activity_at=Coalesce("sent_at", "send_requested_at"))
     sort_key = "activity_at" if tab == "sent" else "updated_at"

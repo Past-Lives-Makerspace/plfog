@@ -7,8 +7,8 @@
    more room than the hub's content column has beside the sidebar on a laptop,
    so the card is also a size container and the same stacking applies whenever
    the card itself is narrower than the table needs, whatever the viewport.
-   The tab row copies the few .pl-vote-tabs rules from voting-admin.css rather
-   than loading the voting sheet; the .vote-tab item is styled in hub.css.
+   The tab row is the shared .pl-tabs strip inside {% tab_picker %}, so it is a
+   section picker on a phone; the .vote-tab item is styled in hub.css.
    ------------------------------------------------------------------------- */
 
 /* The row is the shared .pl-tabs strip in {% tab_picker %}, a section picker below 640px. */
