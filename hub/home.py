@@ -23,6 +23,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from membership.models import CalendarEvent, CommunityEvent, GuildAnnouncement
+from polls.models import PollCard
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -166,8 +167,9 @@ def build_home_context(member: Member) -> dict[str, Any]:
     Returns the home blocks — ``upcoming`` (capped, soonest-first), ``announcements``
     (active guild announcements from joined guilds), ``my_guilds`` (joined, lead/staff
     flagged), and the ``onboarding`` "Get started" checklist with its ``show_onboarding``
-    gate (built ONCE here, not re-derived per property in the template). All business logic
-    lives on ``membership`` managers/props; this only fetches, normalizes, sorts, and caps.
+    gate (built ONCE here, not re-derived per property in the template), and ``home_poll``,
+    the open poll's card (#925), None while no poll is open. All business logic lives on
+    ``membership`` and ``polls`` managers/props; this only fetches, normalizes, sorts, and caps.
     """
     return {
         "upcoming": _upcoming_items(member),
@@ -178,6 +180,7 @@ def build_home_context(member: Member) -> dict[str, Any]:
         "teaching": _teaching(member),
         "overdue_reviews": _overdue_reviews(member),
         "featured": _featured(member),
+        "home_poll": PollCard.open_for(member, timezone.now()),
     }
 
 

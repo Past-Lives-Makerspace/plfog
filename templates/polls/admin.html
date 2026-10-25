@@ -1,0 +1,66 @@
+{% extends "hub/base.html" %}
+{% load static classes_tags %}
+{% block title %}Polls{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/polls.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+Admin Tools > Polls (#925), built by polls.views: the open poll with Close now, the New Poll form
+(refused with a message while a poll is open) and the Past Polls table with totals. Members see
+the open poll on Home and every closed one on Past Polls. Nothing here notifies anyone.
+{% endcomment %}
+{% include "components/page_header.html" with title="Polls" description="Ask members one question. While a poll is open it shows on Home; once it closes it moves to Past Polls. One poll is open at a time, and votes are anonymous." %}
+
+<div class="hub-card pl-polls-admin" id="open-poll">
+  <h2 class="pl-polls-admin__title">Open Poll</h2>
+  {% if open_poll %}
+  <p class="pl-polls-admin__question" data-open-poll="{{ open_poll.pk }}">{{ open_poll.question }}</p>
+  <p class="hub-text-muted pl-polls-admin__meta">Closes in {{ open_poll.closes_at|timeuntil }}, on {{ open_poll.closes_label }}.</p>
+  {% include "polls/partials/_poll_results.html" with results=open_results %}
+  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" @click="$dispatch('open-confirm', 'close-poll')" data-close-poll>Close Now</button>
+  {% url 'polls:admin_close' open_poll.pk as close_url %}
+  {% include "components/confirm_modal.html" with confirm_id="close-poll" confirm_title="Close this poll now?" confirm_message="Voting ends at once and the results stay as they are." confirm_action_url=close_url confirm_button_text="Close now" %}
+  {% else %}
+  <p class="hub-text-muted" data-open-poll-empty>No poll is open. Post one below.</p>
+  {% endif %}
+</div>
+
+<div class="hub-card pl-polls-admin" id="new-poll">
+  <h2 class="pl-polls-admin__title">New Poll</h2>
+  {% if open_poll %}<p class="hub-text-muted" data-new-poll-blocked>A poll is open. Close it before posting a new one.</p>{% endif %}
+  {% url 'polls:admin_new' as form_action %}
+  {% include "polls/partials/_poll_form.html" with form_action=form_action %}
+</div>
+
+<div class="hub-card pl-polls-admin" id="past-polls">
+  <h2 class="pl-polls-admin__title">Past Polls</h2>
+  {% if page.object_list %}
+  <table class="pl-members-table" data-past-polls>
+    <thead>
+      <tr>
+        {% sort_header "Question" "question" sort sort_dir base_params %}
+        {% sort_header "Opened" "opens_at" sort sort_dir base_params %}
+        {% sort_header "Closed" "closes_at" sort sort_dir base_params %}
+        {% sort_header "Total votes" "total_votes" sort sort_dir base_params %}
+        {% sort_header "Top answer" "top_answer" sort sort_dir base_params %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for poll in page.object_list %}
+      <tr data-past-poll="{{ poll.pk }}">
+        <td data-label="Question"><a href="{% url 'polls:admin_poll' poll.pk %}">{{ poll.question }}</a></td>
+        <td data-label="Opened">{{ poll.opens_at|date:"M j, Y" }}</td>
+        <td data-label="Closed">{{ poll.closes_at|date:"M j, Y" }}</td>
+        <td data-label="Total votes">{{ poll.total_votes }}</td>
+        <td data-label="Top answer">{{ poll.top_answer|default:"No votes" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include "components/table_pagination.html" %}
+  {% else %}
+  <p class="hub-text-muted" data-past-polls-empty>No past polls yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

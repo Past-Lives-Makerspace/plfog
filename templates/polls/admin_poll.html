@@ -1,0 +1,16 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Poll Results{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/polls.css' %}">
+{% endblock %}
+{% block content %}
+{# One poll's results for admins (#708, #925): totals only, never who voted. #}
+{% include "components/page_header.html" with title="Poll Results" %}
+<div class="hub-card pl-polls-admin" data-poll-detail="{{ poll.pk }}">
+  <p class="pl-polls-admin__question">{{ poll.question }}</p>
+  <p class="hub-text-muted pl-polls-admin__meta">Opened {{ poll.opens_at|date:"M j, Y" }}{% if is_open %}, open until {{ poll.closes_at|date:"M j, Y g:i A" }}{% else %}, closed {{ poll.closes_at|date:"M j, Y" }}{% endif %}. {{ poll.total_votes }} vote{{ poll.total_votes|pluralize }}.</p>
+  {% include "polls/partials/_poll_results.html" with results=results %}
+  <a href="{% url 'polls:admin' %}#past-polls" class="pl-btn pl-btn--ghost pl-btn--sm pl-btn--spaced">Back to Polls</a>
+</div>
+{% endblock %}
