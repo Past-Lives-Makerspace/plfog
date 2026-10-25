@@ -2,7 +2,7 @@
 
 The dispatcher (``run_scheduled_tasks``) iterates this list instead of hard-coded
 tuples, the standalone crons (``airtable_pull``) record through the same helper, and
-the Site Settings → Automations dashboard renders it. Because all three read the same
+the Automations page renders it. Because all three read the same
 registry, the admin list can never drift out of sync with what actually runs.
 
 ``is_enabled`` and ``record_run`` are the two shared helpers. The dispatcher gates on
@@ -493,10 +493,10 @@ def current_run() -> ScheduledTaskRun | None:
 
 
 def automations_path() -> str:
-    """The Site Settings Automations tab, where every job's run history lives."""
+    """The Automations page (#922), where every job's run history lives."""
     from django.urls import reverse
 
-    return f"{reverse('hub_admin_site_settings')}?tab=automations"
+    return reverse("hub_admin_automations")
 
 
 def alert_webmasters(run: ScheduledTaskRun, exc: Exception) -> None:

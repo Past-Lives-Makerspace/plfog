@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-23"
+title = "Member Agreement, Automations, Manage Features and Manage CMS get their own cards"
+changes = [
+  "Admin Tools now has its own cards for Member Agreement, Automations, Manage Features and Manage CMS, each opening its own page.",
+  "Site Settings keeps the brand, sign in and registration, calendar feeds, emails and the Discord connection.",
+  "Old links to those Site Settings tabs take you to the new pages.",
+]

@@ -11,7 +11,7 @@ in the Spotlight (#889, #890). The text form saves the meeting and the two minim
 preview beside it is hub/partials/_spotlight.html, the same markup members get (#709), with the
 real live announcements, bound to the form as the admin types. Nothing here notifies anyone.
 {% endcomment %}
-{% include "components/page_header.html" with title="Spotlight" description="Announcements for the banner on Home and the top left of the Member Portal, and the next Feature Request Meeting. Members see changes the next time a page loads." %}
+{% include "components/page_header.html" with title="Spotlight" description="Spotlight messages for the banner on Home and the top left of the Member Portal, and the next Feature Request Meeting. Members see changes the next time a page loads." %}
 
 {% comment %}
 The Announcements section (#889, hub.announcement_admin_views): every Home announcement in the banner's order, each row
@@ -20,8 +20,8 @@ once, the order through the hidden form below (the script at the end of this sec
 {% endcomment %}
 <div class="hub-card pl-spotlight-admin pl-ann-admin" id="announcements" data-announcements-admin>
   <div class="pl-ann-admin__head">
-    <h2 class="pl-spotlight-admin__title">Announcements</h2>
-    <a href="{% url 'hub_admin_announcement_new' %}" class="pl-btn pl-btn--primary pl-btn--sm" data-announcement-add>+ Add announcement</a>
+    <h2 class="pl-spotlight-admin__title">Spotlight Messages</h2>
+    <a href="{% url 'hub_admin_announcement_new' %}" class="pl-btn pl-btn--primary pl-btn--sm" data-announcement-add>+ Add Spotlight message</a>
   </div>
   <p class="hub-text-muted pl-ann-admin__intro">Short notices in a banner at the top of Home and in the Spotlight on every page. The live ones take turns, in this order; drag a row or use the arrows to change it.</p>
   {% if announcement_rows %}
@@ -35,11 +35,11 @@ once, the order through the hidden form below (the script at the end of this sec
   {% for row in announcement_rows %}
   {% with pk=row.announcement.pk|stringformat:"s" %}
   {% url 'hub_admin_announcement_delete' row.announcement.pk as delete_url %}
-  {% include "components/confirm_modal.html" with confirm_id="delete-announcement-"|add:pk confirm_title="Delete this announcement?" confirm_message="Members stop seeing it at once." confirm_action_url=delete_url confirm_button_text="Delete" %}
+  {% include "components/confirm_modal.html" with confirm_id="delete-announcement-"|add:pk confirm_title="Delete this Spotlight message?" confirm_message="Members stop seeing it at once." confirm_action_url=delete_url confirm_button_text="Delete" %}
   {% endwith %}
   {% endfor %}
   {% else %}
-  <p class="hub-text-muted pl-ann-admin__empty" data-announcements-empty>No announcements yet. Add one and it shows at the top of Home and in the Spotlight.</p>
+  <p class="hub-text-muted pl-ann-admin__empty" data-announcements-empty>No Spotlight messages yet. Add one and it shows at the top of Home and in the Spotlight.</p>
   {% endif %}
 </div>
 {# The order saves as soon as a row moves: a drag from the grip, or the up and down buttons on touch and keyboard (the Slideshow's controls). #}
@@ -124,9 +124,9 @@ once, the order through the hidden form below (the script at the end of this sec
       <div class="pl-spotlight-admin__save"><button type="submit" class="pl-btn pl-btn--primary">Save</button></div>
     </form>
     <div class="pl-spotlight-admin__preview" data-spotlight-preview aria-label="Preview">
-      <p class="pl-spotlight-admin__hidden-note" x-cloak x-show="!(showWhenEmpty || hasAnnouncement || meetings[meeting])" data-spotlight-preview-hidden>Hidden. With no announcement and no meeting, members see the logo and version number.</p>
+      <p class="pl-spotlight-admin__hidden-note" x-cloak x-show="!(showWhenEmpty || hasAnnouncement || meetings[meeting])" data-spotlight-preview-hidden>Hidden. With no Spotlight message and no meeting, members see the logo and version number.</p>
       <div class="pl-spotlight-admin__states" x-cloak x-show="showWhenEmpty && !(hasAnnouncement || meetings[meeting])" data-spotlight-preview-quiet>
-      <p class="pl-spotlight-admin__label">With no announcement and no meeting</p>
+      <p class="pl-spotlight-admin__label">With no Spotlight message and no meeting</p>
       {% include "hub/partials/_spotlight.html" with spotlight=admin_spotlight state="quiet" preview=True %}
       </div>
       <div class="pl-spotlight-admin__states" x-show="hasAnnouncement || meetings[meeting]" data-spotlight-preview-states>

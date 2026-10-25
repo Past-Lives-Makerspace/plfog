@@ -3,7 +3,7 @@
 <section class="hub-card pl-email-queue__section" data-queue-summary>
   <p class="hub-member-name pl-email-queue__line">Next digest: {{ digest_queue.next_send|date:"l, F j" }} at 8:00 AM</p>
   <p class="hub-text-muted pl-email-queue__line">{{ digest_queue.people|length }} {% if digest_queue.people|length == 1 %}person{% else %}people{% endif %} · {{ digest_queue.waiting_count }} item{{ digest_queue.waiting_count|pluralize }} waiting · {{ digest_queue.handled_count }} already handled (will be left out){% if digest_queue.skipped_count %} · {{ digest_queue.skipped_count }} will be skipped{% endif %}</p>
-  <p class="hub-text-muted pl-email-queue__line"><a href="{% url 'hub_admin_site_settings' %}?tab=automations">See the job's last run in Automations</a></p>
+  <p class="hub-text-muted pl-email-queue__line"><a href="{% url 'hub_admin_automations' %}">See the job's last run in Automations</a></p>
 </section>
 
 <section class="hub-card pl-email-queue__section" data-queue-waiting>

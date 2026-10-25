@@ -171,7 +171,7 @@ def describe_the_top_card():
         when = next_digest_at(timezone.now())
         assert f"Next digest: {when:%A, %B} {when.day} at 8:00 AM" in html
         assert "2 people · 2 items waiting · 2 already handled (will be left out)" in html
-        assert "?tab=automations" in html
+        assert f'href="{reverse("hub_admin_automations")}"' in html
 
     def it_is_todays_8am_before_it_and_tomorrows_after():
         morning = timezone.now().astimezone(PACIFIC).replace(hour=7, minute=0, second=0, microsecond=0)

@@ -17,7 +17,7 @@ Context: row, reach (AnnouncementReach or None), preview_html, preview_subject, 
 discord_description_html, push_title, push_body.
 {% endcomment %}
 <p class="pl-announcements-back">
-  <a href="{% url 'hub_announcements' %}?tab=sent" class="hub-btn hub-btn--sm hub-btn--ghost" data-announcement-back>&larr; Back to Announcements</a>
+  <a href="{% url 'hub_announcements' %}?tab=sent" class="hub-btn hub-btn--sm hub-btn--ghost" data-announcement-back>&larr; Back to Email Members</a>
 </p>
 <div class="pl-announcement-heading">
   <h1 class="hub-page-title">{{ row.title }}</h1>
@@ -59,7 +59,7 @@ discord_description_html, push_title, push_body.
   </p>
   {% endif %}
   {% if row.state == 'sent' and reach is None %}
-  <p class="pl-announcement-card__note" data-reach-not-recorded>How many people this reached was not recorded for announcements sent before this page existed.</p>
+  <p class="pl-announcement-card__note" data-reach-not-recorded>How many people this reached was not recorded for emails sent before this page existed.</p>
   {% endif %}
 </section>
 

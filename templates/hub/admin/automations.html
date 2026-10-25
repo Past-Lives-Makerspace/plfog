@@ -1,0 +1,153 @@
+{% extends "hub/base.html" %}
+{% load static %}
+
+{% block title %}Automations{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/site-settings.css' %}">
+{% endblock %}
+
+{% block content %}
+{# x-data gives the Run now buttons an Alpine scope for $dispatch('open-confirm'). #}
+<div class="hub-card" x-data data-settings-page="automations">
+  <h1 class="hub-page-title pl-settings-page__title">Automations</h1>
+  <p class="pl-settings-page__lead">
+    Every scheduled background job: what it does, when it last ran, and whether it's on. Jobs are defined
+    by the app; you can pause one or run it now, but not add or remove them. Pausing a job stops it running
+    on schedule until you turn it back on.
+  </p>
+
+  {% comment %}
+    One card per scheduled job, all INSIDE this form (was Site Settings' Automations tab, #922): the
+    On toggles save with Save, and the generic Run now buttons are named submitters of this form.
+    The bill_tabs and welcome_new_members Run now are the exceptions: teleported confirm modals
+    (their own forms, below), which carry run_job as a hidden field.
+  {% endcomment %}
+  <form method="post" class="site-settings-form pl-settings-page__form" data-run-now-form>
+    {% csrf_token %}
+    {{ jobstate_formset.management_form }}
+    {% if jobstate_formset.non_form_errors %}<div class="pl-settings-page__errors">{{ jobstate_formset.non_form_errors }}</div>{% endif %}
+    {% if unmatched_row_errors %}
+    <div class="pl-settings-page__errors" data-unmatched-row-errors>
+      <p>A row on this page changed after you opened it, so nothing was saved. Reload the page and save again.</p>
+      <ul>{% for error in unmatched_row_errors %}<li>{{ error }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+
+    <div class="pl-automation-list">
+      {% for row in automation_rows %}
+      <div class="pl-automation-card{% if row.form and not row.form.instance.enabled %} pl-automation-card--paused{% endif %}">
+
+        <div class="pl-automation-main">
+          <div class="pl-automation-name">
+            {{ row.job.name }}
+            {% if row.job.money_job %}<span class="pl-automation-badge">charges cards</span>{% endif %}
+            {% if row.job.confirm_before_run %}<span class="pl-automation-badge">emails members</span>{% endif %}
+          </div>
+          <div class="pl-automation-desc">{{ row.job.description }}</div>
+          {% if row.form and not row.form.instance.enabled %}
+          <div class="pl-automation-paused">Paused. Won't run on schedule.</div>
+          {% endif %}
+        </div>
+
+        <div class="pl-automation-cell">
+          <span class="pl-automation-cell-label">Schedule</span>
+          {% if row.frequency %}
+            <div class="hub-form-group pl-automation-frequency">
+              <label class="sr-only" for="{{ row.frequency.id_for_label }}">How often {{ row.job.name }} runs</label>
+              {{ row.frequency }}
+            </div>
+          {% else %}
+            <span class="pl-automation-schedule">{{ row.job.schedule_label }}</span>
+          {% endif %}
+        </div>
+
+        <div class="pl-automation-cell">
+          <span class="pl-automation-cell-label">Last run</span>
+          <span class="pl-automation-lastrun">
+            {% if row.last_run %}
+              {% if row.last_run.succeeded %}
+                <span class="hub-pill hub-pill--ok">OK</span>
+                <span class="pl-automation-time">{{ row.last_run.finished_at|date:"N j, g:i A" }} ({{ row.last_run.finished_at|timesince }} ago)</span>
+              {% elif row.last_run.failed %}
+                <span class="hub-pill hub-pill--danger">Failed</span>
+                <span class="pl-automation-time">{{ row.last_run.started_at|date:"N j, g:i A" }}</span>
+                {% if row.last_run.error %}<span class="pl-automation-error" title="{{ row.last_run.error }}">{{ row.last_run.error|truncatechars:80 }}</span>{% endif %}
+              {% elif row.last_run.is_stale_running %}
+                <span class="hub-pill hub-pill--neutral">Unknown</span>
+              {% else %}
+                <span class="hub-pill hub-pill--warn">Running…</span>
+              {% endif %}
+            {% else %}
+              <span class="hub-pill hub-pill--neutral">Never run</span>
+            {% endif %}
+            <a href="{% url 'hub_admin_automation_history' row.job.key %}" class="pl-automation-history-link" data-history-link="{{ row.job.key }}">History</a>
+          </span>
+        </div>
+
+        <div class="pl-automation-cell">
+          <span class="pl-automation-cell-label">Status</span>
+          {% if row.form %}
+            <div hidden>{{ row.form.id }}</div>
+            {% include "components/toggle.html" with field=row.form.enabled %}
+          {% else %}
+            <span class="hub-pill hub-pill--primary">Always on</span>
+          {% endif %}
+          {% include "hub/admin/_settings_row_errors.html" with form=row.form %}
+        </div>
+
+        <div class="pl-automation-cell pl-automation-run">
+          <span class="pl-automation-cell-label">Run</span>
+          {% if row.job.money_job or row.job.confirm_before_run %}
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+                    @click="$dispatch('open-confirm', 'run-{{ row.job.key }}')">Run now</button>
+          {% else %}
+            <button type="submit" name="run_job" value="{{ row.job.key }}" data-run-now
+                    class="hub-btn hub-btn--sm hub-btn--primary">
+              <span class="sync-spinner" aria-hidden="true"></span>
+              <span class="sync-now-label">Run now</span>
+            </button>
+          {% endif %}
+        </div>
+
+        {# Legacy-CMS clarity (item 3), only under the umbrella nightly sync card. #}
+        {% if row.job.key == 'sync_all_sources' %}
+        <div class="pl-automation-subblock">
+          {% include "components/toggle.html" with field=legacy_cms_sync_field toggle_label="Include legacy CMS offerings (nightly pull)" %}
+          {% if config.legacy_cms_sync_enabled %}
+            <p class="pl-automation-subnote">The nightly pull from <code>classes.pastlives.space</code> is running.</p>
+          {% else %}
+            <p class="pl-automation-subnote pl-automation-subnote--off">OFF right now: the nightly pull from <code>classes.pastlives.space</code> is NOT running. Turn this on to resume.</p>
+          {% endif %}
+          <p class="pl-automation-subnote">
+            Legacy pull last synced:
+            {% if config.legacy_cms_last_synced_at %}{{ config.legacy_cms_last_synced_at|date:"N j, Y g:i A" }}{% else %}Never synced{% endif %}
+          </p>
+          <button type="submit" name="action" value="sync_now" data-run-now class="hub-btn hub-btn--sm hub-btn--primary">
+            <span class="sync-spinner" aria-hidden="true"></span>
+            <span class="sync-now-label">Sync now</span>
+          </button>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="pl-settings-page__actions">
+      <button type="submit" class="hub-btn hub-btn--primary">Save</button>
+    </div>
+  </form>
+
+  {% comment %}
+    Guards for the two Run now buttons that charge cards or email members. SIBLINGS of the form
+    above (never nested): each confirm modal teleports to <body> and posts its own plain form
+    carrying run_job as a hidden field, reaching the same run_job handler. The server passes NO
+    --force, so bill_tabs still self-gates to a real billing day.
+  {% endcomment %}
+  {% url 'hub_admin_automations' as automations_post_url %}
+  {% include "components/confirm_modal.html" with confirm_id="run-bill_tabs" confirm_title="Run tab billing now?" confirm_message="This attempts real card charges. It still only runs if it's a scheduled billing day." confirm_action_url=automations_post_url confirm_button_text="Run billing" confirm_field_name="run_job" confirm_field_value="bill_tabs" %}
+  {% include "components/confirm_modal.html" with confirm_id="run-welcome_new_members" confirm_title="Send welcome emails now?" confirm_message="This emails every new member who has not been welcomed yet, right now, even while the automation is switched off. Emails cannot be recalled." confirm_action_url=automations_post_url confirm_button_text="Send welcome emails" confirm_field_name="run_job" confirm_field_value="welcome_new_members" %}
+</div>
+
+{% include "hub/admin/_run_now_script.html" %}
+{% endblock %}

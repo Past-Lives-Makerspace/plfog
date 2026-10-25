@@ -46,6 +46,7 @@ from core.features import is_on
 from core.models import BiometricCredential, FeedbackRequest, HeroCropMixin, SiteConfiguration
 from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
+    AutomationsForm,
     BetaFeedbackForm,
     CalendarFeedFormSet,
     CommunityEventForm,
@@ -56,8 +57,11 @@ from hub.forms import (
     EventMemberRSVPForm,
     GuildEditForm,
     GuildRoleFormSet,
+    ManageCmsForm,
+    ManageFeaturesForm,
     MeetingItemProposalForm,
     MemberAdminEditForm,
+    MemberAgreementSettingsForm,
     MemberBadgesForm,
     MemberCapabilitiesForm,
     MemberContactForm,
@@ -121,6 +125,7 @@ from membership.permissions import (
     can_edit_event,
     event_create_mode,
     is_own_open_proposal,
+    manageable_guilds,
 )
 from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
@@ -3518,7 +3523,7 @@ def hub_member_agreement(request: HttpRequest) -> HttpResponse:
     """The one-time Member Agreement prompt.
 
     Shown if `Member.needs_member_agreement` is true, with a link to the document
-    set in Site Settings. POSTing with the `agree` checkbox saves a
+    set on the Member Agreement admin page. POSTing with the `agree` checkbox saves a
     MemberAgreementAcceptance record, logging the URL they agreed to and their IP.
     """
     from core.models import SiteConfiguration
@@ -4405,6 +4410,12 @@ def _can_enter_compose(request: HttpRequest, member: Member | None, raw_audience
     return offering is not None and _can_announce_to_class(request, offering)
 
 
+# What everyone who simply cannot compose is told; specs import it, so the copy cannot drift.
+COMPOSE_REFUSAL = (
+    "Your account cannot use Email Members. You can suggest an announcement for a guild here, and a lead reviews it."
+)
+
+
 def _compose_refusal_message(request: HttpRequest) -> str:
     """Why the composer turned this request away, in the refused viewer's own terms.
 
@@ -4431,10 +4442,10 @@ def _compose_refusal_message(request: HttpRequest) -> str:
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.actual_is_admin:
         return (
-            "Sending an announcement is an admin action, and your Viewing as switcher is set to "
+            "Sending this email is an admin action, and your Viewing as switcher is set to "
             f"{view_as.current_label}. Switch it back to Admin to send this."
         )
-    return "Your account cannot send announcements. You can propose one here for a lead to review."
+    return COMPOSE_REFUSAL
 
 
 def _compose_refused(request: HttpRequest) -> HttpResponse:
@@ -4832,7 +4843,7 @@ def _compose_lock(requested: str | None, want_lock: bool) -> tuple[bool, str, st
             "This goes to everyone registered for this class. Delivered by email plus their app notifications.",
         )
     if guild is not None:
-        return True, f"Members of {guild.name}", f"Announce to {guild.name}", ""
+        return True, f"Members of {guild.name}", f"Email the members of {guild.name}", ""
     return False, "", "", ""
 
 
@@ -5225,11 +5236,21 @@ def hub_push_test(request: HttpRequest) -> HttpResponse:
 # Admin Tools' sections in page order, each naming its cards' ``tool_*`` flags in card order (#912).
 # The template lays the cards out in the same order; this table decides which sections render.
 ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("manage", ("tool_manage_classes", "tool_manage_events", "tool_manage_members", "tool_instructor_inquiries")),
+    (
+        "manage",
+        (
+            "tool_manage_classes",
+            "tool_manage_events",
+            "tool_manage_members",
+            "tool_member_agreement",
+            "tool_instructor_inquiries",
+        ),
+    ),
     (
         "tools",
         (
             "tool_announcements",
+            "tool_mailing_lists",
             "tool_push_test",
             "tool_orientations",
             "tool_spotlight",
@@ -5240,7 +5261,19 @@ ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("reports", ("tool_payments", "tool_reports", "tool_growth")),
-    ("webmaster", ("tool_site_settings", "tool_notifications", "tool_activity", "tool_leadership", "tool_locations")),
+    (
+        "webmaster",
+        (
+            "tool_site_settings",
+            "tool_features",
+            "tool_cms",
+            "tool_automations",
+            "tool_notifications",
+            "tool_activity",
+            "tool_leadership",
+            "tool_locations",
+        ),
+    ),
 )
 
 
@@ -5283,6 +5316,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
     tool_manage_events = has_events_admin_access(request)
     flags = {
         "tool_announcements": _can_compose(request, member),
+        "tool_mailing_lists": manageable_guilds(request).exists(),
         "tool_orientations": can_orient,
         "tool_manage_members": is_admin,
         "tool_manage_classes": is_admin,
@@ -5292,6 +5326,11 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
         "tool_activity": is_admin,
         "tool_notifications": is_admin,
         "tool_site_settings": is_admin,
+        # Split out of Site Settings in #922, behind the same admin gate.
+        "tool_member_agreement": is_admin,
+        "tool_features": is_admin,
+        "tool_cms": is_admin,
+        "tool_automations": is_admin,
         "tool_slideshow": is_admin,
         "tool_growth": is_admin,
         # Admins reach the HQ here as well as from the sidebar, which shows it to them once an HQ exists.
@@ -5427,7 +5466,7 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
             return _compose_send_refused(request, draft, exc)
         messages.success(
             request,
-            "Your announcement is sending in the background. "
+            "Your email is sending in the background. "
             f"It reaches {draft.recipient_count()} recipient(s) within 15 minutes.",
         )
         return redirect(_announcements_sent_url())
@@ -5435,7 +5474,7 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
         emailed, total = draft.send()
     except refusals as exc:
         return _compose_send_refused(request, draft, exc)
-    messages.success(request, f"Announcement sent to {total} recipient(s).")
+    messages.success(request, f"Email sent to {total} recipient(s).")
     return redirect(_announcements_sent_url())
 
 
@@ -5466,10 +5505,15 @@ def hub_compose_delete_draft(request: HttpRequest, draft_pk: int) -> HttpRespons
 
 @login_required
 def announcements_overview(request: HttpRequest) -> HttpResponse:
-    """The Announcements page: every draft and every sent announcement this request may see.
+    """The Email Members page: every draft and every sent email this request may see, and the
+    guilds whose mailing lists it may manage.
 
-    Two tabs by query string, ``?tab=drafts`` (the default, and the reading of any other value)
-    and ``?tab=sent``, server rendered so links, Back and pagination work. Rows come from
+    Three tabs by query string, ``?tab=drafts`` (the default, and the reading of any other value),
+    ``?tab=sent`` and ``?tab=mailing-lists`` (#920), server rendered so links, Back and pagination
+    work. Mailing Lists shows when :func:`membership.permissions.manageable_guilds` is not empty,
+    and each row opens that guild's Your Mailing List card in Guild Settings. Someone who has a
+    mailing list but may not see Drafts or Sent (an officer on no guild's staff) gets that tab
+    alone. Rows come from
     :func:`_announcement_rows` (admins see every row; leads, staff and instructors see their
     audiences'). Drafts sort by last edit; Sent by when it went out or was queued
     (``Coalesce(sent_at, send_requested_at)``), so a queued row heads the list. The Sent tab reads
@@ -5484,13 +5528,28 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
     from classes.table import prepare_table
 
     member = _get_member(request)
-    if not _can_open_announcements(request, member):
+    can_open = _can_open_announcements(request, member)
+    guilds = list(manageable_guilds(request))
+    if not can_open and not guilds:
         messages.error(request, _compose_refusal_message(request))
         return redirect("hub_guild_announcement_propose")
-    tab = "sent" if request.GET.get("tab") == "sent" else "drafts"
-    rows = _announcement_rows(request, member).select_related(
-        "guild", "class_offering", "author__member", "funding_snapshot"
-    )
+    asked = request.GET.get("tab")
+    rows = _announcement_rows(request, member)
+    if guilds and (asked == "mailing-lists" or not can_open):
+        return render(
+            request,
+            "hub/announcements.html",
+            {
+                **_get_hub_context(request),
+                "tab": "mailing-lists",
+                "can_open": can_open,
+                "mailing_lists": [(guild, _mailing_list_url(guild)) for guild in guilds],
+                "drafts_count": rows.resumable().count() if can_open else 0,
+                "sent_count": rows.sent_or_sending().count() if can_open else 0,
+            },
+        )
+    tab = "sent" if asked == "sent" else "drafts"
+    rows = rows.select_related("guild", "class_offering", "author__member", "funding_snapshot")
     drafts = rows.resumable()
     sent = rows.sent_or_sending().annotate(activity_at=Coalesce("sent_at", "send_requested_at"))
     sort_key = "activity_at" if tab == "sent" else "updated_at"
@@ -5520,8 +5579,23 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
             "base_params": table["base_params"],
             "drafts_count": drafts.count(),
             "sent_count": sent.count(),
+            "can_open": True,
+            "mailing_lists": [(guild, _mailing_list_url(guild)) for guild in guilds],
+            # The release update composer moved here from Site Settings (#922); admins only.
+            "can_send_release": _viewing_as_admin(request),
         },
     )
+
+
+@login_required
+def manage_mailing_lists(request: HttpRequest) -> HttpResponse:
+    """The old Manage Mailing Lists page, now the Mailing Lists tab of Email Members (#920)."""
+    return redirect(f"{reverse('hub_announcements')}?tab=mailing-lists")
+
+
+def _mailing_list_url(guild: Guild) -> str:
+    """Where a guild's mailing list lives: Guild Settings, Email Members tab, at the list's card."""
+    return f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements#mailing-list"
 
 
 @login_required
@@ -5685,7 +5759,7 @@ def guild_announcement_settings_save(request: HttpRequest, pk: int) -> HttpRespo
     form.save()
     if wants_autosave(request):
         return autosave_saved()
-    messages.success(request, "Announcement settings saved.")
+    messages.success(request, "Member suggestions saved.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements")
 
 
@@ -9100,7 +9174,7 @@ def admin_invite_clear_expired(request: HttpRequest) -> HttpResponse:
 
 
 def _legacy_instructor_sync_status() -> tuple[list[dict[str, object]], int]:
-    """Return instructor match stats for the CMS tab.
+    """Return instructor match stats for Manage CMS.
 
     For each member with an instructor slug, count how many ClassOfferings came
     from the legacy CMS (legacy_cms_id set) and have that member linked as instructor.
@@ -9180,7 +9254,7 @@ def _send_release_announcement(request: HttpRequest, subject: str, html: str, te
 def _handle_release_announcement_action(
     request: HttpRequest, action: str
 ) -> tuple[HttpResponse | None, ReleaseAnnouncementForm, dict[str, object] | None]:
-    """Process a Release-mode Announcements POST. Returns ``(redirect_or_none, form, preview)``.
+    """Process a Release Update POST. Returns ``(redirect_or_none, form, preview)``.
 
     ``announce_send`` (valid) redirects; ``announce_preview`` / ``announce_test`` (valid)
     re-render with the assembled preview (test additionally sends a copy to the admin and
@@ -9205,7 +9279,7 @@ def _handle_release_announcement_action(
         summary = render_rich_email_text(intro).strip() or "See what's new at Past Lives."
         count = _send_release_announcement(request, subject, html, text, summary)
         messages.success(request, f"Release update sent to {count} member(s).")
-        return redirect(f"{reverse('hub_admin_site_settings')}?tab=announcements"), form, None
+        return redirect("hub_announcements"), form, None
 
     if action == "announce_test":
         send_release_test(admin_user, html, text, subject)
@@ -9219,6 +9293,36 @@ def _handle_release_announcement_action(
         "preheader": preheader,
     }
     return None, form, preview
+
+
+# The Release Update page's submit buttons (``action``), also how Site Settings knows a stale
+# release form posted to it (#922).
+_RELEASE_ACTIONS = frozenset({"announce_preview", "announce_send", "announce_test"})
+
+
+@fog_admin_required
+def email_members_release(request: HttpRequest) -> HttpResponse:
+    """The Release Update page (#922): the sectioned "what's new" email, linked from Email Members.
+
+    It was Site Settings' Announcements tab in Release mode; ``?tab=announcements&draft=release``
+    there redirects here. A GET opens a draft prefilled from the unswept changelog; a POST with a
+    :data:`_RELEASE_ACTIONS` button previews, sends a test to the admin, or sends it to every
+    activated member (:func:`_handle_release_announcement_action`), and anything else is a fresh
+    draft again.
+    """
+    action = request.POST.get("action") if request.method == "POST" else None
+    preview: dict[str, object] | None = None
+    if action in _RELEASE_ACTIONS:
+        response, form, preview = _handle_release_announcement_action(request, cast(str, action))
+        if response is not None:
+            return response
+    else:
+        form = ReleaseAnnouncementForm(initial=_release_announcement_initial())
+    return render(
+        request,
+        "hub/email_members_release.html",
+        {**_get_hub_context(request), "release_form": form, "release_preview": preview},
+    )
 
 
 def _discord_editor_querysets() -> tuple[Any, Any]:
@@ -9251,7 +9355,7 @@ def _feature_switch_queryset() -> Any:
 
 def _build_feature_rows(formset: Any) -> list[dict[str, Any]]:
     """Pair every registry feature with its bound form, matched by ``feature_key`` and never by
-    position, so the Features tab loops once. ``is_on`` is precomputed because the template needs
+    position, so Manage Features loops once. ``is_on`` is precomputed because the template needs
     the CURRENT saved state for the muted styling, which a bound form's raw data does not give."""
     from core.features import FEATURES, FeatureState
 
@@ -9264,38 +9368,40 @@ def _build_feature_rows(formset: Any) -> list[dict[str, Any]]:
     return rows
 
 
-def _bind_feature_formset(request: HttpRequest) -> tuple[Any, bool]:
-    """Bind the Features formset when its management form is posted, else build an unbound one
-    over the synced rows. Returns ``(formset, was_posted)``."""
-    queryset = _feature_switch_queryset()
-    if "features-TOTAL_FORMS" in request.POST:
-        return FeatureSwitchFormSet(request.POST, queryset=queryset, prefix="features"), True
-    return FeatureSwitchFormSet(queryset=queryset, prefix="features"), False
+def _unmatched_row_errors(formset: Any, key_field: str) -> list[str]:
+    """The errors of every bound row that matched no card, so a hidden row never blocks Save unseen.
+
+    The cards match rows by registry key, so a row posted with a pk that no longer exists (a page
+    left open while the row was removed) binds a new, keyless instance and sits under no card.
+
+    Args:
+        formset: the Features or Automations formset.
+        key_field: the instance field the cards match on (``feature_key`` or ``task_key``).
+
+    Returns:
+        Each such row's messages, in row order; empty for an unbound or clean formset.
+    """
+    return [
+        message
+        for form in formset.forms
+        if not getattr(form.instance, key_field)
+        for messages in form.errors.values()
+        for message in messages
+    ]
 
 
-def _save_feature_formset(formset: Any, was_posted: bool, user: Any) -> None:
-    """Save the Features states independently of the main settings save, so a feature-switch
-    issue can never block another tab from saving (the jobstate rule). Stamps ``updated_by`` so
-    the row records who turned a feature off — the question somebody always asks afterwards."""
-    if not (was_posted and formset.is_valid()):
-        return
-    rows = formset.save(commit=False)
-    for row in rows:
-        row.updated_by = user if (user is not None and getattr(user, "pk", None)) else None
+def _save_feature_formset(formset: Any, user: User) -> None:
+    """Save a valid Features formset, stamping ``updated_by`` on each changed row so it records
+    who turned a feature off: the question somebody always asks afterwards."""
+    for row in formset.save(commit=False):
+        row.updated_by = user
         row.save()
-
-
-def _resolve_feature_context(bound_formset: Any) -> tuple[list[dict[str, Any]], Any]:
-    """The Features tab context: reuse a bound formset from a failed save (preserving what the
-    admin typed), else a fresh one over the synced rows."""
-    formset = bound_formset or FeatureSwitchFormSet(queryset=_feature_switch_queryset(), prefix="features")
-    return _build_feature_rows(formset), formset
 
 
 def _build_automation_rows(formset: Any) -> list[dict[str, Any]]:
     """Pair every registry job with its bound toggle form (matched by ``task_key``, never by
     position — §11 #4), its frequency picker when the job offers one, and its latest run, so the
-    Automations panel loops once."""
+    Automations page loops once."""
     from core.models import ScheduledTaskRun
     from core.scheduled_jobs import SCHEDULED_JOBS
 
@@ -9309,45 +9415,21 @@ def _build_automation_rows(formset: Any) -> list[dict[str, Any]]:
     return rows
 
 
-def _bind_jobstate_formset(request: HttpRequest) -> tuple[Any, bool]:
-    """Bind the Automations toggle formset when its management form is posted, else build an
-    unbound one over the synced rows. Returns ``(formset, was_posted)``."""
-    queryset = _automation_jobstate_queryset()
-    if "jobstates-TOTAL_FORMS" in request.POST:
-        return ScheduledJobStateFormSet(request.POST, queryset=queryset, prefix="jobstates"), True
-    return ScheduledJobStateFormSet(queryset=queryset, prefix="jobstates"), False
-
-
-def _save_jobstate_formset(formset: Any, was_posted: bool) -> None:
-    """Save the Automations toggles independently of the main settings save, so a jobstate issue
-    can never block another tab from saving (§11 #11)."""
-    if was_posted and formset.is_valid():
-        formset.save()
-
-
-def _resolve_automation_context(bound_formset: Any) -> tuple[list[dict[str, Any]], Any]:
-    """The Automations tab context: reuse a bound formset from a failed save (preserving typed
-    toggle state), else a fresh one over the synced rows. Returns ``(rows, formset)``."""
-    formset = bound_formset or ScheduledJobStateFormSet(queryset=_automation_jobstate_queryset(), prefix="jobstates")
-    return _build_automation_rows(formset), formset
-
-
 def _persist_automation_toggles(request: HttpRequest, config: Any) -> None:
-    """Persist the Automations-tab toggle edits that ride along a Run-now POST (Decision 7):
+    """Persist the Automations page's toggle edits that ride along a Run-now POST (Decision 7):
     clicking Run now must not silently discard an unsaved toggle flip.
 
-    Explicitly saves ONLY the Automations toggles — the per-job jobstate formset and the
-    legacy-CMS-sync checkbox — never the full ``SiteSettingsForm``. The run_job path must not
-    write the settings singleton: the bill_tabs confirm modal posts only ``run_job`` + csrf (no
-    management form), so the ``jobstates-TOTAL_FORMS`` marker is absent and this is a no-op; an
-    Automations run-now posts the shared form but we persist just its toggles and ignore every
-    other field. Never blocks or messages."""
+    Saves ONLY the Automations toggles, the per-job jobstate formset and the legacy-CMS-sync
+    checkbox, and writes no other setting. The bill_tabs confirm modal posts only ``run_job`` +
+    csrf (no management form), so the ``jobstates-TOTAL_FORMS`` marker is absent and this is a
+    no-op; a Run now from the page posts its form and we persist just its toggles. Never blocks
+    or messages."""
     if "jobstates-TOTAL_FORMS" not in request.POST:
         return
     formset = ScheduledJobStateFormSet(request.POST, queryset=_automation_jobstate_queryset(), prefix="jobstates")
     if formset.is_valid():
         formset.save()
-    # The legacy CMS sync toggle sits on the same Automations form — persist just that one
+    # The legacy CMS sync toggle sits on the same Automations form: persist just that one
     # checkbox field (present = on) without binding or writing the rest of the singleton.
     config.legacy_cms_sync_enabled = "legacy_cms_sync_enabled" in request.POST
     config.save(update_fields=["legacy_cms_sync_enabled"])
@@ -9363,7 +9445,7 @@ def _handle_run_job(request: HttpRequest, config: Any) -> HttpResponse:
     from core.scheduled_jobs import JOBS_BY_KEY, Trigger, record_run
 
     key = request.POST.get("run_job", "")
-    redirect_url = f"{reverse('hub_admin_site_settings')}?tab=automations"
+    redirect_url = reverse("hub_admin_automations")
     job = JOBS_BY_KEY.get(key)
     if job is None:
         messages.error(request, f"Unknown automation '{key}'.")
@@ -9377,6 +9459,152 @@ def _handle_run_job(request: HttpRequest, config: Any) -> HttpResponse:
     except Exception as exc:  # noqa: BLE001 — surface any command failure as a message, never a 500
         messages.error(request, f"Ran {job.name} — failed: {exc}")
     return redirect(redirect_url)
+
+
+def _handle_sync_now(request: HttpRequest, back: str) -> HttpResponse:
+    """Pull the legacy CMS now, then go back to the page whose Sync Now was pressed.
+
+    Shared by Manage CMS and the Automations page's nightly sync card. A failing pull becomes an
+    error message, never a 500.
+    """
+    from classes.import_service import sync_legacy_cms
+
+    try:
+        count = sync_legacy_cms()
+        messages.success(request, f"Synced {count} offering(s) from the legacy CMS.")
+    except Exception as exc:  # noqa: BLE001 — surface any sync failure as a message, never a 500
+        messages.error(request, f"Sync failed: {exc}")
+    return redirect(back)
+
+
+@fog_admin_required
+def admin_member_agreement(request: HttpRequest) -> HttpResponse:
+    """The Member Agreement page (#922, once a Site Settings tab): enforce it, its URL and its edition.
+
+    Saves :class:`hub.forms.MemberAgreementSettingsForm` alone, so no other setting is touched; an
+    invalid save re-renders with the errors and what was typed.
+    """
+    config = SiteConfiguration.load()
+    form = MemberAgreementSettingsForm(request.POST if request.method == "POST" else None, instance=config)
+    if form.is_valid():
+        form.save()
+        messages.success(request, "Member Agreement saved.")
+        return redirect("hub_admin_member_agreement")
+    active = Member.objects.active()
+    return render(
+        request,
+        "hub/admin/member_agreement.html",
+        {
+            **_get_hub_context(request),
+            "form": form,
+            "active_members_count": active.count(),
+            # The figure printed directly above the version field, so it has to mean "accepted the
+            # edition named there"; otherwise setting a version reports the re-consent as already done.
+            "accepted_members_count": active.accepted_current_agreement().count(),
+        },
+    )
+
+
+@fog_admin_required
+def admin_manage_features(request: HttpRequest) -> HttpResponse:
+    """Manage Features (#922, once Site Settings' Features tab): the feature cards and the flat switches.
+
+    One Save posts both :class:`hub.forms.ManageFeaturesForm` and the ``features`` formset, and
+    either one invalid saves neither, so the page re-renders with every typed value and its errors.
+    """
+    config = SiteConfiguration.load()
+    queryset = _feature_switch_queryset()
+    if request.method == "POST":
+        form = ManageFeaturesForm(request.POST, instance=config)
+        formset = FeatureSwitchFormSet(request.POST, queryset=queryset, prefix="features")
+        if form.is_valid() and formset.is_valid():
+            form.save()
+            _save_feature_formset(formset, cast(User, request.user))  # fog_admin_required: never anonymous
+            messages.success(request, "Features saved.")
+            return redirect("hub_admin_features")
+    else:
+        form = ManageFeaturesForm(instance=config)
+        formset = FeatureSwitchFormSet(queryset=queryset, prefix="features")
+    return render(
+        request,
+        "hub/admin/manage_features.html",
+        {
+            **_get_hub_context(request),
+            "form": form,
+            "feature_formset": formset,
+            "feature_rows": _build_feature_rows(formset),
+            "unmatched_row_errors": _unmatched_row_errors(formset, "feature_key"),
+        },
+    )
+
+
+@fog_admin_required
+def admin_automations(request: HttpRequest) -> HttpResponse:
+    """The Automations page (#922, once a Site Settings tab): every scheduled job, its switch and Run now.
+
+    Save writes the job switches and the legacy CMS pull switch (:class:`hub.forms.AutomationsForm`)
+    and nothing else. Run now and Sync now are handled first, like they always were; Run now keeps
+    the switches typed beside it (:func:`_persist_automation_toggles`).
+    """
+    config = SiteConfiguration.load()
+    queryset = _automation_jobstate_queryset()
+    if request.method == "POST":
+        if request.POST.get("action") == "sync_now":
+            return _handle_sync_now(request, reverse("hub_admin_automations"))
+        if "run_job" in request.POST:
+            return _handle_run_job(request, config)
+        form = AutomationsForm(request.POST, instance=config)
+        formset = ScheduledJobStateFormSet(request.POST, queryset=queryset, prefix="jobstates")
+        if form.is_valid() and formset.is_valid():
+            form.save()
+            formset.save()
+            messages.success(request, "Automations saved.")
+            return redirect("hub_admin_automations")
+    else:
+        form = AutomationsForm(instance=config)
+        formset = ScheduledJobStateFormSet(queryset=queryset, prefix="jobstates")
+    return render(
+        request,
+        "hub/admin/automations.html",
+        {
+            **_get_hub_context(request),
+            "config": config,
+            "legacy_cms_sync_field": form["legacy_cms_sync_enabled"],
+            "jobstate_formset": formset,
+            "automation_rows": _build_automation_rows(formset),
+            "unmatched_row_errors": _unmatched_row_errors(formset, "task_key"),
+        },
+    )
+
+
+@fog_admin_required
+def admin_manage_cms(request: HttpRequest) -> HttpResponse:
+    """Manage CMS (#922, once Site Settings' CMS tab): the legacy CMS pull's state, Sync Now,
+    the instructor discount code switches and the instructor match table.
+
+    Save writes :class:`hub.forms.ManageCmsForm` alone. Sync Now is handled before it, as it
+    always was, so it never needs a valid form.
+    """
+    config = SiteConfiguration.load()
+    if request.method == "POST" and request.POST.get("action") == "sync_now":
+        return _handle_sync_now(request, reverse("hub_admin_cms"))
+    form = ManageCmsForm(request.POST if request.method == "POST" else None, instance=config)
+    if form.is_valid():
+        form.save()
+        messages.success(request, "CMS settings saved.")
+        return redirect("hub_admin_cms")
+    instructor_sync_rows, legacy_cms_unmatched = _legacy_instructor_sync_status()
+    return render(
+        request,
+        "hub/admin/manage_cms.html",
+        {
+            **_get_hub_context(request),
+            "form": form,
+            "config": config,
+            "instructor_sync_rows": instructor_sync_rows,
+            "legacy_cms_unmatched": legacy_cms_unmatched,
+        },
+    )
 
 
 @fog_admin_required
@@ -9457,10 +9685,10 @@ def _sync_info_post_if_changed(request: HttpRequest, form: SiteSettingsForm) -> 
 
 def _save_site_settings(
     request: HttpRequest, config: Any, feed_queryset: Any, active_tab: str
-) -> tuple[HttpResponse | None, SiteSettingsForm, Any, Any, Any, Any, Any]:
+) -> tuple[HttpResponse | None, SiteSettingsForm, Any, Any, Any]:
     """Bind + save the settings form, calendar formset, and (Discord tab only) the emoji
     map + per-guild role formsets. Returns ``(redirect_or_none, form, feed_formset,
-    emoji_formset, role_formset, jobstate_formset, feature_formset)``.
+    emoji_formset, role_formset)``.
 
     The Discord formsets are bound + validated + saved ONLY when the Discord tab posted
     (``submitted_tab == "discord"``) so saving any other tab never requires the Discord
@@ -9471,12 +9699,6 @@ def _save_site_settings(
     is_discord = request.POST.get("submitted_tab") == "discord"
     form = SiteSettingsForm(request.POST, request.FILES, instance=config)
     feed_formset = CalendarFeedFormSet(request.POST, queryset=feed_queryset, prefix="feeds")
-    # The Automations toggle formset rides the shared form (its panel is always in the DOM). Bind
-    # it when posted; it's saved independently below so a jobstate hiccup can never block another
-    # tab's save (§11 #11).
-    jobstate_formset, jobstate_posted = _bind_jobstate_formset(request)
-    # Same deal for the Features tab's state formset (#405).
-    feature_formset, feature_posted = _bind_feature_formset(request)
     if is_discord:
         emoji_formset = DiscordGuildEmojiFormSet(request.POST, queryset=emoji_queryset, prefix="emoji")
         role_formset = GuildRoleFormSet(request.POST, queryset=role_queryset, prefix="guildroles")
@@ -9506,8 +9728,6 @@ def _save_site_settings(
                     continue
                 emoji_inst.save()
             role_formset.save()
-        _save_jobstate_formset(jobstate_formset, jobstate_posted)
-        _save_feature_formset(feature_formset, feature_posted, request.user)
         messages.success(request, "Site settings saved.")
         target_tab = request.POST.get("submitted_tab", active_tab)
         return (
@@ -9516,33 +9736,29 @@ def _save_site_settings(
             feed_formset,
             emoji_formset,
             role_formset,
-            jobstate_formset,
-            feature_formset,
         )
-    return None, form, feed_formset, emoji_formset, role_formset, jobstate_formset, feature_formset
+    return None, form, feed_formset, emoji_formset, role_formset
 
 
-_SITE_SETTINGS_TABS = frozenset(
-    {
-        "brand",
-        "general",
-        "calendar",
-        "legacy-cms",
-        "automations",
-        "announcements",
-        "features",
-        "member-agreement",
-        "discord",
-        "emails",
-    }
-)
+_SITE_SETTINGS_TABS = frozenset({"brand", "general", "calendar", "emails", "discord"})
+
+# The Site Settings tabs that became their own pages (#922), by tab key, each with its page's URL name.
+_MOVED_SETTINGS_TABS = {
+    "features": "hub_admin_features",
+    "member-agreement": "hub_admin_member_agreement",
+    "automations": "hub_admin_automations",
+    "legacy-cms": "hub_admin_cms",
+}
 
 
 def _resolve_site_settings_tab(request: HttpRequest) -> tuple[str, HttpResponse | None]:
     """The Site Settings tab to render, plus a redirect that pre-empts rendering at all.
 
     ``?tab=slideshow`` is an old bookmark: the Slideshow admin is its own page now, so it
-    302s there rather than silently landing on General.
+    302s there rather than silently landing on General. ``?tab=announcements`` is another
+    (#922): that tab moved onto the Email Members page, and its ``&draft=release`` onto the
+    Release Update page. So are the four tabs in :data:`_MOVED_SETTINGS_TABS`, each now its own
+    page. Those redirect on GET only; a POST is :func:`_moved_settings_post`'s.
 
     Args:
         request: The current request.
@@ -9553,21 +9769,54 @@ def _resolve_site_settings_tab(request: HttpRequest) -> tuple[str, HttpResponse 
     tab = request.GET.get("tab", "general")
     if tab == "slideshow":
         return tab, redirect("hub_admin_slideshow")
+    # GET only: a form loaded from the old URL still posts to it, and that POST must reach the release
+    # hand-off or the settings save in admin_site_settings rather than turn into a GET and lose its input.
+    if tab == "announcements" and request.method == "GET":
+        return tab, redirect(
+            "hub_email_members_release" if request.GET.get("draft") == "release" else "hub_announcements"
+        )
+    if tab in _MOVED_SETTINGS_TABS and request.method == "GET":
+        return tab, redirect(_MOVED_SETTINGS_TABS[tab])
     return (tab if tab in _SITE_SETTINGS_TABS else "general"), None
+
+
+def _moved_settings_post(request: HttpRequest) -> HttpResponse | None:
+    """Hand a POST from a Site Settings page loaded before its tabs moved on to the page that owns it now.
+
+    The 307 keeps the method and the body, so the new page saves or runs what was sent; read here
+    as a settings save it would drop every field Site Settings no longer has. Release actions go to
+    the Release Update page (#920), Run now to Automations, Sync Now to the page of the tab it was
+    pressed on, and a save from a moved tab to that tab's page (#922). ``submitted_tab`` names the
+    tab that was showing; the page's own ``?tab=`` stands in when it is missing.
+
+    Returns:
+        The 307 redirect, or ``None`` when the POST is Site Settings' own.
+    """
+    action = request.POST.get("action")
+    if action in _RELEASE_ACTIONS:
+        return redirect("hub_email_members_release", preserve_request=True)
+    if "run_job" in request.POST:
+        return redirect("hub_admin_automations", preserve_request=True)
+    tab = request.POST.get("submitted_tab") or request.GET.get("tab", "")
+    if action == "sync_now":
+        return redirect("hub_admin_automations" if tab == "automations" else "hub_admin_cms", preserve_request=True)
+    if tab in _MOVED_SETTINGS_TABS:
+        return redirect(_MOVED_SETTINGS_TABS[tab], preserve_request=True)
+    return None
 
 
 @fog_admin_required
 def admin_site_settings(request: HttpRequest) -> HttpResponse:
     """Admin site settings — edit the SiteConfiguration singleton and its calendar feeds.
 
-    Tabs: ``brand`` (organization name, logo, and color), ``general``, ``calendar``,
-    ``legacy-cms``, ``features`` (the My Tab/Payments and class-registration kill switches),
-    ``automations`` (the scheduled-job dashboard — ON/OFF toggles + Run now, from the shared
-    job registry), and ``announcements`` (a sitewide announcement composer with a
-    preview-then-send step). The Calendar tab owns a ``CalendarFeedFormSet`` so admins can
-    add/remove iCal feeds inline.
+    Tabs: ``brand`` (organization name, logo, and color), ``general``, ``calendar``, ``emails``
+    and ``discord``. The Calendar tab owns a ``CalendarFeedFormSet`` so admins can add/remove iCal
+    feeds inline. The release update composer that was the Announcements tab is
+    :func:`email_members_release` now (#922), and the Features, Member Agreement, Automations and
+    CMS tabs are their own pages (:data:`_MOVED_SETTINGS_TABS`).
     """
-    from core.models import CalendarFeed, SiteConfiguration
+    from core.events.email_catalogue import build_email_catalogue
+    from core.models import CalendarFeed
 
     config = SiteConfiguration.load()
     active_tab, moved = _resolve_site_settings_tab(request)
@@ -9575,87 +9824,28 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
         return moved
 
     feed_queryset = CalendarFeed.objects.all()
-    release_mode = False
-    release_form: ReleaseAnnouncementForm | None = None
-    release_preview: dict[str, object] | None = None
-    jobstate_formset: Any = None
-    feature_formset: Any = None
 
     if request.method == "POST":
-        action = request.POST.get("action")
-        # Handle "Sync Now" action — separate from the settings form
-        if action == "sync_now":
-            from classes.import_service import sync_legacy_cms
-
-            try:
-                count = sync_legacy_cms()
-                messages.success(request, f"Synced {count} offering(s) from the legacy CMS.")
-            except Exception as exc:
-                messages.error(request, f"Sync failed: {exc}")
-            url = reverse("hub_admin_site_settings")
-            return redirect(f"{url}?tab=legacy-cms")
-
-        # Automations "Run now" — a named submitter on the shared form (generic buttons) or the
-        # teleported bill_tabs confirm modal (carries run_job as a hidden field). Handled before
-        # the settings-form save, like sync_now; it persists toggle edits then runs (Decision 1/7).
-        if "run_job" in request.POST:
-            return _handle_run_job(request, config)
-
-        # Announcements tab — the Release composer (preview-then-send), separate from the
-        # settings form. The plain sitewide composer moved to the /announcements/compose/
-        # wizard, so only the release mode (mode=release) is handled here now.
-        if action in ("announce_preview", "announce_send", "announce_test"):
-            active_tab = "announcements"
-            release_mode = True
-            form = SiteSettingsForm(instance=config)
-            feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
-            emoji_queryset, role_queryset = _discord_editor_querysets()
-            emoji_formset = DiscordGuildEmojiFormSet(queryset=emoji_queryset, prefix="emoji")
-            role_formset = GuildRoleFormSet(queryset=role_queryset, prefix="guildroles")
-            response, release_form, release_preview = _handle_release_announcement_action(request, action)
-            if response is not None:
-                return response
-            # else fall through to render (preview, or send with validation errors)
-        else:
-            response, form, feed_formset, emoji_formset, role_formset, jobstate_formset, feature_formset = (
-                _save_site_settings(request, config, feed_queryset, active_tab)
-            )
-            if response is not None:
-                return response
+        handed_on = _moved_settings_post(request)
+        if handed_on is not None:
+            return handed_on
+        response, form, feed_formset, emoji_formset, role_formset = _save_site_settings(
+            request, config, feed_queryset, active_tab
+        )
+        if response is not None:
+            return response
     else:
         form = SiteSettingsForm(instance=config)
         feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
         emoji_queryset, role_queryset = _discord_editor_querysets()
         emoji_formset = DiscordGuildEmojiFormSet(queryset=emoji_queryset, prefix="emoji")
         role_formset = GuildRoleFormSet(queryset=role_queryset, prefix="guildroles")
-        # "Draft from latest release" — enter Release mode with a prefilled draft.
-        if request.GET.get("draft") == "release":
-            release_mode = True
-            release_form = ReleaseAnnouncementForm(initial=_release_announcement_initial())
-            active_tab = "announcements"
-
-    instructor_sync_rows, legacy_cms_unmatched = _legacy_instructor_sync_status()
-
-    # Automations tab: reuse the bound formset from a failed save (preserves typed toggle state),
-    # else build a fresh one over the synced rows. Rows pair each registry job with its form + last run.
-    automation_rows, jobstate_formset = _resolve_automation_context(jobstate_formset)
-    # Features tab: same shape — reuse a bound formset from a failed save, else a fresh one.
-    feature_rows, feature_formset = _resolve_feature_context(feature_formset)
-
-    from core.events.email_catalogue import build_email_catalogue
-
-    ctx = _get_hub_context(request)
-
-    active_members_count = Member.objects.active().count()
-    # The figure printed directly above the version field, so it has to mean "accepted the
-    # edition named there" — otherwise setting a version reports the re-consent as already done.
-    accepted_members_count = Member.objects.active().accepted_current_agreement().count()
 
     return render(
         request,
         "hub/admin/site_settings.html",
         {
-            **ctx,
+            **_get_hub_context(request),
             "form": form,
             "email_catalogue": build_email_catalogue(),
             "feed_formset": feed_formset,
@@ -9664,19 +9854,7 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "active_tab": active_tab,
             "classes_color_field": form["classes_calendar_color"],
             "sync_classes_field": form["sync_classes_enabled"],
-            "legacy_cms_sync_field": form["legacy_cms_sync_enabled"],
-            "instructor_sync_rows": instructor_sync_rows,
-            "legacy_cms_unmatched": legacy_cms_unmatched,
-            "active_members_count": active_members_count,
-            "accepted_members_count": accepted_members_count,
             "config": config,
-            "release_mode": release_mode,
-            "release_form": release_form,
-            "release_preview": release_preview,
-            "automation_rows": automation_rows,
-            "jobstate_formset": jobstate_formset,
-            "feature_rows": feature_rows,
-            "feature_formset": feature_formset,
             "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
         },
     )

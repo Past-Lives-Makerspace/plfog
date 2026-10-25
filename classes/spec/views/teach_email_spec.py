@@ -1,4 +1,4 @@
-"""BDD specs for the Registrations tab's hand-off to the Announcement Composer.
+"""BDD specs for the Registrations tab's hand-off to Email Members.
 
 The tab used to carry its own subject/body form and send a plain BCC email. It now validates
 the ticked rows and redirects to ``hub_compose``, pre-scoped to the class and pre-checking

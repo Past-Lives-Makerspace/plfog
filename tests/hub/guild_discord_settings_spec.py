@@ -69,7 +69,7 @@ def describe_GuildEditForm_discord_fields():
         # things — the labels must keep them unmistakable.
         form = GuildEditForm()
         assert form.fields["discord_url"].label == "Discord channel link (shown to members)"
-        assert form.fields["discord_webhook_url"].label == "Announcement webhook (auto-posts here — keep private)"
+        assert form.fields["discord_webhook_url"].label == "Email Members webhook (posts here, keep it private)"
 
     def it_defaults_the_post_toggle_on():
         guild = GuildFactory()  # model default discord_post_enabled=True
@@ -91,7 +91,7 @@ def describe_guild_edit_discord_card():
         assert 'name="discord_post_enabled"' in content
         assert "pl-toggle" in content  # the boolean renders as a toggle, never a raw checkbox
         assert "Also post to our Discord" in content
-        assert "Announcement webhook (auto-posts here — keep private)" in content
+        assert "Email Members webhook (posts here, keep it private)" in content
 
     def it_persists_the_fields_through_a_full_page_save(client: Client):
         user = _user_with_role("disc_lead", fog_role=Member.FogRole.MEMBER)

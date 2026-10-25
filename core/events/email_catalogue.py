@@ -4,7 +4,7 @@ This is the model/service layer for the Site Settings → Emails tab (CLAUDE.md:
 out of views). The tab is read-and-route: it lists every emailing event, says who gets
 it, whether it's automatic (scheduler-driven) or triggered (by an action), and links to
 the two places a parameter is actually adjusted — the copy editor for wording, and
-either the Voting settings page or the Automations tab for schedule/toggle.
+either the Voting settings page or the Automations page for schedule/toggle.
 
 It does NOT own wording or schedule state; it composes the event registry, the copy
 catalogue's audience descriptions, and live ``VotingSettings`` into presentation rows.
@@ -106,7 +106,7 @@ def _adjust(event: EventType) -> tuple[str, str]:
     if event.key in _VOTING_AUTOMATIC:
         return "Adjust timing in Voting settings", reverse("hub_admin_voting_settings")
     if event.key in _OTHER_AUTOMATIC:
-        return "Turn on/off in Automations", f"{reverse('hub_admin_site_settings')}?tab=automations"
+        return "Turn on/off in Automations", reverse("hub_admin_automations")
     return "", ""
 
 

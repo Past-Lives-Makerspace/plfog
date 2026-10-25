@@ -6019,7 +6019,7 @@ MAX_ANNOUNCEMENT_SEND_ATTEMPTS = 3
 _SEND_ERROR_LIMIT = 500
 
 # What a results announcement must address, and what is said when it is pointed elsewhere.
-RESULTS_ANNOUNCEMENT_AUDIENCE_ERROR = "A results announcement goes to everyone."
+RESULTS_ANNOUNCEMENT_AUDIENCE_ERROR = "A results email goes to everyone."
 
 # The part of a results announcement's Discord post its message always keeps, ahead of the
 # results block. Far more than any real message (the pre-filled one is about 250 characters), so
@@ -13221,7 +13221,7 @@ class FundingSnapshot(models.Model):
         and the job would then email everyone the snapshot's prose with no results under it.
         """
         if self.results_announcement_sending:
-            return "Its results announcement is sending. Delete it after the announcement has gone out."
+            return "Its results email is sending. Delete it after the email has gone out."
         return ""
 
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
