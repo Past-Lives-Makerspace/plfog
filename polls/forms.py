@@ -88,12 +88,12 @@ class NewPollForm(forms.Form):
 
 
 class WriteInForm(forms.Form):
-    """A member's own answer to one poll (#925 part 3), with Post anonymously ticked by default.
+    """A member's own answer to one poll (#925 part 3), with Post anonymously on by default.
 
     Prefixed per poll (``poll-<pk>``), so two cards on a page never share an id. ``shown`` is a
     hidden marker the rendered form always carries: a post without it (a hand made request, an
-    old page) is read as anonymous, so the member's name is only ever shown when they unticked
-    the box on the form itself.
+    old page) is read as anonymous, so the member's name is only ever shown when they turned off
+    the switch on the form itself.
     """
 
     write_in = forms.CharField(
@@ -111,5 +111,5 @@ class WriteInForm(forms.Form):
 
     @property
     def is_anonymous(self) -> bool:
-        """Post anonymously, unless the member unticked the box on the rendered form."""
+        """Post anonymously, unless the member turned the switch off on the rendered form."""
         return self.cleaned_data["anonymous"] or not self.cleaned_data["shown"]

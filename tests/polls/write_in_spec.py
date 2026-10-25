@@ -223,7 +223,7 @@ def describe_the_write_in_form():
         assert form.is_valid()
         assert form.is_anonymous is True
 
-    def it_shows_the_name_only_when_the_rendered_box_was_unticked():
+    def it_shows_the_name_only_when_the_rendered_switch_was_turned_off():
         poll = _open()
         form = WriteInForm.for_poll(poll, {f"poll-{poll.pk}-write_in": "A bandsaw", f"poll-{poll.pk}-shown": "True"})
 
@@ -279,7 +279,7 @@ def describe_voting_over_the_web():
         assert SECRET_NAME not in response["HX-Trigger"]
         assert PollVote.objects.get().anonymous is True
 
-    def it_shows_the_name_when_the_box_was_unticked():
+    def it_shows_the_name_when_the_switch_was_turned_off():
         client, _member = _client()
         poll = poll_with("Laser", "Lathe", allows_write_in=True)
 
@@ -327,6 +327,7 @@ def describe_voting_over_the_web():
         assert 'maxlength="120"' in html
         assert f'name="poll-{poll.pk}-anonymous" id="id_poll-{poll.pk}-anonymous" checked' in html
         assert "Post anonymously" in html
+        assert "Turn off to show your name beside your answer." in html
 
     def it_leaves_the_box_off_a_poll_without_the_toggle():
         client, _member = _client()
