@@ -1,0 +1,48 @@
+{% comment %}
+A guild's Polls tab (#925 part 2). polls is polls.models.GuildPolls (open card, past cards);
+can_post is can_edit_guild for this viewer (leads, staff, officers and admins), the only people
+who see New Poll and Close Now. The New Poll form starts closed behind its button. Any member
+who can vote does so in place, as on Home. Past Polls (every closed poll, site wide and guild)
+is linked at the foot.
+{% endcomment %}
+<div class="pl-guild-polls" data-guild-polls-tab>
+  {% if can_post %}
+  <div class="hub-card pl-polls-admin" data-guild-poll-post x-data="{ open: false }">
+    <div class="pl-guild-polls__bar">
+      <h2 class="pl-polls-admin__title">Ask the Guild</h2>
+      <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="open = !open" :aria-expanded="open" x-text="open ? 'Cancel' : 'New Poll'" data-guild-poll-toggle>New Poll</button>
+    </div>
+    <div x-show="open" x-cloak class="pl-guild-polls__form">
+      {% if polls.open %}<p class="hub-text-muted" data-new-poll-blocked>A poll is open. Close it before posting a new one.</p>{% endif %}
+      {% url 'polls:guild_new' guild.slug as form_action %}
+      {% include "polls/partials/_poll_form.html" with form_action=form_action %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if polls.open %}
+  <section class="hub-card pl-polls-admin" data-guild-open-poll>
+    <h2 class="pl-polls-admin__title">Open Poll</h2>
+    {% url 'hub_guild_detail' guild.slug as guild_url %}
+    {% with next_url=guild_url|add:"?tab=polls" %}{% include "polls/partials/_poll_card.html" with card=polls.open variant="guild" next_url=next_url hide_guild=True %}{% endwith %}
+    {% if can_post %}
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" @click="$dispatch('open-confirm', 'close-guild-poll')" data-close-poll>Close Now</button>
+    {% url 'polls:guild_close' guild.slug polls.open.poll.pk as close_url %}
+    {% include "components/confirm_modal.html" with confirm_id="close-guild-poll" confirm_title="Close this poll now?" confirm_message="Voting ends at once and the results stay as they are." confirm_action_url=close_url confirm_button_text="Close now" %}
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if polls.past %}
+  <section class="pl-guild-polls__past" data-guild-past-polls>
+    <h2 class="pl-guild-polls__heading">Past Polls</h2>
+    <div class="pl-poll-list">
+      {% for card in polls.past %}{% include "polls/partials/_poll_card.html" with card=card variant="" hide_guild=True %}{% endfor %}
+    </div>
+  </section>
+  {% elif not polls.open %}
+  <div class="hub-card"><p class="hub-text-muted" data-guild-polls-empty>No polls yet. Use New Poll to ask this guild a question.</p></div>
+  {% endif %}
+
+  <a href="{% url 'polls:index' %}" class="pl-home-block__more pl-guild-polls__all" data-guild-past-polls-link>See every past poll →</a>
+</div>

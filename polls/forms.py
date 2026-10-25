@@ -1,4 +1,7 @@
-"""The New Poll form (#708, back in #925): a question, two to six answers and how many days it runs."""
+"""The New Poll form (#708, back in #925): a question, two to six answers and how many days it runs.
+
+One form for Admin Tools > Polls (site wide) and a guild's Polls tab.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +24,8 @@ from polls.models import (
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.http import QueryDict
+
+    from membership.models import Guild
 
 
 class NewPollForm(forms.Form):
@@ -58,14 +63,15 @@ class NewPollForm(forms.Form):
             self.add_error(None, "Two answers are the same. Make each one different.")
         return cleaned
 
-    def post(self, *, by: User, now: datetime) -> Poll:
-        """Open the poll; raises ``PollAlreadyOpenError`` when one is already open."""
+    def post(self, *, by: User, now: datetime, guild: Guild | None = None) -> Poll:
+        """Open the poll, site wide or for ``guild``; raises ``PollAlreadyOpenError`` when one is open there."""
         return Poll.post(
             question=self.cleaned_data["question"],
             choices=self.choices,
             days=self.cleaned_data["days"],
             by=by,
             now=now,
+            guild=guild,
         )
 
     @property

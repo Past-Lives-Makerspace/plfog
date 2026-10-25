@@ -11,7 +11,7 @@
 | `hub/` | Member-facing views (guild voting, directory, tab, profile, guild pages) |
 | `airtable_sync/` | Airtable bidirectional sync for members, spaces, leases, votes |
 | `kiln/` | Ceramics Guild kiln tickets (#691), a tab on that guild's page: tickets with photos and flags, loading, unloading with ready for pickup notices, the kiln log, the clay and glaze lists; see `kiln/AGENTS.md` |
-| `polls/` | Polls (#708, back in #925): one site-wide poll on Home while open, Past Polls at `/polls/`, Admin Tools > Polls at `/polls/manage/`; never in the Spotlight. See `polls/AGENTS.md` |
+| `polls/` | Polls (#708, back in #925): one site-wide poll on Home while open, one per guild on its page's Polls tab, Past Polls at `/polls/`, Admin Tools > Polls at `/polls/manage/`; never in the Spotlight. See `polls/AGENTS.md` |
 | `hq/` | The Holiday Bizarre HQ (Track C): one hub page per event with a hero band, goal chips and nine door cards an admin opens to the public, to members or to named people; behind the `holiday_bizarre` switch; `manage.py seed_holiday_bizarre --event <pk>` writes Lee's hub, doors, goals and shifts from `hq/holiday_bizarre.py`; see `hq/AGENTS.md` |
 | `plfog/` | Django project: settings, urls, wsgi, auto_admin, adapters |
 
@@ -60,7 +60,7 @@ Those nine plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Oth
 - `SiteActivity` — cross-app activity/audit feed
 
 ### polls
-- `Poll` / `PollChoice` / `PollVote` — a question, its 2 to 6 answers and one anonymous vote per member; `Poll.post` refuses while one is open, `PollCard` is one poll as one member sees it
+- `Poll` / `PollChoice` / `PollVote` — a question, its 2 to 6 answers and one anonymous vote per member; `Poll.guild` (blank is site wide); `Poll.post` refuses while one is open in that scope, `PollCard` is one poll as one member sees it, `GuildPolls` a guild's Polls tab
 ### hq
 - `EventHub` / `HubCard` / `HubGoal` — the Holiday Bizarre HQ: the one open hub, its door cards (kind, audience, Can open and Team, hidden) and its goal chips; `hq.services.goal_rows` counts the live kinds
 ### classes (book CMS — `book.` subdomain)

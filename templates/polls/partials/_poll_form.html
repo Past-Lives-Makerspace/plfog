@@ -14,7 +14,7 @@ open, or a field is wrong) comes back on the same page with what was typed.
     <legend>Answers</legend>
     <template x-for="(row, index) in rows" :key="index">
       <div class="pl-polls-admin__choice" data-poll-choice-row>
-        <input type="text" name="choice" maxlength="{{ answer_max_length }}" class="pl-polls-admin__input" :aria-label="'Answer ' + (index + 1)" x-model="rows[index]">
+        <input type="text" name="choice" required maxlength="{{ answer_max_length }}" class="pl-polls-admin__input" :aria-label="'Answer ' + (index + 1)" x-model="rows[index]">
         <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" @click="rows.splice(index, 1)" x-show="rows.length > 2">Remove</button>
       </div>
     </template>

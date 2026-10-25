@@ -24,8 +24,9 @@
     border-color: var(--color-tuscan-yellow);
 }
 
-/* On Home the card sits inside the Poll block's own hub-card, so it draws no second box. */
-.pl-poll-card--home {
+/* On Home and a guild's Open Poll the card sits inside its own hub-card, so it draws no second box. */
+.pl-poll-card--home,
+.pl-poll-card--guild {
     padding: 0;
     border: none;
     border-radius: 0;
@@ -56,6 +57,15 @@
     border-radius: 999px;
     background-color: rgba(238, 180, 75, 0.18);
     color: var(--hub-link);
+    font-weight: 700;
+}
+
+/* Which guild asked, on Past Polls (#925 part 2). */
+.pl-poll-card__guild {
+    padding: 0.0625rem 0.5rem;
+    border-radius: 999px;
+    background-color: rgba(61, 139, 212, 0.16);
+    color: var(--hub-blue);
     font-weight: 700;
 }
 
@@ -267,5 +277,45 @@
 
 /* A button directly in a card keeps its own width rather than the column's. */
 .pl-polls-admin > .pl-btn {
+    align-self: flex-start;
+}
+
+/* ---- A guild's Polls tab (#925 part 2) ---- */
+.pl-guild-polls {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.pl-guild-polls > .hub-card {
+    margin-bottom: 0;
+}
+
+.pl-guild-polls__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.pl-guild-polls__form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+
+.pl-guild-polls__heading {
+    margin: 0 0 1rem;
+    font-size: 1rem;
+    color: var(--hub-text);
+}
+
+.pl-guild-polls__all {
+    align-self: flex-start;
+}
+
+/* The Open Poll's Close Now keeps its own width rather than the column's. */
+.pl-guild-polls .pl-polls-admin > .pl-btn {
     align-self: flex-start;
 }
