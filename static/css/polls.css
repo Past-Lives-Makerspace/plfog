@@ -195,6 +195,16 @@
     gap: 1rem;
 }
 
+/* Fields are sized to what they hold (FRONTEND.md rule 28): text to one shared width, the day count to a few digits. */
+.pl-polls-admin__field {
+    width: 100%;
+    max-width: 520px;
+}
+
+.pl-polls-admin__field--number input {
+    width: 6rem;
+}
+
 .pl-polls-admin__save {
     margin-top: 0.5rem;
 }

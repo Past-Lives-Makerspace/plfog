@@ -9,7 +9,7 @@ open, or a field is wrong) comes back on the same page with what was typed.
       x-data="{ rows: JSON.parse(document.getElementById('new-poll-rows').textContent), max: {{ max_choices }} }" data-new-poll-form>
   {% csrf_token %}
   {% if poll_form.non_field_errors %}<div class="pl-polls-admin__errors" role="alert" data-poll-errors>{% for error in poll_form.non_field_errors %}<p>{{ error }}</p>{% endfor %}</div>{% endif %}
-  {% include "components/form_field.html" with field=poll_form.question %}
+  <div class="pl-polls-admin__field">{% include "components/form_field.html" with field=poll_form.question %}</div>
   <fieldset class="pl-polls-admin__choices">
     <legend>Answers</legend>
     <template x-for="(row, index) in rows" :key="index">
@@ -21,7 +21,7 @@ open, or a field is wrong) comes back on the same page with what was typed.
     <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" @click="rows.push('')" x-show="rows.length < max" data-add-choice>+ Add Answer</button>
     <small class="hub-text-muted">2 to {{ max_choices }} answers.</small>
   </fieldset>
-  {% include "components/form_field.html" with field=poll_form.days %}
+  <div class="pl-polls-admin__field pl-polls-admin__field--number">{% include "components/form_field.html" with field=poll_form.days %}</div>
   <div class="pl-polls-admin__save">
     <button type="submit" class="pl-btn pl-btn--primary" data-post-poll>Post Poll</button>
   </div>
