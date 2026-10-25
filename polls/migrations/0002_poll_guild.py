@@ -8,8 +8,12 @@ def delete_guild_polls(apps, schema_editor):
     """Reverse only: drop every guild poll (its answers and votes cascade) before the link goes.
 
     Without this a rollback would turn each guild poll into a site wide one: it would show on
-    Home, and two site wide polls could be open at once.
+    Home, and two site wide polls could be open at once. On PostgreSQL the deferred foreign key
+    checks the cascade leaves behind are fired first, because the column cannot be dropped in the
+    same transaction while trigger events are pending.
     """
+    if schema_editor.connection.vendor == "postgresql":
+        schema_editor.execute("SET CONSTRAINTS ALL IMMEDIATE")
     apps.get_model("polls", "Poll").objects.filter(guild__isnull=False).delete()
 
 
