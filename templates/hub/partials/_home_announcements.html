@@ -14,7 +14,7 @@ simply shows.
   banner — a hub.home.HomeBanner
 {% endcomment %}
 {% with total=banner.items|length %}
-<section class="pl-home-ann pl-rotator{% if total > 1 %} pl-home-ann--many{% endif %}" x-data="plRotator" data-rotator-interval="8000" data-rotator-name="home-banner"{% if total > 1 %} aria-roledescription="carousel"{% endif %} aria-label="Announcements" data-home-announcements data-announcement-signature="{{ banner.signature }}" data-announcement-count="{{ total }}">
+<section class="pl-home-ann pl-rotator{% if total > 1 %} pl-home-ann--many{% endif %}" x-data="plRotator" data-rotator-interval="8000" data-rotator-name="home-banner"{% if total > 1 %} aria-roledescription="carousel"{% endif %} aria-label="Spotlight messages" data-home-announcements data-announcement-signature="{{ banner.signature }}" data-announcement-count="{{ total }}">
   <span class="pl-home-ann__icon" aria-hidden="true">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
   </span>
@@ -26,9 +26,9 @@ simply shows.
       </div>
       {% endfor %}
     </div>
-    {% if total > 1 %}{% include "hub/partials/_rotator_controls.html" with slides=banner.items noun="announcement" plural="announcements" %}{% endif %}
+    {% if total > 1 %}{% include "hub/partials/_rotator_controls.html" with slides=banner.items noun="Spotlight message" plural="Spotlight messages" %}{% endif %}
   </div>
-  <button type="button" class="pl-home-ann__close" onclick="window.plHomeAnnouncements.close(this.closest('[data-home-announcements]'))" aria-label="Close the announcements" data-announcement-close>
+  <button type="button" class="pl-home-ann__close" onclick="window.plHomeAnnouncements.close(this.closest('[data-home-announcements]'))" aria-label="Close the Spotlight messages" data-announcement-close>
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
   </button>
 </section>

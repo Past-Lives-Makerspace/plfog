@@ -1,6 +1,6 @@
 """Fingerprinting the document a member consented to.
 
-The Member Agreement is not served by fog — Site Settings holds a URL, normally into the
+The Member Agreement is not served by fog — the Member Agreement admin page holds a URL, normally into the
 Knowledge Base, and the prompt links out to it. So at the moment a member clicks "I agree", fog
 knows who and when but has never seen the text.
 

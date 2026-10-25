@@ -1,33 +1,64 @@
 {% extends "hub/base.html" %}
-{% load static %}
-{% block title %}Announcements{% endblock %}
+{% load static tab_picker %}
+{% block title %}Email Members{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/announcements.css' %}">
 {% endblock %}
 {% block content %}
 {% comment %}
-The Announcements page: Drafts and Sent tabs over every announcement this viewer may handle
+The Email Members page (#920, once called Announcements): Drafts and Sent tabs over every send this viewer may handle
 (hub.views._announcement_rows). Server rendered tabs (?tab=drafts|sent), so links, Back and
 pagination work. Rows stack into labelled cards at 768px and below (the members table stacking).
 
-Context: tab, rows ([(AnnouncementDraft, people reached or None, emails sent or None,
+The Mailing Lists tab (?tab=mailing-lists) lists the guilds whose mailing list this viewer may manage
+(membership.permissions.manageable_guilds), each opening its Your Mailing List card in Guild Settings;
+the Admin Tools Manage Mailing Lists card links here. A viewer with a list but no Drafts or Sent (can_open
+false) sees that tab alone.
+
+Context: tab, can_open, mailing_lists ([(Guild, url)]), rows ([(AnnouncementDraft, people reached or None, emails sent or None,
 AnnouncementProgress or None)]; the last three only on the Sent tab), page, base_params,
-drafts_count, sent_count.
+drafts_count, sent_count, can_send_release (the admin only Release Update card, #922).
 {% endcomment %}
 {% url 'hub_compose' as compose_url %}
-{% include "components/page_header.html" with title="Announcements" description="Announcements waiting to go out and the ones already sent. Open a draft to finish it in the Announcement Composer." action_url=compose_url action_label="New announcement" action_class="hub-btn hub-btn--primary" action_help_key="announcements.new" %}
+{% if can_open %}
+{% include "components/page_header.html" with title="Email Members" description="Emails waiting to go out and the ones already sent. Each one can also post to Discord and sends an app notification. Open a draft to finish it." action_url=compose_url action_label="New email" action_class="hub-btn hub-btn--primary" action_help_key="announcements.new" %}
+{% else %}
+{% include "components/page_header.html" with title="Email Members" description="Who each guild's emails reach: its members, plus the addresses added or imported." %}
+{% endif %}
 
-<nav class="pl-announcements-tabs" aria-label="Announcements">
-  <a href="{% url 'hub_announcements' %}?tab=drafts" class="vote-tab{% if tab == 'drafts' %} vote-tab--active{% endif %}"{% if tab == 'drafts' %} aria-current="page"{% endif %} data-announcements-tab="drafts">Drafts <span class="hub-badge" data-announcements-count="drafts">{{ drafts_count }}</span></a>
-  <a href="{% url 'hub_announcements' %}?tab=sent" class="vote-tab{% if tab == 'sent' %} vote-tab--active{% endif %}"{% if tab == 'sent' %} aria-current="page"{% endif %} data-announcements-tab="sent">Sent <span class="hub-badge" data-announcements-count="sent">{{ sent_count }}</span></a>
+{% tab_picker "Email Members" %}
+<nav class="pl-tabs pl-announcements-tabs" aria-label="Email Members">
+  {% if can_open %}
+  <a href="{% url 'hub_announcements' %}?tab=drafts" class="vote-tab{% if tab == 'drafts' %} vote-tab--active{% endif %}"{% if tab == 'drafts' %} aria-current="page"{% endif %} data-announcements-tab="drafts">Drafts <span class="hub-badge vote-tab__count" data-announcements-count="drafts">{{ drafts_count }}</span></a>
+  <a href="{% url 'hub_announcements' %}?tab=sent" class="vote-tab{% if tab == 'sent' %} vote-tab--active{% endif %}"{% if tab == 'sent' %} aria-current="page"{% endif %} data-announcements-tab="sent">Sent <span class="hub-badge vote-tab__count" data-announcements-count="sent">{{ sent_count }}</span></a>
+  {% endif %}
+  {% if mailing_lists %}
+  <a href="{% url 'hub_announcements' %}?tab=mailing-lists" class="vote-tab{% if tab == 'mailing-lists' %} vote-tab--active{% endif %}"{% if tab == 'mailing-lists' %} aria-current="page"{% endif %} data-announcements-tab="mailing-lists">Mailing Lists <span class="hub-badge vote-tab__count" data-announcements-count="mailing-lists">{{ mailing_lists|length }}</span></a>
+  {% endif %}
 </nav>
+{% endtab_picker %}
 
+{% if tab == 'mailing-lists' %}
+<div class="hub-card pl-mailing-lists" data-mailing-lists>
+  <p class="pl-mailing-lists__intro">Pick a guild to open its mailing list in Guild Settings. Everyone on it gets the emails you send that guild.</p>
+  <ul class="pl-mailing-lists__list">
+    {% for guild, url in mailing_lists %}
+    <li class="pl-mailing-lists__row">
+      <a href="{{ url }}" class="pl-mailing-lists__link" data-mailing-list-guild="{{ guild.pk }}">
+        <span class="pl-mailing-lists__name">{{ guild.name }}</span>
+        <span class="pl-mailing-lists__go">Open mailing list &rarr;</span>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% else %}
 <div class="hub-card pl-announcements-card" x-data>
   {% if rows %}
   <table class="pl-members-table pl-announcements-table" data-announcements-table="{{ tab }}">
     <thead>
       <tr>
-        <th scope="col">Announcement</th>
+        <th scope="col">Email</th>
         <th scope="col">Audience</th>
         <th scope="col">Channels
           <span class="pl-help">
@@ -51,7 +82,7 @@ drafts_count, sent_count.
     <tbody>
       {% for row, reached, emailed, progress in rows %}
       <tr data-announcement-row="{{ row.pk }}" data-announcement-state="{{ row.state }}">
-        <td data-label="Announcement" class="pl-announcements-table__lead">
+        <td data-label="Email" class="pl-announcements-table__lead">
           {% if tab == 'sent' %}
           <a href="{% url 'hub_announcement_sent' row.pk %}" class="pl-announcements-table__title">{{ row.title }}</a>
           {% else %}
@@ -113,11 +144,19 @@ drafts_count, sent_count.
   {% endfor %}
   {% endif %}
   {% elif tab == 'sent' %}
-  <p class="pl-announcements-empty" data-announcements-empty="sent">Nothing sent yet. Each announcement sent is listed here with when it went out and how many people it reached.</p>
+  <p class="pl-announcements-empty" data-announcements-empty="sent">Nothing sent yet. Each email sent is listed here with when it went out and how many people it reached.</p>
   {% else %}
-  <p class="pl-announcements-empty" data-announcements-empty="drafts">No drafts right now. Press Save draft in the Announcement Composer and the draft waits here until it is sent.</p>
+  <p class="pl-announcements-empty" data-announcements-empty="drafts">No drafts right now. Press Save draft while you write an email and the draft waits here until it is sent.</p>
   {% endif %}
 </div>
+{% endif %}
+{% if can_send_release and tab != 'mailing-lists' %}
+<section class="hub-card pl-release-entry" data-release-entry>
+  <h2 class="hub-detail-label pl-release-entry__title">Release Update</h2>
+  <p class="pl-release-entry__text">The sectioned what's new email, with feature cards and screenshots from this release's changelog. It goes to every activated member, and Discord is left off because it posts on deploy.</p>
+  <p class="pl-release-entry__action"><a href="{% url 'hub_email_members_release' %}" class="hub-btn hub-btn--sm" data-draft-release>Draft from latest release</a></p>
+</section>
+{% endif %}
 {# The Who It Reached modal; hub_announcement_recipients loads its body. #}
 {% include "components/modal.html" with modal_id="announcement-recipients" modal_title="Who It Reached" modal_size="lg" %}
 {% endblock %}

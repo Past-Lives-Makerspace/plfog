@@ -1077,7 +1077,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         messages.info(request, registration_closed_message(offering))
         return redirect("classes:public_class_detail", slug=offering.slug)
 
-    # Site-wide kill switch (Site Settings → Features). When class registration is
+    # Site-wide kill switch (Manage Features). When class registration is
     # off, refuse sign-ups regardless of the hidden button (defense in depth).
     from core.models import SiteConfiguration
 

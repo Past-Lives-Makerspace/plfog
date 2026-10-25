@@ -57,7 +57,7 @@ def theme(request: HttpRequest) -> dict[str, str]:
 
 
 def feature_flags(request: HttpRequest) -> dict[str, Any]:
-    """Expose the Site Settings → Features toggles site-wide (members + public).
+    """Expose the Manage Features toggles site-wide (members + public).
 
     ``features`` is every three-state member feature (``core.features``), keyed by feature
     key: templates read ``features.voting.is_on`` / ``.is_soon`` / ``.is_hidden`` / ``.message``.

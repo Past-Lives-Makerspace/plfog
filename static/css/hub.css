@@ -706,7 +706,7 @@ a:hover { color: var(--hub-link-hover); }
 [data-theme="light"] .pl-proposals .hub-pill--danger { color: #b03030; }
 
 /* ========================================
-   Automations dashboard (Site Settings → Automations)
+   Automations dashboard (the Automations page, #922; once a Site Settings tab)
    A card list of scheduled jobs: grid on desktop, stacked with per-region labels on mobile.
    Status is shown with the shared .hub-pill--* family (no new colored pill classes); only
    layout is new here. Colors come from theme tokens — verified in Obsidian + Slate.
@@ -5113,7 +5113,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 
 /* ============================================================================
-   Release-update email composer + preview  (Site Settings → Announcements)
+   Release-update email composer + preview  (the Release Update page, #922)
    Admin-page chrome only — the iframe content is the email itself.
    ========================================================================== */
 .pl-announce-tab {
@@ -11324,7 +11324,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 
 .pl-guild-attention { margin: 0 0 1.25rem; }
 
-/* Site Settings → Features (#405). Same card language as the Automations tab beside it, but
+/* Manage Features (#405, its own page since #922). Same card language as the Automations page, but
    three columns rather than five: a feature has a name, a state, and a message — no schedule,
    no last run, nothing to run now. */
 .pl-automation-card--feature {

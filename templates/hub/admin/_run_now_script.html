@@ -1,0 +1,55 @@
+{% comment %}
+  The Run now and Sync Now loading state, for the page's form[data-run-now-form] (the Automations
+  page and Manage CMS, #922; it was Site Settings' until then). A body script, so it binds to the
+  fresh form on every boosted arrival. Styles are in static/css/site-settings.css.
+{% endcomment %}
+<script>
+  (function () {
+    var form = document.querySelector('form[data-run-now-form]');
+    if (!form) return;
+    // Reacts to ANY [data-run-now] submitter: Manage CMS's "Sync Now" and every Automations
+    // "Run now"/"Sync now" button share this handler.
+    form.addEventListener('submit', function (event) {
+      var btn = event.submitter;
+      if (!btn || !btn.hasAttribute('data-run-now') || btn.disabled) return;
+
+      btn.classList.add('is-syncing');
+      var label = btn.querySelector('.sync-now-label');
+      if (label) label.textContent = 'Working…';
+      // Defer disabling so the button's name=value is still serialized into this submission.
+      setTimeout(function () { btn.disabled = true; }, 0);
+
+      // Manage CMS's Sync Now keeps its richer progress bar (estimate = last run's duration);
+      // the Automations buttons just get the spinner above.
+      if (btn.id !== 'sync-now-btn') return;
+      var wrap = document.getElementById('sync-now-wrap');
+      if (!wrap) return;
+      var prog = wrap.querySelector('.sync-progress');
+      var fill = wrap.querySelector('.sync-progress__fill');
+      var status = wrap.querySelector('.sync-status');
+      prog.hidden = false;
+      status.hidden = false;
+
+      var estimate = parseFloat(wrap.getAttribute('data-estimate'));
+      var t0 = Date.now();
+      function tick() {
+        var s = Math.round((Date.now() - t0) / 1000);
+        var mm = Math.floor(s / 60), ss = s % 60;
+        status.textContent = 'Working… ' + (mm ? mm + 'm ' : '') + ss + 's';
+      }
+      tick();
+      var counter = setInterval(tick, 1000);
+
+      if (estimate && estimate > 0) {
+        // Ease toward 92% over the last run's duration, then hold until the page swaps.
+        fill.style.transitionDuration = estimate + 's';
+        requestAnimationFrame(function () { fill.style.width = '92%'; });
+      } else {
+        fill.classList.add('is-indeterminate');
+      }
+
+      // The boosted response swaps the body; stop the counter so it doesn't dangle.
+      document.addEventListener('htmx:beforeSwap', function () { clearInterval(counter); }, { once: true });
+    });
+  })();
+</script>

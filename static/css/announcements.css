@@ -7,15 +7,12 @@
    more room than the hub's content column has beside the sidebar on a laptop,
    so the card is also a size container and the same stacking applies whenever
    the card itself is narrower than the table needs, whatever the viewport.
-   The tab row copies the few .pl-vote-tabs rules from voting-admin.css rather
-   than loading the voting sheet; the .vote-tab item is styled in hub.css.
+   The tab row is the shared .pl-tabs strip inside {% tab_picker %}, so it is a
+   section picker on a phone; the .vote-tab item is styled in hub.css.
    ------------------------------------------------------------------------- */
 
+/* The row is the shared .pl-tabs strip in {% tab_picker %}, a section picker below 640px. */
 .pl-announcements-tabs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0;
-    border-bottom: 1px solid var(--hub-border);
     margin-bottom: 1.5rem;
 }
 .pl-announcements-tabs .vote-tab {
@@ -268,4 +265,63 @@
     .pl-announcement-facts dd {
         margin-bottom: 0.5rem;
     }
+}
+
+/* --- The Mailing Lists tab of Email Members (hub/announcements.html, #920) */
+
+.pl-mailing-lists__intro {
+    margin: 0;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--hub-border);
+    color: var(--hub-text-muted);
+}
+
+.pl-mailing-lists__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.pl-mailing-lists__row + .pl-mailing-lists__row {
+    border-top: 1px solid var(--hub-border);
+}
+.pl-mailing-lists__link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 0;
+    color: var(--hub-text);
+    text-decoration: none;
+}
+.pl-mailing-lists__row:last-child .pl-mailing-lists__link {
+    padding-bottom: 0;
+}
+.pl-mailing-lists__name {
+    font-weight: 700;
+}
+.pl-mailing-lists__go {
+    flex-shrink: 0;
+    color: var(--hub-link);
+    font-size: 0.875rem;
+}
+.pl-mailing-lists__link:hover .pl-mailing-lists__go {
+    text-decoration: underline;
+}
+
+/* --- The Release Update card on Email Members (#922) ---------------------- */
+
+.pl-release-entry {
+    margin-top: 1.5rem;
+}
+.pl-release-entry__title {
+    margin: 0;
+}
+.pl-release-entry__text {
+    margin: 0.5rem 0 0;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+.pl-release-entry__action {
+    margin-top: 1rem;
 }

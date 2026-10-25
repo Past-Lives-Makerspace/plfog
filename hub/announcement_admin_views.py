@@ -1,4 +1,4 @@
-"""The Announcements section of Admin Tools > Spotlight (#889): the notices in Home's banner.
+"""The Spotlight Messages section of Admin Tools > Spotlight (#889, #920): the notices in Home's banner.
 
 Every view is admin only (``@fog_admin_required``), the Spotlight page's own gate. Add and Edit
 are one dedicated page (``hub/admin/announcement_form.html``); the on and off switch and the
@@ -32,12 +32,12 @@ if TYPE_CHECKING:
 
     from django.contrib.auth.models import User
 
-SAVED_NEW = "Announcement added. It shows on Home while it is live."
-SAVED_EDIT = "Announcement saved."
-DELETED = "Announcement deleted. Members no longer see it."
+SAVED_NEW = "Spotlight message added. It shows on Home while it is live."
+SAVED_EDIT = "Spotlight message saved."
+DELETED = "Spotlight message deleted. Members no longer see it."
 ORDER_SAVED = "Order saved."
-TURNED_ON = "Announcement on."
-TURNED_OFF = "Announcement off. Members no longer see it."
+TURNED_ON = "Spotlight message on."
+TURNED_OFF = "Spotlight message off. Members no longer see it."
 
 
 # The status chip's hub-pill tone.

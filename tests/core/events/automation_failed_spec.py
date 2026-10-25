@@ -99,7 +99,7 @@ def describe_the_alert():
             f"Error: {INCIDENT}\n"
             "You will get at most one alert a day for this automation."
         )
-        assert bell.url == f"{reverse('hub_admin_site_settings')}?tab=automations"
+        assert bell.url == reverse("hub_admin_automations")
 
     def it_emails_plain_text_with_the_full_automations_link(linked_member, pushed):
         holder = _webmaster(linked_member)
@@ -112,8 +112,7 @@ def describe_the_alert():
         assert message.subject == "Class reminder emails failed"
         assert message.body.startswith("It failed on Saturday, October 3 at 6:15 AM Pacific time.\n")
         assert message.body.endswith(
-            "See the run history on the Automations page: "
-            f"{settings.MEMBER_BASE_URL}{reverse('hub_admin_site_settings')}?tab=automations"
+            f"See the run history on the Automations page: {settings.MEMBER_BASE_URL}{reverse('hub_admin_automations')}"
         )
         # No HTML part: nothing renders the branded shell, so nothing loads {% static %}.
         assert getattr(message, "alternatives", []) == []
@@ -126,7 +125,7 @@ def describe_the_alert():
 
         pushed.assert_called_once()
         assert pushed.call_args.kwargs["title"] == "Class reminder emails failed"
-        assert pushed.call_args.kwargs["url"] == f"{reverse('hub_admin_site_settings')}?tab=automations"
+        assert pushed.call_args.kwargs["url"] == reverse("hub_admin_automations")
 
     def it_names_an_unknown_job_by_its_key(linked_member, pushed):
         holder = _webmaster(linked_member)
@@ -225,7 +224,7 @@ def describe_the_hook_in_record_run():
         User.objects.create_superuser(username="runner", email="runner@example.com", password="p")
         client.login(username="runner", password="p")
         with patch("django.core.management.call_command", side_effect=RuntimeError("kaboom")):
-            client.post(reverse("hub_admin_site_settings"), data={"run_job": "send_class_reminders"})
+            client.post(reverse("hub_admin_automations"), data={"run_job": "send_class_reminders"})
         [bell] = _bells(holder)
         assert "\nError: kaboom\n" in bell.body
 

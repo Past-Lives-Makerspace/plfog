@@ -347,4 +347,4 @@ def describe_recipient_checklist_views():
         data = _guild_data(guild, send_email="on", recipients=[f"user:{a.user_id}"])
         response = client.post(reverse("hub_compose_send"), data, follow=True)
         body = response.content.decode()
-        assert "Announcement sent to 1 recipient(s)." in body
+        assert "Email sent to 1 recipient(s)." in body

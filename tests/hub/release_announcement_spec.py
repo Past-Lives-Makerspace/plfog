@@ -1,4 +1,4 @@
-"""BDD specs for the Release-mode announcement composer (form + view wiring)."""
+"""BDD specs for the Release Update composer (form + view wiring), on its own page since #922."""
 
 from __future__ import annotations
 
@@ -113,20 +113,41 @@ def describe_release_compose_view():
     def it_requires_admin(client):
         User.objects.create_user(username="plain", email="p@x.com", password="p")
         client.login(username="plain", password="p")
-        response = client.get(reverse("hub_admin_site_settings") + "?tab=announcements&draft=release")
+        response = client.get(reverse("hub_email_members_release"))
         assert response.status_code == 403
 
-    def it_enters_release_mode_from_the_draft_button(client, release_env):
+    def it_opens_a_prefilled_draft(client, release_env):
         _login_admin(client)
-        response = client.get(reverse("hub_admin_site_settings") + "?tab=announcements&draft=release")
-        assert response.context["release_mode"] is True
+        response = client.get(reverse("hub_email_members_release"))
+        assert response.status_code == 200
         assert b'name="mode" value="release"' in response.content
-        assert b"Plain announcement" in response.content  # link back to the freeform composer
+        assert b"Heads-Up: New Member Portal Features" in response.content
+        assert (
+            f'href="{reverse("hub_announcements")}" class="hub-btn hub-btn--sm hub-btn--ghost" data-release-back'.encode()
+            in response.content
+        )
+
+    def it_treats_a_post_without_a_release_action_as_a_fresh_draft(client, release_env, mailoutbox):
+        _login_admin(client)
+        response = client.post(reverse("hub_email_members_release"), data={"subject": "Typed"})
+        assert response.status_code == 200
+        assert response.context["release_preview"] is None
+        assert response.context["release_form"].is_bound is False
+        assert mailoutbox == []
+
+    def it_lands_a_send_on_email_members(client, release_env):
+        _login_admin(client)
+        MembershipPlanFactory()
+        response = client.post(
+            reverse("hub_email_members_release"),
+            data={"action": "announce_send", "mode": "release", "subject": "Hi", "include_0": "on"},
+        )
+        assert response["Location"] == reverse("hub_announcements")
 
     def it_previews_the_assembled_email_and_excludes_omitted_cards(client, release_env, mailoutbox):
         _login_admin(client)
         response = client.post(
-            reverse("hub_admin_site_settings"),
+            reverse("hub_email_members_release"),
             data={
                 "action": "announce_preview",
                 "mode": "release",
@@ -148,7 +169,7 @@ def describe_release_compose_view():
     def it_swaps_a_card_screenshot_via_the_select(client, release_env):
         _login_admin(client)
         response = client.post(
-            reverse("hub_admin_site_settings"),
+            reverse("hub_email_members_release"),
             data={
                 "action": "announce_preview",
                 "mode": "release",
@@ -166,7 +187,7 @@ def describe_release_compose_view():
     def it_renders_the_upgraded_preview_chrome(client, release_env):
         _login_admin(client)
         response = client.post(
-            reverse("hub_admin_site_settings"),
+            reverse("hub_email_members_release"),
             data={"action": "announce_preview", "mode": "release", "subject": "S", "include_0": "on"},
         )
         body = response.content
@@ -178,7 +199,7 @@ def describe_release_compose_view():
         def it_sends_only_to_the_admin_and_never_consumes_the_real_period(client, release_env, mailoutbox):
             _login_admin(client, email="lead@x.com")
             response = client.post(
-                reverse("hub_admin_site_settings"),
+                reverse("hub_email_members_release"),
                 data={"action": "announce_test", "mode": "release", "subject": "Test", "include_0": "on"},
             )
             assert response.status_code == 200
@@ -191,7 +212,7 @@ def describe_release_compose_view():
             MembershipPlanFactory()
             User.objects.create_user(username="m1", email="m1@x.com", password="p", last_login=timezone.now())
             sent = client.post(
-                reverse("hub_admin_site_settings"),
+                reverse("hub_email_members_release"),
                 data={"action": "announce_send", "mode": "release", "subject": "For real", "include_0": "on"},
             )
             assert sent.status_code == 302
@@ -205,7 +226,7 @@ def describe_release_compose_view():
             User.objects.create_user(username="act", email="act@x.com", password="p", last_login=timezone.now())
             User.objects.create_user(username="never", email="never@x.com", password="p")  # never signed in
             response = client.post(
-                reverse("hub_admin_site_settings"),
+                reverse("hub_email_members_release"),
                 data={"action": "announce_send", "mode": "release", "subject": "What's new", "include_0": "on"},
             )
             assert response.status_code == 302
@@ -223,10 +244,10 @@ def describe_release_compose_view():
             MembershipPlanFactory()
             User.objects.create_user(username="m", email="m@x.com", password="p", last_login=timezone.now())
             data = {"action": "announce_send", "mode": "release", "subject": "v1", "include_0": "on"}
-            first = client.post(reverse("hub_admin_site_settings"), data=data)
+            first = client.post(reverse("hub_email_members_release"), data=data)
             assert first.status_code == 302
             # A corrective resend uses a fresh timestamp period → delivers again (not version-deduped).
-            second = client.post(reverse("hub_admin_site_settings"), data={**data, "subject": "v2 corrected"})
+            second = client.post(reverse("hub_email_members_release"), data={**data, "subject": "v2 corrected"})
             assert second.status_code == 302
             to_member = [m for m in mailoutbox if "m@x.com" in m.to]
             assert len(to_member) == 2
@@ -235,7 +256,7 @@ def describe_release_compose_view():
             def it_re_renders_with_an_error_and_sends_nothing(client, release_env, mailoutbox):
                 _login_admin(client)
                 response = client.post(
-                    reverse("hub_admin_site_settings"),
+                    reverse("hub_email_members_release"),
                     data={"action": "announce_send", "mode": "release", "subject": "Hi"},  # all cards off
                 )
                 assert response.status_code == 200  # re-render, not a redirect

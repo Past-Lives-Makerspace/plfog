@@ -25,9 +25,9 @@ partial alone.
       {% include "components/toggle.html" with field=row.active_form.is_active toggle_label=switch_label %}
       {% endwith %}
     </form>
-    <span class="pl-slide-move" role="group" aria-label="Reorder announcement">
-      <button type="button" class="pl-slide-move__btn" data-move="up" aria-label="Move announcement up">↑</button>
-      <button type="button" class="pl-slide-move__btn" data-move="down" aria-label="Move announcement down">↓</button>
+    <span class="pl-slide-move" role="group" aria-label="Reorder Spotlight message">
+      <button type="button" class="pl-slide-move__btn" data-move="up" aria-label="Move Spotlight message up">↑</button>
+      <button type="button" class="pl-slide-move__btn" data-move="down" aria-label="Move Spotlight message down">↓</button>
     </span>
     <a href="{% url 'hub_admin_announcement_edit' announcement.pk %}" class="pl-btn pl-btn--secondary pl-btn--sm" data-announcement-edit>Edit</a>
     <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'delete-announcement-{{ announcement.pk }}')" data-announcement-delete>Delete</button>
