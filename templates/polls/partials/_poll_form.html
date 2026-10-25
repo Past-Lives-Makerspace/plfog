@@ -22,6 +22,7 @@ open, or a field is wrong) comes back on the same page with what was typed.
     <small class="hub-text-muted">2 to {{ max_choices }} answers.</small>
   </fieldset>
   {% include "components/form_field.html" with field=poll_form.days %}
+  {% include "components/form_field.html" with field=poll_form.allows_write_in %}
   <div class="pl-polls-admin__save">
     <button type="submit" class="pl-btn pl-btn--primary" data-post-poll>Post Poll</button>
   </div>

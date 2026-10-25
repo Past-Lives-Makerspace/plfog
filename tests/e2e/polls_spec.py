@@ -4,7 +4,8 @@ While a poll is open, Home shows a Poll card; a tap on an answer swaps the card 
 in place over htmx (the URL does not change), with the member's answer marked, and a reload
 shows the same. With no poll open there is no Poll card, but the Past Polls quick link is still
 there and opens the page. A guild's lead posts a poll from the guild's Polls tab through the
-real form (answers added in place), and a member votes there in place. Run with ``pytest -m e2e`` on PostgreSQL.
+real form (answers added in place), and a member votes there in place. Where a poll takes them, a
+member writes their own answer on Home and it shows, anonymous, under the counts. Run with ``pytest -m e2e`` on PostgreSQL.
 """
 
 from __future__ import annotations
@@ -105,3 +106,22 @@ def describe_a_guilds_polls_tab():
         expect(open_poll.locator("[data-my-vote]")).to_contain_text("Walnut")
         assert page.url == url
         assert PollVote.objects.count() == 1
+
+
+def describe_writing_your_own_answer():
+    def it_sends_a_written_answer_in_place_as_anonymous(page, live_server, login_via_code):
+        member = _sign_in(login_via_code, "poll-writein-e2e@example.com")
+        poll_with("Laser", "Lathe", question="Zorblax write e2e?", allows_write_in=True)
+        home = f"{live_server.url}{reverse('hub_home')}"
+        page.goto(home)
+
+        card = page.locator(CARD)
+        card.get_by_label("Or write your own answer").fill("A second bandsaw")
+        card.locator("[data-poll-write-in-send]").click()
+
+        written = card.locator("[data-poll-written]")
+        expect(written).to_contain_text("A second bandsaw")
+        expect(written).to_contain_text("Anonymous")
+        assert page.url == home
+        vote = PollVote.objects.get()
+        assert (vote.member, vote.write_in, vote.anonymous) == (member, "A second bandsaw", True)

@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-25"
+title = "Write your own answer in a poll"
+changes = [
+  "Whoever posts a poll can turn on Let members write their own answer.",
+  "On those polls you can write an answer instead of picking one. It counts as your one vote.",
+  "Post anonymously is ticked by default. Untick it to show your name beside your answer.",
+  "Everyone who sees the results sees the written answers under the counts, each with a name or Anonymous.",
+]

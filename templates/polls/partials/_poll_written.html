@@ -1,0 +1,12 @@
+{# A poll's written answers (#925 part 3), oldest first, under its counts. written is a list of polls.models.WrittenAnswer: its text and author, already "Anonymous" when the member asked; no member id or name rides along. #}
+<div class="pl-poll-written" data-poll-written>
+    <h4 class="pl-poll-written__title">Written Answers</h4>
+    <ul class="pl-poll-written__list">
+        {% for answer in written %}
+        <li class="pl-poll-written__item" data-written-answer{% if answer.is_mine %} data-my-written{% endif %}>
+            <p class="pl-poll-written__text">{{ answer.text }}</p>
+            <p class="pl-poll-written__author">{{ answer.author }}{% if answer.is_mine %} <span class="pl-poll-results__mine">Your answer</span>{% endif %}</p>
+        </li>
+        {% endfor %}
+    </ul>
+</div>

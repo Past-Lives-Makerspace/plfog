@@ -5,8 +5,10 @@ that guild's leads, staff, officers or an admin, shown on the guild's Polls tab)
 exactly while ``opens_at <= now < closes_at``, so it closes on its own and nothing has to run for
 that; Close now moves ``closes_at`` to now. Only one poll is open at a time in each scope (site
 wide, or one guild), which :meth:`Poll.post` keeps true (a time range cannot be a unique index):
-posting while one is open there is refused. A member votes once per poll, held by a database constraint. Who voted
-for what is never shown to anyone: pages read counts only. Nothing here notifies anyone.
+posting while one is open there is refused. A member votes once per poll, held by a database
+constraint: by picking an answer, or (#925 part 3, where the poll allows it) by writing their own.
+A picked answer is a count and never shown by name; a written one is listed under the counts with
+the member's name or "Anonymous", as they chose. Nothing here notifies anyone.
 """
 
 from __future__ import annotations
@@ -32,6 +34,8 @@ MAX_DAYS = 60
 DEFAULT_DAYS = 7
 QUESTION_MAX_LENGTH = 200
 ANSWER_MAX_LENGTH = 120
+#: What results show in place of the name of a member who posted a written answer anonymously.
+ANONYMOUS = "Anonymous"
 
 
 class PollAlreadyOpenError(Exception):
@@ -52,6 +56,29 @@ class AlreadyVotedError(VoteRefusedError):
 
 class NotAVoterError(VoteRefusedError):
     """The account has no member, or is a guest (#691) or former member."""
+
+
+class InvalidAnswerError(VoteRefusedError):
+    """Neither or both of a picked and a written answer, a written one this poll does not take, or one too long."""
+
+
+@dataclass(frozen=True)
+class WrittenAnswer:
+    """One written answer as results show it (#925 part 3): its text and who wrote it, or "Anonymous".
+
+    Built only by :meth:`from_vote`, which reads the member's name only when the vote is not
+    anonymous, so an anonymous author's name never reaches a template, attribute or response.
+    """
+
+    text: str
+    author: str
+    is_mine: bool
+
+    @classmethod
+    def from_vote(cls, vote: PollVote, viewer: Member | None) -> WrittenAnswer:
+        """The answer for ``viewer``, marked as theirs when they wrote it."""
+        author = ANONYMOUS if vote.anonymous else vote.member.display_name
+        return cls(text=vote.write_in, author=author, is_mine=viewer is not None and vote.member_id == viewer.pk)
 
 
 @dataclass(frozen=True)
@@ -123,6 +150,10 @@ class Poll(models.Model):
         related_name="polls",
         help_text="The guild that asked, shown on its Polls tab. Blank for a site wide poll on Home.",
     )
+    allows_write_in = models.BooleanField(
+        default=False,
+        help_text="Members may write their own answer instead of picking one (#925 part 3). Set when posted.",
+    )
 
     objects = PollQuerySet.as_manager()
 
@@ -138,9 +169,19 @@ class Poll(models.Model):
 
     @classmethod
     def post(
-        cls, *, question: str, choices: list[str], days: int, by: User, now: datetime, guild: Guild | None = None
+        cls,
+        *,
+        question: str,
+        choices: list[str],
+        days: int,
+        by: User,
+        now: datetime,
+        guild: Guild | None = None,
+        allows_write_in: bool = False,
     ) -> Poll:
         """Open a new poll now, site wide or for ``guild``, unless one is already open there.
+
+        ``allows_write_in`` lets members write their own answer instead of picking one.
 
         A guild's polls never count against the site wide one, nor against another guild's.
         Posts are serialized on the site settings row (site wide) or the guild's row, so two
@@ -181,6 +222,7 @@ class Poll(models.Model):
                 closes_at=now + timedelta(days=days),
                 created_by=by,
                 guild=guild,
+                allows_write_in=allows_write_in,
             )
             PollChoice.objects.bulk_create(
                 PollChoice(poll=poll, text=text, position=index) for index, text in enumerate(answers)
@@ -204,18 +246,37 @@ class Poll(models.Model):
             self.save(update_fields=["closes_at"])
 
     def results(self) -> list[ChoiceResult]:
-        """Every answer in order with its votes and percent, in one query."""
-        return tally(self.choices.annotate(vote_count=Count("votes")).order_by("position"))
+        """Every answer in order with its votes and percent of all votes (written ones too), in two queries."""
+        written = self.votes.filter(choice__isnull=True).count()
+        return tally(self.choices.annotate(vote_count=Count("votes")).order_by("position"), written=written)
 
-    def vote(self, *, member: Member | None, choice_pk: int, now: datetime) -> PollVote:
-        """Record ``member``'s one vote for the answer ``choice_pk``: the single way a vote is cast.
+    def written_answers(self, viewer: Member | None = None) -> list[WrittenAnswer]:
+        """The written answers, oldest first, each with its author or "Anonymous" (one query, none without write-ins)."""
+        if not self.allows_write_in:
+            return []
+        return [WrittenAnswer.from_vote(vote, viewer) for vote in self.votes.written().select_related("member")]
 
-        Goes through ``PollVote.save`` (never a bulk insert), so the cross-poll guard runs, and
-        turns the one-vote constraint's race into :class:`AlreadyVotedError`, not a 500.
+    def vote(
+        self,
+        *,
+        member: Member | None,
+        now: datetime,
+        choice_pk: int | None = None,
+        write_in: str = "",
+        anonymous: bool = True,
+    ) -> PollVote:
+        """Record ``member``'s one vote: the single way a vote is cast.
+
+        Exactly one of ``choice_pk`` (a picked answer) and ``write_in`` (their own words, where
+        the poll allows it; ``anonymous`` decides whether results show their name). Goes through
+        ``PollVote.save`` (never a bulk insert), so the cross-poll guard runs, and turns the
+        one-vote constraint's race into :class:`AlreadyVotedError`, not a 500.
 
         Raises:
             NotAVoterError: No member, a guest or a former member.
             PollClosedError: The poll is not open at ``now``.
+            InvalidAnswerError: Neither or both answers, a written answer this poll does not take,
+                or one longer than ``ANSWER_MAX_LENGTH``.
             AlreadyVotedError: This member already voted here.
             PollChoice.DoesNotExist: ``choice_pk`` is not an answer to this poll.
         """
@@ -224,12 +285,22 @@ class Poll(models.Model):
         assert member is not None  # can_vote refused None
         if not self.is_open(now):
             raise PollClosedError("This poll has closed.")
-        choice = self.choices.get(pk=choice_pk)
+        written = write_in.strip()
+        if (choice_pk is None) == (not written):
+            raise InvalidAnswerError("Pick an answer or write your own.")
+        if written and not self.allows_write_in:
+            raise InvalidAnswerError("This poll takes picked answers only.")
+        if len(written) > ANSWER_MAX_LENGTH:
+            raise InvalidAnswerError(f"Keep your answer to {ANSWER_MAX_LENGTH} characters or fewer.")
+        vote = PollVote(poll=self, member=member, write_in=written, anonymous=anonymous)
+        if choice_pk is not None:
+            vote.choice = self.choices.get(pk=choice_pk)
         try:
             with transaction.atomic():
-                return PollVote.objects.create(poll=self, choice=choice, member=member)
+                vote.save()
         except IntegrityError as error:
             raise AlreadyVotedError("You already voted in this poll.") from error
+        return vote
 
 
 class PollChoice(models.Model):
@@ -247,20 +318,53 @@ class PollChoice(models.Model):
         return self.text
 
 
+class PollVoteQuerySet(models.QuerySet["PollVote"]):
+    def written(self) -> PollVoteQuerySet:
+        """Written answers (#925 part 3), oldest first."""
+        return self.filter(choice__isnull=True).order_by("created_at", "pk")
+
+
 class PollVote(models.Model):
-    """A member's one answer to one poll. Counted, never shown by name."""
+    """A member's one answer to one poll: a picked answer, counted and never shown by name, or a written one.
+
+    A written answer (#925 part 3) is listed under the counts with the member's name, or
+    "Anonymous" when ``anonymous`` is set. A vote has exactly one of ``choice`` and ``write_in``.
+    """
 
     poll = models.ForeignKey(Poll, on_delete=models.CASCADE, related_name="votes", help_text="The poll voted in.")
     choice = models.ForeignKey(
-        PollChoice, on_delete=models.CASCADE, related_name="votes", help_text="The answer chosen."
+        PollChoice,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="votes",
+        help_text="The answer picked. Blank for a written answer.",
+    )
+    write_in = models.CharField(
+        max_length=ANSWER_MAX_LENGTH,
+        blank=True,
+        default="",
+        help_text="The member's own answer, where the poll allows it. Blank for a picked answer.",
+    )
+    anonymous = models.BooleanField(
+        default=True,
+        help_text="Show a written answer as Anonymous rather than with the member's name.",
     )
     member = models.ForeignKey(
         "membership.Member", on_delete=models.CASCADE, related_name="poll_votes", help_text="Who voted."
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the vote was cast.")
 
+    objects = PollVoteQuerySet.as_manager()
+
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["poll", "member"], name="pollvote_one_per_member")]
+        constraints = [
+            models.UniqueConstraint(fields=["poll", "member"], name="pollvote_one_per_member"),
+            models.CheckConstraint(
+                condition=(Q(choice__isnull=False) & Q(write_in="")) | (Q(choice__isnull=True) & ~Q(write_in="")),
+                name="pollvote_choice_xor_write_in",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"Vote in poll {self.poll_id}"
@@ -269,22 +373,27 @@ class PollVote(models.Model):
         """Take the poll from the choice, refusing a choice from another poll.
 
         ``poll`` is kept beside ``choice`` because the one-vote-per-member constraint needs it,
-        so the two must never disagree.
+        so the two must never disagree. A written answer has no choice and keeps its poll.
 
         Raises:
             ValueError: ``poll`` is set and is not the choice's poll.
         """
-        if self.poll_id is None:
-            self.poll_id = self.choice.poll_id
-        elif self.poll_id != self.choice.poll_id:
-            raise ValueError(f"Answer {self.choice_id} belongs to poll {self.choice.poll_id}, not poll {self.poll_id}.")
+        choice = self.choice
+        if choice is not None:
+            if self.poll_id is None:
+                self.poll_id = choice.poll_id
+            elif self.poll_id != choice.poll_id:
+                raise ValueError(f"Answer {choice.pk} belongs to poll {choice.poll_id}, not poll {self.poll_id}.")
         super().save(*args, **kwargs)
 
 
-def tally(choices: models.QuerySet[PollChoice] | list[PollChoice]) -> list[ChoiceResult]:
-    """Turn choices annotated with ``vote_count`` into results whose percents use the poll's total."""
+def tally(choices: models.QuerySet[PollChoice] | list[PollChoice], written: int = 0) -> list[ChoiceResult]:
+    """Turn choices annotated with ``vote_count`` into results whose percents use the poll's total.
+
+    The total counts ``written`` answers too, so a picked answer's percent is its share of every vote.
+    """
     rows = list(choices)
-    total = sum(row.vote_count for row in rows)  # type: ignore[attr-defined]
+    total = sum(row.vote_count for row in rows) + written  # type: ignore[attr-defined]
     return [
         ChoiceResult(
             pk=row.pk,
@@ -308,10 +417,11 @@ def can_vote(member: Member | None) -> bool:
 
 @dataclass(frozen=True)
 class PollCard:
-    """One poll as one member sees it: the tally, their own answer, and whether to offer choices.
+    """One poll as one member sees it: the tally, the written answers, their own answer, and whether to offer choices.
 
     Built for a page of polls at once by :meth:`for_polls`, so a page costs two queries however
-    many polls it shows. The same card renders on Home, a guild's Polls tab and Past Polls.
+    many polls it shows, and a third when any of them takes written answers. The same card
+    renders on Home, a guild's Polls tab and Past Polls.
     """
 
     poll: Poll
@@ -319,20 +429,31 @@ class PollCard:
     my_choice_pk: int | None
     is_open: bool
     can_vote: bool
+    has_voted: bool = False
+    written: tuple[WrittenAnswer, ...] = ()
 
     @property
     def total_votes(self) -> int:
-        """Votes cast in this poll."""
-        return sum(result.votes for result in self.results)
+        """Votes cast in this poll, written answers included."""
+        return sum(result.votes for result in self.results) + len(self.written)
 
     @property
     def shows_choices(self) -> bool:
         """Offer the answers as buttons: open, a voter, and not voted yet. Otherwise show results."""
-        return self.is_open and self.can_vote and self.my_choice_pk is None
+        return self.is_open and self.can_vote and not self.has_voted
+
+    @property
+    def offers_write_in(self) -> bool:
+        """Offer the write your own box beside the answers, where the poll allows it."""
+        return self.shows_choices and self.poll.allows_write_in
 
     @classmethod
     def for_polls(cls, polls: list[Poll], member: Member | None, now: datetime) -> list[PollCard]:
-        """Cards for ``polls`` in their order: one query for every tally, one for this member's votes."""
+        """Cards for ``polls`` in their order.
+
+        One query for every tally, one for this member's votes, and one for the written answers
+        of the polls that take them (none when no poll does).
+        """
         ids = [poll.pk for poll in polls]
         rows = (
             PollChoice.objects.filter(poll_id__in=ids).annotate(vote_count=Count("votes")).order_by("poll", "position")
@@ -340,17 +461,24 @@ class PollCard:
         by_poll: dict[int, list[PollChoice]] = {pk: [] for pk in ids}
         for row in rows:
             by_poll[row.poll_id].append(row)
-        mine: dict[int, int] = {}
+        mine: dict[int, int | None] = {}
         if member is not None:
             mine = dict(PollVote.objects.filter(member=member, poll_id__in=ids).values_list("poll_id", "choice_id"))
+        written: dict[int, list[WrittenAnswer]] = {pk: [] for pk in ids}
+        write_in_ids = [poll.pk for poll in polls if poll.allows_write_in]
+        if write_in_ids:
+            for vote in PollVote.objects.filter(poll_id__in=write_in_ids).written().select_related("member"):
+                written[vote.poll_id].append(WrittenAnswer.from_vote(vote, member))
         voter = can_vote(member)
         return [
             cls(
                 poll=poll,
-                results=tally(by_poll[poll.pk]),
+                results=tally(by_poll[poll.pk], written=len(written[poll.pk])),
                 my_choice_pk=mine.get(poll.pk),
                 is_open=poll.is_open(now),
                 can_vote=voter,
+                has_voted=poll.pk in mine,
+                written=tuple(written[poll.pk]),
             )
             for poll in polls
         ]

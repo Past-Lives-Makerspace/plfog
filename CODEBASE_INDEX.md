@@ -60,7 +60,7 @@ Those nine plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Oth
 - `SiteActivity` — cross-app activity/audit feed
 
 ### polls
-- `Poll` / `PollChoice` / `PollVote` — a question, its 2 to 6 answers and one anonymous vote per member; `Poll.guild` (blank is site wide); `Poll.post` refuses while one is open in that scope, `PollCard` is one poll as one member sees it, `GuildPolls` a guild's Polls tab
+- `Poll` / `PollChoice` / `PollVote` — a question, its 2 to 6 answers and one anonymous vote per member; `Poll.guild` (blank is site wide); `Poll.post` refuses while one is open in that scope, `PollCard` is one poll as one member sees it, `GuildPolls` a guild's Polls tab; written answers (`allows_write_in`, `PollVote.write_in`, named or Anonymous) where the poll takes them
 ### hq
 - `EventHub` / `HubCard` / `HubGoal` — the Holiday Bizarre HQ: the one open hub, its door cards (kind, audience, Can open and Team, hidden) and its goal chips; `hq.services.goal_rows` counts the live kinds
 ### classes (book CMS — `book.` subdomain)
