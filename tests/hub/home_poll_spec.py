@@ -10,8 +10,10 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
+from hub.home import build_home_context
+from membership.models import Member
 from polls.models import Poll
-from tests.membership.factories import MembershipPlanFactory
+from tests.membership.factories import MemberFactory, MembershipPlanFactory
 from tests.polls.factories import PollVoteFactory, poll_with
 
 pytestmark = pytest.mark.django_db
@@ -85,6 +87,29 @@ def describe_the_past_polls_link():
 
         assert "data-quicklink-past-polls" in html
         assert "data-poll-past-link" in html
+
+    def it_is_left_out_for_an_account_that_cannot_open_past_polls(member_client: Client, monkeypatch):
+        # The lockout middleware keeps guests and former members off Home, so the template's
+        # gate is proven by switching the shared rule off for a member who can reach the page.
+        monkeypatch.setattr("hub.home.can_vote", lambda member: False)
+
+        html = member_client.get(HOME).content.decode()
+
+        assert "data-quicklink-past-polls" not in html
+        assert f'href="{PAST_POLLS}" class="pl-quicklink"' not in html
+
+
+def describe_can_vote_polls():
+    @pytest.mark.parametrize(
+        ("status", "allowed"),
+        [
+            (Member.Status.ACTIVE, True),
+            (Member.Status.GUEST, False),
+            (Member.Status.FORMER, False),
+        ],
+    )
+    def it_follows_the_rule_past_polls_enforces(status: str, allowed: bool):
+        assert build_home_context(MemberFactory(status=status))["can_vote_polls"] is allowed
 
 
 def describe_the_spotlight():
