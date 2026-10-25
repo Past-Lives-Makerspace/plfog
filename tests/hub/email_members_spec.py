@@ -1,4 +1,4 @@
-"""Email Members (#920) and its Release Update card (#922): the Admin Tools cards, Manage Mailing Lists."""
+"""Email Members (#920) and its Release Update card (#922): the Admin Tools cards, the Mailing Lists tab."""
 
 from __future__ import annotations
 
@@ -32,6 +32,10 @@ def _preview_as_member(client: Client) -> None:
     session.save()
 
 
+def _tab_url() -> str:
+    return f"{reverse('hub_announcements')}?tab=mailing-lists"
+
+
 def _list_url(guild) -> str:
     return f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements#mailing-list"
 
@@ -48,7 +52,7 @@ def describe_the_admin_tools_cards():
         user = _login_user(client, "em_lead")
         GuildFactory(guild_lead=user.member)  # type: ignore[attr-defined]
         html = client.get(reverse("hub_admin_tools")).content.decode()
-        assert f'href="{reverse("hub_mailing_lists")}" data-tool-mailing-lists' in html
+        assert f'href="{_tab_url()}" data-tool-mailing-lists' in html
 
     def it_hides_manage_mailing_lists_from_an_instructor_who_runs_no_guild(client: Client):
         user = _login_user(client, "em_teacher")
@@ -71,53 +75,95 @@ def describe_the_admin_tools_cards():
         assert "data-tool-mailing-lists" in html
 
 
-def describe_manage_mailing_lists():
-    def it_sends_someone_who_runs_one_guild_straight_to_its_list(client: Client):
+def describe_the_mailing_lists_tab():
+    def it_lists_the_one_guild_a_lead_runs(client: Client):
         user = _login_user(client, "ml_one")
         guild = GuildFactory(guild_lead=user.member)  # type: ignore[attr-defined]
-        response = client.get(reverse("hub_mailing_lists"))
-        assert response.status_code == 302
-        assert response["Location"] == _list_url(guild)
+        response = client.get(_tab_url())
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert response.context["mailing_lists"] == [(guild, _list_url(guild))]
+        assert 'aria-current="page" data-announcements-tab="mailing-lists">Mailing Lists' in html
+        assert f'href="{_list_url(guild)}" class="pl-mailing-lists__link" data-mailing-list-guild="{guild.pk}"' in html
 
-    def it_offers_a_picker_to_a_staffer_with_two_guilds(client: Client):
+    def it_lists_a_staffers_two_guilds_by_name(client: Client):
         user = _login_user(client, "ml_two")
         led = GuildFactory(name="Bronze Guild", guild_lead=user.member)  # type: ignore[attr-defined]
         staffed = GuildFactory(name="Alder Guild")
         GuildStaffMembershipFactory(guild=staffed, member=user.member)  # type: ignore[attr-defined]
         GuildFactory(name="Copper Guild")  # someone else's
-        response = client.get(reverse("hub_mailing_lists"))
-        assert response.status_code == 200
+        response = client.get(_tab_url())
         html = response.content.decode()
-        assert [guild for guild, _url in response.context["rows"]] == [staffed, led]
-        assert (
-            f'href="{_list_url(staffed)}" class="pl-mailing-lists__link" data-mailing-list-guild="{staffed.pk}"' in html
-        )
+        assert [guild for guild, _url in response.context["mailing_lists"]] == [staffed, led]
         assert html.count("data-mailing-list-guild=") == 2
+        assert 'data-announcements-count="mailing-lists">2</span>' in html
 
     def it_lists_every_active_guild_for_an_admin(client: Client):
         _login_admin(client)
         first = GuildFactory(name="Alpha Guild")
         second = GuildFactory(name="Beta Guild")
         GuildFactory(name="Gone Guild", is_active=False)
-        response = client.get(reverse("hub_mailing_lists"))
-        assert [guild for guild, _url in response.context["rows"]] == [first, second]
+        response = client.get(_tab_url())
+        assert [guild for guild, _url in response.context["mailing_lists"]] == [first, second]
 
-    def it_sends_someone_who_runs_no_guild_home_with_a_message(client: Client):
+    def it_keeps_drafts_and_sent_beside_it(client: Client):
+        user = _login_user(client, "ml_tabs")
+        GuildFactory(guild_lead=user.member)  # type: ignore[attr-defined]
+        html = client.get(_tab_url()).content.decode()
+        assert 'data-announcements-tab="drafts"' in html
+        assert 'data-announcements-tab="sent"' in html
+        assert "data-announcements-table" not in html
+
+    def it_is_not_offered_to_an_instructor_who_runs_no_guild(client: Client):
+        user = _login_user(client, "ml_teacher")
+        member = user.member  # type: ignore[attr-defined]
+        member.instructor_slug = "ml-teacher"
+        member.save(update_fields=["instructor_slug"])
+        response = client.get(_tab_url())
+        html = response.content.decode()
+        assert response.context["tab"] == "drafts"
+        assert 'data-announcements-tab="mailing-lists"' not in html
+        assert "data-mailing-lists" not in html
+
+    def it_gives_an_officer_on_no_guild_staff_the_tab_alone(client: Client):
+        user = _login_user(client, "ml_officer")
+        member = user.member  # type: ignore[attr-defined]
+        member.fog_role = Member.FogRole.GUILD_OFFICER
+        member.save(update_fields=["fog_role"])
+        member.sync_user_permissions()
+        guild = GuildFactory()
+        response = client.get(reverse("hub_announcements"))
+        html = response.content.decode()
+        assert response.status_code == 200
+        assert response.context["tab"] == "mailing-lists"
+        assert f'data-mailing-list-guild="{guild.pk}"' in html
+        assert 'data-announcements-tab="drafts"' not in html
+        assert "New email" not in html
+
+    def it_still_refuses_someone_who_runs_no_guild_and_cannot_email(client: Client):
         _login_user(client, "ml_none")
-        response = client.get(reverse("hub_mailing_lists"), follow=True)
-        assert response.redirect_chain[-1][0] == reverse("hub_home")
-        assert [str(m) for m in response.context["messages"]] == [
-            "You don't help run a guild, so there is no mailing list to manage."
-        ]
+        response = client.get(_tab_url())
+        assert response.status_code == 302
+        assert response["Location"] == reverse("hub_guild_announcement_propose")
 
     def it_scopes_an_admin_previewing_as_a_member_to_the_guild_they_lead(client: Client):
         user = _login_admin(client, "ml_preview")
         led = GuildFactory(name="Own Guild", guild_lead=user.member)  # type: ignore[attr-defined]
         GuildFactory(name="Other Guild")
         _preview_as_member(client)
+        response = client.get(_tab_url())
+        assert response.context["mailing_lists"] == [(led, _list_url(led))]
+
+    def it_hides_the_release_update_card_on_this_tab(client: Client):
+        _login_admin(client)
+        GuildFactory()
+        assert "data-release-entry" not in client.get(_tab_url()).content.decode()
+
+    def it_sends_the_old_manage_mailing_lists_address_to_the_tab(client: Client):
+        _login_user(client, "ml_old")
         response = client.get(reverse("hub_mailing_lists"))
         assert response.status_code == 302
-        assert response["Location"] == _list_url(led)
+        assert response["Location"] == _tab_url()
 
     def it_gives_the_list_an_anchor_in_guild_settings(client: Client):
         user = _login_user(client, "ml_anchor")

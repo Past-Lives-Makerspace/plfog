@@ -5486,10 +5486,15 @@ def hub_compose_delete_draft(request: HttpRequest, draft_pk: int) -> HttpRespons
 
 @login_required
 def announcements_overview(request: HttpRequest) -> HttpResponse:
-    """The Announcements page: every draft and every sent announcement this request may see.
+    """The Email Members page: every draft and every sent email this request may see, and the
+    guilds whose mailing lists it may manage.
 
-    Two tabs by query string, ``?tab=drafts`` (the default, and the reading of any other value)
-    and ``?tab=sent``, server rendered so links, Back and pagination work. Rows come from
+    Three tabs by query string, ``?tab=drafts`` (the default, and the reading of any other value),
+    ``?tab=sent`` and ``?tab=mailing-lists`` (#920), server rendered so links, Back and pagination
+    work. Mailing Lists shows when :func:`membership.permissions.manageable_guilds` is not empty,
+    and each row opens that guild's Your Mailing List card in Guild Settings. Someone who has a
+    mailing list but may not see Drafts or Sent (an officer on no guild's staff) gets that tab
+    alone. Rows come from
     :func:`_announcement_rows` (admins see every row; leads, staff and instructors see their
     audiences'). Drafts sort by last edit; Sent by when it went out or was queued
     (``Coalesce(sent_at, send_requested_at)``), so a queued row heads the list. The Sent tab reads
@@ -5504,10 +5509,26 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
     from classes.table import prepare_table
 
     member = _get_member(request)
-    if not _can_open_announcements(request, member):
+    can_open = _can_open_announcements(request, member)
+    guilds = list(manageable_guilds(request))
+    if not can_open and not guilds:
         messages.error(request, _compose_refusal_message(request))
         return redirect("hub_guild_announcement_propose")
-    tab = "sent" if request.GET.get("tab") == "sent" else "drafts"
+    asked = request.GET.get("tab")
+    if guilds and (asked == "mailing-lists" or not can_open):
+        return render(
+            request,
+            "hub/announcements.html",
+            {
+                **_get_hub_context(request),
+                "tab": "mailing-lists",
+                "can_open": can_open,
+                "mailing_lists": [(guild, _mailing_list_url(guild)) for guild in guilds],
+                "drafts_count": _announcement_rows(request, member).resumable().count() if can_open else 0,
+                "sent_count": _announcement_rows(request, member).sent_or_sending().count() if can_open else 0,
+            },
+        )
+    tab = "sent" if asked == "sent" else "drafts"
     rows = _announcement_rows(request, member).select_related(
         "guild", "class_offering", "author__member", "funding_snapshot"
     )
@@ -5540,6 +5561,8 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
             "base_params": table["base_params"],
             "drafts_count": drafts.count(),
             "sent_count": sent.count(),
+            "can_open": True,
+            "mailing_lists": [(guild, _mailing_list_url(guild)) for guild in guilds],
             # The release update composer moved here from Site Settings (#922); admins only.
             "can_send_release": _viewing_as_admin(request),
         },
@@ -5548,24 +5571,8 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
 
 @login_required
 def manage_mailing_lists(request: HttpRequest) -> HttpResponse:
-    """Manage Mailing Lists (#920): open the Your Mailing List card of a guild the viewer may edit.
-
-    The guilds are :func:`membership.permissions.manageable_guilds`, the gate on Guild Settings
-    itself: every active guild for an admin or officer, the guilds a lead or staffer helps run
-    otherwise. One guild goes straight to its Guild Settings' Email Members tab, several get a
-    short picker, and none goes home with a message.
-    """
-    guilds = list(manageable_guilds(request))
-    if not guilds:
-        messages.error(request, "You don't help run a guild, so there is no mailing list to manage.")
-        return redirect("hub_home")
-    if len(guilds) == 1:
-        return redirect(_mailing_list_url(guilds[0]))
-    return render(
-        request,
-        "hub/mailing_lists.html",
-        {**_get_hub_context(request), "rows": [(guild, _mailing_list_url(guild)) for guild in guilds]},
-    )
+    """The old Manage Mailing Lists page, now the Mailing Lists tab of Email Members (#920)."""
+    return redirect(f"{reverse('hub_announcements')}?tab=mailing-lists")
 
 
 def _mailing_list_url(guild: Guild) -> str:

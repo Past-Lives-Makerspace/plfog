@@ -1644,7 +1644,7 @@ The full walkthrough — including push notifications, the urgent switch, and te
 
 ### Your Mailing List
 
-The **Email Members** tab shows exactly who your emails reach. **Admin Tools → Manage Mailing Lists** opens it too: straight to your guild's list, or a short list of guilds to pick from if you help run more than one. Guild members are on the list automatically. You can add custom addresses too (a booster, a partner org) one at a time or by importing a CSV or text file, one email per line.
+The **Email Members** tab shows exactly who your emails reach. The **Mailing Lists** tab of **Email Members** opens it too (Admin Tools → Manage Mailing Lists goes straight there), listing each guild you help run. Guild members are on the list automatically. You can add custom addresses too (a booster, a partner org) one at a time or by importing a CSV or text file, one email per line.
 
 ![The Email Members tab: your mailing list, the Write an email button, and recent announcements.](/static/help/guild-announcements/02-announcements-tab.png)
 

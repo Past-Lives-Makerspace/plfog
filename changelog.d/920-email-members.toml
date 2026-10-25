@@ -3,6 +3,6 @@ date = "2026-10-23"
 title = "Email Members, Mailing Lists and Spotlight messages"
 changes = [
   "The tool for emailing a class, a guild or everyone is now called Email Members. It still posts to Discord and sends an app notification.",
-  "A new Manage Mailing Lists card opens your guild's mailing list directly.",
+  "Email Members has a Mailing Lists tab that opens your guild's mailing list, and a Manage Mailing Lists card goes straight to it.",
   "The short rotating notices on Home and in the Spotlight are now called Spotlight messages.",
 ]

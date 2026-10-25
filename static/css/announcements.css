@@ -11,11 +11,8 @@
    than loading the voting sheet; the .vote-tab item is styled in hub.css.
    ------------------------------------------------------------------------- */
 
+/* The row is the shared .pl-tabs strip in {% tab_picker %}, a section picker below 640px. */
 .pl-announcements-tabs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0;
-    border-bottom: 1px solid var(--hub-border);
     margin-bottom: 1.5rem;
 }
 .pl-announcements-tabs .vote-tab {
@@ -270,7 +267,14 @@
     }
 }
 
-/* --- Manage Mailing Lists (hub/mailing_lists.html, #920) ----------------- */
+/* --- The Mailing Lists tab of Email Members (hub/announcements.html, #920) */
+
+.pl-mailing-lists__intro {
+    margin: 0;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--hub-border);
+    color: var(--hub-text-muted);
+}
 
 .pl-mailing-lists__list {
     list-style: none;
@@ -288,9 +292,6 @@
     padding: 1rem 0;
     color: var(--hub-text);
     text-decoration: none;
-}
-.pl-mailing-lists__row:first-child .pl-mailing-lists__link {
-    padding-top: 0;
 }
 .pl-mailing-lists__row:last-child .pl-mailing-lists__link {
     padding-bottom: 0;

@@ -150,8 +150,8 @@ def describe_the_page():
         AnnouncementDraftFactory(audience=_GUILD, guild=other)
         AnnouncementDraftFactory(sent=True)
         html = _page(client)
-        assert '<span class="hub-badge" data-announcements-count="drafts">2</span>' in html
-        assert '<span class="hub-badge" data-announcements-count="sent">1</span>' in html
+        assert '<span class="hub-badge vote-tab__count" data-announcements-count="drafts">2</span>' in html
+        assert '<span class="hub-badge vote-tab__count" data-announcements-count="sent">1</span>' in html
 
     def describe_the_empty_states():
         def it_says_there_are_no_drafts_and_shows_no_table(client: Client):
