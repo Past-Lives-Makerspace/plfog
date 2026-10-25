@@ -20,7 +20,7 @@ def forget_polls_content_types(apps: Any, schema_editor: Any) -> None:
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("core", "0122_scheduledtaskrun_trigger_command"),
+        ("core", "0123_scheduledjobstate_cadence"),
         ("contenttypes", "0002_remove_content_type_name"),
     ]
 
