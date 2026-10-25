@@ -341,6 +341,12 @@
     border-top: 1px solid var(--hub-input-border);
 }
 
+/* The written answer stops at a readable width (FRONTEND.md rule 28). */
+.pl-poll-card__field {
+    width: 100%;
+    max-width: 520px;
+}
+
 .pl-poll-card__send {
     align-self: flex-start;
 }

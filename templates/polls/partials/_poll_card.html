@@ -42,7 +42,7 @@ under the counts with each author's name or "Anonymous".
         <input type="hidden" name="next" value="{{ next_url }}">
         {% if variant %}<input type="hidden" name="variant" value="{{ variant }}">{% endif %}
         {{ form.shown }}
-        {% include "components/form_field.html" with field=form.write_in %}
+        <div class="pl-poll-card__field">{% include "components/form_field.html" with field=form.write_in %}</div>
         {% include "components/form_field.html" with field=form.anonymous field_hint="Turn off to show your name beside your answer." %}
         <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-poll-card__send" data-poll-write-in-send>Send My Answer</button>
     </form>
