@@ -439,7 +439,8 @@ def describe_equipment_index():
             # plus the one query the Manage Bookings sidebar gate adds to every hub page (#768),
             # plus the one the Holiday Bizarre sidebar entry adds (HQ card sharing),
             # plus the Spotlight's second query, its live announcements (#890).
-            with django_assert_num_queries(43):
+            # 42 since Guild Tools (#921): the sidebar's tools entry asks about leads and staff in one EXISTS.
+            with django_assert_num_queries(42):
                 assert client.get(url).status_code == 200
 
         def it_answers_an_empty_grid_without_the_member_lookups(django_assert_num_queries):
