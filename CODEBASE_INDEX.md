@@ -122,6 +122,7 @@ Those nine plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Oth
 /account/                       Book CMS account area (classes.account)
 /hq/                            The Holiday Bizarre HQ: 302 to the open hub's page (/hq/<slug>/, public); /hq/new/, /hq/<slug>/edit/ and /hq/<slug>/cards/<pk>/edit/ for admins
 /kiln/                          Kiln tickets (a guest's home; members land on the Ceramics Guild page's ?tab=kiln; /kiln/load/, /kiln/unload/, /kiln/log/, /kiln/lists/ for the crew and admins)
+/tools/                         Admin Tools for admins, Guild Tools for guild officers, leads and staff (#912, #921; hub/guild_tools.py)
 /manage/spotlight/              Admin Tools > Spotlight (#708): announcements, Spotlight text and meeting with a preview
 /manage/site-settings/          Site Settings: Brand, General, Calendar, Emails, Discord
 /manage/member-agreement/, /manage/features/, /manage/cms/, /manage/automations/

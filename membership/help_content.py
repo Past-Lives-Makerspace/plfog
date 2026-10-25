@@ -853,7 +853,7 @@ All four are covered in [Run Your Class](/help/teaching/run-your-class/).
 
 **Reach further:**
 
-- **Email your class**: open **Admin Tools** in the sidebar, then **Email Members** and **New email**, and pick one of your published classes as the recipient group. Everyone registered for it gets it in the app, by push, and by email. See [Email Members](/help/running-a-guild/announcement-composer/). (Admin Tools shows up once an admin has given you the Instructor role. Ask if you don't see it.)
+- **Email your class**: open **Admin Tools** in the sidebar (**Guild Tools** if you also help run a guild), then **Email Members** and **New email**, and pick one of your published classes as the recipient group. Everyone registered for it gets it in the app, by push, and by email. See [Email Members](/help/running-a-guild/announcement-composer/). (Admin Tools shows up once an admin has given you the Instructor role. Ask if you don't see it.)
 - **Your public instructor page**: with the Instructor role, the catalog links your bio and your classes from every class you teach.
 
 ### The Ground Rules {#instructor-ground-rules}
@@ -1036,7 +1036,7 @@ Discount codes are created by admins. Want one for your class — a percent off,
 
 ### Email Your Whole Class {#teach-announce-class}
 
-For bigger news, like a schedule change or a supply list, use Email Members: open **Admin Tools** in the sidebar, then **Email Members** and **New email**. Your published classes appear as audiences, and it reaches every registrant in the app, by push notification on their phones, and by email. The [Email Members](/help/running-a-guild/announcement-composer/) guide walks the whole tool. (Admin Tools appears once an admin has given you the Instructor role.)
+For bigger news, like a schedule change or a supply list, use Email Members: open **Admin Tools** in the sidebar (**Guild Tools** if you also help run a guild), then **Email Members** and **New email**. Your published classes appear as audiences, and it reaches every registrant in the app, by push notification on their phones, and by email. The [Email Members](/help/running-a-guild/announcement-composer/) guide walks the whole tool. (Admin Tools appears once an admin has given you the Instructor role.)
 
 ### The Waitlist
 
@@ -1342,7 +1342,7 @@ Open your guild's page and click **Guild Settings**. Every tool below lives on o
 
 - **Approve classes** — when a class is submitted in your guild's category, you're the first gate before the admin. See [Approving Classes](/help/running-a-guild/approving-classes/).
 
-The tools you'll reach for most, Email Members, Manage Mailing Lists and Orientations, are also collected under **Admin Tools**, in the sidebar and on your Home page.
+The tools you'll reach for most are also collected under **Guild Tools**, in the sidebar and on your Home page: your guild's Guild Settings, Orientations, Reservations and Events, then Email Members, Manage Mailing Lists, Registrations (once your guild has a class) and Orientation Bookings. If you help run more than one guild, pick which one at the top of the page.
 
 ### The One Rule Worth Repeating {#guild-lead-staff-rule}
 
@@ -1644,7 +1644,7 @@ The full walkthrough — including push notifications, the urgent switch, and te
 
 ### Your Mailing List
 
-The **Email Members** tab shows exactly who your emails reach. The **Mailing Lists** tab of **Email Members** opens it too (Admin Tools → Manage Mailing Lists goes straight there), listing each guild you help run. Guild members are on the list automatically. You can add custom addresses too (a booster, a partner org) one at a time or by importing a CSV or text file, one email per line.
+The **Email Members** tab shows exactly who your emails reach. The **Mailing Lists** tab of **Email Members** opens it too (Guild Tools → Manage Mailing Lists goes straight there; admins find it in Admin Tools), listing each guild you help run. Guild members are on the list automatically. You can add custom addresses too (a booster, a partner org) one at a time or by importing a CSV or text file, one email per line.
 
 ![The Email Members tab: your mailing list, the Write an email button, and recent announcements.](/static/help/guild-announcements/02-announcements-tab.png)
 
@@ -1710,11 +1710,11 @@ One tool, **Email Members**, sends your message everywhere it needs to go: the n
 - **Guild leads and staff** can send to the guilds they help run.
 - **Instructors** can send to the roster of any published class they teach. (Admins reach a class's roster from that class's page and its **Send Email** button.)
 
-Ways in: **Admin Tools → Email Members** opens the Email Members page, where **New email** starts one. The other ways in are the **Email Members** button on your guild page and the **Send Email** button on class pages (those arrive already aimed at that guild or class), and **Write an email** on your guild's Email Members tab in Guild Settings.
+Ways in: **Guild Tools → Email Members** (Admin Tools for admins and instructors) opens the Email Members page, where **New email** starts one. The other ways in are the **Email Members** button on your guild page and the **Send Email** button on class pages (those arrive already aimed at that guild or class), and **Write an email** on your guild's Email Members tab in Guild Settings.
 
 ### Drafts and Sent Emails {#composer-drafts}
 
-**Admin Tools → Email Members** opens the Email Members page. It has two tabs.
+**Email Members** in Guild Tools or Admin Tools opens the Email Members page. It has two tabs.
 
 ![The Email Members page: drafts waiting to go out, and the Sent tab beside them.](/static/help/announcement-composer/03-announcements-page.png)
 

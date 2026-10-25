@@ -274,11 +274,15 @@ def describe_admin_tools_sections():
         _login_superuser(client, "sections_help_key")
         assert 'class="pl-tools-sections" data-help-key="admin.tools-grid"' in _tools_grid(client)
 
-    def it_gives_a_guild_lead_only_the_tools_section(client: Client):
-        _login_guild_lead(client, "sections_lead")
-        sections = _sections(client)
-        assert [key for key, _, _ in sections] == ["tools"]
-        assert sections[0][2] == ["Email Members", "Manage Mailing Lists", "Orientations"]
+    def it_gives_a_guild_lead_their_guild_then_tools_then_reports(client: Client):
+        # #921: a guild lead sees Guild Tools; Orientations moves to Reports as Orientation Bookings.
+        user = _login_guild_lead(client, "sections_lead")
+        guild_name = user.member.led_guilds.get().name  # type: ignore[attr-defined]
+        assert _sections(client) == [
+            ("guild", guild_name, ["Guild Settings", "Orientations", "Reservations", "Events"]),
+            ("tools", "Tools", ["Email Members", "Manage Mailing Lists"]),
+            ("reports", "Reports", ["Orientation Bookings"]),
+        ]
 
     def it_gives_a_billing_approver_only_the_reports_section_without_growth(client: Client):
         _login_billing_approver(client, "sections_biller")
@@ -296,6 +300,7 @@ def describe_admin_tools_sections():
 
         def it_shows_a_section_when_any_one_of_its_cards_shows():
             assert admin_tool_sections(_flags({"tool_locations"})) == {
+                "guild": False,
                 "manage": False,
                 "tools": False,
                 "reports": False,
@@ -304,7 +309,7 @@ def describe_admin_tools_sections():
 
         def it_hides_every_section_when_no_card_shows():
             assert admin_tool_sections(_flags(set())) == dict.fromkeys(
-                ("manage", "tools", "reports", "webmaster"), False
+                ("guild", "manage", "tools", "reports", "webmaster"), False
             )
 
         def it_refuses_flags_missing_a_card():
