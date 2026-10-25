@@ -77,12 +77,14 @@ def describe_a_guilds_polls_tab():
 
         page.locator("[data-guild-poll-toggle]").click()
         form = page.locator("[data-guild-polls-tab] [data-new-poll-form]")
-        form.locator('input[name="question"]').fill("Zorblax which finish?")
+        form.locator('textarea[name="question"]').fill("Zorblax which finish?")
         answers = form.locator('input[name="choice"]')
         answers.nth(0).fill("Oil")
         answers.nth(1).fill("Wax")
         form.locator("[data-add-choice]").click()
         form.locator('input[name="choice"]').nth(2).fill("Shellac")
+        form.locator("[data-poll-lengths]").get_by_text("2 weeks").click()
+        expect(form.locator("[data-compose-closes]")).to_contain_text("Closes ")
         form.locator("[data-post-poll]").click()
 
         open_poll = page.locator("[data-guild-open-poll]")
@@ -90,6 +92,7 @@ def describe_a_guilds_polls_tab():
         poll = Poll.objects.get()
         assert poll.guild == guild
         assert [choice.text for choice in poll.choices.all()] == ["Oil", "Wax", "Shellac"]
+        assert poll.closes_at - poll.opens_at == timedelta(days=14)
 
     def it_lets_a_member_vote_in_place_on_the_tab(page, live_server, login_via_code):
         _sign_in(login_via_code, "poll-guild-voter-e2e@example.com")

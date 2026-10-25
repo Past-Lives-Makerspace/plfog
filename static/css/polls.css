@@ -199,26 +199,6 @@
     color: var(--hub-text);
 }
 
-.pl-polls-admin__form {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
-
-/* Fields are sized to what they hold (FRONTEND.md rule 28): text to one shared width, the day count to a few digits. */
-.pl-polls-admin__field {
-    width: 100%;
-    max-width: 520px;
-}
-
-.pl-polls-admin__field--number input {
-    width: 6rem;
-}
-
-.pl-polls-admin__save {
-    margin-top: 0.5rem;
-}
-
 .pl-polls-admin__question {
     margin: 0;
     font-family: var(--font-heading);
@@ -230,47 +210,6 @@
 .pl-polls-admin__meta {
     margin: -0.25rem 0 0;
     font-size: 0.875rem;
-}
-
-.pl-polls-admin__choices {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-    margin: 0;
-    padding: 0;
-    border: none;
-}
-
-/* The legend and hint match form_field.html's label and hint beside it. */
-.pl-polls-admin__choices legend {
-    margin-bottom: 0.375rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--hub-text-muted);
-}
-
-.pl-polls-admin__choices small {
-    font-size: 0.8125rem;
-}
-
-.pl-polls-admin__choice {
-    display: flex;
-    gap: 0.5rem;
-    width: 100%;
-    max-width: 520px;
-}
-
-.pl-polls-admin__input {
-    flex: 1;
-    min-width: 0;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--hub-input-border);
-    border-radius: 6px;
-    background-color: var(--hub-input-bg);
-    color: var(--hub-text);
-    font-family: var(--font-body);
-    font-size: 0.9rem;
 }
 
 .pl-polls-admin__errors {
@@ -308,11 +247,19 @@
     gap: 1rem;
 }
 
-.pl-guild-polls__form {
+/* Ask the Guild: its bar card, then the composer opening under it. */
+.pl-guild-polls__ask {
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    margin-top: 0.5rem;
+}
+
+.pl-guild-polls__ask > .hub-card {
+    margin-bottom: 0;
+}
+
+.pl-guild-polls__form {
+    display: block;
 }
 
 .pl-guild-polls__heading {
@@ -328,4 +275,158 @@
 /* The Open Poll's Close Now keeps its own width rather than the column's. */
 .pl-guild-polls .pl-polls-admin > .pl-btn {
     align-self: flex-start;
+}
+
+/* ---- The New Poll composer (#925, mockups/925-poll-composer.html) ---- */
+/* The composer is the poll card: dashed gold edge, the poll on the left, the settings rail beside it from 860px. */
+.pl-poll-compose {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    max-width: 960px;
+    border: 1px dashed var(--color-tuscan-yellow);
+    border-radius: 12px;
+    background-color: var(--hub-card-bg);
+}
+@media (min-width: 860px) {
+    .pl-poll-compose { grid-template-columns: minmax(0, 1fr) 300px; }
+    .pl-poll-compose__rail { border-top: none; border-left: 1px solid var(--hub-input-border); }
+}
+.pl-poll-compose__poll {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1.5rem;
+}
+.pl-poll-compose__eyebrow {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+.pl-poll-compose__status {
+    padding: 0.0625rem 0.5rem;
+    border-radius: 999px;
+    border: 1px dashed var(--color-tuscan-yellow);
+    color: var(--hub-link);
+    font-weight: 700;
+}
+/* The question is typed where it will show: the card's own heading, no box. */
+.pl-poll-compose__question {
+    width: 100%;
+    padding: 0.25rem 0;
+    border: none;
+    border-bottom: 2px solid var(--hub-input-border);
+    background: transparent;
+    color: var(--hub-text);
+    font-family: var(--font-heading);
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1.3;
+    resize: none;
+    field-sizing: content;
+    min-height: 2.2rem;
+}
+.pl-poll-compose__question:focus { outline: none; border-bottom-color: var(--color-tuscan-yellow); }
+.pl-poll-compose__question::placeholder,
+.pl-poll-compose__answer input::placeholder { color: var(--hub-text-muted); opacity: 0.7; }
+/* Each answer is typed into the pill members will tap. */
+.pl-poll-compose__answers { display: flex; flex-direction: column; gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
+.pl-poll-compose__answer {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--hub-input-border);
+    border-radius: 8px;
+    background-color: var(--hub-surface);
+}
+.pl-poll-compose__answer:focus-within { border-color: var(--color-tuscan-yellow); }
+.pl-poll-compose__answer input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.625rem 0.875rem;
+    border: none;
+    background: transparent;
+    color: var(--hub-text);
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+}
+.pl-poll-compose__answer input:focus { outline: none; }
+.pl-poll-compose__remove {
+    margin-right: 0.375rem;
+    padding: 0.25rem 0.5rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--hub-text-muted);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+.pl-poll-compose__remove:hover, .pl-poll-compose__remove:focus-visible { color: var(--hub-text); background-color: var(--hub-input-border); }
+.pl-poll-compose__add {
+    padding: 0.625rem 0.875rem;
+    border: 1px dashed var(--hub-input-border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--hub-link);
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+.pl-poll-compose__add:hover, .pl-poll-compose__add:focus-visible { border-color: var(--color-tuscan-yellow); }
+/* With write in on, the poll shows the box members will get, inert. */
+.pl-poll-compose__writein {
+    padding: 0.625rem 0.875rem;
+    border: 1px dashed var(--hub-input-border);
+    border-radius: 8px;
+    color: var(--hub-text-muted);
+    font-size: 0.9rem;
+}
+/* The settings rail. */
+.pl-poll-compose__rail {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    border-top: 1px solid var(--hub-input-border);
+}
+.pl-poll-compose__label { margin: 0 0 0.5rem; font-size: 0.875rem; font-weight: 600; color: var(--hub-text-muted); }
+.pl-poll-compose__lengths { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+.pl-poll-compose__length { position: relative; }
+.pl-poll-compose__length input { position: absolute; opacity: 0; pointer-events: none; }
+.pl-poll-compose__length span {
+    display: inline-block;
+    padding: 0.375rem 0.75rem;
+    border: 1px solid var(--hub-input-border);
+    border-radius: 999px;
+    color: var(--hub-text);
+    font-size: 0.8125rem;
+    cursor: pointer;
+}
+.pl-poll-compose__length input:checked + span { border-color: var(--color-tuscan-yellow); background-color: rgba(238, 180, 75, 0.18); color: var(--hub-link); font-weight: 700; }
+.pl-poll-compose__length input:focus-visible + span { outline: 2px solid var(--color-tuscan-yellow); outline-offset: 2px; }
+.pl-poll-compose__closes { margin: 0.625rem 0 0; font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-poll-compose__closes strong { color: var(--hub-text); font-weight: 600; }
+.pl-poll-compose__post { margin-top: auto; }
+.pl-poll-compose__post .pl-btn { width: 100%; justify-content: center; }
+
+/* Admin Tools > Polls: the composer stands as its own card in the page's column of cards. */
+.pl-polls-compose-slot {
+    margin-bottom: 1.5rem;
+}
+
+.pl-poll-compose__note {
+    margin: 0;
+    font-size: 0.875rem;
+}
+
+/* The composer's errors read at the top of the poll column. */
+.pl-poll-compose .pl-polls-admin__errors {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
 }

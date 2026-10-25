@@ -1,21 +1,20 @@
 {% comment %}
 A guild's Polls tab (#925 part 2). polls is polls.models.GuildPolls (open card, past cards);
 can_post is can_edit_guild for this viewer (leads, staff, officers and admins), the only people
-who see New Poll and Close Now. The New Poll form starts closed behind its button. Any member
+who see New Poll and Close Now. The New Poll composer starts closed behind its button, under the Ask the Guild bar. Any member
 who can vote does so in place, as on Home. Past Polls (every closed poll, site wide and guild)
 is linked at the foot.
 {% endcomment %}
 <div class="pl-guild-polls" data-guild-polls-tab>
   {% if can_post %}
-  <div class="hub-card pl-polls-admin" data-guild-poll-post x-data="{ open: false }">
-    <div class="pl-guild-polls__bar">
+  <div class="pl-guild-polls__ask" data-guild-poll-post x-data="{ open: false }">
+    <div class="hub-card pl-guild-polls__bar">
       <h2 class="pl-polls-admin__title">Ask the Guild</h2>
       <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="open = !open" :aria-expanded="open" x-text="open ? 'Cancel' : 'New Poll'" data-guild-poll-toggle>New Poll</button>
     </div>
     <div x-show="open" x-cloak class="pl-guild-polls__form">
-      {% if polls.open %}<p class="hub-text-muted" data-new-poll-blocked>A poll is open. Close it before posting a new one.</p>{% endif %}
       {% url 'polls:guild_new' guild.slug as form_action %}
-      {% include "polls/partials/_poll_form.html" with form_action=form_action %}
+      {% include "polls/partials/_poll_form.html" with form_action=form_action blocked=polls.open %}
     </div>
   </div>
   {% endif %}
