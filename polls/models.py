@@ -28,6 +28,24 @@ MAX_CHOICES = 6
 MIN_DAYS = 1
 MAX_DAYS = 60
 DEFAULT_DAYS = 7
+
+
+class RunLength(models.IntegerChoices):
+    """How long a poll runs, as the New Poll composer's Runs for chips offer it (#925)."""
+
+    ONE_DAY = 1, "1 day"
+    THREE_DAYS = 3, "3 days"
+    ONE_WEEK = 7, "1 week"
+    TWO_WEEKS = 14, "2 weeks"
+    THIRTY_DAYS = 30, "30 days"
+
+
+def closes_label(moment: datetime) -> str:
+    """A closing time in Portland: ``Tue, Oct 13 at 2:11 PM``. The composer's live line writes the same."""
+    local = timezone.localtime(moment)
+    return f"{local:%a}, {local:%b} {local.day} at {local.hour % 12 or 12}:{local.minute:02d} {local:%p}"
+
+
 QUESTION_MAX_LENGTH = 200
 ANSWER_MAX_LENGTH = 120
 
@@ -159,8 +177,7 @@ class Poll(models.Model):
     @property
     def closes_label(self) -> str:
         """When voting ends, in Portland time: ``Tue, Oct 13 at 2:11 PM``."""
-        local = timezone.localtime(self.closes_at)
-        return f"{local:%a}, {local:%b} {local.day} at {local.hour % 12 or 12}:{local.minute:02d} {local:%p}"
+        return closes_label(self.closes_at)
 
     def is_open(self, now: datetime) -> bool:
         """Whether members can vote at ``now``."""

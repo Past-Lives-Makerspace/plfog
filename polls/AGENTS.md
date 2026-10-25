@@ -23,7 +23,7 @@ Polls (#708) were removed in #890 and came back in #925, on Home and (part 2) on
 | `polls:index` | `/polls/` | Past Polls: every closed poll, newest first, ten a page, with counts and the member's own answer. Exists whether or not a poll is open; 403 for an account that cannot vote. |
 | `polls:vote` | `/polls/<pk>/vote/` | POST only. Over HTMX it answers the card (`polls/partials/_poll_card.html`, `variant` "" or "home") with a toast; a plain post redirects to `next` (ours only), else Home. |
 | `polls:admin` | `/polls/manage/` | Admin Tools > Polls (`@fog_admin_required`): the open poll with Close now, the New Poll form, the Past Polls table (`prepare_table`, sortable). |
-| `polls:admin_new` | `/polls/manage/new/` | Post a poll (`polls.forms.NewPollForm`). Invalid or refused posts re-render the page at 200 with what was typed, because a boosted 4xx becomes a fresh GET. |
+| `polls:admin_new` | `/polls/manage/new/` | Post a poll from the New Poll composer (`polls.forms.NewPollForm`, `polls/partials/_poll_form.html`, the approved `mockups/925-poll-composer.html`: the composer is the poll card, Runs for is one of the five `RunLength` chips, its Closes line uses `closes_label`, the same words the server writes). Invalid or refused posts re-render the page at 200 with what was typed, because a boosted 4xx becomes a fresh GET. |
 | `polls:admin_close` | `/polls/manage/<pk>/close/` | Close now. |
 | `polls:admin_poll` | `/polls/manage/<pk>/` | One poll's results, counts only. |
 
