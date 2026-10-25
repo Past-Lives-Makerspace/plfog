@@ -1,8 +1,9 @@
-"""SiteSettingsForm and SlideshowSettingsForm — where the signage_* fields live now.
+"""The forms over the SiteConfiguration singleton, and which page each field lives on.
 
 The three global signage fields LEFT SiteSettingsForm when the Slideshow admin became its
 own page. They live on SlideshowSettingsForm alongside the self-building block switches,
-and are deliberately not duplicated across the two forms.
+and are deliberately not duplicated across the two forms. The Member Agreement, Manage
+Features, Manage CMS and Automations pages took their fields the same way in #922.
 """
 
 from __future__ import annotations
@@ -12,7 +13,14 @@ from django.contrib.auth.models import User
 from django.test import Client
 
 from core.models import SiteConfiguration
-from hub.forms import SiteSettingsForm, SlideshowSettingsForm
+from hub.forms import (
+    AutomationsForm,
+    ManageCmsForm,
+    ManageFeaturesForm,
+    MemberAgreementSettingsForm,
+    SiteSettingsForm,
+    SlideshowSettingsForm,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -43,9 +51,41 @@ _DESTINATION_FIELDS = [
 _RETIRED = {"signage_event_qr"}
 
 
-def describe_SiteSettingsForm_features():
+def describe_ManageFeaturesForm():
     def it_declares_the_public_member_directory_toggle():
-        assert "member_directory_public" in SiteSettingsForm.Meta.fields
+        assert "member_directory_public" in ManageFeaturesForm.Meta.fields
+        assert "member_directory_public" not in SiteSettingsForm.Meta.fields
+
+
+def describe_the_pages_split_from_site_settings():
+    """Each page's form writes its own columns and no others (#922)."""
+
+    _SLICES = [MemberAgreementSettingsForm, ManageFeaturesForm, ManageCmsForm, AutomationsForm]
+
+    @pytest.mark.parametrize("form_class", _SLICES)
+    def it_shares_no_field_with_site_settings(form_class) -> None:
+        assert set(form_class.Meta.fields) & set(SiteSettingsForm.Meta.fields) == set()
+
+    def it_never_puts_back_a_setting_another_page_changed_meanwhile() -> None:
+        # Two admins: one loads Manage CMS, the other saves Site Settings' org name, then the
+        # first saves. A whole row save from the stale copy would revert the org name.
+        stale = SiteConfiguration.load()
+        fresh = SiteConfiguration.load()
+        fresh.org_name = "Changed Elsewhere"
+        fresh.save()
+        form = ManageCmsForm({"instructor_discount_codes_enabled": "on"}, instance=stale)
+        assert form.is_valid(), form.errors
+        form.save()
+        config = SiteConfiguration.load()
+        assert config.org_name == "Changed Elsewhere"
+        assert config.instructor_discount_codes_enabled is True
+
+    def it_writes_nothing_when_asked_not_to_commit() -> None:
+        form = AutomationsForm({"legacy_cms_sync_enabled": "on"}, instance=SiteConfiguration.load())
+        assert form.is_valid(), form.errors
+        instance = form.save(commit=False)
+        assert instance.legacy_cms_sync_enabled is True
+        assert SiteConfiguration.load().legacy_cms_sync_enabled is False
 
 
 def describe_SiteSettingsForm_signage():
@@ -111,63 +151,76 @@ def describe_SlideshowSettingsForm():
         assert config.signage_show_classes is False
 
 
-def describe_SiteSettingsForm_member_agreement():
-    @pytest.fixture
-    def required_settings() -> dict[str, str]:
-        return {
-            "org_name": "Past Lives Makerspace",
-            "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
-            "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
-            "late_cancel_notice_hours": "24",
-            "late_cancel_grace_hours": "2",
-        }
+def describe_model_errors_on_fields_a_form_lacks():
+    """Each page keeps the model's errors it can show and drops those on another page's fields (#922)."""
 
-    def it_fails_clean_if_required_but_no_url(required_settings: dict[str, str]) -> None:
-        data = {
-            **required_settings,
-            "member_agreement_required": "on",
-            "member_agreement_url": "",
-        }
-        form = SiteSettingsForm(data)
+    from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
+
+    def _bound() -> ManageCmsForm:
+        form = ManageCmsForm({}, instance=SiteConfiguration.load())
+        form.is_valid()
+        return form
+
+    def it_drops_an_error_on_another_pages_field_and_keeps_its_own() -> None:
+        form = _bound()
+        form._update_errors(
+            ValidationError({"member_agreement_url": "elsewhere", "instructor_discount_codes_enabled": "mine"})
+        )
+        assert dict(form.errors) == {"instructor_discount_codes_enabled": ["mine"]}
+
+    def it_keeps_a_non_field_error_in_a_dict() -> None:
+        form = _bound()
+        form._update_errors(ValidationError({NON_FIELD_ERRORS: "whole row", "member_agreement_url": "elsewhere"}))
+        assert form.non_field_errors() == ["whole row"]
+        assert "member_agreement_url" not in form.errors
+
+    def it_keeps_a_plain_error_with_no_field() -> None:
+        form = _bound()
+        form._update_errors(ValidationError("whole row"))
+        assert form.non_field_errors() == ["whole row"]
+
+    def it_adds_nothing_when_every_error_belongs_elsewhere() -> None:
+        form = _bound()
+        form._update_errors(ValidationError({"member_agreement_url": "elsewhere"}))
+        assert form.is_valid()
+
+    def it_keeps_the_model_error_where_the_field_is() -> None:
+        form = MemberAgreementSettingsForm({}, instance=SiteConfiguration.load())
+        form.is_valid()
+        form._update_errors(ValidationError({"member_agreement_url": "here"}))
+        assert form.errors["member_agreement_url"] == ["here"]
+
+
+def describe_MemberAgreementSettingsForm():
+    def it_fails_clean_if_required_but_no_url() -> None:
+        form = MemberAgreementSettingsForm({"member_agreement_required": "on", "member_agreement_url": ""})
         assert not form.is_valid()
         assert set(form.errors) == {"member_agreement_url"}
+        # The form's own message first; the model's clean() repeats the rule after it.
+        assert form.errors["member_agreement_url"][0] == "A URL is required if the agreement is enabled."
 
-    def it_passes_clean_if_required_and_url_provided(required_settings: dict[str, str]) -> None:
-        data = {
-            **required_settings,
-            "member_agreement_required": "on",
-            "member_agreement_url": "https://example.com",
-        }
-        form = SiteSettingsForm(data)
+    def it_passes_clean_if_required_and_url_provided() -> None:
+        form = MemberAgreementSettingsForm(
+            {"member_agreement_required": "on", "member_agreement_url": "https://example.com"}
+        )
         assert form.is_valid(), form.errors
 
-    def it_passes_clean_if_not_required(required_settings: dict[str, str]) -> None:
-        data = {
-            **required_settings,
-            "member_agreement_required": "",
-            "member_agreement_url": "",
-        }
-        form = SiteSettingsForm(data)
+    def it_passes_clean_if_not_required() -> None:
+        form = MemberAgreementSettingsForm({"member_agreement_required": "", "member_agreement_url": ""})
         assert form.is_valid(), form.errors
 
 
-def describe_SiteSettingsForm_late_cancel_fees():
-    """The switch and the window on the Features card (#456, part 1)."""
+def describe_ManageFeaturesForm_late_cancel_fees():
+    """The switch and the window on Manage Features (#456, part 1; its own page since #922)."""
 
     def _data(**overrides: str) -> dict[str, str]:
-        data = {
-            "org_name": "Past Lives Makerspace",
-            "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
-            "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
-            "late_cancel_notice_hours": "24",
-            "late_cancel_grace_hours": "2",
-        }
+        data = {"late_cancel_notice_hours": "24", "late_cancel_grace_hours": "2"}
         data.update(overrides)
         return data
 
     def it_declares_the_switch_and_the_window():
         for name in ("late_cancel_fees_enabled", "late_cancel_notice_hours", "late_cancel_grace_hours"):
-            assert name in SiteSettingsForm.Meta.fields
+            assert name in ManageFeaturesForm.Meta.fields
 
     def it_ships_off_with_a_day_of_notice_and_two_hours_of_grace():
         config = SiteConfiguration.load()
@@ -176,7 +229,7 @@ def describe_SiteSettingsForm_late_cancel_fees():
         assert config.late_cancel_grace_hours == 2
 
     def it_saves_the_three_onto_the_singleton():
-        form = SiteSettingsForm(
+        form = ManageFeaturesForm(
             _data(late_cancel_fees_enabled="on", late_cancel_notice_hours="48", late_cancel_grace_hours="4"),
             instance=SiteConfiguration.load(),
         )
@@ -191,42 +244,54 @@ def describe_SiteSettingsForm_late_cancel_fees():
         config = SiteConfiguration.load()
         config.late_cancel_fees_enabled = True
         config.save()
-        form = SiteSettingsForm(_data(), instance=config)
+        form = ManageFeaturesForm(_data(), instance=config)
         assert form.is_valid(), form.errors
         form.save()
         assert SiteConfiguration.load().late_cancel_fees_enabled is False
 
     def it_refuses_a_notice_under_an_hour():
-        form = SiteSettingsForm(_data(late_cancel_notice_hours="0", late_cancel_grace_hours="0"))
+        form = ManageFeaturesForm(_data(late_cancel_notice_hours="0", late_cancel_grace_hours="0"))
         assert not form.is_valid()
         assert set(form.errors) == {"late_cancel_notice_hours"}
         assert "at least 1 hour" in str(form.errors["late_cancel_notice_hours"])
 
+    def it_accepts_a_notice_of_exactly_an_hour():
+        form = ManageFeaturesForm(_data(late_cancel_notice_hours="1", late_cancel_grace_hours="0"))
+        assert form.is_valid(), form.errors
+
     def it_refuses_a_grace_equal_to_the_notice():
-        form = SiteSettingsForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours="24"))
+        form = ManageFeaturesForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours="24"))
         assert not form.is_valid()
         assert set(form.errors) == {"late_cancel_grace_hours"}
         assert "shorter than the notice" in str(form.errors["late_cancel_grace_hours"])
 
     def it_refuses_a_grace_longer_than_the_notice():
-        form = SiteSettingsForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours="30"))
+        form = ManageFeaturesForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours="30"))
         assert not form.is_valid()
         assert set(form.errors) == {"late_cancel_grace_hours"}
 
     def it_accepts_no_grace_at_all():
-        form = SiteSettingsForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours="0"))
+        form = ManageFeaturesForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours="0"))
+        assert form.is_valid(), form.errors
+
+    def it_accepts_a_grace_an_hour_under_the_notice():
+        form = ManageFeaturesForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours="23"))
         assert form.is_valid(), form.errors
 
     def it_requires_both_hours():
         # Blank hours are the field's own required error; the window check stays quiet.
-        form = SiteSettingsForm(_data(late_cancel_notice_hours="", late_cancel_grace_hours=""))
+        form = ManageFeaturesForm(_data(late_cancel_notice_hours="", late_cancel_grace_hours=""))
         assert set(form.errors) == {"late_cancel_notice_hours", "late_cancel_grace_hours"}
         assert "required" in str(form.errors["late_cancel_grace_hours"])
 
     def it_requires_the_grace_without_judging_a_missing_one():
-        form = SiteSettingsForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours=""))
+        form = ManageFeaturesForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours=""))
         assert set(form.errors) == {"late_cancel_grace_hours"}
         assert "shorter than the notice" not in str(form.errors["late_cancel_grace_hours"])
+
+    def it_judges_no_grace_against_a_missing_notice():
+        form = ManageFeaturesForm(_data(late_cancel_notice_hours="", late_cancel_grace_hours="5"))
+        assert set(form.errors) == {"late_cancel_notice_hours"}
 
 
 def describe_member_agreement_fields() -> None:
@@ -246,7 +311,7 @@ def describe_member_agreement_fields() -> None:
 
     @pytest.mark.parametrize("name", _AGREEMENT_FIELDS)
     def it_offers_every_agreement_field(name: str) -> None:
-        assert name in SiteSettingsForm(instance=SiteConfiguration.load()).fields
+        assert name in MemberAgreementSettingsForm(instance=SiteConfiguration.load()).fields
 
     def it_saves_a_released_version() -> None:
         """Saved through the form rather than the model, so a missing field fails this.
@@ -255,29 +320,25 @@ def describe_member_agreement_fields() -> None:
         validates, not that anything was stored (PastLivesReviewBot, #493).
         """
         config = SiteConfiguration.load()
-        form = SiteSettingsForm(instance=config)
-        data = {k: v for k, v in form.initial.items() if v is not None}
-        data.update(
-            {
-                "member_agreement_required": "on",
-                "member_agreement_url": "https://kb.example.test/doc/policies-membership-agreement/",
-                "member_agreement_version": "2.4.0",
-            }
-        )
-        bound = SiteSettingsForm(data=data, instance=config)
+        data = {
+            "member_agreement_required": "on",
+            "member_agreement_url": "https://kb.example.test/doc/policies-membership-agreement/",
+            "member_agreement_version": "2.4.0",
+        }
+        bound = MemberAgreementSettingsForm(data=data, instance=config)
         assert bound.is_valid(), bound.errors
         bound.save()
 
         assert SiteConfiguration.objects.get(pk=config.pk).member_agreement_version == "2.4.0"
 
-    def it_renders_the_version_beside_the_url(client: Client, admin_user: User) -> None:
-        """Rendered by hand next to the URL, so it must also be excluded from the generic loop —
-        get that wrong and the input appears twice."""
+    def it_renders_the_version_right_after_the_url(client: Client, admin_user: User) -> None:
+        """The two are read together: the version names the edition published at the URL."""
         from django.urls import reverse
 
         client.force_login(admin_user)
-        html = client.get(reverse("hub_admin_site_settings")).content.decode()
+        html = client.get(reverse("hub_admin_member_agreement")).content.decode()
         assert html.count('name="member_agreement_version"') == 1
+        assert html.index('name="member_agreement_url"') < html.index('name="member_agreement_version"')
         # Not asserting the explanatory note is absent from the page. A multi-line {# #} renders
         # as visible text and this spec would sail past it — but tests/template_comment_lint_spec.py
         # already catches that repo-wide, for every template, with a self-test of its own

@@ -123,6 +123,9 @@ Those nine plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Oth
 /hq/                            The Holiday Bizarre HQ: 302 to the open hub's page (/hq/<slug>/, public); /hq/new/, /hq/<slug>/edit/ and /hq/<slug>/cards/<pk>/edit/ for admins
 /kiln/                          Kiln tickets (a guest's home; members land on the Ceramics Guild page's ?tab=kiln; /kiln/load/, /kiln/unload/, /kiln/log/, /kiln/lists/ for the crew and admins)
 /manage/spotlight/              Admin Tools > Spotlight (#708): announcements, Spotlight text and meeting with a preview
+/manage/site-settings/          Site Settings: Brand, General, Calendar, Emails, Discord
+/manage/member-agreement/, /manage/features/, /manage/cms/, /manage/automations/
+                                Member Agreement, Manage Features, Manage CMS, Automations (#922; Site Settings tabs until then)
 /manage/bookings/               Manage Bookings (#768): the one home for everyone who runs orientations or equipment; /orientations/manage/ 302s here
 ```
 

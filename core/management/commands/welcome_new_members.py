@@ -1,6 +1,6 @@
 """Email new paying, active Airtable members their first sign-in link (a welcome).
 
-Off by default — an admin switches it on from Site Settings → Automations. When on, it runs daily
+Off by default — an admin switches it on from the Automations page. When on, it runs daily
 (~6 AM Portland) via ``run_scheduled_tasks``. For each candidate
 (:meth:`membership.models.MemberQuerySet.awaiting_welcome_email`) it calls
 :meth:`membership.models.Member.send_welcome_email`, which provisions the member's passwordless

@@ -41,6 +41,15 @@
         <span class="pl-tool-card__desc">Add, edit, and review members and their roles.</span>
       </a>
       {% endif %}
+      {% if tool_member_agreement %}
+      <a class="hub-card pl-tool-card" href="{% url 'hub_admin_member_agreement' %}" data-tool-member-agreement>
+        <span class="pl-tool-card__icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        </span>
+        <span class="pl-tool-card__title">Member Agreement</span>
+        <span class="pl-tool-card__desc">Whether members must accept the agreement before using the portal, its link and its edition.</span>
+      </a>
+      {% endif %}
       {% if tool_instructor_inquiries %}
       <a class="hub-card pl-tool-card" href="{% url 'classes:admin_instructor_inquiries' %}">
         <span class="pl-tool-card__icon">
@@ -58,12 +67,22 @@
     <h2 class="hub-detail-label pl-tools-section__title" id="tools-section-tools">Tools</h2>
     <div class="pl-tools-grid">
       {% if tool_announcements %}
-      <a class="hub-card pl-tool-card" href="{% url 'hub_announcements' %}">
+      <a class="hub-card pl-tool-card" href="{% url 'hub_announcements' %}" data-tool-email-members>
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
         </span>
-        <span class="pl-tool-card__title">Announcements</span>
-        <span class="pl-tool-card__desc">Write, save, and look back on announcements to a class, a guild, or the whole makerspace.</span>
+        <span class="pl-tool-card__title">Email Members</span>
+        <span class="pl-tool-card__desc">Email a class, a guild or everyone, post it to Discord and send an app notification.</span>
+        <span class="hub-pill hub-pill--neutral pl-tool-card__formerly" data-formerly-announcements>Formerly called Announcements</span>
+      </a>
+      {% endif %}
+      {% if tool_mailing_lists %}
+      <a class="hub-card pl-tool-card" href="{% url 'hub_announcements' %}?tab=mailing-lists" data-tool-mailing-lists>
+        <span class="pl-tool-card__icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+        </span>
+        <span class="pl-tool-card__title">Manage Mailing Lists</span>
+        <span class="pl-tool-card__desc">Who your guild's emails reach: its members, plus the addresses you add or import.</span>
       </a>
       {% endif %}
       {% if tool_push_test %}
@@ -90,7 +109,7 @@
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/></svg>
         </span>
         <span class="pl-tool-card__title">Spotlight</span>
-        <span class="pl-tool-card__desc">Announcements, the next Feature Request Meeting and its short text.</span>
+        <span class="pl-tool-card__desc">Spotlight messages, the next Feature Request Meeting and its short text.</span>
       </a>
       {% endif %}
       {% if tool_polls %}
@@ -171,12 +190,39 @@
     <h2 class="hub-detail-label pl-tools-section__title" id="tools-section-webmaster">Webmaster</h2>
     <div class="pl-tools-grid">
       {% if tool_site_settings %}
-      <a class="hub-card pl-tool-card" href="{% url 'hub_admin_site_settings' %}">
+      <a class="hub-card pl-tool-card" href="{% url 'hub_admin_site_settings' %}" data-tool-site-settings>
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </span>
         <span class="pl-tool-card__title">Site Settings</span>
-        <span class="pl-tool-card__desc">Configure the site: registration, integrations, and content.</span>
+        <span class="pl-tool-card__desc">The site's brand, sign in and registration, Calendar feeds, emails and the Discord connection.</span>
+      </a>
+      {% endif %}
+      {% if tool_features %}
+      <a class="hub-card pl-tool-card" href="{% url 'hub_admin_features' %}" data-tool-features>
+        <span class="pl-tool-card__icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="5" width="22" height="14" rx="7" ry="7"/><circle cx="16" cy="12" r="3"/></svg>
+        </span>
+        <span class="pl-tool-card__title">Manage Features</span>
+        <span class="pl-tool-card__desc">What shows in the sidebar, and the site wide switches such as class registration and late fees.</span>
+      </a>
+      {% endif %}
+      {% if tool_cms %}
+      <a class="hub-card pl-tool-card" href="{% url 'hub_admin_cms' %}" data-tool-cms>
+        <span class="pl-tool-card__icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        </span>
+        <span class="pl-tool-card__title">Manage CMS</span>
+        <span class="pl-tool-card__desc">The legacy CMS sync, instructor discount codes and how classes match their instructors.</span>
+      </a>
+      {% endif %}
+      {% if tool_automations %}
+      <a class="hub-card pl-tool-card" href="{% url 'hub_admin_automations' %}" data-tool-automations>
+        <span class="pl-tool-card__icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        </span>
+        <span class="pl-tool-card__title">Automations</span>
+        <span class="pl-tool-card__desc">Every scheduled job: pause it, run it now and look back at what it did.</span>
       </a>
       {% endif %}
       {% if tool_notifications %}

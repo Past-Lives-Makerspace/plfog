@@ -81,7 +81,7 @@ def describe_adding_and_editing():
         page.get_by_role("button", name="Save").click()
 
         page.wait_for_url(re.compile(r"/manage/spotlight/(#announcements)?$"))
-        expect(page.locator(TOAST)).to_have_text("Announcement added. It shows on Home while it is live.")
+        expect(page.locator(TOAST)).to_have_text("Spotlight message added. It shows on Home while it is live.")
         expect(page.locator(ROWS)).to_have_count(1)
         expect(page.locator(f"{ROWS} [data-announcement-text] strong")).to_have_text("bring a friend")
         expect(page.locator(f"{ROWS} [data-announcement-status]")).to_have_text("Live")
@@ -111,7 +111,7 @@ def describe_adding_and_editing():
         page.get_by_role("button", name="Save").click()
 
         page.wait_for_url(re.compile(r"/manage/spotlight/(#announcements)?$"))
-        expect(page.locator(TOAST)).to_have_text("Announcement saved.")
+        expect(page.locator(TOAST)).to_have_text("Spotlight message saved.")
         assert _row_texts(page) == ["Zorblax second draft"]
         expect(page.locator(f"{ROWS} [data-announcement-status]")).to_have_text("Scheduled")
         expect(page.locator(f"{ROWS} [data-announcement-dates]")).to_have_text("From Jan 2, 9:00 AM")
@@ -134,7 +134,7 @@ def describe_the_rows():
         _spotlight(page, live_server)
 
         page.locator(f"{ROWS} .pl-toggle__slider").click()
-        expect(page.locator(TOAST).last).to_have_text("Announcement off. Members no longer see it.")
+        expect(page.locator(TOAST).last).to_have_text("Spotlight message off. Members no longer see it.")
         expect(page.locator(f"{ROWS} [data-announcement-status]")).to_have_text("Off")
         announcement.refresh_from_db()
         assert announcement.is_active is False
@@ -151,10 +151,10 @@ def describe_the_rows():
         _spotlight(page, live_server)
         assert _row_texts(page) == ["Zorblax 1", "Zorblax 2", "Zorblax 3"]
 
-        page.locator(ROWS).nth(0).get_by_role("button", name="Move announcement down").click()
+        page.locator(ROWS).nth(0).get_by_role("button", name="Move Spotlight message down").click()
         expect(page.locator(TOAST).last).to_have_text("Order saved.")
         assert _row_texts(page) == ["Zorblax 2", "Zorblax 1", "Zorblax 3"]
-        page.locator(ROWS).nth(2).get_by_role("button", name="Move announcement up").click()
+        page.locator(ROWS).nth(2).get_by_role("button", name="Move Spotlight message up").click()
         expect(page.locator(f"{ROWS} [data-announcement-text]").nth(1)).to_have_text("Zorblax 3")
 
         page.reload()
@@ -183,11 +183,11 @@ def describe_the_rows():
         _spotlight(page, live_server)
 
         page.locator(ROWS).nth(1).locator("[data-announcement-delete]").click()
-        dialog = page.locator(".pl-modal-backdrop:visible", has_text="Delete this announcement?")
+        dialog = page.locator(".pl-modal-backdrop:visible", has_text="Delete this Spotlight message?")
         expect(dialog).to_be_visible()
         expect(dialog).to_contain_text("Members stop seeing it at once.")
         dialog.get_by_role("button", name="Delete").click()
 
         page.wait_for_url(re.compile(r"/manage/spotlight/(#announcements)?$"))
-        expect(page.locator(TOAST).last).to_have_text("Announcement deleted. Members no longer see it.")
+        expect(page.locator(TOAST).last).to_have_text("Spotlight message deleted. Members no longer see it.")
         assert _row_texts(page) == ["Zorblax keep"]

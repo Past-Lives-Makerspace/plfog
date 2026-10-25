@@ -51,7 +51,7 @@ def admin_page(live_server, page, login_via_code):
 
 def describe_feature_switch_screenshots():
     def it_captures_the_features_tab(admin_page, live_server):
-        """Shot 1 — Site Settings → Features, with one feature set to Coming soon so its
+        """Shot 1 — Manage Features, with one feature set to Coming soon so its
         message input is visible in context."""
         for key in ("meetings", "spaces", "orientations", "equipment", "directory", "teach", "wiki"):
             turn_on(key)
@@ -59,7 +59,7 @@ def describe_feature_switch_screenshots():
         hide("guilds")
 
         admin_page.goto(
-            f"{live_server.url}{reverse('hub_admin_site_settings')}?tab=features",
+            f"{live_server.url}{reverse('hub_admin_features')}",
             wait_until="networkidle",
             timeout=20000,
         )
@@ -97,7 +97,7 @@ def describe_feature_switch_screenshots():
         print(f"\nSaved {saved}")
 
     def it_captures_the_cms_tab(admin_page, live_server):
-        """Shot 1b — Site Settings > CMS, the tab amendment 5 tidies.
+        """Shot 1b — Manage CMS (Site Settings > CMS until #922), the panel amendment 5 tidies.
 
         ``legacy_cms_last_synced_at`` and ``legacy_cms_last_sync_duration`` are set here on
         purpose: both lines are inside ``{% if %}``s, so an unseeded database renders a SHORTER
@@ -114,7 +114,7 @@ def describe_feature_switch_screenshots():
         config.save()
 
         admin_page.goto(
-            f"{live_server.url}{reverse('hub_admin_site_settings')}?tab=legacy-cms",
+            f"{live_server.url}{reverse('hub_admin_cms')}",
             wait_until="networkidle",
             timeout=20000,
         )
@@ -138,7 +138,7 @@ def describe_feature_switch_screenshots():
         saved = _save(admin_page, "08-class-catalog-soon", clip=SIDEBAR_CLIP)
         print(f"\nSaved {saved}")
 
-    @pytest.mark.parametrize("tab", ["brand", "general", "calendar", "automations", "discord"])
+    @pytest.mark.parametrize("tab", ["brand", "general", "calendar", "discord"])
     def it_captures_the_other_tabs_the_layout_fix_touches(admin_page, live_server, tab):
         """Shot 7 — the remaining panels amendment 5 moved off the inline display:flex.
 

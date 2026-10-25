@@ -286,9 +286,9 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": "voting-take-snapshot",
     },
     "voting.send-results": {
-        "title": "Send the results announcement",
+        "title": "Send the results email",
         "short_text": (
-            "Draft announcement opens the month's results in the composer for you to check and send "
+            "Draft results email opens the month's results in Email Members for you to check and send "
             "to everyone and Discord, once per snapshot. The month-end auto-snapshot never sends it."
         ),
         "article_slug": "voting-admin",
@@ -367,19 +367,18 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": "orientation-dashboard",
     },
     "announcements.compose": {
-        "title": "Compose an announcement",
+        "title": "Email Members",
         "short_text": (
-            "Three steps: write the message, design the email, pick the Discord channel. "
+            "Write the message, preview the email, pick the Discord channel. "
             "Everyone in the audience always sees it in the app."
         ),
         "article_slug": "guild-announcements",
         "anchor": "announcements-compose",
     },
     "announcements.new": {
-        "title": "Start a new announcement",
+        "title": "Start a new email",
         "short_text": (
-            "Opens the Announcement Composer. Press Save draft there to keep it on the Drafts tab "
-            "until someone sends it."
+            "Opens Email Members. Press Save draft there to keep it on the Drafts tab until someone sends it."
         ),
         "article_slug": "announcement-composer",
         "anchor": "composer-drafts",
@@ -478,7 +477,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "guild.contact-emails": {
         "title": "Custom mailing-list addresses",
         "short_text": (
-            "Extra, non-member addresses that also get this guild's announcement emails — "
+            "Extra, non-member addresses that also get the emails you send this guild: "
             "a booster, a partner org, your own inbox."
         ),
         "article_slug": None,
@@ -669,9 +668,9 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": None,
     },
     "guild.announcements": {
-        "title": "Announcements tab",
+        "title": "Email Members tab",
         "short_text": (
-            "Write to your members with the compose wizard, and review announcements members propose. "
+            "Email your members, manage your mailing list, and review announcements members propose. "
             "Nothing posts until you approve it."
         ),
         "article_slug": None,

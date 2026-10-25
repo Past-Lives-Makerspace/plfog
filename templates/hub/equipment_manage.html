@@ -183,7 +183,7 @@
       {% include "components/form_field.html" with field=settings_form.max_advance_days field_tooltip="How many days ahead a member can reserve. 30 means they can book up to 30 days from today." %}
       {% include "components/form_field.html" with field=settings_form.max_active_reservations_per_member field_tooltip="How many future reservations one member can hold at a time." %}
       {% if late_cancel_fees_enabled %}
-      {% include "components/form_field.html" with field=settings_form.late_cancel_fee field_tooltip="Charged when a member cancels inside the notice window set in Site Settings. Leave blank for no fee." %}
+      {% include "components/form_field.html" with field=settings_form.late_cancel_fee field_tooltip="Charged when a member cancels inside the notice window set in Manage Features. Leave blank for no fee." %}
       {% endif %}
     </div>
 

@@ -1,0 +1,11 @@
+{% comment %}
+  One card's row errors on Manage Features or the Automations page (#922): the row form's own
+  errors (a stale id, a bad state or switch). A feature card's message box shows its errors in
+  place, so they are left out here. Pass form.
+{% endcomment %}
+{% if form.errors %}
+<ul class="pl-field-errors pl-settings-row-errors" data-row-errors>
+  {% for error in form.non_field_errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+  {% for field in form %}{% if field.name != "message" %}{% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}{% endif %}{% endfor %}
+</ul>
+{% endif %}

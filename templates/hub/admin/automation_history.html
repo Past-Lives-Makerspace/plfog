@@ -9,7 +9,7 @@ a run (an admin's click, or an action whose run was pruned); each list pages wit
 each row with a Cancel that keeps the person on the server.
 {% endcomment %}
 {% include "components/page_header.html" with title=job.name description="Every run of this automation, newest first, with each thing it did and how it went." %}
-<p class="pl-automation-history__back"><a href="{% url 'hub_admin_site_settings' %}?tab=automations">&larr; Automations</a></p>
+<p class="pl-automation-history__back"><a href="{% url 'hub_admin_automations' %}">&larr; Automations</a></p>
 
 {% if open_removals is not None %}
 <div class="hub-card pl-automation-history__card" data-open-removals>

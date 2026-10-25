@@ -8,3 +8,6 @@
 .pl-tools-section:first-child { margin-top: 1.5rem; }
 .pl-tools-section__title { margin: 0; }
 .pl-tools-section .pl-tools-grid { margin-top: 1rem; }
+
+/* The Email Members card's "Formerly called Announcements" pill (#920); delete the line in the template to retire it. */
+.pl-tool-card__formerly { align-self: flex-start; }
