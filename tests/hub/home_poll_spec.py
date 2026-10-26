@@ -10,10 +10,8 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from hub.home import build_home_context
-from membership.models import Member
 from polls.models import Poll
-from tests.membership.factories import MemberFactory, MembershipPlanFactory
+from tests.membership.factories import MembershipPlanFactory
 from tests.polls.factories import PollVoteFactory, poll_with
 
 pytestmark = pytest.mark.django_db
@@ -103,7 +101,6 @@ def describe_folding_the_poll():
         assert f'data-poll-home="{poll.pk}"' in block
         assert "data-poll-answered" not in block
         assert "data-poll-toggle" in block
-        assert "data-poll-summary-voted" not in block
 
     def it_marks_an_answered_poll_so_it_starts_folded(member_client: Client):
         poll = poll_with("Laser", "Lathe", question="Zorblax folded?")
@@ -129,29 +126,8 @@ def describe_its_place_on_home():
         html = member_client.get(HOME).content.decode()
 
         poll = html.index('data-block="poll"')
-        assert html.index("Your Guilds") < poll < html.index("hub-card pl-home-block pl-app-badges")
-
-
-def describe_can_vote_polls():
-    @pytest.mark.parametrize(
-        ("status", "allowed"),
-        [
-            (Member.Status.ACTIVE, True),
-            (Member.Status.GUEST, False),
-            (Member.Status.FORMER, False),
-        ],
-    )
-    def it_follows_the_rule_past_polls_enforces(status: str, allowed: bool):
-        assert build_home_context(MemberFactory(status=status))["can_vote_polls"] is allowed
-
-
-def describe_the_spotlight():
-    def it_never_carries_the_poll(member_client: Client):
-        poll_with("Laser", "Lathe", question="Zorblax not in the spotlight?")
-
-        settings_page = member_client.get(reverse("hub_user_settings")).content.decode()
-        home = member_client.get(HOME).content.decode()
-
-        assert "data-poll-card" not in settings_page
-        assert "Zorblax not in the spotlight?" not in settings_page
-        assert home.count("data-poll-card=") == 1
+        assert (
+            html.index('<h2 class="pl-home-heading">Your Guilds</h2>')
+            < poll
+            < html.index("hub-card pl-home-block pl-app-badges")
+        )

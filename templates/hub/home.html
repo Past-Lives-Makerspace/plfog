@@ -224,10 +224,10 @@
 
 {# --- Poll (#925), last above Get the app (#936): only while a poll is open; with none, no card, heading or empty state. Hide folds it to one line, kept per poll in this browser (#936); a poll the member has answered starts folded. --- #}
 {% if home_poll %}
-<section class="hub-card pl-home-block pl-poll-home" data-block="poll" data-poll-home="{{ home_poll.poll.pk }}"{% if not home_poll.shows_choices %} data-poll-answered{% endif %}>
+<section class="hub-card pl-home-block pl-poll-home" data-block="poll" data-poll-home="{{ home_poll.poll.pk }}"{% if home_poll.has_voted %} data-poll-answered{% endif %}>
     <div class="pl-poll-home__head">
         <h2 class="pl-home-heading pl-poll-home__heading">Poll</h2>
-        <p class="pl-poll-home__summary" data-poll-summary><span class="pl-poll-home__question">{{ home_poll.poll.question }}</span>{% if not home_poll.shows_choices %}<span class="pl-poll-home__voted" data-poll-summary-voted>Voted</span>{% endif %}</p>
+        <p class="pl-poll-home__summary" data-poll-summary><span class="pl-poll-home__question">{{ home_poll.poll.question }}</span><span class="pl-poll-home__voted" data-poll-summary-voted>Voted</span></p>
         <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm pl-poll-home__toggle" aria-expanded="true" aria-controls="home-poll-body" onclick="window.plHomePoll.toggle(this.closest('[data-poll-home]'))" data-poll-toggle><span data-poll-toggle-label>Hide</span><svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><path d="M3.5 10 8 5.5 12.5 10" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
     <div class="pl-poll-home__body" id="home-poll-body" data-poll-body>
@@ -255,6 +255,10 @@
     };
     var block = document.querySelector("[data-poll-home]");
     if (!block) return;
+    // A vote swaps only the card; once it shows results the member has answered, so the folded line shows Voted.
+    block.addEventListener("htmx:afterSwap", function () {
+      if (!block.querySelector("[data-poll-choices]")) block.setAttribute("data-poll-answered", "");
+    });
     var stored = null;
     try { stored = window.localStorage.getItem(key(block)); } catch (e) {}
     set(block, stored === null ? block.hasAttribute("data-poll-answered") : stored === "1");

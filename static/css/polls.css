@@ -145,10 +145,15 @@
     flex: none;
     padding: 0.125rem 0.5rem;
     border-radius: 999px;
-    background-color: color-mix(in srgb, var(--color-tuscan-yellow) 18%, transparent);
-    color: var(--color-tuscan-yellow);
+    background-color: rgba(238, 180, 75, 0.18);
+    color: var(--hub-link);
     font-size: 0.8125rem;
-    font-weight: 600;
+    font-weight: 700;
+}
+
+/* Voted shows only once the member has answered (set by the server, or by the script after an in place vote). */
+.pl-poll-home:not([data-poll-answered]) .pl-poll-home__voted {
+    display: none;
 }
 
 .pl-poll-home__toggle {

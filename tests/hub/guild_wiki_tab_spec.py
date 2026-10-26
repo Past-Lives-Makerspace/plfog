@@ -113,7 +113,7 @@ def describe_the_grouped_list():
         for index in range(13):
             WikiPageFactory(guild=guild, kind=WikiPage.Kind.HOWTO, title=f"How to {index}")
         html = _guild_page(client, guild)
-        assert "See all 13" in html
+        assert "See All 13" in html
         assert f"{reverse('hub_wiki_search')}?guild={guild.slug}&amp;kind=howto" in html
 
     def it_leaves_another_guilds_pages_out(db, client):

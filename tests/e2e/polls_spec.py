@@ -52,8 +52,11 @@ def describe_voting_on_home():
         expect(card).to_contain_text("1 vote · 100%")
         assert page.url == home
         assert PollVote.objects.get().member == member
+        # The vote swapped only the card; folding now still says Voted.
+        page.locator(CARD).get_by_role("button", name="Hide").click()
+        expect(page.locator(CARD).locator("[data-poll-summary-voted]")).to_be_visible()
 
-        # Answered, so the next visit starts folded to one line; Show opens it on the member's answer.
+        # Still folded on the next visit; Show opens it on the member's answer.
         page.reload()
         block = page.locator(CARD)
         expect(block.locator("[data-poll-body]")).to_be_hidden()

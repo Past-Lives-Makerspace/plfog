@@ -57,7 +57,7 @@ lost with it.{% endcomment %}
         </div>
         {% endfor %}
         {% if group.has_more %}
-        <a href="{{ group.see_all_url }}" class="pl-wp-tab__group-more">See all {{ group.total }} &rarr;</a>
+        <a href="{{ group.see_all_url }}" class="pl-wp-tab__group-more">See All {{ group.total }} &rarr;</a>
         {% endif %}
     </div>
     {% endfor %}
@@ -116,7 +116,7 @@ lost with it.{% endcomment %}
         </div>
         {% endfor %}
         {% if wiki_tab_overdue_has_more %}
-        <a href="{{ wiki_tab_overdue_url }}" class="pl-wp-tab__panel-more">See all {{ wiki_tab_overdue_total }} &rarr;</a>
+        <a href="{{ wiki_tab_overdue_url }}" class="pl-wp-tab__panel-more">See All {{ wiki_tab_overdue_total }} &rarr;</a>
         {% endif %}
         {% comment %}Absorbs spec A's out-of-band confirm-cue swap, which has no home on a guild page, so htmx never logs a missing target.{% endcomment %}
         <div id="wiki-confirm-cue" hidden></div>

@@ -140,7 +140,7 @@ def describe_what_is_in_the_list():
         for index in range(9):
             _aged(WikiPageFactory(guild=guild, kind=WikiPage.Kind.MACHINE, title=f"Saw {index}"), days=400)
         panel = _panel(client, guild)
-        assert "See all 9" in panel
+        assert "See All 9" in panel
         assert f"{reverse('hub_wiki_search')}?guild={guild.slug}&amp;stale=1" in panel
 
 
