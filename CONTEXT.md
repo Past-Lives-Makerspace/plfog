@@ -77,7 +77,7 @@ One page, `/tools/` (`hub_admin_tools`), under two names that follow the viewer 
 _Avoid_: staff tools, leader tools, a separate Guild Tools page or URL.
 
 **Spotlight message**:
-A short notice an admin posts for every member, shown in the Spotlight at the top left of the hub and in the banner at the top of Home, taking turns with the other live ones (`core.Announcement`, #889; written in Admin Tools > Spotlight). Named Announcements until #920.
+A short notice an admin posts for every member, crawling across the top of Home on one line with the other live ones, like a news ticker (`core.Announcement`, #889; a ticker since #935; written in Admin Tools > Spotlight). The **Spotlight** itself is the version card at the top left of the hub: the version, the latest update and Details, with no messages since #935. Named Announcements until #920.
 _Avoid_: announcement for this, now that the word belongs to neither tool.
 
 **Guild announcement**:

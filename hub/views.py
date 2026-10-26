@@ -5261,14 +5261,14 @@ ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tool_manage_events",
             "tool_manage_members",
             "tool_member_agreement",
-            "tool_instructor_inquiries",
+            "tool_mailing_lists",
         ),
     ),
     (
         "tools",
         (
             "tool_announcements",
-            "tool_mailing_lists",
+            "tool_instructor_inquiries",
             "tool_push_test",
             "tool_orientations",
             "tool_spotlight",
@@ -7650,8 +7650,8 @@ def home(request: HttpRequest) -> HttpResponse:
     from hub.home import HomeBanner
 
     member = _get_member(request)
-    # The announcements banner (#889) shows to everyone who sees Home, linked to a membership or not.
-    ctx = {**_get_hub_context(request), "home_banner": HomeBanner.for_request(request, dj_timezone.now())}
+    # The Spotlight messages ticker (#889, #935) shows to everyone who sees Home, linked to a membership or not.
+    ctx = {**_get_hub_context(request), "home_banner": HomeBanner.load(dj_timezone.now())}
     if member is None:
         return _private_no_store(render(request, "hub/home.html", {**ctx, "member": None}))
     from hub.door_code import DoorCodeView, DoorCodeForm
