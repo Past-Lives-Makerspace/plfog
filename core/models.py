@@ -1309,6 +1309,17 @@ class Announcement(models.Model):
         return ",".join(f"{row.pk}:{row.updated_at.timestamp():.6f}" for row in sorted(rows, key=lambda row: row.pk))
 
 
+#: How long an approved Discord ping shows on Home (#943).
+QUEUED_MESSAGE_LIVE_FOR = timedelta(days=7)
+#: The longest a guild page headline made from a Discord ping runs.
+GUILD_TITLE_MAX_CHARS = 80
+QUEUED_MESSAGE_HANDLED = "That Discord message was already approved or discarded."
+
+
+class QueuedMessageHandledError(ValueError):
+    """An approve, discard or edit of a Discord message that is no longer waiting."""
+
+
 class QueuedDiscordMessageQuerySet(models.QuerySet["QueuedDiscordMessage"]):
     """Query helpers for the Waiting for Review queue in Admin Tools > Spotlight (#943)."""
 
@@ -1406,6 +1417,93 @@ class QueuedDiscordMessage(models.Model):
         from core.html_sanitize import sanitize_announcement_html
 
         return mark_safe(sanitize_announcement_html(self.line))  # noqa: S308  # sanitized just above
+
+    @property
+    def guild_title(self) -> str:
+        """The guild page headline: the first line of the text, cut at a word to 80 characters with "..."."""
+        first = self.original_text.splitlines()[0]
+        if len(first) <= GUILD_TITLE_MAX_CHARS:
+            return first
+        cut = first[: GUILD_TITLE_MAX_CHARS - 2]
+        return f"{cut.rsplit(' ', 1)[0] if ' ' in cut else cut[:-1]}..."
+
+    @property
+    def guild_body(self) -> str:
+        """The guild page text: the message, then who said it and the link to it in Discord.
+
+        When the headline is the whole first line and more follows, the first line is left out, so it
+        does not show twice. The page links the bare address (the body is plain text), so it stays a URL.
+        """
+        first, *rest = self.original_text.splitlines()
+        text = "\n".join(rest) if rest and self.guild_title == first else self.original_text
+        return f"{text}\n\nPosted in Discord by {self.credit}: {self.discord_url}"
+
+    @classmethod
+    def _locked_waiting(cls, pk: int) -> QueuedDiscordMessage:
+        """The row, locked for this transaction; raises when it is gone or no longer waiting."""
+        # Only this row is locked: PostgreSQL refuses FOR UPDATE on the nullable side of the sender join.
+        row = cls.objects.select_for_update(of=("self",)).select_related("sender__user").get(pk=pk)
+        if row.state != cls.State.WAITING:
+            raise QueuedMessageHandledError(QUEUED_MESSAGE_HANDLED)
+        return row
+
+    @classmethod
+    def save_line(cls, pk: int, line: str) -> None:
+        """Keep an admin's edit of the drafted line; it stays waiting. ``line`` is already cleaned."""
+        with transaction.atomic():
+            row = cls._locked_waiting(pk)
+            row.line = line
+            row.save(update_fields=["line"])
+
+    @classmethod
+    def approve(cls, pk: int, by: User) -> QueuedDiscordMessage:
+        """Put the line live on Home for 7 days and, for a guild ping, on each guild's page. Sends nothing.
+
+        One transaction with the row locked, so a double click or two admins approve it once.
+
+        Raises:
+            QueuedMessageHandledError: it was already approved or discarded.
+        """
+        from membership.models import GuildAnnouncement
+
+        with transaction.atomic():
+            row = cls._locked_waiting(pk)
+            now = timezone.now()
+            row.announcement = Announcement.objects.create(
+                body=row.line, show_from=now, show_until=now + QUEUED_MESSAGE_LIVE_FOR, created_by=by
+            )
+            author = row.sender.user if row.sender else None
+            # Built here, never through notify_members: approving emails, pushes, bells and posts nothing.
+            posts = [
+                GuildAnnouncement.objects.create(
+                    guild=guild,
+                    author=author,
+                    title=row.guild_title,
+                    body=row.guild_body,
+                    send_email=False,
+                    discord_channel=GuildAnnouncement.DiscordChannel.NONE,
+                    moderation_state=GuildAnnouncement.ModerationState.PUBLISHED,
+                    reviewed_by=by,
+                    reviewed_at=now,
+                )
+                for guild in row.guilds.order_by("name")
+            ]
+            row.state = cls.State.APPROVED
+            row.save(update_fields=["state", "announcement"])
+            row.guild_announcements.set(posts)
+        return row
+
+    @classmethod
+    def discard(cls, pk: int) -> None:
+        """Drop it for good. The row stays, so its message id is never queued again.
+
+        Raises:
+            QueuedMessageHandledError: it was already approved or discarded.
+        """
+        with transaction.atomic():
+            row = cls._locked_waiting(pk)
+            row.state = cls.State.DISCARDED
+            row.save(update_fields=["state"])
 
     @staticmethod
     def draft_line(text: str, guild_names: list[str], credit: str, url: str) -> str:

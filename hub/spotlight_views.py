@@ -11,18 +11,22 @@ from __future__ import annotations
 
 from django.contrib import messages
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from core.models import Announcement, QueuedDiscordMessage, SiteConfiguration
+from core.html_sanitize import ANNOUNCEMENT_MAX_CHARS, rich_html_to_text, sanitize_announcement_html
+from core.models import Announcement, QueuedDiscordMessage, QueuedMessageHandledError, SiteConfiguration
 from hub.announcement_admin_views import announcement_rows
-from hub.spotlight_forms import SpotlightCrawlSpeedForm
+from hub.spotlight_forms import QueuedLineForm, SpotlightCrawlSpeedForm
 from hub.toast import trigger_toast
 from hub.view_as import fog_admin_required
 from hub.views import _get_hub_context
 
+PING_APPROVED = "Approved. It is live on Home for 7 days."
+PING_DISCARDED = "Discarded."
+PING_SAVED = "Saved. It is still waiting for review."
 CRAWL_SPEED_SAVED = "Crawl speed saved. Members see it the next time Home loads."
 # What the preview crawls while no Spotlight message is live.
 CRAWL_SPEED_SAMPLE = "This is how fast the Spotlight messages crawl across the top of Home."
@@ -65,3 +69,61 @@ def hub_admin_spotlight_crawl_speed(request: HttpRequest) -> HttpResponse:
     response = HttpResponse(status=204)
     trigger_toast(response, CRAWL_SPEED_SAVED)
     return response
+
+
+def _queue_url() -> str:
+    return f"{reverse('hub_admin_spotlight')}#announcements"
+
+
+@fog_admin_required
+def hub_admin_ping_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    """Edit a waiting Discord message's line in the Spotlight editor; saving keeps it waiting (#943)."""
+    ping = get_object_or_404(QueuedDiscordMessage, pk=pk, state=QueuedDiscordMessage.State.WAITING)
+    form = QueuedLineForm(request.POST if request.method == "POST" else None, initial={"body": ping.line})
+    if request.method == "POST" and form.is_valid():
+        try:
+            QueuedDiscordMessage.save_line(pk, form.cleaned_data["body"])
+        except QueuedMessageHandledError as exc:
+            messages.error(request, str(exc))
+            return redirect(_queue_url())
+        messages.success(request, PING_SAVED)
+        return redirect(_queue_url())
+    body = str(form["body"].value() or "")
+    context = {
+        **_get_hub_context(request),
+        "form": form,
+        "queued": ping,
+        "max_chars": ANNOUNCEMENT_MAX_CHARS,
+        "char_count": len(rich_html_to_text(sanitize_announcement_html(body))),
+        "section_url": _queue_url(),
+    }
+    # 200 on a refusal too: hub_boot.js turns a boosted 4xx into a fresh GET, which would drop what was typed.
+    return render(request, "hub/admin/announcement_form.html", context)
+
+
+@fog_admin_required
+@require_POST
+def hub_admin_ping_approve(request: HttpRequest, pk: int) -> HttpResponse:
+    """Approve: live on Home for 7 days and on each pinged guild's page, sending nothing."""
+    get_object_or_404(QueuedDiscordMessage, pk=pk)
+    try:
+        QueuedDiscordMessage.approve(pk, by=request.user)  # type: ignore[arg-type]  # @fog_admin_required: a User
+    except QueuedMessageHandledError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, PING_APPROVED)
+    return redirect(_queue_url())
+
+
+@fog_admin_required
+@require_POST
+def hub_admin_ping_discard(request: HttpRequest, pk: int) -> HttpResponse:
+    """Discard, from the confirm modal: it never shows anywhere and is never queued again."""
+    get_object_or_404(QueuedDiscordMessage, pk=pk)
+    try:
+        QueuedDiscordMessage.discard(pk)
+    except QueuedMessageHandledError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, PING_DISCARDED)
+    return redirect(_queue_url())

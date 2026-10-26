@@ -1,11 +1,14 @@
-"""End-to-end: Admin Tools > Spotlight's Waiting for Review section in a real browser (#943, part 1).
+"""End-to-end: Admin Tools > Spotlight's Waiting for Review section in a real browser (#943).
 
 A queued Discord ping shows above the Spotlight messages with its drafted line, the whole Discord text, its guild,
 its sender and a link that opens the message in Discord in a new tab; the section clears the card's intro, and at
-phone width nothing scrolls sideways. Run with ``pytest -m e2e`` on PostgreSQL.
+phone width nothing scrolls sideways. Approve puts it in Home's ticker and on the guild page; Discard goes through
+the confirm modal. Run with ``pytest -m e2e`` on PostgreSQL.
 """
 
 from __future__ import annotations
+
+import re
 
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -18,6 +21,7 @@ from membership.models import Member
 from tests.membership.factories import GuildFactory, MemberFactory, MembershipPlanFactory
 
 QUEUE = "[data-ping-queue]"
+TOAST = ".plt-toast .plt-msg"
 LINK = "https://discord.com/channels/1/111/777"
 
 
@@ -33,15 +37,16 @@ def _sign_in_admin(login_via_code, email: str) -> None:
     TourState.objects.mark_completed(user, "member-welcome")
 
 
-def _queue_one() -> None:
+def _queue_one() -> QueuedDiscordMessage:
     text = "Please make sure to wash your space before you leave the studio tonight.\nThe kiln is loaded."
     ping = QueuedDiscordMessageFactory(
         discord_message_id="777",
         discord_url=LINK,
         original_text=text,
-        line=QueuedDiscordMessage.draft_line(text, ["Ceramics"], "Jay Holtman", LINK),
+        line=QueuedDiscordMessage.draft_line(text, ["Ceramics"], "Discord Dee", LINK),
     )
     ping.guilds.set([GuildFactory(name="Ceramics Guild")])
+    return ping
 
 
 def describe_waiting_for_review():
@@ -55,7 +60,7 @@ def describe_waiting_for_review():
         queue = page.locator(QUEUE)
         expect(queue.locator("[data-ping-line]")).to_have_text(
             "Ceramics: Please make sure to wash your space before you leave the studio tonight. "
-            "The kiln is loaded. (Jay Holtman)"
+            "The kiln is loaded. (Discord Dee)"
         )
         expect(queue.locator("[data-ping-original]")).to_contain_text("The kiln is loaded.")
         expect(queue.locator("[data-ping-guild]")).to_have_text("Ceramics Guild")
@@ -76,3 +81,37 @@ def describe_waiting_for_review():
 
         expect(page.locator(QUEUE)).to_be_visible()
         assert page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth")
+
+
+def describe_approve_and_discard():
+    def it_approves_into_homes_ticker_and_the_guild_page(page, live_server, login_via_code):
+        _sign_in_admin(login_via_code, "ping-approve-e2e@example.com")
+        ping = _queue_one()
+        page.set_viewport_size({"width": 1440, "height": 1000})
+        page.goto(f"{live_server.url}{reverse('hub_admin_spotlight')}")
+
+        page.locator(f"{QUEUE} [data-ping-approve] button").click()
+
+        page.wait_for_url(re.compile(r"/manage/spotlight/(#announcements)?$"))
+        expect(page.locator(TOAST).last).to_have_text("Approved. It is live on Home for 7 days.")
+        expect(page.locator(QUEUE)).to_have_count(0)
+        page.goto(f"{live_server.url}{reverse('hub_home')}")
+        expect(page.locator("[data-home-announcements] [data-ticker-list]")).to_contain_text("The kiln is loaded.")
+        page.goto(f"{live_server.url}{reverse('hub_guild_detail', args=[ping.guilds.get().slug])}")
+        expect(page.get_by_text("Posted in Discord by Discord Dee:")).to_be_visible()
+        expect(page.locator(f'a[href="{LINK}"]')).to_be_visible()
+
+    def it_discards_through_the_confirm(page, live_server, login_via_code):
+        _sign_in_admin(login_via_code, "ping-discard-e2e@example.com")
+        _queue_one()
+        page.set_viewport_size({"width": 1440, "height": 1000})
+        page.goto(f"{live_server.url}{reverse('hub_admin_spotlight')}")
+
+        page.locator(f"{QUEUE} [data-ping-discard]").click()
+        dialog = page.locator(".pl-modal-backdrop:visible", has_text="Discard this Discord message?")
+        expect(dialog).to_be_visible()
+        dialog.get_by_role("button", name="Discard").click()
+
+        page.wait_for_url(re.compile(r"/manage/spotlight/(#announcements)?$"))
+        expect(page.locator(TOAST).last).to_have_text("Discarded.")
+        expect(page.locator(QUEUE)).to_have_count(0)
