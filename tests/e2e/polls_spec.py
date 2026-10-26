@@ -2,8 +2,9 @@
 
 While a poll is open, Home shows a Poll card; a tap on an answer swaps the card for its counts
 in place over htmx (the URL does not change), with the member's answer marked, and a reload
-shows the same. With no poll open there is no Poll card, but the Past Polls quick link is still
-there and opens the page. A guild's lead posts a poll from the guild's Polls tab through the
+shows the same. Hide folds the card to one line and the
+member's choice holds across visits; an answered poll starts folded. With no poll open there is no
+Poll card and no Past Polls link. A guild's lead posts a poll from the guild's Polls tab through the
 real form (answers added in place), and a member votes there in place. Where a poll takes them, a
 member writes their own answer on Home and it shows, anonymous, under the counts. Run with ``pytest -m e2e`` on PostgreSQL.
 """
@@ -51,23 +52,51 @@ def describe_voting_on_home():
         expect(card).to_contain_text("1 vote · 100%")
         assert page.url == home
         assert PollVote.objects.get().member == member
+        # The vote swapped only the card; folding now still says Voted.
+        page.locator(CARD).get_by_role("button", name="Hide").click()
+        expect(page.locator(CARD).locator("[data-poll-summary-voted]")).to_be_visible()
+
+        # Answered, so a visit with nothing stored starts folded; Show opens it on the member's answer.
+        page.evaluate("localStorage.clear()")
+        page.reload()
+        block = page.locator(CARD)
+        expect(block.locator("[data-poll-body]")).to_be_hidden()
+        expect(block.locator("[data-poll-summary]")).to_contain_text("Zorblax e2e poll?")
+        expect(block.locator("[data-poll-summary-voted]")).to_have_text("Voted")
+        block.get_by_role("button", name="Show").click()
+        expect(block.locator("[data-my-vote]")).to_contain_text("Lathe")
+        expect(block.get_by_role("button", name="Hide")).to_have_attribute("aria-expanded", "true")
+
+
+def describe_folding_the_poll():
+    def it_remembers_hide_across_visits_and_shows_past_polls_when_open(page, live_server, login_via_code):
+        _sign_in(login_via_code, "poll-fold-e2e@example.com")
+        poll_with("Laser", "Lathe", question="Zorblax fold e2e?")
+        page.goto(f"{live_server.url}{reverse('hub_home')}")
+
+        block = page.locator(CARD)
+        expect(block.locator("[data-poll-body]")).to_be_visible()
+        expect(block.locator("[data-poll-summary]")).to_be_hidden()
+        block.get_by_role("button", name="Hide").click()
+        expect(block.locator("[data-poll-body]")).to_be_hidden()
+        expect(block.get_by_role("button", name="Show")).to_have_attribute("aria-expanded", "false")
 
         page.reload()
-        expect(page.locator(CARD).locator("[data-my-vote]")).to_contain_text("Lathe")
+        expect(page.locator(CARD).locator("[data-poll-body]")).to_be_hidden()
+        page.locator(CARD).get_by_role("button", name="Show").click()
+        page.locator(CARD).get_by_role("link", name="See Past Polls →").click()
+        expect(page).to_have_url(f"{live_server.url}{reverse('polls:index')}")
 
 
 def describe_with_no_poll_open():
-    def it_shows_no_poll_card_but_still_links_past_polls(page, live_server, login_via_code):
+    def it_shows_no_poll_card_and_no_past_polls_quick_link(page, live_server, login_via_code):
         _sign_in(login_via_code, "poll-none-e2e@example.com")
         opens = timezone.now() - timedelta(days=10)
         poll_with("Laser", "Lathe", question="Zorblax closed e2e?", opens_at=opens, closes_at=opens + timedelta(days=7))
         page.goto(f"{live_server.url}{reverse('hub_home')}")
 
         expect(page.locator(CARD)).to_have_count(0)
-        page.locator("[data-quicklink-past-polls]").click()
-
-        expect(page).to_have_url(f"{live_server.url}{reverse('polls:index')}")
-        expect(page.locator("[data-poll-list]")).to_contain_text("Zorblax closed e2e?")
+        expect(page.locator("[data-quicklink-past-polls]")).to_have_count(0)
 
 
 def describe_a_guilds_polls_tab():

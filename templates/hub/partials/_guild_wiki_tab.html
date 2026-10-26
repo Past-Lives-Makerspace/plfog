@@ -57,7 +57,7 @@ lost with it.{% endcomment %}
         </div>
         {% endfor %}
         {% if group.has_more %}
-        <a href="{{ group.see_all_url }}" class="pl-wp-tab__group-more">See all {{ group.total }} &rarr;</a>
+        <a href="{{ group.see_all_url }}" class="pl-wp-tab__group-more">See All {{ group.total }} &rarr;</a>
         {% endif %}
     </div>
     {% endfor %}
@@ -69,7 +69,7 @@ lost with it.{% endcomment %}
             <a href="{{ wiki_tab_new_url }}" class="pl-btn pl-btn--primary pl-btn--sm">+ Start A Page</a>
             {% if wiki_tab_can_verify %}<a href="{{ wiki_tab_wanted_url }}" class="pl-btn pl-btn--ghost pl-btn--sm">+ Add A Wanted Page</a>{% endif %}
         </div>
-        <a href="{% url 'hub_wiki_home' %}" class="pl-wp-tab__panel-more">Browse the whole wiki &rarr;</a>
+        <a href="{% url 'hub_wiki_home' %}" class="pl-wp-tab__panel-more">Browse the Whole Wiki &rarr;</a>
     </div>
     {% endif %}
 </div>
@@ -116,7 +116,7 @@ lost with it.{% endcomment %}
         </div>
         {% endfor %}
         {% if wiki_tab_overdue_has_more %}
-        <a href="{{ wiki_tab_overdue_url }}" class="pl-wp-tab__panel-more">See all {{ wiki_tab_overdue_total }} &rarr;</a>
+        <a href="{{ wiki_tab_overdue_url }}" class="pl-wp-tab__panel-more">See All {{ wiki_tab_overdue_total }} &rarr;</a>
         {% endif %}
         {% comment %}Absorbs spec A's out-of-band confirm-cue swap, which has no home on a guild page, so htmx never logs a missing target.{% endcomment %}
         <div id="wiki-confirm-cue" hidden></div>
@@ -145,15 +145,15 @@ lost with it.{% endcomment %}
             {% include "hub/partials/_wiki_wanted_rows.html" with wanted_rows=wiki_tab_wanted %}
         </div>
         {% if wiki_tab_can_verify %}
-        <a href="{{ wiki_tab_wanted_url }}" class="pl-wp-tab__panel-more">Manage the list &rarr;</a>
+        <a href="{{ wiki_tab_wanted_url }}" class="pl-wp-tab__panel-more">Manage the List &rarr;</a>
         {% elif wiki_tab_wanted_has_more %}
-        <a href="{{ wiki_tab_wanted_url }}" class="pl-wp-tab__panel-more">See the whole list &rarr;</a>
+        <a href="{{ wiki_tab_wanted_url }}" class="pl-wp-tab__panel-more">See the Whole List &rarr;</a>
         {% endif %}
     </div>
     {% elif wiki_tab_can_verify %}
     {% comment %}One line instead of the card, so a lead keeps the entry point to the
     wanted list without a card whose whole content is "No requests yet."{% endcomment %}
-    <p class="pl-wp-tab__panel-link"><a href="{{ wiki_tab_wanted_url }}">Ask for a page someone should write &rarr;</a></p>
+    <p class="pl-wp-tab__panel-link"><a href="{{ wiki_tab_wanted_url }}">Ask for a Page Someone Should Write &rarr;</a></p>
     {% endif %}
 </div>
 {% endif %}

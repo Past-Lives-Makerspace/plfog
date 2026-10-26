@@ -113,7 +113,7 @@ def describe_the_grouped_list():
         for index in range(13):
             WikiPageFactory(guild=guild, kind=WikiPage.Kind.HOWTO, title=f"How to {index}")
         html = _guild_page(client, guild)
-        assert "See all 13" in html
+        assert "See All 13" in html
         assert f"{reverse('hub_wiki_search')}?guild={guild.slug}&amp;kind=howto" in html
 
     def it_leaves_another_guilds_pages_out(db, client):
@@ -153,7 +153,7 @@ def describe_the_grouped_list():
             # search must not disappear along with it.
             _login(client, "tab_empty_browse")
             html = _guild_page(client, GuildFactory())
-            assert "Browse the whole wiki" in html
+            assert "Browse the Whole Wiki" in html
             assert reverse("hub_wiki_home") in html
 
         def it_brings_the_search_box_back_with_the_first_page(db, client):
@@ -273,14 +273,14 @@ def describe_the_lead_panels():
             WikiPageFactory(guild=guild, title="Something Written")
             html = _guild_page(client, guild)
             assert "Wanted Pages" not in html
-            assert "Ask for a page someone should write" in html
+            assert "Ask for a Page Someone Should Write" in html
 
         def it_offers_a_plain_member_no_such_line(db, client):
             user = _login(client, "tab_panels_memberlink")
             guild = GuildFactory()
             GuildMembershipFactory(guild=guild, member=user.member)
             WikiPageFactory(guild=guild, title="Something Written")
-            assert "Ask for a page someone should write" not in _guild_page(client, guild)
+            assert "Ask for a Page Someone Should Write" not in _guild_page(client, guild)
 
     def it_keeps_the_wanted_card_in_the_dom_for_the_failed_search_swap(db, client):
         """ "Add To Wanted" in the failed-search panel swaps the new row into

@@ -26,7 +26,7 @@ way back in: the modals are teleported to <body>, outside this root.
           :class="'pl-meeting-savestate--' + (pending > 0 ? 'saving' : state)"
           :data-saves="saves"
           x-show="pending > 0 || state !== 'idle'" x-text="label()" aria-live="polite" x-cloak></span>
-    <a href="?tour=guild-lead" class="hub-btn hub-btn--sm">Show me around</a>
+    <a href="?tour=guild-lead" class="hub-btn hub-btn--sm">Show Me Around</a>
     <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Guild Page</a>
   </span>
 </div>
@@ -698,7 +698,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
   {% if pending_ann_count %}
   <div class="hub-card" style="padding:1rem 1.25rem; margin-bottom:1.25rem; border-left:3px solid var(--color-tuscan-yellow,#EEB44B); display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
     <span>{{ pending_ann_count }} member{{ pending_ann_count|pluralize }}-proposed announcement{{ pending_ann_count|pluralize }} awaiting your review.</span>
-    <a href="{% url 'hub_guild_announcement_review_queue' %}" class="hub-btn hub-btn--sm">Review proposals →</a>
+    <a href="{% url 'hub_guild_announcement_review_queue' %}" class="hub-btn hub-btn--sm">Review Proposals →</a>
   </div>
   {% endif %}
   {% endwith %}
@@ -715,7 +715,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.5rem;">Email Your Members</h2>
     <p class="hub-text-muted" style="font-size:0.875rem; margin:0 0 1rem;">Write the message, preview the email, choose the Discord channel, and save a draft to finish later. It reaches your mailing list above, posts on your guild page and sends an app notification.</p>
     <div class="pl-btn-row">
-      <a href="{% url 'hub_compose' %}?audience=guild:{{ guild.pk }}" class="hub-btn hub-btn--primary">Write an email &rarr;</a>
+      <a href="{% url 'hub_compose' %}?audience=guild:{{ guild.pk }}" class="hub-btn hub-btn--primary">Write an Email &rarr;</a>
       <a href="{% url 'hub_announcements' %}" class="hub-btn hub-btn--ghost" data-guild-announcements-overview>Drafts and sent</a>
     </div>
   </div>

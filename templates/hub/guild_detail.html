@@ -157,7 +157,7 @@
                     {% if guild.featured_class.instructor_names %}<div class="hub-text-muted" style="font-size:0.85rem;">with {{ guild.featured_class.instructor_names }}</div>{% endif %}
                     {% if guild.featured_class.first_upcoming_session_at %}<div class="hub-text-muted" style="font-size:0.85rem;">{{ guild.featured_class.first_upcoming_session_at|date:"M j, Y" }}</div>{% endif %}
                 </div>
-                <span class="pl-btn pl-btn--sm pl-btn--primary">Sign up →</span>
+                <span class="pl-btn pl-btn--sm pl-btn--primary">Sign Up →</span>
             </a>
         </section>
         {% endif %}
@@ -550,7 +550,7 @@
         {% else %}
         <p class="hub-text-muted">
             You need a saved payment method before you can add items to your tab.
-            <a href="{% url 'billing_setup_payment_method' %}">Add a card &rarr;</a>
+            <a href="{% url 'billing_setup_payment_method' %}">Add a Card &rarr;</a>
         </p>
         {% endif %}
     </div>

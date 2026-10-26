@@ -33,7 +33,7 @@ Written answers (#925 part 3): `WrittenAnswer.from_vote` is the only place an au
 
 ## Where polls show
 
-- Home (`hub.home.build_home_context` puts `home_poll` in the context): a Poll block only while a poll is open, with no heading or empty state otherwise. The Past Polls quick link is always there, and the block links there too.
+- Home (`hub.home.build_home_context` puts `home_poll` in the context): a Poll block only while a poll is open, last above Get the App, with no heading or empty state otherwise. It folds to one line with Hide (an answered poll starts folded; `hub/AGENTS.md`), and its See Past Polls link is Home's only way to Past Polls (#936 removed the quick link).
 - Admin Tools: the Polls card in the Tools section (`tool_polls`, admins).
 - A guild's page (`hub.views.guild_detail`, `guild_polls` and `show_polls_tab`): a Polls tab (`?tab=polls`) when the guild has a poll or the viewer may post one, members surface only (the guilds surface allowlists no poll view). `polls/partials/_guild_polls.html`: Ask the Guild with New Poll behind a button for those who may post, the open poll with Close Now, the past polls, and a link to Past Polls.
 - Never the Spotlight (`tests/hub/spotlight_member_spec.py`, `tests/hub/home_poll_spec.py`).

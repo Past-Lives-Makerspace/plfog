@@ -300,7 +300,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
               <div class="cp-detail__prose">{{ instructor.instructor_bio|linebreaks }}</div>
             {% endif %}
             {% if instructor.instructor_slug %}
-              <a class="cp-detail__instructor-link" href="{% url 'classes:public_instructor' slug=instructor.instructor_slug %}">See all classes by {{ instructor.display_name }} &rarr;</a>
+              <a class="cp-detail__instructor-link" href="{% url 'classes:public_instructor' slug=instructor.instructor_slug %}">See All Classes by {{ instructor.display_name }} &rarr;</a>
             {% endif %}
           </div>
         </div>
@@ -401,7 +401,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
             {% else %}
             <p class="cp-detail__prose">This class is offered in partnership with the {{ offering.category.guild.name }} at Past Lives Makerspace.</p>
             {% endif %}
-            <a class="cp-detail__guild-link" href="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' offering.category.guild.slug %}" hx-boost="false">About our guilds &rarr;</a>
+            <a class="cp-detail__guild-link" href="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' offering.category.guild.slug %}" hx-boost="false">About Our Guilds &rarr;</a>
           </div>
         </section>
       {% endif %}

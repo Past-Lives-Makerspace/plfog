@@ -78,7 +78,7 @@ def describe_teaching_card():
         html = resp.content.decode()
         assert 'data-block="teaching"' in html
         assert "Fix and resubmit" in html
-        assert "Open teaching" in html
+        assert "Open Teaching" in html
         assert reverse("classes:teach_overview") in html
 
     def it_shows_this_weeks_session_time_with_a_roster_link(instructor_user):
