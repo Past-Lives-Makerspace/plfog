@@ -72,6 +72,9 @@ def feature_flags(request: HttpRequest) -> dict[str, Any]:
     the demo toggles). ``wiki_enabled``, ``equipment_page_enabled``, ``host_a_workshop_enabled``
     and the My Tab boolean used to be among them and are now ``features.wiki``,
     ``features.equipment``, ``features.teach`` and ``features.my_tab``.
+
+    ``spotlight_crawl_speed`` (#942) rides here because this processor already loads the row:
+    Home's ticker and the Spotlight admin page's preview read it with no query of their own.
     """
     from core.models import FeatureSwitch, SiteConfiguration
 
@@ -85,6 +88,7 @@ def feature_flags(request: HttpRequest) -> dict[str, Any]:
         "instructor_discount_codes_need_approval": config.instructor_discount_codes_need_approval,
         "guild_welcome_email_enabled": config.guild_welcome_email_enabled,
         "late_cancel_fees_enabled": config.late_cancel_fees_enabled,
+        "spotlight_crawl_speed": config.spotlight_crawl_speed,
     }
 
 

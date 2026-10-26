@@ -36,7 +36,74 @@ once, the order through the hidden form below (the script at the end of this sec
   {% else %}
   <p class="hub-text-muted pl-ann-admin__empty" data-announcements-empty>No Spotlight messages yet. Add one and it shows at the top of Home.</p>
   {% endif %}
+  {% comment %}
+  The Crawl speed slider (#942, hub.spotlight_views.hub_admin_spotlight_crawl_speed): how fast the ticker on Home moves.
+  Moving it changes the words and the preview at once; letting go (change) posts it over htmx and answers with a toast.
+  A refused or failed save puts the slider back to the stored speed. The preview is Home's own ticker track and CSS,
+  crawling the live messages (or a sample line when none are live), paced by the same script.
+  {% endcomment %}
+  {% with speed=crawl_speed_form.instance.spotlight_crawl_speed %}
+  <form class="pl-crawl-speed" method="post" action="{% url 'hub_admin_spotlight_crawl_speed' %}" hx-post="{% url 'hub_admin_spotlight_crawl_speed' %}" hx-trigger="change" hx-swap="none" hx-sync="this:queue last" data-crawl-speed-form data-crawl-speed-stored="{{ speed }}">
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=crawl_speed_form.spotlight_crawl_speed field_hint_off=True %}
+    <div class="pl-crawl-speed__scale">
+      <span aria-hidden="true">Slow</span>
+      <output for="{{ crawl_speed_form.spotlight_crawl_speed.id_for_label }}" class="pl-crawl-speed__value" data-crawl-speed-value>{{ speed }} px a second</output>
+      <span aria-hidden="true">Fast</span>
+    </div>
+    <p class="hub-text-muted pl-crawl-speed__note">The preview crawls at the slider's speed. Letting go saves it, and members see it the next time Home loads.</p>
+    <div class="pl-ticker pl-crawl-speed__preview" aria-hidden="true" data-crawl-speed-preview data-ticker-speed="{{ speed }}">
+      {% include "hub/partials/_ticker_track.html" with items=crawl_speed_preview_items sample=crawl_speed_sample inert=True %}
+    </div>
+  </form>
+  {% endwith %}
 </div>
+{% include "hub/partials/_ticker_pace_script.html" %}
+{# The Crawl speed slider: the words and the preview follow it as it moves; a failed save puts it back. Claimed by an element property, so a boosted re-run is harmless. #}
+<script>
+  (function () {
+    var form = document.querySelector("[data-crawl-speed-form]");
+    if (!form || form.plCrawlSpeedReady) return;
+    form.plCrawlSpeedReady = true;
+    var input = form.querySelector("[data-crawl-speed-input]");
+    var value = form.querySelector("[data-crawl-speed-value]");
+    var preview = form.querySelector("[data-crawl-speed-preview]");
+
+    function show() {
+      var words = input.value + " px a second";
+      value.textContent = words;
+      input.setAttribute("aria-valuetext", words);
+      preview.setAttribute("data-ticker-speed", input.value);
+      window.plTicker.pace(preview);
+    }
+
+    input.addEventListener("input", show);
+    form.addEventListener("htmx:afterRequest", function (e) {
+      if (e.detail.successful) {
+        form.setAttribute("data-crawl-speed-stored", input.value);
+        return;
+      }
+      // A refusal brings its own toast; a dropped connection or a lost session does not.
+      var xhr = e.detail.xhr;
+      if (!xhr || !xhr.getResponseHeader("HX-Trigger")) {
+        window.dispatchEvent(new CustomEvent("show-toast", { detail: { message: "The crawl speed did not save. Try again.", type: "error" } }));
+      }
+      input.value = form.getAttribute("data-crawl-speed-stored");
+      show();
+    });
+    show();
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(function () { if (preview.isConnected) window.plTicker.pace(preview); });
+    }
+    if (!window.plCrawlPreviewResizeBound) {
+      window.plCrawlPreviewResizeBound = true;
+      window.addEventListener("resize", function () {
+        var current = document.querySelector("[data-crawl-speed-preview]");
+        if (current) window.plTicker.pace(current);
+      });
+    }
+  })();
+</script>
 {# The order saves as soon as a row moves: a drag from the grip, or the up and down buttons on touch and keyboard (the Slideshow's controls). #}
 <script>
   (function () {

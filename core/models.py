@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.core.validators import MaxValueValidator, MinValueValidator, StepValueValidator
 from django.db import models, transaction
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -496,6 +497,13 @@ DISCORD_INFO_LINKS_DEFAULT = (
     "Your member hub — profile, guilds, calendar, and more:\n"
     "https://pastlives.app"
 )
+
+
+# The Spotlight crawl speed's range (#942), in pixels a second: the column's validators and the slider's bounds.
+SPOTLIGHT_CRAWL_SPEED_MIN = 10
+SPOTLIGHT_CRAWL_SPEED_MAX = 80
+SPOTLIGHT_CRAWL_SPEED_STEP = 5
+SPOTLIGHT_CRAWL_SPEED_DEFAULT = 25
 
 
 class SiteConfiguration(models.Model):
@@ -1085,6 +1093,22 @@ class SiteConfiguration(models.Model):
         on_delete=models.SET_NULL,
         related_name="+",
         help_text="The admin who last saved the door code; admins see the name on the card.",
+    )
+    # #942: how fast the Spotlight messages crawl across the top of Home, set from Admin Tools >
+    # Spotlight's Spotlight Messages card (SpotlightCrawlSpeedForm), its slider's steps the validators'.
+    spotlight_crawl_speed = models.PositiveSmallIntegerField(
+        default=SPOTLIGHT_CRAWL_SPEED_DEFAULT,
+        db_default=SPOTLIGHT_CRAWL_SPEED_DEFAULT,
+        validators=[
+            MinValueValidator(SPOTLIGHT_CRAWL_SPEED_MIN),
+            MaxValueValidator(SPOTLIGHT_CRAWL_SPEED_MAX),
+            StepValueValidator(SPOTLIGHT_CRAWL_SPEED_STEP),
+        ],
+        verbose_name="Spotlight crawl speed",
+        help_text=(
+            f"How fast the Spotlight messages crawl across the top of Home, in pixels a second "
+            f"({SPOTLIGHT_CRAWL_SPEED_MIN} to {SPOTLIGHT_CRAWL_SPEED_MAX}, in steps of {SPOTLIGHT_CRAWL_SPEED_STEP})."
+        ),
     )
 
     class Meta:

@@ -13,7 +13,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.factories import AnnouncementFactory
-from core.models import Announcement
+from core.models import Announcement, SiteConfiguration
 from hub.home import HomeBanner
 from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
@@ -191,9 +191,30 @@ def describe_the_ticker_on_home():
         after = _home(member_client).split("data-announcement-close>", 1)[1]
 
         assert 'var KEY = "pl-home-announcements-closed";' in after
-        assert "var PIXELS_PER_SECOND = 50;" in after
+        assert "window.plTicker.pace(ticker);" in after
+        assert 'Number(ticker.getAttribute("data-ticker-speed"))' in after
         assert '"--pl-ticker-duration"' in after
         assert '"--pl-ticker-span"' in after
+        assert "PIXELS_PER_SECOND" not in after
+
+
+def describe_the_crawl_speed():
+    def it_crawls_at_25_px_a_second_with_nothing_saved(member_client: Client):
+        AnnouncementFactory()
+
+        assert SiteConfiguration.load().spotlight_crawl_speed == 25
+        assert 'data-ticker-speed="25"' in _ticker(_home(member_client))
+
+    def it_crawls_at_the_saved_speed_for_every_viewer(member_client: Client):
+        AnnouncementFactory()
+        config = SiteConfiguration.load()
+        config.spotlight_crawl_speed = 60
+        config.save(update_fields=["spotlight_crawl_speed"])
+
+        assert 'data-ticker-speed="60"' in _ticker(_home(member_client))
+        # A viewer with no membership sees the same ticker at the same speed.
+        member_client.force_login(User.objects.create_user(username="zorblax-unlinked"))
+        assert 'data-ticker-speed="60"' in _ticker(_home(member_client))
 
 
 def describe_the_query_budget():
@@ -210,3 +231,17 @@ def describe_the_query_budget():
 
     def it_reads_them_once_with_none_live(member_client: Client):
         assert _announcement_reads(member_client) == 1
+
+    def it_reads_the_crawl_speed_with_no_query_of_its_own(member_client: Client):
+        """The speed rides on the feature_flags processor's load of the row, so the ticker adds no read of it."""
+        AnnouncementFactory()
+        member_client.get(HOME)  # The row exists from here on, so both runs below read it the same way.
+
+        def _config_reads() -> int:
+            with CaptureQueriesContext(connection) as captured:
+                assert member_client.get(HOME).status_code == 200
+            return sum('"core_siteconfiguration"' in query["sql"] for query in captured.captured_queries)
+
+        with_ticker = _config_reads()
+        Announcement.objects.all().delete()
+        assert _config_reads() == with_ticker

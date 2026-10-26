@@ -5,9 +5,12 @@ in static/css/home-announcements.css.
 
 The track holds the list twice, the second copy aria-hidden and inert, and moves left by one list's width per loop, so
 the crawl never jumps; a screen reader reads the list once. The script after it sets the loop's length from the list's
-width (a steady speed however much text there is) and makes each list at least as wide as the line, so one short
-message still loops cleanly. Hover or focus inside holds it still, so a link can be clicked. Under
-prefers-reduced-motion it does not move: the copy is hidden and the messages wrap, all shown at once.
+width and the crawl speed admins set on Admin Tools > Spotlight (#942, SiteConfiguration.spotlight_crawl_speed, read
+from the feature_flags context processor), so the speed holds however much text there is, and makes each list at least
+as wide as the line, so one short message still loops cleanly. The track and the pacing are shared with that page's
+preview (hub/partials/_ticker_track.html, _ticker_pace_script.html). Hover or focus inside holds it still, so a link
+can be clicked. Under prefers-reduced-motion it does not move: the copy is hidden and the messages wrap, all shown at
+once.
 
 The X closes it in this browser until the set of live messages changes: it keeps the ticker's signature
 (hub.home.HomeBanner, ids and last saves) in localStorage, and the script removes the ticker before first paint while the
@@ -15,39 +18,21 @@ stored signature still matches. Every storage read and write is in a try, so wit
 
   banner — a hub.home.HomeBanner
 {% endcomment %}
-<section class="pl-ticker" aria-label="Spotlight messages" data-home-announcements data-announcement-signature="{{ banner.signature }}" data-announcement-count="{{ banner.items|length }}">
-  <span class="pl-ticker__icon" aria-hidden="true">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
-  </span>
-  <div class="pl-ticker__viewport" data-ticker-viewport>
-    <div class="pl-ticker__track" data-ticker-track>
-      <ul class="pl-ticker__list" data-ticker-list>
-        {% for announcement in banner.items %}<li class="pl-ticker__item" data-announcement="{{ announcement.pk }}"><span class="pl-ann-body pl-ticker__text">{{ announcement.inline_html }}</span><span class="pl-ticker__sep" aria-hidden="true"></span></li>{% endfor %}
-      </ul>
-      <ul class="pl-ticker__list pl-ticker__list--copy" aria-hidden="true" inert data-ticker-copy>
-        {% for announcement in banner.items %}<li class="pl-ticker__item"><span class="pl-ann-body pl-ticker__text">{{ announcement.inline_html }}</span><span class="pl-ticker__sep"></span></li>{% endfor %}
-      </ul>
-    </div>
-  </div>
+<section class="pl-ticker" aria-label="Spotlight messages" data-home-announcements data-announcement-signature="{{ banner.signature }}" data-announcement-count="{{ banner.items|length }}" data-ticker-speed="{{ spotlight_crawl_speed }}">
+  {% include "hub/partials/_ticker_track.html" with items=banner.items %}
   <button type="button" class="pl-ticker__close" onclick="window.plHomeAnnouncements.close(this.closest('[data-home-announcements]'))" aria-label="Close the Spotlight messages" data-announcement-close>
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
   </button>
 </section>
+{% include "hub/partials/_ticker_pace_script.html" %}
 {# Runs as the ticker arrives, so a closed one never paints. Re-run on every boosted arrival, which is harmless: the resize listener is bound once, on window. #}
 <script>
   (function () {
     var KEY = "pl-home-announcements-closed";
-    var PIXELS_PER_SECOND = 50;
     window.plHomeAnnouncements = {
       close: function (ticker) {
         try { window.localStorage.setItem(KEY, ticker.getAttribute("data-announcement-signature")); } catch (e) {}
         ticker.remove();
-      },
-      pace: function (ticker) {
-        var viewport = ticker.querySelector("[data-ticker-viewport]");
-        var list = ticker.querySelector("[data-ticker-list]");
-        ticker.style.setProperty("--pl-ticker-span", viewport.clientWidth + "px");
-        ticker.style.setProperty("--pl-ticker-duration", (list.offsetWidth / PIXELS_PER_SECOND).toFixed(2) + "s");
       },
     };
     var ticker = document.querySelector("[data-home-announcements]");
@@ -58,18 +43,18 @@ stored signature still matches. Every storage read and write is in a try, so wit
       ticker.remove();
       return;
     }
-    window.plHomeAnnouncements.pace(ticker);
+    window.plTicker.pace(ticker);
     // Tabbing to a link that has crawled out of view scrolls the clipped viewport to it; put it back on the way out, or the loop runs offset.
     var viewport = ticker.querySelector("[data-ticker-viewport]");
     ticker.addEventListener("focusout", function () { viewport.scrollLeft = 0; });
     if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(function () { if (ticker.isConnected) window.plHomeAnnouncements.pace(ticker); });
+      document.fonts.ready.then(function () { if (ticker.isConnected) window.plTicker.pace(ticker); });
     }
     if (!window.plHomeTickerResizeBound) {
       window.plHomeTickerResizeBound = true;
       window.addEventListener("resize", function () {
         var current = document.querySelector("[data-home-announcements]");
-        if (current) window.plHomeAnnouncements.pace(current);
+        if (current) window.plTicker.pace(current);
       });
     }
   })();

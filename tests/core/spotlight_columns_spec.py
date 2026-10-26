@@ -2,6 +2,9 @@
 
 The model no longer knows them, so nothing sets the meeting column to NULL when its event goes. 0124 drops the
 foreign key constraint first, so deleting that event still works on a database where the column was set.
+
+PostgreSQL only: SQLite cannot add a NOT NULL column in place, so 0125 (#942) rebuilds the table there from the model
+state, and the leftover columns are gone on SQLite. PostgreSQL adds the column with ALTER TABLE and keeps them.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ from django.db import connection, transaction
 from core.models import SiteConfiguration
 from tests.membership.factories import CommunityEventFactory
 
-pytestmark = pytest.mark.django_db(transaction=True)
+pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.postgres_only]
 
 
 def describe_the_leftover_meeting_column():
