@@ -672,7 +672,8 @@ def guild_announcements(request: HttpRequest, slug: str) -> HttpResponse:
     from django.core.paginator import Paginator
 
     guild = get_object_or_404(Guild, slug=slug)
-    page = Paginator(guild.announcements.published(), GUILD_ANNOUNCEMENTS_PAGE_SIZE).get_page(request.GET.get("page"))
+    announcements = guild.announcements.published().order_by("-published_at", "-pk")
+    page = Paginator(announcements, GUILD_ANNOUNCEMENTS_PAGE_SIZE).get_page(request.GET.get("page"))
     return render(
         request,
         "hub/guild_announcements.html",
@@ -751,7 +752,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     # linked once the guild has published more than one (expired ones count).
     published_announcements = guild.announcements.published()
     announcement = published_announcements.active().first()
-    has_past_announcements = published_announcements.count() > 1
+    published_announcement_count = published_announcements.count()
+    has_past_announcements = published_announcement_count > 1
     # The Meetings tab (§6.4, #891). Its Meetings feature parts (next meeting, proposals, minutes)
     # follow the switch and are built only while it is on; the guild's meeting notes (the ones
     # leads post in the editor) show on the tab whatever the switch says, to signed in viewers,
@@ -969,6 +971,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "links": links,
             "announcement": announcement,
             "has_past_announcements": has_past_announcements,
+            # Every post expired: "No current announcements." rather than "No announcements yet."
+            "has_published_announcements": published_announcement_count > 0,
             "next_guild_meeting": next_guild_meeting,
             "can_propose_next": can_propose_next,
             "propose_form": propose_form,

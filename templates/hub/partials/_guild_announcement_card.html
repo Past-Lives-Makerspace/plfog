@@ -5,7 +5,7 @@ Announcements page lists them all. The body is plain text a lead typed, rendered
 "lists" mode: blank lines make paragraphs, a run of "- " lines a bulleted list, everything escaped.
 
 A long body (GuildAnnouncement.body_is_long, a generous guess the server makes) starts folded
-with a Read more toggle. The script measures the fold whenever the body changes size, skipping
+with a Read More toggle. The script measures the fold whenever the body changes size, skipping
 the zero size of a hidden tab so it measures again when the tab shows, and drops the fade and
 the toggle when the whole body fits after all.
 
@@ -23,7 +23,7 @@ Parameters:
              data-announcement-body>{{ announcement.body|rich_body:"lists" }}</div>
         <button type="button" class="pl-guild-announcement__more" x-show="overflows || open" @click="open = !open"
                 :aria-expanded="open ? 'true' : 'false'" aria-controls="announcement-body-{{ announcement.pk }}"
-                x-text="open ? 'Show less' : 'Read more'" data-announcement-more>Read more</button>
+                x-text="open ? 'Show Less' : 'Read More'" data-announcement-more>Read More</button>
     </div>
     {% else %}
     <div class="pl-guild-announcement__body" data-announcement-body>{{ announcement.body|rich_body:"lists" }}</div>

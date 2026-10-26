@@ -52,10 +52,18 @@ def describe_render_rich_body_with_lists():
     def it_does_not_treat_a_bare_dash_or_a_hyphenated_word_as_a_bullet():
         assert render_rich_body("-\n-\nwell-known", lists=True) == "<p>-<br>-<br>well-known</p>"
 
-    def it_drops_whitespace_only_lines_and_reads_windows_line_ends():
-        assert render_rich_body("One\r\n   \r\nTwo\r\n\r\n- a\r\n- b", lists=True) == (
-            "<p>One<br>Two</p><ul><li>a</li><li>b</li></ul>"
+    def it_breaks_paragraphs_on_a_blank_line_that_holds_spaces():
+        assert render_rich_body("One\n   \nTwo\n\t\n\n- a\n- b", lists=True) == (
+            "<p>One</p><p>Two</p><ul><li>a</li><li>b</li></ul>"
         )
+
+    def it_reads_windows_and_old_mac_line_ends():
+        assert render_rich_body("One\r\nTwo\r\n\r\n- a\r- b\r\rThree", lists=True) == (
+            "<p>One<br>Two</p><ul><li>a</li><li>b</li></ul><p>Three</p>"
+        )
+
+    def it_skips_leading_and_trailing_blank_lines():
+        assert render_rich_body("\n\n  \nHi\n\n\n", lists=True) == "<p>Hi</p>"
 
     def it_escapes_html_in_text_and_in_list_items():
         html = render_rich_body("<script>x</script>\n\n- <img src=x onerror=alert(1)>\n- ok", lists=True)
@@ -64,10 +72,16 @@ def describe_render_rich_body_with_lists():
         assert "<img" not in html
         assert html.startswith("<p>&lt;script&gt;x&lt;/script&gt;</p><ul><li>&lt;img")
 
-    def it_still_sanitizes_editor_html_rather_than_escaping_it():
-        html = render_rich_body("<p>Hi <strong>all</strong></p><script>x</script>", lists=True)
+    def it_escapes_a_body_that_looks_like_editor_html_instead_of_sanitizing_it():
+        html = render_rich_body("<p><a href=https://evil.example>pay</a></p>", lists=True)
 
-        assert html == "<p>Hi <strong>all</strong></p>"
+        assert html == "<p>&lt;p&gt;&lt;a href=https://evil.example&gt;pay&lt;/a&gt;&lt;/p&gt;</p>"
+        assert "<a" not in html
+
+    def it_escapes_a_tag_named_in_plain_text_and_still_makes_the_list():
+        assert render_rich_body("Line one\nSee the <br> tag\n\n- a\n- b", lists=True) == (
+            "<p>Line one<br>See the &lt;br&gt; tag</p><ul><li>a</li><li>b</li></ul>"
+        )
 
     def it_returns_nothing_for_a_blank_body():
         assert render_rich_body("  \n ", lists=True) == ""

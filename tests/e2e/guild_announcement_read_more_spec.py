@@ -1,4 +1,4 @@
-"""A guild announcement's Read more fold in a real browser (#952).
+"""A guild announcement's Read More fold in a real browser (#952).
 
 The server folds any body that might be long (``GuildAnnouncement.body_is_long``); the card's
 script measures the fold and drops the toggle when the body fits after all, including when the
@@ -38,19 +38,19 @@ def describe_read_more():
     def it_folds_a_long_body_and_opens_it_whole(live_server, page):
         _open(page, live_server, LONG_BODY)
 
-        expect(page.locator(MORE)).to_have_text("Read more")
+        expect(page.locator(MORE)).to_have_text("Read More")
         assert _overflows(page)
 
         page.locator(MORE).click()
 
-        expect(page.locator(MORE)).to_have_text("Show less")
+        expect(page.locator(MORE)).to_have_text("Show Less")
         expect(page.locator(MORE)).to_have_attribute("aria-expanded", "true")
         expect(page.locator(BODY)).to_contain_text("- Penina")
         assert not _overflows(page)
 
         page.locator(MORE).click()
 
-        expect(page.locator(MORE)).to_have_text("Read more")
+        expect(page.locator(MORE)).to_have_text("Read More")
         assert _overflows(page)
 
     def it_hides_the_toggle_when_the_folded_body_fits(live_server, page):
@@ -68,5 +68,5 @@ def describe_read_more():
         tabs.get_by_role("button", name="Overview").click()
 
         expect(page.locator(MORE)).to_be_visible()
-        expect(page.locator(MORE)).to_have_text("Read more")
+        expect(page.locator(MORE)).to_have_text("Read More")
         assert _overflows(page)

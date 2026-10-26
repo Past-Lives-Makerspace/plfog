@@ -9,13 +9,14 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from django.contrib.auth.models import User
 from django.test import Client, override_settings
 from django.urls import reverse
 from django.utils import dateformat, timezone
 
-from membership.models import GuildAnnouncement
+from membership.models import GuildAnnouncement, Member
 from tests.hub.guild_guest_surface_spec import GUILDS_HOST, GUILDS_SETTINGS
-from tests.membership.factories import GuildAnnouncementFactory, GuildFactory
+from tests.membership.factories import GuildAnnouncementFactory, GuildFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -28,6 +29,16 @@ def _posted(days_ago: int, **kwargs: object) -> GuildAnnouncement:
     GuildAnnouncement.objects.filter(pk=announcement.pk).update(published_at=timezone.now() - timedelta(days=days_ago))
     announcement.refresh_from_db()
     return announcement
+
+
+def _sign_in_admin(client: Client) -> None:
+    """An admin, who can edit every guild, so the page shows a lead's empty state."""
+    MembershipPlanFactory()
+    user = User.objects.create_user(username="zqadmin", email="zqadmin@example.com", password="pw")
+    user.member.fog_role = Member.FogRole.ADMIN
+    user.member.save(update_fields=["fog_role"])
+    user.member.sync_user_permissions()
+    client.force_login(user)
 
 
 def _guild_page(client: Client, guild: object) -> str:
@@ -97,7 +108,7 @@ def describe_guild_page_announcement():
         assert f'href="{reverse("hub_guild_announcements", args=[guild.slug])}"' in html
         assert "data-past-announcements" in html
 
-    def it_shows_a_guest_the_past_link_when_only_expired_posts_remain(client: Client):
+    def it_shows_a_guest_no_current_announcements_and_the_past_link_when_all_expired(client: Client):
         guild = GuildFactory()
         expired = timezone.localdate() - timedelta(days=5)
         _posted(10, guild=guild, expires_at=expired)
@@ -106,7 +117,30 @@ def describe_guild_page_announcement():
         html = _guild_page(client, guild)
 
         assert "data-guild-announcement=" not in html
-        assert "data-past-announcements" in html
+        assert "data-no-current-announcements" in html
+        assert "No announcements yet." not in html
+        assert html.index("data-no-current-announcements") < html.index("data-past-announcements")
+
+    def it_says_no_current_announcements_to_a_lead_when_the_only_post_expired(client: Client):
+        guild = GuildFactory()
+        _posted(10, guild=guild, expires_at=timezone.localdate() - timedelta(days=5))
+        _sign_in_admin(client)
+
+        html = _guild_page(client, guild)
+
+        assert "data-no-current-announcements" in html
+        assert "Use Email Members to post one." not in html
+        assert "data-past-announcements" not in html
+
+    def it_keeps_the_empty_copy_when_the_guild_has_never_posted(client: Client):
+        guild = GuildFactory()
+        _posted(1, guild=guild, pending=True)
+        _sign_in_admin(client)
+
+        html = _guild_page(client, guild)
+
+        assert "No announcements yet. Use Email Members to post one." in html
+        assert "data-no-current-announcements" not in html
 
     def it_hides_the_section_from_a_guest_when_the_guild_has_none(client: Client):
         guild = GuildFactory()
@@ -197,6 +231,16 @@ def describe_past_announcements_page():
 
     def it_is_404_for_an_unknown_guild(client: Client):
         assert client.get(reverse("hub_guild_announcements", args=["no-such-guild"])).status_code == 404
+
+    def it_breaks_a_tie_on_published_time_by_newest_row(client: Client):
+        guild = GuildFactory()
+        first = _posted(3, guild=guild, title="Zq tie first")
+        second = _posted(3, guild=guild, title="Zq tie second")
+        GuildAnnouncement.objects.filter(pk=second.pk).update(published_at=first.published_at)
+
+        html = _past_page(client, guild)
+
+        assert html.index("Zq tie second") < html.index("Zq tie first")
 
     def it_pages_ten_at_a_time(client: Client):
         guild = GuildFactory()

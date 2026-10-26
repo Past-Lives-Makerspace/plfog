@@ -175,6 +175,8 @@
             </div>
             {% if announcement %}
             {% include "hub/partials/_guild_announcement_card.html" with announcement=announcement %}
+            {% elif has_published_announcements %}
+            <p class="hub-text-muted pl-guild-announcement__none" data-no-current-announcements>No current announcements.</p>
             {% elif can_edit_this_guild %}
             <p class="hub-text-muted" style="margin-top:0.5rem;">No announcements yet. Use Email Members to post one.</p>
             {% elif guild.allow_member_announcement_suggestions %}

@@ -416,15 +416,17 @@ def render_rich_body(value: str, *, lists: bool = False) -> str:
 
     Args:
         value: The stored body, editor HTML or plain text.
-        lists: Also turn a run of two or more ``- `` lines in plain text into a bulleted list
-            (a guild announcement, #952). Off for every other caller, so their output is unchanged.
+        lists: Treat the body as plain text, always: escape it whole, never sniff it for editor
+            HTML, and turn a run of two or more ``- `` lines into a bulleted list (a guild
+            announcement, #952, whose body is plain text from a lead, a member suggestion or
+            Discord). Off for every other caller, so their output is unchanged.
     """
     if not value or not value.strip():
         return ""
-    if is_editor_html(value):
-        return SPACER_PARAGRAPH_RE.sub("", sanitize_rich_html(value))
     if lists:
         return _plaintext_with_lists_to_html(value)
+    if is_editor_html(value):
+        return SPACER_PARAGRAPH_RE.sub("", sanitize_rich_html(value))
     return _legacy_plaintext_to_html(value)
 
 
@@ -448,14 +450,16 @@ def _legacy_plaintext_to_html(value: str) -> str:
 
 #: One bullet line of plain text: a hyphen and a space, then the item (leading spaces allowed).
 _PLAIN_BULLET_RE = re.compile(r"^\s*- (?=\S)")
+#: A paragraph break in plain text: one or more blank lines, which may hold spaces or tabs.
+_BLANK_LINE_RE = re.compile(r"\n\s*\n")
 
 
 def _plaintext_with_lists_to_html(value: str) -> str:
     """Escape plain text into paragraphs, line breaks and bulleted lists.
 
-    A blank line ends a paragraph and a single newline is a ``<br>``, as in
-    :func:`_legacy_plaintext_to_html`. Inside a paragraph, a run of two or more consecutive
-    ``- `` lines becomes a ``<ul>``; a lone ``- `` line (a ``- Penina`` sign off) stays a line
+    Line ends are normalized first (``\\r\\n`` and a lone ``\\r`` become ``\\n``). A blank line,
+    even one holding spaces, ends a paragraph and a single newline is a ``<br>``. Inside a
+    paragraph, a run of two or more consecutive ``- `` lines becomes a ``<ul>``; a lone ``- `` line (a ``- Penina`` sign off) stays a line
     of text, because a list of one is not a list. Everything is escaped, so no HTML in the
     text ever runs.
     """
@@ -465,7 +469,9 @@ def _plaintext_with_lists_to_html(value: str) -> str:
         return f"<p>{'<br>'.join(escape(line) for line in lines)}</p>"
 
     blocks: list[str] = []
-    for chunk in value.replace("\r\n", "\n").split("\n\n"):
+    for chunk in _BLANK_LINE_RE.split(value.replace("\r\n", "\n").replace("\r", "\n")):
+        if not chunk.strip():
+            continue
         lines = chunk.strip().split("\n")
         text: list[str] = []
         index = 0
@@ -483,8 +489,7 @@ def _plaintext_with_lists_to_html(value: str) -> str:
                 blocks.append(f"<ul>{items}</ul>")
                 index = run_end
                 continue
-            if lines[index].strip():
-                text.append(lines[index].strip())
+            text.append(lines[index].strip())
             index += 1
         if text:
             blocks.append(paragraph(text))

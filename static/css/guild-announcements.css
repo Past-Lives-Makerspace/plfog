@@ -72,6 +72,9 @@
 .pl-guild-announcement__more:hover,
 .pl-guild-announcement__more:focus-visible { text-decoration: underline; }
 
+/* Every published post has expired: one muted line where the card would be. */
+.pl-guild-announcement__none { margin-top: 0.5rem; }
+
 .pl-guild-announcement__past {
     display: inline-block;
     margin-top: 1rem;
