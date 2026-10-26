@@ -1,65 +1,3 @@
-/* A slider, not a text box: none of the form group's box, in either theme. Drawn by hand rather than with
-   accent-color, which Chromium pairs with a near black track on the light theme. The page's script sets
-   --pl-range-fill (a percent) as the slider moves; the track is yellow up to it and a muted grey after. */
-.pl-crawl-speed .pl-form-group input.pl-crawl-speed__range {
-    --pl-range-track: color-mix(in srgb, var(--hub-text) 22%, transparent);
-    -webkit-appearance: none;
-    appearance: none;
-    height: 1.5rem;
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-    cursor: pointer;
-}
-
-.pl-crawl-speed__range::-webkit-slider-runnable-track {
-    height: 6px;
-    border-radius: 999px;
-    background: linear-gradient(
-        to right,
-        var(--color-tuscan-yellow) var(--pl-range-fill, 0%),
-        var(--pl-range-track) var(--pl-range-fill, 0%)
-    );
-}
-
-.pl-crawl-speed__range::-moz-range-track {
-    height: 6px;
-    border-radius: 999px;
-    background: var(--pl-range-track);
-}
-
-.pl-crawl-speed__range::-moz-range-progress {
-    height: 6px;
-    border-radius: 999px;
-    background: var(--color-tuscan-yellow);
-}
-
-.pl-crawl-speed__range::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 18px;
-    height: 18px;
-    margin-top: -6px;
-    border: 0;
-    border-radius: 50%;
-    background: var(--color-tuscan-yellow);
-}
-
-.pl-crawl-speed__range::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
-    border: 0;
-    border-radius: 50%;
-    background: var(--color-tuscan-yellow);
-}
-
-.pl-crawl-speed .pl-form-group input.pl-crawl-speed__range:focus-visible {
-    outline: 2px solid var(--color-tuscan-yellow);
-    outline-offset: 2px;
-}
-
 /* home-announcements.css: the Spotlight messages (#889). First the ticker at the very top of Home
    (templates/hub/partials/_home_announcements.html, #935): one slim muted line, a megaphone, the messages
    crawling right to left with a dot between them, and a close button. The message's own rich text
@@ -331,16 +269,61 @@
     max-width: 520px;
 }
 
-/* A slider, not a text box: none of the form group's box, in either theme. */
+/* A slider, not a text box: none of the form group's box, in either theme. Drawn by hand rather than with
+   accent-color, which Chromium pairs with a near black track on the light theme. The page's script sets
+   --pl-range-fill (a percent) as the slider moves; the track is yellow up to it and a muted grey after. */
 .pl-crawl-speed .pl-form-group input.pl-crawl-speed__range {
+    --pl-range-track: color-mix(in srgb, var(--hub-text) 22%, transparent);
+    -webkit-appearance: none;
+    appearance: none;
     height: 1.5rem;
     padding: 0;
     border: 0;
     border-radius: 0;
     background: transparent;
     box-shadow: none;
-    accent-color: var(--color-tuscan-yellow);
     cursor: pointer;
+}
+
+.pl-crawl-speed__range::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        var(--color-tuscan-yellow) var(--pl-range-fill, 0%),
+        var(--pl-range-track) var(--pl-range-fill, 0%)
+    );
+}
+
+.pl-crawl-speed__range::-moz-range-track {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--pl-range-track);
+}
+
+.pl-crawl-speed__range::-moz-range-progress {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--color-tuscan-yellow);
+}
+
+.pl-crawl-speed__range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    margin-top: -6px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--color-tuscan-yellow);
+}
+
+.pl-crawl-speed__range::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--color-tuscan-yellow);
 }
 
 .pl-crawl-speed .pl-form-group input.pl-crawl-speed__range:focus-visible {
