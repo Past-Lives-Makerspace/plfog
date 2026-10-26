@@ -59,7 +59,7 @@ once, the order through the hidden form below (the script at the end of this sec
   {% endwith %}
 </div>
 {% include "hub/partials/_ticker_pace_script.html" %}
-{# The Crawl speed slider: the words and the preview follow it as it moves; a failed save puts it back. Claimed by an element property, so a boosted re-run is harmless. #}
+{# The Crawl speed slider: the words, the track's fill and the preview follow it as it moves; a failed save puts it back. Claimed by an element property, so a boosted re-run is harmless. #}
 <script>
   (function () {
     var form = document.querySelector("[data-crawl-speed-form]");
@@ -73,6 +73,8 @@ once, the order through the hidden form below (the script at the end of this sec
       var words = input.value + " px a second";
       value.textContent = words;
       input.setAttribute("aria-valuetext", words);
+      var min = Number(input.min), max = Number(input.max);
+      input.style.setProperty("--pl-range-fill", ((Number(input.value) - min) / (max - min)) * 100 + "%");
       preview.setAttribute("data-ticker-speed", input.value);
       window.plTicker.pace(preview);
     }

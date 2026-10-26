@@ -272,6 +272,8 @@ def describe_the_crawl_speed_slider():
         _slide_to(page, 60)
         expect(page.locator(WORDS)).to_have_text("60 px a second")
         expect(page.locator(SLIDER)).to_have_attribute("aria-valuetext", "60 px a second")
+        fill = page.locator(SLIDER).evaluate("(el) => el.style.getPropertyValue('--pl-range-fill')")
+        assert fill.startswith("71.42")  # (60 - 10) / (80 - 10) of the track, drawn yellow
         _expect_preview_pace(page, 60)
         assert SiteConfiguration.load().spotlight_crawl_speed == 25  # moved, not yet let go
 
