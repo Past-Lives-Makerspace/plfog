@@ -131,3 +131,15 @@ def describe_its_place_on_home():
             < poll
             < html.index("hub-card pl-home-block pl-app-badges")
         )
+
+
+def describe_the_spotlight():
+    def it_never_carries_the_poll(member_client: Client):
+        poll_with("Laser", "Lathe", question="Zorblax not in the spotlight?")
+
+        settings_page = member_client.get(reverse("hub_user_settings")).content.decode()
+        home = member_client.get(HOME).content.decode()
+
+        assert "data-poll-card" not in settings_page
+        assert "Zorblax not in the spotlight?" not in settings_page
+        assert home.count("data-poll-card=") == 1

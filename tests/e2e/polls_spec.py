@@ -56,7 +56,8 @@ def describe_voting_on_home():
         page.locator(CARD).get_by_role("button", name="Hide").click()
         expect(page.locator(CARD).locator("[data-poll-summary-voted]")).to_be_visible()
 
-        # Still folded on the next visit; Show opens it on the member's answer.
+        # Answered, so a visit with nothing stored starts folded; Show opens it on the member's answer.
+        page.evaluate("localStorage.clear()")
         page.reload()
         block = page.locator(CARD)
         expect(block.locator("[data-poll-body]")).to_be_hidden()
