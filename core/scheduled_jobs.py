@@ -9,6 +9,10 @@ registry, the admin list can never drift out of sync with what actually runs.
 ``is_enabled``; the "Run now" view deliberately does NOT, because a manual override
 should run even a paused job. Both wrap each run in ``record_run``, so every run —
 scheduled or manual — is recorded uniformly.
+
+A failure alerts the Webmasters at once, except a scheduled DAILY or WEEKLY run: its
+window retries it, so the dispatcher holds that alert and sends it after the window only
+if no retry recovered (``alert_unrecovered_failures``, #933).
 """
 
 from __future__ import annotations
@@ -451,6 +455,7 @@ def record_run(
     *,
     trigger: str,
     actor: User | None = None,
+    defer_alert: bool = False,
 ) -> Iterator[ScheduledTaskRun]:
     """Open a ``ScheduledTaskRun`` (RUNNING), run the wrapped body, then mark it OK on a
     clean exit or FAILED (capturing the error) on an exception — and **re-raise**, so the
@@ -458,7 +463,10 @@ def record_run(
     ``ScheduledTaskRun``: the dispatcher, ``airtable_pull``, and the Run-now view all use it.
 
     A failure also alerts the Webmasters (:func:`alert_webmasters`) before the re-raise, for
-    every trigger. The alert never raises, so the job's own exception is what propagates.
+    every trigger, unless ``defer_alert`` is set. The dispatcher sets it for a DAILY or WEEKLY
+    run, whose failure a later tick in the window retries; the window's end decides that
+    alert instead (:func:`alert_unrecovered_failures`). The alert never raises, so the job's
+    own exception is what propagates.
     """
     from core.models import ScheduledTaskRun
 
@@ -467,13 +475,17 @@ def record_run(
         trigger=trigger,
         actor=actor if (actor is not None and getattr(actor, "pk", None)) else None,
         status=ScheduledTaskRun.Status.RUNNING,
+        # The clock the dispatcher reads, not the field default bound at import, so a run sits
+        # in the window the dispatcher placed it in (and a spec can pin the tick).
+        started_at=timezone.now(),
     )
     token = _current_run.set(run)
     try:
         yield run
     except Exception as exc:
         run.mark_failed(exc)
-        alert_webmasters(run, exc)
+        if not defer_alert:
+            alert_webmasters(run, exc)
         raise
     else:
         run.mark_ok()
@@ -499,7 +511,7 @@ def automations_path() -> str:
     return reverse("hub_admin_automations")
 
 
-def alert_webmasters(run: ScheduledTaskRun, exc: Exception) -> None:
+def alert_webmasters(run: ScheduledTaskRun, exc: Exception | None = None) -> None:
     """Tell the Webmasters that ``run`` failed: at most one alert per job per Pacific day.
 
     The ``automation.failed`` event reaches the WEBMASTER capability holders only. Its
@@ -515,7 +527,11 @@ def alert_webmasters(run: ScheduledTaskRun, exc: Exception) -> None:
     later person, so a failing email would otherwise cost the push and the other
     Webmasters their alerts. The bell and push slots are already claimed when the email
     pass runs, so it sends the email alone. An email that fails releases its slot and is
-    retried on the job's next failure that day.
+    retried on the job's next alert that day: its next failure, or for a held DAILY or WEEKLY
+    alert the next tick after its window.
+
+    ``exc`` is ``None`` when the alert comes after the window, from the run row alone; it only
+    names the exception type when the run's error is empty.
 
     Never raises: each pass logs its own failure with ``logger.exception``.
     """
@@ -524,7 +540,7 @@ def alert_webmasters(run: ScheduledTaskRun, exc: Exception) -> None:
 
 
 def _alert_pass(
-    run: ScheduledTaskRun, exc: Exception, *, suppress_email: bool = False, suppress_push: bool = False
+    run: ScheduledTaskRun, exc: Exception | None, *, suppress_email: bool = False, suppress_push: bool = False
 ) -> None:
     """One emit of the failure alert, logging instead of raising (see :func:`alert_webmasters`)."""
     from django.conf import settings
@@ -545,7 +561,8 @@ def _alert_pass(
         # run.error is str(exc), not a traceback, so the headline is the FIRST line. Later lines are
         # detail that must stay out of an inbox and a push tray: psycopg's "DETAIL: Key (email)=(...)"
         # carries member data, and httpx ends with a "For more information check: <url>" footer.
-        error = Truncator(error_lines[0]).chars(ALERT_ERROR_LIMIT) if error_lines else type(exc).__name__
+        fallback = type(exc).__name__ if exc is not None else "no message"
+        error = Truncator(error_lines[0]).chars(ALERT_ERROR_LIMIT) if error_lines else fallback
         when = date_format(failed_at, r"l, F j \a\t g:i A")  # Saturday, October 3 at 6:15 AM
         body = "\n".join(
             [
@@ -579,6 +596,41 @@ def _alert_pass(
             "email" if suppress_push else "bell and push",
             run.task_key,
         )
+
+
+def alert_unrecovered_failures(keys: list[str], since: datetime, until: datetime) -> list[str]:
+    """Alert the Webmasters for each job in ``keys`` whose scheduled runs failed in the window
+    ``since`` to ``until`` and that has no OK run since ``since``; return the keys alerted.
+
+    The dispatcher calls this after the DAILY/WEEKLY window, on each tick of the hour after it
+    (#933). A failure a later tick recovered stays silent; one that never recovered alerts with
+    the window's last failed run, so the alert names the last error. The repeat ticks send
+    nothing new, because :func:`alert_webmasters` lets one alert per job per Pacific day through.
+    """
+    from core.models import ScheduledTaskRun
+
+    recovered = set(
+        ScheduledTaskRun.objects.filter(
+            task_key__in=keys, status=ScheduledTaskRun.Status.OK, started_at__gte=since
+        ).values_list("task_key", flat=True)
+    )
+    failures = (
+        ScheduledTaskRun.objects.filter(
+            task_key__in=keys,
+            trigger=Trigger.SCHEDULED,
+            status=ScheduledTaskRun.Status.FAILED,
+            started_at__gte=since,
+            started_at__lt=until,
+        )
+        .exclude(task_key__in=recovered)
+        .order_by("task_key", "-started_at")
+    )
+    last_failure: dict[str, ScheduledTaskRun] = {}
+    for run in failures:
+        last_failure.setdefault(run.task_key, run)
+    for run in last_failure.values():
+        alert_webmasters(run)
+    return list(last_failure)
 
 
 def _prune_run_history(key: str) -> None:

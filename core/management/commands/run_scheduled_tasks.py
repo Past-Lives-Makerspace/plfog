@@ -14,10 +14,16 @@ Each due job is:
 - skipped if an admin has paused it (``is_enabled`` is false),
 - otherwise run inside ``record_run`` (which writes a ScheduledTaskRun row) and its own
   try/except, so one failure cannot block the rest.
+
+A failed ALWAYS run alerts the Webmasters at once. A failed DAILY/WEEKLY run does not, because
+a later tick in the window retries it (#933): on each tick of the hour after the window
+(``ALERT_UTC_HOUR``), the jobs whose window it was alert if they failed and never recovered.
+The alert ledger lets one through per job per Pacific day, so the repeat ticks send nothing.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.core.management import call_command
@@ -25,10 +31,19 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from core.models import ScheduledJobState
-from core.scheduled_jobs import SCHEDULED_JOBS, Cadence, Trigger, has_succeeded_since, is_enabled, record_run
+from core.scheduled_jobs import (
+    SCHEDULED_JOBS,
+    Cadence,
+    Trigger,
+    alert_unrecovered_failures,
+    has_succeeded_since,
+    is_enabled,
+    record_run,
+)
 
 DAILY_UTC_HOUR = 13  # ~6 AM Portland
 WEEKLY_UTC_WEEKDAY = 0  # Monday (WEEKLY jobs run Mondays at DAILY_UTC_HOUR)
+ALERT_UTC_HOUR = DAILY_UTC_HOUR + 1  # a DAILY/WEEKLY failure no retry fixed alerts in this hour
 
 
 class Command(BaseCommand):
@@ -66,14 +81,31 @@ class Command(BaseCommand):
                 self.stdout.write(f"  – {job.key} disabled")
                 continue
             try:
-                with record_run(job.key, trigger=Trigger.SCHEDULED):
+                with record_run(
+                    job.key, trigger=Trigger.SCHEDULED, defer_alert=cadence in (Cadence.DAILY, Cadence.WEEKLY)
+                ):
                     call_command(job.command, stdout=self.stdout, stderr=self.stderr)
                 self.stdout.write(f"  ✓ {job.key}")
             except Exception as exc:
                 self.stderr.write(self.style.ERROR(f"  ✗ {job.key}: {exc}"))
                 failed.append(job.key)
 
+        if now.hour == ALERT_UTC_HOUR:
+            self._alert_after_window(now, chosen)
+
         if failed:
             self.stderr.write(self.style.ERROR(f"Failed: {', '.join(failed)}"))
         else:
             self.stdout.write(self.style.SUCCESS("All scheduled tasks completed."))
+
+    def _alert_after_window(self, now: datetime, chosen: dict[str, str]) -> None:
+        """Alert for each job whose window was the hour before and that failed in it without recovering."""
+        window_keys = [
+            job.key
+            for job in SCHEDULED_JOBS
+            if job.cadence_from(chosen) == Cadence.DAILY
+            or (job.cadence_from(chosen) == Cadence.WEEKLY and now.weekday() == WEEKLY_UTC_WEEKDAY)
+        ]
+        window_start = now.replace(hour=DAILY_UTC_HOUR, minute=0, second=0, microsecond=0)
+        for key in alert_unrecovered_failures(window_keys, window_start, window_start + timedelta(hours=1)):
+            self.stderr.write(self.style.ERROR(f"  ! {key} alerted (failed in its window and never recovered)"))
