@@ -5557,6 +5557,18 @@ class GuildAnnouncement(StaffRequestMixin, models.Model):
     def __str__(self) -> str:
         return f"{self.title} ({self.guild.name})"
 
+    #: Over either limit, a guild announcement card renders its body folded with a Read more
+    #: toggle (#952). The fold is a CSS height the server cannot measure, so these are sized to
+    #: a phone's card and err long; the card's script drops the fold and the toggle when the body
+    #: turns out to fit.
+    LONG_BODY_CHARS: ClassVar[int] = 280
+    LONG_BODY_LINES: ClassVar[int] = 6
+
+    @property
+    def body_is_long(self) -> bool:
+        """Whether the card should clamp this body and offer Read more."""
+        return len(self.body) > self.LONG_BODY_CHARS or self.body.count("\n") >= self.LONG_BODY_LINES
+
     @property
     def is_active(self) -> bool:
         """Visible on the page — never expires, or the expiry is today or later."""

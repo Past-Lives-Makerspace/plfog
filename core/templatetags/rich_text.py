@@ -23,9 +23,15 @@ def rich_email_body(value: str | None) -> SafeString:
 
 
 @register.filter(name="rich_body")
-def rich_body(value: str | None) -> SafeString:
-    """Render a stored body as sanitized HTML for a page: editor HTML as is, legacy text as paragraphs."""
-    return mark_safe(render_rich_body(value or ""))
+def rich_body(value: str | None, mode: str = "") -> SafeString:
+    """Render a stored body as sanitized HTML for a page: editor HTML as is, legacy text as paragraphs.
+
+    ``{{ body|rich_body:"lists" }}`` also turns runs of ``- `` lines in plain text into a
+    bulleted list (guild announcements, #952). Any other mode is a template typo and raises.
+    """
+    if mode not in ("", "lists"):
+        raise ValueError(f"Unknown rich_body mode '{mode}'")
+    return mark_safe(render_rich_body(value or "", lists=mode == "lists"))
 
 
 @register.filter(name="rich_email_text")

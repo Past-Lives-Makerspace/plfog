@@ -215,6 +215,7 @@ GUILDS_ALLOWED_VIEW_NAMES: frozenset[str] = frozenset(
         "hub_guild_directory",
         "hub_guild_detail",
         "hub_guild_detail_by_id",
+        "hub_guild_announcements",
         "hub_spaces",
         "hub_help",
         "hub_orientation_book",

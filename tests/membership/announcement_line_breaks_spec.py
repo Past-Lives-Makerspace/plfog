@@ -122,7 +122,7 @@ def describe_an_announcement_with_paragraphs():
         client = Client()
         client.force_login(viewer)
         content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
-        assert "First the news.<br><br>Then the details.<br><br>Last, the ask." in content
+        assert "<p>First the news.</p><p>Then the details.</p><p>Last, the ask.</p>" in content
 
     def it_sends_the_paragraphs_in_the_roster_notice_for_a_class():
         from classes.factories import ClassOfferingFactory, RegistrationFactory

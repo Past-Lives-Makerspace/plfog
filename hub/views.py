@@ -659,6 +659,27 @@ def _orientation_sections(
     return sections
 
 
+GUILD_ANNOUNCEMENTS_PAGE_SIZE = 10
+
+
+def guild_announcements(request: HttpRequest, slug: str) -> HttpResponse:
+    """Every published announcement one guild has posted, newest first, expired ones too (#952).
+
+    Gated exactly like :func:`guild_detail`, which is open to anyone with the link on the members
+    and guilds surfaces, so whoever can read the guild page can read its past posts. Only
+    Published rows: a pending, changes requested or declined proposal never shows.
+    """
+    from django.core.paginator import Paginator
+
+    guild = get_object_or_404(Guild, slug=slug)
+    page = Paginator(guild.announcements.published(), GUILD_ANNOUNCEMENTS_PAGE_SIZE).get_page(request.GET.get("page"))
+    return render(
+        request,
+        "hub/guild_announcements.html",
+        {**_get_hub_context(request), "guild": guild, "page": page},
+    )
+
+
 def _custom_request_forms(orientation_type: OrientationType) -> tuple[Any, Any]:
     """The propose a time form for one type's card, and its amount form for a donation type (#733).
 
@@ -726,7 +747,11 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     # guild.links directly), so it's structurally non-editable and non-deletable.
     guilds_surface = getattr(request, "surface", "members") == "guilds"
     links = [guild.classes_link(guilds_surface=guilds_surface), *guild.links.all()]
-    announcements = guild.announcements.published().active()[:5]
+    # One announcement, the newest still showing (#952); the rest live on the Past Announcements page,
+    # linked once the guild has published more than one (expired ones count).
+    published_announcements = guild.announcements.published()
+    announcement = published_announcements.active().first()
+    has_past_announcements = published_announcements.count() > 1
     # The Meetings tab (§6.4, #891). Its Meetings feature parts (next meeting, proposals, minutes)
     # follow the switch and are built only while it is on; the guild's meeting notes (the ones
     # leads post in the editor) show on the tab whatever the switch says, to signed in viewers,
@@ -942,7 +967,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "gallery_images": gallery_images,
             "faq_items": faq_items,
             "links": links,
-            "announcements": announcements,
+            "announcement": announcement,
+            "has_past_announcements": has_past_announcements,
             "next_guild_meeting": next_guild_meeting,
             "can_propose_next": can_propose_next,
             "propose_form": propose_form,

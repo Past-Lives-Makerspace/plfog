@@ -404,7 +404,7 @@ def clean_rich_body(raw: str) -> str:
     return raw
 
 
-def render_rich_body(value: str) -> str:
+def render_rich_body(value: str, *, lists: bool = False) -> str:
     """Page-ready HTML for a stored body: editor HTML sanitized, plain text escaped and paragraph-ized.
 
     The on-page counterpart of :func:`render_rich_email_body`, without the inline styles: the
@@ -413,11 +413,18 @@ def render_rich_body(value: str) -> str:
     doubling it; emails built on this (:func:`render_rich_email_body`) drop them too. The stored
     body keeps them, so the editor shows what was typed. Returns ``""``
     for empty input; the result is safe to ``mark_safe``.
+
+    Args:
+        value: The stored body, editor HTML or plain text.
+        lists: Also turn a run of two or more ``- `` lines in plain text into a bulleted list
+            (a guild announcement, #952). Off for every other caller, so their output is unchanged.
     """
     if not value or not value.strip():
         return ""
     if is_editor_html(value):
         return SPACER_PARAGRAPH_RE.sub("", sanitize_rich_html(value))
+    if lists:
+        return _plaintext_with_lists_to_html(value)
     return _legacy_plaintext_to_html(value)
 
 
@@ -437,6 +444,51 @@ def _legacy_plaintext_to_html(value: str) -> str:
     return "".join(
         f"<p>{escape(chunk.strip()).replace(chr(10), '<br>')}</p>" for chunk in value.split("\n\n") if chunk.strip()
     )
+
+
+#: One bullet line of plain text: a hyphen and a space, then the item (leading spaces allowed).
+_PLAIN_BULLET_RE = re.compile(r"^\s*- (?=\S)")
+
+
+def _plaintext_with_lists_to_html(value: str) -> str:
+    """Escape plain text into paragraphs, line breaks and bulleted lists.
+
+    A blank line ends a paragraph and a single newline is a ``<br>``, as in
+    :func:`_legacy_plaintext_to_html`. Inside a paragraph, a run of two or more consecutive
+    ``- `` lines becomes a ``<ul>``; a lone ``- `` line (a ``- Penina`` sign off) stays a line
+    of text, because a list of one is not a list. Everything is escaped, so no HTML in the
+    text ever runs.
+    """
+    from django.utils.html import escape
+
+    def paragraph(lines: list[str]) -> str:
+        return f"<p>{'<br>'.join(escape(line) for line in lines)}</p>"
+
+    blocks: list[str] = []
+    for chunk in value.replace("\r\n", "\n").split("\n\n"):
+        lines = chunk.strip().split("\n")
+        text: list[str] = []
+        index = 0
+        while index < len(lines):
+            run_end = index
+            while run_end < len(lines) and _PLAIN_BULLET_RE.match(lines[run_end]):
+                run_end += 1
+            if run_end - index >= 2:
+                if text:
+                    blocks.append(paragraph(text))
+                    text = []
+                items = "".join(
+                    f"<li>{escape(_PLAIN_BULLET_RE.sub('', line).strip())}</li>" for line in lines[index:run_end]
+                )
+                blocks.append(f"<ul>{items}</ul>")
+                index = run_end
+                continue
+            if lines[index].strip():
+                text.append(lines[index].strip())
+            index += 1
+        if text:
+            blocks.append(paragraph(text))
+    return "".join(blocks)
 
 
 def render_rich_email_body(value: str) -> str:
