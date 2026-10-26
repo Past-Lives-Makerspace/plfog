@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import hashlib
 import logging
+import re
 import secrets
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -745,7 +746,7 @@ class SiteConfiguration(models.Model):
         default=True,
         verbose_name="Offer guided tours",
         help_text="When off, the guided tour offer never pops up for anyone. Each member's own tour setting is "
-        "kept, and a tour can still be started from its Show me around link.",
+        "kept, and a tour can still be started from its Show Me Around link.",
     )
     # wiki_enabled, equipment_page_enabled and host_a_workshop_enabled used to live here. They are
     # FeatureSwitch rows now (see core/features.py) so that every member feature answers to one
@@ -1063,43 +1064,6 @@ class SiteConfiguration(models.Model):
         verbose_name="App Store URL",
         help_text="The app's App Store listing. Blank means not launched: the badge is left out everywhere and the copy says iOS is coming soon.",
     )
-    # #708: the Spotlight in the top left of the Member Portal, edited at Admin Tools > Spotlight.
-    spotlight_meeting_event = models.ForeignKey(
-        "membership.CommunityEvent",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="+",
-        verbose_name="Feature Request Meeting event",
-        help_text="The Spotlight always shows this event's next date, so a monthly event rolls on by itself.",
-    )
-    spotlight_first_line = models.CharField(
-        max_length=120,
-        blank=True,
-        default="",
-        db_default="",
-        verbose_name="Minimized first line",
-        help_text="Empty uses this week's poll question.",
-    )
-    spotlight_second_line = models.CharField(
-        max_length=120,
-        blank=True,
-        default="",
-        db_default="",
-        verbose_name="Minimized second line",
-        help_text="Empty uses Feature Request Meeting. The date and time pill always follows it.",
-    )
-    spotlight_show_when_empty = models.BooleanField(
-        default=True,
-        db_default=True,
-        verbose_name="Show the Spotlight when there is no poll and no meeting",
-        help_text="On: members see the latest update and Details. Off: the corner goes back to the logo and version number.",
-    )
-    spotlight_text_changed_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="When either Spotlight line last changed; members see the Spotlight's dot until they open it.",
-    )
     # #813: the building door code on the member portal home page, changed from its Door Code
     # card by an admin. The repo is public: the real code lives only in the production row.
     door_code = models.CharField(
@@ -1153,9 +1117,8 @@ class SiteConfiguration(models.Model):
         """Save the door code, stamping who saved it and when only if it changed (#813).
 
         Saving the code already stored writes nothing, so the card keeps the date and name of
-        the real change, as ``SpotlightTextForm.save_at`` keeps ``spotlight_text_changed_at``.
-        Writes only the three door code columns, so a concurrent edit to any other setting
-        is never reverted by a whole row save.
+        the real change. Writes only the three door code columns, so a concurrent edit to any
+        other setting is never reverted by a whole row save.
 
         Returns:
             True when the code changed.
@@ -1179,7 +1142,7 @@ class AnnouncementOrderChangedError(ValueError):
 
 
 class AnnouncementQuerySet(models.QuerySet["Announcement"]):
-    """Query helpers for the Home banner and Admin Tools > Spotlight (#889)."""
+    """Query helpers for the ticker on Home and Admin Tools > Spotlight (#889, #935)."""
 
     def in_order(self) -> AnnouncementQuerySet:
         """The admin's order: ``position``, then newest first, so a new one leads until it is moved."""
@@ -1196,12 +1159,12 @@ class AnnouncementQuerySet(models.QuerySet["Announcement"]):
 
 
 class Announcement(models.Model):
-    """A short notice an admin posts for every member, shown in the banner at the top of Home (#889).
+    """A short notice an admin posts for every member, crawling across the top of Home (#889, a ticker since #935).
 
     Written in Admin Tools > Spotlight. The body is rich text (bold, italic and links), stored as
     sanitized HTML of at most :data:`core.html_sanitize.ANNOUNCEMENT_MAX_CHARS` visible
     characters. It shows while it is on and between its optional ``show_from`` and
-    ``show_until``; the live ones rotate in the admins' order. Nothing is ever sent: an
+    ``show_until``; the live ones run one after another in the admins' order. Nothing is ever sent: an
     announcement is shown, not emailed, pushed or posted.
     """
 
@@ -1230,7 +1193,7 @@ class Announcement(models.Model):
     )
     position = models.PositiveIntegerField(
         default=0,
-        help_text="Its place in the banner's rotation, set by dragging in Admin Tools > Spotlight. Lower shows first.",
+        help_text="Its place in the ticker on Home, set by dragging in Admin Tools > Spotlight. Lower shows first.",
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When it was added.")
     created_by = models.ForeignKey(
@@ -1243,7 +1206,7 @@ class Announcement(models.Model):
     )
     updated_at = models.DateTimeField(
         auto_now=True,
-        help_text="Its last save. Part of the banner's signature, so an edit brings a closed banner back.",
+        help_text="Its last save. Part of the ticker's signature, so an edit brings a closed ticker back.",
     )
 
     objects = AnnouncementQuerySet.as_manager()
@@ -1267,6 +1230,16 @@ class Announcement(models.Model):
 
         return mark_safe(sanitize_announcement_html(self.body))  # noqa: S308  # sanitized just above
 
+    @property
+    def inline_html(self) -> str:
+        """The body on one line, for the ticker on Home (#935): bold, italic and links kept, paragraphs and breaks as spaces."""
+        from django.utils.safestring import mark_safe
+
+        from core.html_sanitize import sanitize_announcement_html
+
+        html = re.sub(r"\s*(?:<br\s*/?>|</p>\s*<p>)\s*", " ", sanitize_announcement_html(self.body))
+        return mark_safe(re.sub(r"</?p>", "", html).strip())  # noqa: S308  # sanitized, then only p and br removed
+
     def status(self, now: datetime) -> Announcement.Status:
         """Live, Scheduled, Ended or Off at ``now``, by the same rule as :meth:`AnnouncementQuerySet.live`."""
         if not self.is_active:
@@ -1282,7 +1255,7 @@ class Announcement(models.Model):
         """Put every announcement at its index in ``pks``.
 
         Saved with ``bulk_update``, so ``updated_at`` stays put: a new order is not a new set, and
-        a member who closed the banner keeps it closed.
+        a member who closed the ticker keeps it closed.
 
         Raises:
             AnnouncementOrderChangedError: ``pks`` does not name every announcement exactly once.
@@ -1296,10 +1269,10 @@ class Announcement(models.Model):
 
     @staticmethod
     def signature(rows: list[Announcement]) -> str:
-        """The banner's identity: each row's id and last save, by id, so a new order alone keeps it.
+        """The ticker's identity: each row's id and last save, by id, so a new order alone keeps it.
 
         A member's Close keeps this; any new, edited, ended or begun announcement changes it, so
-        the banner comes back.
+        the ticker comes back.
         """
         return ",".join(f"{row.pk}:{row.updated_at.timestamp():.6f}" for row in sorted(rows, key=lambda row: row.pk))
 

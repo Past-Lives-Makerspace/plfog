@@ -16,7 +16,7 @@ pytestmark = pytest.mark.django_db
 PASSWORD = "pw12345!"
 BANNER = "data-tour-banner"
 FLOATING_CARD = 'class="pl-tour-offer"'
-HEADER_LINK = '<a href="?tour=member-welcome" class="hub-btn hub-btn--sm">Show me around</a>'
+HEADER_LINK = '<a href="?tour=member-welcome" class="hub-btn hub-btn--sm">Show Me Around</a>'
 
 
 def _login_member(client, name: str, **member_fields) -> Member:
@@ -204,7 +204,7 @@ def describe_home_tour_banner():
         content = client.get(reverse("hub_home")).content.decode()
         assert BANNER not in content
         assert FLOATING_CARD not in content
-        # Dismissed is the checklist's Done too, so Show me around stays away as well.
+        # Dismissed is the checklist's Done too, so Show Me Around stays away as well.
         assert HEADER_LINK not in content
 
     def it_is_gone_once_the_tour_is_completed_and_so_is_show_me_around(client):

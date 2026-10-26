@@ -58,8 +58,9 @@ LAST_YEAR = FlyerSlot.LAST_YEAR.value
 # the cards. 33 since HQ card sharing: the sidebar's Holiday Bizarre entry is one query on every hub page, and the
 # card's gate and the door links each read the Can open list beside the Team (one prefetch each, however long).
 # 34 with the Spotlight's second query, its live announcements (#890). 33 with Guild Tools
-# (#921): the sidebar's tools entry asks about guild leads and staff in one EXISTS, not two.
-QUERIES_PER_PAGE = 33
+# (#921): the sidebar's tools entry asks about guild leads and staff in one EXISTS, not two. 31 since #935: the
+# sidebar's Spotlight is a static version card, so neither of its two queries runs.
+QUERIES_PER_PAGE = 31
 
 
 def _page(hub: Any) -> str:

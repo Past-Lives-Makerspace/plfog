@@ -58,25 +58,15 @@ def describe_the_user_on_the_page():
 
 
 def describe_the_names():
-    def it_names_each_rotator_on_home_apart(client: Client, member: User):
+    def it_names_the_upcoming_queue_the_only_rotator_left_on_home(client: Client, member: User):
+        # The Spotlight messages crawl as a ticker since #935 and Upcoming is a queue since #937, so no plRotator is left.
         for n in range(2):
             AnnouncementFactory(position=n)
         _two_events()
 
         html = client.get(HOME).content.decode()
 
-        assert 'x-data="plRotator" data-rotator-interval="8000" data-rotator-name="home-banner"' in html
         assert 'x-data="plUpcomingQueue" data-rotator-interval="6000" data-rotator-name="home-upcoming"' in html
-        assert 'x-data="plRotator" data-rotator-interval="8000" data-rotator-name="spotlight"' in html
-
-    def it_gives_the_admin_preview_its_own_name(client: Client):
-        User.objects.create_superuser(username="zorblax-admin", password="pass", email="zorblax-admin@example.com")
-        client.login(username="zorblax-admin", password="pass")
-        for n in range(2):
-            AnnouncementFactory(position=n)
-
-        html = client.get(reverse("hub_admin_spotlight")).content.decode()
-        preview = html.split("data-spotlight-preview", 1)[1]
-
-        assert 'data-rotator-name="spotlight-preview"' in preview
-        assert 'data-rotator-name="spotlight"' in html.split("data-spotlight-preview", 1)[0]
+        assert 'x-data="plRotator"' not in html
+        assert 'data-rotator-name="home-banner"' not in html
+        assert 'data-rotator-name="spotlight"' not in html

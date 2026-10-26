@@ -6,16 +6,15 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/door-code.css' %}">
 <link rel="stylesheet" href="{% static 'css/tour-banner.css' %}">
+<link rel="stylesheet" href="{% static 'css/rotator.css' %}">
 <link rel="stylesheet" href="{% static 'css/home-featured.css' %}">
 <link rel="stylesheet" href="{% static 'css/home-announcements.css' %}">
 <link rel="stylesheet" href="{% static 'css/polls.css' %}">
 {% endblock %}
 
 {% block content %}
-{# --- Announcements (#889): what admins post in Admin Tools > Spotlight, to everyone who sees Home, while one is live --- #}
+{# --- Spotlight messages (#889, a ticker since #935): what admins post in Admin Tools > Spotlight, to everyone who sees Home, while one is live --- #}
 {% if home_banner %}{% include "hub/partials/_home_announcements.html" with banner=home_banner %}{% endif %}
-{# On phones the sidebar starts closed, so the Spotlight sits at the top of Home there (#709); hidden on wider screens. Without the announcements, which the banner just above shows (#890). #}
-{% if spotlight %}{% with home_spotlight=spotlight.without_announcements %}{% if home_spotlight %}<div class="pl-spotlight-home" data-spotlight-home>{% include "hub/partials/_spotlight.html" with spotlight=home_spotlight %}</div>{% endif %}{% endwith %}{% endif %}
 {% if member %}
 {% with greeting="Welcome back, "|add:member.display_name %}
 {% include "components/page_header.html" with title=greeting description="Your home base — what's coming up, the latest from your guilds, and quick ways in." action_include="hub/partials/_home_header_actions.html" lead_include="hub/partials/_home_tour_link.html" %}
@@ -71,15 +70,6 @@
         <span class="pl-quicklink__label">Member Directory</span>
     </a>
     {% endif %}
-    {# Past Polls (#925 AC 10): always here for anyone who can vote, whether or not a poll is open; the page refuses everyone else. #}
-    {% if can_vote_polls %}
-    <a href="{% url 'polls:index' %}" class="pl-quicklink" data-quicklink-past-polls>
-        <span class="pl-quicklink__icon" aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-        </span>
-        <span class="pl-quicklink__label">Past Polls</span>
-    </a>
-    {% endif %}
     <a href="{% url 'hub_user_settings' %}" class="pl-quicklink">
         <span class="pl-quicklink__icon" aria-hidden="true">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -103,16 +93,6 @@
 {% include "components/modal.html" with modal_id="door-code-change" modal_title="Change the Door Code" modal_size="sm" modal_body_include="hub/partials/_door_code_form.html" %}
 {% endif %}
 
-{# --- Poll (#925): only while a poll is open; with none, no card, heading or empty state --- #}
-{% if home_poll %}
-<section class="hub-card pl-home-block" data-block="poll">
-    <h2 class="pl-home-heading">Poll</h2>
-    {% url 'hub_home' as home_url %}
-    {% include "polls/partials/_poll_card.html" with card=home_poll variant="home" next_url=home_url %}
-    <a href="{% url 'polls:index' %}" class="pl-home-block__more pl-poll-home__more" data-poll-past-link>See past polls →</a>
-</section>
-{% endif %}
-
 {# --- Overdue reviews (#817): admins and CMS Administrators, omitted when none have waited 3 days --- #}
 {% if overdue_reviews %}
 <div class="hub-card pl-home-block" data-block="overdue-reviews">
@@ -129,7 +109,7 @@
         </li>
         {% endfor %}
     </ul>
-    <a href="{% url 'classes:admin_overview' %}" class="pl-home-block__more">Open the class queue →</a>
+    <a href="{% url 'classes:admin_overview' %}" class="pl-home-block__more">Open the Class Queue →</a>
 </div>
 {% endif %}
 
@@ -148,7 +128,7 @@
         </li>
         {% endfor %}
     </ul>
-    <a href="{% url 'classes:teach_overview' %}" class="pl-home-block__more">Open teaching →</a>
+    <a href="{% url 'classes:teach_overview' %}" class="pl-home-block__more">Open Teaching →</a>
 </div>
 {% endif %}
 
@@ -212,6 +192,50 @@
     </p>
     {% endif %}
 </div>
+
+{# --- Poll (#925), last above Get the app (#936): only while a poll is open; with none, no card, heading or empty state. Hide folds it to one line, kept per poll in this browser (#936); a poll the member has answered starts folded. --- #}
+{% if home_poll %}
+<section class="hub-card pl-home-block pl-poll-home" data-block="poll" data-poll-home="{{ home_poll.poll.pk }}"{% if home_poll.has_voted %} data-poll-answered{% endif %}>
+    <div class="pl-poll-home__head">
+        <h2 class="pl-home-heading pl-poll-home__heading">Poll</h2>
+        <p class="pl-poll-home__summary" data-poll-summary><span class="pl-poll-home__question">{{ home_poll.poll.question }}</span><span class="pl-poll-home__voted" data-poll-summary-voted>Voted</span></p>
+        <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm pl-poll-home__toggle" aria-expanded="true" aria-controls="home-poll-body" onclick="window.plHomePoll.toggle(this.closest('[data-poll-home]'))" data-poll-toggle><span data-poll-toggle-label>Hide</span><svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><path d="M3.5 10 8 5.5 12.5 10" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <div class="pl-poll-home__body" id="home-poll-body" data-poll-body>
+        {% url 'hub_home' as home_url %}
+        {% include "polls/partials/_poll_card.html" with card=home_poll variant="home" next_url=home_url %}
+        <a href="{% url 'polls:index' %}" class="pl-home-block__more pl-poll-home__more" data-poll-past-link>See Past Polls →</a>
+    </div>
+</section>
+{# Runs as the block arrives, so a folded poll never flashes open. "1" folded, "0" open, nothing stored: folded once answered. Storage in a try, so with it blocked the poll simply shows. #}
+<script>
+  (function () {
+    function key(block) { return "pl-home-poll-" + block.getAttribute("data-poll-home"); }
+    function set(block, folded) {
+      block.classList.toggle("is-folded", folded);
+      var button = block.querySelector("[data-poll-toggle]");
+      button.setAttribute("aria-expanded", folded ? "false" : "true");
+      button.querySelector("[data-poll-toggle-label]").textContent = folded ? "Show" : "Hide";
+    }
+    window.plHomePoll = {
+      toggle: function (block) {
+        var folded = !block.classList.contains("is-folded");
+        set(block, folded);
+        try { window.localStorage.setItem(key(block), folded ? "1" : "0"); } catch (e) {}
+      },
+    };
+    var block = document.querySelector("[data-poll-home]");
+    if (!block) return;
+    // A vote swaps only the card; once it shows results the member has answered, so the folded line shows Voted.
+    block.addEventListener("htmx:afterSwap", function () {
+      if (!block.querySelector("[data-poll-choices]")) block.setAttribute("data-poll-answered", "");
+    });
+    var stored = null;
+    try { stored = window.localStorage.getItem(key(block)); } catch (e) {}
+    set(block, stored === null ? block.hasAttribute("data-poll-answered") : stored === "1");
+  })();
+</script>
+{% endif %}
 
 {% else %}
 {# --- Unlinked account (a User with no Member) --- #}

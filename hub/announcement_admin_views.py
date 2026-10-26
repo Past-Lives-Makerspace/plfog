@@ -1,4 +1,4 @@
-"""The Spotlight Messages section of Admin Tools > Spotlight (#889, #920): the notices in Home's banner.
+"""The Spotlight Messages section of Admin Tools > Spotlight (#889, #920): the notices in Home's ticker (#935).
 
 Every view is admin only (``@fog_admin_required``), the Spotlight page's own gate. Add and Edit
 are one dedicated page (``hub/admin/announcement_form.html``); the on and off switch and the
@@ -86,7 +86,7 @@ class AnnouncementRow:
 
 
 def announcement_rows(now: datetime) -> list[AnnouncementRow]:
-    """Every announcement in the banner's order, each with its status at ``now``. One query."""
+    """Every announcement in the ticker's order, each with its status at ``now``. One query."""
     return [AnnouncementRow.build(announcement, now) for announcement in Announcement.objects.in_order()]
 
 

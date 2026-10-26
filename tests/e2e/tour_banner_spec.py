@@ -1,9 +1,9 @@
 """The Take the tour banner on Home in a real browser (#824).
 
 A member who has not taken or dismissed the member tour sees the banner at the top of Home, never
-beside the floating offer card, and no Show me around in the header. The close button removes the
+beside the floating offer card, and no Show Me Around in the header. The close button removes the
 banner, records ``dismissed`` through ``hub_tour_state`` and the banner stays gone on reload, and
-so does Show me around: dismissed counts as done, as on the Get Started checklist. On a phone the Take the tour button stacks under the text. The tour itself
+so does Show Me Around: dismissed counts as done, as on the Get Started checklist. On a phone the Take the tour button stacks under the text. The tour itself
 running from the banner is ``guided_tour_spec``. Run with ``pytest -m e2e``.
 """
 
@@ -28,7 +28,7 @@ def _home(page, live_server, login_via_code, email: str, width: int) -> None:
 
 
 def _header_link(page):
-    return page.locator(".hub-page-header").get_by_role("link", name="Show me around")
+    return page.locator(".hub-page-header").get_by_role("link", name="Show Me Around")
 
 
 def _status(email: str) -> str | None:

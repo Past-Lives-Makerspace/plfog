@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
             name="guided_tours_enabled",
             field=models.BooleanField(
                 default=True,
-                help_text="When off, the guided tour offer never pops up for anyone. Each member's own tour setting is kept, and a tour can still be started from its Show me around link.",
+                help_text="When off, the guided tour offer never pops up for anyone. Each member's own tour setting is kept, and a tour can still be started from its Show Me Around link.",
                 verbose_name="Offer guided tours",
             ),
         ),

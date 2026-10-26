@@ -21,11 +21,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from membership.models import CalendarEvent, CommunityEvent, GuildAnnouncement
-from polls.models import PollCard, can_vote
+from polls.models import PollCard
 
 if TYPE_CHECKING:
-    from django.http import HttpRequest
-
     from classes.models import ClassOffering, ClassSession
     from core.models import Announcement
     from membership.models import Member
@@ -41,10 +39,10 @@ TEACHING_WEEK_DAYS = 7
 
 @dataclass(frozen=True)
 class HomeBanner:
-    """The announcements banner at the top of Home (#889): the live announcements in order, and their signature.
+    """The Spotlight messages crawling across the top of Home (#889, a ticker since #935): the live ones in order, and their signature.
 
     The signature (:meth:`core.models.Announcement.signature`) is what a member's Close keeps in
-    the browser; the banner stays closed until it changes.
+    the browser; the ticker stays closed until it changes.
     """
 
     items: list[Announcement]
@@ -52,30 +50,11 @@ class HomeBanner:
 
     @classmethod
     def load(cls, now: datetime_type) -> HomeBanner | None:
-        """The banner at ``now``, or None while nothing is live. One query."""
+        """The ticker at ``now``, or None while nothing is live. One query."""
         from core.models import Announcement
 
-        return cls.of(list(Announcement.objects.live(now)))
-
-    @classmethod
-    def of(cls, rows: list[Announcement]) -> HomeBanner | None:
-        """The banner of these live announcements, in their order, or None with none."""
-        from core.models import Announcement
-
+        rows = list(Announcement.objects.live(now))
         return cls(rows, Announcement.signature(rows)) if rows else None
-
-    @classmethod
-    def for_request(cls, request: HttpRequest, now: datetime_type) -> HomeBanner | None:
-        """Home's banner, sharing the sidebar Spotlight's announcements when this page carries one (#890).
-
-        So Home reads the live announcements once: from the request's Spotlight for a member, and
-        with :meth:`load` for anyone the Spotlight leaves out (an unlinked account, a guest).
-        """
-        from hub.context_processors import request_spotlight, shows_spotlight
-
-        if shows_spotlight(request):
-            return cls.of(request_spotlight(request).announcements)
-        return cls.load(now)
 
 
 @dataclass(frozen=True)
@@ -160,8 +139,7 @@ def build_home_context(member: Member) -> dict[str, Any]:
     (active guild announcements from joined guilds), ``my_guilds`` (joined, lead/staff
     flagged), and the ``onboarding`` "Get started" checklist with its ``show_onboarding``
     gate (built ONCE here, not re-derived per property in the template), and ``home_poll``,
-    the open poll's card (#925), None while no poll is open, and ``can_vote_polls``, which gates
-    the Past Polls link by the same rule as the page it opens. All business logic lives on
+    the open poll's card (#925), None while no poll is open. All business logic lives on
     ``membership`` and ``polls`` managers/props; this only fetches, normalizes, sorts, and caps.
     """
     return {
@@ -173,7 +151,6 @@ def build_home_context(member: Member) -> dict[str, Any]:
         "teaching": _teaching(member),
         "overdue_reviews": _overdue_reviews(member),
         "home_poll": PollCard.open_for(member, timezone.now()),
-        "can_vote_polls": can_vote(member),
     }
 
 

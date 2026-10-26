@@ -1,14 +1,12 @@
-"""The announcements banner at the top of Home in a real browser (#889, static/js/pl-rotator.js).
+"""The Spotlight messages ticker at the top of Home in a real browser (#889, a ticker since #935).
 
-With several live announcements it moves on every 8 seconds, holds once paused, and runs its own clock
-beside the Upcoming queue's. With one there is nothing to press. Close hides it in this browser until
-the set changes: a new or edited announcement brings it back, and with storage blocked it simply shows.
-Driven on Playwright's fake clock, so no spec waits real seconds. Run with ``pytest -m e2e`` on PostgreSQL.
+It crawls right to left at a steady pace set from the list's width, loops through a hidden copy without a jump, holds
+still while hovered or focused so a link can be clicked, and does not move under prefers-reduced-motion. Close hides it
+in this browser until the set changes: a new or edited message brings it back, and with storage blocked it simply
+shows. Run with ``pytest -m e2e`` on PostgreSQL.
 """
 
 from __future__ import annotations
-
-from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -18,11 +16,12 @@ from playwright.sync_api import expect
 from core.factories import AnnouncementFactory
 from core.models import Announcement, TourState
 from membership.models import Member
-from tests.membership.factories import CommunityEventFactory, MembershipPlanFactory
+from tests.membership.factories import MembershipPlanFactory
 
-BANNER = "[data-home-announcements]"
-ACTIVE = f"{BANNER} .pl-rotator__slide.is-active"
-UPCOMING_FEATURED = "[data-home-upcoming] .pl-upnext__panel.is-active"
+TICKER = "[data-home-announcements]"
+TRACK = f"{TICKER} [data-ticker-track]"
+LIST = f"{TICKER} [data-ticker-list]"
+COPY = f"{TICKER} [data-ticker-copy]"
 
 
 def _sign_in(login_via_code, email: str) -> None:
@@ -41,147 +40,165 @@ def _announcements(count: int) -> list[Announcement]:
     ]
 
 
-def _open_home(page, live_server, login_via_code, email: str, *, count: int = 3) -> None:
+def _open_home(page, live_server, login_via_code, email: str, *, count: int = 3, width: int = 1440) -> None:
     _announcements(count)
     _sign_in(login_via_code, email)
-    page.set_viewport_size({"width": 1440, "height": 1000})
-    page.clock.install()
+    page.set_viewport_size({"width": width, "height": 1000})
     page.goto(f"{live_server.url}{reverse('hub_home')}")
     page.mouse.move(0, 0)
-    expect(page.locator(BANNER)).to_be_visible()
+    expect(page.locator(TICKER)).to_be_visible()
 
 
-def _current(page) -> str:
-    return page.locator(ACTIVE).get_attribute("aria-label")
+def _style(page, selector: str, prop: str) -> str:
+    return page.locator(selector).evaluate(f"(el) => getComputedStyle(el).{prop}")
 
 
-def _expect_slide(page, label: str) -> None:
-    expect(page.locator(ACTIVE)).to_have_attribute("aria-label", label)
+def _offset(page) -> float:
+    """How far left the track has moved, in pixels."""
+    return page.locator(TRACK).evaluate("(el) => -new DOMMatrixReadOnly(getComputedStyle(el).transform).m41")
 
 
-def describe_the_banner_rotating():
-    def it_moves_on_by_itself_every_eight_seconds(page, live_server, login_via_code):
-        _open_home(page, live_server, login_via_code, "ann-auto-e2e@example.com")
-        assert _current(page) == "1 of 3"
-        page.clock.run_for(7500)
-        assert _current(page) == "1 of 3"
-        page.clock.run_for(1000)
-        _expect_slide(page, "2 of 3")
-        expect(page.locator(ACTIVE)).to_contain_text("Zorblax notice 2")
-        page.clock.run_for(8000)
-        _expect_slide(page, "3 of 3")
-        page.clock.run_for(8000)
-        _expect_slide(page, "1 of 3")
+def describe_the_crawl():
+    def it_crawls_right_to_left(page, live_server, login_via_code):
+        _open_home(page, live_server, login_via_code, "tick-crawl-e2e@example.com")
 
-    def it_holds_still_once_paused_and_moves_on_after_play(page, live_server, login_via_code):
-        _open_home(page, live_server, login_via_code, "ann-pause-e2e@example.com")
-        pause = page.locator(f"{BANNER} [data-rotator-pause]")
-        pause.click()
-        expect(pause).to_have_attribute("aria-label", "Play the Spotlight messages")
-        page.mouse.move(0, 0)
-        page.evaluate("() => document.activeElement.blur()")
-        page.clock.run_for(30000)
-        assert _current(page) == "1 of 3"
-        pause.click()
-        page.mouse.move(0, 0)
-        page.evaluate("() => document.activeElement.blur()")
-        page.clock.run_for(8500)
-        _expect_slide(page, "2 of 3")
+        assert _style(page, TRACK, "animationName") == "pl-ticker-crawl"
+        assert _style(page, TRACK, "animationPlayState") == "running"
+        before = _offset(page)
+        page.wait_for_timeout(600)
+        assert _offset(page) > before
 
-    def it_moves_with_its_arrows_and_dots(page, live_server, login_via_code):
-        _open_home(page, live_server, login_via_code, "ann-controls-e2e@example.com")
-        page.locator(BANNER).hover()
-        page.locator(f"{BANNER} [data-rotator-next]").click()
-        _expect_slide(page, "2 of 3")
-        page.locator(f"{BANNER} [data-rotator-prev]").click()
-        page.locator(f"{BANNER} [data-rotator-prev]").click()
-        _expect_slide(page, "3 of 3")
-        page.locator(f"{BANNER} [data-rotator-dot]").nth(1).click()
-        _expect_slide(page, "2 of 3")
+    def it_sets_a_steady_pace_from_the_list_width(page, live_server, login_via_code):
+        _open_home(page, live_server, login_via_code, "tick-pace-e2e@example.com")
 
-    def it_keeps_its_height_from_slide_to_slide(page, live_server, login_via_code):
-        AnnouncementFactory(body=f"<p>{'A long Zorblax notice that wraps. ' * 4}</p>", position=9)
-        _open_home(page, live_server, login_via_code, "ann-height-e2e@example.com")
-        heights = set()
-        for _ in range(4):
-            heights.add(page.locator(BANNER).bounding_box()["height"])
-            page.locator(f"{BANNER} [data-rotator-next]").click()
-        assert len(heights) == 1
+        width = page.locator(LIST).evaluate("(el) => el.offsetWidth")
+        duration = float(_style(page, TRACK, "animationDuration").removesuffix("s"))
+        assert abs(duration - width / 50) < 0.05
 
-    def it_never_moves_by_itself_under_reduced_motion(page, live_server, login_via_code):
+    def it_loops_through_a_copy_of_the_same_width(page, live_server, login_via_code):
+        _open_home(page, live_server, login_via_code, "tick-loop-e2e@example.com", count=1)
+
+        widths = page.evaluate(
+            """(sel) => [sel.list, sel.copy, sel.track, sel.viewport].map((s) => document.querySelector(s).offsetWidth)""",
+            {
+                "list": LIST,
+                "copy": COPY,
+                "track": TRACK,
+                "viewport": f"{TICKER} [data-ticker-viewport]",
+            },
+        )
+        list_width, copy_width, track_width, viewport_width = widths
+        assert list_width == copy_width
+        assert track_width == list_width * 2
+        # One short message: the list is stretched to the line, so it leaves the line before it comes back.
+        assert list_width >= viewport_width
+
+    def it_keeps_the_copy_from_screen_readers_and_the_keyboard(page, live_server, login_via_code):
+        AnnouncementFactory(body='<p>Zorblax <a href="/feedback/">feedback link</a></p>', position=9)
+        _open_home(page, live_server, login_via_code, "tick-copy-e2e@example.com", count=1)
+
+        expect(page.locator(COPY)).to_have_attribute("aria-hidden", "true")
+        focused = page.locator(f"{COPY} a").evaluate("(el) => { el.focus(); return document.activeElement === el; }")
+        assert focused is False
+        expect(page.get_by_role("region", name="Spotlight messages").get_by_role("link")).to_have_count(1)
+
+
+def describe_holding_still():
+    def it_pauses_while_hovered_and_runs_again_after(page, live_server, login_via_code):
+        _open_home(page, live_server, login_via_code, "tick-hover-e2e@example.com")
+
+        page.locator(TICKER).hover()
+        assert _style(page, TRACK, "animationPlayState") == "paused"
+        held = _offset(page)
+        page.wait_for_timeout(400)
+        assert _offset(page) == held
+        page.mouse.move(0, 900)
+        assert _style(page, TRACK, "animationPlayState") == "running"
+
+    def it_pauses_while_a_link_in_it_has_focus(page, live_server, login_via_code):
+        AnnouncementFactory(body='<p>Zorblax <a href="/feedback/">feedback link</a></p>', position=0)
+        _open_home(page, live_server, login_via_code, "tick-focus-e2e@example.com", count=0)
+
+        page.locator(f"{LIST} a").focus()
+        assert _style(page, TRACK, "animationPlayState") == "paused"
+
+    def it_lets_a_link_be_clicked(page, live_server, login_via_code):
+        AnnouncementFactory(body='<p>Zorblax <a href="/feedback/">feedback link</a></p>', position=0)
+        _open_home(page, live_server, login_via_code, "tick-click-e2e@example.com", count=0)
+
+        # As a member does: the pointer lands on the line, the crawl holds, and the link stays put to be clicked.
+        page.locator(TICKER).hover()
+        page.locator(f"{LIST} a").click()
+        expect(page).to_have_url(f"{live_server.url}/feedback/")
+
+    def it_does_not_move_under_reduced_motion(page, live_server, login_via_code):
         page.emulate_media(reduced_motion="reduce")
-        _open_home(page, live_server, login_via_code, "ann-reduced-e2e@example.com")
-        expect(page.locator(f"{BANNER} [data-rotator-pause]")).to_be_hidden()
-        page.clock.run_for(40000)
-        assert _current(page) == "1 of 3"
+        _open_home(page, live_server, login_via_code, "tick-reduced-e2e@example.com", width=375)
 
-    def it_runs_its_own_clock_beside_the_upcoming_queue(page, live_server, login_via_code):
-        for n in range(2):
-            start = timezone.now() + timedelta(days=3 + n)
-            CommunityEventFactory(community=True, title=f"Zorblax event {n}", starts_at=start)
-        _open_home(page, live_server, login_via_code, "ann-two-e2e@example.com")
-        expect(page.locator("[data-home-upcoming] [data-queue-next]")).to_have_count(1)
-        page.locator(f"{BANNER} [data-rotator-pause]").click()
-        page.mouse.move(0, 0)
-        page.evaluate("() => document.activeElement.blur()")
-        page.clock.run_for(6500)
-        expect(page.locator(UPCOMING_FEATURED)).to_have_attribute("aria-label", "Zorblax event 1")
-        assert _current(page) == "1 of 3"
+        assert _style(page, TRACK, "animationName") == "none"
+        expect(page.locator(COPY)).to_be_hidden()
+        # Every message shown, wrapped inside the ticker rather than clipped off its right edge.
+        ticker = page.locator(TICKER).bounding_box()
+        for n in range(1, 4):
+            box = page.locator(f"{LIST} li").nth(n - 1).bounding_box()
+            assert box["x"] + box["width"] <= ticker["x"] + ticker["width"]
+            expect(page.locator(LIST).get_by_text(f"Zorblax notice {n}")).to_be_in_viewport(ratio=1)
+        before = _offset(page)
+        page.wait_for_timeout(400)
+        assert _offset(page) == before == 0
 
 
-def describe_one_announcement():
-    def it_shows_no_controls_and_never_moves(page, live_server, login_via_code):
-        _open_home(page, live_server, login_via_code, "ann-one-e2e@example.com", count=1)
-        expect(page.locator(f"{BANNER} [data-rotator-dot]")).to_have_count(0)
-        expect(page.locator(f"{BANNER} [data-rotator-pause]")).to_have_count(0)
-        expect(page.locator(f"{BANNER} [data-rotator-next]")).to_have_count(0)
-        page.clock.run_for(30000)
-        expect(page.locator(ACTIVE)).to_contain_text("Zorblax notice 1")
+def describe_on_a_phone():
+    def it_is_one_slim_line_with_no_sideways_scroll(page, live_server, login_via_code):
+        _open_home(page, live_server, login_via_code, "tick-phone-e2e@example.com", width=375)
+
+        assert page.locator(TICKER).bounding_box()["height"] < 40
+        assert page.evaluate("() => document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+        expect(page.locator(f"{TICKER} [data-announcement-close]")).to_be_in_viewport()
 
 
-def describe_closing_the_banner():
-    def it_stays_closed_until_a_new_announcement_arrives(page, live_server, login_via_code):
-        _open_home(page, live_server, login_via_code, "ann-close-e2e@example.com")
-        page.locator(f"{BANNER} [data-announcement-close]").click()
-        expect(page.locator(BANNER)).to_have_count(0)
+def describe_closing_the_ticker():
+    def it_stays_closed_until_a_new_message_arrives(page, live_server, login_via_code):
+        _open_home(page, live_server, login_via_code, "tick-close-e2e@example.com")
+        page.locator(f"{TICKER} [data-announcement-close]").click()
+        expect(page.locator(TICKER)).to_have_count(0)
         page.reload()
         expect(page.locator(".pl-quicklinks")).to_be_visible()
-        expect(page.locator(BANNER)).to_have_count(0)
+        expect(page.locator(TICKER)).to_have_count(0)
 
         AnnouncementFactory(body="<p>Zorblax brand new</p>", position=0)
         page.reload()
-        expect(page.locator(BANNER)).to_be_visible()
-        expect(page.locator(BANNER)).to_contain_text("Zorblax brand new")
+        expect(page.locator(TICKER)).to_be_visible()
+        expect(page.locator(LIST)).to_contain_text("Zorblax brand new")
 
-    def it_comes_back_when_an_announcement_is_edited(page, live_server, login_via_code):
-        _open_home(page, live_server, login_via_code, "ann-edit-e2e@example.com", count=1)
-        page.locator(f"{BANNER} [data-announcement-close]").click()
+    def it_comes_back_when_a_message_is_edited(page, live_server, login_via_code):
+        _open_home(page, live_server, login_via_code, "tick-edit-e2e@example.com", count=1)
+        page.locator(f"{TICKER} [data-announcement-close]").click()
         page.reload()
-        expect(page.locator(BANNER)).to_have_count(0)
+        expect(page.locator(TICKER)).to_have_count(0)
 
         announcement = Announcement.objects.get()
         announcement.body = "<p>Zorblax edited</p>"
         announcement.save()
         page.reload()
-        expect(page.locator(BANNER)).to_contain_text("Zorblax edited")
+        expect(page.locator(LIST)).to_contain_text("Zorblax edited")
 
     def it_stays_closed_when_only_the_order_changes(page, live_server, login_via_code):
-        _open_home(page, live_server, login_via_code, "ann-order-e2e@example.com", count=2)
-        page.locator(f"{BANNER} [data-announcement-close]").click()
+        _open_home(page, live_server, login_via_code, "tick-order-e2e@example.com", count=2)
+        page.locator(f"{TICKER} [data-announcement-close]").click()
         first, second = Announcement.objects.in_order()
         Announcement.reorder([second.pk, first.pk])
         page.reload()
         expect(page.locator(".pl-quicklinks")).to_be_visible()
-        expect(page.locator(BANNER)).to_have_count(0)
+        expect(page.locator(TICKER)).to_have_count(0)
 
     def it_shows_and_closes_with_storage_blocked(page, live_server, login_via_code):
         page.add_init_script(
             "Object.defineProperty(window, 'localStorage', { get() { throw new Error('blocked'); } });"
         )
-        _open_home(page, live_server, login_via_code, "ann-blocked-e2e@example.com")
-        page.clock.run_for(8500)
-        _expect_slide(page, "2 of 3")
-        page.locator(f"{BANNER} [data-announcement-close]").click()
-        expect(page.locator(BANNER)).to_have_count(0)
+        _open_home(page, live_server, login_via_code, "tick-blocked-e2e@example.com")
+        assert _style(page, TRACK, "animationName") == "pl-ticker-crawl"
+        page.locator(f"{TICKER} [data-announcement-close]").click()
+        expect(page.locator(TICKER)).to_have_count(0)
         page.reload()
-        expect(page.locator(BANNER)).to_be_visible()
+        expect(page.locator(TICKER)).to_be_visible()

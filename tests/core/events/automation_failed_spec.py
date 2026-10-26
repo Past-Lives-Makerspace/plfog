@@ -1,7 +1,8 @@
 """A failed automation alerts the Webmasters: once per job per Pacific day, never masking the job's error.
 
 ``core.scheduled_jobs.record_run`` marks a raising job FAILED and then calls
-``alert_webmasters`` before it re-raises. The alert reaches WEBMASTER capability holders
+``alert_webmasters`` before it re-raises. A scheduled DAILY or WEEKLY run holds that alert
+instead: the dispatcher sends it after the window, only when no retry recovered (#933). The alert reaches WEBMASTER capability holders
 only, on the bell, by email and by push, and it must still arrive when the email cannot
 be built, because the incident behind it was an email template that would not render in
 the cron.
@@ -10,7 +11,7 @@ the cron.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -18,6 +19,7 @@ import httpx
 import pytest
 from django.conf import settings
 from django.core import mail
+from django.core.management import call_command
 from django.db import IntegrityError
 from django.urls import reverse
 
@@ -185,7 +187,7 @@ def describe_the_alert():
 
 
 def describe_the_hook_in_record_run():
-    @pytest.mark.parametrize("trigger", [Trigger.SCHEDULED, Trigger.MANUAL])
+    @pytest.mark.parametrize("trigger", [Trigger.SCHEDULED, Trigger.MANUAL, Trigger.COMMAND])
     def it_alerts_a_webmaster_when_a_job_fails_and_re_raises_the_jobs_error(linked_member, pushed, trigger):
         holder = _webmaster(linked_member)
         run = _fail(trigger=trigger)
@@ -227,6 +229,90 @@ def describe_the_hook_in_record_run():
             client.post(reverse("hub_admin_automations"), data={"run_job": "send_class_reminders"})
         [bell] = _bells(holder)
         assert "\nError: kaboom\n" in bell.body
+
+
+def _tick(day: int, hour: int, minute: int, failing: dict[str, str]) -> None:
+    """One dispatcher tick at a January 2026 UTC time (the 5th is a Monday, the 1st a Thursday).
+    Every command succeeds except those in ``failing``, which raise their error."""
+
+    def run(command: str, *args: object, **kwargs: object) -> None:
+        if command in failing:
+            raise RuntimeError(failing[command])
+
+    with (
+        patch("core.management.commands.run_scheduled_tasks.call_command", side_effect=run),
+        patch("django.utils.timezone.now", return_value=datetime(2026, 1, day, hour, minute, tzinfo=UTC)),
+    ):
+        call_command("run_scheduled_tasks")
+
+
+DIGEST = "post_weekly_calendar_digest"
+TIMED_OUT = "The read operation timed out"
+
+
+def describe_the_daily_and_weekly_window():
+    def it_sends_no_alert_when_a_retry_in_the_window_recovers(linked_member, pushed):
+        # The 2026-10-26 incident: the 13:01 digest timed out, the 13:16 retry finished OK.
+        holder = _webmaster(linked_member)
+        _tick(5, 13, 1, {DIGEST: TIMED_OUT})
+        _tick(5, 13, 16, {})
+        _tick(5, 14, 0, {})
+        assert _bells(holder) == []
+        assert mail.outbox == []
+        pushed.assert_not_called()
+
+    def it_still_records_the_failed_run_with_its_error(linked_member, pushed):
+        _tick(5, 13, 1, {DIGEST: TIMED_OUT})
+        _tick(5, 13, 16, {})
+        runs = ScheduledTaskRun.objects.filter(task_key=DIGEST).order_by("started_at")
+        assert [(run.status, run.error) for run in runs] == [
+            (ScheduledTaskRun.Status.FAILED, TIMED_OUT),
+            (ScheduledTaskRun.Status.OK, ""),
+        ]
+
+    def it_holds_the_alert_while_the_window_is_open(linked_member, pushed):
+        holder = _webmaster(linked_member)
+        _tick(5, 13, 1, {DIGEST: TIMED_OUT})
+        _tick(5, 13, 46, {DIGEST: TIMED_OUT})
+        assert _bells(holder) == []
+
+    def it_alerts_once_after_the_window_naming_the_last_error(linked_member, pushed):
+        holder = _webmaster(linked_member)
+        for minute, error in [(1, "first"), (16, "second"), (31, "third"), (46, "last")]:
+            _tick(5, 13, minute, {DIGEST: error})
+        for minute in (0, 15, 30, 45):
+            _tick(5, 14, minute, {})
+        [bell] = _bells(holder)
+        assert bell.title == "Weekly calendar digest failed"
+        assert "\nError: last\n" in bell.body
+        assert len(mail.outbox) == 1
+        pushed.assert_called_once()
+
+    def it_alerts_for_a_daily_job_after_its_window_on_any_day(linked_member, pushed):
+        holder = _webmaster(linked_member)
+        for minute in (0, 15, 30, 45):
+            _tick(1, 13, minute, {"sync_all_sources": "feed down"})
+        _tick(1, 14, 0, {})
+        assert [bell.title for bell in _bells(holder)] == ["Nightly calendar & class sync failed"]
+
+    def it_does_not_alert_a_weekly_job_at_1400_on_a_non_monday(linked_member, pushed):
+        holder = _webmaster(linked_member)
+        ScheduledTaskRun.objects.create(
+            task_key=DIGEST,
+            trigger=Trigger.SCHEDULED,
+            status=ScheduledTaskRun.Status.FAILED,
+            started_at=datetime(2026, 1, 1, 13, 5, tzinfo=UTC),  # a Thursday, inside the 13:00 hour
+            finished_at=datetime(2026, 1, 1, 13, 6, tzinfo=UTC),
+            error=TIMED_OUT,
+        )
+        _tick(1, 14, 0, {})
+        assert _bells(holder) == []
+
+    def it_still_alerts_an_always_job_on_the_failure_itself(linked_member, pushed):
+        holder = _webmaster(linked_member)
+        _tick(1, 9, 0, {"send_class_reminders": "kaboom"})
+        [bell] = _bells(holder)
+        assert bell.title == "Class reminder emails failed"
 
 
 def describe_once_a_day_per_job():

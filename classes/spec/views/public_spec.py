@@ -1628,7 +1628,7 @@ def describe_a_class_with_two_instructors():
         assert "About the Instructors" in html
         assert "Your Instructor<" not in html
         assert html.count('class="cp-detail__instructor"') == 2
-        assert html.index("See all classes by Deenie") < html.index("See all classes by Jenelle Giordano")
+        assert html.index("See All Classes by Deenie") < html.index("See All Classes by Jenelle Giordano")
 
     def it_keeps_the_singular_heading_for_one_instructor(published_class, client):
         html = client.get(

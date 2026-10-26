@@ -363,7 +363,7 @@ def describe_boosted_arrival_at_the_org_map_editor():
         errors = _watch_for_errors(page)
         login_via_code(ADMIN_EMAIL)
 
-        # Arrive the way an admin does: Spaces, then the boosted "Edit the map" link.
+        # Arrive the way an admin does: Spaces, then the boosted "Edit the Map" link.
         page.goto(f"{live_server.url}{reverse('hub_spaces')}")
         _boosted_click(page, reverse("hub_org_map_edit"))
         expect(page.locator(MAP_EDITOR)).to_be_visible()

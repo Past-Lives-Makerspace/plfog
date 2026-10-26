@@ -1,4 +1,4 @@
-"""The announcements banner at the top of Home (#889): ``hub.home.HomeBanner`` and ``partials/_home_announcements.html``."""
+"""The Spotlight messages ticker at the top of Home (#889, #935): ``hub.home.HomeBanner`` and ``partials/_home_announcements.html``."""
 
 from __future__ import annotations
 
@@ -35,9 +35,17 @@ def _home(client: Client) -> str:
     return client.get(HOME).content.decode()
 
 
-def _banner(html: str) -> str:
-    start = html.index('<section class="pl-home-ann')
+def _ticker(html: str) -> str:
+    start = html.index('<section class="pl-ticker"')
     return html[start : html.index("</section>", start)]
+
+
+def _list(ticker: str) -> str:
+    return ticker.split("data-ticker-list>", 1)[1].split("</ul>", 1)[0]
+
+
+def _copy(ticker: str) -> str:
+    return ticker.split("data-ticker-copy>", 1)[1].split("</ul>", 1)[0]
 
 
 def describe_HomeBanner():
@@ -71,32 +79,92 @@ def describe_HomeBanner():
         assert banner is not None and len(banner.items) == 3
 
 
-def describe_the_banner_on_home():
+def describe_inline_html():
+    def it_keeps_bold_italic_and_links_on_one_line():
+        announcement = AnnouncementFactory()
+        Announcement.objects.filter(pk=announcement.pk).update(
+            body='<p>Zorblax <strong>bold</strong> <em>soft</em></p><p>then <a href="https://example.org/z">a link</a><br>and more</p>'
+        )
+        announcement.refresh_from_db()
+
+        assert announcement.inline_html == (
+            'Zorblax <strong>bold</strong> <em>soft</em> then <a href="https://example.org/z" rel="noopener noreferrer"'
+            ' target="_blank">a link</a> and more'
+        )
+
+    def it_has_no_block_tags_left():
+        announcement = AnnouncementFactory(body="<p>One</p><p>Two</p>")
+
+        assert announcement.inline_html == "One Two"
+
+    def it_drops_tags_outside_the_allowlist():
+        announcement = AnnouncementFactory()
+        Announcement.objects.filter(pk=announcement.pk).update(body='<p>Zorblax <img src="x.png"><b>hi</b></p>')
+        announcement.refresh_from_db()
+
+        assert announcement.inline_html == "Zorblax hi"
+
+
+def describe_the_ticker_on_home():
     def it_shows_nothing_while_nothing_is_live(member_client: Client):
         AnnouncementFactory(is_active=False)
 
-        assert "data-home-announcements" not in _home(member_client)
+        html = _home(member_client)
+
+        assert "data-home-announcements" not in html
+        assert "pl-ticker" not in html
 
     def it_comes_first_above_the_welcome_header(member_client: Client):
         AnnouncementFactory(body="<p>Zorblax open house</p>")
 
-        html = _home(member_client)
+        html = _home(member_client).split('id="main-content"', 1)[1]
 
-        assert html.index("data-home-announcements") < html.index("data-spotlight-home")
         assert html.index("data-home-announcements") < html.index("Welcome back, ")
 
-    def it_shows_only_the_live_ones_in_order(member_client: Client):
+    def it_is_a_labelled_region_with_the_megaphone_and_the_close_button(member_client: Client):
+        announcement = AnnouncementFactory()
+
+        ticker = _ticker(_home(member_client))
+
+        assert ticker.startswith('<section class="pl-ticker" aria-label="Spotlight messages" data-home-announcements')
+        assert f'data-announcement-signature="{Announcement.signature([announcement])}"' in ticker
+        assert '<span class="pl-ticker__icon" aria-hidden="true">' in ticker
+        assert 'aria-label="Close the Spotlight messages" data-announcement-close>' in ticker
+        assert (
+            ticker.index("pl-ticker__icon")
+            < ticker.index("data-ticker-viewport")
+            < ticker.index("data-announcement-close")
+        )
+
+    def it_runs_the_live_ones_in_order_with_a_dot_after_each(member_client: Client):
         now = timezone.now()
-        AnnouncementFactory(body="<p>Zorblax second</p>", position=1)
-        AnnouncementFactory(body="<p>Zorblax first <strong>bold</strong></p>", position=0)
+        second = AnnouncementFactory(body="<p>Zorblax second</p>", position=1)
+        first = AnnouncementFactory(body="<p>Zorblax first <strong>bold</strong></p>", position=0)
         AnnouncementFactory(body="<p>Zorblax off</p>", is_active=False)
         AnnouncementFactory(body="<p>Zorblax later</p>", show_from=now + timedelta(days=1))
 
-        banner = _banner(_home(member_client))
+        ticker = _ticker(_home(member_client))
+        items = _list(ticker)
 
-        assert banner.index("Zorblax first <strong>bold</strong>") < banner.index("Zorblax second")
-        assert "Zorblax off" not in banner
-        assert "Zorblax later" not in banner
+        assert items.index(f'data-announcement="{first.pk}"') < items.index(f'data-announcement="{second.pk}"')
+        assert '<span class="pl-ann-body pl-ticker__text">Zorblax first <strong>bold</strong></span>' in items
+        assert items.count('<span class="pl-ticker__sep" aria-hidden="true"></span>') == 2
+        assert "Zorblax off" not in ticker
+        assert "Zorblax later" not in ticker
+        assert 'data-announcement-count="2"' in ticker
+
+    def it_repeats_the_list_once_hidden_from_screen_readers_and_focus(member_client: Client):
+        AnnouncementFactory(body='<p>Zorblax <a href="https://example.org/zorblax">link</a></p>', position=0)
+        AnnouncementFactory(body="<p>Zorblax two</p>", position=1)
+
+        ticker = _ticker(_home(member_client))
+
+        assert '<ul class="pl-ticker__list pl-ticker__list--copy" aria-hidden="true" inert data-ticker-copy>' in ticker
+        copy = _copy(ticker)
+        assert copy.count('class="pl-ticker__item"') == 2
+        assert "data-announcement=" not in copy
+        assert 'href="https://example.org/zorblax"' in copy
+        assert ticker.count("Zorblax two") == 2
 
     def it_shows_to_an_account_with_no_membership(client: Client):
         user = User.objects.create_user(username="zorblax-unlinked")
@@ -107,58 +175,25 @@ def describe_the_banner_on_home():
         html = _home(client)
 
         assert "isn't linked to a membership" in html
-        assert "Zorblax for all" in _banner(html)
+        assert "Zorblax for all" in _ticker(html)
 
-    def it_carries_the_signature_and_a_close_button(member_client: Client):
-        announcement = AnnouncementFactory()
+    def it_keeps_off_every_other_hub_page(member_client: Client):
+        AnnouncementFactory(body="<p>Zorblax home only</p>")
 
-        banner = _banner(_home(member_client))
+        html = member_client.get(reverse("hub_beta_feedback")).content.decode()
 
-        assert f'data-announcement-signature="{Announcement.signature([announcement])}"' in banner
-        assert 'aria-label="Close the Spotlight messages" data-announcement-close>' in banner
+        assert "data-home-announcements" not in html
+        assert "Zorblax home only" not in html
 
-    def it_renders_the_sanitized_text(member_client: Client):
-        announcement = AnnouncementFactory()
-        Announcement.objects.filter(pk=announcement.pk).update(body='<p>Zorblax <img src="x.png"><b>hi</b></p>')
-
-        banner = _banner(_home(member_client))
-
-        assert '<div class="pl-ann-body pl-home-ann__body"><p>Zorblax hi</p></div>' in banner
-
-
-def describe_one_and_many():
-    def it_shows_one_with_no_controls_and_no_carousel(member_client: Client):
+    def it_paces_and_closes_from_the_script_after_it(member_client: Client):
         AnnouncementFactory()
 
-        banner = _banner(_home(member_client))
+        after = _home(member_client).split("data-announcement-close>", 1)[1]
 
-        assert 'class="pl-home-ann pl-rotator"' in banner
-        assert "aria-roledescription" not in banner
-        assert "data-rotator-dot" not in banner
-        assert "data-rotator-pause" not in banner
-        assert "data-rotator-next" not in banner
-
-    def it_shows_many_as_a_carousel_with_its_controls(member_client: Client):
-        for _ in range(3):
-            AnnouncementFactory()
-
-        banner = _banner(_home(member_client))
-
-        assert 'class="pl-home-ann pl-rotator pl-home-ann--many"' in banner
-        assert (
-            'data-rotator-interval="8000" data-rotator-name="home-banner" aria-roledescription="carousel" aria-label="Spotlight messages"'
-            in banner
-        )
-        assert banner.count("data-rotator-dot") == 3
-        assert 'aria-label="Show Spotlight message 2 of 3"' in banner
-        assert 'aria-label="Next Spotlight message"' in banner
-        assert "data-rotator-pause" in banner
-        assert (
-            "'Play the Spotlight messages' : 'Pause the Spotlight messages'\" aria-label=\"Pause the Spotlight messages\""
-            in banner
-        )
-        assert 'role="group" aria-roledescription="slide" aria-label="3 of 3"' in banner
-        assert "aria-live" not in banner
+        assert 'var KEY = "pl-home-announcements-closed";' in after
+        assert "var PIXELS_PER_SECOND = 50;" in after
+        assert '"--pl-ticker-duration"' in after
+        assert '"--pl-ticker-span"' in after
 
 
 def describe_the_query_budget():
@@ -167,8 +202,7 @@ def describe_the_query_budget():
             assert client.get(HOME).status_code == 200
         return sum('"core_announcement"' in query["sql"] for query in captured.captured_queries)
 
-    def it_reads_the_live_announcements_once_on_home_for_a_member(member_client: Client):
-        # The banner shares the sidebar Spotlight's read (#890); before, Home read them twice.
+    def it_reads_the_live_messages_once_on_home(member_client: Client):
         for _ in range(3):
             AnnouncementFactory()
 
@@ -176,45 +210,3 @@ def describe_the_query_budget():
 
     def it_reads_them_once_with_none_live(member_client: Client):
         assert _announcement_reads(member_client) == 1
-
-    def it_still_reads_them_for_an_account_the_spotlight_leaves_out(client: Client):
-        # An account with no member record sees the banner but no Spotlight.
-        user = User.objects.create_user(username="zorblax-unlinked")
-        Member.objects.filter(user=user).delete()
-        client.force_login(user)
-        AnnouncementFactory(body="<p>Zorblax for all</p>")
-
-        html = _home(client)
-
-        assert "data-spotlight" not in html
-        assert "Zorblax for all" in _banner(html)
-        assert _announcement_reads(client) == 1
-
-    def it_shows_the_same_announcements_in_the_banner_and_the_sidebar(member_client: Client):
-        rows = [AnnouncementFactory(position=n) for n in range(2)]
-
-        html = _home(member_client)
-
-        assert f'data-announcement-signature="{Announcement.signature(rows)}"' in html
-        assert f'data-spotlight-signature="{Announcement.signature(rows)}|' in html
-
-
-def describe_HomeBanner_for_request():
-    def it_loads_on_its_own_without_a_signed_in_member(rf):
-        from django.contrib.auth.models import AnonymousUser
-
-        AnnouncementFactory()
-        request = rf.get(HOME)
-        request.user = AnonymousUser()
-
-        banner = HomeBanner.for_request(request, timezone.now())
-
-        assert banner is not None and len(banner.items) == 1
-
-    def it_is_none_with_nothing_live(rf):
-        from django.contrib.auth.models import AnonymousUser
-
-        request = rf.get(HOME)
-        request.user = AnonymousUser()
-
-        assert HomeBanner.for_request(request, timezone.now()) is None

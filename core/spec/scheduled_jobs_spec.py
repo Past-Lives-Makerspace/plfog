@@ -1,17 +1,22 @@
-"""Specs for the scheduled-job registry and its shared helpers (is_enabled, record_run)."""
+"""Specs for the scheduled-job registry and its shared helpers (is_enabled, record_run,
+alert_unrecovered_failures)."""
 
 from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 from django.core.management import get_commands
 
-from core.factories import ScheduledJobStateFactory
+from core.factories import ScheduledJobStateFactory, ScheduledTaskRunFactory
 from core.models import ScheduledTaskRun
 from core.scheduled_jobs import (
     JOBS_BY_KEY,
     SCHEDULED_JOBS,
     Cadence,
     Trigger,
+    alert_unrecovered_failures,
     current_cadence,
     is_enabled,
     record_run,
@@ -195,6 +200,23 @@ def describe_record_run():
             assert run.error == "boom"
             assert run.finished_at is not None
 
+        def it_alerts_the_webmasters_at_once_by_default(db):
+            with patch("core.scheduled_jobs.alert_webmasters") as alert:
+                with pytest.raises(ValueError, match="boom"):
+                    with record_run("sync_all_sources", trigger=Trigger.SCHEDULED):
+                        raise ValueError("boom")
+            alert.assert_called_once()
+
+        def it_holds_the_alert_but_still_records_the_failure_when_deferred(db):
+            with patch("core.scheduled_jobs.alert_webmasters") as alert:
+                with pytest.raises(ValueError, match="boom"):
+                    with record_run("sync_all_sources", trigger=Trigger.SCHEDULED, defer_alert=True):
+                        raise ValueError("boom")
+            alert.assert_not_called()
+            run = ScheduledTaskRun.objects.get(task_key="sync_all_sources")
+            assert run.failed
+            assert run.error == "boom"
+
     def describe_retention():
         def it_prunes_this_tasks_runs_older_than_the_window(db):
             from datetime import timedelta
@@ -260,3 +282,52 @@ def describe_frequency_choice():
     def it_reads_the_admins_pick_from_the_state_row():
         ScheduledJobStateFactory(task_key="process_discord_removals", cadence="daily")
         assert current_cadence("process_discord_removals") == Cadence.DAILY
+
+
+def describe_alert_unrecovered_failures():
+    WINDOW = datetime(2026, 1, 5, 13, 0, tzinfo=UTC)
+    WINDOW_END = WINDOW + timedelta(hours=1)
+    KEYS = ["post_weekly_calendar_digest", "sync_all_sources"]
+
+    def _run(
+        key: str, minute: int, status: str, *, trigger: str = Trigger.SCHEDULED, error: str = ""
+    ) -> ScheduledTaskRun:
+        return ScheduledTaskRunFactory(
+            task_key=key, status=status, trigger=trigger, started_at=WINDOW + timedelta(minutes=minute), error=error
+        )
+
+    def _alerted(keys: list[str] = KEYS) -> list[tuple[str, str]]:
+        with patch("core.scheduled_jobs.alert_webmasters") as alert:
+            returned = alert_unrecovered_failures(keys, WINDOW, WINDOW_END)
+        alerted = [(call.args[0].task_key, call.args[0].error) for call in alert.call_args_list]
+        assert [key for key, _error in alerted] == returned
+        return alerted
+
+    def it_alerts_the_last_failed_run_of_a_job_that_never_recovered(db):
+        _run("post_weekly_calendar_digest", 1, ScheduledTaskRun.Status.FAILED, error="first")
+        _run("post_weekly_calendar_digest", 46, ScheduledTaskRun.Status.FAILED, error="last")
+        assert _alerted() == [("post_weekly_calendar_digest", "last")]
+
+    def it_sends_nothing_for_a_job_a_retry_recovered(db):
+        _run("post_weekly_calendar_digest", 1, ScheduledTaskRun.Status.FAILED, error="timed out")
+        _run("post_weekly_calendar_digest", 16, ScheduledTaskRun.Status.OK)
+        assert _alerted() == []
+
+    def it_counts_a_run_now_success_after_the_window_as_recovered(db):
+        _run("sync_all_sources", 1, ScheduledTaskRun.Status.FAILED, error="feed down")
+        _run("sync_all_sources", 65, ScheduledTaskRun.Status.OK, trigger=Trigger.MANUAL)
+        assert _alerted() == []
+
+    def it_ignores_a_run_now_failure_which_alerted_at_once(db):
+        _run("sync_all_sources", 20, ScheduledTaskRun.Status.FAILED, trigger=Trigger.MANUAL, error="clicked")
+        assert _alerted() == []
+
+    def it_ignores_failures_outside_the_window(db):
+        _run("sync_all_sources", -60, ScheduledTaskRun.Status.FAILED, error="yesterday")
+        _run("sync_all_sources", 61, ScheduledTaskRun.Status.FAILED, error="after")
+        assert _alerted() == []
+
+    def it_only_looks_at_the_keys_it_is_given(db):
+        _run("sync_all_sources", 1, ScheduledTaskRun.Status.FAILED, error="feed down")
+        assert _alerted(["post_weekly_calendar_digest"]) == []
+        assert _alerted() == [("sync_all_sources", "feed down")]

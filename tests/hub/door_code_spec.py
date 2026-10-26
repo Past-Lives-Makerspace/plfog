@@ -276,10 +276,10 @@ def describe_the_two_boxes():
 
         actions = _element(header, 'class="pl-home-header-actions"')
         assert 'data-door-code-box="header"' in actions
-        assert "Show me around" not in actions
+        assert "Show Me Around" not in actions
         tour_row = _element(header, 'class="pl-home-tour-link"')
         assert header.index("Your home base") < header.index(tour_row)
-        assert ">Show me around</a>" in tour_row
+        assert ">Show Me Around</a>" in tour_row
         assert 'data-door-code-box="card"' not in header
 
     def it_keeps_show_me_around_in_the_header_without_a_door_code(client: Client):
@@ -287,7 +287,7 @@ def describe_the_two_boxes():
 
         header = _element(client.get(HOME).content.decode(), 'class="hub-page-header"')
 
-        assert '<a href="?tour=member-welcome" class="hub-btn hub-btn--sm">Show me around</a>' in header
+        assert '<a href="?tour=member-welcome" class="hub-btn hub-btn--sm">Show Me Around</a>' in header
         assert "data-door-code" not in header
 
     def it_puts_the_card_under_the_quick_links_and_none_inside_them(client: Client):
@@ -477,15 +477,15 @@ def describe_saving_a_new_code():
 
     def it_saves_only_the_door_code_columns(client: Client):
         config = SiteConfiguration.load()
-        config.spotlight_first_line = "Zorblax line"
+        config.org_name = "Zorblax line"
         config.save()
         _admin(client)
         stale = SiteConfiguration.load()
-        SiteConfiguration.objects.filter(pk=1).update(spotlight_first_line="Another admin edit")
+        SiteConfiguration.objects.filter(pk=1).update(org_name="Another admin edit")
 
         stale.set_door_code(FAKE_CODE, by=User.objects.get(username="dooradmin"), now=timezone.now())
 
-        assert SiteConfiguration.load().spotlight_first_line == "Another admin edit"
+        assert SiteConfiguration.load().org_name == "Another admin edit"
 
     def describe_refusals():
         @pytest.mark.parametrize("value", ["", "    "])

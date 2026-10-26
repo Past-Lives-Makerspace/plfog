@@ -237,14 +237,14 @@ _ADMIN_SECTIONS = [
     (
         "manage",
         "Manage",
-        ["Manage All Classes", "Manage Events", "Manage Members", "Member Agreement", "Instructor Inquiries"],
+        ["Manage All Classes", "Manage Events", "Manage Members", "Member Agreement", "Manage Mailing Lists"],
     ),
     (
         "tools",
         "Tools",
         [
             "Email Members",
-            "Manage Mailing Lists",
+            "Instructor Inquiries",
             "Push Notification Test",
             "Orientations",
             "Spotlight",
@@ -291,13 +291,15 @@ def describe_admin_tools_sections():
         _login_superuser(client, "sections_help_key")
         assert 'class="pl-tools-sections" data-help-key="admin.tools-grid"' in _tools_grid(client)
 
-    def it_gives_a_guild_lead_their_guild_then_tools_then_reports(client: Client):
+    def it_gives_a_guild_lead_their_guild_then_manage_tools_and_reports(client: Client):
         # #921: a guild lead sees Guild Tools; Orientations moves to Reports as Orientation Bookings.
+        # #935: Manage Mailing Lists moved to Manage, which renders for the lead with that card alone.
         user = _login_guild_lead(client, "sections_lead")
         guild_name = user.member.led_guilds.get().name  # type: ignore[attr-defined]
         assert _sections(client) == [
             ("guild", guild_name, ["Guild Settings", "Orientations", "Reservations", "Events"]),
-            ("tools", "Tools", ["Email Members", "Manage Mailing Lists"]),
+            ("manage", "Manage", ["Manage Mailing Lists"]),
+            ("tools", "Tools", ["Email Members"]),
             ("reports", "Reports", ["Orientation Bookings"]),
         ]
 

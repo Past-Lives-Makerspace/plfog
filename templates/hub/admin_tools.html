@@ -112,13 +112,13 @@
         <span class="pl-tool-card__desc">Whether members must accept the agreement before using the portal, its link and its edition.</span>
       </a>
       {% endif %}
-      {% if tool_instructor_inquiries %}
-      <a class="hub-card pl-tool-card" href="{% url 'classes:admin_instructor_inquiries' %}">
+      {% if tool_mailing_lists %}
+      <a class="hub-card pl-tool-card" href="{% url 'hub_announcements' %}?tab=mailing-lists" data-tool-mailing-lists>
         <span class="pl-tool-card__icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21l4-5 4 5"/><path d="M6 8h8"/><path d="M6 12h5"/></svg>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
         </span>
-        <span class="pl-tool-card__title">Instructor Inquiries</span>
-        <span class="pl-tool-card__desc">Every member who asked to teach, with a date filter, CSV export and a board report.</span>
+        <span class="pl-tool-card__title">Manage Mailing Lists</span>
+        <span class="pl-tool-card__desc">Who your guild's emails reach: its members, plus the addresses you add or import.</span>
       </a>
       {% endif %}
     </div>
@@ -138,13 +138,13 @@
         <span class="hub-pill hub-pill--neutral pl-tool-card__formerly" data-formerly-announcements>Formerly called Announcements</span>
       </a>
       {% endif %}
-      {% if tool_mailing_lists %}
-      <a class="hub-card pl-tool-card" href="{% url 'hub_announcements' %}?tab=mailing-lists" data-tool-mailing-lists>
+      {% if tool_instructor_inquiries %}
+      <a class="hub-card pl-tool-card" href="{% url 'classes:admin_instructor_inquiries' %}">
         <span class="pl-tool-card__icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21l4-5 4 5"/><path d="M6 8h8"/><path d="M6 12h5"/></svg>
         </span>
-        <span class="pl-tool-card__title">Manage Mailing Lists</span>
-        <span class="pl-tool-card__desc">Who your guild's emails reach: its members, plus the addresses you add or import.</span>
+        <span class="pl-tool-card__title">Instructor Inquiries</span>
+        <span class="pl-tool-card__desc">Every member who asked to teach, with a date filter, CSV export and a board report.</span>
       </a>
       {% endif %}
       {% if tool_push_test %}
@@ -171,7 +171,7 @@
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/></svg>
         </span>
         <span class="pl-tool-card__title">Spotlight</span>
-        <span class="pl-tool-card__desc">Spotlight messages, the next Feature Request Meeting and its short text.</span>
+        <span class="pl-tool-card__desc">Short messages that crawl across the top of Home.</span>
       </a>
       {% endif %}
       {% if tool_polls %}
