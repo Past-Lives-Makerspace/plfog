@@ -18,6 +18,31 @@ once, the order through the hidden form below (the script at the end of this sec
     <h2 class="pl-spotlight-admin__title">Spotlight Messages</h2>
     <a href="{% url 'hub_admin_announcement_new' %}" class="pl-btn pl-btn--primary pl-btn--sm" data-announcement-add>+ Add Spotlight message</a>
   </div>
+  {% if waiting_pings %}
+  {% comment %}
+  Waiting for Review (#943): Discord messages that pinged @everyone or a guild, queued by queue_discord_pings and drafted
+  as a Spotlight line. Each row: the line as members would see it, the whole Discord text, the guilds, the sender and the
+  message in Discord. None of them is live. Absent when nothing waits.
+  {% endcomment %}
+  <section class="pl-ping-queue" aria-labelledby="ping-queue-title" data-ping-queue>
+    <h3 class="pl-ping-queue__title" id="ping-queue-title">Waiting for Review <span class="hub-badge">{{ waiting_pings|length }}</span></h3>
+    <p class="hub-text-muted pl-ping-queue__intro">Discord messages that pinged @everyone or a guild. None of them shows on Home.</p>
+    <ul class="pl-ping-queue__rows">
+      {% for ping in waiting_pings %}
+      <li class="pl-ping-queue__row" data-ping-row="{{ ping.pk }}">
+        <div class="pl-ann-admin__text pl-ann-body" data-ping-line>{{ ping.line_html }}</div>
+        <p class="pl-ping-queue__label">Original Message</p>
+        <blockquote class="pl-ping-queue__original" data-ping-original>{{ ping.original_text|linebreaksbr }}</blockquote>
+        <p class="pl-ann-admin__meta pl-ping-queue__meta">
+          {% for guild in ping.guilds.all %}<span class="hub-pill hub-pill--neutral" data-ping-guild>{{ guild.name }}</span>{% empty %}<span class="hub-pill hub-pill--neutral" data-ping-guild>@everyone</span>{% endfor %}
+          <span class="hub-text-muted" data-ping-sender>Sent by {{ ping.credit }}</span>
+          <a href="{{ ping.discord_url }}" class="pl-ping-queue__link" target="_blank" rel="noopener noreferrer" data-ping-link>Open in Discord</a>
+        </p>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
   <p class="hub-text-muted pl-ann-admin__intro">Short notices on one line that crawls across the top of Home. The live ones run one after another, in this order; drag a row or use the arrows to change it.</p>
   {% if announcement_rows %}
   <form method="post" action="{% url 'hub_admin_announcement_reorder' %}" hx-post="{% url 'hub_admin_announcement_reorder' %}" hx-swap="none" hidden data-announcement-order-form>

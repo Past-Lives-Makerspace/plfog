@@ -1301,6 +1301,145 @@ class Announcement(models.Model):
         return ",".join(f"{row.pk}:{row.updated_at.timestamp():.6f}" for row in sorted(rows, key=lambda row: row.pk))
 
 
+class QueuedDiscordMessageQuerySet(models.QuerySet["QueuedDiscordMessage"]):
+    """Query helpers for the Waiting for Review queue in Admin Tools > Spotlight (#943)."""
+
+    def waiting(self) -> QueuedDiscordMessageQuerySet:
+        """The ones still waiting for an admin, oldest first, with what their rows show."""
+        return (
+            self.filter(state=QueuedDiscordMessage.State.WAITING)
+            .select_related("sender")
+            .prefetch_related("guilds")
+            .order_by("sent_at", "pk")
+        )
+
+
+class QueuedDiscordMessage(models.Model):
+    """A Discord message that pinged @everyone or a guild role, waiting to become a Spotlight message (#943).
+
+    ``queue_discord_pings`` writes one per message, already drafted as a Spotlight line in
+    ``line``. Nothing here is ever live: an admin approves it into an :class:`Announcement`
+    (and, for a guild ping, a ``GuildAnnouncement`` on each pinged guild's page), or discards
+    it. A discarded row stays, so the unique message id keeps it from being queued again.
+    """
+
+    class State(models.TextChoices):
+        WAITING = "waiting", "Waiting for review"
+        APPROVED = "approved", "Approved"
+        DISCARDED = "discarded", "Discarded"
+
+    discord_message_id = models.CharField(
+        max_length=32, unique=True, help_text="The Discord message's id. Unique, so no message is queued twice."
+    )
+    discord_channel_id = models.CharField(max_length=32, help_text="The id of the Discord channel it was posted in.")
+    discord_url = models.URLField(help_text="The link that opens the message in Discord.")
+    original_text = models.TextField(
+        help_text="The whole message as readable text: mentions as names, the triggering ping left out."
+    )
+    line = models.TextField(
+        help_text="The drafted Spotlight line, sanitized rich text HTML of at most 160 visible characters."
+    )
+    guilds = models.ManyToManyField(
+        "membership.Guild",
+        blank=True,
+        related_name="queued_discord_messages",
+        help_text="The guilds whose Discord role it pinged. None for a plain @everyone.",
+    )
+    sender_discord_id = models.CharField(max_length=32, help_text="The Discord user id of whoever sent it.")
+    sender_name = models.CharField(
+        max_length=100, help_text="The sender's Discord display name, else their username, when it was queued."
+    )
+    sender = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="queued_discord_messages",
+        help_text="The member whose verified Discord account sent it. Empty when the account is not linked.",
+    )
+    sent_at = models.DateTimeField(help_text="When it was posted in Discord.")
+    state = models.CharField(
+        max_length=10,
+        choices=State.choices,
+        default=State.WAITING,
+        help_text="Waiting for an admin, approved into Spotlight, or discarded for good.",
+    )
+    announcement = models.ForeignKey(
+        Announcement,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="queued_discord_messages",
+        help_text="The Spotlight message it became once approved.",
+    )
+    guild_announcements = models.ManyToManyField(
+        "membership.GuildAnnouncement",
+        blank=True,
+        related_name="queued_discord_messages",
+        help_text="The guild page announcements it became once approved, one per pinged guild.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was queued.")
+
+    objects = QueuedDiscordMessageQuerySet.as_manager()
+
+    def __str__(self) -> str:
+        return f"Discord message {self.discord_message_id} ({self.get_state_display()})"
+
+    @property
+    def credit(self) -> str:
+        """Who the line credits: the linked member's name, else the Discord name."""
+        return self.sender.display_name if self.sender else self.sender_name
+
+    @property
+    def line_html(self) -> str:
+        """The drafted line for a page, sanitized again on the way out."""
+        from django.utils.safestring import mark_safe
+
+        from core.html_sanitize import sanitize_announcement_html
+
+        return mark_safe(sanitize_announcement_html(self.line))  # noqa: S308  # sanitized just above
+
+    @staticmethod
+    def draft_line(text: str, guild_names: list[str], credit: str, url: str) -> str:
+        """The Spotlight line for ``text``: ``Guild: text [...] (Credit)``, at most 160 visible characters.
+
+        The guild names lead only for a guild ping. Text that does not fit is cut at a word and
+        ends in ``[...]``, a link to ``url``; text that fits shows whole with no ``[...]``.
+        """
+        from django.utils.html import escape
+
+        from core.html_sanitize import ANNOUNCEMENT_MAX_CHARS, sanitize_announcement_html
+
+        prefix = f"{', '.join(guild_names)}: " if guild_names else ""
+        tail = f" ({credit})"
+        words = " ".join(text.split())
+        budget = ANNOUNCEMENT_MAX_CHARS - len(prefix) - len(tail)
+        if len(words) <= budget:
+            return sanitize_announcement_html(f"<p>{escape(prefix + words + tail)}</p>")
+        more = " [...]"
+        cut = words[: max(budget - len(more), 0) + 1]
+        cut = cut.rsplit(" ", 1)[0] if " " in cut else cut[:-1]
+        body = f'{escape(prefix + cut.rstrip())} <a href="{escape(url)}">[...]</a>{escape(tail)}'
+        return sanitize_announcement_html(f"<p>{body}</p>")
+
+
+class DiscordChannelCursor(models.Model):
+    """The newest Discord message ``queue_discord_pings`` has read in one channel (#943).
+
+    A channel's first sighting records its newest message and queues nothing, so the first run
+    never imports history; each later tick reads only what came after.
+    """
+
+    channel_id = models.CharField(max_length=32, unique=True, help_text="The Discord channel's id.")
+    last_message_id = models.CharField(
+        max_length=32, help_text="The newest message id already read in the channel, or 0 for an empty channel."
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the job last moved it.")
+
+    def __str__(self) -> str:
+        return f"Channel {self.channel_id} read to {self.last_message_id}"
+
+
 class CalendarFeed(models.Model):
     """A named iCal feed displayed on the Calendar.
 

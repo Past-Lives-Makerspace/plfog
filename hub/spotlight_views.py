@@ -1,7 +1,8 @@
 """Admin Tools > Spotlight at /manage/spotlight/ (#708).
 
-One page: the Spotlight messages (#889, hub.announcement_admin_views) that crawl across the top
-of Home (#935), and their Crawl speed slider (#942), saved at once over htmx. The Spotlight text
+One page: the Discord pings Waiting for Review (#943, queued by ``queue_discord_pings``), the
+Spotlight messages (#889, hub.announcement_admin_views) that crawl across the top of Home (#935),
+and their Crawl speed slider (#942), saved at once over htmx. The Spotlight text
 and meeting were removed in #935, and polls left this page in #890. Admin only
 (``@fog_admin_required``). Nothing here sends an email, push, Discord post or bell.
 """
@@ -15,7 +16,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from core.models import Announcement, SiteConfiguration
+from core.models import Announcement, QueuedDiscordMessage, SiteConfiguration
 from hub.announcement_admin_views import announcement_rows
 from hub.spotlight_forms import SpotlightCrawlSpeedForm
 from hub.toast import trigger_toast
@@ -34,6 +35,8 @@ def hub_admin_spotlight(request: HttpRequest) -> HttpResponse:
     context = {
         **_get_hub_context(request),
         "announcement_rows": rows,
+        # Discord pings waiting for review (#943), above the messages; the section is absent when none wait.
+        "waiting_pings": list(QueuedDiscordMessage.objects.waiting()),
         "crawl_speed_form": SpotlightCrawlSpeedForm(instance=SiteConfiguration.load()),
         # The preview crawls what Home's ticker would show now: the live rows, already in the ticker's order.
         "crawl_speed_preview_items": [row.announcement for row in rows if row.status == Announcement.Status.LIVE],

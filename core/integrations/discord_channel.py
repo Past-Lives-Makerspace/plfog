@@ -30,10 +30,39 @@ _RATE_LIMIT_MAX_WAIT_SECONDS = 15.0
 _RECENT_MESSAGES_LIMIT = 50
 # Discord allows at most 10 embeds per message; callers chunk above that.
 MAX_EMBEDS_PER_MESSAGE = 10
+# The most messages one ``GET /channels/{id}/messages`` returns.
+MESSAGES_PAGE_LIMIT = 100
 
 
 class DiscordChannelError(Exception):
     """A Discord channel-message API call failed (transport error or non-2xx response)."""
+
+
+class DiscordRateLimitedError(DiscordChannelError):
+    """Discord still answered 429 after the one bounded retry: the caller stops and tries next tick."""
+
+
+def discord_message_url(server_id: str, channel_id: str, message_id: str) -> str:
+    """The link that opens one message in Discord."""
+    return f"https://discord.com/channels/{server_id}/{channel_id}/{message_id}"
+
+
+def server_channels(server_id: str) -> list[dict[str, Any]]:
+    """Every channel on the server (``GET /guilds/{id}/channels``), with its overwrites and newest message id."""
+    return _request("GET", f"{API_BASE}/guilds/{server_id}/channels").json()
+
+
+def server_roles(server_id: str) -> list[dict[str, Any]]:
+    """Every role on the server (``GET /guilds/{id}/roles``), so a role mention can read as its name."""
+    return _request("GET", f"{API_BASE}/guilds/{server_id}/roles").json()
+
+
+def channel_messages_after(channel_id: str, after: str) -> list[dict[str, Any]]:
+    """Up to :data:`MESSAGES_PAGE_LIMIT` messages newer than ``after``, oldest first."""
+    messages = _request(
+        "GET", f"{API_BASE}/channels/{channel_id}/messages", params={"after": after, "limit": MESSAGES_PAGE_LIMIT}
+    ).json()
+    return sorted(messages, key=lambda message: int(message["id"]))
 
 
 def post_channel_message(
@@ -171,6 +200,8 @@ def _request(
         if retry_after is not None and retry_after <= _RATE_LIMIT_MAX_WAIT_SECONDS:
             time.sleep(retry_after)
             response = _send(method, url, payload, params=params)
+    if response.status_code == 429:
+        raise DiscordRateLimitedError(f"Discord API 429: {response.text[:300]}")
     if not response.is_success:
         raise DiscordChannelError(f"Discord API {response.status_code}: {response.text[:300]}")
     return response

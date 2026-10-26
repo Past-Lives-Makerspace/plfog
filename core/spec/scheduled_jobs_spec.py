@@ -53,6 +53,7 @@ _DISPATCHER_ALWAYS = {
     "announce_live_requests",
     "fetch_video_thumbnails",
     "process_discord_removals",
+    "queue_discord_pings",
 }
 _DISPATCHER_DAILY = {
     "sync_all_sources",

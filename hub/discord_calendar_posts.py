@@ -28,6 +28,7 @@ from django.utils import timezone
 
 from core.integrations.discord_channel import (
     MAX_EMBEDS_PER_MESSAGE,
+    discord_message_url,
     post_channel_message,
     recent_bot_post_titles,
 )
@@ -376,7 +377,7 @@ def announce_community_event_now(event: "CommunityEvent") -> str:
     server_id = (SiteConfiguration.load().discord_server_id or "").strip()
     if not server_id:
         return ""
-    return f"https://discord.com/channels/{server_id}/{channel_id}/{message['id']}"
+    return discord_message_url(server_id, channel_id, str(message["id"]))
 
 
 def announce_new_events() -> int:
