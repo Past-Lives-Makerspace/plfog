@@ -1,0 +1,200 @@
+/* Facility tours (#947): the Tours page's My Hours tab (tours/hours.html) and Admin Tools >
+   Tour Settings (tours/settings.html). Not the in-app guided tours, whose .pl-tour-card rules
+   live in hub.css. Every block clears the one above with its own top margin (FRONTEND rule 26). */
+
+/* One card on either page, with the page's standard gap below it. */
+.pl-tours-panel {
+    padding: 1.5rem;
+    margin-top: 1.5rem;
+}
+.pl-tours-panel__title {
+    margin: 0 0 0.75rem;
+}
+.pl-tours-panel__title:has(+ .pl-tours-panel__intro) {
+    margin-bottom: 0.25rem;
+}
+.pl-tours-panel__intro {
+    margin: 0 0 1rem;
+    font-size: 0.8125rem;
+    max-width: 46rem;
+}
+.pl-tours-panel__empty {
+    margin: 0;
+}
+.pl-tours-panel__add {
+    margin-top: 1rem;
+}
+
+/* The admin's guide picker: the select and Show on one row, wrapping on a phone. */
+.pl-tours-picker {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.pl-tours-picker__field {
+    margin-bottom: 0;
+}
+.pl-tours-picker__empty {
+    margin: 0.75rem 0 0;
+    font-size: 0.875rem;
+}
+
+/* Inputs sized to what they hold (FRONTEND rule 28): a number is a few characters wide, a line of
+   text stops at a readable width. On a phone both are simply full width. */
+.pl-form-group input.pl-tours-input--narrow {
+    width: 6rem;
+}
+.pl-form-group input.pl-tours-input--text,
+.pl-form-group select.pl-tours-input--text {
+    max-width: 520px;
+}
+
+/* The hours rows: each collapsed to its summary line with Edit on the right. */
+.pl-tours-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.pl-tours-row {
+    padding: 1rem;
+    background: var(--hub-surface);
+}
+.pl-tours-row__summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.pl-tours-row__text {
+    color: var(--hub-text);
+    font-weight: 500;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.pl-tours-row__body {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-tours-row__fields {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+.pl-tours-row__field {
+    flex: 0 0 auto;
+}
+.pl-tours-row__field .pl-form-group {
+    margin-bottom: 0;
+}
+.pl-tours-row__field--day {
+    width: 10rem;
+}
+.pl-tours-row__field--time {
+    width: 8rem;
+}
+.pl-tours-row__field--length {
+    width: 9rem;
+}
+.pl-tours-row__field--date {
+    width: 11rem;
+}
+
+/* Save under the hours card, clear of the Days Off card below it. */
+.pl-tours-save-row {
+    margin-top: 1.5rem;
+}
+
+/* Days Off: one row per day or run of days, Delete on the right. */
+.pl-tours-days-off__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.pl-tours-days-off__row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem;
+    background: var(--hub-surface);
+    border-radius: 8px;
+}
+.pl-tours-days-off__when {
+    color: var(--hub-text);
+    font-weight: 500;
+}
+.pl-tours-days-off__note {
+    font-size: 0.875rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.pl-tours-days-off__delete {
+    margin-left: auto;
+}
+
+/* The Add Day Off modal: its lead line, the note field clear of the dates, and the actions. */
+.pl-tours-modal-lead {
+    margin: 0 0 1rem;
+}
+.pl-tours-row__fields + .pl-form-group {
+    margin-top: 1rem;
+}
+.pl-tours-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 1.5rem;
+}
+
+/* Tour Settings: the closed message under the bookings switch. */
+.pl-tours-settings__closed {
+    margin-top: 1rem;
+}
+
+@media (max-width: 640px) {
+    .pl-tours-row__field,
+    .pl-tours-row__field--day,
+    .pl-tours-row__field--time,
+    .pl-tours-row__field--length,
+    .pl-tours-row__field--date {
+        flex: 1 1 100%;
+        width: auto;
+    }
+    .pl-form-group input.pl-tours-input--narrow {
+        width: 100%;
+    }
+    .pl-tours-picker__field {
+        flex: 1 1 100%;
+    }
+    .pl-tours-days-off__delete {
+        margin-left: 0;
+    }
+}
+
+/* A refused Save of the tour hours (tours.views.tour_hours_save): said at the top, since the row at
+   fault may be collapsed or below the fold. */
+.pl-tours-refused {
+    margin-top: 1.5rem;
+    padding: 1rem 1.25rem;
+    border-left: 3px solid var(--color-error);
+    border-radius: 8px;
+    background-color: var(--color-error-bg);
+}
+.pl-tours-refused__title {
+    margin: 0;
+    color: var(--hub-text);
+    font-weight: 700;
+}
+.pl-tours-refused__text {
+    margin: 0.25rem 0 0;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}

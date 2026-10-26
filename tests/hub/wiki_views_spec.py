@@ -86,8 +86,9 @@ def _preview_as(client: Client, role: str) -> None:
 # That fixed cost must stay the same with one page or a full list of cards. 40 with the Spotlight's
 # second query, its live announcements (#890). 39 with Guild Tools (#921): the tools entry asks
 # whether the member runs a guild in one EXISTS where it asked about leads and staff in two. 37 since #935: the
-# sidebar's Spotlight is a static version card, so neither of its two queries runs.
-_HOME_QUERY_BUDGET = 37
+# sidebar's Spotlight is a static version card, so neither of its two queries runs. 38 with the Tours entry (#947):
+# one EXISTS on the member's Tour Guide permission, none for an admin.
+_HOME_QUERY_BUDGET = 38
 
 
 def describe_the_feature_switch():

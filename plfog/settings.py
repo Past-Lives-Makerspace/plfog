@@ -140,6 +140,7 @@ MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
     "/billing/",
     "/classes/admin/",
     "/classes/teach/",
+    "/facility-tours/",
     "/feedback/",
     "/find-account/",
     "/guilds/",
@@ -272,6 +273,7 @@ INSTALLED_APPS = [
     "kiln",
     "polls",
     "hq",
+    "tours",
     # REST API
     "rest_framework",
     "rest_framework.authtoken",

@@ -84,6 +84,10 @@ _Avoid_: announcement for this, now that the word belongs to neither tool.
 A news post on a guild page (`membership.GuildAnnouncement`): what an Email Members send to a guild leaves behind, or a member's suggestion a lead approved. Members read these as their guild's announcements (the guild page section, Home's Latest From Your Guilds, "Suggest an announcement"), and that reading stays.
 _Avoid_: calling the tool that makes them "Announcements".
 
+**Facility tour**:
+A visit to the building for someone curious about Past Lives, given by a **Tour Guide** at a time from their weekly tour hours and booked on tours.pastlives.space (`tours` app, #947, replacing SimplyBook). A Tour Guide is a member holding the Tour Guide permission (`AdminCapability.Capability.TOUR_GUIDE`); admins always have it. In code and URLs it is a tour or a facility tour (`/facility-tours/`).
+_Avoid_: guided tour, Show me around, member tour (those are the in-app walkthroughs in `core/tours.py`), appointment, SimplyBook.
+
 **Kiln ticket**:
 One piece, or a set of identical pieces, a maker puts on the Ceramics Guild's shelf to be fired (`kiln.KilnTicket`, #691): photos with one cover, the guild's questions, and its status (Draft, In the queue, In the kiln, Ready for pickup). The **kiln crew** is the Ceramics Guild's lead and staff; a **flag** asks the crew to double check a ticket and never blocks it.
 _Avoid_: slip (the paper form it replaces), order, job.

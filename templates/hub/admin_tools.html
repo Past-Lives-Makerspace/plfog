@@ -165,6 +165,15 @@
         <span class="pl-tool-card__desc">Review and run new-member orientations for your guild.</span>
       </a>
       {% endif %}
+      {% if tool_tour_settings %}
+      <a class="hub-card pl-tool-card" href="{% url 'tours:settings' %}" data-tool-tour-settings>
+        <span class="pl-tool-card__icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 6h12l3 3-3 3H5z"/><path d="M8 21h8"/></svg>
+        </span>
+        <span class="pl-tool-card__title">Tour Settings</span>
+        <span class="pl-tool-card__desc">How far ahead visitors can book facility tours, the notice and cutoff, and the defaults for new tour hours.</span>
+      </a>
+      {% endif %}
       {% if tool_spotlight %}
       <a class="hub-card pl-tool-card" href="{% url 'hub_admin_spotlight' %}" data-tool-spotlight>
         <span class="pl-tool-card__icon">

@@ -44,6 +44,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
             "can_create_classes": False,
             "teach_nav": None,
             "manage_bookings_nav": None,
+            "tours_nav": None,
             "classes_admin_nav_active": False,
             "classes_catalog_active_class": "",
             "kiln_nav": KilnNav(None),
@@ -78,6 +79,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "can_create_classes": member is not None and member.can_create_classes,
         "teach_nav": teach_nav,
         "manage_bookings_nav": _manage_bookings_nav(request),
+        "tours_nav": _tours_nav(request),
         "classes_admin_nav_active": admin_nav_active,
         "classes_catalog_active_class": _classes_catalog_active_class(request, admin_nav_active, teach_nav),
         # The guest menu and the kiln pages' way back (#691); no query.
@@ -230,6 +232,22 @@ def _manage_bookings_nav(request: HttpRequest) -> dict[str, Any] | None:
         "is_active": is_active,
         "active_class": "active" if is_active else "",
     }
+
+
+def _tours_nav(request: HttpRequest) -> dict[str, Any] | None:
+    """The sidebar's Tours entry (#947), or ``None`` for anyone who is not a Tour Guide or an admin.
+
+    The gate is :func:`hub.view_as.has_tour_guide_access`, the twin of the page's decorator: no
+    query for an admin, one for anyone else (``tests/hub/wiki_views_spec.py``'s home page budget
+    counts it). Lights on every ``/facility-tours/`` path.
+    """
+    from django.urls import reverse
+
+    from hub.view_as import has_tour_guide_access
+
+    if not has_tour_guide_access(request):
+        return None
+    return {"url": reverse("tours:hours"), "is_active": request.path.startswith("/facility-tours/")}
 
 
 def _admin_capability_rows(request: HttpRequest, member: Member | None) -> list[dict[str, Any]]:

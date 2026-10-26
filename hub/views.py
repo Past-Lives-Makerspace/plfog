@@ -5271,6 +5271,7 @@ ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tool_instructor_inquiries",
             "tool_push_test",
             "tool_orientations",
+            "tool_tour_settings",
             "tool_spotlight",
             "tool_polls",
             "tool_feedback",
@@ -5350,6 +5351,8 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
         "tool_mailing_lists": bool(guild_tools.guilds) if guild_tools else manageable_guilds(request).exists(),
         # Guild Tools shows the same page as Orientation Bookings under Reports instead.
         "tool_orientations": is_admin,
+        # Facility tours' house rules (#947); the Tours page itself is a sidebar entry for guides.
+        "tool_tour_settings": is_admin,
         "tool_guild": guild_tools is not None and guild_tools.selected is not None,
         "tool_orientation_bookings": guild_tools is not None,
         "tool_registrations": guild_tools is not None

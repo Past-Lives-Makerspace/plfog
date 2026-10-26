@@ -1,0 +1,46 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Tour Settings{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/tours.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+Admin Tools > Tour Settings (#947), admins only (tours.views.tour_settings): the house rules every
+guide's tour hours follow. The bookings switch comes first with its closed message, which only
+shows while bookings are off; the one Save sits at the bottom (FRONTEND rule 21).
+{% endcomment %}
+{% include "components/page_header.html" with title="Tour Settings" description="The rules for facility tours: how far ahead and how late visitors can book, when they can still change a booking, and what new tour hours start with." %}
+
+<form method="post" action="{% url 'tours:settings' %}" class="hub-form" data-tour-settings-form>
+  {% csrf_token %}
+  {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+
+  <div class="hub-card pl-tours-panel" x-data="{ accepting: {{ form.accepting_bookings.value|yesno:'true,false' }} }" data-tour-settings-availability>
+    <h2 class="hub-detail-label pl-tours-panel__title">Availability</h2>
+    <div @change="accepting = $event.target.checked">
+      {% include "components/form_field.html" with field=form.accepting_bookings %}
+    </div>
+    <div class="pl-tours-settings__closed" x-show="!accepting"{% if form.accepting_bookings.value and not form.closed_message.errors %} x-cloak{% endif %} data-tour-closed-message>
+      {% include "components/form_field.html" with field=form.closed_message field_hint="What visitors read on the tours site while bookings are off." %}
+    </div>
+  </div>
+
+  <div class="hub-card pl-tours-panel" data-tour-settings-booking>
+    <h2 class="hub-detail-label pl-tours-panel__title">Booking</h2>
+    {% include "components/form_field.html" with field=form.booking_horizon_days %}
+    {% include "components/form_field.html" with field=form.min_notice_hours %}
+    {% include "components/form_field.html" with field=form.cancel_cutoff_hours %}
+  </div>
+
+  <div class="hub-card pl-tours-panel" data-tour-settings-defaults>
+    <h2 class="hub-detail-label pl-tours-panel__title">New Tour Hours</h2>
+    {% include "components/form_field.html" with field=form.default_tour_minutes %}
+    {% include "components/form_field.html" with field=form.default_seats %}
+  </div>
+
+  <div class="pl-tours-save-row">
+    <button type="submit" class="pl-btn pl-btn--primary" data-tour-settings-save>Save</button>
+  </div>
+</form>
+{% endblock %}

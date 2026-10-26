@@ -247,6 +247,7 @@ _ADMIN_SECTIONS = [
             "Instructor Inquiries",
             "Push Notification Test",
             "Orientations",
+            "Tour Settings",
             "Spotlight",
             "Polls",
             "Feedback Inbox",
@@ -285,7 +286,7 @@ def describe_admin_tools_sections():
         _login_superuser(client, "sections_once")
         GuildFactory()
         titles = _card_titles(client)
-        assert len(titles) == len(set(titles)) == 25
+        assert len(titles) == len(set(titles)) == 26
 
     def it_keeps_the_help_key_on_the_wrapper_the_admin_tour_targets(client: Client):
         _login_superuser(client, "sections_help_key")
