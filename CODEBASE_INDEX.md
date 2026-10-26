@@ -122,7 +122,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 /classes/admin/registrations/export/  Registrations CSV download (admins only)
 /account/                       Book CMS account area (classes.account)
 /hq/                            The Holiday Bizarre HQ: 302 to the open hub's page (/hq/<slug>/, public); /hq/new/, /hq/<slug>/edit/ and /hq/<slug>/cards/<pk>/edit/ for admins
-/facility-tours/                The Tours page for Tour Guides and admins (My Hours: weekly tour hours and days off); /facility-tours/settings/ is Admin Tools > Tour Settings
+/facility-tours/                The Tours page, opened from the Tools page's Tours card (Tour Guides and admins): My Hours (weekly tour hours and days off) and, for admins, Settings at /facility-tours/settings/
 /kiln/                          Kiln tickets (a guest's home; members land on the Ceramics Guild page's ?tab=kiln; /kiln/load/, /kiln/unload/, /kiln/log/, /kiln/lists/ for the crew and admins)
 /tools/                         Admin Tools for admins, Guild Tools for guild officers, leads and staff (#912, #921; hub/guild_tools.py)
 /manage/spotlight/              Admin Tools > Spotlight (#708): the Spotlight messages that crawl across the top of Home (#935)

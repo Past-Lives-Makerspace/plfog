@@ -198,3 +198,13 @@
     color: var(--hub-text-muted);
     font-size: 0.875rem;
 }
+
+/* The way back to the Tools page above the Tours header, and the Settings tab's lead line. */
+.pl-tours-back {
+    margin: 0 0 1rem;
+}
+.pl-tours-settings__lead {
+    margin: 1.5rem 0 0;
+    font-size: 0.875rem;
+    max-width: 46rem;
+}

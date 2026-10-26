@@ -5,7 +5,8 @@ Facility tours: visits to the building for people curious about Past Lives, repl
 ## Who
 
 - **Tour Guide** is `AdminCapability.Capability.TOUR_GUIDE`, granted on a member's Permissions tab. Admins always have its abilities.
-- Pages are gated by `hub.view_as.tour_guide_access_required` (Tour Guides and admins, by the actual role) and `fog_admin_required` (Tour Settings). The sidebar's Tours entry reads `hub.view_as.sees_tours_nav` (`hub.context_processors._tours_nav`, lazy like `hq_nav`): it follows a View As preview the way Manage Bookings does, so an admin previewing as a member sees the entry only if that member is a Tour Guide, while the page itself still opens on the actual role. No query for an admin, one for anyone else, paid only where the sidebar renders.
+- Pages are gated by `hub.view_as.tour_guide_access_required` (Tour Guides and admins, by the actual role) and `fog_admin_required` (the Settings tab).
+- **Where it lives (Felix):** not the sidebar. The Tours page is a card in the Tools section of the Tools page (`tool_tours` in `hub.views.ADMIN_TOOL_SECTIONS`), shown through `hub.view_as.has_tour_guide_access` (actual admin or Tour Guide, the billing cards' rule: an admin previewing below admin does not get it). A Tour Guide who is not an admin reaches the Tools page through `hub.views._tools_page_title`, which counts Tour Guide with the Billing and Calendar Administrator grants in its one query, so such a guide sees "Admin Tools" with the Tours card alone. The sidebar's Tools entry lights on every `/facility-tours/` path (`tools_nav_active` in `hub.context_processors`), and the page carries a "Back to Admin Tools" (or Guild Tools) link. Tour Settings is the page's admin only Settings tab, not a card of its own.
 - Whose hours a request touches is decided once, in `tours.views._target_guide`: blank or the viewer's own pk is the viewer; anyone else is an admin's choice only (403 for a guide, before any form is read), and must give tours or already have hours (404 otherwise).
 - An admin's guide picker lists everyone `guide_filter` admits (Tour Guides and admins, so an admin with no hours yet can be picked) plus anyone who already has hours.
 - Whose hours visitors are offered is `tours.models.guide_filter`: an active member holding Tour Guide, an active `fog_role` admin, or a superuser. Revoking the permission stops the offer at once and keeps the rows.
@@ -38,10 +39,10 @@ Mounted at `/facility-tours/` (members only, in `MEMBER_ONLY_PATH_PREFIXES`); no
 
 | View | URL name | Path |
 |------|----------|------|
-| `tour_hours` | `tours:hours` | `/facility-tours/` (the Tours page, My Hours tab; `?guide=<pk>` for an admin) |
+| `tour_hours` | `tours:hours` | `/facility-tours/` (the Tours page, My Hours tab; `?guide=<pk>` for an admin; the Tools page's Tours card links here) |
 | `tour_hours_save` | `tours:hours_save` | `/facility-tours/hours/save/` (POST `guide` and the `hours` formset) |
 | `tour_day_off_save` | `tours:day_off_save` | `/facility-tours/days-off/save/` (POST `guide` and the `day_off` form; HTMX answers 204 + `HX-Redirect`, or the modal body with errors) |
 | `tour_day_off_delete` | `tours:day_off_delete` | `/facility-tours/days-off/<pk>/delete/` |
-| `tour_settings` | `tours:settings` | `/facility-tours/settings/` (Admin Tools > Tour Settings, admins only) |
+| `tour_settings` | `tours:settings` | `/facility-tours/settings/` (the Tours page's Settings tab, admins only) |
 
-Templates in `templates/tours/` (`hours.html`, `settings.html`, `partials/_hours_row.html`, `partials/_day_off_form.html`), styles in `static/css/tours.css`. The hours rows are the equipment Opening Hours editor's shape: `extra=0`, + Add hours clones a `<template>`, each row folds to a summary with Edit (`plTourHoursRow`, inline in `hours.html`), a saved row's Delete confirms and then saves the page. Specs in `tests/tours/`, the browser flow in `tests/e2e/tour_hours_spec.py`.
+Templates in `templates/tours/` (`hours.html`, `settings.html`, `partials/_page_top.html` for the back link, header and tabs, `partials/_hours_row.html`, `partials/_day_off_form.html`), styles in `static/css/tours.css`. The hours rows are the equipment Opening Hours editor's shape: `extra=0`, + Add hours clones a `<template>`, each row folds to a summary with Edit (`plTourHoursRow`, inline in `hours.html`), a saved row's Delete confirms and then saves the page. Specs in `tests/tours/`, the browser flow in `tests/e2e/tour_hours_spec.py`.

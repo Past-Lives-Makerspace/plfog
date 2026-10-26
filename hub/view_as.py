@@ -395,20 +395,17 @@ def tour_guide_access_required(view_func: _ViewFunc) -> _ViewFunc:
     )(view_func)
 
 
-def sees_tours_nav(request: "HttpRequest") -> bool:
-    """Whether the sidebar shows the Tours entry: an admin by the EFFECTIVE role, or a ``TOUR_GUIDE`` holder.
+def has_tour_guide_access(request: "HttpRequest") -> bool:
+    """True when the user may open the Tours page: fog-admin (actual) or ``TOUR_GUIDE`` holder.
 
-    Follows a View As preview the way the Manage Bookings entry does (``runs_bookings``): an admin
-    previewing as a member sees the member's sidebar, so the entry shows only if that member holds
-    Tour Guide, and previewing as a guest shows nothing. No query for an admin, one for anyone else.
-    The pages themselves stay gated on the actual role by :func:`tour_guide_access_required`.
+    The template-side twin of :func:`tour_guide_access_required`, for the Admin Tools Tours card;
+    like :func:`has_billing_admin_access` it reads the actual role, and the view stays decorator
+    gated regardless.
     """
     from membership.models import AdminCapability
 
     view_as = getattr(request, "view_as", None)
-    if view_as is None or not view_as.is_member:
-        return False
-    if view_as.is_admin:
+    if view_as is not None and view_as.has_actual(ROLE_ADMIN):
         return True
     member = getattr(request.user, "member", None)
     return member is not None and member.has_admin_capability(AdminCapability.Capability.TOUR_GUIDE)

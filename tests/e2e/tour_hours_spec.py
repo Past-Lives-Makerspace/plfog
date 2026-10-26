@@ -1,6 +1,7 @@
 """End-to-end: a Tour Guide sets their weekly tour hours and a day off on the Tours page (#947).
 
-The guide opens Tours from the sidebar, adds Tuesday 4:00 to 6:00 PM with 1 hour tours and 4 seats
+The guide opens the Tools page from the sidebar (Tours has no sidebar entry of its own, Felix), opens
+the Tours card, adds Tuesday 4:00 to 6:00 PM with 1 hour tours and 4 seats
 through + Add hours, saves, and sees the row folded to its summary after the reload. A second row
 added and removed again never reaches the save. Delete asks first, then saves the page without the
 row. A day off is added through the Add Day Off modal. At a phone's width nothing scrolls sideways.
@@ -73,9 +74,17 @@ def describe_tour_hours_editor():
         login_via_code(GUIDE_EMAIL)
         page.set_viewport_size(DESKTOP)
         page.goto(f"{live_server.url}{reverse('hub_home')}")
+        assert page.locator('[data-nav="tours"]').count() == 0
         with page.expect_navigation():
-            page.locator('[data-nav="tours"]').first.click()
+            page.locator(f'.hub-sidebar__nav a[href="{reverse("hub_admin_tools")}"]').first.click()
+        tours_card = page.locator("[data-tool-tours]")
+        tours_card.wait_for()
+        _capture(page, "tools-page")
+        # The card is a boosted link: htmx swaps the body and pushes the URL.
+        tours_card.click()
+        page.wait_for_url(f"**{reverse('tours:hours')}")
         page.locator("[data-tour-hours-empty]").wait_for()
+        page.locator("[data-tours-back]").wait_for()
         _capture(page, "empty")
 
         page.locator("[data-tour-hours-add]").click()

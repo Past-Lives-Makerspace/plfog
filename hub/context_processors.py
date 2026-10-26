@@ -44,7 +44,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
             "can_create_classes": False,
             "teach_nav": None,
             "manage_bookings_nav": None,
-            "tours_nav": None,
+            "tools_nav_active": False,
             "classes_admin_nav_active": False,
             "classes_catalog_active_class": "",
             "kiln_nav": KilnNav(None),
@@ -79,8 +79,8 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "can_create_classes": member is not None and member.can_create_classes,
         "teach_nav": teach_nav,
         "manage_bookings_nav": _manage_bookings_nav(request),
-        # The Tours entry (#947): one query, run only when the sidebar renders it.
-        "tours_nav": SimpleLazyObject(partial(_tours_nav, request)),
+        # The Tools entry also lights on the Tours pages (#947), which its Tours card opens.
+        "tools_nav_active": admin_nav_active or request.path.startswith("/facility-tours/"),
         "classes_admin_nav_active": admin_nav_active,
         "classes_catalog_active_class": _classes_catalog_active_class(request, admin_nav_active, teach_nav),
         # The guest menu and the kiln pages' way back (#691); no query.
@@ -233,23 +233,6 @@ def _manage_bookings_nav(request: HttpRequest) -> dict[str, Any] | None:
         "is_active": is_active,
         "active_class": "active" if is_active else "",
     }
-
-
-def _tours_nav(request: HttpRequest) -> dict[str, Any] | None:
-    """The sidebar's Tours entry (#947), or ``None`` for anyone who is not a Tour Guide or an admin.
-
-    The gate is :func:`hub.view_as.sees_tours_nav`, which follows a View As preview like the
-    Manage Bookings entry: no query for an admin, one for anyone else, paid only on a page that
-    renders the sidebar (``tests/hub/wiki_views_spec.py``'s home page budget counts it). Lights on
-    every ``/facility-tours/`` path.
-    """
-    from django.urls import reverse
-
-    from hub.view_as import sees_tours_nav
-
-    if not sees_tours_nav(request):
-        return None
-    return {"url": reverse("tours:hours"), "is_active": request.path.startswith("/facility-tours/")}
 
 
 def _admin_capability_rows(request: HttpRequest, member: Member | None) -> list[dict[str, Any]]:

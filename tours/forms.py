@@ -1,4 +1,4 @@
-"""Forms for the Tours page's My Hours tab and Admin Tools > Tour Settings (#947).
+"""Forms for the Tours page's My Hours and Settings tabs (#947).
 
 The hours rows reuse the orientation editor's pieces: the shared half hour time choices and the
 shared slot length list (FRONTEND rule 20), and the formset shape of ``OrientationAvailabilityFormSet``
@@ -209,7 +209,7 @@ class TourDayOffForm(forms.ModelForm):
 
 
 class FacilityTourSettingsForm(forms.ModelForm):
-    """Admin Tools > Tour Settings: the house rules every guide's hours follow.
+    """The Tours page's Settings tab (admins only): the house rules every guide's hours follow.
 
     The closed message is asked for only while bookings are closed; left blank while they are
     open, the saved message stays as it was.

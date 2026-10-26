@@ -58,7 +58,7 @@ def guide_filter(prefix: str = "") -> Q:
 
 
 class FacilityTourSettings(models.Model):
-    """The house rules for facility tours: a singleton (pk 1), edited on Admin Tools > Tour Settings.
+    """The house rules for facility tours: a singleton (pk 1), edited on the Tours page's Settings tab.
 
     Named apart from ``hub.forms.TourSettingsForm``, the guided tours' one toggle. Read through
     :meth:`load`, which makes the row with its defaults the first time.

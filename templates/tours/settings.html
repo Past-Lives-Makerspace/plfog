@@ -1,16 +1,17 @@
 {% extends "hub/base.html" %}
 {% load static %}
-{% block title %}Tour Settings{% endblock %}
+{% block title %}Tours: Settings{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/tours.css' %}">
 {% endblock %}
 {% block content %}
 {% comment %}
-Admin Tools > Tour Settings (#947), admins only (tours.views.tour_settings): the house rules every
+The Tours page's Settings tab (#947), admins only (tours.views.tour_settings): the house rules every
 guide's tour hours follow. The bookings switch comes first with its closed message, which only
 shows while bookings are off; the one Save sits at the bottom (FRONTEND rule 21).
 {% endcomment %}
-{% include "components/page_header.html" with title="Tour Settings" description="The rules for facility tours: how far ahead and how late visitors can book, when they can still change a booking, and what new tour hours start with." %}
+{% include "tours/partials/_page_top.html" with tab="settings" is_admin=True %}
+<p class="hub-text-muted pl-tours-settings__lead">The rules for facility tours: how far ahead and how late visitors can book, when they can still change a booking, and what new tour hours start with.</p>
 
 <form method="post" action="{% url 'tours:settings' %}" class="hub-form" data-tour-settings-form>
   {% csrf_token %}

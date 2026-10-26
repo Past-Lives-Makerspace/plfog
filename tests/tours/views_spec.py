@@ -1,7 +1,8 @@
-"""The Tours page's My Hours tab, its days off and Admin Tools > Tour Settings (#947)."""
+"""The Tours page (#947): its My Hours tab and days off, its admin Settings tab, and where it lives (the Tools page)."""
 
 from __future__ import annotations
 
+import re
 from datetime import time, timedelta
 from typing import Any
 
@@ -12,7 +13,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from membership.models import Member
-from tests.membership.factories import MemberFactory
+from tests.membership.factories import GuildFactory, MemberFactory
 from tests.tours.conftest import make_guide, signed_in
 from tests.tours.factories import TourDayOffFactory, TourHoursFactory
 from tours.models import FacilityTourSettings, TourDayOff, TourHours
@@ -81,39 +82,46 @@ def describe_access():
         assert client.get(HOURS).status_code == 404
 
 
-def _preview_as(client: Client, role: str) -> None:
-    session = client.session
-    session["view_as_role"] = role
-    session.save()
+def describe_where_it_lives():
+    """Felix: Tours is a card on the Tools page, never a sidebar entry."""
 
+    def it_has_no_sidebar_entry_of_its_own(guide: Member, admin: Member):
+        for member in (guide, admin):
+            content = signed_in(member).get(reverse("hub_home")).content.decode()
+            assert 'data-nav="tours"' not in content
+            assert f'href="{HOURS}"' not in content
 
-def describe_sidebar():
-    def it_shows_tours_to_a_guide_and_an_admin_only(guide: Member, admin: Member, plain: Member):
-        assert 'data-nav="tours"' in signed_in(guide).get(reverse("hub_home")).content.decode()
-        assert 'data-nav="tours"' in signed_in(admin).get(reverse("hub_home")).content.decode()
-        assert 'data-nav="tours"' not in signed_in(plain).get(reverse("hub_home")).content.decode()
-
-    def it_follows_an_admins_view_as_preview_while_the_page_stays_open(admin: Member):
-        client = signed_in(admin)
-        _preview_as(client, "member")
-        assert 'data-nav="tours"' not in client.get(reverse("hub_home")).content.decode()
-        # The page is gated on the actual role, so the admin still reaches it while previewing.
-        assert client.get(HOURS).status_code == 200
-        admin.set_admin_capability("tour_guide", True)
-        assert 'data-nav="tours"' in client.get(reverse("hub_home")).content.decode()
-        _preview_as(client, "guest")
-        assert 'data-nav="tours"' not in client.get(HOURS).content.decode()
-
-    def it_lights_the_entry_on_the_tours_page(guide: Member):
+    def it_lights_the_tools_entry_and_links_back_to_the_tools_page(guide: Member):
         content = signed_in(guide).get(HOURS).content.decode()
-        assert 'class="hub-sidebar__link active" aria-current="page" data-nav="tours"' in content
+        tools = reverse("hub_admin_tools")
+        assert re.search(rf'href="{tools}" class="hub-sidebar__link\s+active"', content)
+        assert (
+            f'<a href="{tools}" class="hub-btn hub-btn--sm hub-btn--ghost" data-tours-back>&larr; Back to Admin Tools</a>'
+            in content
+        )
 
-    def it_shows_once_the_permission_is_granted(plain: Member):
+    def it_names_guild_tools_on_the_way_back_for_a_guild_lead(guide: Member):
+        GuildFactory(guild_lead=guide)
+        assert "&larr; Back to Guild Tools</a>" in signed_in(guide).get(HOURS).content.decode()
+
+    def it_does_not_light_the_tools_entry_elsewhere(guide: Member):
+        content = signed_in(guide).get(reverse("hub_member_directory")).content.decode()
+        assert not re.search(rf'href="{reverse("hub_admin_tools")}" class="hub-sidebar__link\s+active"', content)
+
+    def it_gives_admins_alone_the_settings_tab(guide: Member, admin: Member):
+        assert 'data-tours-tab="settings"' not in signed_in(guide).get(HOURS).content.decode()
+        content = signed_in(admin).get(HOURS).content.decode()
+        assert f'<a href="{SETTINGS}" class="vote-tab" data-tours-tab="settings">Settings</a>' in content
+        settings_page = signed_in(admin).get(SETTINGS).content.decode()
+        assert 'aria-current="page" data-tours-tab="settings">Settings</a>' in settings_page
+        assert f'<a href="{HOURS}" class="vote-tab" data-tours-tab="hours">My Hours</a>' in settings_page
+
+    def it_opens_the_page_once_the_permission_is_granted(plain: Member):
         client = signed_in(plain)
         assert client.get(HOURS).status_code == 403
         plain.set_admin_capability("tour_guide", True)
         assert client.get(HOURS).status_code == 200
-        assert 'data-nav="tours"' in client.get(reverse("hub_home")).content.decode()
+        assert "data-tool-tours" in client.get(reverse("hub_admin_tools")).content.decode()
 
 
 def describe_my_hours():
@@ -366,10 +374,7 @@ def describe_tour_settings():
         assert settings_row.accepting_bookings is False
         assert 'x-show="!accepting" data-tour-closed-message' in client.get(SETTINGS).content.decode()
 
-    def it_puts_a_tour_settings_card_on_admin_tools(admin: Member, guide: Member):
-        assert (
-            f'href="{SETTINGS}" data-tool-tour-settings'
-            in signed_in(admin).get(reverse("hub_admin_tools")).content.decode()
-        )
-        response = signed_in(guide).get(reverse("hub_admin_tools"))
-        assert "data-tool-tour-settings" not in response.content.decode()
+    def it_has_no_card_of_its_own_on_admin_tools(admin: Member):
+        content = signed_in(admin).get(reverse("hub_admin_tools")).content.decode()
+        assert f'href="{SETTINGS}"' not in content
+        assert "data-tool-tours" in content

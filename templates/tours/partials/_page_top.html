@@ -1,0 +1,20 @@
+{% comment %}
+The top of the Tours page (#947), shared by its tabs: the way back to the Tools page whose Tours
+card opens it, the page header, and the tab row. My Hours is everyone's; Settings (the house rules,
+tours.views.tour_settings) is for admins only.
+
+Context: tab ("hours" or "settings"), is_admin (the actual role), tools_page_title (from
+hub.context_processors: "Admin Tools" or "Guild Tools").
+{% endcomment %}
+{% load tab_picker %}
+<p class="pl-tours-back"><a href="{% url 'hub_admin_tools' %}" class="hub-btn hub-btn--sm hub-btn--ghost" data-tours-back>&larr; Back to {{ tools_page_title|default:"Admin Tools" }}</a></p>
+{% include "components/page_header.html" with title="Tours" description="Facility tours for people curious about Past Lives. Set the weekly hours you can give tours, and mark the days you are away." %}
+
+{% tab_picker "Tours" %}
+<nav class="pl-tabs" aria-label="Tours">
+  <a href="{% url 'tours:hours' %}" class="vote-tab{% if tab == 'hours' %} vote-tab--active{% endif %}"{% if tab == 'hours' %} aria-current="page"{% endif %} data-tours-tab="hours">My Hours</a>
+  {% if is_admin %}
+  <a href="{% url 'tours:settings' %}" class="vote-tab{% if tab == 'settings' %} vote-tab--active{% endif %}"{% if tab == 'settings' %} aria-current="page"{% endif %} data-tours-tab="settings">Settings</a>
+  {% endif %}
+</nav>
+{% endtab_picker %}

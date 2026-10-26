@@ -1,7 +1,8 @@
-"""The Tours page (My Hours tab) and Admin Tools > Tour Settings (#947).
+"""The Tours page (#947): the My Hours tab, and the Settings tab for admins.
 
+The page is opened from the Tours card on the Tools page (``hub_admin_tools``), never the sidebar.
 Everything here sits behind :func:`hub.view_as.tour_guide_access_required` (Tour Guides and
-admins) or :func:`hub.view_as.fog_admin_required` (Tour Settings). Which guide's hours a request
+admins) or :func:`hub.view_as.fog_admin_required` (the Settings tab). Which guide's hours a request
 may touch is decided once, in :func:`_target_guide`: a guide their own, an admin anyone who gives
 tours, so a guide who names another guide in a POST gets a 403 before any form is read.
 """
@@ -181,7 +182,7 @@ def tour_day_off_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 @fog_admin_required
 def tour_settings(request: HttpRequest) -> HttpResponse:
-    """Admin Tools > Tour Settings: horizon, notice, cutoff, defaults and the bookings switch."""
+    """The Tours page's Settings tab (admins only): horizon, notice, cutoff, defaults and the bookings switch."""
     instance = FacilityTourSettings.load()
     form = FacilityTourSettingsForm(request.POST or None, instance=instance)
     if request.method == "POST" and form.is_valid():

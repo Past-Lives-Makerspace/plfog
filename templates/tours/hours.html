@@ -1,23 +1,18 @@
 {% extends "hub/base.html" %}
-{% load static tab_picker %}
+{% load static %}
 {% block title %}Tours{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/tours.css' %}">
 {% endblock %}
 {% block content %}
 {% comment %}
-The Tours page (#947), for Tour Guides and admins (tours.views.tour_hours). Its first tab, My Hours,
+The Tours page (#947), for Tour Guides and admins, opened from the Tours card on the Tools page
+(tours.views.tour_hours). Its first tab, My Hours,
 is a guide's weekly tour hours (rows of day, from, until, tour length and seats, each cut into back
 to back tours) and their days off. An admin picks whose hours to edit with the guide picker.
-Upcoming and Past join the tab row in part 3 (#949).
+Admins also get the Settings tab (tours/settings.html). Upcoming and Past join the tab row in part 3 (#949).
 {% endcomment %}
-{% include "components/page_header.html" with title="Tours" description="Facility tours for people curious about Past Lives. Set the weekly hours you can give tours, and mark the days you are away." %}
-
-{% tab_picker "Tours" %}
-<nav class="pl-tabs" aria-label="Tours">
-  <a href="{% url 'tours:hours' %}" class="vote-tab vote-tab--active" aria-current="page" data-tours-tab="hours">My Hours</a>
-</nav>
-{% endtab_picker %}
+{% include "tours/partials/_page_top.html" with tab="hours" %}
 
 {% if is_admin %}
 <div class="hub-card pl-tours-panel" data-tour-guide-picker>
