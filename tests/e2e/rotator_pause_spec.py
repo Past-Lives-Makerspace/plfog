@@ -15,12 +15,10 @@ from django.urls import reverse
 from django.utils import timezone
 from playwright.sync_api import expect
 
-from classes.factories import ClassOfferingFactory, ClassSessionFactory
-from classes.models import ClassOffering
 from core.factories import AnnouncementFactory
 from core.models import TourState
 from membership.models import Member
-from tests.membership.factories import MembershipPlanFactory
+from tests.membership.factories import CommunityEventFactory, MembershipPlanFactory
 
 BANNER = "[data-home-announcements]"
 BANNER_ACTIVE = f"{BANNER} .pl-rotator__slide.is-active"
@@ -28,7 +26,7 @@ BANNER_PAUSE = f"{BANNER} [data-rotator-pause]"
 SPOTLIGHT = ".hub-sidebar__spotlight [data-spotlight-announcements]"
 SPOTLIGHT_COUNT = f"{SPOTLIGHT} [data-rotator-count]"
 SPOTLIGHT_PAUSE = f"{SPOTLIGHT} [data-rotator-pause]"
-CAROUSEL_ACTIVE = "[data-home-featured] .pl-rotator__slide.is-active"
+QUEUE_FEATURED = "[data-home-upcoming] .pl-upnext__panel.is-active"
 PAUSED = "Play the Spotlight messages"
 RUNNING = "Pause the Spotlight messages"
 
@@ -51,16 +49,10 @@ def _announcements(count: int = 3) -> None:
         AnnouncementFactory(body=f"<p>Zorblax notice {n + 1}</p>", position=n)
 
 
-def _two_classes() -> None:
+def _two_events() -> None:
     for n in range(2):
-        offering = ClassOfferingFactory(
-            title=f"Zorblax class {n}",
-            status=ClassOffering.Status.PUBLISHED,
-            registration_cutoff_hours=None,
-            image="",
-        )
         start = timezone.now() + timedelta(days=3 + n)
-        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        CommunityEventFactory(community=True, title=f"Zorblax event {n}", starts_at=start)
 
 
 def _go(page, live_server, name: str) -> None:
@@ -110,9 +102,11 @@ def describe_a_lasting_pause():
         page.locator(f"{BANNER} [data-rotator-next]").click()
         expect(page.locator(BANNER_ACTIVE)).to_have_attribute("aria-label", "2 of 3")
 
-    def it_keeps_the_spotlight_paused_on_every_page_without_pausing_homes_carousel(page, live_server, login_via_code):
+    def it_keeps_the_spotlight_paused_on_every_page_without_pausing_homes_upcoming_queue(
+        page, live_server, login_via_code
+    ):
         _announcements()
-        _two_classes()
+        _two_events()
         user_pk = _sign_in(page, login_via_code, "pause-spotlight-e2e@example.com")
         page.clock.install()
         _go(page, live_server, "hub_beta_feedback")
@@ -123,7 +117,7 @@ def describe_a_lasting_pause():
         expect(page.locator(SPOTLIGHT_PAUSE)).to_have_attribute("aria-label", PAUSED)
         expect(page.locator(BANNER_PAUSE)).to_have_attribute("aria-label", RUNNING)
         page.clock.run_for(8500)
-        expect(page.locator(CAROUSEL_ACTIVE)).to_have_attribute("aria-label", "2 of 2")
+        expect(page.locator(QUEUE_FEATURED)).to_have_attribute("aria-label", "Zorblax event 1")
         expect(page.locator(BANNER_ACTIVE)).to_have_attribute("aria-label", "2 of 3")
         expect(page.locator(SPOTLIGHT_COUNT)).to_have_text("1 of 3")
 

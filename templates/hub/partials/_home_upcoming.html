@@ -1,0 +1,97 @@
+{% comment %}
+Home's Upcoming queue (#937): one list in date order, its first item the featured card and the rest the rows under it,
+so no item shows twice. Every 6 seconds the rows slide up one: the next item grows into the featured card and the one
+that was featured drops to the bottom of the list (static/js/pl-upcoming-queue.js, plUpcomingQueue). Previous, pause
+(WCAG 2.2.2) and next sit together beside the card's kind pill, clear of the picture, and a time bar runs along the
+picture's foot (rotator.css's control classes, placed in home-featured.css); none of them with one item. It holds while
+hovered, focused, paused or in a hidden tab, and never moves by itself under prefers-reduced-motion. Without JavaScript
+the page stays as the server sent it: the first item featured, the rest listed in date order.
+
+The card shows the item's photo (a class's catalog card picture, an event's photo as its page crops it, an orientation's
+own photo), or else a date poster in its kind's color: the month, the day and the weekday, the time and the title.
+Pictures after the first carry data-queue-src and load when their item comes up next. Every item keeps its View button;
+an event adds Flyer. On a wide screen the picture sits left of the text, on a phone above it. Styles in
+static/css/home-featured.css.
+
+  upcoming — the hub.home.UpcomingItem list, soonest first, at least one
+{% endcomment %}
+{% with total=upcoming|length %}
+<section class="pl-upnext" x-data="plUpcomingQueue" data-rotator-interval="6000" data-rotator-name="home-upcoming" aria-roledescription="carousel" aria-label="Upcoming" data-home-upcoming data-queue-items="{{ total }}">
+  <div class="pl-upnext__feature">
+    <div class="pl-upnext__panels">
+      {% for item in upcoming %}
+      <div class="pl-upnext__panel pl-upnext__panel--{{ item.kind_key }}{% if forloop.first %} is-active{% endif %}" role="group" aria-roledescription="slide" aria-label="{{ item.title }}" data-queue-panel="{{ forloop.counter0 }}">
+        {% if item.photo_url %}
+        <a class="pl-upnext__media" href="{{ item.url }}" tabindex="-1" aria-hidden="true">
+          <img class="pl-upnext__img" {% if forloop.first %}src{% else %}data-queue-src{% endif %}="{{ item.photo_url }}" alt="" width="640" height="360" loading="lazy" data-upnext-position="{{ item.photo_position }}" data-upnext-photo>
+        </a>
+        {% else %}
+        <a class="pl-upnext__media pl-upnext__poster" href="{{ item.url }}" tabindex="-1" aria-hidden="true" data-upnext-poster>
+          <span class="pl-upnext__poster-face">
+          <span class="pl-upnext__poster-date">
+            <span class="pl-upnext__poster-month">{{ item.start|date:"M" }}</span>
+            <span class="pl-upnext__poster-day">{{ item.start|date:"j" }}</span>
+            <span class="pl-upnext__poster-weekday">{{ item.start|date:"l" }}</span>
+          </span>
+          <span class="pl-upnext__poster-text">
+            <span class="pl-upnext__poster-time">{{ item.start|date:"g:i A" }} to {{ item.end|date:"g:i A" }}</span>
+            <span class="pl-upnext__poster-title">{{ item.title }}</span>
+          </span>
+          </span>
+        </a>
+        {% endif %}
+        <div class="pl-upnext__body">
+          <span class="pl-upcoming__kind pl-upcoming__kind--{{ item.kind_key }} pl-upnext__kind" data-upnext-kind>{{ item.kind }}</span>
+          <p class="pl-upnext__title"><a href="{{ item.url }}">{{ item.title }}</a></p>
+          <p class="pl-upnext__when">{{ item.start|date:"D, M j" }} · {{ item.start|date:"g:i A" }}</p>
+          {% if item.instructors %}<p class="pl-upnext__meta" data-upnext-instructors>with {{ item.instructors }}</p>{% endif %}
+          {% if item.guild_name or item.location %}
+          <p class="pl-upnext__meta pl-upnext__place" data-upnext-place>
+            {% if item.guild_name %}<span>{{ item.guild_name }}</span>{% endif %}
+            {% if item.location %}<span>{{ item.location }}</span>{% endif %}
+          </p>
+          {% endif %}
+          <div class="pl-upnext__actions">
+            <a href="{{ item.url }}" class="hub-btn hub-btn--sm hub-btn--ghost" data-upnext-view>{{ item.view_label }}</a>
+            {% if item.flyer_url %}<a href="{{ item.flyer_url }}" class="hub-btn hub-btn--sm hub-btn--ghost" target="_blank" rel="noopener" data-upnext-flyer>Flyer</a>{% endif %}
+            {% if item.video_url %}<a href="{{ item.video_url }}" class="hub-btn hub-btn--sm hub-btn--ghost" target="_blank" rel="noopener noreferrer" data-upnext-join>Join Online</a>{% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% if total > 1 %}
+    <div class="pl-rotator__overlay">
+      <span class="pl-rotator__track" aria-hidden="true"><span class="pl-rotator__bar" data-rotator-bar></span></span>
+    </div>
+    <div class="pl-upnext__controls">
+      <button type="button" class="pl-rotator__arrow pl-rotator__arrow--prev" @click="prev()" aria-label="Previous upcoming item" data-queue-prev>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <button type="button" class="pl-rotator__pause" x-show="!reduced" @click="toggle()" :aria-label="userPaused ? 'Play the upcoming list' : 'Pause the upcoming list'" aria-label="Pause the upcoming list" data-queue-pause>
+        <svg x-show="!userPaused" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+        <svg x-show="userPaused" x-cloak width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>
+      </button>
+      <button type="button" class="pl-rotator__arrow pl-rotator__arrow--next" @click="next()" aria-label="Next upcoming item" data-queue-next>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>
+    {% endif %}
+  </div>
+  {% if total > 1 %}
+  <ul class="pl-upcoming pl-upnext__list" data-queue-list>
+    {% for item in upcoming %}{% if not forloop.first %}{% include "hub/partials/_home_upcoming_row.html" with item=item index=forloop.counter0 hidden=False %}{% endif %}{% endfor %}
+    {% include "hub/partials/_home_upcoming_row.html" with item=upcoming.0 index=0 hidden=True %}
+  </ul>
+  {% endif %}
+</section>
+{% endwith %}
+{# Each photo's crop rides data-upnext-position and lands here, so the markup carries no style attribute (FRONTEND rule 9); idempotent, and re-run on every boosted arrival. #}
+<script>
+  (function () {
+    var photos = document.querySelectorAll("[data-upnext-position]");
+    for (var i = 0; i < photos.length; i += 1) {
+      photos[i].style.objectPosition = photos[i].getAttribute("data-upnext-position");
+    }
+  })();
+</script>

@@ -1,7 +1,7 @@
 """The announcements banner at the top of Home in a real browser (#889, static/js/pl-rotator.js).
 
 With several live announcements it moves on every 8 seconds, holds once paused, and runs its own clock
-beside the Upcoming carousel's. With one there is nothing to press. Close hides it in this browser until
+beside the Upcoming queue's. With one there is nothing to press. Close hides it in this browser until
 the set changes: a new or edited announcement brings it back, and with storage blocked it simply shows.
 Driven on Playwright's fake clock, so no spec waits real seconds. Run with ``pytest -m e2e`` on PostgreSQL.
 """
@@ -15,16 +15,14 @@ from django.urls import reverse
 from django.utils import timezone
 from playwright.sync_api import expect
 
-from classes.factories import ClassOfferingFactory, ClassSessionFactory
-from classes.models import ClassOffering
 from core.factories import AnnouncementFactory
 from core.models import Announcement, TourState
 from membership.models import Member
-from tests.membership.factories import MembershipPlanFactory
+from tests.membership.factories import CommunityEventFactory, MembershipPlanFactory
 
 BANNER = "[data-home-announcements]"
 ACTIVE = f"{BANNER} .pl-rotator__slide.is-active"
-FEATURED_ACTIVE = "[data-home-featured] .pl-rotator__slide.is-active"
+UPCOMING_FEATURED = "[data-home-upcoming] .pl-upnext__panel.is-active"
 
 
 def _sign_in(login_via_code, email: str) -> None:
@@ -117,23 +115,17 @@ def describe_the_banner_rotating():
         page.clock.run_for(40000)
         assert _current(page) == "1 of 3"
 
-    def it_runs_its_own_clock_beside_the_upcoming_carousel(page, live_server, login_via_code):
+    def it_runs_its_own_clock_beside_the_upcoming_queue(page, live_server, login_via_code):
         for n in range(2):
-            offering = ClassOfferingFactory(
-                title=f"Zorblax class {n}",
-                status=ClassOffering.Status.PUBLISHED,
-                registration_cutoff_hours=None,
-                image="",
-            )
             start = timezone.now() + timedelta(days=3 + n)
-            ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+            CommunityEventFactory(community=True, title=f"Zorblax event {n}", starts_at=start)
         _open_home(page, live_server, login_via_code, "ann-two-e2e@example.com")
-        expect(page.locator("[data-home-featured] [data-rotator-dot]")).to_have_count(2)
+        expect(page.locator("[data-home-upcoming] [data-queue-next]")).to_have_count(1)
         page.locator(f"{BANNER} [data-rotator-pause]").click()
         page.mouse.move(0, 0)
         page.evaluate("() => document.activeElement.blur()")
         page.clock.run_for(6500)
-        expect(page.locator(FEATURED_ACTIVE)).to_have_attribute("aria-label", "2 of 2")
+        expect(page.locator(UPCOMING_FEATURED)).to_have_attribute("aria-label", "Zorblax event 1")
         assert _current(page) == "1 of 3"
 
 

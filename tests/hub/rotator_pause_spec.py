@@ -10,10 +10,8 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from classes.factories import ClassOfferingFactory, ClassSessionFactory
-from classes.models import ClassOffering
 from core.factories import AnnouncementFactory
-from tests.membership.factories import MembershipPlanFactory
+from tests.membership.factories import CommunityEventFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -28,13 +26,10 @@ def member(client: Client) -> User:
     return user
 
 
-def _two_classes() -> None:
+def _two_events() -> None:
     for n in range(2):
-        offering = ClassOfferingFactory(
-            title=f"Zorblax class {n}", status=ClassOffering.Status.PUBLISHED, registration_cutoff_hours=None
-        )
         start = timezone.now() + timedelta(days=3 + n)
-        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        CommunityEventFactory(community=True, title=f"Zorblax event {n}", starts_at=start)
 
 
 def describe_the_user_on_the_page():
@@ -66,12 +61,12 @@ def describe_the_names():
     def it_names_each_rotator_on_home_apart(client: Client, member: User):
         for n in range(2):
             AnnouncementFactory(position=n)
-        _two_classes()
+        _two_events()
 
         html = client.get(HOME).content.decode()
 
         assert 'x-data="plRotator" data-rotator-interval="8000" data-rotator-name="home-banner"' in html
-        assert 'x-data="plRotator" data-rotator-interval="6000" data-rotator-name="home-upcoming"' in html
+        assert 'x-data="plUpcomingQueue" data-rotator-interval="6000" data-rotator-name="home-upcoming"' in html
         assert 'x-data="plRotator" data-rotator-interval="8000" data-rotator-name="spotlight"' in html
 
     def it_gives_the_admin_preview_its_own_name(client: Client):

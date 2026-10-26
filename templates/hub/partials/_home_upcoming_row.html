@@ -1,0 +1,30 @@
+{% comment %}
+One row of Home's Upcoming list (#937, hub/partials/_home_upcoming.html): the date and time, the title, the kind pill in
+its kind's color, the guild and the place, and Join online for an item with a video link. The item featured above
+the list keeps its row too, hidden, so the queue can move it to the bottom when the next item takes its place.
+
+  item   — a hub.home.UpcomingItem
+  index  — its place in the queue, which pl-upcoming-queue.js keys the row on
+  hidden — True for the featured item's row
+{% endcomment %}
+<li class="pl-upcoming__item" data-queue-row="{{ index }}"{% if hidden %} hidden{% endif %}>
+    <a href="{{ item.url }}" class="pl-upcoming__link">
+        <span class="pl-upcoming__when">
+            <span class="pl-upcoming__date">{{ item.start|date:"D, M j" }}</span>
+            <span class="pl-upcoming__time">{{ item.start|date:"g:i A" }}</span>
+        </span>
+        <span class="pl-upcoming__body">
+            <span class="pl-upcoming__title">{{ item.title }}</span>
+            <span class="pl-upcoming__meta">
+                <span class="pl-upcoming__kind pl-upcoming__kind--{{ item.kind_key }}">{{ item.kind }}</span>
+                {% if item.guild_name %}<span class="hub-text-muted">{{ item.guild_name }}</span>{% endif %}
+                {# No literal "·" between the spans: the flex gap separates them, and a middot looks orphaned when a span wraps to its own line. #}
+                {% if item.location %}<span class="hub-text-muted">{{ item.location }}</span>{% endif %}
+            </span>
+        </span>
+    </a>
+    {% if item.video_url %}
+    {# A sibling of pl-upcoming__link, not nested inside it — HTML forbids an <a> inside an <a>. #}
+    <a href="{{ item.video_url }}" class="pl-upcoming__join" target="_blank" rel="noopener noreferrer">Join online</a>
+    {% endif %}
+</li>

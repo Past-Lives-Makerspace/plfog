@@ -144,6 +144,8 @@ def describe_hub_home_view():
 
         def it_renders_a_join_online_link_for_a_site_wide_event_with_a_video_url(client: Client):
             _member_user("vid_up")
+            # The second item, so it is a row of the list rather than the featured card (#937).
+            CommunityEventFactory(community=True, title="In Person First", starts_at=timezone.now() + timedelta(days=1))
             CommunityEventFactory(community=True, title="Streamed Talk", video_url="https://meet.google.com/x")
             client.login(username="vid_up", password="pass")
 
