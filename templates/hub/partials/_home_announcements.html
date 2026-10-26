@@ -59,6 +59,9 @@ stored signature still matches. Every storage read and write is in a try, so wit
       return;
     }
     window.plHomeAnnouncements.pace(ticker);
+    // Tabbing to a link that has crawled out of view scrolls the clipped viewport to it; put it back on the way out, or the loop runs offset.
+    var viewport = ticker.querySelector("[data-ticker-viewport]");
+    ticker.addEventListener("focusout", function () { viewport.scrollLeft = 0; });
     if (document.fonts && document.fonts.ready) {
       document.fonts.ready.then(function () { if (ticker.isConnected) window.plHomeAnnouncements.pace(ticker); });
     }
