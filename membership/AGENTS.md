@@ -136,6 +136,12 @@ A leader who may run a booking (`hub._require_can_manage_booking`) moves a reque
 
 **The one-time cleanup list.** `manage.py discord_cleanup_list <username>... [--dry-run]` pages the server's members (`list_member_ids_by_username`), matches each username exactly without case, skips one nobody holds, one an Active member has connected, or one already queued (each recorded as Skipped), and queues the rest as `cleanup` rows and DMs them at once with the ticket's fixed text (`DISCORD_CLEANUP_TEXT`, which mentions Felix through `allowed_mentions`). The 15-minute job removes them 3 days later unless they have connected to an active member. The run is recorded under the job's key with the `command` trigger. Usernames are arguments only, never committed; it refuses to run where the bot token is blank.
 
+## Next Meeting and Needs attention (#953)
+
+`Guild.next_meeting_occurrence(sources)` is the soonest of every published event of the guild's own (any type; `is_meeting` only for `GUILD_MEETING`), the cadence or override, the soonest upcoming `Meeting`, and the soonest upcoming Google row (`CalendarEvent`, guild and general feeds, not classes) whose title contains the guild's name, any case. Google rows are read, never linked. A page that lists guilds loads `NextMeetingSources.load(guilds)` once (two queries) and passes it to each call; without it a call loads its own. "Start the agenda" is offered only when `is_meeting`. `has_something_coming_up` adds the TBA flag.
+
+`membership/needs_attention.py` holds `RULES`. The daily `check_needs_attention` job opens a `GuildNeedsAttention` row per guild and broken rule, and emits `guild.needs_attention` (bell only) to the guild's leadership under the period `guild:{pk}:{rule}:{row pk}`, then `...:reminder` to anyone whose first item is 30 days old (reading their earlier item). A fixed guild closes its row and marks the items read by their link (`Notification.objects.mark_read_for`), so two rules must link to different places. Guild Settings saves run `clear_fixed` at once.
+
 ## Vote Calculator
 
 `membership/vote_calculator.py` — `calculate_results(votes, paying_voter_count, pool_override)` returns a dict with per-guild allocations. Called by `FundingSnapshot.take()`.

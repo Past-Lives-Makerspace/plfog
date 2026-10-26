@@ -249,7 +249,10 @@ def describe_kind_and_audience_are_independent():
         # The consequence the re-typing bug actually had: next_meeting_occurrence filters on
         # the type, so a silently re-typed row blanked the guild page's Next Meeting card.
         guild = GuildFactory()
-        start = timezone.now() + timedelta(days=5)
+        # A local 6 PM, so the form's local wall time never lands on a DST fall back hour.
+        start = timezone.localtime(timezone.now() + timedelta(days=5)).replace(
+            hour=18, minute=0, second=0, microsecond=0
+        )
         event = CommunityEventFactory(
             guild_meeting=True, guild=guild, starts_at=start, ends_at=start + timedelta(hours=2)
         )

@@ -974,6 +974,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             # Every post expired: "No current announcements." rather than "No announcements yet."
             "has_published_announcements": published_announcement_count > 0,
             "next_guild_meeting": next_guild_meeting,
+            # The Next Meeting card, its stat chip and the Meetings tab read this one value (#953).
+            "next_meeting": guild.next_meeting_occurrence(),
             "can_propose_next": can_propose_next,
             "propose_form": propose_form,
             "pending_proposal_count": pending_proposal_count,
@@ -1542,8 +1544,12 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method == "POST":
         form = GuildEditForm(request.POST, request.FILES, instance=guild)
         if form.is_valid():
+            from membership.needs_attention import clear_fixed
+
             form.save()
             guild.add_gallery_images(request.FILES.getlist("gallery_images"))
+            # Setting a meeting from the Needs attention item clears it now, not on tomorrow's run (#953).
+            clear_fixed(guild)
             if wants_autosave(request):
                 return autosave_saved()
             messages.success(request, "Guild page updated.")

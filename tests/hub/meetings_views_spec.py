@@ -1962,6 +1962,53 @@ def describe_meetings_home():
             assert "(from schedule)" in content
             assert "Start the agenda" not in content
 
+        def it_shows_studio_hours_with_their_title_and_offers_no_agenda(client: Client):
+            # The fallback agrees with the guild page card (#953); studio hours are no meeting.
+            guild = GuildFactory(name="Kilnwrights")
+            start = timezone.now() + timedelta(days=2)
+            CommunityEventFactory(
+                studio_hours=True,
+                guild=guild,
+                title="Open Kiln Hours",
+                starts_at=start,
+                ends_at=start + timedelta(hours=3),
+            )
+            _lead_client(client, guild)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            table = content.split('class="pl-meeting-dash"')[1].split("</table>")[0]
+            assert "Open Kiln Hours" in table
+            assert "Start the agenda" not in content
+            assert "pl-meeting-attention__row--start" not in content
+
+        def it_counts_a_google_event_that_names_the_guild(client: Client):
+            from membership.models import CalendarEvent
+
+            GuildFactory(name="Potluckers Guild")
+            start = timezone.now() + timedelta(days=4)
+            CalendarEvent.objects.create(
+                uid="potluck@google.com",
+                source=CalendarEvent.Source.GENERAL,
+                title="Monthly Pot Luck sponsored by Potluckers Guild",
+                start_dt=start,
+                end_dt=start + timedelta(hours=2),
+                fetched_at=timezone.now(),
+            )
+            _member_client(client)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            assert "Monthly Pot Luck sponsored by Potluckers Guild" in content
+
+        def it_reads_every_guild_row_in_the_same_number_of_queries(client: Client):
+            _member_client(client)
+            GuildFactory(name="Batch A")
+            client.get(reverse("hub_meetings"))  # warm caches
+            with CaptureQueriesContext(connection) as small_ctx:
+                client.get(reverse("hub_meetings"))
+            for n in range(5):
+                GuildFactory(name=f"Batch More {n}")
+            with CaptureQueriesContext(connection) as big_ctx:
+                client.get(reverse("hub_meetings"))
+            assert len(big_ctx.captured_queries) == len(small_ctx.captured_queries)
+
         def it_shows_a_dash_when_there_is_neither_meeting_nor_cadence(client: Client):
             GuildFactory(name="Quiet")
             _member_client(client)
@@ -2092,7 +2139,7 @@ def describe_guild_meetings_tab():
             )
             MeetingAgendaItemFactory(meeting=soonest)
             content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
-            card = content.split("Next meeting")[1].split("Recent minutes")[0]
+            card = content.split('<h3 class="hub-detail-label">Next meeting</h3>')[1].split("Recent minutes")[0]
             assert reverse("hub_meeting", args=[soonest.pk]) in card
             assert "6:00 PM" in card
             assert "1 topic" in card
@@ -2124,6 +2171,25 @@ def describe_guild_meetings_tab():
             assert "Start the agenda" in content
             assert f'name="date" value="{occurrence.when:%Y-%m-%d}"' in content
             assert 'name="time" value="18:30"' in content
+
+        def it_shows_studio_hours_by_title_with_no_agenda_to_start(client: Client):
+            # Only a meeting gets an agenda (#953): studio hours show their title and date alone.
+            guild = GuildFactory()
+            start = timezone.now() + timedelta(days=2)
+            CommunityEventFactory(
+                studio_hours=True,
+                guild=guild,
+                title="Open Loom Hours",
+                starts_at=start,
+                ends_at=start + timedelta(hours=3),
+            )
+            _lead_client(client, guild)
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            card = content.split('<h3 class="hub-detail-label">Next meeting</h3>')[1].split("Recent minutes")[0]
+            assert "Open Loom Hours: " in card
+            assert "Next per schedule:" not in card
+            assert "Start the agenda" not in card
+            assert "Proposals open once leadership starts the agenda." not in card
 
         def it_gives_members_the_explanatory_line_on_the_cadence_fallback(client: Client):
             guild = _cadence_guild("CadeMember")

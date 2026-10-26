@@ -142,12 +142,19 @@ def describe_next_meeting_occurrence():
         guild = GuildFactory()
         assert guild.next_meeting_occurrence() is None
 
-    def it_ignores_studio_hours_rows(db):
+    def it_counts_studio_hours_rows_with_their_title(db):
+        # Anything the guild staff coordinates is its next meeting (#953), studio hours included,
+        # but it is no meeting, so nothing offers to start an agenda for it.
         guild = GuildFactory()
+        start = timezone.now() + timedelta(days=2)
         CommunityEventFactory(
-            studio_hours=True, guild=guild, starts_at=_aware(2026, 7, 7, 18), ends_at=_aware(2026, 7, 7, 21)
+            studio_hours=True, guild=guild, title="Open Studio", starts_at=start, ends_at=start + timedelta(hours=3)
         )
-        assert guild.next_meeting_occurrence() is None
+        result = guild.next_meeting_occurrence()
+        assert result is not None
+        assert result.when == start
+        assert result.title == "Open Studio"
+        assert result.is_meeting is False
 
     def it_falls_back_to_the_legacy_cadence_when_no_event_meeting(db):
         today = timezone.localdate()

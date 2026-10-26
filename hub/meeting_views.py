@@ -59,6 +59,7 @@ from membership.models import (
     MeetingLockedError,
     Member,
     NextMeeting,
+    NextMeetingSources,
 )
 from membership.permissions import (
     can_edit_meeting,
@@ -1071,7 +1072,10 @@ def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Me
             "can_edit": council_editable,
         }
     ]
-    for guild in Guild.objects.filter(is_active=True).order_by("name").prefetch_related("events"):
+    guilds = list(Guild.objects.filter(is_active=True).order_by("name").prefetch_related("events"))
+    # The guild page's Next Meeting card reads the same sources, loaded once for every row (#953).
+    sources = NextMeetingSources.load(guilds)
+    for guild in guilds:
         next_meeting = next_up.get(guild.pk)
         rows.append(
             {
@@ -1079,7 +1083,7 @@ def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Me
                 "label": guild.name,
                 "most_recent": latest_past.get(guild.pk),
                 "next_meeting": next_meeting,
-                "cadence": guild.next_meeting_occurrence() if next_meeting is None else None,
+                "cadence": guild.next_meeting_occurrence(sources) if next_meeting is None else None,
                 "can_edit": guild.pk in editable_ids,
             }
         )
@@ -1089,8 +1093,13 @@ def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Me
 def _start_agenda_rows(dash_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Editable scopes with a cadence but nothing upcoming yet — filters the already-
     computed ``dash_rows``, no new query. Feeds the prominent 'Start the agenda' affordance
-    in the Needs-attention strip (§6.2 Part 2a-2)."""
-    return [row for row in dash_rows if row["can_edit"] and row["next_meeting"] is None and row["cadence"] is not None]
+    in the Needs-attention strip (§6.2 Part 2a-2). Only a meeting gets an agenda: a guild whose
+    soonest thing is studio hours or a Google event is left out (#953)."""
+    return [
+        row
+        for row in dash_rows
+        if row["can_edit"] and row["next_meeting"] is None and row["cadence"] is not None and row["cadence"].is_meeting
+    ]
 
 
 def _archive_page(request: HttpRequest) -> dict[str, Any]:

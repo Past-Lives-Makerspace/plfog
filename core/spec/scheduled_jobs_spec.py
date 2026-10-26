@@ -61,6 +61,7 @@ _DISPATCHER_DAILY = {
     "send_overdue_review_alerts",
     "welcome_new_members",
     "send_wiki_guild_digest",
+    "check_needs_attention",
 }
 _DISPATCHER_WEEKLY = {"post_weekly_calendar_digest", "post_weekly_classes_digest"}
 

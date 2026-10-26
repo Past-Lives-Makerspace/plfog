@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-26"
+title = "Guild pages always show what's coming up next"
+changes = [
+  "A guild's Next Meeting card now shows whatever the guild has coming up, like studio hours or a potluck, with its name.",
+  "Guild leads and staff get a Needs attention note in their inbox when their guild has nothing coming up. It goes away once something is set.",
+]

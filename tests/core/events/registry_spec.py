@@ -89,6 +89,7 @@ _BRAND_NEW_KEYS = {
     "kiln.crew_replied",
     "kiln.maker_replied",
     "kiln.ready_for_pickup",
+    "guild.needs_attention",
 }
 
 # The five staff emails #524 moved off fixed address lists, pinned as a literal: who gets

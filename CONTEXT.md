@@ -52,6 +52,10 @@ _Avoid_: treating the pair as duplicates; "Discord event" unqualified.
 A member-run interest group within the makerspace (woodshop, blacksmithing, etc.), with leads, staff, and a public page. The real `membership.Guild`.
 _Avoid_: using bare "guild" for a class catalog category — that is a **Class Type** (see below).
 
+**Needs attention**:
+Something a guild's lead and staff should have in order and do not. The daily check (`check_needs_attention`, #953) runs every active guild against one list of rules (`membership.needs_attention.RULES`); the first is a guild with **nothing coming up**. Something coming up is anything the guild staff is coordinating: its meeting marked TBA, its cadence or override, an upcoming Meeting, any published event of its own (studio hours and potlucks included), or a Google calendar event with the guild's name in its title. The same sources fill the guild page's Next Meeting card. A guild that breaks a rule gets each of its leads and staff one inbox item (bell only), one reminder 30 days later while it stays broken, and the items mark themselves read once it is fixed. Admins and officers hear nothing for a guild they do not run. The phrase also heads the editor strip on the Meetings page and the review lists on Guild Settings, which list things waiting on staff rather than check rules.
+_Avoid_: nudge, alert, health check.
+
 **Location**:
 A named area of the building (`membership.Location`, e.g. Hot Glass Room), optionally a guild's, that a class, event, orientation type or piece of equipment can be set to; the guild page lights each of its locations free, starting soon or in use, counting locations that share space. In code the field is `area`; not a `Space` (an Airtable rental lease record).
 _Avoid_: area, room or space in member-facing copy for this concept.
