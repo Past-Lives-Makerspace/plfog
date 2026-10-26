@@ -5,8 +5,9 @@ Facility tours: visits to the building for people curious about Past Lives, repl
 ## Who
 
 - **Tour Guide** is `AdminCapability.Capability.TOUR_GUIDE`, granted on a member's Permissions tab. Admins always have its abilities.
-- Pages are gated by `hub.view_as.tour_guide_access_required` (Tour Guides and admins, by the actual role) and `fog_admin_required` (Tour Settings). The sidebar's Tours entry reads the twin `has_tour_guide_access` (`hub.context_processors._tours_nav`: no query for an admin, one for anyone else).
+- Pages are gated by `hub.view_as.tour_guide_access_required` (Tour Guides and admins, by the actual role) and `fog_admin_required` (Tour Settings). The sidebar's Tours entry reads `hub.view_as.sees_tours_nav` (`hub.context_processors._tours_nav`, lazy like `hq_nav`): it follows a View As preview the way Manage Bookings does, so an admin previewing as a member sees the entry only if that member is a Tour Guide, while the page itself still opens on the actual role. No query for an admin, one for anyone else, paid only where the sidebar renders.
 - Whose hours a request touches is decided once, in `tours.views._target_guide`: blank or the viewer's own pk is the viewer; anyone else is an admin's choice only (403 for a guide, before any form is read), and must give tours or already have hours (404 otherwise).
+- An admin's guide picker lists everyone `guide_filter` admits (Tour Guides and admins, so an admin with no hours yet can be picked) plus anyone who already has hours.
 - Whose hours visitors are offered is `tours.models.guide_filter`: an active member holding Tour Guide, an active `fog_role` admin, or a superuser. Revoking the permission stops the offer at once and keeps the rows.
 
 ## Models
@@ -14,7 +15,7 @@ Facility tours: visits to the building for people curious about Past Lives, repl
 | Model | Notes |
 |-------|-------|
 | `FacilityTourSettings` | Singleton (pk 1) with `load()`, like `ClassSettings`. `accepting_bookings` and `closed_message`, `booking_horizon_days` (30, 1 to 365), `min_notice_hours` (24, 0 to 336), `cancel_cutoff_hours` (24, 0 to 336), `default_tour_minutes` (60), `default_seats` (6, 1 to 50). Named apart from the guided tours' `TourSettingsForm`. |
-| `TourHours` | One guide's weekly window: `weekday`, `start_time`, `end_time` (half hour marks), `tour_minutes`, `seats`. Carved into back to back tours (`carve_spans`, wall clock, each instant made aware on its own). One guide's rows never overlap (`TourHoursFormSet` refuses it), so a guide and a start name one row. `objects.offered()` is the rows of people who give tours, with the permission in a subquery so the query can be locked. |
+| `TourHours` | One guide's weekly window: `weekday`, `start_time`, `end_time` (half hour marks), `tour_minutes`, `seats`. Carved into back to back tours (`carve_spans`, wall clock, each instant made aware on its own). One guide's rows never overlap: `TourHoursFormSet` compares the submitted rows with each other and with every saved row of the guide's the POST did not carry (a stale tab), so a guide and a start name one row. On a daylight saving change day a start the clocks skip is dropped, each tour lasts exactly `tour_minutes` in real time (its end counted through UTC), and a tour whose real end passes `end_time` on the wall is dropped. `objects.offered()` is the rows of people who give tours, with the permission in a subquery so the query can be locked. |
 | `TourDayOff` | A day or a run of days a guide is away (`starts_on`, `ends_on`, `note`). Their hours offer nothing on those days; tours already booked stay booked. `objects.upcoming()` (not yet ended), `objects.touching(first, last)`, `label`. |
 | `TourBooking` | One party on one guide's tour: `guide` (nullable, SET_NULL), `starts_at`, `ends_at`, `party_size`, `visitor_name`, `visitor_email`, `visitor_phone`, `user` (nullable), `status` (booked, cancelled, attended, no show), `cancelled_by`, `cancelled_at`, `self_serve_token` (random, unique), `created_at`. Booked and attended hold seats (`HOLDS_SEATS`); `objects.seats_taken(guide, starts_at)` and `objects.seats_taken_by_tour(...)` sum `party_size`. No screen makes one before #948. |
 
@@ -28,6 +29,8 @@ Never stored: `tours/availability.py` carves the hours on every read, so a chang
 - Neither reads `accepting_bookings`: the booking page decides what a closed site shows, and staff keep moving tours while it is closed.
 
 **Booking without overbooking (#948).** Inside `transaction.atomic()`: `tour = open_tour_at(guide, starts_at, lock=True)`; refuse when it is None or `tour.seats_left < party_size`; create the `TourBooking`; commit. `lock=True` takes `SELECT ... FOR UPDATE` on the guide's `TourHours` rows for that weekday (raising `RuntimeError` outside a transaction), so every booking of one tour queues on the same row lock, and on PostgreSQL's read committed each statement after the lock sees the bookings committed before it. A reschedule takes the lock of the tour it moves to.
+
+**Known limit for #949.** A booking is matched to its tour by `(guide, starts_at)` alone; it stores no link to the `TourHours` row. If a guide later changes a row's tour length or start, an existing booking whose start no longer falls on the new grid counts against no offered tour (its seats free up on paper) and appears on no carved tour. The Upcoming and Past tabs should list bookings from `TourBooking` itself, never by walking the carve, and may want to flag a booked tour that the hours no longer yield.
 
 ## Views → URLs
 

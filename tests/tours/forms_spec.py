@@ -102,6 +102,26 @@ def describe_tour_hours_formset():
         formset.save()
         assert TourHours.objects.filter(guide=guide).count() == 2
 
+    def it_checks_new_rows_against_saved_rows_the_post_did_not_carry(guide: Member):
+        TourHoursFactory(guide=guide)
+        formset = _formset(guide, _formset_data(_row(0, start_time="17:00", end_time="19:00")))
+        assert not formset.is_valid()
+        assert formset.non_form_errors() == [
+            "These hours overlap saved Tuesday hours of 4:00 PM to 6:00 PM that this page does not show. "
+            "Reload the page and try again."
+        ]
+
+    def it_adds_beside_saved_rows_the_post_did_not_carry_when_they_do_not_overlap(guide: Member):
+        TourHoursFactory(guide=guide)
+        formset = _formset(guide, _formset_data(_row(0, start_time="18:00", end_time="20:00")))
+        assert formset.is_valid(), formset.errors
+        formset.save()
+        assert TourHours.objects.filter(guide=guide).count() == 2
+
+    def it_ignores_another_guides_saved_rows(guide: Member):
+        TourHoursFactory()
+        assert _formset(guide, _formset_data(_row(0))).is_valid()
+
     def it_lets_a_deleted_row_make_way(guide: Member):
         saved = TourHoursFactory(guide=guide)
         data = _formset_data(

@@ -110,9 +110,11 @@ class TourHoursForm(forms.ModelForm):
 class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
     """One guide's hours, saved together: no two rows may overlap, since a guide gives one tour at a time.
 
-    The check runs on what was submitted, so moving one row out of another's way in the same
-    save is fine. It also keeps one guide and one start time to one row, which is what booking
-    locks (``tours.availability.open_tour_at``).
+    Submitted rows are compared with each other as submitted, so moving one row out of another's
+    way in the same save is fine, and with every saved row of the guide's the POST did not carry
+    (a stale tab that never showed it, posting ``INITIAL_FORMS=0``). A row the POST carries, kept
+    or deleted, is judged by what was posted. This keeps one guide and one start time to one row,
+    which is what booking locks (``tours.availability.open_tour_at``).
     """
 
     def clean(self) -> None:
@@ -125,6 +127,16 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
                 if row.overlaps(other):
                     raise forms.ValidationError(
                         f"Two of these rows overlap on {row.get_weekday_display()}. A guide gives one tour at a time."
+                    )
+        carried = {form.instance.pk for form in self.forms if form.instance.pk is not None}
+        for saved in self.get_queryset().exclude(pk__in=carried):
+            for row in rows:
+                if row.overlaps(saved):
+                    raise forms.ValidationError(
+                        f"These hours overlap saved {saved.get_weekday_display()} hours of "
+                        f"{_meeting_time_label(saved.start_time.hour, saved.start_time.minute)} to "
+                        f"{_meeting_time_label(saved.end_time.hour, saved.end_time.minute)} that this page "
+                        "does not show. Reload the page and try again."
                     )
 
 
@@ -151,13 +163,11 @@ class TourDayOffForm(forms.ModelForm):
         fields = ["starts_on", "ends_on", "note"]
         labels = {"starts_on": "First day off", "ends_on": "Last day off", "note": "Note"}
         widgets = {
-            # Rule 14: the whole field opens the picker; .pl-slot-date inverts the icon on the dark theme.
-            "starts_on": forms.DateInput(
-                attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
-            ),
-            "ends_on": forms.DateInput(
-                attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
-            ),
+            # Rule 14: the whole field opens the picker. No .pl-slot-date: components.css already gives
+            # date inputs in a .pl-form-group the dark color-scheme, and inverting on top of it turns the
+            # icon black again on the dark theme.
+            "starts_on": forms.DateInput(attrs={"type": "date", "onclick": "try { this.showPicker() } catch (e) {}"}),
+            "ends_on": forms.DateInput(attrs={"type": "date", "onclick": "try { this.showPicker() } catch (e) {}"}),
             "note": forms.TextInput(attrs={"placeholder": "Optional: a word on why", "class": _TEXT}),
         }
 

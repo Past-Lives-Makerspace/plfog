@@ -81,11 +81,28 @@ def describe_access():
         assert client.get(HOURS).status_code == 404
 
 
+def _preview_as(client: Client, role: str) -> None:
+    session = client.session
+    session["view_as_role"] = role
+    session.save()
+
+
 def describe_sidebar():
     def it_shows_tours_to_a_guide_and_an_admin_only(guide: Member, admin: Member, plain: Member):
         assert 'data-nav="tours"' in signed_in(guide).get(reverse("hub_home")).content.decode()
         assert 'data-nav="tours"' in signed_in(admin).get(reverse("hub_home")).content.decode()
         assert 'data-nav="tours"' not in signed_in(plain).get(reverse("hub_home")).content.decode()
+
+    def it_follows_an_admins_view_as_preview_while_the_page_stays_open(admin: Member):
+        client = signed_in(admin)
+        _preview_as(client, "member")
+        assert 'data-nav="tours"' not in client.get(reverse("hub_home")).content.decode()
+        # The page is gated on the actual role, so the admin still reaches it while previewing.
+        assert client.get(HOURS).status_code == 200
+        admin.set_admin_capability("tour_guide", True)
+        assert 'data-nav="tours"' in client.get(reverse("hub_home")).content.decode()
+        _preview_as(client, "guest")
+        assert 'data-nav="tours"' not in client.get(HOURS).content.decode()
 
     def it_lights_the_entry_on_the_tours_page(guide: Member):
         content = signed_in(guide).get(HOURS).content.decode()
@@ -174,6 +191,13 @@ def describe_my_hours():
     def it_shows_no_refusal_on_a_plain_visit(guide: Member):
         assert "data-tour-hours-refused" not in signed_in(guide).get(HOURS).content.decode()
 
+    def it_refuses_a_stale_tab_whose_new_row_overlaps_saved_hours_it_never_showed(guide: Member):
+        TourHoursFactory(guide=guide)  # Tuesday 4:00 to 6:00 PM
+        response = signed_in(guide).post(SAVE, _hours_post(guide, {"start_time": "17:00", "end_time": "19:00"}))
+        assert response.status_code == 200
+        assert "These hours overlap saved Tuesday hours of 4:00 PM to 6:00 PM" in response.content.decode()
+        assert list(TourHours.objects.values_list("start_time", flat=True)) == [time(16, 0)]
+
     def it_leaves_another_guides_hours_alone(guide: Member):
         other = TourHoursFactory(guide=make_guide())
         signed_in(guide).post(SAVE, _hours_post(guide, {"weekday": "3"}))
@@ -193,6 +217,13 @@ def describe_another_guides_hours():
         response = client.post(SAVE, _hours_post(guide, {}))
         assert response["Location"] == f"{HOURS}?guide={guide.pk}"
         assert TourHours.objects.get().guide == guide
+
+    def it_lists_another_admin_with_no_hours_and_lets_them_be_given_some(admin: Member):
+        other = MemberFactory(full_legal_name="Otto Admin", fog_role=Member.FogRole.ADMIN)
+        client = signed_in(admin)
+        assert f'<option value="{other.pk}">Otto Admin</option>' in client.get(HOURS).content.decode()
+        assert client.post(SAVE, _hours_post(other, {})).status_code == 302
+        assert TourHours.objects.get().guide == other
 
     def it_tells_an_admin_when_there_is_no_guide_to_pick(admin: Member):
         content = signed_in(admin).get(HOURS).content.decode()

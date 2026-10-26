@@ -19,7 +19,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from hub.view_as import ROLE_ADMIN, fog_admin_required, tour_guide_access_required
-from membership.models import AdminCapability, Member
+from membership.models import Member
 from tours.forms import FacilityTourSettingsForm, TourDayOffForm, TourHoursFormSet
 from tours.models import FacilityTourSettings, TourDayOff, guide_filter
 
@@ -61,9 +61,10 @@ def _target_guide(request: HttpRequest, raw: str) -> Member:
 
 
 def _picker_guides(viewer: Member) -> list[Member]:
-    """The admin's guide picker: Tour Guides and anyone with tour hours, the viewer left out (they are "My hours")."""
-    holders = Q(status=Member.Status.ACTIVE, admin_capabilities__capability=AdminCapability.Capability.TOUR_GUIDE)
-    people = Member.objects.filter(holders | _HAS_HOURS).exclude(pk=viewer.pk).distinct()
+    """The admin's guide picker: everyone who gives tours (Tour Guides and admins, ``guide_filter``)
+    and anyone with tour hours, the viewer left out (they are "My hours"). An admin always counts
+    as a guide, so one with no hours yet can be picked and given some."""
+    people = Member.objects.filter(guide_filter() | _HAS_HOURS).exclude(pk=viewer.pk).distinct()
     return sorted(people, key=lambda member: member.display_name.casefold())
 
 

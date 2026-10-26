@@ -35,6 +35,9 @@ def _capture(page, name: str) -> None:
     Path(CAPTURE_DIR).mkdir(parents=True, exist_ok=True)
     for size_name, size in (("desktop", DESKTOP), ("phone", PHONE)):
         page.set_viewport_size(size)
+        # The sidebar opened at desktop width stays open as a drawer over the page once narrowed;
+        # a phone opens a page with it closed, so close it to show the page as a phone sees it.
+        _set_drawer(page, is_open=size is DESKTOP)
         for theme in ("dark", "light"):
             page.evaluate(
                 "(t) => t === 'light' ? document.documentElement.setAttribute('data-theme', 'light') : document.documentElement.removeAttribute('data-theme')",
@@ -44,6 +47,13 @@ def _capture(page, name: str) -> None:
             page.screenshot(path=str(Path(CAPTURE_DIR) / f"947-{name}-{size_name}-{theme}.png"), full_page=True)
     page.evaluate("() => document.documentElement.removeAttribute('data-theme')")
     page.set_viewport_size(DESKTOP)
+    _set_drawer(page, is_open=True)
+
+
+def _set_drawer(page, *, is_open: bool) -> None:
+    """Open or close the hub sidebar (the body's Alpine ``sidebarOpen``) and let it settle."""
+    page.evaluate("(v) => { Alpine.$data(document.body).sidebarOpen = v; }", is_open)
+    page.wait_for_timeout(300)
 
 
 def _make_guide() -> Member:
@@ -110,9 +120,10 @@ def describe_tour_hours_editor():
 
         # At a phone's width nothing scrolls sideways.
         page.set_viewport_size(PHONE)
-        page.wait_for_timeout(300)
+        _set_drawer(page, is_open=False)
         assert page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth")
         page.set_viewport_size(DESKTOP)
+        _set_drawer(page, is_open=True)
 
         # Delete asks first, then saves the page without the row.
         saved = page.locator("[data-tour-hours-row]").first

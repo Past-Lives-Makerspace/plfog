@@ -12,7 +12,7 @@ very next read, with no nightly job.
 from __future__ import annotations
 
 import secrets
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.conf import settings
@@ -230,17 +230,28 @@ class TourHours(models.Model):
     def carve_spans(self, day: date) -> list[tuple[datetime, datetime]]:
         """The aware local ``(start, end)`` of every tour this window yields on ``day``.
 
-        Steps from ``start_time`` by ``tour_minutes`` while a whole tour still fits before
-        ``end_time``. Each instant is made aware on its own, so a daylight saving day never shifts
-        the grid (the rule ``OrientationAvailability.carve_spans`` follows). The caller checks the
-        weekday.
+        Steps from ``start_time`` by ``tour_minutes`` on the wall clock while a whole tour still fits
+        before ``end_time``, so a daylight saving day never shifts the grid (the rule
+        ``OrientationAvailability.carve_spans`` follows). On the two change days the wall clock and
+        real time part ways, so each tour is checked in real time: a start the clocks skip (2:00 AM
+        on the spring day) is dropped, since it would be the same instant as 3:00; every tour lasts
+        exactly ``tour_minutes``, its end counted from its start rather than read off the wall
+        (1:00 to 2:00 AM on the fall day is two real hours); and a tour whose real end lands past
+        ``end_time`` on the wall is dropped. The caller checks the weekday.
         """
         cursor = datetime.combine(day, self.start_time)
         window_end = datetime.combine(day, self.end_time)
         length = timedelta(minutes=self.tour_minutes)
         spans: list[tuple[datetime, datetime]] = []
         while cursor + length <= window_end:
-            spans.append((timezone.make_aware(cursor), timezone.make_aware(cursor + length)))
+            # Through UTC throughout: within one zone Python does wall clock arithmetic (aware +
+            # timedelta), and astimezone to the same zone returns the value unchanged.
+            start_utc = timezone.make_aware(cursor).astimezone(UTC)
+            start = timezone.localtime(start_utc)
+            end = timezone.localtime(start_utc + length)
+            exists = start.replace(tzinfo=None) == cursor
+            if exists and timezone.localtime(end).replace(tzinfo=None) <= window_end:
+                spans.append((start, end))
             cursor += length
         return spans
 

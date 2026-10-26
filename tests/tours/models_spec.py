@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, time, timedelta
+from datetime import UTC, date, time, timedelta
 
 import pytest
 from django.core.exceptions import ValidationError
@@ -90,6 +90,37 @@ def describe_tour_hours():
             (local(tuesday, 16), local(tuesday, 16, 45)),
             (local(tuesday, 16, 45), local(tuesday, 17, 30)),
         ]
+
+    def it_drops_the_hour_the_clocks_skip_in_spring():
+        # 2027-03-14: 2:00 AM does not exist in Portland; 1:00 PST and 3:00 PDT are an hour apart.
+        hours = TourHoursFactory.build(weekday=TourHours.Weekday.SUNDAY, start_time=time(1, 0), end_time=time(4, 0))
+        spans = hours.carve_spans(date(2027, 3, 14))
+        assert [
+            (start.astimezone(UTC).strftime("%H:%M"), end.astimezone(UTC) - start.astimezone(UTC))
+            for start, end in spans
+        ] == [
+            ("09:00", timedelta(hours=1)),
+            ("10:00", timedelta(hours=1)),
+        ]
+        assert [f"{start:%H:%M}" for start, _end in spans] == ["01:00", "03:00"]
+
+    def it_keeps_every_tour_one_real_hour_when_the_clocks_fall_back():
+        # 2026-11-01: 1:00 AM happens twice; wall 1:00 to 2:00 is two real hours.
+        hours = TourHoursFactory.build(weekday=TourHours.Weekday.SUNDAY, start_time=time(1, 0), end_time=time(3, 0))
+        spans = hours.carve_spans(date(2026, 11, 1))
+        assert [
+            (start.astimezone(UTC).strftime("%H:%M"), end.astimezone(UTC) - start.astimezone(UTC))
+            for start, end in spans
+        ] == [
+            ("08:00", timedelta(hours=1)),
+            ("10:00", timedelta(hours=1)),
+        ]
+
+    def it_drops_a_tour_whose_real_end_runs_past_the_window():
+        # 2027-03-14, 0:30 to 2:30 AM: the 1:30 PST tour really ends at 3:30 PDT, past 2:30 on the wall.
+        hours = TourHoursFactory.build(weekday=TourHours.Weekday.SUNDAY, start_time=time(0, 30), end_time=time(2, 30))
+        spans = hours.carve_spans(date(2027, 3, 14))
+        assert [(f"{start:%H:%M}", f"{end:%H:%M}") for start, end in spans] == [("00:30", "01:30")]
 
     def it_offers_only_guides_hours():
         guide = make_guide()
