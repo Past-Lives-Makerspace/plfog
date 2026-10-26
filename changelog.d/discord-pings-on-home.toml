@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-26"
+title = "Discord announcements reach Home and guild pages"
+changes = [
+  "When someone pings everyone or a guild in Discord, an admin can approve the message and it crawls across the top of Home for a week, with the guild's name and who said it.",
+  "Guild pings also show up in that guild's Announcements on its page.",
+]

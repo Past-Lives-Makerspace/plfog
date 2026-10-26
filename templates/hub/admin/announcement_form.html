@@ -1,6 +1,6 @@
 {% extends "hub/base.html" %}
 {% load static %}
-{% block title %}{% if form.instance.pk %}Edit Spotlight Message{% else %}New Spotlight Message{% endif %}{% endblock %}
+{% block title %}{% if queued %}Edit Waiting Message{% elif form.instance.pk %}Edit Spotlight Message{% else %}New Spotlight Message{% endif %}{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/home-announcements.css' %}">
 {% endblock %}
@@ -9,10 +9,13 @@
 Add or edit one Spotlight message (#889, hub.announcement_admin_views, hub.spotlight_forms.AnnouncementForm). The text is
 the rich editor with bold, italic and links only (core.widgets.InlineRichTextWidget), with a live "N / 160" under it
 that turns red past the limit; the save refuses it there too. Then Show from and Show until, each a date and a half hour,
-and Active. Save goes back to the Spotlight page's Announcements section.
+and Active. Save goes back to the Spotlight page's Announcements section. With ``queued`` (#943, hub.spotlight_views.hub_admin_ping_edit) it edits
+a waiting Discord message's line alone: no dates and no Active, which Approve sets.
 {% endcomment %}
 {% include "_components/rich_editor_assets.html" %}
-{% if form.instance.pk %}
+{% if queued %}
+{% include "components/page_header.html" with title="Edit Waiting Message" description="The line a Discord message becomes on Home once approved. Saving keeps it waiting for review." %}
+{% elif form.instance.pk %}
 {% include "components/page_header.html" with title="Edit Spotlight Message" description="Shown in the ticker at the top of Home while it is live. A member who closed the ticker sees it again after this is saved." %}
 {% else %}
 {% include "components/page_header.html" with title="New Spotlight Message" description="Shown in the ticker at the top of Home while it is live, one after another with the other live ones." %}
@@ -26,6 +29,7 @@ and Active. Save goes back to the Spotlight page's Announcements section.
       <p class="pl-field-hint">{{ form.body.help_text }}</p>
       <p class="pl-ann-admin-form__count{% if char_count > max_chars %} is-over{% endif %}" data-announcement-chars data-max="{{ max_chars }}" aria-live="polite">{{ char_count }} / {{ max_chars }}</p>
     </div>
+    {% if not queued %}
     <div class="pl-ann-admin-form__when">
       <div class="pl-ann-admin-form__pair">
         {% include "components/form_field.html" with field=form.show_from_date field_hint="Empty shows it at once." %}
@@ -37,6 +41,7 @@ and Active. Save goes back to the Spotlight page's Announcements section.
       </div>
     </div>
     {% include "components/form_field.html" with field=form.is_active %}
+    {% endif %}
     <div class="pl-ann-admin-form__actions">
       <button type="submit" class="pl-btn pl-btn--primary">Save</button>
       <a href="{{ section_url }}" class="pl-btn pl-btn--ghost">Cancel</a>

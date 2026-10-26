@@ -21,8 +21,9 @@ once, the order through the hidden form below (the script at the end of this sec
   {% if waiting_pings %}
   {% comment %}
   Waiting for Review (#943): Discord messages that pinged @everyone or a guild, queued by queue_discord_pings and drafted
-  as a Spotlight line. Each row: the line as members would see it, the whole Discord text, the guilds, the sender and the
-  message in Discord. None of them is live. Absent when nothing waits.
+  as a Spotlight line. Each row: the line as members would see it, the whole Discord text, the guilds, the sender, the
+  message in Discord, and Edit, Approve and Discard (hub.spotlight_views; Discard through its confirm modal). None of them
+  is live. Absent when nothing waits.
   {% endcomment %}
   <section class="pl-ping-queue" aria-labelledby="ping-queue-title" data-ping-queue>
     <h3 class="pl-ping-queue__title" id="ping-queue-title">Waiting for Review <span class="hub-badge">{{ waiting_pings|length }}</span></h3>
@@ -38,9 +39,23 @@ once, the order through the hidden form below (the script at the end of this sec
           <span class="hub-text-muted" data-ping-sender>Sent by {{ ping.credit }}</span>
           <a href="{{ ping.discord_url }}" class="pl-ping-queue__link" target="_blank" rel="noopener noreferrer" data-ping-link>Open in Discord</a>
         </p>
+        <div class="pl-ping-queue__actions">
+          <a href="{% url 'hub_admin_ping_edit' ping.pk %}" class="pl-btn pl-btn--secondary pl-btn--sm" data-ping-edit>Edit</a>
+          <form method="post" action="{% url 'hub_admin_ping_approve' ping.pk %}" data-ping-approve>
+            {% csrf_token %}
+            <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Approve</button>
+          </form>
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'discard-ping-{{ ping.pk }}')" data-ping-discard>Discard</button>
+        </div>
       </li>
       {% endfor %}
     </ul>
+    {% for ping in waiting_pings %}
+    {% with pk=ping.pk|stringformat:"s" %}
+    {% url 'hub_admin_ping_discard' ping.pk as discard_url %}
+    {% include "components/confirm_modal.html" with confirm_id="discard-ping-"|add:pk confirm_title="Discard this Discord message?" confirm_message="It never shows on Home or a guild page, and it is not queued again." confirm_action_url=discard_url confirm_button_text="Discard" %}
+    {% endwith %}
+    {% endfor %}
   </section>
   {% endif %}
   <p class="hub-text-muted pl-ann-admin__intro">Short notices on one line that crawls across the top of Home. The live ones run one after another, in this order; drag a row or use the arrows to change it.</p>

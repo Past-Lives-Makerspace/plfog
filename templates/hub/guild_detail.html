@@ -178,7 +178,7 @@
                 <div class="hub-card" style="border-left:3px solid var(--color-tuscan-yellow,#EEB44B);">
                     <strong>{{ a.title }}</strong>
                     <div class="hub-text-muted" style="font-size:0.8125rem;">{{ a.published_at|date:"M j, Y" }}</div>
-                    <p>{{ a.body|linebreaksbr }}</p>
+                    <p>{{ a.body|urlize|linebreaksbr }}</p>
                 </div>
                 {% endfor %}
             </div>
