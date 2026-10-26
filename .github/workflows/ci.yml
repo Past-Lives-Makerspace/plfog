@@ -47,41 +47,12 @@ jobs:
         run: pytest --tb=short
 
 
-  # Mutation testing is advisory and has its own job and clock. Inside `test` it ran after the
-  # suite and pushed the job past its limit, so a passing suite reported as cancelled.
-  # pytest-leela re-runs the suite before mutating, so this job takes at least as long as `test`.
-  mutation:
-    if: github.event.action != 'closed'
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-    continue-on-error: true
-    env:
-      DJANGO_SECRET_KEY: test-secret-key-for-ci
-      DATABASE_URL: sqlite:///db.sqlite3
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-
-      - name: Run migrations
-        run: python manage.py migrate --run-syncdb
-
-      - name: Run mutation tests
-        # pyproject's addopts carry the 98% coverage gate, which a leela run cannot meet (it
-        # measures about 26%), so the gate is switched off here: this job reports mutants, not coverage.
-        run: pytest --leela --target core --target hub --target membership --target plfog --cov-fail-under=0
+  # No mutation job: pytest-leela runs no tests for mutants in code that imports Django models, so
+  # it reported false survivors, and over four apps it never finished inside 6 hours. Felix removed
+  # it on 2026-10-26; #931 tracks a runner that works on Django code.
 
   # Specs marked postgres_only assert row locks or provoke a real race, which SQLite cannot do,
-  # so `test` and `mutation` skip them (root conftest.py). This job runs only those, on the
+  # so `test` skips them (root conftest.py). This job runs only those, on the
   # PostgreSQL 18 production uses. PLFOG_POSTGRES_ONLY_JOB makes a non-Postgres database an
   # error here instead of a skip, so the job can never pass having run nothing.
   postgres-only:

@@ -35,8 +35,8 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     """Skip ``postgres_only`` specs on a database that is not PostgreSQL, with the reason.
 
     SQLite has no row locks (it never writes FOR UPDATE) and no ``pg_*`` functions, so a spec
-    that asserts a lock or provokes a real race cannot run there. CI's ``test`` and ``mutation``
-    jobs run on SQLite and skip these; the ``postgres-only`` job runs them on PostgreSQL.
+    that asserts a lock or provokes a real race cannot run there. CI's ``test`` job runs on SQLite
+    and skips these; the ``postgres-only`` job runs them on PostgreSQL.
     """
     from django.db import connection
 

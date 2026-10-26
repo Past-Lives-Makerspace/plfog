@@ -116,7 +116,7 @@ pytest -m e2e                # run the Playwright browser tests
 ```
 
 - **Coverage gate: 98%.** CI fails under it (`fail_under = 98`). Branch coverage is on.
-- **Mutation testing** runs in CI (via `pytest --leela`) as a non-blocking quality signal.
+- **Mutation testing** is not in CI: pytest-leela cannot test code that imports Django models (#931).
 - Every code path should be covered — mock external services (Stripe, Airtable, Resend), never the
   database or models.
 
