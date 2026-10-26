@@ -7,10 +7,9 @@ from functools import partial
 from typing import Any
 
 from django.http import HttpRequest
-from django.utils import timezone
 from django.utils.functional import SimpleLazyObject
 
-from hub.spotlight import Spotlight, sees_spotlight
+from hub.spotlight import LatestUpdate, sees_spotlight
 from kiln.access import KilnNav
 from membership.models import AdminCapability, Guild, Member
 
@@ -48,7 +47,8 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
             "classes_admin_nav_active": False,
             "classes_catalog_active_class": "",
             "kiln_nav": KilnNav(None),
-            "spotlight": None,
+            "version_card": False,
+            "latest_update": None,
             "hq_nav": False,
         }
 
@@ -62,6 +62,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
     admin_nav_active = _classes_admin_nav_active(request)
     teach_nav = _teach_nav(request, member, admin_nav_active)
     tools_page_title = _tools_page_title(request, member)
+    version_card = sees_spotlight(member)
     return {
         # Inactive guilds are hidden everywhere they're listed (directory, voting,
         # My Guilds) — the sidebar follows suit. Their detail pages stay reachable
@@ -81,9 +82,10 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "classes_catalog_active_class": _classes_catalog_active_class(request, admin_nav_active, teach_nav),
         # The guest menu and the kiln pages' way back (#691); no query.
         "kiln_nav": KilnNav(member),
-        # Lazy as well (#709): the Spotlight's two queries run only when a page renders it, once per request.
-        # Who sees it: hub.spotlight.sees_spotlight (members, not guests or former members).
-        "spotlight": SimpleLazyObject(partial(request_spotlight, request)) if shows_spotlight(request) else None,
+        # The Spotlight's version card (#709, static since #935), for hub.spotlight.sees_spotlight's members;
+        # everyone else keeps the bare version number and the plain changelog modal. No query.
+        "version_card": version_card,
+        "latest_update": LatestUpdate.newest() if version_card else None,
         # The Holiday Bizarre entry: one query, run only when the sidebar renders it.
         "hq_nav": SimpleLazyObject(partial(_hq_nav, request, member)),
     }
@@ -105,26 +107,6 @@ def _hq_nav(request: HttpRequest, member: Member | None) -> bool:
         return EventHub.objects.exists()
     viewer = None if view_as is not None and view_as.is_previewing and view_as.is_guest else member
     return HubCard.objects.filter(hub__is_open=True).open_to(viewer).exists()
-
-
-def _spotlight() -> Spotlight:
-    """The Spotlight now (#709); every member sees the same one."""
-    return Spotlight.load(timezone.now())
-
-
-def shows_spotlight(request: HttpRequest) -> bool:
-    """Whether this request's pages carry the Spotlight: a signed in account that :func:`hub.spotlight.sees_spotlight` lets in."""
-    user = getattr(request, "user", None)
-    return bool(getattr(user, "is_authenticated", False)) and sees_spotlight(getattr(user, "member", None))
-
-
-def request_spotlight(request: HttpRequest) -> Spotlight:
-    """This request's Spotlight, read once however many places ask: Home's banner shares its announcements (#890)."""
-    cached: Spotlight | None = getattr(request, "_pl_spotlight", None)
-    if cached is None:
-        cached = _spotlight()
-        request._pl_spotlight = cached  # type: ignore[attr-defined]
-    return cached
 
 
 def _classes_admin_nav_active(request: HttpRequest) -> bool:

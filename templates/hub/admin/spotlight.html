@@ -5,16 +5,11 @@
 <link rel="stylesheet" href="{% static 'css/home-announcements.css' %}">
 {% endblock %}
 {% block content %}
-{% comment %}
-Admin Tools > Spotlight (#708), built by hub.spotlight_views. The announcements, shown on Home and
-in the Spotlight (#889, #890). The text form saves the meeting and the two minimized lines; the
-preview beside it is hub/partials/_spotlight.html, the same markup members get (#709), with the
-real live announcements, bound to the form as the admin types. Nothing here notifies anyone.
-{% endcomment %}
-{% include "components/page_header.html" with title="Spotlight" description="Spotlight messages for the banner on Home and the top left of the Member Portal, and the next Feature Request Meeting. Members see changes the next time a page loads." %}
+{# Admin Tools > Spotlight (#708), built by hub.spotlight_views: the Spotlight messages that crawl across the top of Home (#889, #935). Nothing here notifies anyone. #}
+{% include "components/page_header.html" with title="Spotlight" description="Short messages that crawl across the top of Home, one after another. Members see changes the next time Home loads." %}
 
 {% comment %}
-The Announcements section (#889, hub.announcement_admin_views): every Home announcement in the banner's order, each row
+The Spotlight Messages section (#889, hub.announcement_admin_views): every Spotlight message in the ticker's order, each row
 from hub/admin/_announcement_row.html. "+ Add announcement" and Edit open the form page; the switch and the order save at
 once, the order through the hidden form below (the script at the end of this section writes it and submits it over htmx).
 {% endcomment %}
@@ -23,7 +18,7 @@ once, the order through the hidden form below (the script at the end of this sec
     <h2 class="pl-spotlight-admin__title">Spotlight Messages</h2>
     <a href="{% url 'hub_admin_announcement_new' %}" class="pl-btn pl-btn--primary pl-btn--sm" data-announcement-add>+ Add Spotlight message</a>
   </div>
-  <p class="hub-text-muted pl-ann-admin__intro">Short notices in a banner at the top of Home and in the Spotlight on every page. The live ones take turns, in this order; drag a row or use the arrows to change it.</p>
+  <p class="hub-text-muted pl-ann-admin__intro">Short notices on one line that crawls across the top of Home. The live ones run one after another, in this order; drag a row or use the arrows to change it.</p>
   {% if announcement_rows %}
   <form method="post" action="{% url 'hub_admin_announcement_reorder' %}" hx-post="{% url 'hub_admin_announcement_reorder' %}" hx-swap="none" hidden data-announcement-order-form>
     {% csrf_token %}
@@ -39,7 +34,7 @@ once, the order through the hidden form below (the script at the end of this sec
   {% endwith %}
   {% endfor %}
   {% else %}
-  <p class="hub-text-muted pl-ann-admin__empty" data-announcements-empty>No Spotlight messages yet. Add one and it shows at the top of Home and in the Spotlight.</p>
+  <p class="hub-text-muted pl-ann-admin__empty" data-announcements-empty>No Spotlight messages yet. Add one and it shows at the top of Home.</p>
   {% endif %}
 </div>
 {# The order saves as soon as a row moves: a drag from the grip, or the up and down buttons on touch and keyboard (the Slideshow's controls). #}
@@ -106,37 +101,5 @@ once, the order through the hidden form below (the script at the end of this sec
     });
   })();
 </script>
-
-{{ spotlight_preview|json_script:"spotlight-preview-data" }}
-<div class="hub-card pl-spotlight-admin" id="spotlight-text"
-     x-data="JSON.parse(document.getElementById('spotlight-preview-data').textContent)"
-     @input="if ($event.target.name === 'spotlight_first_line') first = $event.target.value; if ($event.target.name === 'spotlight_second_line') second = $event.target.value"
-     @change="if ($event.target.name === 'spotlight_meeting_event') meeting = $event.target.value; if ($event.target.name === 'spotlight_show_when_empty') showWhenEmpty = $event.target.checked">
-  <h2 class="pl-spotlight-admin__title">Spotlight Text and Meeting</h2>
-  <div class="pl-spotlight-admin__split">
-    {# hx-push-url off: an invalid save re-renders at 200 under the boost, and pushing /text/ would make a reload a 405. #}
-    <form method="post" action="{% url 'hub_admin_spotlight_text' %}" hx-push-url="false" class="pl-spotlight-admin__form" data-spotlight-text-form>
-      {% csrf_token %}
-      {% include "components/form_field.html" with field=text_form.spotlight_meeting_event %}
-      {% include "components/form_field.html" with field=text_form.spotlight_first_line %}
-      {% include "components/form_field.html" with field=text_form.spotlight_second_line %}
-      {% include "components/form_field.html" with field=text_form.spotlight_show_when_empty %}
-      <div class="pl-spotlight-admin__save"><button type="submit" class="pl-btn pl-btn--primary">Save</button></div>
-    </form>
-    <div class="pl-spotlight-admin__preview" data-spotlight-preview aria-label="Preview">
-      <p class="pl-spotlight-admin__hidden-note" x-cloak x-show="!(showWhenEmpty || hasAnnouncement || meetings[meeting])" data-spotlight-preview-hidden>Hidden. With no Spotlight message and no meeting, members see the logo and version number.</p>
-      <div class="pl-spotlight-admin__states" x-cloak x-show="showWhenEmpty && !(hasAnnouncement || meetings[meeting])" data-spotlight-preview-quiet>
-      <p class="pl-spotlight-admin__label">With no Spotlight message and no meeting</p>
-      {% include "hub/partials/_spotlight.html" with spotlight=admin_spotlight state="quiet" preview=True %}
-      </div>
-      <div class="pl-spotlight-admin__states" x-show="hasAnnouncement || meetings[meeting]" data-spotlight-preview-states>
-      <p class="pl-spotlight-admin__label">Standard</p>
-      {% include "hub/partials/_spotlight.html" with spotlight=admin_spotlight state="standard" preview=True %}
-      <p class="pl-spotlight-admin__label">Minimized</p>
-      {% include "hub/partials/_spotlight.html" with spotlight=admin_spotlight state="minimized" preview=True %}
-      </div>
-    </div>
-  </div>
-</div>
 
 {% endblock %}

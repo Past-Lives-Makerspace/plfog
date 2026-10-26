@@ -1,78 +1,14 @@
 {% comment %}
-The Spotlight (#708 admin preview, #709 member). spotlight is hub.spotlight.Spotlight.
-
-Standard, top to bottom (#890): the live announcements (hub/partials/_spotlight_announcements.html, rotating with two or
-more), the Next Feature Request Meeting, then the version pill, "Updated X" and Details
-(hub/partials/_spotlight_quiet.html). Home's phone copy is spotlight.without_announcements, since the banner above it
-already shows them.
-
-Admin preview (preview=True, state "standard", "minimized" or "quiet"): one state, static, bound to the form beside it
-(an Alpine scope holding first, second, meeting, meetings, fallback and secondDefault), with the real live
-announcements.
-
-Member (no preview): both states rendered; the stylesheet shows one from <html data-spotlight-min>, which the spotlight
-store (static/js/spotlight.js) keeps in step with localStorage. Minimized carries the yellow dot while something is
-unseen; tapping it opens Standard. Details opens the Expanded panel.
-
-Quiet (no announcement and no meeting): no card and no Minimized, only the version pill the sidebar had before the
-Spotlight, the newest update's date and Details.
+The Spotlight's version card at the top of the sidebar (#709, static since #935), for members (hub.spotlight.sees_spotlight;
+the hub_sidebar context processor's version_card): the version pill, which opens the changelog, the newest update's date
+under it (latest_update, a hub.spotlight.LatestUpdate), and Details, which opens hub/partials/_spotlight_expanded.html.
+The Spotlight messages are not here: they crawl across the top of Home (hub/partials/_home_announcements.html).
 {% endcomment %}
-{% if preview %}
-{% if state == "quiet" %}
-<div class="pl-spotlight pl-spotlight--quiet" data-spotlight-state="quiet">
-    {% include "hub/partials/_spotlight_quiet.html" %}
-</div>
-{% elif state == "minimized" %}
-<div class="pl-spotlight pl-spotlight--minimized" data-spotlight-state="minimized">
-    <button type="button" class="pl-spotlight__min" aria-label="Open the Spotlight">
-        <span class="pl-spotlight__line" data-spotlight-first x-text="first || fallback">{{ spotlight.first_line }}</span>
-        <span class="pl-spotlight__line pl-spotlight__line--second">
-            <span data-spotlight-second x-text="second || secondDefault">{{ spotlight.second_line }}</span>
-            <span class="pl-spotlight__pill" data-spotlight-pill x-show="meetings[meeting]" x-text="meetings[meeting] && meetings[meeting].pill">{{ spotlight.meeting.pill }}</span>
-        </span>
-    </button>
-</div>
-{% else %}
-<section class="pl-spotlight pl-spotlight--standard" data-spotlight-state="standard" aria-label="Spotlight">
-    <button type="button" class="pl-spotlight__minimize" aria-label="Minimize the Spotlight" data-spotlight-minimize>&minus;</button>
-    {% if spotlight.shown_announcements %}{% include "hub/partials/_spotlight_announcements.html" with announcements=spotlight.shown_announcements rotator_name="spotlight-preview" %}{% endif %}
-    <div class="pl-spotlight__meeting" data-spotlight-meeting x-show="meetings[meeting]">
-        <p class="pl-spotlight__eyebrow">Next Feature Request Meeting</p>
-        <p class="pl-spotlight__when"><span data-spotlight-when x-text="meetings[meeting] && meetings[meeting].when">{{ spotlight.meeting.when }}</span><span class="pl-spotlight__virtual" x-show="meetings[meeting] && meetings[meeting].virtual">Virtual</span></p>
+{% load hub_tags %}
+<div class="pl-spotlight pl-spotlight--quiet" data-spotlight data-spotlight-state="quiet">
+    <div class="pl-spotlight__quiet-info">
+        <button type="button" class="pl-badge--version" @click="$store.spotlight.showChange('')" data-spotlight-quiet-version>v{{ app_version_short }}</button>
+        {% if latest_update %}<span class="pl-spotlight__quiet-date" title="{{ latest_update.date|changelog_date }}" data-spotlight-quiet-date>Updated {{ latest_update.short_date }}</span>{% endif %}
     </div>
-    <div class="pl-spotlight__foot" data-spotlight-foot>{% include "hub/partials/_spotlight_quiet.html" %}</div>
-</section>
-{% endif %}
-{% elif spotlight.is_empty %}
-<div class="pl-spotlight-live" data-spotlight data-spotlight-signature="{{ spotlight.seen_signature }}" x-data x-init="$store.spotlight.arrive($el.dataset.spotlightSignature)">
-    <div class="pl-spotlight pl-spotlight--quiet" data-spotlight-state="quiet">
-        {% include "hub/partials/_spotlight_quiet.html" %}
-    </div>
+    <button type="button" class="pl-spotlight__quiet-details" data-spotlight-details @click="$store.spotlight.expand()">Details<svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
 </div>
-{% else %}
-<div class="pl-spotlight-live" data-spotlight data-spotlight-signature="{{ spotlight.seen_signature }}" x-data x-init="$store.spotlight.arrive($el.dataset.spotlightSignature)">
-    <div class="pl-spotlight pl-spotlight--minimized" data-spotlight-state="minimized">
-        <button type="button" class="pl-spotlight__min" aria-label="Open the Spotlight" @click="$store.spotlight.open()">
-            <span class="pl-spotlight__dot-slot"><span class="pl-spotlight__dot" data-spotlight-dot x-show="$store.spotlight.unseen" x-cloak aria-label="Something new"></span></span>
-            <span class="pl-spotlight__min-text">
-                <span class="pl-spotlight__line" data-spotlight-first>{{ spotlight.first_line }}</span>
-                <span class="pl-spotlight__line pl-spotlight__line--second">
-                    <span data-spotlight-second>{{ spotlight.second_line }}</span>
-                    {% if spotlight.meeting %}<span class="pl-spotlight__pill" data-spotlight-pill>{{ spotlight.meeting.pill }}</span>{% endif %}
-                </span>
-            </span>
-        </button>
-    </div>
-    <section class="pl-spotlight pl-spotlight--standard" data-spotlight-state="standard" aria-label="Spotlight">
-        <button type="button" class="pl-spotlight__minimize" aria-label="Minimize the Spotlight" data-spotlight-minimize @click="$store.spotlight.minimize()">&minus;</button>
-        {% if spotlight.shown_announcements %}{% include "hub/partials/_spotlight_announcements.html" with announcements=spotlight.shown_announcements %}{% endif %}
-        {% if spotlight.meeting %}
-        <div class="pl-spotlight__meeting" data-spotlight-meeting>
-            <p class="pl-spotlight__eyebrow">Next Feature Request Meeting</p>
-            <p class="pl-spotlight__when"><span data-spotlight-when>{{ spotlight.meeting.when }}</span>{% if spotlight.meeting.video_url %}<span class="pl-spotlight__virtual">Virtual</span>{% endif %}</p>
-        </div>
-        {% endif %}
-        <div class="pl-spotlight__foot" data-spotlight-foot>{% include "hub/partials/_spotlight_quiet.html" %}</div>
-    </section>
-</div>
-{% endif %}

@@ -477,15 +477,15 @@ def describe_saving_a_new_code():
 
     def it_saves_only_the_door_code_columns(client: Client):
         config = SiteConfiguration.load()
-        config.spotlight_first_line = "Zorblax line"
+        config.org_name = "Zorblax line"
         config.save()
         _admin(client)
         stale = SiteConfiguration.load()
-        SiteConfiguration.objects.filter(pk=1).update(spotlight_first_line="Another admin edit")
+        SiteConfiguration.objects.filter(pk=1).update(org_name="Another admin edit")
 
         stale.set_door_code(FAKE_CODE, by=User.objects.get(username="dooradmin"), now=timezone.now())
 
-        assert SiteConfiguration.load().spotlight_first_line == "Another admin edit"
+        assert SiteConfiguration.load().org_name == "Another admin edit"
 
     def describe_refusals():
         @pytest.mark.parametrize("value", ["", "    "])

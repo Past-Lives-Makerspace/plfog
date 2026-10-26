@@ -6,16 +6,16 @@
 {% endblock %}
 {% block content %}
 {% comment %}
-Add or edit one Home announcement (#889, hub.announcement_admin_views, hub.spotlight_forms.AnnouncementForm). The text is
+Add or edit one Spotlight message (#889, hub.announcement_admin_views, hub.spotlight_forms.AnnouncementForm). The text is
 the rich editor with bold, italic and links only (core.widgets.InlineRichTextWidget), with a live "N / 160" under it
 that turns red past the limit; the save refuses it there too. Then Show from and Show until, each a date and a half hour,
 and Active. Save goes back to the Spotlight page's Announcements section.
 {% endcomment %}
 {% include "_components/rich_editor_assets.html" %}
 {% if form.instance.pk %}
-{% include "components/page_header.html" with title="Edit Spotlight Message" description="Shown in the banner at the top of Home while it is live. A member who closed the banner sees it again after this is saved." %}
+{% include "components/page_header.html" with title="Edit Spotlight Message" description="Shown in the ticker at the top of Home while it is live. A member who closed the ticker sees it again after this is saved." %}
 {% else %}
-{% include "components/page_header.html" with title="New Spotlight Message" description="Shown in the banner at the top of Home while it is live, taking turns with the other live ones." %}
+{% include "components/page_header.html" with title="New Spotlight Message" description="Shown in the ticker at the top of Home while it is live, one after another with the other live ones." %}
 {% endif %}
 <div class="hub-card pl-ann-admin-form">
   <form method="post" data-announcement-form>

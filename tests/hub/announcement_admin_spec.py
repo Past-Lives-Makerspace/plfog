@@ -155,14 +155,15 @@ def describe_the_section():
 
         assert 'id="announcements"' in html
         assert "data-announcements-empty" in html
-        assert "No Spotlight messages yet. Add one and it shows at the top of Home and in the Spotlight." in html
+        assert "No Spotlight messages yet. Add one and it shows at the top of Home." in html
         assert "pl-ann-admin__rows" not in html
         assert f'href="{NEW}" class="pl-btn pl-btn--primary pl-btn--sm" data-announcement-add' in html
 
-    def it_comes_before_the_spotlight_text(admin_client: Client):
+    def it_is_the_only_section_on_the_page(admin_client: Client):
         html = admin_client.get(PAGE).content.decode()
 
-        assert html.index('id="announcements"') < html.index('id="spotlight-text"')
+        assert 'id="announcements"' in html
+        assert 'id="spotlight-text"' not in html
 
     def it_lists_every_announcement_in_order_with_its_status(admin_client: Client):
         now = timezone.now()

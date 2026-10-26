@@ -1,4 +1,4 @@
-"""Forms for Admin Tools > Spotlight (#708): the Spotlight text and meeting, and the announcements (#889)."""
+"""Forms for Admin Tools > Spotlight (#708): the Spotlight messages (#889) that crawl across the top of Home."""
 
 from __future__ import annotations
 
@@ -6,78 +6,16 @@ from datetime import date, datetime, time
 from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
-from django.db.models import Q
 from django.utils import timezone
 
 from core.html_sanitize import ANNOUNCEMENT_MAX_CHARS, limit_rich_text, rich_html_to_text, sanitize_announcement_html
-from core.models import Announcement, SiteConfiguration
+from core.models import Announcement
 from core.widgets import InlineRichTextWidget
 from hub.forms import _meeting_time_label, half_hour_time_choices
-from membership.models import CommunityEvent
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.http import QueryDict
-
-_LINE_FIELDS = ("spotlight_first_line", "spotlight_second_line")
-
-
-class MeetingEventChoiceField(forms.ModelChoiceField):
-    """The meeting select, labelled without ``CommunityEvent.__str__``, which reads each row's guild."""
-
-    def label_from_instance(self, obj: CommunityEvent) -> str:
-        """The title, its first date and how it repeats: "Feature Request Meeting (from Sep 8, 2026, every month)"."""
-        start = timezone.localtime(obj.starts_at)
-        repeats = "" if obj.recurrence == obj.Recurrence.NONE else f", {obj.get_recurrence_display().lower()}"
-        return f"{obj.title} (from {start:%b} {start.day}, {start.year}{repeats})"
-
-
-class SpotlightTextForm(forms.ModelForm):
-    """The Feature Request Meeting and the two minimized lines."""
-
-    class Meta:
-        model = SiteConfiguration
-        fields = [
-            "spotlight_meeting_event",
-            "spotlight_first_line",
-            "spotlight_second_line",
-            "spotlight_show_when_empty",
-        ]
-        field_classes = {"spotlight_meeting_event": MeetingEventChoiceField}
-        # The model's own copy still names the poll, which left the Spotlight in #890; the form
-        # says what members see now, without a migration that would only rewrite help text.
-        labels = {"spotlight_show_when_empty": "Show the Spotlight when there is no Spotlight message and no meeting"}
-        help_texts = {
-            "spotlight_first_line": "Empty uses the first Spotlight message, else the latest update.",
-            "spotlight_show_when_empty": (
-                "On: members see the version, its latest update and Details. "
-                "Off: the corner goes back to the logo and version number."
-            ),
-        }
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        field = cast(forms.ModelChoiceField, self.fields["spotlight_meeting_event"])
-        upcoming = CommunityEvent.objects.published().upcoming().values("pk")
-        picked = Q(pk=self.instance.spotlight_meeting_event_id) if self.instance.spotlight_meeting_event_id else Q()
-        field.queryset = CommunityEvent.objects.filter(Q(pk__in=upcoming) | picked).order_by("title", "starts_at")
-        field.empty_label = "No meeting"
-
-    def save_at(self, now: datetime) -> SiteConfiguration:
-        """Save, stamping the text-changed time only when a line really changed.
-
-        Members see the Spotlight's dot until they open it after that time (#709).
-        """
-        config: SiteConfiguration = self.save(commit=False)
-        fields = ["spotlight_meeting_event", *_LINE_FIELDS, "spotlight_show_when_empty"]
-        if any(name in self.changed_data for name in _LINE_FIELDS):
-            config.spotlight_text_changed_at = now
-            fields.append("spotlight_text_changed_at")
-        # Only these columns: a whole-row save would revert another admin's concurrent edit
-        # to any other setting.
-        config.save(update_fields=fields)
-        return config
-
 
 ANNOUNCEMENT_EMPTY = "Write the Spotlight message first."
 ANNOUNCEMENT_ENDS_FIRST = "Show until must be after Show from."
@@ -106,7 +44,7 @@ def _date_input() -> forms.DateInput:
 
 
 class AnnouncementForm(forms.ModelForm):
-    """Add or edit a Home announcement (#889): the text, optional Show from and Show until, and Active.
+    """Add or edit a Spotlight message (#889): the text, optional Show from and Show until, and Active.
 
     Each date is a date box and a half hour select (FRONTEND rule 20). A blank time starts Show
     from at the start of its day and ends Show until at the end of its day. The text is sanitized

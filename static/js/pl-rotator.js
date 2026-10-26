@@ -1,10 +1,10 @@
 // plRotator: a card that shows one slide at a time and moves on by itself (#896; Home's Featured
-// Class and Featured Event, the Home announcements banner, #889, and the sidebar Spotlight's
-// announcements on every hub page, #890). Each instance keeps its own clock. Registered from
+// Class and Featured Event carousel, its one user since the Spotlight messages became a ticker in
+// #935). Each instance keeps its own clock. Registered from
 // hub/base.html's <head> before Alpine, on whichever side of alpine:init this lands (FRONTEND.md,
 // Scripts under hx-boost), so a boosted arrival finds it.
 //
-// Markup contract (styles: static/css/rotator.css, loaded on every hub page):
+// Markup contract (styles: static/css/rotator.css, loaded by hub/home.html):
 //   x-data="plRotator" on the root, with
 //     data-rotator-interval  milliseconds each slide shows (required, e.g. 6000)
 //     data-rotator-delay     extra milliseconds before the first move (optional, default 0), so two
@@ -14,8 +14,8 @@
 //   img[data-rotator-src]    a picture on a slide after the first, loaded only when its slide (or
 //                            the one before it) shows
 //   [data-rotator-bar]       optional, a bar whose fill runs over each slide's time (CSS animation)
-//   data-rotator-name        on the root: which rotator this is ("spotlight", "home-banner",
-//                            "home-upcoming"), so its pause is remembered apart from the others'
+//   data-rotator-name        on the root: which rotator this is ("home-upcoming"), so its pause is
+//                            remembered apart from any other's
 // The controls call prev(), next(), go(i) and toggle(). With fewer than two slides nothing moves.
 //
 // It moves on only while no mouse or pen rests on it, nothing in it has keyboard focus, the tab

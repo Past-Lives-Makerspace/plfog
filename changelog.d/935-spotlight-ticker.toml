@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-26"
+title = "Spotlight messages now scroll quietly across the top of Home"
+changes = [
+  "Spotlight messages now glide across one slim line at the top of Home, like a news ticker, instead of a big yellow banner. Hover over it to hold it still and click a link. The X hides it until a new message arrives.",
+  "The top left of the portal now always shows the version, when it was last updated and Details, without messages.",
+  "The Feature Request Meeting no longer shows in the Spotlight or in Details.",
+  "On Admin Tools, Instructor Inquiries is now under Tools and Manage Mailing Lists is under Manage.",
+]
