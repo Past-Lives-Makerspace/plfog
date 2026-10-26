@@ -652,6 +652,14 @@ class SiteConfiguration(models.Model):
         help_text="The Discord server id used for role assignment (outbound guild sync). "
         "Blank disables the whole two-way guild sync.",
     )
+    discord_member_role_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        verbose_name="Discord member role id",
+        help_text="The Discord role every member has; channels it cannot see are never read. "
+        "Blank: Discord pings are not queued for Spotlight.",
+    )
     discord_role_message_channel_id = models.CharField(
         max_length=32,
         blank=True,

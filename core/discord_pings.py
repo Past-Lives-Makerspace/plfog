@@ -6,8 +6,9 @@ role in a guild's ``discord_role_ids``, becomes a waiting
 :class:`~core.models.QueuedDiscordMessage`, already drafted as a Spotlight line. Nothing goes
 live here.
 
-Skipped: bots and webhooks (plfog's own posts among them), @here alone, and channels hidden
-from @everyone, except a guild's own channel for a ping of that guild. A channel's first
+Skipped: bots and webhooks (plfog's own posts among them), @here alone, and channels the
+member role (``SiteConfiguration.discord_member_role_id``) cannot see, except a guild's own
+channel for a ping of that guild. With no member role set, nothing is read. A channel's first
 sighting records its newest message and queues nothing. A 429 that outlasts the one retry
 stops the tick; the cursors already moved stay, and the next tick carries on from them.
 """
@@ -25,6 +26,7 @@ from django.utils import timezone
 from core.events.discord_dm import bot_disabled
 from core.integrations.discord_channel import (
     MESSAGES_PAGE_LIMIT,
+    DiscordChannelError,
     DiscordRateLimitedError,
     channel_messages_after,
     discord_message_url,
@@ -41,6 +43,7 @@ TEXT_CHANNEL_TYPES = (0, 5)
 #: Message types read: a plain message and a reply. Joins, pins and boosts are not.
 PERSON_MESSAGE_TYPES = (0, 19)
 VIEW_CHANNEL = 1 << 10
+ADMINISTRATOR = 1 << 3
 #: Pages read per channel per tick; a busier channel carries on next tick.
 MAX_PAGES_PER_CHANNEL = 5
 
@@ -60,8 +63,14 @@ def readable_time(match: re.Match[str]) -> str:
 class _Server:
     """What one tick knows about the server: its id, guild roles, role names and channel names."""
 
-    def __init__(self, server_id: str, channels: list[dict[str, Any]], roles: list[dict[str, Any]]) -> None:
+    def __init__(
+        self, server_id: str, member_role_id: str, channels: list[dict[str, Any]], roles: list[dict[str, Any]]
+    ) -> None:
         self.server_id = server_id
+        self.member_role_id = member_role_id
+        permissions = {role["id"]: int(role["permissions"]) for role in roles}
+        # What a member may do anywhere: @everyone's role (the server's id) plus the member role.
+        self.member_base = permissions[server_id] | permissions[member_role_id]
         self.channel_names = {channel["id"]: channel["name"] for channel in channels}
         self.role_names = {role["id"]: role["name"] for role in roles}
         self.guilds_by_role: dict[str, list[Guild]] = {}
@@ -72,15 +81,24 @@ class _Server:
                 self.guilds_by_role.setdefault(str(role_id), []).append(guild)
 
     def is_hidden(self, channel: dict[str, Any]) -> bool:
-        """Whether @everyone (the role whose id is the server's) is denied View Channel.
+        """Whether a member cannot see ``channel``, by Discord's own order.
 
-        A channel synced to its category carries a copy of the category's overwrites, so its own
-        list is the whole answer.
+        The member's base permissions (@everyone plus the member role; Administrator sees all),
+        then the channel's @everyone overwrite (deny, then allow), then its member role overwrite
+        (deny, then allow). A channel synced to its category carries a copy of the category's
+        overwrites, so its own list is the whole answer.
         """
-        return any(
-            overwrite["id"] == self.server_id and int(overwrite["deny"]) & VIEW_CHANNEL
-            for overwrite in channel.get("permission_overwrites") or []
-        )
+        if self.member_base & ADMINISTRATOR:
+            return False
+        view = bool(self.member_base & VIEW_CHANNEL)
+        overwrites = {overwrite["id"]: overwrite for overwrite in channel.get("permission_overwrites") or []}
+        for role_id in (self.server_id, self.member_role_id):
+            if role_id in overwrites:
+                if int(overwrites[role_id]["deny"]) & VIEW_CHANNEL:
+                    view = False
+                if int(overwrites[role_id]["allow"]) & VIEW_CHANNEL:
+                    view = True
+        return not view
 
     def readable(self, content: str, mentions: list[dict[str, Any]], ping_roles: set[str]) -> str:
         """``content`` with every Discord token as a name, and the triggering pings left out."""
@@ -107,19 +125,32 @@ def sender_name(user: dict[str, Any]) -> str:
 
 
 def queue_discord_pings() -> int:
-    """Read every readable channel's new messages and queue the pings; return how many were queued."""
-    server_id = (SiteConfiguration.load().discord_server_id or "").strip()
+    """Read every channel a member can see for new messages and queue the pings; return how many were queued."""
+    config = SiteConfiguration.load()
+    server_id = (config.discord_server_id or "").strip()
     if not server_id or bot_disabled("ping intake"):
         return 0
+    member_role_id = (config.discord_member_role_id or "").strip()
+    if not member_role_id:
+        logger.warning("queue_discord_pings: no Discord member role id in Site Settings, so no channel is read.")
+        return 0
+    queued = 0
+    empty: list[str] = []
     try:
         channels = [channel for channel in server_channels(server_id) if channel["type"] in TEXT_CHANNEL_TYPES]
-        server = _Server(server_id, channels, server_roles(server_id))
+        server = _Server(server_id, member_role_id, channels, server_roles(server_id))
         cursors = {cursor.channel_id: cursor for cursor in DiscordChannelCursor.objects.all()}
-        empty: list[str] = []
-        queued = sum(_read_channel(server, channel, cursors.get(channel["id"]), empty) for channel in channels)
+        for channel in channels:
+            try:
+                queued += _read_channel(server, channel, cursors.get(channel["id"]), empty)
+            except DiscordRateLimitedError:
+                raise
+            except DiscordChannelError as exc:
+                # One unreadable channel (403 Missing Access, a 5xx) must not starve the rest.
+                logger.warning("queue_discord_pings: channel %s skipped this tick: %s", channel["id"], exc)
     except DiscordRateLimitedError:
         logger.warning("queue_discord_pings: Discord rate limited this tick; the next tick carries on.")
-        return 0
+        return queued
     if empty:
         logger.warning(
             "queue_discord_pings: %d ping(s) came back with no text, so nothing was queued for them. "
@@ -135,8 +166,12 @@ def _read_channel(
     """Queue the pings in one channel after its cursor, moving the cursor page by page."""
     newest = channel.get("last_message_id") or "0"
     if cursor is None:
-        DiscordChannelCursor.objects.create(channel_id=channel["id"], last_message_id=newest)
-        return 0
+        # get_or_create: an overlapping run may have recorded this channel a moment ago.
+        cursor, created = DiscordChannelCursor.objects.get_or_create(
+            channel_id=channel["id"], defaults={"last_message_id": newest}
+        )
+        if created:
+            return 0
     if server.is_hidden(channel) and channel["id"] not in server.guild_channel_ids:
         # Nothing in a hidden channel that is no guild's own is ever queued, so it is not read.
         cursor.last_message_id = newest

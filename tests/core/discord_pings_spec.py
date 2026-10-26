@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from io import StringIO
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -31,7 +32,10 @@ OTHER_ROLE = "2003"
 GENERAL = "10"
 HIDDEN = "11"
 CERAMICS_CHANNEL = "12"
-VIEW_DENIED = [{"id": SERVER, "type": 0, "allow": "0", "deny": str(1 << 10)}]
+MEMBER_ROLE = "3000"
+VIEW = 1 << 10
+# Members see a channel through the Member role; a hidden one denies that role View Channel.
+VIEW_DENIED = [{"id": MEMBER_ROLE, "type": 0, "allow": "0", "deny": str(VIEW)}]
 
 
 def _channel(channel_id: str, last: str | None, *, hidden: bool = False, kind: int = 0) -> dict[str, Any]:
@@ -60,10 +64,11 @@ def _message(message_id: str, content: str, **overrides: Any) -> dict[str, Any]:
 
 
 ROLES = [
-    {"id": SERVER, "name": "@everyone"},
-    {"id": CERAMICS_ROLE, "name": "Ceramics"},
-    {"id": JEWELRY_ROLE, "name": "Jewelry"},
-    {"id": OTHER_ROLE, "name": "Kiln Crew"},
+    {"id": SERVER, "name": "@everyone", "permissions": "0"},
+    {"id": MEMBER_ROLE, "name": "Member", "permissions": str(VIEW)},
+    {"id": CERAMICS_ROLE, "name": "Ceramics", "permissions": "0"},
+    {"id": JEWELRY_ROLE, "name": "Jewelry", "permissions": "0"},
+    {"id": OTHER_ROLE, "name": "Kiln Crew", "permissions": "0"},
 ]
 
 
@@ -72,6 +77,7 @@ def discord(settings: Any) -> None:
     settings.DISCORD_BOT_TOKEN = "tok"
     config = SiteConfiguration.load()
     config.discord_server_id = SERVER
+    config.discord_member_role_id = MEMBER_ROLE
     config.save()
 
 
@@ -80,11 +86,13 @@ def ceramics() -> Any:
     return GuildFactory(name="Ceramics Guild", discord_role_ids=[CERAMICS_ROLE], discord_channel_id=CERAMICS_CHANNEL)
 
 
-def _mock_server(channels: list[dict[str, Any]], pages: dict[str, list[list[dict[str, Any]]]]) -> dict[str, list[str]]:
+def _mock_server(
+    channels: list[dict[str, Any]], pages: dict[str, list[list[dict[str, Any]]]], roles: list[dict[str, Any]] = ROLES
+) -> dict[str, list[str]]:
     """Mock the server; each channel answers its pages in turn. Returns the ``after`` each read asked for."""
     asked: dict[str, list[str]] = {}
     respx.get(f"{API_BASE}/guilds/{SERVER}/channels").mock(return_value=httpx.Response(200, json=channels))
-    respx.get(f"{API_BASE}/guilds/{SERVER}/roles").mock(return_value=httpx.Response(200, json=ROLES))
+    respx.get(f"{API_BASE}/guilds/{SERVER}/roles").mock(return_value=httpx.Response(200, json=roles))
     for channel_id, answers in pages.items():
         remaining = list(answers)
 
@@ -262,6 +270,102 @@ def describe_queue_discord_pings():
             assert queue_discord_pings() == 1
             assert QueuedDiscordMessage.objects.get().original_text == "Glaze day"
 
+    def describe_who_can_see_a_channel():
+        def _roles(everyone: int, member: int) -> list[dict[str, Any]]:
+            return [
+                {"id": SERVER, "name": "@everyone", "permissions": str(everyone)},
+                {"id": MEMBER_ROLE, "name": "Member", "permissions": str(member)},
+            ]
+
+        def _overwrite(role_id: str, *, allow: int = 0, deny: int = 0) -> dict[str, Any]:
+            return {"id": role_id, "type": 0, "allow": str(allow), "deny": str(deny)}
+
+        def _queued_with(overwrites: list[dict[str, Any]], roles: list[dict[str, Any]]) -> int:
+            _read_from(GENERAL, "50")
+            channel = {**_channel(GENERAL, "51"), "permission_overwrites": overwrites}
+            _mock_server([channel], {GENERAL: [[_message("51", "@everyone Hi")]]}, roles)
+            return queue_discord_pings()
+
+        @respx.mock
+        def it_reads_a_channel_everyone_is_denied_but_members_are_granted():
+            assert _queued_with([_overwrite(SERVER, deny=VIEW), _overwrite(MEMBER_ROLE, allow=VIEW)], _roles(0, 0)) == 1
+
+        @respx.mock
+        def it_lets_an_everyone_deny_on_the_channel_override_the_member_roles_base_view():
+            # Discord applies the channel's @everyone overwrite after base permissions.
+            assert _queued_with([_overwrite(SERVER, deny=VIEW)], _roles(0, VIEW)) == 0
+
+        @respx.mock
+        def it_reads_a_channel_with_no_overwrites_through_the_member_roles_base_view():
+            assert _queued_with([], _roles(0, VIEW)) == 1
+
+        @respx.mock
+        def it_skips_a_channel_that_denies_the_member_role():
+            assert _queued_with([_overwrite(MEMBER_ROLE, deny=VIEW)], _roles(VIEW, VIEW)) == 0
+
+        @respx.mock
+        def it_reads_a_channel_whose_everyone_overwrite_allows_view():
+            assert _queued_with([_overwrite(SERVER, allow=VIEW)], _roles(0, 0)) == 1
+
+        @respx.mock
+        def it_skips_a_channel_no_one_is_granted():
+            assert _queued_with([], _roles(0, 0)) == 0
+
+        @respx.mock
+        def it_reads_everything_when_members_are_administrators():
+            assert _queued_with([_overwrite(MEMBER_ROLE, deny=VIEW)], _roles(0, 1 << 3)) == 1
+
+        @respx.mock
+        def it_reads_nothing_without_a_member_role_id(caplog: Any):
+            config = SiteConfiguration.load()
+            config.discord_member_role_id = " "
+            config.save()
+
+            with caplog.at_level(logging.WARNING, logger="core.discord_pings"):
+                assert queue_discord_pings() == 0
+
+            assert not respx.calls
+            assert "no Discord member role id" in caplog.text
+
+    def describe_a_channel_that_fails():
+        @respx.mock
+        def it_logs_it_and_reads_the_channels_after_it(caplog: Any):
+            _read_from(HIDDEN, "40")
+            _read_from(GENERAL, "50")
+            respx.get(f"{API_BASE}/guilds/{SERVER}/channels").mock(
+                return_value=httpx.Response(200, json=[_channel(HIDDEN, "41"), _channel(GENERAL, "51")])
+            )
+            respx.get(f"{API_BASE}/guilds/{SERVER}/roles").mock(return_value=httpx.Response(200, json=ROLES))
+            respx.get(f"{API_BASE}/channels/{HIDDEN}/messages").mock(
+                return_value=httpx.Response(403, json={"message": "Missing Access"})
+            )
+            respx.get(f"{API_BASE}/channels/{GENERAL}/messages").mock(
+                return_value=httpx.Response(200, json=[_message("51", "@everyone Hi")])
+            )
+
+            with caplog.at_level(logging.WARNING, logger="core.discord_pings"):
+                assert queue_discord_pings() == 1
+
+            assert f"channel {HIDDEN} skipped this tick" in caplog.text
+            assert DiscordChannelCursor.objects.get(channel_id=HIDDEN).last_message_id == "40"
+
+    def describe_overlapping_runs():
+        @respx.mock
+        def it_keeps_a_cursor_another_run_recorded_first():
+            _mock_server([_channel(GENERAL, "51")], {GENERAL: [[_message("51", "@everyone Hi")]]})
+            real = DiscordChannelCursor.objects.all
+
+            def recorded_meanwhile() -> Any:
+                rows = real()
+                list(rows)  # this run saw no cursor...
+                DiscordChannelCursor.objects.create(channel_id=GENERAL, last_message_id="50")  # ...then one landed
+                return rows
+
+            with patch.object(DiscordChannelCursor.objects, "all", side_effect=recorded_meanwhile):
+                assert queue_discord_pings() == 1
+
+            assert DiscordChannelCursor.objects.get(channel_id=GENERAL).last_message_id == "51"
+
     def describe_empty_text():
         @respx.mock
         def it_logs_once_and_queues_nothing(ceramics: Any, caplog: Any):
@@ -350,7 +454,7 @@ def describe_queue_discord_pings():
             respx.get(f"{API_BASE}/channels/13/messages").mock(return_value=httpx.Response(429, json={}))
 
             with caplog.at_level(logging.WARNING, logger="core.discord_pings"):
-                assert queue_discord_pings() == 0
+                assert queue_discord_pings() == 1
 
             assert "rate limited" in caplog.text
             assert DiscordChannelCursor.objects.get(channel_id=GENERAL).last_message_id == "51"
