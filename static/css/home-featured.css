@@ -27,10 +27,16 @@
 .pl-upnext__panel--orientation,
 .pl-upcoming__kind--orientation { --pl-kind: var(--pl-help-developer); }
 
-/* The list's pill (hub.css's .pl-upcoming__kind) in its kind's color. */
+/* The pill (hub.css's .pl-upcoming__kind) and the poster's time line in the kind's color. The words are the kind
+   mixed 65% with white (dark) or black (light), which keeps every kind at 4.7:1 or better (WCAG AA for the 11px pill)
+   on the pill's tint over the card and the featured card's surface, and on the poster's wash and glows. */
 .pl-upcoming__kind[class*="pl-upcoming__kind--"] {
     background: color-mix(in srgb, var(--pl-kind) 16%, transparent);
-    color: var(--pl-kind);
+    color: color-mix(in srgb, var(--pl-kind) 65%, #ffffff);
+}
+
+[data-theme="light"] .pl-upcoming__kind[class*="pl-upcoming__kind--"] {
+    color: color-mix(in srgb, var(--pl-kind) 65%, #000000);
 }
 
 /* --- The featured card --- */
@@ -92,8 +98,8 @@
     text-decoration: none;
     background:
         radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--pl-kind) 30%, transparent) 1px, transparent 1.6px) 0 0 / 4.5cqi 4.5cqi,
-        radial-gradient(circle at 88% 8%, color-mix(in srgb, var(--pl-kind) 38%, transparent), transparent 46%),
-        radial-gradient(circle at 6% 104%, color-mix(in srgb, var(--pl-kind) 26%, transparent), transparent 52%),
+        radial-gradient(circle at 88% 8%, color-mix(in srgb, var(--pl-kind) 20%, transparent), transparent 46%),
+        radial-gradient(circle at 6% 104%, color-mix(in srgb, var(--pl-kind) 20%, transparent), transparent 52%),
         linear-gradient(135deg, color-mix(in srgb, var(--pl-kind) 18%, var(--hub-card-bg)), color-mix(in srgb, var(--pl-kind) 6%, var(--hub-card-bg)));
 }
 
@@ -161,7 +167,11 @@
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--pl-kind);
+    color: color-mix(in srgb, var(--pl-kind) 65%, #ffffff);
+}
+
+[data-theme="light"] .pl-upnext__poster-time {
+    color: color-mix(in srgb, var(--pl-kind) 65%, #000000);
 }
 
 .pl-upnext__poster-title {
@@ -269,9 +279,10 @@
     color: var(--hub-text);
 }
 
-/* With controls, the pill's row is as tall as they are and the title starts clear of them. */
+/* With controls, the pill's row is as tall as they are and the title starts at least 0.75rem below them
+   (FRONTEND rule 26): the 2rem cluster is centred on the pill, so the pill clears the title by 1.25rem. */
 .pl-upnext:has(.pl-upnext__controls) .pl-upnext__kind {
-    margin-bottom: 0.75rem;
+    margin-bottom: 1.25rem;
 }
 
 .pl-upnext:has(.pl-upnext__controls) .pl-upnext__body {

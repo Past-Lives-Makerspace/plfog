@@ -97,12 +97,12 @@ _KIND_KEYS = {
     "Studio hours": "studio-hours",
     "Orientation": "orientation",
 }
+# An orientation has no page of its own: its item names what its View opens (``opens``), so it has no entry here.
 _VIEW_NOUNS = {
     "Class": "Class",
     "Event": "Event",
     "Meeting": "Meeting",
     "Studio hours": "Studio Hours",
-    "Orientation": "Orientation",
 }
 
 
@@ -115,7 +115,9 @@ class UpcomingItem:
     ``kind`` is the pill's words ("Orientation", "Class", "Meeting", "Studio hours", "Event").
     ``photo_url`` is the picture the featured card shows, ``""`` for none, when the card draws
     the date poster instead; ``photo_position`` is its crop. ``flyer_url`` is the printable
-    flyer, which only community events have. ``instructors`` names who teaches a class.
+    flyer, which only community events have. ``instructors`` names who teaches a class. ``opens``
+    names the page View opens when it is not the item's own ("Guild" or "Equipment" for an
+    orientation booking, which opens its owner's page).
     """
 
     title: str
@@ -130,6 +132,7 @@ class UpcomingItem:
     photo_position: str = "50% 50%"
     flyer_url: str = ""
     instructors: str = ""
+    opens: str = ""
 
     @property
     def kind_key(self) -> str:
@@ -138,8 +141,8 @@ class UpcomingItem:
 
     @property
     def view_label(self) -> str:
-        """The featured card's View button, in Title Case: "View Class", "View Studio Hours"."""
-        return f"View {_VIEW_NOUNS[self.kind]}"
+        """The featured card's View button, in Title Case, naming what it opens: "View Class", "View Guild"."""
+        return f"View {self.opens or _VIEW_NOUNS[self.kind]}"
 
 
 @dataclass(frozen=True)
@@ -276,6 +279,7 @@ def _upcoming_items(member: Member) -> list[UpcomingItem]:
                 location=booking.slot.location,
                 guild_name=owner_name,
                 photo_url=orientation_type.photo.url if orientation_type.photo else "",
+                opens="Equipment" if orientation_type.is_equipment_owned else "Guild",
             )
         )
 

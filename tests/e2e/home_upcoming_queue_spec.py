@@ -56,6 +56,11 @@ def _rest(page) -> None:
     page.evaluate("() => document.activeElement && document.activeElement.blur()")
 
 
+def _rest_mouse(page) -> None:
+    """The mouse off the queue, leaving focus where it is."""
+    page.mouse.move(1430, 990)
+
+
 def _rows(page) -> list[str]:
     """The titles of the list's shown rows, top to bottom."""
     return page.eval_on_selector_all(
@@ -88,17 +93,37 @@ def describe_the_upcoming_queue():
         _expect_queue(page, TITLES[2], [TITLES[3], TITLES[0], TITLES[1]])
 
     def it_slides_the_rows_up_while_it_moves(page, live_server, login_via_code):
+        # Every Web Animation starts paused at its first frame, so the move's animations stay put to be read
+        # (they run on real time, not Playwright's fake clock) until the spec finishes them itself.
+        page.add_init_script(
+            """(() => {
+                const animate = Element.prototype.animate;
+                Element.prototype.animate = function (...args) {
+                    const animation = animate.apply(this, args);
+                    animation.pause();
+                    return animation;
+                };
+            })()"""
+        )
         _open_home(page, live_server, login_via_code, "queue-slide-e2e@example.com")
         page.locator(f"{QUEUE} [data-queue-next]").click()
-        # A row that stayed is animating up from where it was, and the row that left lifts away as a copy.
-        moving = page.evaluate(
-            """() => {
-                const row = document.querySelector('[data-home-upcoming] [data-queue-list] > [data-queue-row]:not([hidden])');
-                return row.getAnimations().length;
-            }"""
+        frames = page.evaluate(
+            """() => [...document.querySelectorAll('[data-home-upcoming] [data-queue-list] > [data-queue-row]:not([hidden])')]
+                .map((row) => row.getAnimations().map((a) => a.effect.getKeyframes()[0]))"""
         )
-        assert moving == 1
+        # The two rows that stayed start one row lower and slide up; the row that came back rises in from below.
+        assert [len(row) for row in frames] == [1, 1, 1]
+        stayed, came_back = frames[:2], frames[2]
+        assert all(
+            row[0]["transform"].startswith("translateY(") and row[0]["transform"] != "translateY(0px)" for row in stayed
+        )
+        assert float(stayed[0][0]["transform"][len("translateY(") : -len("px)")]) > 0
+        assert float(came_back[0]["opacity"]) == 0
+        # The row whose item was featured lifts away as a copy, which removes itself when its animation ends.
         expect(page.locator(f"{QUEUE} [data-queue-ghost]")).to_have_count(1)
+        page.evaluate("() => document.getAnimations().forEach((a) => a.finish())")
+        expect(page.locator(f"{QUEUE} [data-queue-ghost]")).to_have_count(0)
+        _expect_queue(page, TITLES[1], [TITLES[2], TITLES[3], TITLES[0]])
 
     def it_holds_still_while_pointed_at(page, live_server, login_via_code):
         _open_home(page, live_server, login_via_code, "queue-hover-e2e@example.com")
@@ -138,6 +163,25 @@ def describe_the_upcoming_queue():
         page.locator(f"{QUEUE} [data-queue-next]").click()
         _expect_queue(page, TITLES[1], [TITLES[2], TITLES[3], TITLES[0]])
         expect(page.locator(f"{QUEUE} [data-queue-ghost]")).to_have_count(0)
+
+    def it_holds_while_a_link_in_it_has_focus_and_keeps_that_focus(page, live_server, login_via_code):
+        _open_home(page, live_server, login_via_code, "queue-link-focus-e2e@example.com")
+        flyer = page.locator(f"{FEATURED} [data-upnext-flyer]")
+        flyer.evaluate("(el) => el.focus()")
+        _rest_mouse(page)
+        page.clock.run_for(20000)
+        _expect_queue(page, TITLES[0], TITLES[1:])
+        assert page.evaluate("() => document.activeElement.hasAttribute('data-upnext-flyer')")
+
+    def it_keeps_moving_after_a_click_on_an_arrow(page, live_server, login_via_code):
+        _open_home(page, live_server, login_via_code, "queue-arrow-click-e2e@example.com")
+        page.locator(QUEUE).hover()
+        page.locator(f"{QUEUE} [data-queue-next]").click()
+        _expect_queue(page, TITLES[1], [TITLES[2], TITLES[3], TITLES[0]])
+        _rest_mouse(page)
+        assert page.evaluate("() => document.activeElement.hasAttribute('data-queue-next')")
+        page.clock.run_for(6500)
+        _expect_queue(page, TITLES[2], [TITLES[3], TITLES[0], TITLES[1]])
 
     def it_holds_for_keyboard_focus_in_the_list(page, live_server, login_via_code):
         _open_home(page, live_server, login_via_code, "queue-focus-e2e@example.com")

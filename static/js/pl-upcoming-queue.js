@@ -109,9 +109,12 @@
             self.hovering = false;
             self.sync();
           });
-          // Keyboard focus holds it; the focus a click leaves on an arrow does not.
+          // Focus anywhere in it holds it: a keyboard user's, and the focus a click leaves on a link
+          // (Flyer and Join Online open a new tab, and the page keeps that focus when the member comes
+          // back), so a move never takes a focused link out from under them. Only the focus a click
+          // leaves on its own arrows or pause button does not hold it.
           root.addEventListener('focusin', function (e) {
-            self.focused = e.target.matches(':focus-visible');
+            self.focused = e.target.matches(':focus-visible') || !e.target.closest('.pl-upnext__controls');
             self.sync();
           });
           root.addEventListener('focusout', function (e) {
@@ -177,9 +180,10 @@
           this.settle();
           var before = this.positions();
           var leaving = step > 0 ? this.order[1] : this.order[this.order.length - 1];
+          var entering = this.order[0];
           if (step > 0) this.order.push(this.order.shift());
           else this.order.unshift(this.order.pop());
-          this.render();
+          this.render(leaving, entering, step);
           if (!this.reduced) this.animate(before, leaving, step);
           this.remaining = this.interval;
           this.loadPictures();
@@ -187,17 +191,21 @@
           this.sync();
         },
 
-        // The order on the page: the featured item's card shown, the rest's rows in order, its row hidden last.
-        render() {
+        // The order on the page: the featured item's card shown, the rest's rows in order, its row hidden
+        // last. Only the two rows that change place move: the one whose item is now featured goes to the
+        // end, hidden, and going back the item that was featured returns to the top. Moving a node drops
+        // the focus inside it, so focus anywhere else in the queue is put back where it was.
+        render(leaving, entering, step) {
+          var active = document.activeElement;
           var featured = this.order[0];
           this.panels.forEach(function (panel, i) { panel.classList.toggle('is-active', i === featured); });
-          for (var k = 1; k < this.order.length; k++) {
-            var row = this.rows[this.order[k]];
-            row.hidden = false;
-            this.list.appendChild(row);
+          if (step < 0) this.list.insertBefore(this.rows[entering], this.list.firstChild);
+          this.list.appendChild(this.rows[leaving]);
+          this.rows[entering].hidden = false;
+          this.rows[leaving].hidden = true;
+          if (active && active !== document.activeElement && this.list.contains(active) && !active.closest('[hidden]')) {
+            active.focus({ preventScroll: true });
           }
-          this.rows[featured].hidden = true;
-          this.list.appendChild(this.rows[featured]);
         },
 
         // Every shown row's top before a move, by item.

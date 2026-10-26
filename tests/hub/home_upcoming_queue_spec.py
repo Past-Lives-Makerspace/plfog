@@ -92,13 +92,20 @@ def describe_upcoming_item():
             ("Event", "event", "View Event"),
             ("Meeting", "meeting", "View Meeting"),
             ("Studio hours", "studio-hours", "View Studio Hours"),
-            ("Orientation", "orientation", "View Orientation"),
         ],
     )
     def it_names_each_kinds_color_and_its_view_button_in_title_case(kind: str, key: str, label: str):
         item = _item(kind=kind)
         assert item.kind_key == key
         assert item.view_label == label
+
+    def it_colors_an_orientation_and_names_the_page_its_view_opens():
+        item = _item(kind="Orientation", opens="Guild")
+        assert (item.kind_key, item.view_label) == ("orientation", "View Guild")
+
+    def it_fails_loudly_on_an_orientation_that_does_not_say_what_it_opens():
+        with pytest.raises(KeyError):
+            _item(kind="Orientation").view_label  # noqa: B018
 
     def it_fails_loudly_on_a_kind_it_does_not_know():
         with pytest.raises(KeyError):
@@ -250,6 +257,17 @@ def describe_the_queue():
             assert item.kind == "Orientation"
             assert item.photo_url == booking.orientation_type.photo.url
             assert item.flyer_url == ""
+            assert item.view_label == "View Guild"
+
+        def it_opens_the_equipment_page_for_an_equipment_orientation():
+            member = MemberFactory()
+            slot = OrientationSlotFactory(equipment_owned=True, starts_at=_in(2), ends_at=_in(2, 1))
+            booking = OrientationBookingFactory(slot=slot, member=member)
+
+            item = _only(member)
+
+            assert item.url == booking.orientation_type.owner_page_path()
+            assert item.view_label == "View Equipment"
 
         def it_has_no_photo_without_one():
             member = MemberFactory()
