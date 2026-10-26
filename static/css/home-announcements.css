@@ -3,7 +3,8 @@
    crawling right to left with a dot between them, and a close button. The message's own rich text
    (.pl-ann-body) comes from spotlight.css, loaded on every hub page. Then Admin Tools > Spotlight's
    Spotlight Messages section (templates/hub/admin/spotlight.html, its rows in hub/admin/_announcement_row.html,
-   which reuse hub.css's Slideshow reorder controls) and the add and edit page (hub/admin/announcement_form.html). */
+   which reuse hub.css's Slideshow reorder controls, and its Crawl speed slider and preview, #942) and the add and
+   edit page (hub/admin/announcement_form.html). */
 
 /* ---- The ticker ---- */
 
@@ -253,6 +254,107 @@
         justify-content: flex-start;
         width: 100%;
     }
+}
+
+/* The Crawl speed slider (#942) at the foot of the card: the slider, Slow and Fast either side of the speed in words,
+   a note, and a preview that is Home's own ticker (the ticker rules above) crawling at the slider's speed. */
+.pl-crawl-speed {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--hub-border);
+}
+
+.pl-crawl-speed .pl-form-group,
+.pl-crawl-speed__scale {
+    max-width: 520px;
+}
+
+/* A slider, not a text box: none of the form group's box, in either theme. Drawn by hand rather than with
+   accent-color, which Chromium pairs with a near black track on the light theme. The page's script sets
+   --pl-range-fill (a percent) as the slider moves; the track is yellow up to it and a muted grey after. */
+.pl-crawl-speed .pl-form-group input.pl-crawl-speed__range {
+    --pl-range-track: color-mix(in srgb, var(--hub-text) 22%, transparent);
+    -webkit-appearance: none;
+    appearance: none;
+    height: 1.5rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    cursor: pointer;
+}
+
+.pl-crawl-speed__range::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        var(--color-tuscan-yellow) var(--pl-range-fill, 0%),
+        var(--pl-range-track) var(--pl-range-fill, 0%)
+    );
+}
+
+.pl-crawl-speed__range::-moz-range-track {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--pl-range-track);
+}
+
+.pl-crawl-speed__range::-moz-range-progress {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--color-tuscan-yellow);
+}
+
+.pl-crawl-speed__range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    margin-top: -6px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--color-tuscan-yellow);
+}
+
+.pl-crawl-speed__range::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--color-tuscan-yellow);
+}
+
+.pl-crawl-speed .pl-form-group input.pl-crawl-speed__range:focus-visible {
+    outline: 2px solid var(--color-tuscan-yellow);
+    outline-offset: 2px;
+}
+
+.pl-crawl-speed__scale {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+
+.pl-crawl-speed__value {
+    color: var(--hub-text);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.pl-crawl-speed__note {
+    margin-top: 0.75rem;
+    font-size: 0.875rem;
+}
+
+.pl-crawl-speed__preview {
+    margin-top: 0.75rem;
+    margin-bottom: 0;
 }
 
 /* ---- The add and edit page ---- */

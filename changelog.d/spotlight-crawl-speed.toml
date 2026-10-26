@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-26"
+title = "Spotlight messages crawl at a slower, steadier pace"
+changes = [
+  "The Spotlight messages across the top of Home now move at half their old speed, so they are easier to read.",
+  "Admins can set the speed with a slider in Admin Tools, Spotlight, and watch a preview before it saves.",
+]

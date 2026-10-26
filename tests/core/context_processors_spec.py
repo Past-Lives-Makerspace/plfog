@@ -82,6 +82,7 @@ def describe_feature_flags():
         assert result["guild_welcome_email_enabled"] is True
         assert result["instructor_discount_codes_need_approval"] is True
         assert result["late_cancel_fees_enabled"] is False
+        assert result["spotlight_crawl_speed"] == 25
         assert result["features"]["my_tab"].is_on
         # Ships in today's behaviour: the features that were live stay live; the wiki keeps the
         # off state it has always shipped with (core/migrations/0087). Holiday Bizarre's switch is
@@ -101,6 +102,7 @@ def describe_feature_flags():
         config.instructor_discount_codes_need_approval = False
         config.guild_welcome_email_enabled = False
         config.late_cancel_fees_enabled = True
+        config.spotlight_crawl_speed = 55
         config.save()
 
         rf = RequestFactory()
@@ -115,6 +117,7 @@ def describe_feature_flags():
             "instructor_discount_codes_need_approval": False,
             "guild_welcome_email_enabled": False,
             "late_cancel_fees_enabled": True,
+            "spotlight_crawl_speed": 55,
         }
         # The three-state features travel in their own key, every one of them present. Compared
         # against the registry rather than a hand-written list: the point of core.features is

@@ -1,0 +1,23 @@
+{% comment %}
+The inside of a Spotlight messages ticker (#935): the megaphone and the crawling track, the list twice over (the second
+copy aria-hidden and inert). Home's ticker (hub/partials/_home_announcements.html) and the Crawl speed preview on Admin
+Tools > Spotlight (#942) both render it, so the preview is the real thing. Paced by hub/partials/_ticker_pace_script.html.
+
+  items  — the Announcements to crawl, in order
+  sample — the line to crawl when items is empty (the preview with nothing live)
+  inert  — True makes the whole track inert (the preview: its links are a picture, never a stop for the keyboard; the
+           line still pauses while hovered, since the pointer lands on the viewport behind it)
+{% endcomment %}
+<span class="pl-ticker__icon" aria-hidden="true">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+</span>
+<div class="pl-ticker__viewport" data-ticker-viewport>
+  <div class="pl-ticker__track" data-ticker-track{% if inert %} inert{% endif %}>
+    <ul class="pl-ticker__list" data-ticker-list>
+      {% for announcement in items %}<li class="pl-ticker__item" data-announcement="{{ announcement.pk }}"><span class="pl-ann-body pl-ticker__text">{{ announcement.inline_html }}</span><span class="pl-ticker__sep" aria-hidden="true"></span></li>{% empty %}<li class="pl-ticker__item" data-ticker-sample><span class="pl-ann-body pl-ticker__text">{{ sample }}</span><span class="pl-ticker__sep" aria-hidden="true"></span></li>{% endfor %}
+    </ul>
+    <ul class="pl-ticker__list pl-ticker__list--copy" aria-hidden="true" inert data-ticker-copy>
+      {% for announcement in items %}<li class="pl-ticker__item"><span class="pl-ann-body pl-ticker__text">{{ announcement.inline_html }}</span><span class="pl-ticker__sep"></span></li>{% empty %}<li class="pl-ticker__item"><span class="pl-ann-body pl-ticker__text">{{ sample }}</span><span class="pl-ticker__sep"></span></li>{% endfor %}
+    </ul>
+  </div>
+</div>

@@ -9,9 +9,15 @@ from django import forms
 from django.utils import timezone
 
 from core.html_sanitize import ANNOUNCEMENT_MAX_CHARS, limit_rich_text, rich_html_to_text, sanitize_announcement_html
-from core.models import Announcement
+from core.models import (
+    SPOTLIGHT_CRAWL_SPEED_MAX,
+    SPOTLIGHT_CRAWL_SPEED_MIN,
+    SPOTLIGHT_CRAWL_SPEED_STEP,
+    Announcement,
+    SiteConfiguration,
+)
 from core.widgets import InlineRichTextWidget
-from hub.forms import _meeting_time_label, half_hour_time_choices
+from hub.forms import _meeting_time_label, _SiteConfigurationSliceForm, half_hour_time_choices
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -21,6 +27,10 @@ ANNOUNCEMENT_EMPTY = "Write the Spotlight message first."
 ANNOUNCEMENT_ENDS_FIRST = "Show until must be after Show from."
 ANNOUNCEMENT_TIME_NEEDS_DATE = "Pick a date for this time."
 ANNOUNCEMENT_ORDER_UNREADABLE = "That order could not be read. Reload the page and try again."
+CRAWL_SPEED_REFUSED = (
+    f"Pick a crawl speed from {SPOTLIGHT_CRAWL_SPEED_MIN} to {SPOTLIGHT_CRAWL_SPEED_MAX} px a second, "
+    f"in steps of {SPOTLIGHT_CRAWL_SPEED_STEP}."
+)
 # A blank time is the start of the day for Show from and its end for Show until.
 _FROM_TIME_CHOICES = [("", "Start of day"), *half_hour_time_choices(required=True)]
 _UNTIL_TIME_CHOICES = [("", "End of day"), *half_hour_time_choices(required=True)]
@@ -150,3 +160,39 @@ class AnnouncementOrderForm(forms.Form):
             return [int(pk) for pk in self.cleaned_data["order"].split(",")]
         except ValueError as exc:
             raise forms.ValidationError(ANNOUNCEMENT_ORDER_UNREADABLE) from exc
+
+
+class _RangeInput(forms.NumberInput):
+    """A slider. ``NumberInput`` with its own type, so the tag carries one ``type`` attribute."""
+
+    input_type = "range"
+
+
+class SpotlightCrawlSpeedForm(_SiteConfigurationSliceForm):
+    """The Spotlight Messages card's Crawl speed slider (#942), saved as soon as it is let go.
+
+    One column of the singleton, written alone, so it never puts back another page's settings.
+    Declared rather than generated so the slider's bounds are the column's (the generated field
+    would set ``min="0"``); every refusal (out of range, off the step, not a number, missing)
+    reads as one sentence.
+    """
+
+    spotlight_crawl_speed = forms.IntegerField(
+        label="Crawl speed",
+        min_value=SPOTLIGHT_CRAWL_SPEED_MIN,
+        max_value=SPOTLIGHT_CRAWL_SPEED_MAX,
+        step_size=SPOTLIGHT_CRAWL_SPEED_STEP,
+        widget=_RangeInput(attrs={"class": "pl-crawl-speed__range", "data-crawl-speed-input": ""}),
+        error_messages={
+            code: CRAWL_SPEED_REFUSED for code in ("required", "invalid", "min_value", "max_value", "step_size")
+        },
+    )
+
+    class Meta:
+        model = SiteConfiguration
+        fields = ["spotlight_crawl_speed"]
+
+    @property
+    def refusal(self) -> str:
+        """The sentence the card shows when this form is not valid."""
+        return str(self.errors["spotlight_crawl_speed"][0])

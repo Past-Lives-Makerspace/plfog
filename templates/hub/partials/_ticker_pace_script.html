@@ -1,0 +1,12 @@
+{# Sets a ticker's loop length from its list's width and its data-ticker-speed in px a second (#942), so the crawl speed holds however much text there is. Home's ticker and the Crawl speed preview call it. #}
+<script>
+  window.plTicker = {
+    pace: function (ticker) {
+      var viewport = ticker.querySelector("[data-ticker-viewport]");
+      var list = ticker.querySelector("[data-ticker-list]");
+      var speed = Number(ticker.getAttribute("data-ticker-speed"));
+      ticker.style.setProperty("--pl-ticker-span", viewport.clientWidth + "px");
+      ticker.style.setProperty("--pl-ticker-duration", (list.offsetWidth / speed).toFixed(2) + "s");
+    },
+  };
+</script>
