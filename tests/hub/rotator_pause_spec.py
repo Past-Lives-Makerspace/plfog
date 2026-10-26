@@ -10,10 +10,8 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from classes.factories import ClassOfferingFactory, ClassSessionFactory
-from classes.models import ClassOffering
 from core.factories import AnnouncementFactory
-from tests.membership.factories import MembershipPlanFactory
+from tests.membership.factories import CommunityEventFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -28,13 +26,10 @@ def member(client: Client) -> User:
     return user
 
 
-def _two_classes() -> None:
+def _two_events() -> None:
     for n in range(2):
-        offering = ClassOfferingFactory(
-            title=f"Zorblax class {n}", status=ClassOffering.Status.PUBLISHED, registration_cutoff_hours=None
-        )
         start = timezone.now() + timedelta(days=3 + n)
-        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        CommunityEventFactory(community=True, title=f"Zorblax event {n}", starts_at=start)
 
 
 def describe_the_user_on_the_page():
@@ -63,15 +58,15 @@ def describe_the_user_on_the_page():
 
 
 def describe_the_names():
-    def it_names_the_carousel_the_only_rotator_left_on_home(client: Client, member: User):
-        # The Spotlight messages crawl as a ticker since #935, so the banner's and the sidebar's rotators are gone.
+    def it_names_the_upcoming_queue_the_only_rotator_left_on_home(client: Client, member: User):
+        # The Spotlight messages crawl as a ticker since #935 and Upcoming is a queue since #937, so no plRotator is left.
         for n in range(2):
             AnnouncementFactory(position=n)
-        _two_classes()
+        _two_events()
 
         html = client.get(HOME).content.decode()
 
-        assert 'x-data="plRotator" data-rotator-interval="6000" data-rotator-name="home-upcoming"' in html
-        assert html.count('x-data="plRotator"') == 1
+        assert 'x-data="plUpcomingQueue" data-rotator-interval="6000" data-rotator-name="home-upcoming"' in html
+        assert 'x-data="plRotator"' not in html
         assert 'data-rotator-name="home-banner"' not in html
         assert 'data-rotator-name="spotlight"' not in html

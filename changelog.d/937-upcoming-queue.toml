@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-26"
+title = "Upcoming on Home rotates through everything coming up"
+changes = [
+  "The big card at the top of Upcoming now shows whatever is next on the list. Every few seconds the list slides up: the next item grows into the big card and the one before it moves to the bottom.",
+  "Everything on the list takes a turn: classes, events, guild meetings, studio hours and your orientations.",
+  "Events and classes without a photo get a poster with a big calendar date and the title, instead of a shrunken flyer. The Flyer button is still there.",
+  "Each kind has its own color, on the poster and in the list.",
+]

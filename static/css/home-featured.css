@@ -1,28 +1,78 @@
-/* home-featured.css: the carousel at the top of Home's Upcoming card (#888, #896,
-   templates/hub/partials/_home_featured.html), built on the plRotator block in rotator.css. Classes and events mixed, one slide at a time: on a phone the
-   picture sits above the text, from 768px it takes the left --pl-feature-media of the card and the text the rest.
-   Every picture is a 16:9 frame: a photo covers it, a class with no picture gets a quiet accent block, and an event
-   with no photo shows its flyer (event-flyer.css) scaled to the frame's height. */
+/* home-featured.css: Home's Upcoming queue (#937, templates/hub/partials/_home_upcoming.html,
+   static/js/pl-upcoming-queue.js). The first item is the featured card, the rest the list under it. On a phone the
+   picture sits above the card's text; from 768px it takes the left --pl-feature-media of the card and the text the
+   rest. Every picture is a 16:9 frame: a photo covers it, and an item with none gets the date poster in its kind's
+   color. The controls (arrows, time bar, pause) are rotator.css's, placed here. Each kind has one color, from
+   existing theme tokens, shared by its pill in the list and its poster:
+   class gold, event blue, meeting green, studio hours violet, orientation rose. */
 
-.pl-home-featured {
+.pl-upnext {
     --pl-feature-media: 100%;
+    --pl-kind: var(--hub-blue);
+    --pl-kind-ink: #0a0b10;
+}
+
+[data-theme="light"] .pl-upnext {
+    --pl-kind-ink: #ffffff;
+}
+
+.pl-upnext__panel--class,
+.pl-upcoming__kind--class { --pl-kind: var(--hub-link); }
+.pl-upnext__panel--event,
+.pl-upcoming__kind--event { --pl-kind: var(--hub-blue); }
+.pl-upnext__panel--meeting,
+.pl-upcoming__kind--meeting { --pl-kind: var(--pl-lifecycle-live); }
+.pl-upnext__panel--studio-hours,
+.pl-upcoming__kind--studio-hours { --pl-kind: var(--pl-help-admin); }
+.pl-upnext__panel--orientation,
+.pl-upcoming__kind--orientation { --pl-kind: var(--pl-help-developer); }
+
+/* The pill (hub.css's .pl-upcoming__kind) and the poster's time line in the kind's color. The words are the kind
+   mixed 65% with white (dark) or black (light), which keeps every kind at 4.7:1 or better (WCAG AA for the 11px pill)
+   on the pill's tint over the card and the featured card's surface, and on the poster's wash and glows. */
+.pl-upcoming__kind[class*="pl-upcoming__kind--"] {
+    background: color-mix(in srgb, var(--pl-kind) 16%, transparent);
+    color: color-mix(in srgb, var(--pl-kind) 65%, #ffffff);
+}
+
+[data-theme="light"] .pl-upcoming__kind[class*="pl-upcoming__kind--"] {
+    color: color-mix(in srgb, var(--pl-kind) 65%, #000000);
+}
+
+/* --- The featured card --- */
+
+.pl-upnext__feature {
+    container-type: inline-size;
+    position: relative;
     overflow: hidden;
     border: 1px solid var(--hub-border);
     border-radius: 12px;
     background: var(--hub-surface);
 }
 
-/* The list's heading follows the carousel (after its crop script); the carousel is new, so the gap is set here. */
-.pl-home-featured ~ .pl-home-heading {
-    margin-top: 1.5rem;
+/* Every card sits in one grid cell, so the tallest sets the height and nothing jumps; the shown one fades in. */
+.pl-upnext__panels {
+    display: grid;
 }
 
-.pl-home-featured__slide {
+.pl-upnext__panel {
+    grid-area: 1 / 1;
     display: flex;
     flex-direction: column;
+    min-width: 0;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.45s ease, visibility 0s linear 0.45s;
 }
 
-.pl-home-featured__media {
+.pl-upnext__panel.is-active {
+    z-index: 1;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.45s ease, visibility 0s;
+}
+
+.pl-upnext__media {
     display: block;
     flex: 0 0 auto;
     aspect-ratio: 16 / 9;
@@ -30,54 +80,115 @@
     background: var(--hub-elevated);
 }
 
-.pl-home-featured__img {
+.pl-upnext__img {
     display: block;
     width: 100%;
     height: 100%;
     object-fit: cover;
 }
 
-/* A class with no picture: a quiet wash in the two accents where the photo would be. */
-.pl-home-featured__accent {
-    display: block;
-    width: 100%;
-    height: 100%;
+/* --- The date poster: an item with no photo --- */
+
+/* The kind's color washed over the card, a soft dot grid and two glows, a tear off calendar leaf and the title.
+   Sized in container units, so it reads the same in the phone's full width frame and the desktop's 46%. The
+   poster's sizes resolve against it only inside it, so the layout sits on an inner face. */
+.pl-upnext__poster {
+    container-type: inline-size;
+    color: var(--hub-text);
+    text-decoration: none;
     background:
-        radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--color-tuscan-yellow) 26%, transparent), transparent 55%),
-        radial-gradient(circle at 85% 80%, color-mix(in srgb, var(--hub-blue) 24%, transparent), transparent 60%),
-        var(--hub-card-bg);
+        radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--pl-kind) 30%, transparent) 1px, transparent 1.6px) 0 0 / 4.5cqi 4.5cqi,
+        radial-gradient(circle at 88% 8%, color-mix(in srgb, var(--pl-kind) 20%, transparent), transparent 46%),
+        radial-gradient(circle at 6% 104%, color-mix(in srgb, var(--pl-kind) 20%, transparent), transparent 52%),
+        linear-gradient(135deg, color-mix(in srgb, var(--pl-kind) 18%, var(--hub-card-bg)), color-mix(in srgb, var(--pl-kind) 6%, var(--hub-card-bg)));
 }
 
-/* An event with no photo: the whole flyer, as tall as the frame, centred like a poster on a navy deeper than
-   the flyer's own band (#092E4C), with a hairline so the sheet's foot never melts into it. */
-.pl-home-featured__media--flyer {
+.pl-upnext__poster-face {
     box-sizing: border-box;
-    display: flex;
-    justify-content: center;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
-    padding: 0.75rem;
-    background: radial-gradient(circle at 50% 35%, #0d3a5f, #041a2c 75%);
-}
-
-.pl-home-featured__sheet {
+    gap: 6cqi;
     height: 100%;
-    aspect-ratio: 8.5 / 11;
-    outline: 1px solid rgba(255, 255, 255, 0.35);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    padding: 7cqi 8cqi;
 }
 
-/* A small lift on hover, only for those who have not asked for less motion. */
-@media (prefers-reduced-motion: no-preference) {
-    .pl-home-featured__sheet {
-        transition: transform 0.15s;
-    }
-
-    .pl-home-featured__media--flyer:hover .pl-home-featured__sheet {
-        transform: scale(1.03);
-    }
+.pl-upnext__poster-date {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 22cqi;
+    overflow: hidden;
+    border-radius: 2.4cqi;
+    background: var(--hub-card-bg);
+    box-shadow: 0 1.2cqi 3.6cqi color-mix(in srgb, var(--pl-kind) 22%, rgba(0, 0, 0, 0.35));
+    text-align: center;
 }
 
-.pl-home-featured__body {
+.pl-upnext__poster-month {
+    align-self: stretch;
+    padding: 1.4cqi 0 1.2cqi;
+    background: var(--pl-kind);
+    color: var(--pl-kind-ink);
+    font-family: var(--font-heading);
+    font-size: 4cqi;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.pl-upnext__poster-day {
+    padding-top: 1.6cqi;
+    font-family: var(--font-heading);
+    font-size: 11.5cqi;
+    font-weight: 900;
+    line-height: 1;
+    color: var(--hub-text);
+}
+
+.pl-upnext__poster-weekday {
+    padding: 1cqi 0 2.4cqi;
+    font-size: 3cqi;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+
+.pl-upnext__poster-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2cqi;
+    min-width: 0;
+}
+
+.pl-upnext__poster-time {
+    font-size: 3.4cqi;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--pl-kind) 65%, #ffffff);
+}
+
+[data-theme="light"] .pl-upnext__poster-time {
+    color: color-mix(in srgb, var(--pl-kind) 65%, #000000);
+}
+
+.pl-upnext__poster-title {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    font-family: var(--font-heading);
+    font-size: 6.4cqi;
+    font-weight: 900;
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+}
+
+/* --- The card's text --- */
+
+.pl-upnext__body {
     display: flex;
     flex: 1 1 auto;
     flex-direction: column;
@@ -86,14 +197,13 @@
     padding: 1rem 1.25rem 1.25rem;
 }
 
-/* The list's own Class and Event pill (.pl-upcoming__kind in hub.css), kept to its width. */
-.pl-home-featured__kind {
+.pl-upnext__kind {
     align-self: flex-start;
     margin-bottom: 0.25rem;
 }
 
-/* A paragraph, not a heading, so no heading comes before the card's "Upcoming" h2; it keeps the heading face. */
-.pl-home-featured__title {
+/* A paragraph, not a heading, so the card's "Upcoming" h2 stays the one heading; it keeps the heading face. */
+.pl-upnext__title {
     font-family: var(--font-heading);
     color: var(--hub-text);
     font-size: 1.125rem;
@@ -102,66 +212,141 @@
     overflow-wrap: anywhere;
 }
 
-.pl-home-featured__title a {
+.pl-upnext__title a {
     color: var(--hub-text);
     text-decoration: none;
 }
 
-.pl-home-featured__title a:hover {
+.pl-upnext__title a:hover {
     color: var(--hub-link);
 }
 
-.pl-home-featured__when {
+.pl-upnext__when {
     font-size: 0.875rem;
     font-weight: 600;
 }
 
-.pl-home-featured__meta {
+.pl-upnext__meta {
     font-size: 0.8125rem;
     color: var(--hub-text-muted);
     overflow-wrap: anywhere;
 }
 
-.pl-home-featured__actions {
+.pl-upnext__place {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 0.75rem;
+}
+
+.pl-upnext__actions {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
     padding-top: 0.75rem;
 }
 
+/* Previous, pause and next in one cluster, clear of the picture: on a phone at the right of the kind pill's row,
+   just under the 16:9 picture (56.25cqi of the card's width); from 768px at the foot of the text column. The buttons
+   keep rotator.css's classes, drawn here as the quiet outlined circles of its pause button. */
+.pl-upnext__controls {
+    position: absolute;
+    top: calc(56.25cqi + 0.875rem);
+    right: 1.25rem;
+    z-index: 2;
+    display: flex;
+    gap: 0.375rem;
+}
+
+.pl-upnext__controls .pl-rotator__arrow,
+.pl-upnext__controls .pl-rotator__pause {
+    position: static;
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--hub-text-muted);
+    opacity: 1;
+    transform: none;
+}
+
+.pl-upnext__controls .pl-rotator__arrow:hover,
+.pl-upnext__controls .pl-rotator__pause:hover {
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+}
+
+/* With controls, the pill's row is as tall as they are and the title starts at least 0.75rem below them
+   (FRONTEND rule 26): the 2rem cluster is centred on the pill, so the pill clears the title by 1.25rem. */
+.pl-upnext:has(.pl-upnext__controls) .pl-upnext__kind {
+    margin-bottom: 1.25rem;
+}
+
+.pl-upnext:has(.pl-upnext__controls) .pl-upnext__body {
+    padding-top: 1.25rem;
+}
+
+/* --- The list under the card --- */
+
+.pl-upnext__list {
+    position: relative;
+    margin-top: 0.75rem;
+}
+
+/* The row whose item has just been featured, lifting away over the list while the rows below slide up. */
+.pl-upnext__list .pl-upnext__ghost {
+    position: absolute;
+    right: 0;
+    left: 0;
+    border-top: 0;
+    pointer-events: none;
+}
+
+/* Nothing fades and nothing slides; the arrows still move it (the JS skips its row animations too). */
+@media (prefers-reduced-motion: reduce) {
+    .pl-upnext__panel,
+    .pl-upnext__panel.is-active {
+        transition: none;
+    }
+}
+
 @media (min-width: 768px) {
-    .pl-home-featured {
+    .pl-upnext {
         --pl-feature-media: 46%;
     }
 
-    /* Two classes, so it outranks .pl-rotator__slide's flex further down. */
-    .pl-home-featured .pl-home-featured__slide {
+    .pl-upnext__panel {
         display: grid;
         grid-template-columns: var(--pl-feature-media) minmax(0, 1fr);
         align-items: start;
     }
 
-    /* The text is centred beside the picture, clear of the dots and pause button along its foot. */
-    .pl-home-featured__body {
+    /* The text is centred beside the picture. */
+    .pl-upnext__body {
         align-self: stretch;
         justify-content: center;
         padding: 1.5rem 1.75rem;
     }
 
-    .pl-home-featured:has(.pl-rotator__nav) .pl-home-featured__body {
-        padding-bottom: 3.5rem;
-    }
-
-    .pl-home-featured .pl-rotator__overlay {
+    .pl-upnext .pl-rotator__overlay {
         right: auto;
         width: var(--pl-feature-media);
     }
 
-    .pl-home-featured .pl-rotator__nav {
-        position: absolute;
+    .pl-upnext__controls {
+        top: auto;
+        right: 1.25rem;
         bottom: 1rem;
-        left: calc(var(--pl-feature-media) + 1.25rem);
-        z-index: 2;
-        padding: 0;
+    }
+
+    .pl-upnext:has(.pl-upnext__controls) .pl-upnext__kind {
+        margin-bottom: 0.25rem;
+    }
+
+    .pl-upnext:has(.pl-upnext__controls) .pl-upnext__body {
+        padding: 1.5rem 1.75rem 3.75rem;
     }
 }

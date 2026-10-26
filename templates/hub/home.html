@@ -9,7 +9,6 @@
 <link rel="stylesheet" href="{% static 'css/rotator.css' %}">
 <link rel="stylesheet" href="{% static 'css/home-featured.css' %}">
 <link rel="stylesheet" href="{% static 'css/home-announcements.css' %}">
-<link rel="stylesheet" href="{% static 'css/event-flyer.css' %}">
 <link rel="stylesheet" href="{% static 'css/polls.css' %}">
 {% endblock %}
 
@@ -133,38 +132,11 @@
 </div>
 {% endif %}
 
-{# --- Upcoming: a carousel of classes and events picked at random on every load (#888, #896), left out with none, then the list --- #}
-<div class="hub-card pl-home-block">
-    {% if featured %}
-    {% include "hub/partials/_home_featured.html" %}
-    {% endif %}
+{# --- Upcoming (#937): one queue, soonest first; its first item is the featured card, the rest the list under it --- #}
+<div class="hub-card pl-home-block" data-block="upcoming">
     <h2 class="pl-home-heading">Upcoming</h2>
     {% if upcoming %}
-    <ul class="pl-upcoming">
-        {% for item in upcoming %}
-        <li class="pl-upcoming__item">
-            <a href="{{ item.url }}" class="pl-upcoming__link">
-                <span class="pl-upcoming__when">
-                    <span class="pl-upcoming__date">{{ item.start|date:"D, M j" }}</span>
-                    <span class="pl-upcoming__time">{{ item.start|date:"g:i A" }}</span>
-                </span>
-                <span class="pl-upcoming__body">
-                    <span class="pl-upcoming__title">{{ item.title }}</span>
-                    <span class="pl-upcoming__meta">
-                        <span class="pl-upcoming__kind">{{ item.kind }}</span>
-                        {% if item.guild_name %}<span class="hub-text-muted">{{ item.guild_name }}</span>{% endif %}
-                        {# No literal "·" — the flex gap separates items, and a middot looks orphaned when the span wraps to its own line. #}
-                        {% if item.location %}<span class="hub-text-muted">{{ item.location }}</span>{% endif %}
-                    </span>
-                </span>
-            </a>
-            {% if item.video_url %}
-            {# A sibling of pl-upcoming__link, not nested inside it — HTML forbids an <a> inside an <a>. #}
-            <a href="{{ item.video_url }}" class="pl-upcoming__join" target="_blank" rel="noopener noreferrer">Join online</a>
-            {% endif %}
-        </li>
-        {% endfor %}
-    </ul>
+    {% include "hub/partials/_home_upcoming.html" %}
     {% else %}
     <p class="pl-home-empty">
         Nothing on your calendar yet — <a href="{% url 'hub_community_calendar' %}">browse the Calendar</a>.
