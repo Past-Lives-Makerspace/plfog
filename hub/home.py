@@ -164,13 +164,13 @@ class GuildShortcut:
 def build_home_context(member: Member) -> dict[str, Any]:
     """Assemble the Member Home context for a linked member.
 
-        Returns the home blocks — ``upcoming`` (capped, soonest-first), ``announcements``
-        (active guild announcements from joined guilds), ``my_guilds`` (joined, lead/staff
-        flagged), and the ``onboarding`` "Get started" checklist with its ``show_onboarding``
-        gate (built ONCE here, not re-derived per property in the template), and ``home_poll``,
-        the open poll's card (#925), None while no poll is open, and ``can_vote_polls``, which gates
+    Returns the home blocks — ``upcoming`` (capped, soonest-first), ``announcements``
+    (active guild announcements from joined guilds), ``my_guilds`` (joined, lead/staff
+    flagged), and the ``onboarding`` "Get started" checklist with its ``show_onboarding``
+    gate (built ONCE here, not re-derived per property in the template), and ``home_poll``,
+    the open poll's card (#925), None while no poll is open, and ``can_vote_polls``, which gates
     the Past Polls link by the same rule as the page it opens. All business logic lives on
-        ``membership`` and ``polls`` managers/props; this only fetches, normalizes, sorts, and caps.
+    ``membership`` and ``polls`` managers/props; this only fetches, normalizes, sorts, and caps.
     """
     return {
         "upcoming": _upcoming_items(member),

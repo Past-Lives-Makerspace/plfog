@@ -29,7 +29,7 @@ from hub.view_as import fog_admin_required
 from hub.views import _get_hub_context, _get_member
 from membership.models import Guild
 from membership.permissions import can_edit_guild
-from polls.forms import NewPollForm
+from polls.forms import NewPollForm, WriteInForm
 from polls.models import (
     ANSWER_MAX_LENGTH,
     MAX_CHOICES,
@@ -75,20 +75,34 @@ def polls_index(request: HttpRequest) -> HttpResponse:
 @login_required
 @require_POST
 def poll_vote(request: HttpRequest, pk: int) -> HttpResponse:
-    """Cast this member's one vote, then show the results in place (HTMX) or go back (plain post)."""
+    """Cast this member's one vote, then show the results in place (HTMX) or go back (plain post).
+
+    A post carrying ``choice`` picks an answer; one without it is a written answer from the card's
+    ``WriteInForm`` (#925 part 3), refused with its first error when the form is not valid.
+    """
     poll = get_object_or_404(Poll, pk=pk)
     member = _get_member(request)
-    choice = request.POST.get("choice", "")
-    if not choice.isdigit():
-        return HttpResponseBadRequest("Pick an answer.")
     now = timezone.now()
     refusal = ""
-    try:
-        poll.vote(member=member, choice_pk=int(choice), now=now)
-    except PollChoice.DoesNotExist:
-        return HttpResponseBadRequest("That answer is not part of this poll.")
-    except VoteRefusedError as error:
-        refusal = str(error)
+    answer: dict[str, Any] = {}
+    if "choice" in request.POST:
+        choice = request.POST["choice"]
+        if not choice.isdigit():
+            return HttpResponseBadRequest("Pick an answer.")
+        answer = {"choice_pk": int(choice)}
+    else:
+        form = WriteInForm.for_poll(poll, request.POST)
+        if form.is_valid():
+            answer = {"write_in": form.cleaned_data["write_in"], "anonymous": form.is_anonymous}
+        else:
+            refusal = next(str(error) for errors in form.errors.values() for error in errors)
+    if answer:
+        try:
+            poll.vote(member=member, now=now, **answer)
+        except PollChoice.DoesNotExist:
+            return HttpResponseBadRequest("That answer is not part of this poll.")
+        except VoteRefusedError as error:
+            refusal = str(error)
     if not request.headers.get("HX-Request"):
         if refusal:
             messages.error(request, refusal)
@@ -131,6 +145,7 @@ def _render_admin(request: HttpRequest, *, form: NewPollForm | None = None) -> H
         **_get_hub_context(request),
         "open_poll": open_poll,
         "open_results": open_poll.results() if open_poll is not None else [],
+        "open_written": open_poll.written_answers() if open_poll is not None else [],
         "poll_form": form or NewPollForm(),
         "max_choices": MAX_CHOICES,
         "answer_max_length": ANSWER_MAX_LENGTH,
@@ -182,7 +197,13 @@ def polls_admin_poll(request: HttpRequest, pk: int) -> HttpResponse:
     return render(
         request,
         "polls/admin_poll.html",
-        {**_get_hub_context(request), "poll": poll, "results": poll.results(), "is_open": poll.is_open(timezone.now())},
+        {
+            **_get_hub_context(request),
+            "poll": poll,
+            "results": poll.results(),
+            "written": poll.written_answers(),
+            "is_open": poll.is_open(timezone.now()),
+        },
     )
 
 

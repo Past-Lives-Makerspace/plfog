@@ -56,6 +56,13 @@ class NewPollForm(forms.Form):
         label="Runs for",
         widget=forms.RadioSelect,
     )
+    allows_write_in = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="Let members write their own answer",
+        help_text="It counts as their one vote.",
+        widget=forms.CheckboxInput(attrs={"x-model": "writeIn"}),
+    )
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -85,6 +92,7 @@ class NewPollForm(forms.Form):
             by=by,
             now=now,
             guild=guild,
+            allows_write_in=self.cleaned_data["allows_write_in"],
         )
 
     @property
@@ -108,3 +116,31 @@ class NewPollForm(forms.Form):
     def rows(self) -> list[str]:
         """The answer boxes to show: what was typed, or two empty ones on a fresh form."""
         return self.choices or [""] * MIN_CHOICES
+
+
+class WriteInForm(forms.Form):
+    """A member's own answer to one poll (#925 part 3), with Post anonymously on by default.
+
+    Prefixed per poll (``poll-<pk>``), so two cards on a page never share an id. ``shown`` is a
+    hidden marker the rendered form always carries: a post without it (a hand made request, an
+    old page) is read as anonymous, so the member's name is only ever shown when they turned off
+    the switch on the form itself.
+    """
+
+    write_in = forms.CharField(
+        max_length=ANSWER_MAX_LENGTH,
+        label="Or write your own answer",
+        help_text=f"Up to {ANSWER_MAX_LENGTH} characters. This counts as your one vote.",
+    )
+    anonymous = forms.BooleanField(required=False, initial=True, label="Post anonymously")
+    shown = forms.BooleanField(required=False, initial=True, widget=forms.HiddenInput)
+
+    @classmethod
+    def for_poll(cls, poll: Poll, data: QueryDict | None = None) -> WriteInForm:
+        """The form for ``poll``, bound to ``data`` when given."""
+        return cls(data, prefix=f"poll-{poll.pk}")
+
+    @property
+    def is_anonymous(self) -> bool:
+        """Post anonymously, unless the member turned the switch off on the rendered form."""
+        return self.cleaned_data["anonymous"] or not self.cleaned_data["shown"]

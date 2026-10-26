@@ -60,13 +60,14 @@ def describe_the_polls_page():
         assert "/accounts/login/" in response.url
 
     def it_keeps_a_guest_account_out():
+        # The lockout middleware answers before the view's own 403 (pinned by the no member spec below).
         client, _member = _client_for(Member.Status.GUEST)
         poll_with("Laser", "Lathe", question="Zorblax guest?")
 
         response = client.get(INDEX)
 
-        assert response.status_code != 200
-        assert b"Zorblax guest?" not in response.content
+        assert response.status_code == 302
+        assert response.url == f"{reverse('account_locked')}?reason=guest"
 
     def it_refuses_a_signed_in_user_with_no_member_record():
         user = User.objects.create_user(username="nomember", password="pass")

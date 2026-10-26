@@ -18,6 +18,7 @@ the open poll on Home and every closed one on Past Polls. Nothing here notifies 
   <p class="pl-polls-admin__question" data-open-poll="{{ open_poll.pk }}">{{ open_poll.question }}</p>
   <p class="hub-text-muted pl-polls-admin__meta">Closes in {{ open_poll.closes_at|timeuntil }}, on {{ open_poll.closes_label }}.</p>
   {% include "polls/partials/_poll_results.html" with results=open_results %}
+  {% if open_written %}{% include "polls/partials/_poll_written.html" with written=open_written %}{% endif %}
   <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" @click="$dispatch('open-confirm', 'close-poll')" data-close-poll>Close Now</button>
   {% url 'polls:admin_close' open_poll.pk as close_url %}
   {% include "components/confirm_modal.html" with confirm_id="close-poll" confirm_title="Close this poll now?" confirm_message="Voting ends at once and the results stay as they are." confirm_action_url=close_url confirm_button_text="Close now" %}
