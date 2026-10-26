@@ -127,7 +127,7 @@ This pipeline's reviews found real blockers in 5 of 6 PRs — do not skip or sof
 ### 9. Bot approval + merge (manual — repo auto-merge is DISABLED)
 - `set -a; source .env; set +a` then approve as PastLivesReviewBot with `GH_TOKEN="$BOT_PAT"`
   (see `reference_plfog_pr_ops` memory for the exact form and its classifier fallback).
-- Wait for the **e2e** check in a background poll loop (~3 min; the `test` job is the ~1 h mutation run —
+- Wait for the **e2e** check in a background poll loop (~3 min; the `test` job is the ~1 h full suite;
   waiting for it is optional but right for money PRs; the user may merge earlier at their call).
 - `gh pr merge <N> --squash`. A merge whose push **adds a member-facing fragment auto-fires the Discord
   announce** (`release.yml` diffs for added files), so the fragment must already be right. A push adding
@@ -163,7 +163,7 @@ This pipeline's reviews found real blockers in 5 of 6 PRs — do not skip or sof
   `tests/e2e/orientation_booking_spec.py` (clicked "Guild Calendar", section had moved to "Orientations").
 - **Coverage/mutation nit on a merge-on-e2e PR**: if a reviewer flags an uncoverable branch (e.g.
   `if form.is_valid():` on a form that can never be invalid), fix it BEFORE merging — you merge on the
-  e2e gate, not the ~1 h mutation `test` job, so a surviving mutant would turn main red post-merge. The
+  e2e gate, not the ~1 h `test` job, so an uncovered branch would turn main's coverage gate red post-merge. The
   clean fix for an always-valid single-field form is `form.is_valid(); form.save()` (no branch; `save()`
   raises loudly on the impossible invalid case).
 - **Port 8000 occupied** for the local stack: add a temporary `ports: !override` to the gitignored
