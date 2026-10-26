@@ -656,7 +656,7 @@ class SiteConfiguration(models.Model):
         max_length=32,
         blank=True,
         default="",
-        verbose_name="Discord member role id",
+        verbose_name="Discord Member role ID",
         help_text="The Discord role every member has; channels it cannot see are never read. "
         "Blank: Discord pings are not queued for Spotlight.",
     )

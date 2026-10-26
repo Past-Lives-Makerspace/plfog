@@ -60,6 +60,10 @@ def readable_time(match: re.Match[str]) -> str:
     return f"{moment:%a %b} {moment.day}, {clock}"
 
 
+class UnknownMemberRoleError(Exception):
+    """The member role id in Site Settings names no role on the server (mistyped, or deleted)."""
+
+
 class _Server:
     """What one tick knows about the server: its id, guild roles, role names and channel names."""
 
@@ -69,6 +73,8 @@ class _Server:
         self.server_id = server_id
         self.member_role_id = member_role_id
         permissions = {role["id"]: int(role["permissions"]) for role in roles}
+        if member_role_id not in permissions:
+            raise UnknownMemberRoleError(member_role_id)
         # What a member may do anywhere: @everyone's role (the server's id) plus the member role.
         self.member_base = permissions[server_id] | permissions[member_role_id]
         self.channel_names = {channel["id"]: channel["name"] for channel in channels}
@@ -151,6 +157,12 @@ def queue_discord_pings() -> int:
     except DiscordRateLimitedError:
         logger.warning("queue_discord_pings: Discord rate limited this tick; the next tick carries on.")
         return queued
+    except UnknownMemberRoleError:
+        logger.warning(
+            "queue_discord_pings: the Discord member role id %s is no role on the server, so no channel is read.",
+            member_role_id,
+        )
+        return 0
     if empty:
         logger.warning(
             "queue_discord_pings: %d ping(s) came back with no text, so nothing was queued for them. "

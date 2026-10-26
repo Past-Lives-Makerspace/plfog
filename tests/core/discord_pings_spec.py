@@ -327,6 +327,19 @@ def describe_queue_discord_pings():
             assert not respx.calls
             assert "no Discord member role id" in caplog.text
 
+    def describe_a_member_role_that_is_not_on_the_server():
+        @respx.mock
+        def it_logs_the_id_and_reads_nothing(caplog: Any):
+            _read_from(GENERAL, "50")
+            roles = [role for role in ROLES if role["id"] != MEMBER_ROLE]
+            asked = _mock_server([_channel(GENERAL, "51")], {GENERAL: [[_message("51", "@everyone Hi")]]}, roles)
+
+            with caplog.at_level(logging.WARNING, logger="core.discord_pings"):
+                assert queue_discord_pings() == 0
+
+            assert f"member role id {MEMBER_ROLE} is no role on the server" in caplog.text
+            assert asked == {}
+
     def describe_a_channel_that_fails():
         @respx.mock
         def it_logs_it_and_reads_the_channels_after_it(caplog: Any):
