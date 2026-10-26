@@ -2160,7 +2160,7 @@ def describe_guild_meetings_tab():
             guild = GuildFactory()
             _guild_member_client(client, guild)
             content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
-            assert "See all in the archive →" in content
+            assert "See All in the Archive →" in content
             assert f"/meetings/?guild={guild.pk}" in content
 
     def describe_awaiting_minutes():
@@ -2207,7 +2207,7 @@ def describe_guild_meetings_tab():
                 guild=guild, scheduled_date=timezone.localdate() - timedelta(days=5), published=True
             )
             content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
-            section = content.split("Recent minutes")[1].split("See all in the archive")[0]
+            section = content.split("Recent minutes")[1].split("See All in the Archive")[0]
             published_url = reverse("hub_meeting", args=[published.pk])
             approved_url = reverse("hub_meeting", args=[approved.pk])
             assert section.index(published_url) < section.index(approved_url)

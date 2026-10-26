@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-26"
+title = "Hide the poll on Home once you have voted"
+changes = [
+  "The Poll on Home now has a Hide button that folds it to one line, and Show opens it again. Once you have voted it starts folded, and your choice is remembered for each poll.",
+  "The Poll now sits near the bottom of Home, just above Get The App.",
+  "The Past Polls tile is gone from the quick links; See Past Polls under the poll takes you there.",
+  "Arrow links across the portal, and the Show Me Around button, now use Title Case.",
+]

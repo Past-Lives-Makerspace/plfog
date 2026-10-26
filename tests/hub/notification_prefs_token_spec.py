@@ -59,8 +59,8 @@ def describe_user_settings_when_logged_out():
             content = client.get(f"{reverse('hub_user_settings')}?tab=notifications&t={token}").content.decode()
 
             assert "pl-notif-jump__chip" not in content
-            assert "Manage which guilds send you updates" not in content
-            assert "View upcoming meetings" not in content
+            assert "Manage Which Guilds Send You Updates" not in content
+            assert "View Upcoming Meetings" not in content
 
         def it_saves_a_posted_preference_for_the_tokens_user_and_redirects(client):
             user = _member_user("token_post", email="token_post@example.com")

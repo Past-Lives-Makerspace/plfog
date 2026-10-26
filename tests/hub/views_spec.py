@@ -302,7 +302,7 @@ def describe_user_settings():
         assert response.status_code == 200
         # The link points at the Permissions tab (where the capability toggles live).
         assert "tab=permissions" in response.context["capabilities_url"]
-        assert b"Manage your admin duties" in response.content
+        assert b"Manage Your Admin Duties" in response.content
 
     def it_hides_the_capabilities_link_from_non_admins(client: Client):
         User.objects.create_user(username="plainsettings", password="pass")
@@ -312,7 +312,7 @@ def describe_user_settings():
 
         assert response.status_code == 200
         assert response.context["capabilities_url"] is None
-        assert b"Manage your admin duties" not in response.content
+        assert b"Manage Your Admin Duties" not in response.content
 
     def it_offers_the_spaces_map_opt_in_toggle(client: Client):
         User.objects.create_user(username="maptoggle", password="pass")

@@ -12,7 +12,7 @@ the control can never be tapped twice.
     <div class="pl-wp-tab__miss-actions">
         <a href="{% url 'hub_wiki_new' %}?guild={{ guild.slug|urlencode }}&amp;title={{ miss.query|urlencode }}" class="pl-btn pl-btn--secondary pl-btn--sm">Start This Page</a>
         {% if miss.on_wanted %}
-        <a href="{{ wanted_url }}" class="pl-wp-tab__miss-onlist">On the wanted list &rarr;</a>
+        <a href="{{ wanted_url }}" class="pl-wp-tab__miss-onlist">On the Wanted List &rarr;</a>
         {% else %}
         <form hx-post="{% url 'hub_wiki_wanted_request' %}" hx-target="closest .pl-wp-tab__miss" hx-swap="outerHTML">
             {% csrf_token %}

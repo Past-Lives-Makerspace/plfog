@@ -59,7 +59,7 @@ Context:
         <h3 class="pl-notif-admin__title" id="notif-{{ section.slug }}-title">{{ section.title }}</h3>
       </div>
       {% if matrix_self %}
-        <p class="hub-text-muted pl-notif-section-note">You see a row here only for a duty you hold or a role you have. Class, space, discount, calendar, billing, and failed automation alerts are controlled by your admin capabilities.{% if capabilities_url %} <a href="{{ capabilities_url }}" hx-boost="false">Manage your admin duties →</a>{% endif %}</p>
+        <p class="hub-text-muted pl-notif-section-note">You see a row here only for a duty you hold or a role you have. Class, space, discount, calendar, billing, and failed automation alerts are controlled by your admin capabilities.{% if capabilities_url %} <a href="{{ capabilities_url }}" hx-boost="false">Manage Your Admin Duties →</a>{% endif %}</p>
       {% else %}
         <p class="hub-text-muted pl-notif-section-note">This member sees a row here only for a duty they hold or a role they have. The capability alerts follow their admin capabilities on the Permissions tab.</p>
       {% endif %}
@@ -90,12 +90,12 @@ Context:
       </div>
       {% if section.title == 'Guilds' and matrix_self and not prefs_token %}
         <p class="hub-text-muted pl-notif-section-note">
-          <a href="?tab=guilds" @click.prevent="go('guilds')">Manage which guilds send you updates →</a>
+          <a href="?tab=guilds" @click.prevent="go('guilds')">Manage Which Guilds Send You Updates →</a>
         </p>
       {% endif %}
       {% if section.title == 'Meetings' and matrix_self and not prefs_token and features.meetings.is_on %}
         <p class="hub-text-muted pl-notif-section-note">
-          <a href="{% url 'hub_meetings' %}">View upcoming meetings →</a>
+          <a href="{% url 'hub_meetings' %}">View Upcoming Meetings →</a>
         </p>
       {% endif %}
     {% endif %}

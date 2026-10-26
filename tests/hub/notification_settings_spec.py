@@ -261,7 +261,7 @@ def describe_admin_permissions_on_every_surface():
     def it_carries_the_note_and_the_manage_link_at_its_top(client):
         section = _section_markup(_own_page(client, "ap_note", admin=True), ADMIN_SLUG)
         note = section.index("pl-notif-section-note")
-        assert "Manage your admin duties" in section
+        assert "Manage Your Admin Duties" in section
         assert note < section.index("pl-notif-group__title")
 
     def it_names_the_failed_automation_alert_among_the_capability_alerts(client):

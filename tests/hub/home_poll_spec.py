@@ -75,28 +75,61 @@ def describe_the_poll_card():
 
 
 def describe_the_past_polls_link():
-    def it_is_on_home_with_no_poll_open(member_client: Client):
-        html = member_client.get(HOME).content.decode()
-
-        assert f'<a href="{PAST_POLLS}" class="pl-quicklink" data-quicklink-past-polls>' in html
-
-    def it_is_on_home_with_a_poll_open_too(member_client: Client):
+    def it_sits_under_the_open_poll_in_title_case(member_client: Client):
         poll_with("Laser", "Lathe")
 
         html = member_client.get(HOME).content.decode()
 
-        assert "data-quicklink-past-polls" in html
-        assert "data-poll-past-link" in html
+        assert (
+            f'href="{PAST_POLLS}" class="pl-home-block__more pl-poll-home__more" data-poll-past-link>See Past Polls →</a>'
+            in html
+        )
 
-    def it_is_left_out_for_an_account_that_cannot_open_past_polls(member_client: Client, monkeypatch):
-        # The lockout middleware keeps guests and former members off Home, so the template's
-        # gate is proven by switching the shared rule off for a member who can reach the page.
-        monkeypatch.setattr("hub.home.can_vote", lambda member: False)
+    def it_is_no_longer_a_quick_link(member_client: Client):
+        poll_with("Laser", "Lathe")
 
         html = member_client.get(HOME).content.decode()
 
         assert "data-quicklink-past-polls" not in html
         assert f'href="{PAST_POLLS}" class="pl-quicklink"' not in html
+
+
+def describe_folding_the_poll():
+    def it_offers_hide_on_an_unanswered_poll(member_client: Client):
+        poll = poll_with("Laser", "Lathe", question="Zorblax fold?")
+
+        block = member_client.get(HOME).content.decode().split('data-block="poll"', 1)[1].split("</section>", 1)[0]
+
+        assert f'data-poll-home="{poll.pk}"' in block
+        assert "data-poll-answered" not in block
+        assert "data-poll-toggle" in block
+        assert "data-poll-summary-voted" not in block
+
+    def it_marks_an_answered_poll_so_it_starts_folded(member_client: Client):
+        poll = poll_with("Laser", "Lathe", question="Zorblax folded?")
+        member = User.objects.get(username="pollhomer").member
+        PollVoteFactory(choice=poll.choices.get(text="Lathe"), member=member)
+
+        block = member_client.get(HOME).content.decode().split('data-block="poll"', 1)[1].split("</section>", 1)[0]
+
+        assert "data-poll-answered" in block
+        assert '<span class="pl-poll-home__voted" data-poll-summary-voted>Voted</span>' in block
+        assert "Zorblax folded?" in block
+
+
+def describe_its_place_on_home():
+    def it_sits_last_in_the_member_blocks_just_above_get_the_app(member_client: Client):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.google_play_url = "https://play.google.com/store/apps/details?id=zorblax"
+        config.save()
+        poll_with("Laser", "Lathe")
+
+        html = member_client.get(HOME).content.decode()
+
+        poll = html.index('data-block="poll"')
+        assert html.index("Your Guilds") < poll < html.index("hub-card pl-home-block pl-app-badges")
 
 
 def describe_can_vote_polls():

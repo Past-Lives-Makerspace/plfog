@@ -117,8 +117,8 @@ def describe_notifications_template():
     def it_renders_the_guilds_and_meetings_subtitles(client: Client):
         _login(client)
         content = client.get("/settings/?tab=notifications").content.decode()
-        assert "Manage which guilds send you updates" in content
-        assert "View upcoming meetings" in content
+        assert "Manage Which Guilds Send You Updates" in content
+        assert "View Upcoming Meetings" in content
 
 
 def describe_profile_tab_template():

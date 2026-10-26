@@ -1201,7 +1201,7 @@ class Member(StaffRequestMixin, models.Model):
     def has_finished_member_tour(self) -> bool:
         """Whether the member tour is behind them: completed or dismissed (#824). Absent or offered is not.
 
-        The Get Started checklist marks Take the tour done on it, and Home hides Show me around on it.
+        The Get Started checklist marks Take the tour done on it, and Home hides Show Me Around on it.
         """
         from core.models import TourState
 

@@ -745,7 +745,7 @@ class SiteConfiguration(models.Model):
         default=True,
         verbose_name="Offer guided tours",
         help_text="When off, the guided tour offer never pops up for anyone. Each member's own tour setting is "
-        "kept, and a tour can still be started from its Show me around link.",
+        "kept, and a tour can still be started from its Show Me Around link.",
     )
     # wiki_enabled, equipment_page_enabled and host_a_workshop_enabled used to live here. They are
     # FeatureSwitch rows now (see core/features.py) so that every member feature answers to one

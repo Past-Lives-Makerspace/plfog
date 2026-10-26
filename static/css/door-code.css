@@ -13,7 +13,7 @@
     min-width: 0;
 }
 
-/* Show me around sits in its own row under the header description. */
+/* Show Me Around sits in its own row under the header description. */
 .pl-home-tour-link {
     margin-top: 1rem;
 }
@@ -35,8 +35,8 @@
         display: none;
     }
     /* Keep the box beside the title, and make the two sides one height: the box stretches to the
-       title column, and Show me around sits at the column's foot, level with the box's bottom. Once
-       the tour is taken there is no Show me around; the box, then taller, sets the row's height. */
+       title column, and Show Me Around sits at the column's foot, level with the box's bottom. Once
+       the tour is taken there is no Show Me Around; the box, then taller, sets the row's height. */
     .hub-page-header:has(.pl-home-header-actions) {
         flex-wrap: nowrap !important;
         align-items: stretch !important;

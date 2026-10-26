@@ -276,10 +276,10 @@ def describe_the_two_boxes():
 
         actions = _element(header, 'class="pl-home-header-actions"')
         assert 'data-door-code-box="header"' in actions
-        assert "Show me around" not in actions
+        assert "Show Me Around" not in actions
         tour_row = _element(header, 'class="pl-home-tour-link"')
         assert header.index("Your home base") < header.index(tour_row)
-        assert ">Show me around</a>" in tour_row
+        assert ">Show Me Around</a>" in tour_row
         assert 'data-door-code-box="card"' not in header
 
     def it_keeps_show_me_around_in_the_header_without_a_door_code(client: Client):
@@ -287,7 +287,7 @@ def describe_the_two_boxes():
 
         header = _element(client.get(HOME).content.decode(), 'class="hub-page-header"')
 
-        assert '<a href="?tour=member-welcome" class="hub-btn hub-btn--sm">Show me around</a>' in header
+        assert '<a href="?tour=member-welcome" class="hub-btn hub-btn--sm">Show Me Around</a>' in header
         assert "data-door-code" not in header
 
     def it_puts_the_card_under_the_quick_links_and_none_inside_them(client: Client):

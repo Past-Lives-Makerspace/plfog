@@ -13,7 +13,7 @@
           <div class="dc-title"><a href="{% url 'classes:public_class_detail' slug=offering.slug %}" style="color:inherit;text-decoration:none;">{{ offering.title }}</a></div>
           <div class="dc-inst">with {{ offering.instructor_names }}</div>
         </div>
-        <a class="back-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}">Class page →</a>
+        <a class="back-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}">Class Page →</a>
       </div>
       <div class="detail-body">
         {% if under_minimum %}

@@ -111,6 +111,73 @@
     margin-top: 1.25rem;
 }
 
+/* Its head: "Poll", the question while folded, and Hide or Show at the right. */
+.pl-poll-home__head {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.pl-poll-home__heading {
+    flex: none;
+    margin: 0;
+}
+
+.pl-poll-home__summary {
+    display: none;
+    flex: 1;
+    min-width: 0;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    color: var(--hub-text-muted);
+    font-size: 0.9375rem;
+}
+
+.pl-poll-home__question {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pl-poll-home__voted {
+    flex: none;
+    padding: 0.125rem 0.5rem;
+    border-radius: 999px;
+    background-color: color-mix(in srgb, var(--color-tuscan-yellow) 18%, transparent);
+    color: var(--color-tuscan-yellow);
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.pl-poll-home__toggle {
+    flex: none;
+    margin-left: auto;
+    gap: 0.375rem;
+}
+
+.pl-poll-home__toggle svg {
+    transition: transform 0.15s ease;
+}
+
+/* Folded: one line, the body gone. */
+.pl-poll-home.is-folded .pl-poll-home__head {
+    margin-bottom: 0;
+}
+
+.pl-poll-home.is-folded .pl-poll-home__summary {
+    display: flex;
+}
+
+.pl-poll-home.is-folded .pl-poll-home__body {
+    display: none;
+}
+
+.pl-poll-home.is-folded .pl-poll-home__toggle svg {
+    transform: rotate(180deg);
+}
+
 /* ---- A poll's tally ---- */
 .pl-poll-results {
     display: flex;

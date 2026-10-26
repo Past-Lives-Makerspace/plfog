@@ -75,7 +75,7 @@ def describe_the_panel():
         WikiSearchMissFactory(guild=guild, query="Epoxy Cure Time")
         WikiWantedPageFactory(guild=guild, title="epoxy cure time")
         panel = _panel(client, guild)
-        assert "On the wanted list" in panel
+        assert "On the Wanted List" in panel
         assert "Add To Wanted" not in panel
 
     def it_offers_the_button_again_once_the_row_is_written(db, client):
@@ -121,7 +121,7 @@ def describe_add_to_wanted():
             **_HTMX,
         )
         body = response.content.decode()
-        assert "On the wanted list" in body
+        assert "On the Wanted List" in body
         assert 'id="wiki-tab-wanted-rows"' in body
         assert 'hx-swap-oob="true"' in body
         assert json.loads(response["HX-Trigger"])["showToast"]["message"] == "Added to Wanted pages."

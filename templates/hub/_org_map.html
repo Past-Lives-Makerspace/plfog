@@ -67,7 +67,7 @@ Context: floorplans, pending_space_ids, can_edit.
     {% if not f.hotspots.all %}
     <p class="pl-map-caption hub-text-muted">
         No spaces marked on this floor yet.
-        {% if can_edit %}<a href="{% url 'hub_org_map_edit' %}?tab=placement&amp;floor={{ f.pk }}">Add markers &rarr;</a>{% endif %}
+        {% if can_edit %}<a href="{% url 'hub_org_map_edit' %}?tab=placement&amp;floor={{ f.pk }}">Add Markers &rarr;</a>{% endif %}
     </p>
     {% endif %}
 </div>
@@ -75,6 +75,6 @@ Context: floorplans, pending_space_ids, can_edit.
 
 {% if can_edit %}
 <p class="pl-map-admin">
-    <a href="{% url 'hub_org_map_edit' %}" class="hub-btn hub-btn--sm">Edit the map &rarr;</a>
+    <a href="{% url 'hub_org_map_edit' %}" class="hub-btn hub-btn--sm">Edit the Map &rarr;</a>
 </p>
 {% endif %}

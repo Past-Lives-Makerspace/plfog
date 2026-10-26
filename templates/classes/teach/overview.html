@@ -12,7 +12,7 @@ tests/core/tours_spec.py fails if a targeted key is stamped in no template at al
 
 {% block tab_content %}
 {% if payouts_nudge %}{% include "billing/partials/payouts_nudge.html" with kind="classes" %}{% endif %}
-<a href="?tour=instructor" class="hub-btn hub-btn--sm hub-btn--ghost pl-tour-entry-link">Show me around</a>
+<a href="?tour=instructor" class="hub-btn hub-btn--sm hub-btn--ghost pl-tour-entry-link">Show Me Around</a>
 
 {% comment %}Needs Attention — one card for every queue that wants this instructor, whether
 they teach anything yet or not. It sits ABOVE the has_classes split on purpose: a guild lead
@@ -154,7 +154,7 @@ guild still must not be offered it.{% endcomment %}
     <section class="hub-card" style="margin:0;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
         <h2 class="overview-title" style="margin:0;">Recent Sign-Ups</h2>
-        <a href="{% url 'classes:teach_registrations' %}">View all sign-ups →</a>
+        <a href="{% url 'classes:teach_registrations' %}">View All Sign-ups →</a>
       </div>
       <div class="admin-table-wrap" style="margin-top:8px;">
         <table>

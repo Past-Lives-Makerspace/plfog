@@ -7058,7 +7058,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     border-color: var(--color-tuscan-yellow);
 }
 
-/* ── "Show me around" entry link under a page header (§6.3) ── */
+/* ── "Show Me Around" entry link under a page header (§6.3) ── */
 .pl-tour-entry-link {
     margin: -0.75rem 0 1.25rem;
 }
