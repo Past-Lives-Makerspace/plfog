@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-26"
+title = "Guild pages show just the latest announcement"
+changes = [
+  "A guild page now shows only its newest announcement, in a smaller card. Long posts fold up with a Read more button.",
+  "Bullet lists and paragraphs in announcements now show the way they were written.",
+  "A Past Announcements link opens everything the guild has posted, newest first.",
+]
