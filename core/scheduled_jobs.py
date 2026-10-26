@@ -475,8 +475,7 @@ def record_run(
         trigger=trigger,
         actor=actor if (actor is not None and getattr(actor, "pk", None)) else None,
         status=ScheduledTaskRun.Status.RUNNING,
-        # The clock the dispatcher reads, not the field default bound at import, so a run sits
-        # in the window the dispatcher placed it in (and a spec can pin the tick).
+        # The field default holds the original timezone.now, so a spec patching that name pins every clock but this one.
         started_at=timezone.now(),
     )
     token = _current_run.set(run)
