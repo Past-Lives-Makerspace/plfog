@@ -73,6 +73,8 @@ if TYPE_CHECKING:
     from django.core.files.uploadedfile import UploadedFile
     from django.http import HttpRequest
 
+    from classes.models import Category
+
     from billing.models import LateCancellationFee, PaymentRefund
     from classes.models import ClassOffering
     from core.events.channels import Channel, Message
@@ -3292,6 +3294,40 @@ class Guild(HeroCropMixin, models.Model):
             self.slug = self._unique_slug()
         delete_orphan_on_replace(self, "banner_image")
         super().save(*args, **kwargs)
+        if self.is_active and self.deleted_at is None:
+            self.ensure_class_type()
+
+    @property
+    def class_type_name(self) -> str:
+        """The Class Type name for this guild: its name without a trailing "Guild"."""
+        return re.sub(r"\s+guild\s*$", "", self.name, flags=re.IGNORECASE).strip() or self.name
+
+    def ensure_class_type(self) -> Category | None:
+        """Give this guild a Class Type on the class composer, creating it when missing.
+
+        Returns the guild's linked Class Type. When none is linked, an unlinked one with the
+        same name or slug is linked; otherwise a new one is created ("Printmaking Guild" gets
+        "Printmaking"). Returns ``None`` when that name already belongs to another guild, so
+        no guild's Class Type is ever taken over. Migration ``classes.0094`` applies the same
+        rule to the guilds that existed before this.
+        """
+        from django.utils.text import slugify
+
+        from classes.models import Category
+
+        linked = self.categories.order_by("pk").first()
+        if linked is not None:
+            return linked
+        name = self.class_type_name
+        slug = slugify(name) or self.slug
+        match = Category.objects.filter(models.Q(name__iexact=name) | models.Q(slug=slug)).first()
+        if match is None:
+            return Category.objects.create(name=name, slug=slug, guild=self)
+        if match.guild_id is not None:
+            return None
+        match.guild = self
+        match.save(update_fields=["guild"])
+        return match
 
     def soft_delete(self) -> None:
         """Hide the guild everywhere without destroying its data or breaking its relations.
