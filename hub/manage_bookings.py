@@ -1,7 +1,7 @@
 """The Manage Bookings home (#768): one page for everyone who runs orientations or equipment.
 
 Teaching is the one place for an instructor's classes; this is the one place for a guild lead's,
-an orienter's or an equipment manager's bookings, at ``/manage/bookings/``. Three cards: Needs
+an orientor's or an equipment manager's bookings, at ``/manage/bookings/``. Three cards: Needs
 Attention (orientation requests waiting on the viewer and reservations awaiting their approval,
 each the Bookings tab's own row, menu and modal, so there is no second Confirm or Approve path),
 What You Run (a card per guild and per piece of equipment in scope, with its state, its

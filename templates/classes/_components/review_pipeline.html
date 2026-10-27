@@ -1,5 +1,5 @@
 {% comment %}
-Review pipeline strip (page version): Submitted, Guild lead (when required), Admin, Live.
+Review pipeline strip (page version): Submitted (In draft until it is), Guild lead (when required), Admin, Live.
 
   {% include "classes/_components/review_pipeline.html" with pipeline=offering.review_pipeline %}
 
@@ -12,7 +12,7 @@ equals the headline. Under 480px the strip stacks with the fill running down the
     <li class="pl-pipeline__track" aria-hidden="true"><div class="pl-pipeline__fill" style="width: {{ pipeline.fill_percent }}%;"></div></li>
     {% for step in pipeline.steps %}
       <li class="pl-pipeline__step pl-pipeline__step--{{ step.state }}" data-step="{{ step.key }}">
-        <span class="pl-pipeline__dot" aria-hidden="true">{% if step.state == 'done' %}&#10003;{% elif step.state == 'changes_requested' %}&#8617;{% elif step.state == 'current' %}&#9679;{% endif %}</span>
+        <span class="pl-pipeline__dot" aria-hidden="true">{% if step.state == 'done' %}&#10003;{% elif step.state == 'changes_requested' %}&#8617;{% elif step.state == 'current' or step.state == 'draft' %}&#9679;{% endif %}</span>
         <span class="pl-pipeline__label">{{ step.label }}{% if step.detail %} <span class="pl-pipeline__detail">{{ step.detail }}</span>{% endif %}</span>
       </li>
     {% endfor %}

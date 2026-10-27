@@ -48,7 +48,7 @@ def _page(guild: Guild) -> str:
 
 
 def _edit_hours_targets(content: str, guild: Guild) -> list[str]:
-    """The orienter pks whose Edit Hours button the page renders."""
+    """The orientor pks whose Edit Hours button the page renders."""
     form_url = re.escape(reverse("hub_guild_orientation_hours_form", args=[guild.pk]))
     return re.findall(rf'hx-get="{form_url}\?orienter=(\d+)"', content)
 

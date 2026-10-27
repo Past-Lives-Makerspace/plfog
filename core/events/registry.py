@@ -105,7 +105,7 @@ class Recipients(str, Enum):
     GUILD_MEMBERS = "guild_members"
     GUILD_ORIENTERS = "guild_orienters"
     # Composed (never a union): equipment in context -> the equipment's managers;
-    # else the guild's orienters (personal-slot narrowing preserved).
+    # else the guild's orientors (personal-slot narrowing preserved).
     GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS = "guild_orienters_or_equipment_managers"
     ORIENTATION_RUNNER = "orientation_runner"
     REGISTRANT = "registrant"
@@ -1404,7 +1404,7 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # wiki.guild_digest_monthly — one email per guild, on the 1st, to that guild's
-    # leadership (lead + every staff role, orienters included). It carries the three things
+    # leadership (lead + every staff role, orientors included). It carries the three things
     # a lead can act on in an afternoon: pages that went up, pages due a check, and what
     # members searched for and did not find. A guild with nothing to report gets NO email,
     # so this is never a monthly reminder that nothing happened.
@@ -1506,14 +1506,14 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # feedback.request_updated — a request sent from the Feedback page moved to Planned,
-    # Building, Live (Fixed for a bug) or Not planned (#693). One key for every transition: the
-    # status and any comment written in the same save travel in the context. The sender is a User,
-    # who may have no Member row. The period carries the status and a timestamp, so each
-    # transition notifies once. No activity row: the request's own status date is the record.
+    # Building, Live (Fixed for a bug), Not planned, Not a bug or Closed (#693, #963). One key for
+    # every transition: the status and any comment written in the same save travel in the context.
+    # The sender is a User, who may have no Member row. The period carries the status and a
+    # timestamp, so each transition notifies once. No activity row: the status date is the record.
     EventType(
         key=FEEDBACK_REQUEST_UPDATED,
         label="Updates to your requests",
-        description="A feature request or bug report you sent is planned, being built, live, or not planned.",
+        description="Something you sent is planned, being built, live, not planned, not a bug or closed.",
         category="Your requests",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),

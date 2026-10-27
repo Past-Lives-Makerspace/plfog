@@ -56,7 +56,7 @@ def _settings_payload(**overrides: str) -> dict[str, str]:
 
 
 def _hours_payload(scope: str = "", **overrides: str) -> dict[str, str]:
-    """A personal-scope hours POST (prefix ``rules``); ``scope`` is the orienter pk."""
+    """A personal-scope hours POST (prefix ``rules``); ``scope`` is the orientor pk."""
     data = {
         "orienter_scope": scope,
         "rules-TOTAL_FORMS": "0",
@@ -72,7 +72,7 @@ def _modal_hours_payload(scope: str, **overrides: str) -> dict[str, str]:
     """A personal-scope hours POST through the Edit Hours modal (prefix ``modal_rules``, HTMX).
 
     Personal hours are modal-only now; post it with ``HTTP_HX_REQUEST="true"``. ``scope`` is the
-    orienter pk. Pass ``modal_rules-*`` overrides to add/override rows.
+    orientor pk. Pass ``modal_rules-*`` overrides to add/override rows.
     """
     data = {
         "orienter_scope": scope,
@@ -335,7 +335,7 @@ def describe_guild_orientation_hours_save():
         assert response.status_code == 204
         slot = OrientationSlot.objects.filter(guild=guild, source=OrientationSlot.Source.GENERATED).first()
         assert slot is not None
-        # Generated slots carry their rule's orienter AND orientation type through.
+        # Generated slots carry their rule's orientor AND orientation type through.
         assert slot.orienter == user.member
         assert slot.orientation_type == orientation_type
 

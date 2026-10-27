@@ -52,7 +52,7 @@ def _reaches(request: HttpRequest, orienter: Member, roster: list[Member]) -> bo
     Edit Hours lets a lead edit any member's rows in that guild, and those rows only ever
     touch that guild. A day off cancels and emails across every guild and tool the person
     orients on, so anyone short of effective staff (admin or officer) reaches only the people
-    on the card they opened: the guild's leadership, or the equipment's orienters. One's own
+    on the card they opened: the guild's leadership, or the equipment's orientors. One's own
     day off is unchanged, since the hours gate's self scope already requires being on it.
     """
     if is_effective_staff(request):
@@ -106,7 +106,7 @@ def days_off_by_orienter(members: Iterable[Member]) -> dict[str, list[Orientatio
 def _target(raw: str) -> Member:
     """The person a request names (``orienter``), or a 404: a day off is always one person's."""
     if not raw.isdigit():
-        raise Http404("Unknown orienter.")
+        raise Http404("Unknown orientor.")
     return get_object_or_404(Member, pk=int(raw))
 
 
@@ -200,7 +200,7 @@ def _day_off_delete(request: HttpRequest, owner: _Owner, day_off_pk: int) -> Htt
 
 @login_required
 def guild_orientation_days_off(request: HttpRequest, pk: int) -> HttpResponse:
-    """The Days Off modal body for one of a guild's orienters (HTMX GET, ``?orienter=<pk>``)."""
+    """The Days Off modal body for one of a guild's orientors (HTMX GET, ``?orienter=<pk>``)."""
     return _days_off_modal(request, _guild_owner(pk))
 
 
@@ -226,7 +226,7 @@ def guild_orientation_day_off_delete(request: HttpRequest, pk: int, day_off_pk: 
 
 @login_required
 def hub_equipment_orientation_days_off(request: HttpRequest, slug: str) -> HttpResponse:
-    """The Days Off modal body for one of the equipment's orienters (HTMX GET, ``?orienter=<pk>``)."""
+    """The Days Off modal body for one of the equipment's orientors (HTMX GET, ``?orienter=<pk>``)."""
     return _days_off_modal(request, _equipment_owner(slug))
 
 

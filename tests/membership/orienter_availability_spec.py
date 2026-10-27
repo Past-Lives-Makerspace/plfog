@@ -1,7 +1,7 @@
-"""BDD specs for per-orienter orientation availability — model + service layer.
+"""BDD specs for per-orientor orientation availability — model + service layer.
 
 Covers the two new ``orienter`` FKs, the queryset helpers, the ``with_label``
-phrase, slot generation threading, the departed-orienter bookability guard, the
+phrase, slot generation threading, the departed-orientor bookability guard, the
 confirm/complete crediting chain, and the retirement flows (``retire_rule`` /
 ``retire_orienter``).
 """
@@ -76,7 +76,7 @@ def describe_rule_str():
 
     def it_says_any_orienter_for_a_guild_rule():
         rule = OrientationAvailabilityFactory()
-        assert "(any orienter)" in str(rule)
+        assert "(any orientor)" in str(rule)
 
 
 def describe_with_label():
@@ -395,7 +395,7 @@ def describe_equipment_rules():
     def it_names_the_equipment_in_str():
         rule = _equipment_rule()
         assert str(rule).startswith(f"{_tool(rule).name} orientation:")
-        assert "(any orienter)" in str(rule)
+        assert "(any orientor)" in str(rule)
 
     def it_filters_rules_for_one_equipment():
         mine = _equipment_rule()
@@ -862,11 +862,11 @@ def describe_generate_slots_for_equipment():
         assert not OrientationSlot.objects.filter(starts_at=slot.starts_at, is_cancelled=False).exists()
 
     def it_skips_an_admins_personal_rule_until_they_run_the_tool():
-        """The site-wide EQUIPMENT capability does not make someone one of a tool's orienters.
+        """The site-wide EQUIPMENT capability does not make someone one of a tool's orientors.
 
         It grants authority over every machine, which is the right audience for
         notifications and the right permission gate — but it listed all thirteen council
-        members as orienters on a tool nobody had been assigned to. Joining the tool's
+        members as orientors on a tool nobody had been assigned to. Joining the tool's
         Staff tab is what makes a personal rule generate, mirroring how an admin joins a
         guild's leadership to publish hours there.
         """
@@ -883,7 +883,7 @@ def describe_generate_slots_for_equipment():
         assert orientations.generate_slots(equipment=tool) == 16
 
     def it_generates_for_the_owning_guilds_leadership():
-        """A tool owned by a guild inherits that guild's leadership as its orienters."""
+        """A tool owned by a guild inherits that guild's leadership as its orientors."""
         from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
         staffer = MemberFactory()
@@ -1439,7 +1439,7 @@ def describe_retire_equipment_orienter():
         dana = MemberFactory(full_legal_name="Dana Reyes")
         EquipmentStaffMembershipFactory(equipment=tool, member=dana)
         mine = _equipment_rule(orientation_type=rule.orientation_type, orienter=dana)
-        shared = rule  # orienter-less, must survive
+        shared = rule  # orientor-less, must survive
         elsewhere = _equipment_rule(orienter=dana)  # another tool's rule, must survive
         open_slot = _generated_slot(mine, hour=10)
         booked = _generated_slot(mine, hour=11)

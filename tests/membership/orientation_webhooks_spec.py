@@ -76,7 +76,7 @@ def describe_handle_checkout_session_completed():
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_REQUESTED).exists()
         subjects = [m.subject.lower() for m in mail.outbox]
         assert any("request received" in s for s in subjects)  # member email
-        assert any("new orientation request" in s for s in subjects)  # lead/orienter email
+        assert any("new orientation request" in s for s in subjects)  # lead/orientor email
 
     def it_stamps_the_webhooks_amount_total_as_canonical():
         hold = _hold(amount_paid_cents=1500)

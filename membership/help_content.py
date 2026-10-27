@@ -385,7 +385,7 @@ Your request goes to the guild's leads, and it is not official until one of them
 
 ## Pick a Time {#orientation-pick-a-time}
 
-Some guilds post open windows of orienter time as well as fixed slots. Under **Pick a Time**, click **Pick a time** on a window that works and choose the start that suits you; your booking takes up the orientation's usual length inside the window. It still goes to the guild's leads to confirm, same as a slot booking.
+Some guilds post open windows of orientor time as well as fixed slots. Under **Pick a Time**, click **Pick a time** on a window that works and choose the start that suits you; your booking takes up the orientation's usual length inside the window. It still goes to the guild's leads to confirm, same as a slot booking.
 
 ## Request a Custom Time {#orientation-request-custom-time}
 
@@ -1324,7 +1324,7 @@ Open your guild's page and click **Guild Settings**. Every tool below lives on o
 
 **People:**
 
-- **Staff** — add co-leads, secretaries, treasurers, orienters, or invent a title. Every role carries full lead authority, so read [Guild Staff Roles](/help/running-a-guild/guild-staff-roles/) before adding anyone.
+- **Staff** — add co-leads, secretaries, treasurers, orientors, or invent a title. Every role carries full lead authority, so read [Guild Staff Roles](/help/running-a-guild/guild-staff-roles/) before adding anyone.
 - **Orientations** — set recurring hours, respond to requests straight from the email on your phone, and track who's oriented. See [Running Orientations](/help/running-a-guild/running-orientations/).
 
 **Reaching members:**
@@ -1447,7 +1447,7 @@ Only leads, staff, and admins see the Guild Settings button. Everything a staff 
         "body": """\
 ### One Rule Before Anything Else {#guild-staff-authority}
 
-**Every staff role grants the full authority of the guild lead, except class review.** There are no junior roles. Whether you add someone as a Co-Lead, Secretary, Treasurer, Orienter, or under a custom title you invent, the title is only a label. The moment they're on your staff, they can do everything you can do for this guild apart from reviewing classes.
+**Every staff role grants the full authority of the guild lead, except class review.** There are no junior roles. Whether you add someone as a Co-Lead, Secretary, Treasurer, Orientor, or under a custom title you invent, the title is only a label. The moment they're on your staff, they can do everything you can do for this guild apart from reviewing classes.
 
 Concretely, every staff member can:
 
@@ -1472,7 +1472,7 @@ Only the guild lead and admins can flip the switch. Other staff see it but can't
 ### Add or Remove Staff {#guild-manage-staff}
 
 1. Open your guild's page and click **Guild Settings**, then the **Staff** tab.
-2. Pick the member, then either a preset role (Secretary, Treasurer, Orienter) or type your own title. One or the other, not both. Only admins can add a Co-Lead, and the guild lead itself is set by an admin.
+2. Pick the member, then either a preset role (Secretary, Treasurer, Orientor) or type your own title. One or the other, not both. Only admins can add a Co-Lead, and the guild lead itself is set by an admin.
 3. Click **Add staff member**.
 
 ![The Staff tab: current staff with their title badges, and the add form below.](/static/help/guild-staff-roles/01-staff-tab.png)
@@ -1533,7 +1533,7 @@ Going away for a while? The **Closed for orientations** card pauses bookings wit
 
 Bookable times come from people's hours. The **Orientation Schedule** card lists everyone on your staff who can give orientations; click **Edit Hours** beside a name to open their hours. Each row is one recurring window: the orientation it is for, **How members book** (fixed start times, or any time in the window), the day, from and until, how often it repeats (every week, every other week, monthly, and so on) and the day it starts. Click **+ Add hours** for another row, then **Save**. Saving turns the hours into concrete bookable times right away, and a nightly job keeps the next eight weeks open.
 
-Hours belong to a person: members book you by name. A plain orienter edits only their own hours; the lead and admins edit anyone's.
+Hours belong to a person: members book you by name. A plain orientor edits only their own hours; the lead and admins edit anyone's.
 
 ### Days Off {#orientation-days-off}
 
@@ -1551,7 +1551,7 @@ If you allow custom requests, a member who can't make your posted times can prop
 
 ### Respond to a Request {#orientation-respond-requests}
 
-When a member requests a slot, the guild lead and every staff member get an email, and orienters get an in-app notice. You can respond two ways:
+When a member requests a slot, the guild lead and every staff member get an email, and orientors get an in-app notice. You can respond two ways:
 
 - **From the email.** It carries direct confirm and decline links. Each opens a one-click confirmation page and works without logging in, so you can handle a request from your phone.
 - **From the app.** **Manage Bookings** in the left menu opens on **Needs Attention**, every request waiting on you; open the row's **...** menu and pick **Confirm Request** or **Decline Request** (with an optional note, like suggesting another time). The same rows are on the Orientations page's **Bookings** tab. **View Request** opens the full request, which has the same buttons, as do the email's respond link and the in-app notice.
@@ -1565,7 +1565,7 @@ Confirming emails the member a calendar invite. Declining emails them your note.
 - **Move it now** confirms the new time and emails the member the old and new time with an updated calendar invite.
 - **Ask the member first** keeps their current time and emails them **Accept new time** and **Keep my current time**; their booking card shows the same buttons. You get a notice with their answer. A second ask replaces the first.
 
-The new time runs with the same orienter. The payment stays with the booking either way: nothing is refunded or charged. A member who cancels a booking you moved never pays a late cancellation fee.
+The new time runs with the same orientor. The payment stays with the booking either way: nothing is refunded or charged. A member who cancels a booking you moved never pays a late cancellation fee.
 
 ### Manage Bookings {#manage-bookings}
 
@@ -1947,7 +1947,7 @@ The repository lives at [github.com/Past-Lives-Makerspace/plfog](https://github.
 
 ## Ways to Contribute (No Coding Required)
 
-- **Report a bug or share an idea in the app.** The **Feedback** link at the bottom of the sidebar goes straight to the people who build the Member Portal. Under **Your Requests** you see where each one stands, read what we write back and reply, with photos if they help. You get a notification when we write.
+- **Report a bug or share an idea in the app.** The **Feedback** link at the bottom of the sidebar goes straight to the people who build the Member Portal. Under **Your Requests** you see where each one stands, read what we write back and reply, with photos if they help. You get a notification when we write. When we close a request, or mark a bug report **Not a bug** with the right way to do the thing, you hear about it too, and you can still reply. Admins answer, close and mark requests from **Admin Tools > Feedback Inbox**, where a request a member replied to stays in view even after it is closed.
 - **Open a GitHub issue.** If you have a GitHub account, [open an issue](https://github.com/Past-Lives-Makerspace/plfog/issues) describing the bug or idea. Screenshots help a lot.
 - **Improve these guides.** The Help Center articles live in the code too — typo fixes and clearer wording are real contributions.
 

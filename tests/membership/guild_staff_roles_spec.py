@@ -44,7 +44,7 @@ def describe_title_problem():
         guild, member = GuildFactory(), MemberFactory(full_legal_name="Ana Held")
         GuildStaffMembershipFactory(guild=guild, member=member, role=Role.ORIENTER)
         GuildStaffMembershipFactory(guild=guild, member=member, role="", custom_title="Kiln Tech")
-        assert "is already Orienter" in GuildStaffMembership.title_problem(guild, member, Role.ORIENTER, "")
+        assert "is already Orientor" in GuildStaffMembership.title_problem(guild, member, Role.ORIENTER, "")
         assert "already holds the title" in GuildStaffMembership.title_problem(guild, member, "", "kiln tech")
 
     def it_skips_the_row_being_renamed():
@@ -150,7 +150,7 @@ def describe_retitle():
     def it_refuses_a_title_the_member_already_holds():
         row = GuildStaffMembershipFactory(role=Role.TREASURER)
         GuildStaffMembershipFactory(guild=row.guild, member=row.member, role=Role.ORIENTER)
-        with pytest.raises(ValueError, match="is already Orienter"):
+        with pytest.raises(ValueError, match="is already Orientor"):
             row.retitle(Role.ORIENTER, "")
 
 
@@ -170,7 +170,7 @@ def describe_guild_roles():
         assert [r.guild.name for r in roles] == ["Alder Guild", "Maple Guild", "Zinc Guild"]
         alder, maple, zinc = roles
         assert alder == GuildRoles(guild=staffed, is_lead=False, staff=alder.staff, reviews_classes=False)
-        assert [row.display_title for row in alder.staff] == ["Orienter", "Wood Tech"]
+        assert [row.display_title for row in alder.staff] == ["Orientor", "Wood Tech"]
         assert (maple.is_lead, maple.reviews_classes) == (False, True)
         assert (zinc.guild, zinc.is_lead, zinc.staff, zinc.reviews_classes) == (led, True, [], True)
 

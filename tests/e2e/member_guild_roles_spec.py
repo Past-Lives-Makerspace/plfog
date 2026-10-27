@@ -1,6 +1,6 @@
 """End-to-end: an admin makes Erin a Class Reviewer from her member page, and the guild sees it (#968).
 
-Erin is an Orienter on the Printmaking Guild with Class Reviewer off. On her Edit page's
+Erin is an Orientor on the Printmaking Guild with Class Reviewer off. On her Edit page's
 Permissions tab the admin flips that guild's Class Reviewer switch (saved over htmx, no reload),
 then uses Add to a Guild with only Class Reviewer on to make her a reviewer of the Wood Guild,
 which she was not on. Both guilds' Staff tabs then show her switch on. Waits are on what the page

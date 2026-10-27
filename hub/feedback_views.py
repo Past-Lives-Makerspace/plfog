@@ -20,7 +20,7 @@ from django.views.decorators.http import require_POST
 
 from classes.table import prepare_table
 from core.models import FeedbackRequest, FeedbackRequestError
-from hub.forms import FeedbackCommentForm, FeedbackRequestAdminForm
+from hub.forms import FeedbackCommentForm, FeedbackRequestAdminForm, FeedbackResolveForm
 from hub.view_as import fog_admin_required
 from hub.views import _get_hub_context
 
@@ -64,6 +64,11 @@ def hub_admin_feedback_inbox(request: HttpRequest) -> HttpResponse:
         rows = rows.filter(category=category)
     if status in FeedbackRequest.Status.values:
         rows = rows.filter(status=status)
+    elif status == "closed_all":
+        rows = rows.closed()
+    elif status != "all":
+        status = ""  # the default view, and what any unknown value falls back to
+        rows = rows.open()
     if replied:
         rows = rows.member_replied()
     table = prepare_table(
@@ -86,6 +91,7 @@ def hub_admin_feedback_inbox(request: HttpRequest) -> HttpResponse:
             "filters": {"category": category, "status": status, "replied": replied},
             "categories": FeedbackRequest.Category.choices,
             "statuses": FeedbackRequest.Status.choices,
+            "views": [("", "Open"), ("closed_all", "All closed"), ("all", "All statuses")],
             "is_filtered": bool(category or status or replied),
             "inbox_query": request.GET.urlencode(),
         },
@@ -109,6 +115,8 @@ def _request_page(
             "sender_member": getattr(feedback_request.user, "member", None),
             "form": form or FeedbackRequestAdminForm(feedback_request=feedback_request),
             "comment_form": comment_form or FeedbackCommentForm(),
+            "not_a_bug_form": FeedbackResolveForm.for_not_a_bug(),
+            "close_form": FeedbackResolveForm.for_close(),
             "inbox_query": request.GET.urlencode(),
         },
     )
@@ -173,3 +181,36 @@ def hub_admin_feedback_mark_live(request: HttpRequest, pk: int) -> HttpResponse:
     else:
         messages.success(request, _saved_message(feedback_request, cast("User", request.user), notified))
     return redirect(_request_url(feedback_request, request.GET.urlencode()))
+
+
+def _resolve(request: HttpRequest, pk: int, *, not_a_bug: bool) -> HttpResponse:
+    """Post Not a bug or Close with its comment in one save and one notice; a refusal is a message."""
+    feedback_request = get_object_or_404(FeedbackRequest.objects.select_related("user__member"), pk=pk)
+    actor = cast("User", request.user)
+    form = FeedbackResolveForm(request.POST)
+    form.is_valid()  # one optional text field: it always cleans
+    comment = form.cleaned_data["comment"]
+    try:
+        if not_a_bug:
+            notified = feedback_request.mark_not_a_bug(actor=actor, comment=comment)
+        else:
+            notified = feedback_request.close(actor=actor, comment=comment)
+    except FeedbackRequestError as refusal:
+        messages.error(request, str(refusal))
+    else:
+        messages.success(request, _saved_message(feedback_request, actor, notified))
+    return redirect(_request_url(feedback_request, request.GET.urlencode()))
+
+
+@fog_admin_required
+@require_POST
+def hub_admin_feedback_not_a_bug(request: HttpRequest, pk: int) -> HttpResponse:
+    """Close a bug report as Not a bug with the required comment telling the sender the right way."""
+    return _resolve(request, pk, not_a_bug=True)
+
+
+@fog_admin_required
+@require_POST
+def hub_admin_feedback_close(request: HttpRequest, pk: int) -> HttpResponse:
+    """Close any request, general feedback included, with an optional comment."""
+    return _resolve(request, pk, not_a_bug=False)

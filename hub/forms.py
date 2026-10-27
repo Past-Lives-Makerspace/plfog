@@ -1012,9 +1012,17 @@ class FeedbackRequestAdminForm(forms.Form):
         )
         self.category = feedback_request.category
         self.current_status = feedback_request.status
+        cast(forms.ChoiceField, self.fields["status"]).choices = self.status_choices(feedback_request)
+
+    @staticmethod
+    def status_choices(feedback_request: FeedbackRequest) -> list[tuple[str, str]]:
+        """The statuses this request can take: general feedback Received or Closed; Not a bug only on a bug."""
+        statuses = FeedbackRequest.Status
         if feedback_request.stays_received:
-            received = FeedbackRequest.Status.RECEIVED
-            cast(forms.ChoiceField, self.fields["status"]).choices = [(received.value, received.label)]
+            return [(value, label) for value, label in statuses.choices if value in FeedbackRequest.FEEDBACK_STATUSES]
+        if feedback_request.category != FeedbackRequest.Category.BUG:
+            return [(value, label) for value, label in statuses.choices if value != statuses.NOT_A_BUG]
+        return list(statuses.choices)
 
     def clean(self) -> dict[str, Any]:
         """Refuse what the model refuses (Not planned without a comment), in its words."""
@@ -1028,6 +1036,28 @@ class FeedbackRequestAdminForm(forms.Form):
         if refusal is not None:
             self.add_error("comment", refusal)
         return cleaned
+
+
+class FeedbackResolveForm(forms.Form):
+    """The comment posted with Not a bug or Close from a request's admin page.
+
+    Blank is allowed here; :meth:`core.models.FeedbackRequest.update_refusal` decides when a
+    comment is required (Not a bug) and refuses in its own words.
+    """
+
+    comment = forms.CharField(required=False, label="Comment", widget=forms.Textarea(attrs={"rows": 5}))
+
+    @classmethod
+    def for_not_a_bug(cls) -> FeedbackResolveForm:
+        """The Not a Bug modal's form: the opener already typed, and the box required in the browser too."""
+        form = cls(initial={"comment": FeedbackRequest.NOT_A_BUG_OPENER}, auto_id="id_not_a_bug_%s")
+        form.fields["comment"].widget.attrs["required"] = True
+        return form
+
+    @classmethod
+    def for_close(cls) -> FeedbackResolveForm:
+        """The Close modal's form: an optional, empty comment."""
+        return cls(auto_id="id_close_%s")
 
 
 class MemberAdminEditForm(forms.ModelForm):
@@ -3462,8 +3492,8 @@ EquipmentOrientationAvailabilityFormSet = forms.modelformset_factory(
 class OrientationSlotForm(forms.ModelForm):
     """Add a one off from the Upcoming Times card: a fixed slot, or an open window (#532).
 
-    Date and half hour times are ``<select>`` dropdowns (Rule 20), plus an Orienter select
-    whose choices are the guild's leadership and an "Any orienter (guild slot)" empty
+    Date and half hour times are ``<select>`` dropdowns (Rule 20), plus an Orientor select
+    whose choices are the guild's leadership and an "Any orientor (guild slot)" empty
     choice; a plain staff member gets the field locked to themselves (a crafted POST cannot
     override it). ``booking_style`` picks the shape. Fixed start times need an orientation,
     a duration and seats and save an :class:`OrientationSlot`. Any time in the window needs
@@ -3502,8 +3532,8 @@ class OrientationSlotForm(forms.ModelForm):
     orienter = forms.ModelChoiceField(
         queryset=Member.objects.none(),
         required=False,
-        label="Orienter",
-        empty_label="Any orienter (guild slot)",
+        label="Orientor",
+        empty_label="Any orientor (guild slot)",
     )
 
     class Meta:
@@ -3681,7 +3711,7 @@ class OrientationTimesBulkCancelForm(forms.Form):
 
 
 class OrientationDayOffForm(forms.ModelForm):
-    """One day off for one orienter (#767): the date and an optional note.
+    """One day off for one orientor (#767): the date and an optional note.
 
     The person is fixed by the view (the modal is per person), never posted. The date input
     carries the impact preview: on change it asks ``preview_url`` for the day's count line and
@@ -4932,7 +4962,7 @@ class GuildLeadForm(forms.Form):
 class GuildStaffAddForm(forms.Form):
     """Lead/admin/staff assigns a member a guild staff entry — a preset role or a free-text custom title.
 
-    Each entry is *either* one preset role (co-lead/secretary/treasurer/orienter) *or* one custom title
+    Each entry is *either* one preset role (co-lead/secretary/treasurer/orientor) *or* one custom title
     (e.g. "Studio Technician"), never both. Titles are cosmetic — every staff entry grants the same authority.
     The Class Reviewer switch (#968) is offered only to whoever may set it (``allow_class_reviewer``,
     the lead or an admin); with it on, a role and a title may both be left blank. The rules live in
@@ -7648,8 +7678,8 @@ class EquipmentCreditUnusedForm(forms.Form):
 class EquipmentOrientationSlotForm(forms.ModelForm):
     """Add a one-off orientation time from the equipment manage panel's Orientation tab.
 
-    Mirrors :class:`OrientationSlotForm` minus the orienter picker — equipment slots
-    are always "any manager" (the no-per-orienter-machinery decision). The view
+    Mirrors :class:`OrientationSlotForm` minus the orientor picker — equipment slots
+    are always "any manager" (the no-per-orientor-machinery decision). The view
     stamps ``guild=None`` (implicit) and ``source=MANUAL``.
     """
 
@@ -7702,7 +7732,7 @@ class EquipmentOrientationSlotForm(forms.ModelForm):
             self.fields["seats"].initial = first_type.default_seats
             if first_type.default_location:
                 self.fields["location"].initial = first_type.default_location
-        # Runs with: this tool's orienters plus "Any manager"; a plain manager is fixed to
+        # Runs with: this tool's orientors plus "Any manager"; a plain manager is fixed to
         # themselves. Mirrors the guild slot form, which offers ``leadership_members()``.
         manager_ids = {member.pk for member in equipment.orienter_members()}
         orienter_field = cast(forms.ModelChoiceField, self.fields["orienter"])

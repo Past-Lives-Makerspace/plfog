@@ -129,7 +129,7 @@ def describe_orientation_checkout_return():
         content = response.content.decode()
         assert "Pending Confirmation" in content
         assert "$15" in content
-        # A slot with no named orienter falls back to the owner-neutral copy.
+        # A slot with no named orientor falls back to the owner-neutral copy.
         assert "We sent your request to the folks who run it" in content
         assert "Watch for them to confirm your spot" in content
 

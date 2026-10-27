@@ -1,9 +1,9 @@
 """BDD specs for personal-slot request routing and the "with Bob" copy deltas.
 
-A personal slot's request (email + in-app) goes to the slot's orienter + the guild
+A personal slot's request (email + in-app) goes to the slot's orientor + the guild
 lead, deduped; a guild's shared slot goes to its whole leadership, email and bell alike,
 each person's Email switch deciding the email (#524). Member-facing emails and the
-``.ics`` gain the orienter's name, guarded so guild-slot emails carry no "with".
+``.ics`` gain the orientor's name, guarded so guild-slot emails carry no "with".
 """
 
 from __future__ import annotations
@@ -256,7 +256,7 @@ def describe_with_copy_deltas():
         assert "guild lead wasn't able" not in member_email.body
 
     def it_uses_the_owner_generic_copy_on_an_unassigned_guild_slot_decline():
-        # v1.32.0 made the no-orienter decline branch owner-agnostic (equipment
+        # v1.32.0 made the no-orientor decline branch owner-agnostic (equipment
         # orientations have no guild lead); guild slots share the generic line
         # and attribute the note to the owning guild.
         guild, _lead, _bob, _other = _routed_guild("cp_dg")

@@ -205,7 +205,8 @@ def describe_edit_page_cards():
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert "Not submitted yet" in html
-        assert "pl-pipeline__step--current" in html
+        assert "pl-pipeline__step--draft" in html
+        assert "pl-pipeline__step--current" not in html
         assert "Reviewer&#x27;s note" not in html and "Reviewer's note" not in html
 
     def it_lists_the_readiness_items_linking_to_their_fields(instructor_fixture, client):

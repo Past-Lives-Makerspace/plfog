@@ -88,7 +88,7 @@ def _open_slots(
 
     A card lists only times a member can take; a full one is left off (the owner page shows
     it as Full) but remembered, so a card with nothing else says so rather than "No times are
-    posted yet." A guild slot's orienter reads "Bob P." when two of that guild's leadership
+    posted yet." A guild slot's orientor reads "Bob P." when two of that guild's leadership
     share a first name, as on the guild page.
     """
     slots_by_type: dict[int, list[OrientationSlot]] = {}
@@ -157,7 +157,7 @@ def hub_orientations(request: HttpRequest) -> HttpResponse:
     Which types, and why one is paused, are the model's (``OrientationType.objects.listed_for``,
     ``OrientationType.paused_message``); the view applies the chips and the search. Built
     in one pass with a fixed number of queries however many types are listed: the types,
-    their guilds' orienter labels, their bookable slots, the open windows of their guilds
+    their guilds' orientor labels, their bookable slots, the open windows of their guilds
     (with every window's free time read in two queries), the member's state through the
     shared section builder, and the late fee.
 

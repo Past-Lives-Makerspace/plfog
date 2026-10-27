@@ -122,7 +122,7 @@ def describe_edit_hours_modal_choice():
 
     def it_keeps_the_legacy_shared_rows_fixed(client: Client):
         user, guild = _lead("ch2")
-        OrientationAvailabilityFactory(guild=guild)  # a shared Any orienter row
+        OrientationAvailabilityFactory(guild=guild)  # a shared Any orientor row
         client.login(username="ch2", password="pass")
         content = client.get(_tab(guild)).content.decode()
         assert "guild_rules-0-weekday" in content

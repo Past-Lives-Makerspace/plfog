@@ -1,4 +1,4 @@
-"""BDD specs for the per-orienter Orientations tab — My Hours scope binding, the lead
+"""BDD specs for the per-orientor Orientations tab — My Hours scope binding, the lead
 overview + edit-on-behalf, the legacy Guild Hours card, the Upcoming Times + Add a one off
 Slot card, rule-delete retirement, and the staff-remove hook."""
 
@@ -530,12 +530,12 @@ def describe_orientation_schedule_overview():
         assert f"orienter={bob.pk}".encode() in content
 
     def it_shows_a_plain_staffer_only_their_own_row(client: Client):
-        # A plain orienter (no authority over others) now sees the Orientation Schedule scoped
+        # A plain orientor (no authority over others) now sees the Orientation Schedule scoped
         # to their own row with its Edit Hours trigger — never another staffer's row.
         guild = GuildFactory()
         user = _member_user("ov_staff", name="Bob Placeholder")
         GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
-        other = MemberFactory(full_legal_name="Other Orienter")
+        other = MemberFactory(full_legal_name="Other Orientor")
         GuildStaffMembershipFactory(guild=guild, member=other, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="ov_staff", password="pass")
         response = client.get(_tab_url(guild))
@@ -573,7 +573,7 @@ def describe_guild_hours_legacy_card():
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="gh_none", password="pass")
         response = client.get(_tab_url(guild))
-        assert b"Guild Hours (Any Orienter)" not in response.content
+        assert b"Guild Hours (Any Orientor)" not in response.content
 
     def it_gives_the_lead_the_editable_formset(client: Client):
         user = _member_user("gh_lead", name="Lead Person")
@@ -581,7 +581,7 @@ def describe_guild_hours_legacy_card():
         OrientationAvailabilityFactory(guild=guild)
         client.login(username="gh_lead", password="pass")
         response = client.get(_tab_url(guild))
-        assert b"Guild Hours (Any Orienter)" in response.content
+        assert b"Guild Hours (Any Orientor)" in response.content
         assert b"guild_rules-TOTAL_FORMS" in response.content
         assert b"cannot be recreated" in response.content
 
@@ -592,7 +592,7 @@ def describe_guild_hours_legacy_card():
         OrientationAvailabilityFactory(guild=guild)
         client.login(username="gh_staff", password="pass")
         response = client.get(_tab_url(guild))
-        assert b"Guild Hours (Any Orienter)" in response.content
+        assert b"Guild Hours (Any Orientor)" in response.content
         assert b"Only the guild lead can change them." in response.content
         assert b"guild_rules-TOTAL_FORMS" not in response.content
 
@@ -755,7 +755,7 @@ def describe_hours_cadence():
         assert rule.anchor_date is None
 
     def it_keeps_a_legacy_shared_row_weekly_when_its_form_never_posts_the_field(client: Client):
-        # The Guild Hours (Any Orienter) card does not render the cadence fields (D4).
+        # The Guild Hours (Any Orientor) card does not render the cadence fields (D4).
         user, guild = _lead(client, "fn_legacy")
         rule = OrientationAvailabilityFactory(guild=guild)
         content = client.get(_tab_url(guild)).content.decode()
@@ -850,7 +850,7 @@ def describe_upcoming_slots_card():
         response = client.get(_tab_url(guild))
         assert b"Upcoming Times" in response.content
         assert b"Bob Placeholder" in response.content
-        assert b"Any orienter" in response.content
+        assert b"Any orientor" in response.content
         assert b"0 of 4 booked" in response.content
         assert b"recurring" in response.content
         assert b"one off" in response.content
@@ -894,7 +894,7 @@ def describe_add_a_slot():
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="as_lead", password="pass")
         response = client.get(_tab_url(guild))
-        assert b"Any orienter (guild slot)" in response.content
+        assert b"Any orientor (guild slot)" in response.content
         assert b"Runs with: you" not in response.content
 
     def it_locks_plain_staff_to_themselves(client: Client):
@@ -904,7 +904,7 @@ def describe_add_a_slot():
         client.login(username="as_staff", password="pass")
         response = client.get(_tab_url(guild))
         assert b"Runs with: you" in response.content
-        assert b"Any orienter (guild slot)" not in response.content
+        assert b"Any orientor (guild slot)" not in response.content
 
     def it_lets_the_lead_pick_an_orienter(client: Client):
         user = _member_user("as_pick", name="Lead Person")
@@ -959,7 +959,7 @@ def describe_add_a_slot():
 
 def describe_staff_remove_retirement():
     def it_keeps_hours_while_another_staff_row_stands(client: Client):
-        # Bob is Treasurer AND Orienter — removing the Treasurer row must not nuke his hours.
+        # Bob is Treasurer AND Orientor — removing the Treasurer row must not nuke his hours.
         user = _member_user("rm_multi", name="Lead Person")
         guild = GuildFactory(guild_lead=user.member)
         bob = MemberFactory(full_legal_name="Bob Placeholder")

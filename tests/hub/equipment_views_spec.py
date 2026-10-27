@@ -1468,7 +1468,7 @@ def describe_equipment_orientation_list():
         assert 'pl-orient-avatar pl-orient-avatar--initials">D<' in content
         assert content.count("Request</button>") == 2
         assert "send your request to Dana to confirm" in content
-        # Escaped like the orienter prompt above: the message is composed with |add (#456).
+        # Escaped like the orientor prompt above: the message is composed with |add (#456).
         assert "We&#x27;ll send your request to the equipment managers to confirm." in content
         assert "{ page: 0, size: 5, total: 2 }" in content
         assert "pl-orient-days" not in content

@@ -192,7 +192,7 @@ def describe_the_member_picker():
 def describe_recording():
     def it_records_silently_and_lands_on_the_oriented_list(client: Client):
         world = _lead_world(client)
-        orienter = MemberFactory(full_legal_name="Olga Orienter", status=Member.Status.ACTIVE)
+        orienter = MemberFactory(full_legal_name="Olga Orientor", status=Member.Status.ACTIVE)
         mail.outbox.clear()
         with mock.patch("core.events.emit.emit") as emit:
             response = client.post(
