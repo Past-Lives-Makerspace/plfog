@@ -143,3 +143,70 @@ def describe_a_feedback_conversation():
         page.locator(f'[data-feedback-row="{request.pk}"] a').first.click()
         expect(page.locator('[data-feedback-comment][data-from="sender"]')).to_contain_text("Zzit is a Pixel 8")
         assert not FeedbackRequest.objects.member_replied().exists()
+
+
+def describe_closing_feedback():
+    def it_closes_a_bug_as_not_a_bug_closes_feedback_and_keeps_a_closed_reply_in_view(
+        live_server, page: Page, login_via_code
+    ):
+        MembershipPlanFactory()
+        sender, _ = get_user_model().objects.get_or_create(
+            username=SENDER, defaults={"email": SENDER, "first_name": "Sam", "last_name": "Sender"}
+        )
+        bug = FeedbackRequestFactory(user=sender, category="bug", subject="Zzbook button does nothing")
+        idea = FeedbackRequestFactory(user=sender, category="feedback", subject="Zzlove the new shop")
+        page.set_viewport_size({"width": 1280, "height": 900})
+        _sign_in(page, login_via_code, ADMIN, fog_role=Member.FogRole.ADMIN)
+
+        # Not a bug: the box starts with the opener; emptied, the browser refuses to send it.
+        page.goto(f"{live_server.url}{reverse('hub_admin_feedback_request', args=[bug.pk])}")
+        page.locator("[data-feedback-not-a-bug]").click()
+        resolve = page.locator('[data-feedback-resolve-form="not_a_bug"]')
+        comment = resolve.locator("textarea")
+        expect(comment).to_have_value(FeedbackRequest.NOT_A_BUG_OPENER)
+        comment.fill("")
+        resolve.get_by_role("button", name="Mark Not a Bug").click()
+        expect(comment).to_be_visible()
+        assert FeedbackRequest.objects.get(pk=bug.pk).status == "received"
+        comment.fill(FeedbackRequest.NOT_A_BUG_OPENER + "tap the time first, then Book.")
+        resolve.get_by_role("button", name="Mark Not a Bug").click()
+        expect(page.get_by_text("Saved. Sam Sender was notified.")).to_be_visible()
+        expect(page.locator(".pl-feedback-admin__meta [data-feedback-status]")).to_have_text("Not a bug")
+        expect(page.locator('[data-feedback-comment][data-from="staff"]')).to_contain_text("tap the time first")
+
+        # Close: general feedback, no comment needed.
+        page.goto(f"{live_server.url}{reverse('hub_admin_feedback_request', args=[idea.pk])}")
+        page.locator("[data-feedback-close]").click()
+        page.locator('[data-feedback-resolve-form="close"]').get_by_role("button", name="Close Request").click()
+        expect(page.locator(".pl-feedback-admin__meta [data-feedback-status]")).to_have_text("Closed")
+
+        # The inbox opens on Open, so both are out of the way; All closed brings them back.
+        page.goto(f"{live_server.url}{reverse('hub_admin_feedback_inbox')}")
+        expect(page.locator("[data-feedback-inbox-empty]")).to_be_visible()
+        page.select_option("#feedback-status", "closed_all")
+        page.get_by_role("button", name="Apply").click()
+        page.wait_for_url(lambda url: "status=closed_all" in url)
+        expect(page.locator(f'[data-feedback-row="{bug.pk}"]')).to_be_visible()
+        expect(page.locator(f'[data-feedback-row="{idea.pk}"]')).to_be_visible()
+
+        # The sender replies on the closed bug: it stays Not a bug, and says it is closed.
+        _sign_in(page, login_via_code, SENDER)
+        page.goto(f"{live_server.url}{reverse('hub_beta_feedback')}?sent={bug.pk}#request-{bug.pk}")
+        row = page.locator(f'[data-feedback-request="{bug.pk}"]')
+        expect(row.locator("[data-feedback-closed-line]")).to_have_text(
+            "This request is closed. Reply here if you still need help."
+        )
+        reply = row.locator(f'[data-feedback-reply="{bug.pk}"]')
+        reply.locator("textarea").fill("Zzthat did not work for me")
+        reply.get_by_role("button", name="Send Reply").click()
+        row = page.locator(f'[data-feedback-request="{bug.pk}"]')
+        expect(row.locator('[data-feedback-comment][data-from="sender"]')).to_contain_text("Zzthat did not work")
+        expect(row.locator("[data-feedback-status]")).to_have_text("Not a bug")
+
+        # Back in the inbox, the default Open view shows it with Member replied.
+        _sign_in(page, login_via_code, ADMIN, fog_role=Member.FogRole.ADMIN)
+        page.goto(f"{live_server.url}{reverse('hub_admin_feedback_inbox')}")
+        inbox_row = page.locator(f'[data-feedback-row="{bug.pk}"]')
+        expect(inbox_row.locator("[data-feedback-replied]")).to_have_text("Member replied")
+        expect(page.locator(f'[data-feedback-row="{idea.pk}"]')).to_have_count(0)
+        assert FeedbackRequest.objects.get(pk=bug.pk).status == "not_a_bug"

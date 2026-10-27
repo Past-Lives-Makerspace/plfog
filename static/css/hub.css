@@ -10085,6 +10085,10 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--pl-lifecycle-review);
     box-shadow: 0 0 0 4px rgba(238, 180, 75, 0.22);
 }
+/* A class never submitted: neutral, never the review gold. */
+.pl-pipeline__step--draft .pl-pipeline__dot {
+    border-color: var(--hub-text-muted);
+}
 .pl-pipeline__step--changes_requested .pl-pipeline__dot {
     background: var(--hub-blue);
     border-color: var(--hub-blue);
@@ -10097,7 +10101,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     line-height: 1.2;
 }
 .pl-pipeline__step--done .pl-pipeline__label,
-.pl-pipeline__step--current .pl-pipeline__label {
+.pl-pipeline__step--current .pl-pipeline__label,
+.pl-pipeline__step--draft .pl-pipeline__label {
     color: var(--hub-text);
 }
 .pl-pipeline__step--changes_requested .pl-pipeline__label {

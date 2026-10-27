@@ -1039,6 +1039,16 @@ urlpatterns = [
         feedback_views.hub_admin_feedback_mark_live,
         name="hub_admin_feedback_mark_live",
     ),
+    path(
+        "manage/feedback/<int:pk>/not-a-bug/",
+        feedback_views.hub_admin_feedback_not_a_bug,
+        name="hub_admin_feedback_not_a_bug",
+    ),
+    path(
+        "manage/feedback/<int:pk>/close/",
+        feedback_views.hub_admin_feedback_close,
+        name="hub_admin_feedback_close",
+    ),
     # The Leadership Directory editor (#476; tabs and auto save, #564): the page, then one
     # endpoint per object, every one of them POST only (hub/leadership_views.py).
     path("manage/leadership/", leadership_views.hub_admin_leadership, name="hub_admin_leadership"),

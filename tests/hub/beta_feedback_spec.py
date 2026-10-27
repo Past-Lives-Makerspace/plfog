@@ -589,3 +589,21 @@ def describe_replying():
         assert f'data-feedback-reply="{request.pk}" data-pl-busy-submit' in body
         assert body.count("data-feedback-photos>") == 2  # the Feedback form's zone and this reply's
         assert "window.plBusySubmitBound" in body
+
+
+@pytest.mark.django_db
+def describe_a_closed_request():
+    @pytest.mark.parametrize(
+        ("status", "closed"),
+        [("received", False), ("building", False), ("live", True), ("not_a_bug", True), ("closed", True)],
+    )
+    def it_says_so_under_the_reply_box_only_when_closed(client: Client, status: str, closed: bool):
+        user = User.objects.create_user(username=f"closer-{status}", password="pass")
+        client.login(username=f"closer-{status}", password="pass")
+        request = FeedbackRequestFactory(user=user, category="bug", status=status)
+
+        body = client.get("/feedback/").content.decode()
+
+        assert f'data-feedback-reply="{request.pk}"' in body
+        line = "This request is closed. Reply here if you still need help."
+        assert (line in body) is closed

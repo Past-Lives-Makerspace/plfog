@@ -3,7 +3,8 @@
 one .pl-disclosure each, holding its thread (hub/partials/_feedback_thread.html) and a reply box
 with photos that posts to hub_feedback_comment. The row whose pk is open_request_pk (the one just
 sent, or just replied to) renders open, and the script below opens the row a #request-<pk> link
-points at (a notification's link). The GitHub issue link is admin only and never appears here.
+points at (a notification's link). A closed request (FeedbackRequest.is_closed) keeps its reply box
+and gets a line under it saying so. The GitHub issue link is admin only and never appears here.
 
 Context: feedback_rows ((request, reply form) pairs from FeedbackRequest.objects.sent_by(user)),
 open_request_pk (int or None).
@@ -33,6 +34,7 @@ open_request_pk (int or None).
           {% include "hub/partials/_feedback_photos_field.html" with field=reply_form.photos %}
           <div class="pl-feedback-reply__row"><span class="pl-feedback-reply__note">Past Lives gets a notification.</span><button type="submit" class="hub-btn hub-btn--primary" data-pl-busy>Send Reply</button></div>
         </form>
+        {% if item.is_closed %}<p class="pl-feedback-reply__closed" data-feedback-closed-line>This request is closed. Reply here if you still need help.</p>{% endif %}
       </div>
     </details>
     {% endfor %}

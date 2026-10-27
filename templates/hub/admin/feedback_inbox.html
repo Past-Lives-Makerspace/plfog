@@ -8,7 +8,9 @@
 {% comment %}
 The admin Feedback inbox (#693): every FeedbackRequest, newest first, filterable by category,
 status and Member replied (the sender wrote since an admin last opened it, which also shows as a
-pill on the row), built by hub.feedback_views.hub_admin_feedback_inbox. Each row links to the request's page
+pill on the row). The status select opens on Open (no closed status, or the sender wrote since);
+All closed, All statuses and each single status follow. Built by
+hub.feedback_views.hub_admin_feedback_inbox. Each row links to the request's page
 with the inbox's query string, so Back to inbox keeps the filters. Rows stack into labelled cards
 at 768px and below (the members table stacking).
 {% endcomment %}
@@ -26,8 +28,10 @@ at 768px and below (the members table stacking).
     <div class="hub-form-group">
       <label for="feedback-status">Status</label>
       <select id="feedback-status" name="status">
-        <option value="">Any status</option>
-        {% for value, label in statuses %}<option value="{{ value }}"{% if value == filters.status %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        {% for value, label in views %}<option value="{{ value }}"{% if value == filters.status %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        <optgroup label="One status">
+          {% for value, label in statuses %}<option value="{{ value }}"{% if value == filters.status %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </optgroup>
       </select>
     </div>
     <div class="hub-form-group">
@@ -68,7 +72,7 @@ at 768px and below (the members table stacking).
   </table>
   {% include "components/table_pagination.html" %}
   {% else %}
-  <p class="hub-text-muted" data-feedback-inbox-empty>{% if is_filtered %}Nothing matches these filters.{% else %}No feedback yet.{% endif %}</p>
+  <p class="hub-text-muted" data-feedback-inbox-empty>{% if is_filtered %}Nothing matches these filters.{% else %}Nothing open right now. Pick All statuses to see closed requests.{% endif %}</p>
   {% endif %}
 </div>
 {% endblock %}
