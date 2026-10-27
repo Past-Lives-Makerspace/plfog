@@ -50,6 +50,12 @@ if SENTRY_DSN:
         event_scrubber=EventScrubber(denylist=[*DEFAULT_DENYLIST, "door_code"], recursive=True),
     )
 
+# Healthchecks ping URL for a cron run (core/healthchecks.py). Set on each Render cron service
+# separately, one check per cron; blank (local dev, tests, the web service) pings nothing. The URL
+# is a secret, so it lives only in the Render dashboard. Staging never pings: a run there is not
+# production's run, and a ping would tell the production check it had been done.
+HEALTHCHECKS_PING_URL = "" if IS_STAGING else os.environ.get("HEALTHCHECKS_PING_URL", "").strip()
+
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-dev-key-change-in-production")
 DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() == "true"
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")

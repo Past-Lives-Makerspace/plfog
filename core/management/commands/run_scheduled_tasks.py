@@ -19,10 +19,15 @@ A failed ALWAYS run alerts the Webmasters at once. A failed DAILY/WEEKLY run doe
 a later tick in the window retries it (#933): on each tick of the hour after the window
 (``ALERT_UTC_HOUR``), the jobs whose window it was alert if they failed and never recovered.
 The alert ledger lets one through per job per Pacific day, so the repeat ticks send nothing.
+
+Each tick reports to its Healthchecks check (``core/healthchecks.py``). A job that raises is
+caught here so the rest still run, and the command exits 0 either way, so a tick with any
+failed job reports as failed, its log naming each failed job with its traceback.
 """
 
 from __future__ import annotations
 
+import traceback
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -30,6 +35,7 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
+from core.healthchecks import HealthcheckRun, report_to_healthchecks
 from core.models import ScheduledJobState
 from core.scheduled_jobs import (
     SCHEDULED_JOBS,
@@ -50,6 +56,11 @@ class Command(BaseCommand):
     help = "Dispatch all scheduled background tasks. Safe to run every 15 minutes."
 
     def handle(self, *args: Any, **options: Any) -> None:
+        with report_to_healthchecks() as healthcheck:
+            self._dispatch(healthcheck)
+
+    def _dispatch(self, healthcheck: HealthcheckRun) -> None:
+        """Run every due job, recording each, and tell ``healthcheck`` which ran and which failed."""
         now = timezone.now()
         failed: list[str] = []
 
@@ -86,9 +97,11 @@ class Command(BaseCommand):
                 ):
                     call_command(job.command, stdout=self.stdout, stderr=self.stderr)
                 self.stdout.write(f"  ✓ {job.key}")
+                healthcheck.note(f"ok {job.key}")
             except Exception as exc:
                 self.stderr.write(self.style.ERROR(f"  ✗ {job.key}: {exc}"))
                 failed.append(job.key)
+                healthcheck.fail(f"{job.key}\n{''.join(traceback.format_exception(exc))}")
 
         if now.hour == ALERT_UTC_HOUR:
             self._alert_after_window(now, chosen)

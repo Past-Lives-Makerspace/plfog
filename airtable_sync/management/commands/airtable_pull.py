@@ -7,6 +7,11 @@ Usage:
     python manage.py airtable_pull
     python manage.py airtable_pull --model=member
     python manage.py airtable_pull --dry-run
+
+Each run reports to its Healthchecks check (``core/healthchecks.py``). Nothing here catches an
+error: one bad table or record aborts the run, which raises, so the run reports failed with
+its traceback. A clean run reports the per-table counts; a paused one reports success, saying
+it was paused, because pausing is an admin's choice rather than a fault.
 """
 
 from __future__ import annotations
@@ -37,18 +42,23 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true", help="Show what would happen without making changes.")  # type: ignore[attr-defined]
 
     def handle(self, *args: object, **options: object) -> None:
+        from core.healthchecks import report_to_healthchecks
         from core.scheduled_jobs import Trigger, is_enabled, record_run
 
-        # This runs from its own Render cron, so its enable-gate + run-recording live here
-        # (not in the dispatcher). Absence of a state row means enabled.
-        if not is_enabled("airtable_pull"):
-            self.stdout.write(self.style.WARNING("airtable_pull is paused — skipping."))
-            return
+        with report_to_healthchecks() as healthcheck:
+            # This runs from its own Render cron, so its enable-gate + run-recording live here
+            # (not in the dispatcher). Absence of a state row means enabled.
+            if not is_enabled("airtable_pull"):
+                self.stdout.write(self.style.WARNING("airtable_pull is paused — skipping."))
+                healthcheck.note("airtable_pull is paused; skipped.")
+                return
 
-        with record_run("airtable_pull", trigger=Trigger.SCHEDULED):
-            self._pull(options)
+            with record_run("airtable_pull", trigger=Trigger.SCHEDULED):
+                for line in self._pull(options):
+                    healthcheck.note(line)
 
-    def _pull(self, options: dict[str, object]) -> None:
+    def _pull(self, options: dict[str, object]) -> list[str]:
+        """Pull the chosen models; return one summary line per model for the run's log."""
         model = options["model"]
         dry_run = options["dry_run"]
 
@@ -57,13 +67,15 @@ class Command(BaseCommand):
 
         models_to_pull = ["member", "space"] if model == "all" else [model]
 
+        summary: list[str] = []
         for m in models_to_pull:
             if m == "member":
-                self._pull_members(dry_run)
+                summary.append(f"members{' (dry run)' if dry_run else ''}: {self._pull_members(dry_run)}")
             elif m == "space":
-                self._pull_spaces(dry_run)
+                summary.append(f"spaces{' (dry run)' if dry_run else ''}: {self._pull_spaces(dry_run)}")
+        return summary
 
-    def _pull_members(self, dry_run: object) -> None:
+    def _pull_members(self, dry_run: object) -> str:
         from membership.models import Member, MembershipPlan
 
         self.stdout.write(self.style.MIGRATE_HEADING("Pulling Members from Airtable"))
@@ -82,9 +94,9 @@ class Command(BaseCommand):
             self._upsert_member(Member, record_id, django_kwargs, default_plan, dry_run, results)
 
         self._report_orphaned_members(Member, at_record_ids)
-        self.stdout.write(
-            f"  Results: created={results['created']}, updated={results['updated']}, skipped={results['skipped']}"
-        )
+        counts = f"created={results['created']}, updated={results['updated']}, skipped={results['skipped']}"
+        self.stdout.write(f"  Results: {counts}")
+        return counts
 
     def _upsert_member(
         self,
@@ -142,7 +154,7 @@ class Command(BaseCommand):
             for m in orphaned[:10]:
                 self.stdout.write(f"    - {m.display_name} (pk={m.pk}, at={m.airtable_record_id})")
 
-    def _pull_spaces(self, dry_run: object) -> None:
+    def _pull_spaces(self, dry_run: object) -> str:
         from membership.models import Space
 
         self.stdout.write(self.style.MIGRATE_HEADING("Pulling Spaces from Airtable"))
@@ -157,9 +169,9 @@ class Command(BaseCommand):
             django_kwargs = space_from_airtable(rec["fields"])
             self._upsert_space(Space, record_id, django_kwargs, dry_run, results)
 
-        self.stdout.write(
-            f"  Results: created={results['created']}, updated={results['updated']}, skipped={results['skipped']}"
-        )
+        counts = f"created={results['created']}, updated={results['updated']}, skipped={results['skipped']}"
+        self.stdout.write(f"  Results: {counts}")
+        return counts
 
     def _upsert_space(
         self,

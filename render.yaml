@@ -83,6 +83,9 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.0"
+      # This cron's own Healthchecks check (core/healthchecks.py). Secret: dashboard only.
+      - key: HEALTHCHECKS_PING_URL
+        sync: false
 
   # Single dispatcher for all scheduled background tasks.
   # Runs every 15 minutes. Each task is responsible for its own idempotency.
@@ -98,3 +101,6 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.0"
+      # This cron's own Healthchecks check (core/healthchecks.py). Secret: dashboard only.
+      - key: HEALTHCHECKS_PING_URL
+        sync: false
