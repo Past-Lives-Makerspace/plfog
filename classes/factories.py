@@ -26,10 +26,14 @@ class _MembershipPlanFactory(DjangoModelFactory):
 class CategoryFactory(DjangoModelFactory):
     class Meta:
         model = models.Category
+        # An active guild makes its own Class Type on save (Guild.ensure_class_type), so asking
+        # for that same name, slug and guild returns it; any other clash still fails loudly.
+        django_get_or_create = ("name", "slug", "guild")
 
     name = factory.Sequence(lambda n: f"Category {n}")
     slug = factory.LazyAttribute(lambda o: o.name.lower().replace(" ", "-"))
     sort_order = 0
+    guild = None
 
 
 class UserFactory(DjangoModelFactory):

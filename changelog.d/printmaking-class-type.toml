@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-27"
+title = "Printmaking is now a Class Type"
+changes = [
+  "When you write a class, the Class Type list now includes Printmaking and Prison Outreach.",
+  "Every active guild gets its own Class Type on its own, so a new guild shows up in the list without anyone adding it by hand.",
+]
