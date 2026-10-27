@@ -10,8 +10,8 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
-from django.db.models import DecimalField, Q, Sum, Value
-from django.db.models.functions import Coalesce
+from django.db.models import DecimalField, F, Q, Sum, Value
+from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
 
 from .exceptions import TabLimitExceededError, TabLockedError
@@ -2695,7 +2695,12 @@ class StripeFeeRecord(models.Model):
     refresh_requested_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="When a refund webhook last asked for a re-read; a read that started before it is not recorded.",
+        help_text="When a refund webhook last asked for a re-read, by the database clock; a read that started before it is not recorded.",
+    )
+    read_started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the job last started reading Stripe for it, by the database clock, so one clock decides a race with a refund.",
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the record was added.")
     updated_at = models.DateTimeField(auto_now=True, help_text="When the record last changed.")
@@ -2735,19 +2740,26 @@ class StripeFeeRecord(models.Model):
             return None
         return self.net_cents - self.refunded_cents - self.refund_fee_cents
 
-    def record(self, settlement: ChargeSettlement, *, read_started_at: datetime, now: datetime) -> bool:
+    def start_read(self) -> None:
+        """Stamp the database's clock before asking Stripe, so :meth:`record` can tell whether a refund overtook the read."""
+        type(self).objects.filter(pk=self.pk).update(read_started_at=Now())
+
+    def record(self, settlement: ChargeSettlement, *, now: datetime) -> bool:
         """Store what Stripe answered and mark the record recorded; returns False when the read went stale.
 
-        A refund webhook that asked for a re-read after ``read_started_at`` wins: nothing is
-        written and the record stays pending for the next run. Only the fields this read owns
-        are written, so a payout id another process stamped is never blanked. Refund rows are
-        upserted by refund id (keeping their payout ids) and refunds no longer succeeded removed.
+        Stale means no :meth:`start_read` stamp, or a refund webhook asked for a re-read at or
+        after it; both stamps come from the database clock, so web and job clock skew cannot
+        decide. A stale read writes nothing and the record stays pending for the next run.
+        Only the fields this read owns are written, so a payout id another process stamped is
+        never blanked. Refund rows are upserted by refund id, keeping their payout ids, and
+        never deleted: a refund that failed after settling stays, marked failed, with its
+        reversal's own balance transaction.
         """
         with transaction.atomic():
             written = (
                 type(self)
-                .objects.filter(pk=self.pk)
-                .filter(Q(refresh_requested_at__isnull=True) | Q(refresh_requested_at__lt=read_started_at))
+                .objects.filter(pk=self.pk, read_started_at__isnull=False)
+                .filter(Q(refresh_requested_at__isnull=True) | Q(refresh_requested_at__lt=F("read_started_at")))
                 .update(
                     account=settlement.account,
                     stripe_charge_id=settlement.charge_id,
@@ -2772,14 +2784,19 @@ class StripeFeeRecord(models.Model):
                     stripe_refund_id=refund.refund_id,
                     defaults={
                         "record": self,
+                        "status": StripeFeeRefund.Status.FAILED if refund.failed else StripeFeeRefund.Status.SUCCEEDED,
                         "stripe_balance_transaction_id": refund.balance_transaction_id,
                         "amount_cents": refund.amount_cents,
                         "fee_cents": refund.fee_cents,
                         "net_cents": refund.net_cents,
                         "available_on": refund.available_on,
+                        "failure_balance_transaction_id": refund.failure_balance_transaction_id,
+                        "failure_amount_cents": refund.failure_amount_cents,
+                        "failure_fee_cents": refund.failure_fee_cents,
+                        "failure_net_cents": refund.failure_net_cents,
+                        "failure_available_on": refund.failure_available_on,
                     },
                 )
-            self.refunds.exclude(stripe_refund_id__in=[refund.refund_id for refund in settlement.refunds]).delete()
         self.refresh_from_db()
         return True
 
@@ -2813,14 +2830,15 @@ class StripeFeeRecord(models.Model):
             )
 
     @classmethod
-    def refresh(cls, payment_intent_id: str, now: datetime) -> int:
+    def refresh(cls, payment_intent_id: str) -> int:
         """Send a payment back to pending so its refunds are read again, whatever its state; returns rows changed.
 
-        Stamping ``refresh_requested_at`` makes a read already in flight go stale, so a refund
-        landing mid-read is never lost. Payout ids stay: a refund never moves the charge.
+        Stamping ``refresh_requested_at`` with the database clock makes a read already in flight
+        go stale, so a refund landing mid-read is never lost. Payout ids stay: a refund never
+        moves the charge.
         """
         return cls.objects.filter(stripe_payment_intent_id=payment_intent_id).update(
-            status=cls.Status.PENDING, attempts=0, last_error="", refresh_requested_at=now, updated_at=now
+            status=cls.Status.PENDING, attempts=0, last_error="", refresh_requested_at=Now(), updated_at=Now()
         )
 
 
@@ -2832,23 +2850,41 @@ class StripeFeeRefundQuerySet(models.QuerySet["StripeFeeRefund"]):
         return self.filter(_readable_q("record__", live=live))
 
     def awaiting_payout(self, now: datetime) -> StripeFeeRefundQuerySet:
-        """Refunds whose balance effect is due in a payout but not yet matched to one."""
+        """Refunds whose debit is due in a payout but not yet matched to one."""
         return self.filter(stripe_payout_id="", available_on__lte=now)
+
+    def awaiting_failure_payout(self, now: datetime) -> StripeFeeRefundQuerySet:
+        """Failed refunds whose reversal credit is due in a payout but not yet matched to one."""
+        return self.filter(
+            status=StripeFeeRefund.Status.FAILED, failure_payout_id="", failure_available_on__lte=now
+        ).exclude(failure_balance_transaction_id="")
 
 
 class StripeFeeRefund(models.Model):
-    """One succeeded refund's own balance transaction (#984), so it lands in the payout that really carried it.
+    """One settled refund's own balance transaction (#984), so it lands in the payout that really carried it.
 
     Amounts are signed as Stripe's balance shows them: a refund takes money out, so
     ``amount_cents`` and ``net_cents`` are negative, and ``fee_cents`` is negative when Stripe
-    gave part of its fee back.
+    gave part of its fee back. A refund that fails after settling keeps that debit, in the
+    payout that took it, and adds its reversal's credit (the ``failure_*`` fields, positive)
+    in whichever payout returned it, so every payout still sums to its deposit.
     """
+
+    class Status(models.TextChoices):
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed after it settled"
 
     record = models.ForeignKey(
         StripeFeeRecord,
         on_delete=models.CASCADE,
         related_name="refunds",
         help_text="The payment this refund came out of.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.SUCCEEDED,
+        help_text="Whether the refund stands, or failed after settling and Stripe credited the money back.",
     )
     stripe_refund_id = models.CharField(max_length=255, unique=True, help_text="The Stripe refund.")
     stripe_balance_transaction_id = models.CharField(
@@ -2866,6 +2902,30 @@ class StripeFeeRefund(models.Model):
         default="",
         help_text="The Stripe payout the refund was taken from; blank until it is paid out.",
     )
+    failure_balance_transaction_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="A failed refund's reversal balance transaction, which names the payout that returned the money.",
+    )
+    failure_amount_cents = models.IntegerField(
+        null=True, blank=True, help_text="The reversal's balance effect in cents; positive. Null unless failed."
+    )
+    failure_fee_cents = models.IntegerField(
+        null=True, blank=True, help_text="Stripe's fee change on the reversal in cents. Null unless failed."
+    )
+    failure_net_cents = models.IntegerField(
+        null=True, blank=True, help_text="The reversal's net balance effect in cents; positive. Null unless failed."
+    )
+    failure_available_on = models.DateTimeField(
+        null=True, blank=True, help_text="When the reversal's credit is due in a payout. Null unless failed."
+    )
+    failure_payout_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="The Stripe payout that returned the failed refund's money; blank until it is paid out.",
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the refund was first recorded.")
     updated_at = models.DateTimeField(auto_now=True, help_text="When the refund row last changed.")
 
@@ -2875,6 +2935,7 @@ class StripeFeeRefund(models.Model):
         ordering = ["created_at"]
         indexes = [
             models.Index(fields=["stripe_balance_transaction_id"], name="stripefeeref_balance_txn_idx"),
+            models.Index(fields=["failure_balance_transaction_id"], name="stripefeeref_failure_txn_idx"),
         ]
 
     def __str__(self) -> str:

@@ -10,7 +10,7 @@ Three passes, run daily by ``sync_stripe_fees`` and over all history by ``sync_s
    both accounts say they have no such payment. A read that fails leaves it pending; one
    that needs a key that is not set leaves it pending without counting a failure; one that a
    refund webhook overtook is not written. ``--backfill`` asks again about not found ones.
-3. **Payouts**: each recorded charge and refund whose money is available is matched to the
+3. **Payouts**: each recorded charge, refund and failed refund's reversal whose money is available is matched to the
    Stripe payout whose balance transactions include it, so rows summed by payout give the
    bank deposit.
 
@@ -113,7 +113,7 @@ def add_missing_records() -> int:
 
 def fill(record: StripeFeeRecord, report: SyncReport, now: datetime) -> None:
     """Read one pending record from Stripe and record it, mark it not found, or leave it pending."""
-    read_started_at = timezone.now()
+    record.start_read()
     try:
         settlement = stripe_utils.retrieve_charge_settlement(payment_intent_id=record.stripe_payment_intent_id)
     except StripeAccountUnavailableError as exc:
@@ -132,17 +132,19 @@ def fill(record: StripeFeeRecord, report: SyncReport, now: datetime) -> None:
     if settlement is None:
         record.mark_not_found(now)
         report.not_found += 1
-    elif record.record(settlement, read_started_at=read_started_at, now=now):
+    elif record.record(settlement, now=now):
         report.recorded += 1
     else:
         report.stale += 1
 
 
-def _earliest_by_account(queryset: QuerySet[Any], account_field: str) -> dict[str, datetime]:
+def _earliest_by_account(
+    queryset: QuerySet[Any], account_field: str, date_field: str = "available_on"
+) -> dict[str, datetime]:
     """The earliest availability per account among rows awaiting a payout."""
     return {
         row[account_field]: row["earliest"]
-        for row in queryset.values(account_field).annotate(earliest=Min("available_on")).order_by()
+        for row in queryset.values(account_field).annotate(earliest=Min(date_field)).order_by()
     }
 
 
@@ -155,8 +157,12 @@ def stamp_payouts(report: SyncReport, now: datetime, *, live: bool, backfill: bo
     """
     charges = StripeFeeRecord.objects.readable(live=live).awaiting_payout(now)
     refunds = StripeFeeRefund.objects.readable(live=live).awaiting_payout(now)
+    reversals = StripeFeeRefund.objects.readable(live=live).awaiting_failure_payout(now)
     earliest = _earliest_by_account(charges, "account")
-    for account, when in _earliest_by_account(refunds, "record__account").items():
+    for account, when in [
+        *_earliest_by_account(refunds, "record__account").items(),
+        *_earliest_by_account(reversals, "record__account", "failure_available_on").items(),
+    ]:
         earliest[account] = min(when, earliest.get(account, when))
     clients = stripe_utils.fee_accounts()
     for account, when in sorted(earliest.items()):
@@ -176,6 +182,9 @@ def stamp_payouts(report: SyncReport, now: datetime, *, live: bool, backfill: bo
             report.payouts_stamped += refunds.filter(
                 record__account=account, stripe_balance_transaction_id__in=transaction_ids
             ).update(stripe_payout_id=payout_id, updated_at=now)
+            report.payouts_stamped += reversals.filter(
+                record__account=account, failure_balance_transaction_id__in=transaction_ids
+            ).update(failure_payout_id=payout_id, updated_at=now)
 
 
 def not_found_sources() -> list[tuple[str, int]]:
@@ -235,4 +244,4 @@ def note_event(event: dict[str, Any]) -> None:
             StripeFeeRecord.add_pending(obj["payment_intent"], livemode=livemode)
     elif event_type in ("charge.refunded", "refund.updated") and obj["payment_intent"]:
         StripeFeeRecord.add_pending(obj["payment_intent"], livemode=livemode)
-        StripeFeeRecord.refresh(obj["payment_intent"], timezone.now())
+        StripeFeeRecord.refresh(obj["payment_intent"])
