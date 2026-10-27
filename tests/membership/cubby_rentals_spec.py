@@ -1151,10 +1151,11 @@ def describe_a_refund_that_must_not_be_lost():
 
     @patch("billing.stripe_utils.invoice_payment_intent", return_value="")
     @patch("billing.stripe_utils.retrieve_subscription")
-    def it_records_nothing_for_an_unpaid_invoice_of_a_never_started_rental(mock_sub, mock_pi):
+    def it_fails_the_delivery_so_stripe_retries_when_the_paid_invoice_has_no_payment_yet(mock_sub, mock_pi):
         rental = CubbyRentalFactory(cubby=_cubby(), status=Status.ENDED, start_date=None)
         mock_sub.return_value = _snapshot(rental, status="canceled")
-        assert cubby_rentals.record_invoice_paid(_invoice(rental)) is None
+        with pytest.raises(cubby_rentals.RefundNotReadyError):
+            cubby_rentals.record_invoice_paid(_invoice(rental))
         assert not CubbyPayment.objects.exists()
 
 

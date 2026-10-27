@@ -79,6 +79,10 @@ class CubbyRentalError(Exception):
     """A rental action refused, with the sentence the member sees."""
 
 
+class RefundNotReadyError(Exception):
+    """A paid invoice of a cubby the member never got has no payment on Stripe to refund yet."""
+
+
 class CubbyTakenError(CubbyRentalError):
     """Someone else holds the cubby (rented, or paying for it right now)."""
 
@@ -535,8 +539,9 @@ def record_invoice_paid(invoice: dict[str, Any]) -> CubbyPayment | None:
     Settles the subscription first, which makes a Pending or Past Due rental Active (also when this
     arrives before ``checkout.session.completed``). The payment row is one per invoice; its payee is
     the guild's cubby payee right now. An invoice of a cubby the member never got is refunded instead
-    and never owes a payee anything. Returns the payment, or None for an invoice not a cubby's (or one
-    of a never-started rental not refunded yet).
+    and never owes a payee anything. Returns the payment, or None for an invoice not a cubby's. Raises
+    :class:`RefundNotReadyError` when a never-started rental's paid invoice has no payment yet, so the
+    webhook answers 500 and Stripe retries.
     """
     from billing import stripe_utils
 
@@ -569,7 +574,11 @@ def record_invoice_paid(invoice: dict[str, Any]) -> CubbyPayment | None:
                 return CubbyPayment.objects.get(stripe_invoice_id=invoice["id"])
     # A cubby the member never got: this money goes back, and no payee is ever owed a share of it.
     _refund_invoice(rental, invoice["id"])
-    return CubbyPayment.objects.filter(stripe_invoice_id=invoice["id"]).first()
+    payment = CubbyPayment.objects.filter(stripe_invoice_id=invoice["id"]).first()
+    if payment is None:
+        # Paid, yet Stripe lists no payment for it yet: fail the delivery so Stripe sends it again.
+        raise RefundNotReadyError(f"Cubby invoice {invoice['id']} is paid but has no payment to refund yet.")
+    return payment
 
 
 def record_payment_failed(invoice: dict[str, Any]) -> None:
