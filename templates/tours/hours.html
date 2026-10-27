@@ -1,0 +1,149 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Tours{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/tours.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+The Tours page (#947), for Tour Guides and admins, opened from the Tours card on the Tools page
+(tours.views.tour_hours). Its first tab, My Hours,
+is a guide's weekly tour hours (rows of day, from, until, tour length and seats, each cut into back
+to back tours) and their days off. An admin picks whose hours to edit with the guide picker.
+Admins also get the Settings tab (tours/settings.html). Upcoming and Past join the tab row in part 3 (#949).
+{% endcomment %}
+{% include "tours/partials/_page_top.html" with tab="hours" %}
+
+{% if is_admin %}
+<div class="hub-card pl-tours-panel" data-tour-guide-picker>
+  <form method="get" action="{% url 'tours:hours' %}" class="pl-tours-picker">
+    <div class="pl-form-group pl-tours-picker__field">
+      <label for="tour-guide-picker" class="pl-form-label">Whose hours</label>
+      <select id="tour-guide-picker" name="guide" class="pl-tours-input--text" onchange="this.form.requestSubmit()">
+        <option value=""{% if is_self %} selected{% endif %}>My hours</option>
+        {% for guide in picker_guides %}
+        <option value="{{ guide.pk }}"{% if guide.pk == target.pk %} selected{% endif %}>{{ guide.display_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-picker__go">Show</button>
+  </form>
+  {% if not picker_guides %}
+  <p class="hub-text-muted pl-tours-picker__empty" data-tour-guides-empty>No Tour Guides yet. Turn on Tour Guide on a member's Permissions tab to add one.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{# plTourHoursRow: one tour hours row, collapsed to a summary built from its own controls. Registered on whichever side of alpine:init this runs (FRONTEND.md, Scripts under hx-boost). #}
+<script>
+(function () {
+  function definePlTourHoursRow() {
+    Alpine.data('plTourHoursRow', function (open) {
+      return {
+        editing: open,
+        summary: '',
+        init: function () { this.refresh(); },
+        refresh: function () {
+          var row = this.$root;
+          var text = function (select) { return select && select.selectedIndex >= 0 ? select.options[select.selectedIndex].text : ''; };
+          var seats = row.querySelector('input[name$="-seats"]');
+          var count = seats ? parseInt(seats.value, 10) : NaN;
+          var seatsText = isNaN(count) ? 'Seats not set' : count + (count === 1 ? ' seat' : ' seats');
+          this.summary = text(row.querySelector('select[name$="-weekday"]')) + ' · ' + text(row.querySelector('select[name$="-start_time"]')) + ' to ' + text(row.querySelector('select[name$="-end_time"]')) + ' · ' + text(row.querySelector('select[name$="-tour_minutes"]')) + ' each · ' + seatsText;
+        },
+      };
+    });
+  }
+  if (window.Alpine && window.Alpine.data) {
+    definePlTourHoursRow();
+  } else {
+    document.addEventListener('alpine:init', definePlTourHoursRow);
+  }
+})();
+</script>
+
+{% if hours_refused %}
+<div class="pl-tours-refused" role="alert" data-tour-hours-refused>
+  <p class="pl-tours-refused__title">Your tour hours were not saved.</p>
+  <p class="pl-tours-refused__text">Fix the rows marked below, then press Save again. Nothing changed until then.</p>
+</div>
+{% endif %}
+
+<form id="tour-hours-form" method="post" action="{% url 'tours:hours_save' %}" class="hub-form">
+  {% csrf_token %}
+  <input type="hidden" name="guide" value="{{ target.pk }}">
+  <div class="hub-card pl-tours-panel" data-tour-hours>
+    <h2 class="hub-detail-label pl-tours-panel__title">{% if is_self %}My Tour Hours{% else %}{{ target.display_name }}'s Tour Hours{% endif %}</h2>
+    <p class="hub-text-muted pl-tours-panel__intro">Each row is cut into back to back tours. Tuesday 4:00 to 6:00 PM with 1 hour tours offers a 4:00 and a 5:00 tour, each with its own seats.</p>
+    {{ formset.management_form }}
+    {% for error in formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+    <div id="tour-hours-rows" class="pl-tours-rows" data-tour-hours-rows>
+      {% for row in formset %}
+      {% if row.is_absent %}
+      {# A clone removed before the refused Save: the POST carried nothing for it, so it stays gone. #}
+      {% elif row.errors or formset.non_form_errors or not row.instance.pk %}
+      {% include "tours/partials/_hours_row.html" with row=row open=True saved=row.instance.pk %}
+      {% else %}
+      {% include "tours/partials/_hours_row.html" with row=row open=False saved=True %}
+      {% endif %}
+      {% empty %}
+      <p class="hub-text-muted pl-tours-panel__empty" data-tour-hours-empty>No tour hours yet. Add the times you can give tours.</p>
+      {% endfor %}
+    </div>
+
+    {# Hidden empty-form template, cloned by + Add hours; a new row starts open. #}
+    <template id="tour-hours-empty-template">
+      {% include "tours/partials/_hours_row.html" with row=formset.empty_form open=True saved=False %}
+    </template>
+
+    <div class="pl-tours-panel__add">
+      <button type="button" class="hub-btn hub-btn--sm" data-tour-hours-add
+              onclick="
+                const tpl = document.getElementById('tour-hours-empty-template');
+                const total = document.getElementById('id_hours-TOTAL_FORMS');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                const empty = document.querySelector('[data-tour-hours-empty]');
+                if (empty) { empty.remove(); }
+                document.getElementById('tour-hours-rows').appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+              ">
+        + Add hours
+      </button>
+    </div>
+  </div>
+  <div class="pl-tours-save-row">
+    <button type="submit" class="pl-btn pl-btn--primary" data-tour-hours-save>Save</button>
+  </div>
+</form>
+
+<div class="hub-card pl-tours-panel pl-tours-days-off" data-tour-days-off>
+  <h2 class="hub-detail-label pl-tours-panel__title">Days Off</h2>
+  <p class="hub-text-muted pl-tours-panel__intro">{% if is_self %}Your{% else %}{{ target.display_name }}'s{% endif %} hours offer no tours on a day off. Tours already booked those days stay booked.</p>
+  {% if days_off %}
+  <ul class="pl-tours-days-off__list">
+    {% for day_off in days_off %}
+    {% with pks=day_off.pk|stringformat:"s" %}
+    <li class="pl-tours-days-off__row" data-tour-day-off="{{ day_off.pk }}">
+      <span class="pl-tours-days-off__when">{{ day_off.label }}</span>
+      {% if day_off.note %}<span class="hub-text-muted pl-tours-days-off__note">{{ day_off.note }}</span>{% endif %}
+      <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-tours-days-off__delete" @click="$dispatch('open-confirm', 'tour-day-off-del-{{ pks }}')">Delete</button>
+      {% url 'tours:day_off_delete' day_off.pk as delete_url %}
+      {% include "components/confirm_modal.html" with confirm_id="tour-day-off-del-"|add:pks confirm_title="Delete this day off?" confirm_message="Those days offer tours again." confirm_action_url=delete_url confirm_button_text="Delete" %}
+    </li>
+    {% endwith %}
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="hub-text-muted pl-tours-panel__empty" data-tour-days-off-empty>No days off coming up.</p>
+  {% endif %}
+  <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-panel__add" @click="$dispatch('open-modal', 'tour-day-off-modal')" data-tour-day-off-add>Add Day Off</button>
+</div>
+
+{% include "components/modal.html" with modal_id="tour-day-off-modal" modal_title="Add Day Off" modal_size="md" modal_body_include="tours/partials/_day_off_form.html" %}
+{% if open_day_off %}
+{# A refused day off posted without HTMX: reopen the modal on its errors. #}
+<div x-data x-init="$nextTick(() => $dispatch('open-modal', 'tour-day-off-modal'))" data-tour-day-off-reopen></div>
+{% endif %}
+{% endblock %}

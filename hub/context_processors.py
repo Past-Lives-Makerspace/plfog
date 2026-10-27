@@ -44,6 +44,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
             "can_create_classes": False,
             "teach_nav": None,
             "manage_bookings_nav": None,
+            "tools_nav_active": False,
             "classes_admin_nav_active": False,
             "classes_catalog_active_class": "",
             "kiln_nav": KilnNav(None),
@@ -78,6 +79,8 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "can_create_classes": member is not None and member.can_create_classes,
         "teach_nav": teach_nav,
         "manage_bookings_nav": _manage_bookings_nav(request),
+        # The Tools entry also lights on the Tours pages (#947), which its Tours card opens.
+        "tools_nav_active": admin_nav_active or request.path.startswith("/facility-tours/"),
         "classes_admin_nav_active": admin_nav_active,
         "classes_catalog_active_class": _classes_catalog_active_class(request, admin_nav_active, teach_nav),
         # The guest menu and the kiln pages' way back (#691); no query.

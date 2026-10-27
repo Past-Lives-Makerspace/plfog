@@ -1480,6 +1480,11 @@ class MemberCapabilitiesForm(forms.Form):
         label=AdminCapability.Capability.WEBMASTER.label,
         help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.WEBMASTER],
     )
+    cap_tour_guide = forms.BooleanField(
+        required=False,
+        label=AdminCapability.Capability.TOUR_GUIDE.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.TOUR_GUIDE],
+    )
 
     # Field name → the capability it grants. The single source of truth both
     # ``initial_for`` and ``selected`` read, so the two never drift.
@@ -1494,6 +1499,7 @@ class MemberCapabilitiesForm(forms.Form):
         "cap_space_manager": AdminCapability.Capability.SPACE_MANAGER,
         "cap_event_creator": AdminCapability.Capability.EVENT_CREATOR,
         "cap_webmaster": AdminCapability.Capability.WEBMASTER,
+        "cap_tour_guide": AdminCapability.Capability.TOUR_GUIDE,
     }
 
     @classmethod

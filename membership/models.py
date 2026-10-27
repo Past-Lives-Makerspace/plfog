@@ -3966,7 +3966,9 @@ class AdminCapability(models.Model):
     no action or page. ``EVENT_CREATOR`` is action-only: it opens the Calendar's event
     composer to a member whatever the member-event policy says, every event they add
     going through the review queue first (:func:`membership.permissions.event_create_mode`),
-    and routes nothing.
+    and routes nothing. ``TOUR_GUIDE`` (#947) opens the Tours page (``tours``) for the holder's own
+    tour hours and days off, and offers those hours to visitors; admins always have it. Booking
+    notices to the guide arrive with the booking flow (#948).
     For every capability but ``REFUNDS`` the capability is the master switch: ONLY holders
     receive the matching notifications (and see them on the settings page); the refund
     notice above is the one union with the Admin role. A plain Admin who does not hold it gets nothing
@@ -3985,6 +3987,7 @@ class AdminCapability(models.Model):
         SPACE_MANAGER = "space_manager", "Space Manager"
         EVENT_CREATOR = "event_creator", "Can create events"
         WEBMASTER = "webmaster", "Webmaster"
+        TOUR_GUIDE = "tour_guide", "Tour Guide"
 
     #: What each duty actually does, in one plain sentence — the SINGLE source of the
     #: human explanation. The member edit Permissions tab reads it for its toggle help
@@ -4023,6 +4026,7 @@ class AdminCapability(models.Model):
             "Gets an alert when an automation fails, such as the reminder emails, saying what broke and when. "
             "Admins can open its run history from the alert."
         ),
+        Capability.TOUR_GUIDE: "Gives facility tours: sets their own tour hours and hears about bookings in them.",
     }
 
     member = models.ForeignKey(
