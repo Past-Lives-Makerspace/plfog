@@ -354,3 +354,46 @@ def describe_the_you_label():
         assert "<strong>Lead Quillfeather</strong>" in member_view
         assert "<strong>You</strong>" not in lead_view
         assert "<strong>Orla Thistlewood</strong>" in lead_view
+
+
+def describe_query_counts():
+    """A page with the member's bookings costs the same with one booking as with six (each with a thread).
+
+    The six orientations share one guild, so their request audience is one lookup; a page pays
+    one more lookup per further owner (or personal slot orientor), never one per booking.
+    """
+
+    def _six_types() -> tuple[Member, Member, Any, list[Any]]:
+        lead = _user("qc_lead", "Zzqc Lead")
+        guild = GuildFactory(guild_lead=lead, name="Zzqc Guild")
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        types = [OrientationTypeFactory(guild=guild, name=f"Zzqc Type {index}") for index in range(6)]
+        member = _user("qc_member", "Zzqc Member")
+        return lead, member, guild, types
+
+    def _book(lead: Member, member: Member, guild: Any, orientation_type: Any) -> None:
+        booking = OrientationBookingFactory(
+            slot=OrientationSlotFactory(guild=guild, orientation_type=orientation_type), member=member
+        )
+        booking.write_message(author=member.user, body="Zzqc question")
+        booking.write_message(author=lead.user, body="Zzqc answer")
+
+    @pytest.mark.parametrize("page", ["orientations", "guild"])
+    def it_costs_the_same_with_one_booking_as_with_six(client: Client, django_assert_num_queries, page: str):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        lead, member, guild, types = _six_types()
+        _book(lead, member, guild, types[0])
+        client.force_login(member.user)
+        url = reverse("hub_orientations") if page == "orientations" else reverse("hub_guild_detail", args=[guild.slug])
+        client.get(url)  # warm the per process caches (site configuration, feature switches)
+        with CaptureQueriesContext(connection) as one:
+            assert client.get(url).status_code == 200
+        for orientation_type in types[1:]:
+            _book(lead, member, guild, orientation_type)
+
+        with django_assert_num_queries(len(one.captured_queries)):
+            response = client.get(url)
+
+        assert response.content.decode().count("data-thread-message=") == 12

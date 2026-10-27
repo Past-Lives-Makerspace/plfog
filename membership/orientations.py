@@ -992,6 +992,37 @@ def _refund_if_paid(booking: OrientationBooking, *, actor: User | None) -> None:
         )
 
 
+#: A page's memo of orientation request audiences, keyed by :func:`_audience_key`.
+AudienceCache = dict[tuple[str, int | None, int | None], frozenset[int]]
+
+
+def _audience_key(booking: OrientationBooking) -> tuple[str, int | None, int | None]:
+    """What the ``orientation_requested`` audience depends on: the owner, and a personal slot's orientor."""
+    if booking.orientation_type.is_equipment_owned:
+        return ("equipment", booking.orientation_type.equipment_id, booking.slot.orienter_id)
+    return ("guild", booking.guild_id, booking.slot.orienter_id)
+
+
+def orientor_audience(booking: OrientationBooking, cache: AudienceCache | None = None) -> frozenset[int]:
+    """The accounts the ``orientation_requested`` resolver reaches for ``booking``.
+
+    ``cache`` is a page's memo: every booking with the same owner (and the same personal
+    slot orientor) shares one lookup, so a page listing many bookings pays once per owner,
+    not once per booking.
+    """
+    from core.events.resolvers import guild_orienters_or_equipment_managers
+
+    key = _audience_key(booking)
+    if cache is not None and key in cache:
+        return cache[key]
+    audience = frozenset(
+        user.pk for user, _reason in guild_orienters_or_equipment_managers(request_resolver_context(booking))
+    )
+    if cache is not None:
+        cache[key] = audience
+    return audience
+
+
 def request_resolver_context(booking: OrientationBooking) -> dict[str, Any]:
     """The ``orientation_requested`` resolver context, keyed by the booking's owner type.
 

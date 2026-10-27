@@ -21,6 +21,7 @@ from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
 from playwright.sync_api import Page, expect
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from core.models import FeedbackRequest
 from membership.models import Member
@@ -39,11 +40,18 @@ def _png(name: str, color: tuple[int, int, int]) -> dict:
 
 
 def _sign_in(page: Page, login_via_code, email: str, *, fog_role: str = Member.FogRole.MEMBER) -> None:
-    page.context.clear_cookies()
-    login_via_code(email)
     # The post-login page is the hub, which names the signed in user on <html>: wait for it, so the
-    # next goto never races the session cookie (a goto too soon lands on the login page).
-    page.wait_for_function("() => !!document.documentElement.dataset.plUser")
+    # next goto never races the session cookie. A sign in that lands signed out (seen about once in
+    # twenty runs here) is tried once more rather than failing a later, unrelated step.
+    for attempt in (1, 2):
+        page.context.clear_cookies()
+        login_via_code(email)
+        try:
+            page.wait_for_function("() => !!document.documentElement.dataset.plUser", timeout=10000)
+            break
+        except PlaywrightTimeoutError:
+            if attempt == 2:
+                raise
     member = Member.objects.get(user__username=email)
     member.fog_role = fog_role
     member.welcome_dismissed_at = timezone.now()

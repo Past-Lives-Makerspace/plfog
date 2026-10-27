@@ -69,6 +69,7 @@ from membership.managers import MemberEmailManager
 from membership.names import user_display_name, user_name_or_email
 
 if TYPE_CHECKING:
+    from membership.orientations import AudienceCache
     from django import forms
     from django.contrib.auth.models import User
     from django.core.files.uploadedfile import UploadedFile
@@ -16318,9 +16319,39 @@ class OrientationBooking(models.Model):
             return bool(member.manageable_equipment_ids([orientation_type.equipment]))
         return member.can_manage_orientations(cast(Guild, orientation_type.guild))
 
-    def orientors_hear_the_member(self) -> bool:
-        """Whether a message from this booking's member would reach anyone: the composer's notice line."""
-        return bool(OrientationBookingMessage(booking=self, author_id=self.member.user_id).orientor_user_ids())
+    def orientors_hear_the_member(self, audience_cache: AudienceCache | None = None) -> bool:
+        """Whether a message from this booking's member would reach anyone: the composer's notice line.
+
+        Reads the thread from a ``with_thread()`` prefetch. ``audience_cache`` is the page's memo
+        of request audiences (:func:`membership.orientations.orientor_audience`), so a page of
+        bookings looks each owner's audience up once; past staff writers are checked only when
+        that audience alone reaches nobody.
+        """
+        from membership.orientations import orientor_audience
+
+        member_user_id = self.member.user_id
+        if orientor_audience(self, audience_cache) - {member_user_id}:
+            return True
+        return bool(self._running_staff_writers(set(), exclude_user_id=member_user_id))
+
+    def _running_staff_writers(self, known: set[int], *, exclude_user_id: int | None) -> set[int]:
+        """Staff side authors on this thread, outside ``known``, who still run the booking.
+
+        Reads the thread in Python (a ``with_thread()`` prefetch costs nothing more), then one
+        query for the writers' members, only when there is a writer to check.
+        """
+        writer_ids = (
+            {message.author_id for message in self.thread() if message.author_id is not None and message.is_from_staff}
+            - known
+            - {exclude_user_id}
+        )
+        if not writer_ids:
+            return set()
+        return {
+            cast(int, member.user_id)
+            for member in Member.objects.filter(user_id__in=writer_ids).select_related("user")
+            if self.may_be_run_by(member)
+        }
 
     @property
     def takes_messages(self) -> bool:
@@ -16409,23 +16440,11 @@ class OrientationBookingMessage(ThreadMessage):
         (:meth:`OrientationBooking.may_be_run_by`): a demoted admin or an orientor taken off staff
         hears nothing more.
         """
-        from core.events.resolvers import guild_orienters_or_equipment_managers
-        from membership.orientations import request_resolver_context
+        from membership.orientations import orientor_audience
 
         booking = self.booking
-        audience = {
-            user.pk for user, _reason in guild_orienters_or_equipment_managers(request_resolver_context(booking))
-        }
-        writer_ids = {
-            message.author_id
-            for message in booking.messages.exclude(pk=self.pk)
-            if message.author_id is not None and message.is_from_staff
-        } - audience
-        writers = {
-            cast(int, member.user_id)
-            for member in Member.objects.filter(user_id__in=writer_ids).select_related("user")
-            if booking.may_be_run_by(member)
-        }
+        audience = set(orientor_audience(booking))
+        writers = booking._running_staff_writers(audience, exclude_user_id=self.author_id)
         return (audience | writers) - {self.author_id}
 
     def _tell_member_side(self) -> bool:

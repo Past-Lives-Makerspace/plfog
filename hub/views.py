@@ -603,12 +603,15 @@ def _orientation_sections(
     """
     from core.models import SiteConfiguration
     from hub.forms import ThreadMessageForm
+    from membership.orientations import AudienceCache
     from membership.late_cancel import booking_cancel_warning, booking_sentence, policy_for_type
     from membership.models import OrientationBooking
 
     # One site row for every type's policy (a config read per section would be an N+1).
     site = SiteConfiguration.load() if orientation_types else None
     member_bookings: list[OrientationBooking] = []
+    # One request audience lookup per owner on the page, however many bookings share it.
+    audience_cache: AudienceCache = {}
     completed_type_ids: set[int] = set()
     record_by_type: dict[int, OrientationRecord] = {}
     if member is not None and orientation_types:
@@ -655,7 +658,7 @@ def _orientation_sections(
                     ThreadMessageForm(auto_id=f"id_booking_{live_booking.pk}_%s") if live_booking is not None else None
                 ),
                 # Whether the Orientors would hear a message from it: the composer says so only then.
-                "orientors_hear": live_booking is not None and live_booking.orientors_hear_the_member(),
+                "orientors_hear": live_booking is not None and live_booking.orientors_hear_the_member(audience_cache),
                 "hold": hold,
                 "slots": type_slots[:slot_cap] if slot_cap is not None else type_slots,
                 # Under length and price on the guild page and the card (#766); "" with no notice.
