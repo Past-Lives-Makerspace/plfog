@@ -162,6 +162,8 @@ class RecipientAllocation:
     owed_now_cents: int = 0
     not_due_cents: int = 0
     next_due_at: datetime | None = None
+    # Producer rows: transfers Stripe rejected and is still retrying. Never paid by hand (#985).
+    retrying_cents: int = 0
     payout_badge: PayoutBadge | None = None  # live producer rows: the payee's automatic payouts state (#905)
 
     @property
@@ -205,6 +207,11 @@ class ReconciliationResult:
         return sum(alloc.voting_cents for alloc in self.groups[RecipientKind.GUILD])
 
     @property
+    def retrying_total_cents(self) -> int:
+        """Producer shares whose transfer failed and Stripe is retrying; the tables show their column only then."""
+        return sum(alloc.retrying_cents for kind in GROUP_ORDER for alloc in self.groups[kind])
+
+    @property
     def kept_share_count(self) -> int:
         """Refunded payments whose producer kept a share already sent through Stripe (#662)."""
         return sum(1 for line in self.lines if line.payee_kept_share)
@@ -243,6 +250,7 @@ class ReconciliationResult:
                             "stripe_cents": alloc.stripe_cents,
                             "owed_now_cents": alloc.owed_now_cents,
                             "not_due_cents": alloc.not_due_cents,
+                            "retrying_cents": alloc.retrying_cents,
                             "next_due_at": None if alloc.next_due_at is None else alloc.next_due_at.isoformat(),
                         }
                         for alloc in self.groups[kind]
@@ -694,8 +702,12 @@ def resolve_voting_allocation(window: PanelWindow) -> tuple[dict[int, int], bool
     """
     from billing.models import ReconciliationSnapshot
 
+    # A snapshot still being taken has no groups yet (``ReconciliationSnapshot.take`` freezes the
+    # ledger before it reads the results), so it must not stand in for the projection.
     snapshot = (
-        ReconciliationSnapshot.objects.filter(period_start=window.start, period_end=window.end)
+        ReconciliationSnapshot.objects.filter(
+            period_start=window.start, period_end=window.end, results__has_key="groups"
+        )
         .order_by("-taken_at")
         .first()
     )
@@ -973,6 +985,7 @@ class _ProducerSplit:
     owed_now: dict[RecipientKey, int] = field(default_factory=dict)
     not_due: dict[RecipientKey, int] = field(default_factory=dict)
     next_due: dict[RecipientKey, datetime] = field(default_factory=dict)
+    retrying: dict[RecipientKey, int] = field(default_factory=dict)
 
     def add_paid(self, line: TransactionLine, window: PanelWindow) -> None:
         """Count a line paid in ``window`` by its payout state; Owed now only if it also fell due in ``window``."""
@@ -986,6 +999,8 @@ class _ProducerSplit:
                 self.not_due[key] = self.not_due.get(key, 0) + cents
                 if payout.due_at is not None and (key not in self.next_due or payout.due_at < self.next_due[key]):
                     self.next_due[key] = payout.due_at
+            elif payout.retrying:
+                self.retrying[key] = self.retrying.get(key, 0) + cents
             elif _owed_for(line, window):
                 self.owed_now[key] = self.owed_now.get(key, 0) + cents
 
@@ -1012,7 +1027,7 @@ def _aggregate_lines(
     """Sum non-omitted lines' shares per recipient; tally grand total, notes, and omissions.
 
     Each line's producer share also goes by its own payout state: Sent through Stripe (#662),
-    Not yet due, or Owed now when it fell due inside ``window`` (#985). ``due_earlier`` are
+    Not yet due, Stripe retrying, or Owed now when it fell due inside ``window`` (#985). ``due_earlier`` are
     lines paid before the window that fell due in it: they add to Owed now only, never to the
     totals, which group by payment date. Guild and Past Lives rows ignore all of it.
     """
@@ -1079,6 +1094,7 @@ def _build_groups(
             owed_now_cents=owed_now,
             not_due_cents=split.not_due.get(key, 0),
             next_due_at=split.next_due.get(key),
+            retrying_cents=split.retrying.get(key, 0),
         )
         if kind is RecipientKind.GUILD and recipient_id is not None:
             alloc.voting_cents = voting_by_guild.get(recipient_id, 0)
@@ -1143,6 +1159,7 @@ def result_from_snapshot(snapshot: ReconciliationSnapshot) -> ReconciliationResu
             if "owed_now_cents" in row:
                 alloc.owed_now_cents = int(row["owed_now_cents"])
                 alloc.not_due_cents = int(row["not_due_cents"])
+                alloc.retrying_cents = int(row["retrying_cents"])
                 next_due = row["next_due_at"]
                 alloc.next_due_at = None if next_due is None else datetime.fromisoformat(next_due)
             elif kind.is_producer:
@@ -1192,6 +1209,7 @@ CSV_HEADERS = [
     "Owed now",
     "Not yet due",
     "Next due",
+    "Stripe retrying",
 ]
 
 
@@ -1213,6 +1231,7 @@ def _csv_lines(result: ReconciliationResult, writer: Any) -> Iterator[str]:
                     f"{alloc.owed_now_cents / 100:.2f}" if producer else "",
                     f"{alloc.not_due_cents / 100:.2f}" if producer else "",
                     _iso_day(alloc.next_due_at),
+                    f"{alloc.retrying_cents / 100:.2f}" if producer else "",
                 ]
             )
 

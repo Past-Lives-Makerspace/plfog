@@ -422,16 +422,18 @@ def describe_reconciliation_split():
         with _Stripe():
             payouts.run_payouts(NOW)
         row = _row(build_reconciliation(window=_window()), RecipientKind.INSTRUCTOR, instructor)
-        assert (row.total_cents, row.stripe_cents, row.owed_now_cents, row.not_due_cents) == (21000, 14000, 7000, 0)
+        # The scheduled share is Not yet due until a transfer exists (#985), never Sent through Stripe.
+        expected = (21000, 7000, 7000, 7000)
+        assert (row.total_cents, row.stripe_cents, row.owed_now_cents, row.not_due_cents) == expected
 
-    def it_counts_a_failed_transfer_as_owed_now():
+    def it_counts_a_failed_transfer_in_stripe_retrying_never_owed_now():
         _turn_on()
         instructor = _payee()
         _registration(instructor)
         with _Stripe(fail="No."), patch("core.events.emit.emit"):
             payouts.run_payouts(NOW)
         row = _row(build_reconciliation(window=_window()), RecipientKind.INSTRUCTOR, instructor)
-        assert (row.stripe_cents, row.owed_now_cents) == (0, 7000)
+        assert (row.stripe_cents, row.owed_now_cents, row.retrying_cents) == (0, 0, 7000)
 
     def it_splits_orientors_and_leaves_guild_rows_unchanged():
         _turn_on()
@@ -462,7 +464,7 @@ def describe_reconciliation_split():
         assert _row(result_from_snapshot(snapshot), RecipientKind.INSTRUCTOR, instructor).stripe_cents == 7000
         for group in snapshot.results["groups"]:
             for row in group["rows"]:
-                for key in ("stripe_cents", "owed_now_cents", "not_due_cents", "next_due_at"):
+                for key in ("stripe_cents", "owed_now_cents", "not_due_cents", "retrying_cents", "next_due_at"):
                     del row[key]
         old = _row(result_from_snapshot(snapshot), RecipientKind.INSTRUCTOR, instructor)
         assert (old.stripe_cents, old.owed_now_cents, old.not_due_cents) == (0, 7000, 0)
@@ -476,8 +478,8 @@ def describe_reconciliation_split():
         with _Stripe():
             payouts.run_payouts(NOW)
         body = b"".join(stream_reconciliation_csv(build_reconciliation(window=_window())).streaming_content).decode()
-        assert CSV_HEADERS[-4:] == ["Sent through Stripe", "Owed now", "Not yet due", "Next due"]
-        assert f"{instructor.display_name},1,70.00,,70.00,70.00,0.00,0.00,\r\n" in body
+        assert CSV_HEADERS[-5:] == ["Sent through Stripe", "Owed now", "Not yet due", "Next due", "Stripe retrying"]
+        assert f"{instructor.display_name},1,70.00,,70.00,70.00,0.00,0.00,,0.00\r\n" in body
 
 
 def describe_payee_earnings():
@@ -671,7 +673,8 @@ def describe_snapshot_binds_the_split():
         _registration(instructor, class_at=NOW + timedelta(days=5))
         snapshot = _october()
         row = next(r for g in snapshot.results["groups"] if g["kind"] == "instructor" for r in g["rows"])
-        assert row["stripe_cents"] == 7000
+        # Not yet due until Stripe sends it (#985), and never owed by hand.
+        assert (row["stripe_cents"], row["owed_now_cents"], row["not_due_cents"]) == (0, 0, 7000)
         payout = Payout.objects.get()
         assert (payout.status, payout.counted_as_stripe_in) == (Payout.Status.PENDING, snapshot)
         _switch(False)

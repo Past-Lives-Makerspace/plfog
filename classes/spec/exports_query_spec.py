@@ -243,12 +243,15 @@ def describe_payout_column():
         cells = _payout_cells()
         # 48 hours after the class, as Pacific time writes the day (#985).
         due = timezone.localtime(regs["owed"].class_offering.sessions.get().starts_at + timedelta(hours=48))
+        stripe_due = timezone.localtime(
+            regs["not_yet_due"].class_offering.sessions.get().starts_at + timedelta(hours=48)
+        )
         assert {name: cells[reg.pk] for name, reg in regs.items()} == {
             "sent": "Sent through Stripe 2026-10-21",
             "taken_back": "Sent through Stripe 2026-10-13, refund taken back",
-            "pending": "Will be sent through Stripe",
-            "not_yet_due": "Will be sent through Stripe",
-            "failed": "Stripe is retrying",
+            "pending": "Sending through Stripe",
+            "not_yet_due": f"Not yet due, Stripe sends it {stripe_due.date().isoformat()}",
+            "failed": "Transfer failed, Stripe retrying, do not pay by hand",
             "owed": f"Owed now, fell due {due.date().isoformat()}",
             "legacy": f"Owed now, fell due {due.date().isoformat()}",
             "free": "",
@@ -274,7 +277,7 @@ def describe_payout_column():
     def it_writes_owed_now_for_a_connected_instructor_while_payouts_are_switched_off():
         _payouts_on()
         reg = _paid(_instructor())
-        assert _payout_cells()[reg.pk] == "Will be sent through Stripe"
+        assert _payout_cells()[reg.pk] == "Sending through Stripe"
         BillingSettings.objects.filter(pk=1).update(connect_enabled=False)
         assert _payout_cells()[reg.pk].startswith("Owed now, fell due ")
 

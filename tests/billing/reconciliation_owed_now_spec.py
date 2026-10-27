@@ -16,9 +16,9 @@ from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
-from billing.models import BillingSettings, Payout, ReconciliationSnapshot, TransactionAdjustment
+from billing.models import BillingSettings, Payout, PayoutAccount, ReconciliationSnapshot, TransactionAdjustment
 from billing.payments_panel import PanelWindow
-from billing.payouts import PAYOUT_DELAY, LineState, _earnings, _registrations
+from billing.payouts import PAYOUT_DELAY, LineState, PayoutBadge, _earnings, _registrations
 from billing.reconciliation import (
     SPLIT_BY_DUE_KEY,
     RecipientKind,
@@ -177,7 +177,7 @@ def describe_a_share_whose_class_has_not_happened():
             '<td class="r">$70.00</td><td class="r">$140.00<br><span class="muted">next due Nov 7</span></td>'
             in printed
         )
-        assert "Owed manually" not in printed
+        assert "<th class=\"r\">Owed manually</th>" not in printed
 
     def it_reads_a_class_with_no_sessions_as_not_yet_due_with_no_date():
         instructor = _instructor()
@@ -230,8 +230,8 @@ def describe_the_due_rule():
             status=Payout.Status.PENDING,
         )
         result = build_reconciliation(window=OCTOBER)
-        assert _line(result, reg.pk).payout.state == LineState.WILL_SEND
-        assert _split_of(result, instructor) == (7000, 7000, 0, 0)
+        assert _line(result, reg.pk).payout.state == LineState.STRIPE_NOT_DUE
+        assert _split_of(result, instructor) == (7000, 0, 0, 7000)
 
 
 def describe_owed_now_by_the_window_a_share_falls_due_in():
@@ -387,7 +387,7 @@ def describe_snapshots():
         snapshot = ReconciliationSnapshot.take(period_start=OCTOBER.start, period_end=OCTOBER.end, title="Oct")
         for group in snapshot.results["groups"]:
             for row in group["rows"]:
-                for key in ("owed_now_cents", "not_due_cents", "next_due_at"):
+                for key in ("owed_now_cents", "not_due_cents", "retrying_cents", "next_due_at"):
                     del row[key]
         old = result_from_snapshot(snapshot)
         assert _split_of(old, instructor) == (7000, 0, 7000, 0)
@@ -403,4 +403,113 @@ def describe_snapshots():
         page = client.get(reverse("billing_reconciliation_snapshot_detail", args=[snapshot.pk])).content.decode()
         assert '<td class="text-right" data-recon-owed-now>$0.00</td>' in page
         assert "Next due Nov 7" in page
-        assert "Owed manually" not in page
+
+
+def _payouts_on_for(member: Member) -> None:
+    """Payouts on since a month ago, and ``member`` connected since then, so their Stripe paid shares go through Stripe."""
+    BillingSettings.objects.filter(pk=1).update(connect_enabled=True, payouts_on_since=NOW - timedelta(days=30))
+    PayoutAccount.objects.create(
+        member=member,
+        stripe_account_id=f"acct_{member.pk}",
+        livemode=False,
+        status=PayoutAccount.Status.ACTIVE,
+        active_since=NOW - timedelta(days=30),
+    )
+
+
+def describe_a_share_stripe_will_send():
+    """Prod finding: a scheduled share read as money sent. Only a sent or in flight transfer counts as Sent."""
+
+    def it_reads_as_not_yet_due_until_it_falls_due():
+        instructor = _instructor()
+        _payouts_on_for(instructor)
+        reg = _registration(instructor, paid_at=NOW - timedelta(days=5), class_at=NOW + timedelta(days=3))
+        result = build_reconciliation(window=OCTOBER)
+        assert _line(result, reg.pk).payout.badge.label == "Not yet due, Stripe sends it Oct 25"
+        assert _split_of(result, instructor) == (7000, 0, 0, 7000)
+        (row,) = (r for r in _csv_rows(result) if r["Group"] == "Instructors")
+        assert (row["Sent through Stripe"], row["Not yet due"]) == ("0.00", "70.00")
+
+    def it_reads_a_pending_row_made_before_it_fell_due_as_not_yet_due():
+        instructor = _instructor()
+        _payouts_on_for(instructor)
+        reg = _registration(instructor, paid_at=NOW - timedelta(days=5), class_at=NOW + timedelta(days=3))
+        Payout.objects.create(
+            registration=reg, payee=instructor, amount_cents=7000, due_at=NOW + timedelta(days=5), status="pending"
+        )
+        assert _split_of(build_reconciliation(window=OCTOBER), instructor) == (7000, 0, 0, 7000)
+
+    def it_counts_as_sending_through_stripe_once_due():
+        instructor = _instructor()
+        _payouts_on_for(instructor)
+        recorded = _registration(instructor, paid_at=NOW - timedelta(days=10), class_at=NOW - timedelta(days=3))
+        Payout.objects.create(
+            registration=recorded, payee=instructor, amount_cents=7000, due_at=NOW - timedelta(days=1), status="pending"
+        )
+        unrecorded = _registration(instructor, paid_at=NOW - timedelta(days=10), class_at=NOW - timedelta(days=3))
+        result = build_reconciliation(window=OCTOBER)
+        for reg in (recorded, unrecorded):
+            assert _line(result, reg.pk).payout.badge == PayoutBadge("Sending through Stripe", "muted")
+        assert _split_of(result, instructor) == (14000, 14000, 0, 0)
+
+
+def describe_a_transfer_stripe_is_retrying():
+    """Prod finding: paying a retrying transfer by hand pays it twice. It has its own figure, never Owed now."""
+
+    @pytest.fixture
+    def failed() -> Registration:
+        instructor = _instructor()
+        reg = _registration(instructor, paid_at=NOW - timedelta(days=10), class_at=NOW - timedelta(days=3))
+        Payout.objects.create(
+            registration=reg,
+            payee=instructor,
+            amount_cents=7000,
+            due_at=NOW - timedelta(days=1),
+            status=Payout.Status.FAILED,
+            attempted_at=NOW - timedelta(hours=2),
+            failure_reason="Test refusal",
+        )
+        return reg
+
+    def it_counts_in_stripe_retrying_and_never_in_owed_now(failed: Registration):
+        result = build_reconciliation(window=OCTOBER)
+        instructor = failed.class_offering.instructor
+        row = _row(result, RecipientKind.INSTRUCTOR, instructor)
+        assert (row.owed_now_cents, row.retrying_cents) == (0, 7000)
+        assert result.retrying_total_cents == 7000
+        badge = _line(result, failed.pk).payout.badge
+        assert badge == PayoutBadge("Transfer failed, Stripe retrying, do not pay by hand", "fail")
+        (csv_row,) = (r for r in _csv_rows(result) if r["Group"] == "Instructors")
+        assert (csv_row["Owed now"], csv_row["Stripe retrying"]) == ("0.00", "70.00")
+
+    def it_shows_a_red_stripe_retrying_column_on_the_page_and_print_page(failed: Registration, client: Client):
+        _login_admin(client)
+        page = client.get(reverse("billing_admin_reconciliation_table"), OCTOBER_QUERY).content.decode()
+        assert '<th class="text-right">Stripe retrying</th>' in page
+        assert '<span class="pl-status-badge pl-status-badge--fail">$70.00</span>' in page
+        assert "Do not pay by hand" in page
+        assert '<td class="text-right" data-recon-owed-now>$0.00</td>' in page
+        printed = client.get(reverse("billing_admin_reconciliation_print"), OCTOBER_QUERY).content.decode()
+        assert '<th class="r">Stripe retrying</th>' in printed
+        assert "do not pay by hand" in printed
+
+    def it_leaves_the_column_off_when_nothing_is_retrying(client: Client):
+        _login_admin(client)
+        _registration(_instructor(), paid_at=NOW - timedelta(days=10), class_at=NOW - timedelta(days=3))
+        page = client.get(reverse("billing_admin_reconciliation_table"), OCTOBER_QUERY).content.decode()
+        assert "Stripe retrying</th>" not in page
+        assert "data-recon-retrying" not in page
+
+    def it_is_given_up_and_owed_by_hand_when_the_month_is_snapshotted(failed: Registration):
+        snapshot = ReconciliationSnapshot.take(period_start=OCTOBER.start, period_end=OCTOBER.end, title="Oct")
+        instructor = failed.class_offering.instructor
+        frozen = _row(result_from_snapshot(snapshot), RecipientKind.INSTRUCTOR, instructor)
+        assert (frozen.owed_now_cents, frozen.retrying_cents) == (7000, 0)
+        failed.payout.refresh_from_db()
+        assert failed.payout.status == Payout.Status.OWED_MANUALLY
+
+    def it_keeps_voting_projected_while_the_snapshot_reads_its_results():
+        _registration(_instructor(), paid_at=NOW - timedelta(days=10), class_at=NOW - timedelta(days=3))
+        with patch("billing.reconciliation._project_voting_cents", return_value={}) as project:
+            ReconciliationSnapshot.take(period_start=OCTOBER.start, period_end=OCTOBER.end, title="Oct")
+        project.assert_called_once()

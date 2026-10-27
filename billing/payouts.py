@@ -733,11 +733,12 @@ class LineState(models.TextChoices):
 
     SENT = "sent", "Sent through Stripe"
     TAKEN_BACK = "taken_back", "Sent through Stripe, refund taken back"
-    WILL_SEND = "will_send", "Will be sent through Stripe"
+    SENDING = "sending", "Sending through Stripe"
     UNCONFIRMED = "unconfirmed", "Not sent, Stripe unreachable"
-    RETRYING = "retrying", "Stripe is retrying"
+    RETRYING = "retrying", "Transfer failed, Stripe retrying, do not pay by hand"
     OWED = "by_hand", "Owed now"
     NOT_DUE = "not_due", "Not yet due"
+    STRIPE_NOT_DUE = "stripe_not_due", "Not yet due, Stripe sends it"
     DUE_LATER = "due_later", "Fell due after these dates"
 
 
@@ -749,11 +750,16 @@ class LinePayout:
 
     - SENT: Stripe accepted the transfer (``sent_at`` set when it did).
     - TAKEN_BACK: sent, then a refund took some or all of it back.
-    - WILL_SEND: recorded and pending, or not yet due but going through Stripe.
+    - SENDING: going through Stripe and due: recorded PENDING (the send job's next run sends it),
+      or due and not recorded yet (the job records it within its 15 minute tick). The transfer is
+      in flight, so it counts in Sent through Stripe.
     - UNCONFIRMED: pending, but Stripe could not be reached to check whether it was sent.
+    - STRIPE_NOT_DUE: going through Stripe once ``due_at`` passes, nothing sent yet: Not yet due,
+      never Sent through Stripe (#985: a scheduled share read as money sent).
     - RETRYING: Stripe rejected the transfer and the send job retries it daily until it gives
-      up (``PayoutQuerySet.to_send``). It counts in Owed now, as it always counted as owed, and
-      the snapshot gives it up and owes it by hand; until then its red badge says not to pay it.
+      up (``PayoutQuerySet.to_send``). Paying it by hand would pay it twice, so it counts in its
+      own Stripe retrying figure, never in Owed now; a month-end snapshot gives it up and owes it
+      by hand first (``ReconciliationSnapshot.take``).
     - OWED: paid by hand, and ``due_at`` has passed.
     - NOT_DUE: paid by hand, and ``due_at`` is still ahead, or None for a class with no sessions.
     - DUE_LATER: an OWED share seen in a Reconciliation window it did not fall due in. It counts
@@ -775,12 +781,17 @@ class LinePayout:
     @property
     def owed(self) -> bool:
         """True when the share counts in Owed now, for the window its ``due_at`` falls in."""
-        return self.state in (LineState.OWED, LineState.RETRYING)
+        return self.state == LineState.OWED
 
     @property
     def not_due(self) -> bool:
-        """True when the share counts in Not yet due."""
-        return self.state == LineState.NOT_DUE
+        """True when the share counts in Not yet due, whoever pays it once due."""
+        return self.state in (LineState.NOT_DUE, LineState.STRIPE_NOT_DUE)
+
+    @property
+    def retrying(self) -> bool:
+        """True when the share counts in Stripe retrying: not to be paid by hand."""
+        return self.state == LineState.RETRYING
 
     def for_window(self, start: datetime, end: datetime) -> LinePayout:
         """This state as a Reconciliation window ``[start, end)`` shows it: Owed now only if it fell due inside."""
@@ -811,6 +822,8 @@ class LinePayout:
             if self.due_at is None:
                 return "Not yet due, no class date yet"
             return f"Not yet due, falls due {day(self.due_at)}"
+        if self.state == LineState.STRIPE_NOT_DUE and self.due_at is not None:
+            return f"Not yet due, Stripe sends it {day(self.due_at)}"
         return str(self.state.label)
 
 
@@ -826,15 +839,16 @@ def _iso_day(when: datetime) -> str:
 _LINE_TONES = {
     LineState.SENT: "muted",
     LineState.TAKEN_BACK: "muted",
-    LineState.WILL_SEND: "muted",
+    LineState.SENDING: "muted",
     LineState.UNCONFIRMED: "fail",
     LineState.RETRYING: "fail",
     LineState.OWED: "ok",
     LineState.NOT_DUE: "warn",
+    LineState.STRIPE_NOT_DUE: "warn",
     LineState.DUE_LATER: "warn",
 }
 _THROUGH_STRIPE_LINE_STATES = frozenset(
-    {LineState.SENT, LineState.TAKEN_BACK, LineState.WILL_SEND, LineState.UNCONFIRMED}
+    {LineState.SENT, LineState.TAKEN_BACK, LineState.SENDING, LineState.UNCONFIRMED}
 )
 
 
@@ -885,15 +899,16 @@ def _line_state(earning: Earning, account: PayoutAccount | None, since: datetime
         return LineState.SENT
     if payout is not None and payout.status == Payout.Status.TAKEN_BACK:
         return LineState.TAKEN_BACK
+    if payout is not None and payout.status == Payout.Status.FAILED:
+        return LineState.RETRYING
+    due = earning.due_at <= now
     if payout is not None and payout.status == Payout.Status.PENDING:
         if payout.failure_reason == PAYOUT_LOOKUP_UNREACHABLE:
             return LineState.UNCONFIRMED
-        return LineState.WILL_SEND
-    if payout is not None and payout.status == Payout.Status.FAILED:
-        return LineState.RETRYING
+        return LineState.SENDING if due else LineState.STRIPE_NOT_DUE
     if payout is None and goes_through_stripe(earning, account, since):
-        return LineState.WILL_SEND
-    return LineState.OWED if earning.due_at <= now else LineState.NOT_DUE
+        return LineState.SENDING if due else LineState.STRIPE_NOT_DUE
+    return LineState.OWED if due else LineState.NOT_DUE
 
 
 def _sent_at(earning: Earning) -> datetime | None:

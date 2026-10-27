@@ -1729,8 +1729,8 @@ class ReconciliationSnapshot(models.Model):
         A create plus one ``SiteActivity`` audit row — no event, no email, no Airtable,
         unlike ``FundingSnapshot.take()``. It also binds the payout split (#662): in the
         same transaction, every instructor, orientor and manager share in the window gets its
-        ``Payout`` row (``billing.payouts.freeze_split``), classified by the same rule the
-        results just used, so what the snapshot calls "Sent through Stripe" is what gets sent.
+        ``Payout`` row first (``billing.payouts.freeze_split``), and the results are then read
+        from those rows, so what the snapshot calls "Sent through Stripe" is what gets sent.
         """
         from core.models import SiteActivity
 
@@ -1740,17 +1740,23 @@ class ReconciliationSnapshot(models.Model):
 
         window = PanelWindow(start=period_start, end=period_end)
         with transaction.atomic():
-            result = build_reconciliation(window=window)
             snapshot = cls.objects.create(
                 title=title.strip(),
                 period_start=period_start,
                 period_end=period_end,
-                results=result.to_snapshot_dict(),
-                grand_total_cents=result.grand_total_cents,
+                results={},
+                grand_total_cents=0,
                 is_auto=is_auto,
                 taken_by=actor if (actor is not None and getattr(actor, "pk", None)) else None,
             )
+            # Freeze the ledger first, then read the results from it (#985): a transfer still
+            # failing is given up here and owed by hand, so the snapshot counts it in Owed now
+            # rather than freezing it as Stripe retrying, which nobody would then pay.
             freeze_split(snapshot, window)
+            result = build_reconciliation(window=window)
+            snapshot.results = result.to_snapshot_dict()
+            snapshot.grand_total_cents = result.grand_total_cents
+            snapshot.save(update_fields=["results", "grand_total_cents"])
         SiteActivity.log(SiteActivity.Kind.RECONCILIATION_SNAPSHOT_TAKEN, actor=actor, target=snapshot)
         return snapshot
 

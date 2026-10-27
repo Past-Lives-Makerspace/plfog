@@ -71,7 +71,7 @@
 {% for kind, heading, rows in reconciliation.ordered_groups %}
 {% if kind.value == "instructor" %}
 {# #905: the line badges come from the same rule as the columns, so this line holds. #}
-<p class="pl-recon-pay-lead" data-recon-pay-lead>Pay by hand only the shares marked Owed now in Transaction Detail. Owed now counts every share that fell due in these dates, whenever it was paid; a share whose class, orientation or reservation has not happened yet is Not yet due. Stripe pays the rest, including any share it is retrying.</p>
+<p class="pl-recon-pay-lead" data-recon-pay-lead>Pay by hand only the shares marked Owed now in Transaction Detail. Owed now counts every share that fell due in these dates, whenever it was paid; a share whose class, orientation or reservation has not happened yet is Not yet due. Stripe pays the rest. Never pay a Stripe retrying share by hand: Stripe keeps retrying it.</p>
 {% endif %}
 <div class="pl-card" style="margin-bottom:1.25rem">
   <div class="pl-section-label">{{ heading }}</div>
@@ -91,6 +91,7 @@
           <th class="text-right">Sent through Stripe</th>
           <th class="text-right">Owed now</th>
           <th class="text-right">Not yet due</th>
+          {% if reconciliation.retrying_total_cents %}<th class="text-right">Stripe retrying</th>{% endif %}
           {% endif %}
         </tr>
       </thead>

@@ -871,7 +871,13 @@ def describe_a_request_awaiting_approval_at_month_end():
         )
         snapshot = _take_snapshot()
         row = _manager_row(snapshot)
-        assert (row["total_cents"], row["stripe_cents"]) == (7000, 7000)  # Sent through Stripe, not owed by hand
+        # Not yet due until Stripe sends it (#985), and never owed by hand.
+        assert (row["total_cents"], row["stripe_cents"], row["owed_now_cents"], row["not_due_cents"]) == (
+            7000,
+            0,
+            0,
+            7000,
+        )
         payout = Payout.objects.get(reservation=waiting)
         assert (payout.status, payout.counted_as_stripe_in) == (Payout.Status.PENDING, snapshot)
 

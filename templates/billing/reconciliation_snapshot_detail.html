@@ -50,7 +50,7 @@
           <tr>
             <th>Recipient</th><th class="text-right">Transactions</th><th class="text-right">Amount</th>
             {% if kind.value == "guild" %}<th class="text-right">Voting</th><th class="text-right">Total</th>{% endif %}
-            {% if kind.is_producer %}<th class="text-right">Sent through Stripe</th><th class="text-right">Owed now</th><th class="text-right">Not yet due</th>{% endif %}
+            {% if kind.is_producer %}<th class="text-right">Sent through Stripe</th><th class="text-right">Owed now</th><th class="text-right">Not yet due</th>{% if reconciliation.retrying_total_cents %}<th class="text-right">Stripe retrying</th>{% endif %}{% endif %}
           </tr>
         </thead>
         <tbody>

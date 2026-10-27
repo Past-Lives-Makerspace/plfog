@@ -1,6 +1,11 @@
-{% load classes_tags %}{# #985: a producer row's Owed now and Not yet due cells, with the next due day; needs alloc. #}
+{% load classes_tags %}{# #985: a producer row's Owed now, Not yet due and Stripe retrying cells; needs alloc and reconciliation. #}
 <td class="text-right" data-recon-owed-now>{{ alloc.owed_now_cents|cents_as_dollars }}</td>
 <td class="text-right" data-recon-not-due>
   {{ alloc.not_due_cents|cents_as_dollars }}
-  {% if alloc.next_due_at %}<span class="pl-payouts-sub">Next due {{ alloc.next_due_at|date:"M j" }}</span>{% endif %}
+  {% if alloc.next_due_at %}<span class="pl-payouts-sub pl-recon-cell-note">Next due {{ alloc.next_due_at|date:"M j" }}</span>{% endif %}
 </td>
+{% if reconciliation.retrying_total_cents %}
+<td class="text-right" data-recon-retrying>
+  {% if alloc.retrying_cents %}<span class="pl-status-badge pl-status-badge--fail">{{ alloc.retrying_cents|cents_as_dollars }}</span><span class="pl-payouts-sub pl-recon-cell-note">Do not pay by hand</span>{% else %}{{ alloc.retrying_cents|cents_as_dollars }}{% endif %}
+</td>
+{% endif %}

@@ -4,6 +4,7 @@ title = "Reconciliation counts a share as owed only once its class has happened"
 changes = [
   "On Reconciliation, Owed manually is now two columns: Owed now and Not yet due.",
   "Owed now is what to pay instructors, orientors and equipment managers by hand: shares whose class, orientation or reservation happened at least 48 hours ago. Each one counts in the dates it fell due, even if the payment came in an earlier month.",
-  "A share whose class has not happened yet shows as Not yet due, with the day it falls due.",
+  "A share whose class has not happened yet shows as Not yet due, with the day it falls due. That includes shares Stripe will send: Sent through Stripe now counts only transfers Stripe has made or is making.",
+  "A transfer Stripe is retrying shows in its own red Stripe retrying column, not in Owed now. Do not pay it by hand: Stripe keeps trying.",
   "The CSV and the print page have the same two columns.",
 ]

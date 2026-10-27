@@ -178,10 +178,15 @@ def describe_line_payout():
     def it_leaves_the_date_off_a_sent_share_with_no_stamp():
         assert LinePayout(LineState.SENT).badge == PayoutBadge("Sent through Stripe", "muted")
 
-    def it_says_a_share_will_be_sent():
-        state = LinePayout(LineState.WILL_SEND)
-        assert state.badge == PayoutBadge("Will be sent through Stripe", "muted")
+    def it_says_a_due_share_is_sending_through_stripe():
+        state = LinePayout(LineState.SENDING)
+        assert state.badge == PayoutBadge("Sending through Stripe", "muted")
         assert state.through_stripe is True
+
+    def it_says_a_share_stripe_will_send_is_not_yet_due():
+        state = LinePayout(LineState.STRIPE_NOT_DUE, due_at=datetime(2026, 11, 5, 18, 0, tzinfo=UTC))
+        assert state.badge == PayoutBadge("Not yet due, Stripe sends it Nov 5", "warn")
+        assert (state.through_stripe, state.owed, state.not_due) == (False, False, True)
 
     def it_names_a_refund_taken_back_from_a_sent_share():
         state = LinePayout(LineState.TAKEN_BACK, datetime(2026, 10, 13, 18, 0, tzinfo=UTC))
@@ -189,10 +194,10 @@ def describe_line_payout():
         assert state.through_stripe is True
         assert LinePayout(LineState.TAKEN_BACK).badge == PayoutBadge("Sent through Stripe, refund taken back", "muted")
 
-    def it_says_stripe_is_retrying_a_rejected_transfer_in_red_but_counts_it_owed():
+    def it_says_in_red_not_to_pay_a_retrying_transfer_by_hand():
         state = LinePayout(LineState.RETRYING)
-        assert state.badge == PayoutBadge("Stripe is retrying", "fail")
-        assert (state.through_stripe, state.owed) == (False, True)
+        assert state.badge == PayoutBadge("Transfer failed, Stripe retrying, do not pay by hand", "fail")
+        assert (state.through_stripe, state.owed, state.not_due, state.retrying) == (False, False, False, True)
 
     def it_says_in_red_that_stripe_could_not_confirm_a_pending_transfer():
         state = LinePayout(LineState.UNCONFIRMED)
@@ -331,15 +336,15 @@ def describe_transaction_lines():
         assert labels == {
             "sent": "Sent through Stripe Oct 14",
             "taken_back": "Sent through Stripe Oct 13, refund taken back",
-            "pending": "Will be sent through Stripe",
-            "not_yet_due": "Will be sent through Stripe",
-            "failed": "Stripe is retrying",
+            "pending": "Sending through Stripe",
+            "not_yet_due": "Not yet due, Stripe sends it Oct 27",
+            "failed": "Transfer failed, Stripe retrying, do not pay by hand",
             "owed": "Owed now, fell due Oct 19",
             "legacy": "Owed now, fell due Oct 19",
             "no_sessions": "Not yet due, no class date yet",
         }
 
-    def it_agrees_with_the_sent_through_stripe_owed_now_and_not_yet_due_columns(setup: dict[str, Any]):
+    def it_agrees_with_every_column(setup: dict[str, Any]):
         result = build_reconciliation(window=WINDOW)
         instructor = setup["instructor"]
         key = ("instructor", instructor.pk)
@@ -348,15 +353,16 @@ def describe_transaction_lines():
             return sum(line.shares[key] for line in result.lines if line.payout and test(line.payout))
 
         row = _row(result, RecipientKind.INSTRUCTOR, instructor)
-        columns = (row.stripe_cents, row.owed_now_cents, row.not_due_cents)
-        through, owed, not_due = (
+        columns = (row.stripe_cents, row.owed_now_cents, row.not_due_cents, row.retrying_cents)
+        by_state = (
             summed(lambda p: p.through_stripe),
             summed(lambda p: p.owed),
             summed(lambda p: p.not_due),
+            summed(lambda p: p.retrying),
         )
-        assert columns == (through, owed, not_due) == (28000, 21000, 7000)
+        assert columns == by_state == (21000, 14000, 14000, 7000)
 
-    def it_marks_a_failed_transfer_retrying_and_leaves_the_columns_as_they_were():
+    def it_counts_a_failed_transfer_in_stripe_retrying_not_owed_now():
         _turn_on()
         instructor = _producer("Alex Eason")
         reg = _registration(instructor)
@@ -364,7 +370,7 @@ def describe_transaction_lines():
         result = build_reconciliation(window=WINDOW)
         assert _line(result, "class", reg.pk).payout.state == LineState.RETRYING
         row = _row(result, RecipientKind.INSTRUCTOR, instructor)
-        assert (row.total_cents, row.stripe_cents, row.owed_now_cents) == (7000, 0, 7000)
+        assert (row.total_cents, row.stripe_cents, row.owed_now_cents, row.retrying_cents) == (7000, 0, 0, 7000)
 
     def it_leaves_an_omitted_line_unbadged():
         reg = _registration(_producer("Alex Eason"))
@@ -383,7 +389,7 @@ def describe_transaction_lines():
         booking = _booking(_producer("Oren Orients"))
         reservation = _reservation(_producer("Sami Okafor", status=None))
         result = build_reconciliation(window=WINDOW)
-        assert _line(result, "orientation", booking.pk).payout.state == LineState.WILL_SEND
+        assert _line(result, "orientation", booking.pk).payout.state == LineState.SENDING
         assert _line(result, "reservation", reservation.pk).payout.state == LineState.OWED
 
 
@@ -405,6 +411,7 @@ def describe_snapshots():
                 "stripe_cents",
                 "owed_now_cents",
                 "not_due_cents",
+                "retrying_cents",
                 "next_due_at",
             }
             for row in rows
