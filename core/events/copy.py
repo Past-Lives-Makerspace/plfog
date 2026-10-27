@@ -147,6 +147,7 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     ),
     Recipients.WIKI_PAGE_CONTRIBUTORS: "Everyone who has written a version of the page, except the verifier.",
     Recipients.KILN_CREW: "The Ceramics Guild's lead and staff (the kiln crew), except whoever wrote the message.",
+    Recipients.TOUR_GUIDES: "The tour's guide; for a tour with no guide, everyone holding Tour Guide.",
 }
 
 

@@ -187,6 +187,14 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="send_tour_reminders",
+        name="Tour reminder emails",
+        description="Reminds each visitor about their facility tour the day before it.",
+        command="send_tour_reminders",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="send_payouts",
         name="Send instructor and orientor payouts",
         description=(

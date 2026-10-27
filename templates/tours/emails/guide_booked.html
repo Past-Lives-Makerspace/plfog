@@ -1,0 +1,18 @@
+{% extends "membership/emails/_base.html" %}
+{% block content %}
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">New tour booked</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;"><strong>{{ booking.visitor_name }}</strong> booked a tour for {{ people }}.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 8px 0 16px;">
+<tr>
+<td style="padding: 12px 0; border-top: 1px solid rgba(13, 72, 118, 0.12);">
+    <span style="font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">When</span><br>
+    <span style="font-size: 14px; color: #33424f;">{{ when }}</span><br><br>
+    <span style="font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">Visitor</span><br>
+    <span style="font-size: 14px; color: #33424f;"><a href="mailto:{{ booking.visitor_email }}" style="color: #0d4876;">{{ booking.visitor_email }}</a>{% if booking.visitor_phone %}<br>{{ booking.visitor_phone }}{% endif %}</span>
+</td>
+</tr>
+</table>
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ tours_page_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Open Tours</a>
+</div>
+{% endblock %}

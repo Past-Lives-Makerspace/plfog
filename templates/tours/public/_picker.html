@@ -1,0 +1,36 @@
+{% comment %}
+The date strip and the picked day's tour times (#948), shared by the booking page and the
+reschedule page. Context: picker (tours.public_views.Picker), page_url (the page the links
+reload with ?date= or ?tour=), support_email.
+{% endcomment %}
+{% if picker.days %}
+<section class="pl-tourpub__section" aria-labelledby="tour-days-heading">
+  <h2 class="pl-tourpub__heading" id="tour-days-heading">Pick a Day</h2>
+  <ul class="pl-tourpub__days">
+    {% for choice in picker.days %}
+    <li>
+      <a href="{{ page_url }}?date={{ choice.day|date:'Y-m-d' }}" class="pl-tourpub__day{% if choice.selected %} pl-tourpub__day--on{% endif %}"{% if choice.selected %} aria-current="date"{% endif %} data-tour-day="{{ choice.day|date:'Y-m-d' }}">
+        <span class="pl-tourpub__day-name">{{ choice.day|date:"D" }}</span>
+        <span class="pl-tourpub__day-num">{{ choice.day|date:"j" }}</span>
+        <span class="pl-tourpub__day-month">{{ choice.day|date:"M" }}</span>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+<section class="pl-tourpub__section" aria-labelledby="tour-times-heading">
+  <h2 class="pl-tourpub__heading" id="tour-times-heading">Times on {{ picker.day|date:"l, F j" }}</h2>
+  <ul class="pl-tourpub__times">
+    {% for choice in picker.times %}
+    <li>
+      <a href="{{ page_url }}?tour={{ choice.tour.key }}" class="pl-tourpub__time" data-tour-time="{{ choice.tour.key }}">
+        <span class="pl-tourpub__time-at">{{ choice.tour.starts_at|time:"g:i A" }}</span>
+        <span class="pl-tourpub__time-seats">{{ choice.tour.seats_left }} seat{{ choice.tour.seats_left|pluralize }} left{% if choice.guide_name %} with {{ choice.guide_name }}{% endif %}</span>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% else %}
+<p class="pl-tourpub__empty" data-tour-empty>No tour times are open right now. Please check back soon, or email us at <a href="mailto:{{ support_email }}">{{ support_email }}</a>.</p>
+{% endif %}

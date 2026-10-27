@@ -1,4 +1,4 @@
-"""Forms for the Tours page's My Hours and Settings tabs (#947).
+"""Forms for the Tours page's My Hours and Settings tabs (#947), and the visitor's booking form (#948).
 
 The hours rows reuse the orientation editor's pieces: the shared half hour time choices and the
 shared slot length list (FRONTEND rule 20), and the formset shape of ``OrientationAvailabilityFormSet``
@@ -272,3 +272,50 @@ class FacilityTourSettingsForm(forms.ModelForm):
         else:
             cleaned["closed_message"] = self.instance.closed_message
         return cleaned
+
+
+#: The account toggle's words on the booking page (#948).
+CREATE_ACCOUNT_LABEL = "Create a free Past Lives account (handy if you join later)"
+
+
+class TourBookingForm(forms.Form):
+    """The visitor's details on tours.pastlives.space (#948): name, email, phone, party size.
+
+    ``tour`` is the chosen tour's :attr:`tours.availability.OpenTour.key`. The party size offers
+    1 to ``max_party``: the tour's seats left when the form is shown. A POST passes the most a
+    tour can hold instead, so a tour that filled up while the visitor typed is refused by the
+    booking's own seat count under the lock ("That time just filled up") rather than by this
+    form. ``create_account`` (the optional account toggle) is offered only to a signed out
+    visitor.
+    """
+
+    tour = forms.CharField(widget=forms.HiddenInput)
+    name = forms.CharField(max_length=200, label="Your name")
+    email = forms.EmailField(label="Email")
+    phone = forms.CharField(max_length=40, required=False, label="Phone (optional)")
+    party_size = forms.TypedChoiceField(coerce=int, label="How many people")
+    # Starts on: accounts are encouraged (Felix, #948), and the class booking form defaults its box on too.
+    create_account = forms.BooleanField(required=False, initial=True, label=CREATE_ACCOUNT_LABEL)
+    #: A honeypot: off screen for a person, filled by a bot that fills every field (the guest
+    #: RSVP form's ``website``). A filled one books nothing.
+    website = forms.CharField(
+        required=False,
+        label="Leave this field empty",
+        widget=forms.TextInput(attrs={"autocomplete": "off", "tabindex": "-1", "aria-hidden": "true"}),
+    )
+
+    def __init__(self, *args: Any, max_party: int, offer_account: bool, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        top = max(1, min(max_party, MAX_SEATS))
+        party = cast(forms.TypedChoiceField, self.fields["party_size"])
+        party.choices = [(str(size), str(size)) for size in range(1, top + 1)]
+        self.fields["name"].widget.attrs.update({"autocomplete": "name"})
+        self.fields["email"].widget.attrs.update({"autocomplete": "email"})
+        self.fields["phone"].widget = forms.TextInput(attrs={"type": "tel", "autocomplete": "tel"})
+        if not offer_account:
+            del self.fields["create_account"]
+
+    @property
+    def honeypot_tripped(self) -> bool:
+        """Whether the hidden field came back filled: a bot, answered as if nothing went wrong."""
+        return bool(str(self.data.get("website", "")).strip())

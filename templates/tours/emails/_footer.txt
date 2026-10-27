@@ -1,0 +1,3 @@
+
+Past Lives Makerspace: {{ book_url }}
+You're getting this email because you booked a tour of Past Lives Makerspace.

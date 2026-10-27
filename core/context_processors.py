@@ -126,33 +126,43 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
     """Expose which surface the request arrived on so templates can branch chrome.
 
     ``surface`` is ``"public"`` on book.pastlives.space, ``"guilds"`` on
-    guilds.pastlives.space, ``"signage"`` on slideshow.pastlives.space, and
+    guilds.pastlives.space, ``"signage"`` on slideshow.pastlives.space, ``"tours"`` on
+    tours.pastlives.space, and
     ``"members"`` everywhere else (members host, local dev, Hetzner staging,
     Render preview). ``is_public_surface`` / ``is_guilds_surface`` /
     ``is_signage_surface`` are the convenience booleans templates branch on;
-    ``is_guest_surface`` is the unified "no member chrome" flag (true on book and
-    guilds). ``guilds_page_base`` / ``parent_template`` let shared and allauth
+    ``is_guest_surface`` is the unified "no member chrome" flag (true on book,
+    guilds and tours). ``guilds_page_base`` / ``parent_template`` let shared and allauth
     templates pick their base via ``{% extends ... %}`` without forking the files.
     """
     value = getattr(request, "surface", "members")
     is_public = value == "public"
     is_guilds = value == "guilds"
     is_signage = value == "signage"
+    is_tours = value == "tours"
     return {
         "surface": value,
         "is_public_surface": is_public,
         "is_guilds_surface": is_guilds,
         "is_signage_surface": is_signage,
-        "is_guest_surface": is_public or is_guilds,
+        "is_tours_surface": is_tours,
+        "is_guest_surface": is_public or is_guilds or is_tours,
         "MEMBER_HOST": settings.MEMBER_HOST,
         "MEMBER_BASE_URL": getattr(settings, "MEMBER_BASE_URL", f"https://{settings.MEMBER_HOST}"),
         "BOOK_BASE_URL": getattr(settings, "BOOK_BASE_URL", "https://classes.pastlives.space"),
         "GUILDS_BASE_URL": getattr(settings, "GUILDS_BASE_URL", "https://guilds.pastlives.space"),
         "SIGNAGE_BASE_URL": getattr(settings, "SIGNAGE_BASE_URL", "https://slideshow.pastlives.space"),
+        "TOURS_BASE_URL": getattr(settings, "TOURS_BASE_URL", "https://tours.pastlives.space"),
         "guilds_page_base": "guilds/base_public.html" if is_guilds else "hub/base.html",
         "signage_page_base": "signage/base.html" if is_signage else "hub/base.html",
         "parent_template": (
-            "guilds/base_public.html" if is_guilds else "classes/base_public.html" if is_public else "base.html"
+            "guilds/base_public.html"
+            if is_guilds
+            else "tours/public/base.html"
+            if is_tours
+            else "classes/base_public.html"
+            if is_public
+            else "base.html"
         ),
     }
 

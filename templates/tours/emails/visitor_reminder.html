@@ -1,0 +1,9 @@
+{% extends "tours/emails/_base.html" %}
+{% block content %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">Your tour is tomorrow!</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">A quick reminder about your <a href="{{ manage_url }}" style="color: #0d4876; text-decoration: none; font-weight: 700;">tour of Past Lives Makerspace</a>.</p>
+{% include "tours/emails/_tour.html" %}
+<p style="margin: 0 0 16px; font-size: 13px; color: #55697a; line-height: 1.6;">See you soon!</p>
+{% include "tours/emails/_actions.html" %}
+{% endblock %}

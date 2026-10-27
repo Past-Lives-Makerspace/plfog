@@ -37,6 +37,7 @@ _DISPATCHER_ALWAYS = {
     "publish_due_events",
     "finish_event_announcements",
     "send_event_reminders",
+    "send_tour_reminders",
     "bill_tabs",
     "retry_calendar_pushes",
     "retry_discord_event_pushes",

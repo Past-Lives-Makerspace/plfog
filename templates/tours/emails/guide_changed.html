@@ -1,0 +1,15 @@
+{% extends "membership/emails/_base.html" %}
+{% block content %}
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">{% if change == "cancelled" %}Tour cancelled{% else %}Tour moved{% endif %}</p>
+{% if change == "cancelled" %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;"><strong>{{ booking.visitor_name }}</strong> cancelled their tour for {{ people }} on {{ when }}. Their seats are open again.</p>
+{% elif stays_with_guide %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;"><strong>{{ booking.visitor_name }}</strong> moved their tour for {{ people }} from {{ previous_when }} to <strong>{{ when }}</strong>.</p>
+{% else %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;"><strong>{{ booking.visitor_name }}</strong> moved their tour for {{ people }} on {{ previous_when }} to another guide's time. It is off your schedule.</p>
+{% endif %}
+<p style="margin: 0 0 8px; font-size: 13px; color: #55697a; line-height: 1.6;">Visitor: <a href="mailto:{{ booking.visitor_email }}" style="color: #0d4876;">{{ booking.visitor_email }}</a>{% if booking.visitor_phone %}, {{ booking.visitor_phone }}{% endif %}</p>
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ tours_page_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Open Tours</a>
+</div>
+{% endblock %}

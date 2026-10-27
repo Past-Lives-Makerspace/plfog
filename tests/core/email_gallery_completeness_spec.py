@@ -61,6 +61,13 @@ EXPECTED_PAIRS = {
     "login_code",
     "unknown_account",
     "account_already_exists",
+    # facility tours (#948)
+    "visitor_confirmed",
+    "visitor_moved",
+    "visitor_cancelled",
+    "visitor_reminder",
+    "guide_booked",
+    "guide_changed",
 }
 
 
@@ -74,10 +81,10 @@ def describe_email_gallery_completeness():
             "on copy-review.pastlives.space."
         )
 
-    def it_discovers_the_expected_34_pairs():
+    def it_discovers_the_expected_40_pairs():
         """Pins the discovery rule so it never silently sweeps in (or drops) templates."""
         assert discover_template_pairs() == EXPECTED_PAIRS
-        assert len(EXPECTED_PAIRS) == 34
+        assert len(EXPECTED_PAIRS) == 40
 
     def it_excludes_shells_and_partials():
         discovered = discover_template_pairs()

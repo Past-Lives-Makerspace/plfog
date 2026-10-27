@@ -1,0 +1,9 @@
+Hi {{ greeting_name }},
+
+Your tour of Past Lives Makerspace is booked!
+
+{% include "tours/emails/_tour.txt" %}
+We attached a calendar invite. See you soon!
+
+Your tour: {{ manage_url }}
+{% include "tours/emails/_actions.txt" %}{% include "tours/emails/_footer.txt" %}

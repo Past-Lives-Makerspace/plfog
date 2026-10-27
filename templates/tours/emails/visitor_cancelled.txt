@@ -1,0 +1,9 @@
+Hi {{ greeting_name }},
+
+Your tour of Past Lives Makerspace is cancelled, and we let your guide know.
+
+{% include "tours/emails/_tour.txt" %}
+The attached calendar update takes it off your calendar.
+
+Book another time: {{ book_url }}
+{% include "tours/emails/_footer.txt" %}

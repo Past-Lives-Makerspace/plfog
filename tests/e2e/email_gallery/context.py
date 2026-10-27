@@ -950,3 +950,75 @@ def find_account_context(data: SampleData) -> dict[str, Any]:
             f"If you didn't request this, you can safely ignore this email."
         ),
     }
+
+
+# --- Facility tours (#948) -------------------------------------------------------
+
+
+def _tour_booking(data: SampleData, **fields: Any) -> Any:
+    """A visitor's booking on the sample guild lead's tour next week, as the booking page makes one."""
+    from tests.tours.factories import TourBookingFactory, local
+
+    day = timezone.localdate() + timedelta(days=7)
+    return TourBookingFactory(
+        guide=data.lead,
+        starts_at=local(day, 16),
+        party_size=2,
+        visitor_name="Sam Rivera",
+        visitor_email="sam.rivera@example.com",
+        visitor_phone="503 555 0142",
+        **fields,
+    )
+
+
+def _tour_visitor(data: SampleData, subject: str, **fields: Any) -> dict[str, Any]:
+    """Mirrors ``tours.notify.send_visitor_email``'s context and subject."""
+    from tours.notify import short_when, visitor_context
+
+    previous = fields.pop("previous_starts_at", None)
+    booking = _tour_booking(data, **fields)
+    extra = {"previous_when": "Tuesday, November 3 at 4:00 PM"} if previous else {}
+    return {
+        "subject": subject.format(when=short_when(booking.starts_at)),
+        "template_context": visitor_context(booking, **extra),
+    }
+
+
+def tour_visitor_confirmed_context(data: SampleData) -> dict[str, Any]:
+    return _tour_visitor(data, "Your Past Lives tour is booked: {when}")
+
+
+def tour_visitor_moved_context(data: SampleData) -> dict[str, Any]:
+    return _tour_visitor(data, "Your Past Lives tour moved to {when}", sequence=1, previous_starts_at=True)
+
+
+def tour_visitor_cancelled_context(data: SampleData) -> dict[str, Any]:
+    from tours.models import TourBooking
+
+    return _tour_visitor(data, "Your Past Lives tour on {when} is cancelled", status=TourBooking.Status.CANCELLED)
+
+
+def tour_visitor_reminder_context(data: SampleData) -> dict[str, Any]:
+    return _tour_visitor(data, "Reminder: your Past Lives tour is {when}")
+
+
+def tour_guide_booked_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``tours.notify.tell_guide_booked``."""
+    from tours.notify import guide_context, short_when
+
+    booking = _tour_booking(data)
+    return {"subject": f"New tour booked: {short_when(booking.starts_at)}", "template_context": guide_context(booking)}
+
+
+def tour_guide_changed_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``tours.notify.tell_guide_changed`` for a move within one guide's tours."""
+    from tours.notify import guide_context, short_when, when_label
+
+    booking = _tour_booking(data, sequence=1)
+    previous = booking.starts_at - timedelta(days=2)
+    return {
+        "subject": f"Tour moved: {short_when(previous)} to {short_when(booking.starts_at)}",
+        "template_context": guide_context(
+            booking, change="moved", previous_when=when_label(previous), stays_with_guide=True
+        ),
+    }

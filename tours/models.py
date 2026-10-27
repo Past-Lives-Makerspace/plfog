@@ -35,6 +35,8 @@ MAX_HORIZON_DAYS = 365
 MAX_NOTICE_HOURS = 336
 
 DEFAULT_CLOSED_MESSAGE = "We are not booking tours right now. Please check back soon."
+#: Where tours meet, on the booking pages and in every visitor email.
+TOUR_ADDRESS = "Past Lives Makerspace, 2808 SE 9th Ave, Portland, OR 97202"
 
 
 def guide_filter(prefix: str = "") -> Q:
@@ -342,7 +344,9 @@ class TourBookingQuerySet(models.QuerySet["TourBooking"]):
             .values("guide_id", "starts_at")
             .annotate(total=Sum("party_size"))
         )
-        return {(row["guide_id"], row["starts_at"]): int(row["total"]) for row in rows}
+        # Keyed in UTC: a local start in the repeated fall back hour never equals the same
+        # instant read back from the database (PEP 495), so callers key their tours in UTC too.
+        return {(row["guide_id"], row["starts_at"].astimezone(UTC)): int(row["total"]) for row in rows}
 
 
 class TourBooking(models.Model):
@@ -410,6 +414,13 @@ class TourBooking(models.Model):
         default=_new_self_serve_token,
         help_text="The random token in the visitor's reschedule and cancel links.",
     )
+    sequence = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "The calendar invite's SEQUENCE: raised on every move and cancel, so the visitor's "
+            "calendar replaces the copy it holds (the UID never changes)."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When it was booked.")
 
     objects = TourBookingQuerySet.as_manager()
@@ -437,3 +448,29 @@ class TourBooking(models.Model):
     def holds_seats(self) -> bool:
         """Whether this booking counts against its tour's seats."""
         return self.status in self.HOLDS_SEATS
+
+    @property
+    def ics_uid(self) -> str:
+        """The calendar invite's UID: the same for the booking's whole life, through every move."""
+        return f"tour-{self.pk}@pastlives"
+
+    @property
+    def visitor_first_name(self) -> str:
+        """The first word of the name the visitor booked under, for a greeting."""
+        return self.visitor_name.split()[0] if self.visitor_name.strip() else self.visitor_name
+
+    def self_serve_refusal(self, *, now: datetime, cancel_cutoff_hours: int) -> str:
+        """Why the visitor may not move or cancel this tour from the email links, or "" when they may.
+
+        ``"cancelled"`` for a cancelled tour, ``"past"`` for one that has started or been marked
+        attended or no show, and ``"too_close"`` inside the cancel cutoff (Tour Settings). Checked
+        on the GET that shows a page and again on the POST that acts, so a forged POST is refused
+        the same way.
+        """
+        if self.status == self.Status.CANCELLED:
+            return "cancelled"
+        if self.status != self.Status.BOOKED or self.starts_at <= now:
+            return "past"
+        if self.starts_at - now < timedelta(hours=cancel_cutoff_hours):
+            return "too_close"
+        return ""

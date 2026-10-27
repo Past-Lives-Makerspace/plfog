@@ -16,6 +16,10 @@ Plfog answers to three kinds of hostname:
   ``GUILDS_ALLOWED_VIEW_NAMES`` (plus allauth's ``account_*`` login views)
   resolve here; everything else 404s, so the guild editor / product / cart
   endpoints never leak onto the guest surface. Root redirects to ``/guilds/``.
+- ``tours.pastlives.space``: facility tour booking for visitors (#948).
+  ``request.surface == "tours"``. The root serves the booking page; only
+  ``TOURS_ALLOWED_VIEW_NAMES`` (plus allauth's ``account_*`` sign in views) resolve,
+  and the tour views themselves 404 on every other surface.
 
 The middleware tags every request with ``request.surface`` so templates and
 views can branch on the chrome they should render, and short-circuits any
@@ -42,7 +46,7 @@ from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanen
 
 
 class SurfaceMiddleware:
-    """Route by hostname into one of four surfaces: signage, guilds, public, or members."""
+    """Route by hostname into one of five surfaces: signage, guilds, tours, public, or members."""
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
         self.get_response = get_response
@@ -63,6 +67,11 @@ class SurfaceMiddleware:
             short_circuit = self._handle_signage_surface(request)
             if short_circuit is not None:
                 return short_circuit
+            return self.get_response(request)
+
+        if host in set(getattr(settings, "TOURS_HOSTS", [])):
+            request.surface = "tours"  # type: ignore[attr-defined]
+            self._handle_tours_surface(request)
             return self.get_response(request)
 
         if host in guilds_hosts:
@@ -133,6 +142,28 @@ class SurfaceMiddleware:
         # namespaced ``account:`` routes are not.
         if match.view_name in allowed or match.view_name.startswith("account_"):
             return None
+        raise Http404("Not available on this surface.")
+
+    @staticmethod
+    def _handle_tours_surface(request: HttpRequest) -> None:
+        """Serve the booking page at the root and gate every other path to an allowlist.
+
+        The root is rewritten to the booking page's own path (``request.path`` stays ``/``, so
+        the page's links and its form post back to the root). Raises
+        :class:`~django.http.Http404` for any path whose view is not in
+        ``TOURS_ALLOWED_VIEW_NAMES`` or allauth's ``account_*`` sign in views.
+        """
+        from django.urls import Resolver404, resolve, reverse
+
+        if request.path_info == "/":
+            request.path_info = reverse("tours_public:book")
+        allowed: frozenset[str] = frozenset(getattr(settings, "TOURS_ALLOWED_VIEW_NAMES", ()))
+        try:
+            match = resolve(request.path_info)
+        except Resolver404:
+            raise Http404("Not available on this surface.")
+        if match.view_name in allowed or match.view_name.startswith("account_"):
+            return
         raise Http404("Not available on this surface.")
 
     def _handle_signage_surface(self, request: HttpRequest) -> HttpResponse | None:

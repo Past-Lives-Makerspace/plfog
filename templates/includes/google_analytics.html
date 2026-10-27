@@ -30,6 +30,13 @@
       ['q', 'email'].forEach(function (key) {
         if (u.searchParams.has(key)) { u.searchParams.delete(key); stripped = true; }
       });
+      //   /tour/b/<token>/  a facility tour visitor's booking link (#948): the token alone
+      //          moves or cancels their tour, so it is replaced before the path is sent.
+      var tourToken = /^\/tour\/b\/[^\/]+/;
+      if (tourToken.test(u.pathname)) {
+        u.pathname = u.pathname.replace(tourToken, '/tour/b/redacted');
+        stripped = true;
+      }
       return stripped ? u.href : href;
     } catch (e) {
       // Fail closed. This is a privacy control, so a URL we cannot parse loses its query

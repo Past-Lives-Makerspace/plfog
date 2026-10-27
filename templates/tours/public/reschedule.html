@@ -1,0 +1,40 @@
+{% extends "tours/public/base.html" %}
+{% comment %}
+Pick another time for a booking (#948, tours.public_views.reschedule): the booking page's date
+strip, then a confirm that POSTs the move. Context: booking, when, picker, chosen, chosen_when,
+error, page_url, address, support_email.
+{% endcomment %}
+{% block title %}Reschedule Your Tour | Past Lives Makerspace{% endblock %}
+
+{% block tours_content %}
+<div class="view">
+  <div class="cp-container">
+    <div class="detail-card pl-tourpub" data-tour-page="reschedule">
+      <div class="detail-head">
+        <div>
+          <div class="dc-cat">Reschedule</div>
+          <h1 class="dc-title">Pick a New Time</h1>
+          <div class="dc-inst">Your tour is now {{ when }}.</div>
+        </div>
+        <a class="back-link" href="{% url 'tours_public:manage' booking.self_serve_token %}">&larr; Your Tour</a>
+      </div>
+      <div class="detail-body">
+        {% if error %}<div class="reg-error-block pl-tourpub__notice" role="alert" data-tour-error>{{ error }}</div>{% endif %}
+        {% if chosen %}
+        <div class="reg-summary pl-tourpub__chosen" data-tour-chosen="{{ chosen.key }}">
+          <div class="pl-tourpub__chosen-when">Move your tour to {{ chosen_when }}?</div>
+          <div class="pl-tourpub__chosen-meta">{{ booking.party_size }} {% if booking.party_size == 1 %}person{% else %}people{% endif %} · <a href="{{ page_url }}?date={{ chosen.starts_at|date:'Y-m-d' }}" data-tour-change>Pick a different time</a></div>
+        </div>
+        <form method="post" action="{{ page_url }}" class="pl-tourpub__form" hx-boost="false" data-tour-move-form data-pl-busy-submit data-pl-busy-label="Moving...">
+          {% csrf_token %}
+          <input type="hidden" name="tour" value="{{ chosen.key }}">
+          <button type="submit" class="btn-reg pl-tourpub__submit" data-pl-busy>Move My Tour</button>
+        </form>
+        {% else %}
+        {% include "tours/public/_picker.html" %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

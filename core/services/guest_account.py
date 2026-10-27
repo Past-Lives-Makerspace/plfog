@@ -37,6 +37,8 @@ from typing import TYPE_CHECKING
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import User
+
     from classes.models import Registration
 
 
@@ -106,13 +108,18 @@ def _resolve_or_create_user(registration: Registration, email: str):  # noqa: AN
     signal seeds ``Member.full_legal_name`` with the real name the guest gave
     when booking — never the email-derived username (issue #274).
     """
-    from django.contrib.auth import get_user_model
-
-    user_model = get_user_model()
-
     member = registration.member
     if member is not None and member.user_id:
         return member.user
+
+    return _find_or_create_user(email, first_name=registration.first_name, last_name=registration.last_name)
+
+
+def _find_or_create_user(email: str, *, first_name: str, last_name: str):  # noqa: ANN202 - returns the User model
+    """The user ``email`` already belongs to, or a new passwordless one whose fresh Member is a guest."""
+    from django.contrib.auth import get_user_model
+
+    user_model = get_user_model()
 
     existing = _find_user_for_email(email)
     if existing is not None:
@@ -131,8 +138,8 @@ def _resolve_or_create_user(registration: Registration, email: str):  # noqa: AN
             user = user_model.objects.create_user(
                 username=email,
                 email=email,
-                first_name=registration.first_name,
-                last_name=registration.last_name,
+                first_name=first_name,
+                last_name=last_name,
             )
             if mints_fresh_member:
                 _make_guest(user)
@@ -140,6 +147,35 @@ def _resolve_or_create_user(registration: Registration, email: str):  # noqa: AN
     except IntegrityError:
         logger.info("Guest account already exists for %s; re-using it.", email)
         return _find_user_for_email(email)
+
+
+def find_user_for_email(email: str) -> User | None:
+    """The existing account ``email`` belongs to (its login email or any allauth address), or None."""
+    return _find_user_for_email(email.strip()) if email.strip() else None
+
+
+def ensure_guest_account(email: str, *, first_name: str, last_name: str) -> User | None:
+    """Find or make the account for a visitor who asked for one outside a class registration.
+
+    The facility tour booking page's "Create a free Past Lives account" toggle (#948) takes the
+    same path a registration's opt-in does: an address that already has an account links to it
+    and keeps its status; otherwise a passwordless user is created and its fresh Member is a
+    GUEST (#654), never an active member. Made under invite-only mode too, as the Eventbrite
+    finish page's account is (``despite_invite_only``): the visitor asked for it, and a guest
+    account opens nothing on the members site. Never raises: a booking must stand whatever
+    happens here.
+
+    Returns:
+        The account, or None when none was made (a blank address, or a failure).
+    """
+    address = (email or "").strip()
+    if not address:
+        return None
+    try:
+        return _find_or_create_user(address, first_name=first_name, last_name=last_name)
+    except Exception:  # noqa: BLE001 - account creation must never block a booking
+        logger.exception("Guest account creation failed for %s; the booking stands.", address)
+        return None
 
 
 def _make_guest(user) -> None:  # noqa: ANN001 - User model

@@ -135,6 +135,8 @@ class Recipients(str, Enum):
     # audience so the settings page shows its rows to the kiln crew only, not to every
     # guild's leadership.
     KILN_CREW = "kiln_crew"
+    # Facility tours (#948): the tour's guide, or every Tour Guide holder when it has none.
+    TOUR_GUIDES = "tour_guides"
 
 
 @dataclass(frozen=True)
@@ -261,6 +263,8 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "kiln.crew_replied",
         # ...and your piece came out of the kiln, or went back to the queue with a note (#691)
         "kiln.ready_for_pickup",
+        # Facility tours: a visitor booked a tour you give (#948)
+        "tour.booked",
     }
 )
 
@@ -546,6 +550,9 @@ FEEDBACK_REQUEST_UPDATED = "feedback.request_updated"  # your feature request or
 KILN_CREW_REPLIED = "kiln.crew_replied"  # the kiln crew wrote on your kiln ticket (#691)
 KILN_MAKER_REPLIED = "kiln.maker_replied"  # a maker wrote on a kiln ticket (the kiln crew, #691)
 KILN_READY_FOR_PICKUP = "kiln.ready_for_pickup"  # your pieces came out of a firing (#691 part 3)
+TOUR_BOOKED = "tour.booked"  # a visitor booked one of your facility tours (#948)
+TOUR_VISITOR_CHANGED = "tour.visitor_changed"  # a visitor moved or cancelled your tour from their email (#948)
+TOUR_VISITOR_UPDATE = "tour.visitor_update"  # the visitor's own tour emails, by address only (#948)
 GUILD_NEEDS_ATTENTION = "guild.needs_attention"  # a guild breaks a Needs attention rule (#953)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
@@ -1555,6 +1562,42 @@ _NEW_EVENTS: list[EventType] = [
         category="Kiln tickets",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # tour.booked: a visitor booked a facility tour on tours.pastlives.space (#948). Goes to
+    # the tour's guide (email, bell and push), or every Tour Guide holder when the tour has no
+    # guide. The email is the structural shell in templates/tours/emails/guide_booked.*.
+    EventType(
+        key=TOUR_BOOKED,
+        label="New tour booked",
+        description="A visitor booked one of the facility tours you give.",
+        category="Tours",
+        recipient=Recipients.TOUR_GUIDES,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # tour.visitor_changed: a visitor moved or cancelled their tour from the email links
+    # (#948). The guide hears every one, by email and bell.
+    EventType(
+        key=TOUR_VISITOR_CHANGED,
+        label="Tour moved or cancelled",
+        description="A visitor moved or cancelled one of your facility tours.",
+        category="Tours",
+        recipient=Recipients.TOUR_GUIDES,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # tour.visitor_update: the visitor's confirmation, moved, cancelled and reminder emails
+    # (#948), each with a calendar invite. A visitor usually has no account, so every send is
+    # addressed by email_to with no per user fan out; no channel is declared, which keeps it
+    # off the settings matrix like the guild welcome.
+    EventType(
+        key=TOUR_VISITOR_UPDATE,
+        label="Your facility tour",
+        description="A visitor's tour confirmation, reminder, and the emails when it moves or is cancelled.",
+        category="Tours",
+        recipient=Recipients.SINGLE_USER,
+        channels=(),
         activity_kind=None,
     ),
     # guild.needs_attention — the daily Needs attention check found a guild breaking one of its

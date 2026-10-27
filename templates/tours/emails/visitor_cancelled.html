@@ -1,0 +1,11 @@
+{% extends "tours/emails/_base.html" %}
+{% block content %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">Your tour is cancelled</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">We cancelled this tour and let your guide know.</p>
+{% include "tours/emails/_tour.html" %}
+<p style="margin: 0 0 16px; font-size: 13px; color: #55697a; line-height: 1.6;">The attached calendar update takes it off your calendar.</p>
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ book_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Book Another Time</a>
+</div>
+{% endblock %}

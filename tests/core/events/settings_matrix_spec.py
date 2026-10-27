@@ -296,6 +296,7 @@ def describe_permission_groups():
             "Discount Code Administrator",
             "Equipment Administrator",
             "Webmaster",
+            "Tour Guide",
             "Guild leadership",
             "Equipment manager",
         ]
@@ -313,6 +314,7 @@ def describe_permission_groups():
             "Discount Code Administrator",
             "Equipment Administrator",
             "Webmaster",
+            "Tour Guide",
             "Guild leadership",
         ]
 

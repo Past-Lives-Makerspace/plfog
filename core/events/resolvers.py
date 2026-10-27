@@ -728,6 +728,20 @@ def wiki_page_contributors(context: dict[str, Any]) -> list[Recipient]:
 # --- Kiln tickets (#691) ------------------------------------------------------
 
 
+def tour_guides(context: dict[str, Any]) -> list[Recipient]:
+    """The facility tour's guide (``context["guide"]``), or every Tour Guide holder when it has none (#948).
+
+    A tour's guide is set when it is booked; it is empty only when that guide's member record
+    was deleted, and then the people holding the permission hear about it instead.
+    """
+    from membership.models import AdminCapability
+
+    guide: Member | None = _require(context, "guide")
+    if guide is not None:
+        return _members_to_recipients([guide], "tour_guide")
+    return _capability_recipients(AdminCapability.Capability.TOUR_GUIDE)
+
+
 def kiln_crew(context: dict[str, Any]) -> list[Recipient]:
     """The kiln guild's lead and staff (``kiln.access``), or nobody when there is no kiln guild.
 
@@ -779,6 +793,7 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.WIKI_SCOPE_LEADERSHIP: wiki_scope_leadership,
     Recipients.WIKI_PAGE_CONTRIBUTORS: wiki_page_contributors,
     Recipients.KILN_CREW: kiln_crew,
+    Recipients.TOUR_GUIDES: tour_guides,
 }
 
 
