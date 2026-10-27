@@ -5,7 +5,8 @@ Hi {{ greeting_name }},
 {% if orientation_type %}  Orientation: {{ orientation_type.name }}
 {% endif %}  Your current time: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}
   New time: {{ proposed_starts_at|date:"l, F j" }} at {{ proposed_starts_at|time:"g:i A" }}
-
+{% if proposal_message %}
+{% include "membership/emails/_booking_message.txt" with message=proposal_message %}{% endif %}
 Accept the new time: {{ accept_url }}
 Keep my current time: {{ keep_url }}
 

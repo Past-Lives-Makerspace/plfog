@@ -16,7 +16,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 
-def _month_bounds(year: int, month: int) -> tuple[date, date]:
+def month_bounds(year: int, month: int) -> tuple[date, date]:
     start = date(year, month, 1)
     if month == 12:
         end = date(year, 12, 31)
@@ -60,7 +60,7 @@ class Command(BaseCommand):
             just_ended = first_of_this_month - timedelta(days=1)
             year, month = just_ended.year, just_ended.month
 
-        start, end = _month_bounds(year, month)
+        start, end = month_bounds(year, month)
         if ReconciliationSnapshot.objects.filter(period_start=start, period_end=end).exists():
             self.stdout.write(f"A snapshot already exists for {start:%B %Y} — skipping.")
             return

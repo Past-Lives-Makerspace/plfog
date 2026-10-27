@@ -3,7 +3,8 @@
 One Bookings tab row (#627) for an equipment reservation: the <tr> the Reservations page's
 Bookings pane and the Manage Bookings home (#768) both render, so a menu item or a column
 changes in one place. Read from the including loop: row (a hub.reservation_bookings.ReservationRow),
-is_staff_view (the staff columns) and bookings_next (where the menu's Approve lands).
+is_staff_view (the staff columns) and bookings_next (where the menu's Approve lands). A thread with a message
+the viewer has not read shows a New message pill in the Status column.
 {% endcomment %}
 {% with r=row.reservation %}
 <tr data-reservation-row="{{ r.pk }}">
@@ -36,6 +37,7 @@ is_staff_view (the staff columns) and bookings_next (where the menu's Approve la
     {% if r.credit_minutes %}<span class="hub-pill hub-pill--neutral" data-booking-credit-used>{{ r.credit_used_label }}</span>{% endif %}
     {% if row.credited_label %}<span class="hub-pill hub-pill--neutral" data-booking-credited>{{ row.credited_label }}</span>{% endif %}
     {% if r.refund_state == "full" %}<span class="hub-pill hub-pill--neutral" data-booking-refunded>Refunded</span>{% endif %}
+    {% if row.has_unread_messages %}<span class="hub-pill hub-pill--warn" data-thread-unread="{{ r.thread_key }}">New message</span>{% endif %}
     {% if row.fee_unpaid %}<span class="hub-pill hub-pill--danger" data-booking-fee>Fee unpaid</span>{% elif row.late_fee %}<span class="hub-pill hub-pill--neutral" data-booking-fee>Fee {{ row.late_fee.get_status_display|lower }}</span>{% endif %}
   </td>
   <td class="pl-bookings-table__actions">

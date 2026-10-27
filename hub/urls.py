@@ -218,6 +218,8 @@ urlpatterns = [
         views.orientation_block_cancel,
         name="hub_orientation_block_cancel",
     ),
+    path("orientation/bookings/<int:booking_pk>/", views.orientation_booking, name="hub_orientation_booking"),
+    path("orientation/bookings/<int:booking_pk>/messages/", views.orientation_message, name="hub_orientation_message"),
     path("orientation/bookings/<int:booking_pk>/respond/", views.orientation_respond, name="hub_orientation_respond"),
     path(
         "orientation/bookings/<int:booking_pk>/lead-cancel/",
@@ -605,6 +607,16 @@ urlpatterns = [
         "equipment/<slug:slug>/reservations/<int:pk>/decline/",
         equipment_views.hub_equipment_reservation_decline,
         name="hub_equipment_reservation_decline",
+    ),
+    path(
+        "equipment/reservations/<int:pk>/messages/",
+        equipment_views.hub_equipment_reservation_messages,
+        name="hub_equipment_reservation_messages",
+    ),
+    path(
+        "equipment/reservations/<int:pk>/messages/send/",
+        equipment_views.hub_equipment_reservation_message,
+        name="hub_equipment_reservation_message",
     ),
     path(
         "equipment/<slug:slug>/manage/hours/",

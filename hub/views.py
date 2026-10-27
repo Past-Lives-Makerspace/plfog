@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any, cast
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.utils import timezone as dj_timezone
 
@@ -605,19 +606,23 @@ def _orientation_sections(
     requests, the equipment page adds custom requests.
     """
     from core.models import SiteConfiguration
+    from hub.forms import ThreadMessageForm
+    from membership.orientations import AudienceCache
     from membership.late_cancel import booking_cancel_warning, booking_sentence, policy_for_type
     from membership.models import OrientationBooking
 
     # One site row for every type's policy (a config read per section would be an N+1).
     site = SiteConfiguration.load() if orientation_types else None
     member_bookings: list[OrientationBooking] = []
+    # One request audience lookup per owner on the page, however many bookings share it.
+    audience_cache: AudienceCache = {}
     completed_type_ids: set[int] = set()
     record_by_type: dict[int, OrientationRecord] = {}
     if member is not None and orientation_types:
         member_bookings = list(
-            member.orientation_bookings.filter(orientation_type__in=orientation_types).select_related(
-                "slot", "slot__orienter"
-            )
+            member.orientation_bookings.filter(orientation_type__in=orientation_types)
+            .with_thread()
+            .select_related("slot", "slot__orienter")
         )
         completed_type_ids = member.completed_orientation_type_ids(orientation_types)
         # The records themselves are read for their date: the page says "Recorded on"
@@ -652,6 +657,12 @@ def _orientation_sections(
                 "is_oriented": done,
                 "record": record,
                 "booking": live_booking,
+                # The live booking's Messages composer, its ids kept apart from every other card's.
+                "message_form": (
+                    ThreadMessageForm(auto_id=f"id_booking_{live_booking.pk}_%s") if live_booking is not None else None
+                ),
+                # Whether the Orientors would hear a message from it: the composer says so only then.
+                "orientors_hear": live_booking is not None and live_booking.orientors_hear_the_member(audience_cache),
                 "hold": hold,
                 "slots": type_slots[:slot_cap] if slot_cap is not None else type_slots,
                 # Under length and price on the guild page and the card (#766); "" with no notice.
@@ -2568,10 +2579,20 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
         # The Bookings tab's menu posts ``next`` so the lead lands back on the tab (#626).
         return redirect(_safe_next(request, reverse("hub_orientation_respond", args=[booking.pk])))
 
+    return _respond_page(request, booking)
+
+
+def _respond_page(request: HttpRequest, booking: Any, *, message_form: Any = None) -> HttpResponse:
+    """The request page for ``booking``: its details, actions, move modal and messages.
+
+    ``message_form`` is a refused message, rendered back with what the leader typed.
+    """
     from billing import late_fees
     from billing.forms import LateFeeWaiveForm
     from billing.models import LateCancellationFee
+    from hub.forms import ThreadMessageForm
     from hub.view_as import has_refund_authority
+    from membership.models import OrientationBooking
 
     # The booking's late cancellation fee (#456), if its self cancel was late: one query,
     # with what the card's label and the waive rule read.
@@ -2595,6 +2616,14 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
         {
             **ctx,
             "booking": booking,
+            "thread_messages": OrientationBooking.objects.with_thread().get(pk=booking.pk).thread(),
+            "message_form": message_form or ThreadMessageForm(),
+            # Who a message tells, beside Send; nothing for a member with no account, who hears nothing.
+            "member_hears_line": (
+                f"{booking.member.display_name} gets it in the app and by email, per their settings."
+                if booking.member.user_id is not None
+                else ""
+            ),
             # Move to Another Time (#853): the modal's form, seeded with the current time.
             "move_form": OrientationMoveForm(booking=booking, auto_id="id_move_%s") if booking.is_movable else None,
             "refund_state": booking.refund_state if booking.amount_paid_cents else "none",
@@ -2659,10 +2688,20 @@ def orientation_move(request: HttpRequest, booking_pk: int) -> HttpResponse:
     name = booking.member.display_name
     try:
         if form.asks_member_first:
-            orientations.propose_orientation_time(booking, form.cleaned_data["starts_at"], actor=_get_member(request))
+            orientations.propose_orientation_time(
+                booking,
+                form.cleaned_data["starts_at"],
+                actor=_get_member(request),
+                message=form.cleaned_data["message"],
+            )
             messages.success(request, f"We asked {name} about the new time. Their booking stays put until they answer.")
         else:
-            orientations.move_orientation(booking, form.cleaned_data["starts_at"], actor=_get_member(request))
+            orientations.move_orientation(
+                booking,
+                form.cleaned_data["starts_at"],
+                actor=_get_member(request),
+                message=form.cleaned_data["message"],
+            )
             messages.success(request, f"Orientation moved and confirmed. We emailed {name}.")
     except OrientationError as exc:
         messages.error(request, str(exc))
@@ -2703,6 +2742,101 @@ def orientation_proposal_answer(request: HttpRequest, booking_pk: int) -> HttpRe
     else:
         messages.info(request, "That new time is no longer open. Your booking shows where things stand.")
     return _orientation_return(request, booking.orientation_type)
+
+
+def _with_open_thread(url: str, thread_key: int | str) -> str:
+    """``url`` with ``messages=<key>`` in its query, so the page it lands on opens that thread.
+
+    The key is an orientation booking's pk, or a reservation's ``thread_key`` ("res-12").
+
+    A boosted redirect drops a ``#fragment``, so the query carries it: the thread script
+    (``components/thread_script.html``) opens and scrolls to the thread it names.
+    """
+    parts = urlsplit(url)
+    query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != "messages"]
+    query.append(("messages", str(thread_key)))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+@login_required
+def orientation_booking(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """The member's page for one of their orientation bookings: where it stands and its messages.
+
+    Where a message to the member links, and where a booking the cards no longer show (a
+    declined or cancelled one) keeps its conversation. Someone who runs the booking lands on
+    the request page's Messages card instead; anyone else gets a 404, as if it did not exist,
+    and so does a checkout hold, which is not a booking yet.
+    """
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking.objects.with_thread().select_related("slot"), pk=booking_pk)
+    if not booking.takes_messages:
+        raise Http404
+    member = _get_member(request)
+    if member is None or booking.member_id != member.pk:
+        if _require_can_manage_booking(request, booking) is None:
+            return redirect(booking.staff_messages_url)
+        raise Http404
+    return _member_booking_page(request, booking)
+
+
+def _member_booking_page(request: HttpRequest, booking: Any, *, message_form: Any = None) -> HttpResponse:
+    """Render the member's booking page; ``message_form`` is a refused message, kept as typed."""
+    from hub.forms import ThreadMessageForm
+
+    return render(
+        request,
+        "hub/orientation_booking.html",
+        {
+            **_get_hub_context(request),
+            "booking": booking,
+            "thread_messages": booking.thread(),
+            "message_form": message_form or ThreadMessageForm(),
+            "orientors_hear": booking.orientors_hear_the_member(),
+        },
+    )
+
+
+@login_required
+@require_POST
+def orientation_message(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """Post a message, with photos, on a booking's thread; the other side is always told.
+
+    The booking's member writes as the member side; anyone who may run the booking (its
+    orientors, the equipment's managers, admins) writes as the guild. Anyone else gets a 404, and
+    a checkout hold takes no messages (a 404 too).
+    A refused message renders the poster's page again with what they typed: the member's
+    booking page, or the request page. Lands on ``next`` when it is a local path, with the
+    thread reopened, else on that same page.
+    """
+    from hub.forms import ThreadMessageForm
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(
+        OrientationBooking.objects.select_related("slot", "guild", "member", "orientation_type__equipment"),
+        pk=booking_pk,
+    )
+    if not booking.takes_messages:
+        raise Http404
+    member = _get_member(request)
+    is_member = member is not None and booking.member_id == member.pk
+    if not is_member and _require_can_manage_booking(request, booking) is not None:
+        raise Http404
+    form = ThreadMessageForm(request.POST, request.FILES)
+    if not form.is_valid():
+        if is_member:
+            return _member_booking_page(
+                request,
+                OrientationBooking.objects.with_thread().select_related("slot").get(pk=booking.pk),
+                message_form=form,
+            )
+        return _respond_page(request, booking, message_form=form)
+    message = booking.post_message(
+        author=cast(User, request.user), body=form.cleaned_data["body"], photos=form.cleaned_data["photos"]
+    )
+    messages.success(request, "Sent." + message.told_sentence())
+    default = booking.member_messages_url if is_member else booking.staff_messages_url
+    return redirect(_with_open_thread(_safe_next(request, default), booking.pk))
 
 
 @login_required

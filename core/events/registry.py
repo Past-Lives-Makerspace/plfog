@@ -532,6 +532,12 @@ EQUIPMENT_RESERVATION_CANCELLED = "equipment.reservation_cancelled"  # the membe
 EQUIPMENT_RESERVATION_REQUESTED = "equipment.reservation_requested"  # your request is in, the time held (#748)
 EQUIPMENT_RESERVATION_NEEDS_APPROVAL = "equipment.reservation_needs_approval"  # managers: approve or decline (#748)
 EQUIPMENT_RESERVATION_DECLINED = "equipment.reservation_declined"  # a manager declined your request, with why (#748)
+EQUIPMENT_RESERVATION_MESSAGE_TO_MEMBER = (
+    "equipment.reservation_message_to_member"  # a manager wrote on your reservation
+)
+EQUIPMENT_RESERVATION_MESSAGE_TO_MANAGERS = (
+    "equipment.reservation_message_to_managers"  # a member wrote on their reservation
+)
 EQUIPMENT_CREDIT_GRANTED = "equipment.credit_granted"  # a manager gave you hourly credit on an item (#787)
 BILLING_LATE_FEE_PAID = "billing.late_fee_paid"  # the receipt for a paid late cancellation fee
 BILLING_LATE_FEE_WAIVED = "billing.late_fee_waived"  # an unpaid late cancellation fee was forgiven
@@ -551,6 +557,8 @@ FEEDBACK_REQUEST_LIVE = "feedback.request_live"  # a release listing your reques
 FEEDBACK_REQUEST_UPDATED = "feedback.request_updated"  # your feature request or bug report moved, or got a note (#693)
 FEEDBACK_COMMENT_ADDED = "feedback.comment_added"  # Past Lives wrote on a request you sent
 FEEDBACK_MEMBER_REPLIED = "feedback.member_replied"  # a sender wrote back on their request (the Webmasters)
+ORIENTATION_MESSAGE_TO_MEMBER = "orientation.message_to_member"  # an orientor wrote on your orientation booking
+ORIENTATION_MESSAGE_TO_ORIENTORS = "orientation.message_to_orientors"  # a member wrote on their orientation booking
 KILN_CREW_REPLIED = "kiln.crew_replied"  # the kiln crew wrote on your kiln ticket (#691)
 KILN_MAKER_REPLIED = "kiln.maker_replied"  # a maker wrote on a kiln ticket (the kiln crew, #691)
 KILN_READY_FOR_PICKUP = "kiln.ready_for_pickup"  # your pieces came out of a firing (#691 part 3)
@@ -1262,6 +1270,32 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_FORCED),
         activity_kind=None,
     ),
+    # equipment.reservation_message_to_member — a manager of the equipment or an admin posted a
+    # message on a member's reservation (the shared thread, core.threads). A decline's or a
+    # manager cancel's reason is written into the thread too, but rides in that notice and never
+    # fires this. The period is the message. No activity row: the thread is the record.
+    EventType(
+        key=EQUIPMENT_RESERVATION_MESSAGE_TO_MEMBER,
+        label="Messages about your reservation",
+        description="A manager wrote on one of your equipment reservations.",
+        category="Spaces & Equipment",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # equipment.reservation_message_to_managers — a member posted a message on their reservation.
+    # Goes to the EQUIPMENT_MANAGERS audience (the one reservation_needs_approval reaches, with
+    # its Equipment Administrators fallback); the sender passes that set minus the author, and
+    # admins are not added. The period is the message. No activity row: the thread is the record.
+    EventType(
+        key=EQUIPMENT_RESERVATION_MESSAGE_TO_MANAGERS,
+        label="Messages on reservations",
+        description="A member wrote on a reservation of equipment you manage.",
+        category="Spaces & Equipment",
+        recipient=Recipients.EQUIPMENT_MANAGERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
     # equipment.credit_granted — a manager gave the member hourly credit on one item (#787),
     # by hand or from a reservation's unused time. Good news, not an obligation, so email
     # defaults on rather than forced; a Book a Time button takes them to spend it.
@@ -1556,6 +1590,33 @@ _NEW_EVENTS: list[EventType] = [
         description="A member wrote back on a feature request, bug report or feedback they sent. Goes to the Webmasters.",
         category="Your requests",
         recipient=Recipients.WEBMASTERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # orientation.message_to_member — someone on the staff side (an orientor, a manager of the
+    # equipment, an admin) posted a message on a member's orientation booking (the shared
+    # thread, core.threads). A message written with another action that already tells the
+    # member (a decline note, a move or proposal message) rides in that action's email and
+    # never fires this. The period is the message. No activity row: the thread is the record.
+    EventType(
+        key=ORIENTATION_MESSAGE_TO_MEMBER,
+        label="Messages about your orientation",
+        description="An Orientor wrote on one of your orientation bookings.",
+        category="Orientations",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # orientation.message_to_orientors — a member posted a message on their orientation booking.
+    # Goes to the audience orientation_requested reaches, plus anyone on the staff side who has
+    # written on that booking; the sender passes that set minus the author. The period is the
+    # message. No activity row: the thread is the record.
+    EventType(
+        key=ORIENTATION_MESSAGE_TO_ORIENTORS,
+        label="Messages on orientation bookings",
+        description="A member wrote on an orientation booking you run.",
+        category="Orientations",
+        recipient=Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

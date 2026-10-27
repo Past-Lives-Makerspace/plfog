@@ -64,7 +64,7 @@ def describe_the_reservations_bookings_menu():
         expect(menu).to_be_visible()
         expect(menu.get_by_role("menuitem", name="View Equipment")).to_be_focused()
         page.keyboard.press("ArrowDown")
-        expect(menu.get_by_role("menuitem", name="Manage Equipment")).to_be_focused()
+        expect(menu.get_by_role("menuitem", name="Messages")).to_be_focused()
         page.keyboard.press("Escape")
         expect(menu).to_be_hidden()
         expect(trigger).to_be_focused()

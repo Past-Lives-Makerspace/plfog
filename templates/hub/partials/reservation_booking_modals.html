@@ -12,7 +12,7 @@ cancel answers with a redirect to Stripe. Context: reservation_rows, bookings_ne
 {% if row.is_own %}
 {% include "components/confirm_modal.html" with confirm_id="reservation-cancel-"|add:pk confirm_title="Cancel This Reservation?" confirm_message="You have this time booked. Cancelling frees it." confirm_action_url=cancel_url confirm_next=bookings_next confirm_note_name="reason" confirm_note_label="Reason" confirm_note_hint="Kept with the reservation for the record." confirm_note_required=True confirm_button_text="Cancel Reservation" %}
 {% else %}
-{% with cancel_message=name|add:" has this time booked. Cancelling frees it and tells them why." reason_hint=name|add:" will see this." %}
+{% with cancel_message=name|add:" has this time booked. Cancelling frees it and tells them why." reason_hint=name|add:" will see this, in their email and the reservation's messages." %}
 {% include "components/confirm_modal.html" with confirm_id="reservation-cancel-"|add:pk confirm_title="Cancel This Reservation?" confirm_message=cancel_message confirm_action_url=cancel_url confirm_next=bookings_next confirm_note_name="reason" confirm_note_label="Reason" confirm_note_hint=reason_hint confirm_note_required=True confirm_button_text="Cancel Reservation" %}
 {% endwith %}
 {% endif %}

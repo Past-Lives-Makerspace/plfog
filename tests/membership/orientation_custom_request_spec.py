@@ -54,7 +54,7 @@ def describe_request_custom_orientation():
         assert slot.seats == 1
         assert slot.location == "Front desk"
         assert slot.ends_at == starts + timedelta(minutes=90)
-        assert booking.member_note == "please"
+        assert [m.body for m in booking.thread()] == ["please"]
 
     def describe_when_the_type_belongs_to_another_guild():
         def it_raises_and_creates_no_slot():

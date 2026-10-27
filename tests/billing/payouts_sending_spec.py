@@ -24,7 +24,7 @@ from billing.models import (
 from billing.payments_panel import PanelWindow
 from billing.reconciliation import RecipientKind, build_reconciliation, result_from_snapshot
 from classes.factories import ClassOfferingFactory, ClassSessionFactory, RegistrationFactory, UserFactory
-from classes.models import Registration
+from classes.models import ClassOffering, Registration
 from core.models import EventDelivery
 from membership.models import Member, OrientationBooking
 from tests.membership.factories import MemberFactory, OrientationBookingFactory, OrientationSlotFactory
@@ -176,6 +176,33 @@ def describe_run_payouts():
                 "metadata": {"payout_pk": str(payout.pk)},
             }
         ]
+
+    def it_never_sends_a_pending_share_on_a_demo_class():  # #983
+        _turn_on()
+        instructor = _payee()
+        reg = _registration(instructor, pi="")
+        ClassOffering.objects.filter(pk=reg.class_offering_id).update(slug="demo-cart-wheel")
+        Payout.objects.create(
+            registration=reg,
+            payee=instructor,
+            amount_cents=7000,
+            due_at=NOW - timedelta(hours=1),
+            status=Payout.Status.PENDING,
+        )
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW)
+        assert fake.transfers == []
+        assert Payout.objects.get().status == Payout.Status.PENDING
+
+    def it_sends_the_share_of_a_real_class_whose_slug_starts_with_demo():  # #983: "Demo Day"
+        _turn_on()
+        instructor = _payee()
+        reg = _registration(instructor)
+        ClassOffering.objects.filter(pk=reg.class_offering_id).update(slug="demo-day-2026-10-17")
+        with _Stripe() as fake:
+            run = payouts.run_payouts(NOW)
+        assert (run.created, run.sent) == (1, 1)
+        assert len(fake.transfers) == 1
 
     def it_waits_48_hours_after_the_first_session():
         _turn_on()

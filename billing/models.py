@@ -10,8 +10,8 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
-from django.db.models import DecimalField, Q, Sum, Value
-from django.db.models.functions import Coalesce
+from django.db.models import DecimalField, F, Q, Sum, Value
+from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
 
 from .exceptions import TabLimitExceededError, TabLockedError
@@ -20,6 +20,7 @@ from .fields import EncryptedCharField
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
+    from billing.stripe_utils import ChargeSettlement
     from membership.models import EquipmentReservation, Guild, Member, OrientationBooking  # noqa: F401
 
 
@@ -1774,6 +1775,40 @@ class ReconciliationSnapshot(models.Model):
         SiteActivity.log(SiteActivity.Kind.RECONCILIATION_SNAPSHOT_TAKEN, actor=actor, target=snapshot)
         return snapshot
 
+    @classmethod
+    def latest_for(cls, *, period_start: Any, period_end: Any) -> ReconciliationSnapshot:
+        """The snapshot that currently stands for a window: the newest one, as Reconciliation reads it.
+
+        Raises:
+            ValueError: No snapshot exists for that window.
+        """
+        snapshot = cls.objects.filter(period_start=period_start, period_end=period_end).order_by("-taken_at").first()
+        if snapshot is None:
+            raise ValueError(f"No reconciliation snapshot for {period_start} to {period_end}.")
+        return snapshot
+
+    def retake(self, *, actor: Any | None = None) -> ReconciliationSnapshot:
+        """Freeze this window again from today's data, keeping this snapshot's guild voting cents (#983).
+
+        The new snapshot is taken while this one still stands, so ``resolve_voting_allocation``
+        reads its frozen voting figures rather than projecting fresh ones; this one is then
+        deleted in the same transaction. Its title is kept. Pending payouts it counted lose that
+        link on delete and ``freeze_split`` binds them to the new snapshot.
+
+        Returns:
+            The new snapshot.
+        """
+        with transaction.atomic():
+            replacement = ReconciliationSnapshot.take(
+                period_start=self.period_start,
+                period_end=self.period_end,
+                title=self.title,
+                is_auto=False,
+                actor=actor,
+            )
+            self.delete()
+        return replacement
+
 
 # ---------------------------------------------------------------------------
 # LateCancellationFee — what a late self cancel costs, paid through Stripe (#456)
@@ -2602,3 +2637,396 @@ class Payout(models.Model):
         self.save(update_fields=["status", "owed_reason", "failure_reason", "attempted_at", "owed_since"])
         notify_admins_payout_failed(self, owed=True)
         return True
+
+
+# ---------------------------------------------------------------------------
+# StripeFeeRecord and StripeFeeRefund (#984)
+# ---------------------------------------------------------------------------
+
+STRIPE_FEE_STUCK_AFTER_READS = 7
+"""Failed daily reads after which a pending record counts as stuck, and the job alerts."""
+
+
+def _readable_q(prefix: str, *, live: bool) -> Q:
+    """Rows a run in live (or test) mode may read: a live run reads live and unknown rows, a test run test rows only.
+
+    Unknown rows were found by the backfill, not a webhook, and payments are live in production;
+    reading them with test keys would mark every real payment not found.
+    """
+    if live:
+        return Q(**{f"{prefix}livemode": True}) | Q(**{f"{prefix}livemode__isnull": True})
+    return Q(**{f"{prefix}livemode": False})
+
+
+class StripeFeeRecordQuerySet(models.QuerySet["StripeFeeRecord"]):
+    """Filters over fee records."""
+
+    def pending(self) -> StripeFeeRecordQuerySet:
+        """Records still waiting on Stripe: never read, or sent back after a refund."""
+        return self.filter(status=StripeFeeRecord.Status.PENDING)
+
+    def stuck(self) -> StripeFeeRecordQuerySet:
+        """Pending records whose reads have failed for a week of daily runs."""
+        return self.pending().filter(attempts__gte=STRIPE_FEE_STUCK_AFTER_READS)
+
+    def readable(self, *, live: bool) -> StripeFeeRecordQuerySet:
+        """Records a run in this Stripe mode may read; see :func:`_readable_q`."""
+        return self.filter(_readable_q("", live=live))
+
+    def awaiting_payout(self, now: datetime) -> StripeFeeRecordQuerySet:
+        """Recorded payments whose money is available but not yet matched to a Stripe payout."""
+        return self.filter(
+            status=StripeFeeRecord.Status.RECORDED,
+            stripe_payout_id="",
+            available_on__lte=now,
+        ).exclude(stripe_balance_transaction_id="")
+
+    def by_payment_intent(self, payment_intent_ids: list[str]) -> dict[str, StripeFeeRecord]:
+        """The records for ``payment_intent_ids``, keyed by PaymentIntent id, in one query."""
+        return {
+            record.stripe_payment_intent_id: record
+            for record in self.filter(stripe_payment_intent_id__in=payment_intent_ids)
+        }
+
+
+class StripeFeeRecord(models.Model):
+    """What Stripe kept and paid out for one payment's charge (#984): its fee, its net and its payout.
+
+    One row per paid PaymentIntent, the id every payment source already stores
+    (``Registration.stripe_payment_id``, ``TabCharge.stripe_payment_intent_id`` and the
+    orientation, reservation and late fee equivalents), so no payment model carries a fee
+    column. Its refunds settle on their own balance transactions, often in a later payout, so
+    each is a :class:`StripeFeeRefund` row with its own payout id; ``refunded_cents`` and
+    ``refund_fee_cents`` here are their totals. Summing charge rows and refund rows by payout
+    gives that payout's bank deposit (disputes aside).
+
+    A webhook or the ``sync_stripe_fees`` job adds the row as pending; the job reads Stripe and
+    records it, then stamps payouts. A Stripe outage only leaves the row pending: confirming
+    the payment never waits on it. Only a recorded row's amounts are trusted; a pending one
+    reads as unknown, never as a zero fee.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Waiting on Stripe"
+        RECORDED = "recorded", "Recorded"
+        NOT_FOUND = "not_found", "Not on either Stripe account"
+
+    class Account(models.TextChoices):
+        ACTIVE = "active", "Current Stripe account"
+        PREVIOUS = "previous", "Previous Stripe account"
+
+    stripe_payment_intent_id = models.CharField(
+        max_length=255,
+        unique=True,
+        help_text="The Stripe PaymentIntent this record is for; the id the payment's own row stores.",
+    )
+    livemode = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Whether the payment is a live (not test) Stripe payment, from its webhook; unknown when the backfill found it.",
+    )
+    stripe_charge_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="The Stripe charge behind the PaymentIntent; blank until Stripe has been read.",
+    )
+    stripe_balance_transaction_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="The charge's Stripe balance transaction, which carries the fee and names the payout.",
+    )
+    account = models.CharField(
+        max_length=20,
+        choices=Account.choices,
+        blank=True,
+        default="",
+        help_text="Which Stripe account holds the payment; blank until Stripe has been read.",
+    )
+    amount_cents = models.IntegerField(
+        null=True, blank=True, help_text="What Stripe charged, in cents; null until Stripe has been read."
+    )
+    fee_cents = models.IntegerField(
+        null=True, blank=True, help_text="What Stripe kept as its fee on the charge, in cents; null means unknown."
+    )
+    net_cents = models.IntegerField(
+        null=True, blank=True, help_text="The charge less Stripe's fee, in cents; null means unknown."
+    )
+    refunded_cents = models.PositiveIntegerField(
+        default=0, help_text="The total of the payment's succeeded refunds, in cents."
+    )
+    refund_fee_cents = models.IntegerField(
+        default=0,
+        help_text="Stripe's fee change on those refunds, in cents; negative when Stripe gave part of its fee back.",
+    )
+    available_on = models.DateTimeField(
+        null=True, blank=True, help_text="When Stripe makes the charge's money available for a payout."
+    )
+    stripe_payout_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="The Stripe payout that carried the charge to the bank; blank until it is paid out.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        help_text="Whether Stripe has been read for this payment, or holds no such payment.",
+    )
+    attempts = models.PositiveSmallIntegerField(
+        default=0, help_text="How many reads have failed or found nothing ready since the record was last pending."
+    )
+    last_error = models.CharField(
+        max_length=500, blank=True, default="", help_text="Why the last read did not record the fee."
+    )
+    last_attempt_at = models.DateTimeField(null=True, blank=True, help_text="When Stripe was last read for it.")
+    refresh_requested_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When a refund webhook last asked for a re-read, by the database clock; a read that started before it is not recorded.",
+    )
+    read_started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the job last started reading Stripe for it, by the database clock, so one clock decides a race with a refund.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the record was added.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the record last changed.")
+
+    objects = StripeFeeRecordQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status"], name="stripefee_status_idx"),
+            models.Index(fields=["stripe_balance_transaction_id"], name="stripefee_balance_txn_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    ~Q(status="recorded")
+                    | Q(amount_cents__isnull=False, fee_cents__isnull=False, net_cents__isnull=False)
+                ),
+                name="ck_stripefee_recorded_amounts",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Stripe fee record for {self.stripe_payment_intent_id} ({self.get_status_display()})"
+
+    @property
+    def fee_after_refunds_cents(self) -> int | None:
+        """Everything Stripe kept on this payment, refunds included; None unless recorded."""
+        if self.status != self.Status.RECORDED or self.fee_cents is None:
+            return None
+        return self.fee_cents + self.refund_fee_cents
+
+    @property
+    def net_after_refunds_cents(self) -> int | None:
+        """What this payment left in the Stripe balance after fees and refunds; None unless recorded."""
+        if self.status != self.Status.RECORDED or self.net_cents is None:
+            return None
+        return self.net_cents - self.refunded_cents - self.refund_fee_cents
+
+    def start_read(self) -> None:
+        """Stamp the database's clock before asking Stripe, so :meth:`record` can tell whether a refund overtook the read."""
+        type(self).objects.filter(pk=self.pk).update(read_started_at=Now())
+
+    def record(self, settlement: ChargeSettlement, *, now: datetime) -> bool:
+        """Store what Stripe answered and mark the record recorded; returns False when the read went stale.
+
+        Stale means no :meth:`start_read` stamp, or a refund webhook asked for a re-read at or
+        after it; both stamps come from the database clock, so web and job clock skew cannot
+        decide. A stale read writes nothing and the record stays pending for the next run.
+        Only the fields this read owns are written, so a payout id another process stamped is
+        never blanked. Refund rows are upserted by refund id, keeping their payout ids, and
+        never deleted: a refund that failed after settling stays, marked failed, with its
+        reversal's own balance transaction.
+        """
+        with transaction.atomic():
+            written = (
+                type(self)
+                .objects.filter(pk=self.pk, read_started_at__isnull=False)
+                .filter(Q(refresh_requested_at__isnull=True) | Q(refresh_requested_at__lt=F("read_started_at")))
+                .update(
+                    account=settlement.account,
+                    stripe_charge_id=settlement.charge_id,
+                    stripe_balance_transaction_id=settlement.balance_transaction_id,
+                    amount_cents=settlement.amount_cents,
+                    fee_cents=settlement.fee_cents,
+                    net_cents=settlement.net_cents,
+                    available_on=settlement.available_on,
+                    refunded_cents=settlement.refunded_cents,
+                    refund_fee_cents=settlement.refund_fee_cents,
+                    status=self.Status.RECORDED,
+                    attempts=0,
+                    last_error="",
+                    last_attempt_at=now,
+                    updated_at=now,
+                )
+            )
+            if not written:
+                return False
+            for refund in settlement.refunds:
+                StripeFeeRefund.objects.update_or_create(
+                    stripe_refund_id=refund.refund_id,
+                    defaults={
+                        "record": self,
+                        "status": StripeFeeRefund.Status.FAILED if refund.failed else StripeFeeRefund.Status.SUCCEEDED,
+                        "stripe_balance_transaction_id": refund.balance_transaction_id,
+                        "amount_cents": refund.amount_cents,
+                        "fee_cents": refund.fee_cents,
+                        "net_cents": refund.net_cents,
+                        "available_on": refund.available_on,
+                        "failure_balance_transaction_id": refund.failure_balance_transaction_id,
+                        "failure_amount_cents": refund.failure_amount_cents,
+                        "failure_fee_cents": refund.failure_fee_cents,
+                        "failure_net_cents": refund.failure_net_cents,
+                        "failure_available_on": refund.failure_available_on,
+                    },
+                )
+        self.refresh_from_db()
+        return True
+
+    def note_failed_read(self, reason: str, now: datetime) -> None:
+        """Keep the record pending after a read that failed or found nothing ready, for a later retry."""
+        self.attempts += 1
+        self.last_error = reason[:500]
+        self.last_attempt_at = now
+        self.save(update_fields=["attempts", "last_error", "last_attempt_at", "updated_at"])
+
+    def note_unreadable(self, reason: str, now: datetime) -> None:
+        """Keep the record pending because no configured account can settle it; not a failure, so not counted."""
+        self.last_error = reason[:500]
+        self.last_attempt_at = now
+        self.save(update_fields=["last_error", "last_attempt_at", "updated_at"])
+
+    def mark_not_found(self, now: datetime) -> None:
+        """Neither Stripe account holds this PaymentIntent: daily runs stop asking; --backfill asks again."""
+        self.status = self.Status.NOT_FOUND
+        self.last_error = "Neither Stripe account has this payment."
+        self.last_attempt_at = now
+        self.save(update_fields=["status", "last_error", "last_attempt_at", "updated_at"])
+
+    @classmethod
+    def add_pending(cls, payment_intent_id: str, *, livemode: bool | None = None) -> None:
+        """Add a pending record for a paid PaymentIntent; an existing one only learns its mode if it had none."""
+        cls.objects.get_or_create(stripe_payment_intent_id=payment_intent_id, defaults={"livemode": livemode})
+        if livemode is not None:
+            cls.objects.filter(stripe_payment_intent_id=payment_intent_id, livemode__isnull=True).update(
+                livemode=livemode
+            )
+
+    @classmethod
+    def refresh(cls, payment_intent_id: str) -> int:
+        """Send a payment back to pending so its refunds are read again, whatever its state; returns rows changed.
+
+        Stamping ``refresh_requested_at`` with the database clock makes a read already in flight
+        go stale, so a refund landing mid-read is never lost. Payout ids stay: a refund never
+        moves the charge.
+        """
+        return cls.objects.filter(stripe_payment_intent_id=payment_intent_id).update(
+            status=cls.Status.PENDING, attempts=0, last_error="", refresh_requested_at=Now(), updated_at=Now()
+        )
+
+
+class StripeFeeRefundQuerySet(models.QuerySet["StripeFeeRefund"]):
+    """Filters over refund settlement rows."""
+
+    def readable(self, *, live: bool) -> StripeFeeRefundQuerySet:
+        """Refunds a run in this Stripe mode may match to payouts, by their payment's mode."""
+        return self.filter(_readable_q("record__", live=live))
+
+    def awaiting_payout(self, now: datetime) -> StripeFeeRefundQuerySet:
+        """Refunds whose debit is due in a payout but not yet matched to one."""
+        return self.filter(stripe_payout_id="", available_on__lte=now)
+
+    def awaiting_failure_payout(self, now: datetime) -> StripeFeeRefundQuerySet:
+        """Failed refunds whose reversal credit is due in a payout but not yet matched to one."""
+        return self.filter(
+            status=StripeFeeRefund.Status.FAILED, failure_payout_id="", failure_available_on__lte=now
+        ).exclude(failure_balance_transaction_id="")
+
+
+class StripeFeeRefund(models.Model):
+    """One settled refund's own balance transaction (#984), so it lands in the payout that really carried it.
+
+    Amounts are signed as Stripe's balance shows them: a refund takes money out, so
+    ``amount_cents`` and ``net_cents`` are negative, and ``fee_cents`` is negative when Stripe
+    gave part of its fee back. A refund that fails after settling keeps that debit, in the
+    payout that took it, and adds its reversal's credit (the ``failure_*`` fields, positive)
+    in whichever payout returned it, so every payout still sums to its deposit.
+    """
+
+    class Status(models.TextChoices):
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed after it settled"
+
+    record = models.ForeignKey(
+        StripeFeeRecord,
+        on_delete=models.CASCADE,
+        related_name="refunds",
+        help_text="The payment this refund came out of.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.SUCCEEDED,
+        help_text="Whether the refund stands, or failed after settling and Stripe credited the money back.",
+    )
+    stripe_refund_id = models.CharField(max_length=255, unique=True, help_text="The Stripe refund.")
+    stripe_balance_transaction_id = models.CharField(
+        max_length=255, help_text="The refund's Stripe balance transaction, which names its payout."
+    )
+    amount_cents = models.IntegerField(help_text="The refund's balance effect in cents; negative.")
+    fee_cents = models.IntegerField(
+        help_text="Stripe's fee change on the refund in cents; negative when fee came back."
+    )
+    net_cents = models.IntegerField(help_text="The refund's net balance effect in cents; negative.")
+    available_on = models.DateTimeField(help_text="When the refund's balance effect is due in a payout.")
+    stripe_payout_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="The Stripe payout the refund was taken from; blank until it is paid out.",
+    )
+    failure_balance_transaction_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="A failed refund's reversal balance transaction, which names the payout that returned the money.",
+    )
+    failure_amount_cents = models.IntegerField(
+        null=True, blank=True, help_text="The reversal's balance effect in cents; positive. Null unless failed."
+    )
+    failure_fee_cents = models.IntegerField(
+        null=True, blank=True, help_text="Stripe's fee change on the reversal in cents. Null unless failed."
+    )
+    failure_net_cents = models.IntegerField(
+        null=True, blank=True, help_text="The reversal's net balance effect in cents; positive. Null unless failed."
+    )
+    failure_available_on = models.DateTimeField(
+        null=True, blank=True, help_text="When the reversal's credit is due in a payout. Null unless failed."
+    )
+    failure_payout_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="The Stripe payout that returned the failed refund's money; blank until it is paid out.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the refund was first recorded.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the refund row last changed.")
+
+    objects = StripeFeeRefundQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["stripe_balance_transaction_id"], name="stripefeeref_balance_txn_idx"),
+            models.Index(fields=["failure_balance_transaction_id"], name="stripefeeref_failure_txn_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Stripe refund settlement {self.stripe_refund_id}"

@@ -2117,6 +2117,84 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # orientation.message_to_member / orientation.message_to_orientors — the message thread on an
+    # orientation booking (the shared thread, core.threads). The message itself is the content,
+    # so the email shows it whole (escaped, line breaks kept). booking_url opens the member's
+    # booking page, or the request page's Messages card for the orientors.
+    "orientation.message_to_member": EventCopy(
+        placeholders=("author_name", "owner_name", "orientation_name", "message_body", "booking_url"),
+        sample_context={
+            "author_name": "Sam Rivera",
+            "owner_name": "Ceramics Guild",
+            "orientation_name": "Wheel Throwing",
+            "message_body": "Bring closed toe shoes and clothes that can get muddy. See you Saturday!",
+            "booking_url": "https://pastlives.example/orientation/bookings/12/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ author_name }} wrote about your orientation",
+                body_text="{{ message_body }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="A message about your {{ owner_name }} orientation",
+                body_text=(
+                    "{{ author_name }} wrote about your {{ orientation_name }} orientation "
+                    "with {{ owner_name }}:\n\n"
+                    "{{ message_body }}\n\n"
+                    "Read it and reply: {{ booking_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ author_name }} wrote about your "
+                    '<strong><a href="{{ booking_url }}">{{ orientation_name }}</a></strong> orientation '
+                    "with {{ owner_name }}:</p>"
+                    '<p style="white-space:pre-line;">{{ message_body }}</p>'
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ booking_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read And Reply</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "orientation.message_to_orientors": EventCopy(
+        placeholders=("member_name", "owner_name", "orientation_name", "message_body", "booking_url"),
+        sample_context={
+            "member_name": "Maya Okafor",
+            "owner_name": "Ceramics Guild",
+            "orientation_name": "Wheel Throwing",
+            "message_body": "Could we do an hour later? I get off work at 5.",
+            "booking_url": "https://pastlives.example/orientation/bookings/12/respond/#messages",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ member_name }} wrote about their orientation",
+                body_text="{{ message_body }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ member_name }} wrote about their {{ owner_name }} orientation",
+                body_text=(
+                    "{{ member_name }} wrote about their {{ orientation_name }} orientation "
+                    "with {{ owner_name }}:\n\n"
+                    "{{ message_body }}\n\n"
+                    "Read it and answer: {{ booking_url }}\n\n"
+                    "You get this as an Orientor for {{ owner_name }}.\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ member_name }} wrote about their "
+                    '<strong><a href="{{ booking_url }}">{{ orientation_name }}</a></strong> orientation '
+                    "with {{ owner_name }}:</p>"
+                    '<p style="white-space:pre-line;">{{ message_body }}</p>'
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ booking_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read And Answer</a></p>"
+                    "<p>You get this as an Orientor for {{ owner_name }}.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     # kiln.crew_replied / kiln.maker_replied — the reply thread on a kiln ticket (#691). The
     # message itself is the content, so the email shows it whole (escaped, line breaks kept).
     # ticket_label is "Ticket 412"; ticket_summary is "Glaze · 3 pieces"; ticket_url opens
@@ -2475,6 +2553,85 @@ _CURATED: dict[str, EventCopy] = {
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
                     "Approve or Decline</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # equipment.reservation_message_to_member / equipment.reservation_message_to_managers — the
+    # message thread on an equipment reservation (the shared thread, core.threads). The message
+    # itself is the content, so the email shows it whole (escaped, line breaks kept).
+    # reservation_url opens the member's Reservations page Bookings tab, or the equipment's
+    # Manage > Reservations tab for the managers, with the thread open.
+    "equipment.reservation_message_to_member": EventCopy(
+        placeholders=("author_name", "equipment_name", "reservation_when", "message_body", "reservation_url"),
+        sample_context={
+            "author_name": "Sami Lee",
+            "equipment_name": "CNC Router",
+            "reservation_when": "Tuesday, October 20, 10:00 AM to 12:00 PM",
+            "message_body": "Which bit are you using? The 1/4 inch downcut is out for sharpening.",
+            "reservation_url": "https://pastlives.example/equipment/?view=bookings&messages=res-12",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ author_name }} wrote about your {{ equipment_name }} reservation",
+                body_text="{{ message_body }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="A message about your {{ equipment_name }} reservation",
+                body_text=(
+                    "{{ author_name }} wrote about your {{ equipment_name }} reservation, "
+                    "{{ reservation_when }}:\n\n"
+                    "{{ message_body }}\n\n"
+                    "Read it and reply: {{ reservation_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ author_name }} wrote about your "
+                    '<strong><a href="{{ reservation_url }}">{{ equipment_name }}</a></strong> reservation, '
+                    "{{ reservation_when }}:</p>"
+                    '<p style="white-space:pre-line;">{{ message_body }}</p>'
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ reservation_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read And Reply</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "equipment.reservation_message_to_managers": EventCopy(
+        placeholders=("member_name", "equipment_name", "reservation_when", "message_body", "reservation_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "equipment_name": "CNC Router",
+            "reservation_when": "Tuesday, October 20, 10:00 AM to 12:00 PM",
+            "message_body": "I'm cutting 3/4 inch plywood sign blanks. Is the downcut bit OK for that?",
+            "reservation_url": "https://pastlives.example/equipment/cnc-router/manage/?tab=reservations&messages=res-12",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ member_name }} wrote about their {{ equipment_name }} reservation",
+                body_text="{{ message_body }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ member_name }} wrote about their {{ equipment_name }} reservation",
+                body_text=(
+                    "{{ member_name }} wrote about their {{ equipment_name }} reservation, "
+                    "{{ reservation_when }}:\n\n"
+                    "{{ message_body }}\n\n"
+                    "Read it and answer: {{ reservation_url }}\n\n"
+                    "You get this as a manager of the {{ equipment_name }}.\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ member_name }} wrote about their "
+                    '<strong><a href="{{ reservation_url }}">{{ equipment_name }}</a></strong> reservation, '
+                    "{{ reservation_when }}:</p>"
+                    '<p style="white-space:pre-line;">{{ message_body }}</p>'
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ reservation_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read And Answer</a></p>"
+                    "<p>You get this as a manager of the {{ equipment_name }}.</p>"
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

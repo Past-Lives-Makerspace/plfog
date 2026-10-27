@@ -55,6 +55,7 @@ from PIL import UnidentifiedImageError
 from core.files import delete_orphan_on_replace
 from core.images import cut_hero_crop, image_upload_refusal, normalize_field_if_uploaded
 from core.models import HERO_CROP_FIELDS, AutomationAction, EventDelivery, HeroCropMixin, StaffRequestMixin
+from core.threads import ThreadMessage, ThreadPhoto
 from core.urls_util import member_absolute_url
 from core.phone import phone_tel_number
 from core.validators import (
@@ -68,6 +69,7 @@ from membership.managers import MemberEmailManager
 from membership.names import user_display_name, user_name_or_email
 
 if TYPE_CHECKING:
+    from membership.orientations import AudienceCache
     from django import forms
     from django.contrib.auth.models import User
     from django.core.files.uploadedfile import UploadedFile
@@ -954,6 +956,16 @@ class Member(StaffRequestMixin, models.Model):
             "many other reasons. Not filtered by the default manager (see PR rationale)."
         ),
     )
+    name_at_deletion = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "The name finance shows for this member, kept when they delete their account so "
+            "Reconciliation and Payouts can still say whose share it is (#983). Blank for a "
+            "member who never deleted, or one deleted before this was kept."
+        ),
+    )
     welcome_dismissed_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -1162,6 +1174,17 @@ class Member(StaffRequestMixin, models.Model):
     @property
     def display_name(self) -> str:
         return self.preferred_name if self.preferred_name else self.full_legal_name
+
+    @property
+    def finance_name(self) -> str:
+        """The name billing shows as a payer or payee: "Name (account deleted)" for a deleted member.
+
+        A member deleted before #983 has no kept name and reads as their scrubbed
+        ``display_name``, "Deleted Member".
+        """
+        if self.deleted_at is not None and self.name_at_deletion:
+            return f"{self.name_at_deletion} (account deleted)"
+        return self.display_name
 
     @property
     def role_label(self) -> str:
@@ -16049,7 +16072,9 @@ class OrientationSlot(models.Model):
 
         Args:
             member: The member requesting the orientation.
-            note: Optional free-text note the member adds.
+            note: Optional free-text note the member adds; it becomes the first message on the
+                booking's thread, written as the member, telling nobody (the request's own
+                notice carries it).
             by_staff: A staffer is seating this member by hand — see
                 :meth:`ensure_bookable_for` for the one guard that relaxes.
 
@@ -16061,13 +16086,14 @@ class OrientationSlot(models.Model):
                 completed or already has a live booking for this slot's orientation type.
         """
         self.ensure_bookable_for(member, by_staff=by_staff)
-        return OrientationBooking.objects.create(
+        booking = OrientationBooking.objects.create(
             slot=self,
             guild=self.guild,
             orientation_type=self.orientation_type,
             member=member,
-            member_note=note,
         )
+        booking.write_message(author=member.user, body=note)
+        return booking
 
     def mark_cancelled(self, *, reason: str = "") -> None:
         """Flip the slot's own cancel state without touching its bookings.
@@ -16131,6 +16157,15 @@ class OrientationBookingQuerySet(models.QuerySet):
     def completed(self) -> OrientationBookingQuerySet:
         return self.filter(is_completed=True)
 
+    def with_thread(self) -> OrientationBookingQuerySet:
+        """Load each booking's messages, their authors' names and photos in three queries, whatever the count."""
+        return self.select_related("member", "orientation_type__guild", "orientation_type__equipment").prefetch_related(
+            Prefetch(
+                "messages",
+                queryset=OrientationBookingMessage.objects.select_related("author__member").prefetch_related("photos"),
+            )
+        )
+
 
 class OrientationBooking(models.Model):
     """A member's orientation request and, once it happens, the orientation record.
@@ -16186,8 +16221,6 @@ class OrientationBooking(models.Model):
         related_name="orientations_given",
         help_text="Who gave the orientation.",
     )
-    member_note = models.TextField(blank=True, default="", help_text="Optional note from the member when requesting.")
-    lead_note = models.TextField(blank=True, default="", help_text="Note from the lead when declining or following up.")
     amount_paid_cents = models.PositiveIntegerField(
         default=0,
         help_text=(
@@ -16296,14 +16329,13 @@ class OrientationBooking(models.Model):
         self.oriented_by = oriented_by or self.slot.orienter or self.orientation_type.default_runner()
         self.save(update_fields=["status", "confirmed_at", "oriented_by"])
 
-    def decline(self, *, note: str = "") -> None:
-        """Turn down the request, optionally with a note for the member. Clears any open proposal."""
+    def decline(self) -> None:
+        """Turn down the request. Clears any open proposal. A note for the member is a message on its thread."""
         self._refuse_checkout_hold()
         self.status = self.Status.DECLINED
         self.declined_at = timezone.now()
-        self.lead_note = note
         self._drop_proposal()
-        self.save(update_fields=["status", "declined_at", "lead_note", *self.PROPOSAL_FIELDS])
+        self.save(update_fields=["status", "declined_at", *self.PROPOSAL_FIELDS])
 
     def cancel(self) -> None:
         """Cancel the booking, freeing its seat. Clears any open proposal."""
@@ -16498,6 +16530,234 @@ class OrientationBooking(models.Model):
         from billing.refunds import issue_refund
 
         return issue_refund(self, amount_cents=amount_cents, reason=reason, actor=actor)
+
+    # --- The booking's messages (the shared thread, core.threads) -------------------------
+
+    def may_be_run_by(self, member: Member) -> bool:
+        """Whether ``member`` may run this booking: the role form of ``hub.views._require_can_manage_booking``.
+
+        An equipment owned booking follows :meth:`Member.manageable_equipment_ids` (admin, the
+        EQUIPMENT capability, the owning guild's lead or staff, a manager of the item); a guild
+        owned one :meth:`Member.can_manage_orientations` on its guild; a superuser runs every booking,
+        as the hub's admin gate lets them. No ``view_as`` preview:
+        this decides who is told, not what a page shows.
+        """
+        if member.user is not None and member.user.is_superuser:
+            return True
+        orientation_type = self.orientation_type
+        if orientation_type.equipment is not None:
+            return bool(member.manageable_equipment_ids([orientation_type.equipment]))
+        return member.can_manage_orientations(cast(Guild, orientation_type.guild))
+
+    def orientors_hear_the_member(self, audience_cache: AudienceCache | None = None) -> bool:
+        """Whether a message from this booking's member would reach anyone: the composer's notice line.
+
+        Reads the thread from a ``with_thread()`` prefetch. ``audience_cache`` is the page's memo
+        of request audiences (:func:`membership.orientations.orientor_audience`), so a page of
+        bookings looks each owner's audience up once; past staff writers are checked only when
+        that audience alone reaches nobody.
+        """
+        from membership.orientations import orientor_audience
+
+        member_user_id = self.member.user_id
+        if orientor_audience(self, audience_cache) - {member_user_id}:
+            return True
+        return bool(self._running_staff_writers(set(), exclude_user_id=member_user_id))
+
+    def _running_staff_writers(self, known: set[int], *, exclude_user_id: int | None) -> set[int]:
+        """Staff side authors on this thread, outside ``known``, who still run the booking.
+
+        Reads the thread in Python (a ``with_thread()`` prefetch costs nothing more), then one
+        query for the writers' members, only when there is a writer to check.
+        """
+        writer_ids = (
+            {message.author_id for message in self.thread() if message.author_id is not None and message.is_from_staff}
+            - known
+            - {exclude_user_id}
+        )
+        if not writer_ids:
+            return set()
+        return {
+            cast(int, member.user_id)
+            for member in Member.objects.filter(user_id__in=writer_ids).select_related("user")
+            if self.may_be_run_by(member)
+        }
+
+    @property
+    def takes_messages(self) -> bool:
+        """Whether this booking has a thread: every booking but a checkout hold, which is not a booking yet."""
+        return self.status != self.Status.PENDING_PAYMENT
+
+    @property
+    def member_messages_url(self) -> str:
+        """The member's page for this booking and its messages: where a message to them links."""
+        return reverse("hub_orientation_booking", args=[self.pk])
+
+    @property
+    def staff_messages_url(self) -> str:
+        """The request page's Messages card: where a message to the orientors links."""
+        return f"{reverse('hub_orientation_respond', args=[self.pk])}#messages"
+
+    def thread(self) -> list[OrientationBookingMessage]:
+        """Every message on this booking, oldest first (reads a ``prefetch_related`` of ``messages``)."""
+        return list(self.messages.all())
+
+    def latest_message(self, *, from_staff: bool) -> OrientationBookingMessage | None:
+        """The newest message from one side, or ``None``: what an email shows as the note."""
+        side = [message for message in self.thread() if message.is_from_staff == from_staff]
+        return side[-1] if side else None
+
+    def post_message(self, *, author: User, body: str, photos: Sequence[Any] = ()) -> OrientationBookingMessage:
+        """Post a message on this booking's thread and tell the other side, every time.
+
+        The member writing tells the orientors (:meth:`OrientationBookingMessage.orientor_user_ids`);
+        anyone else writing is the guild (or the equipment's managers) and tells the member.
+        """
+        return OrientationBookingMessage.post(author=author, body=body, photos=list(photos), booking=self)
+
+    def write_message(self, *, author: User | None, body: str) -> OrientationBookingMessage | None:
+        """Save a message that rides on another notice (a request's note, a decline's note); tells nobody.
+
+        Blank text writes nothing and returns ``None``, so an optional note left empty adds no message.
+        """
+        if not body.strip():
+            return None
+        return OrientationBookingMessage.write(author=author, body=body, booking=self)
+
+
+class OrientationBookingMessage(ThreadMessage):
+    """One message on an :class:`OrientationBooking`'s thread, between the member and its orientors.
+
+    The member side is the booking's member; the staff side is whoever may run the booking: the
+    audience ``orientation_requested`` reaches (a guild's leadership or orienter, an equipment's
+    managers) and admins. A note carried over from the old ``lead_note`` has no author and signs
+    as the guild or the equipment (:attr:`staff_signature`).
+    """
+
+    booking = models.ForeignKey(
+        OrientationBooking,
+        on_delete=models.CASCADE,
+        related_name="messages",
+        help_text="The booking this message is on.",
+    )
+
+    class Meta(ThreadMessage.Meta):
+        pass
+
+    def __str__(self) -> str:
+        return f"Message {self.pk} on orientation booking {self.booking_id}"
+
+    @property
+    def member_user_ids(self) -> set[int]:
+        user_id = self.booking.member.user_id
+        return {user_id} if user_id is not None else set()
+
+    @property
+    def member_side_name(self) -> str:
+        return self.booking.member.display_name
+
+    @property
+    def staff_signature(self) -> str:
+        return self.booking.orientation_type.owner_name
+
+    def orientor_user_ids(self) -> set[int]:
+        """Who a member's message reaches: the request's audience, plus staff who wrote here, minus the author.
+
+        The audience is the ``orientation_requested`` resolver's (a guild's shared slot reaches
+        its whole leadership, a personal slot its orienter and the lead, equipment its managers).
+        Anyone else on the staff side who has written on this thread (an admin, say) hears the
+        answer to what they wrote, while they still run the booking
+        (:meth:`OrientationBooking.may_be_run_by`): a demoted admin or an orientor taken off staff
+        hears nothing more.
+        """
+        from membership.orientations import orientor_audience
+
+        booking = self.booking
+        audience = set(orientor_audience(booking))
+        writers = booking._running_staff_writers(audience, exclude_user_id=self.author_id)
+        return (audience | writers) - {self.author_id}
+
+    def _tell_member_side(self) -> bool:
+        """A staff message: tell the booking's member (no account, nobody to tell)."""
+        from core.events.emit import emit
+        from core.events.registry import ORIENTATION_MESSAGE_TO_MEMBER
+
+        booking = self.booking
+        user = booking.member.user
+        if user is None:
+            return False
+        emit(
+            ORIENTATION_MESSAGE_TO_MEMBER,
+            actor=self.author,
+            target=booking,
+            context={
+                "user": user,
+                "author_name": self.author_name,
+                "owner_name": booking.orientation_type.owner_name,
+                "orientation_name": booking.orientation_type.name,
+                "message_body": self.body,
+                "booking_url": member_absolute_url(booking.member_messages_url),
+            },
+            url=booking.member_messages_url,
+            period=f"orientation-message-{self.pk}",
+        )
+        return True
+
+    def _tell_staff_side(self) -> bool:
+        """The member's message: tell the orientors (:meth:`orientor_user_ids`)."""
+        from core.events.emit import emit
+        from core.events.registry import ORIENTATION_MESSAGE_TO_ORIENTORS
+        from membership.orientations import request_resolver_context
+
+        booking = self.booking
+        recipient_ids = self.orientor_user_ids()
+        if not recipient_ids:
+            return False
+        emit(
+            ORIENTATION_MESSAGE_TO_ORIENTORS,
+            actor=self.author,
+            target=booking,
+            context={
+                # The event's resolver still runs, then recipient_user_ids replaces its people.
+                **request_resolver_context(booking),
+                "member_name": booking.member.display_name,
+                "owner_name": booking.orientation_type.owner_name,
+                "orientation_name": booking.orientation_type.name,
+                "message_body": self.body,
+                "booking_url": member_absolute_url(booking.staff_messages_url),
+            },
+            url=booking.staff_messages_url,
+            period=f"orientation-message-{self.pk}",
+            recipient_user_ids=recipient_ids,
+        )
+        return True
+
+    def told_sentence(self) -> str:
+        if not self.notified:
+            return ""
+        if self.is_from_staff:
+            return f" {self.booking.member.display_name} was notified."
+        return f" The Orientors for {self.booking.orientation_type.owner_name} were notified."
+
+
+class OrientationBookingMessagePhoto(ThreadPhoto):
+    """One photo posted with an :class:`OrientationBookingMessage`."""
+
+    message = models.ForeignKey(
+        OrientationBookingMessage,
+        on_delete=models.CASCADE,
+        related_name="photos",
+        help_text="The message this photo was posted with.",
+    )
+    image = models.ImageField(
+        upload_to="orientation-messages/%Y/%m/", help_text="The uploaded photo, on the default storage."
+    )
+
+    class Meta(ThreadPhoto.Meta):
+        pass
+
+    def __str__(self) -> str:
+        return f"Photo {self.pk} on orientation message {self.message_id}"
 
 
 class OrientationRecordQuerySet(models.QuerySet):
@@ -19057,6 +19317,36 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
             self.holding().reservations().filter(member=member, equipment=equipment, ends_at__gt=timezone.now()).count()
         )
 
+    def with_thread(self) -> EquipmentReservationQuerySet:
+        """Load each reservation's messages, their authors' names and photos in a fixed number of queries."""
+        return self.select_related("member__user", "equipment").prefetch_related(
+            Prefetch(
+                "messages",
+                queryset=EquipmentReservationMessage.objects.select_related("author__member").prefetch_related(
+                    "photos"
+                ),
+            )
+        )
+
+    def with_unread_messages_for(self, user: User | None) -> EquipmentReservationQuerySet:
+        """Annotate ``has_unread_messages``: a message by someone else newer than ``user`` last read the thread.
+
+        One subquery per row, so a list shows its unread cue at no extra query. With no
+        ``user`` (nobody signed in) nothing is unread.
+        """
+        if user is None:
+            return self.annotate(has_unread_messages=Value(False, output_field=BooleanField()))
+        read_at = EquipmentReservationMessageRead.objects.filter(reservation=OuterRef("reservation"), user=user).values(
+            "read_at"
+        )[:1]
+        unread = (
+            EquipmentReservationMessage.objects.filter(reservation=OuterRef("pk"))
+            .exclude(author=user)
+            .annotate(viewer_read_at=Subquery(read_at))
+            .filter(Q(viewer_read_at__isnull=True) | Q(created_at__gt=F("viewer_read_at")))
+        )
+        return self.annotate(has_unread_messages=Exists(unread))
+
 
 class EquipmentAgreementAcceptanceQuerySet(models.QuerySet["EquipmentAgreementAcceptance"]):
     def pairs_for(self, member: Member) -> set[tuple[int, str]]:
@@ -19452,8 +19742,9 @@ class EquipmentReservation(models.Model):
         """Decline a waiting request (#748): it becomes DECLINED, its time frees and the member hears why.
 
         The row stays, carrying the manager and the reason in ``cancelled_by`` and
-        ``cancelled_reason``, so the member's list shows it until its date passes. A
-        conditional update keyed on status, like :meth:`approve`.
+        ``cancelled_reason``, so the member's list shows it until its date passes. The reason
+        is also written into the reservation's thread as the manager's message, telling nobody:
+        the decline notice carries it. A conditional update keyed on status, like :meth:`approve`.
 
         Raises:
             EquipmentError: When ``actor`` cannot manage the equipment, the row is not
@@ -19474,6 +19765,8 @@ class EquipmentReservation(models.Model):
                 raise EquipmentError(self.NOT_WAITING_MESSAGE)
             # The credit this request spent goes back, in the same transaction as the decline (#787).
             EquipmentCredit.objects.restore_for(self)
+            # The reason is also the manager's message on the thread; the decline notice carries it.
+            self.write_message(author=actor.user, body=cleaned_reason)
         self.status = self.Status.DECLINED
         self.cancelled_by = actor
         self.cancelled_reason = cleaned_reason
@@ -19543,8 +19836,8 @@ class EquipmentReservation(models.Model):
         "you cancelled" email, and a cancel inside the notice window creates the late
         cancellation fee (#456) in the same transaction as the cancel, unless the actor
         manages this equipment. Manager cancel: also
-        allowed while in progress, requires a reason the member will see, notifies the
-        member, and never charges. A manager cancelling THEIR OWN row from the manage tab
+        allowed while in progress, requires a reason the member will see (also written into the reservation's thread as
+        the manager's message, which the cancel notice carries), notifies the member, and never charges. A manager cancelling THEIR OWN row from the manage tab
         passes ``as_manager=True`` — the manager guards apply (reason honored, in-progress
         allowed), nobody is notified because the member IS the actor, and nothing charges.
         A manager of this equipment who cancels their own row from the ordinary member Cancel
@@ -19617,6 +19910,9 @@ class EquipmentReservation(models.Model):
             self.cancelled_at = now
             if not fee_exempt and not was_waiting:
                 fee = charge_if_late(self, now=now)
+            if acting_as_manager and not is_own_row:
+                # The reason is also the manager's message on the thread; the cancel notice carries it.
+                self.write_message(author=actor.user, body=cleaned_reason)
         from membership import equipment as equipment_service
 
         # Every cancel of a paid row refunds it in full (#749); the late fee above stays separate,
@@ -19767,6 +20063,219 @@ class EquipmentReservation(models.Model):
                 raise EquipmentError("This reservation already ended.")
         elif self.starts_at <= now:
             raise EquipmentError("This reservation already started. Ask a manager if it needs cancelling.")
+
+    # --- The reservation's messages (the shared thread, core.threads) ---------------------
+
+    @property
+    def thread_key(self) -> str:
+        """The thread's key in ``?messages=`` and ``data-thread`` ("res-12"), apart from an orientation booking's."""
+        return f"res-{self.pk}"
+
+    @property
+    def member_messages_url(self) -> str:
+        """The Reservations page's Bookings tab with this reservation's messages open: where a message to the member links."""
+        return f"{reverse('hub_equipment_index')}?view=bookings&messages={self.thread_key}"
+
+    @property
+    def staff_messages_url(self) -> str:
+        """The equipment's Manage > Reservations tab with these messages open: where a message to the managers links."""
+        path = reverse("hub_equipment_manage", args=[self.equipment.slug])
+        return f"{path}?tab=reservations&messages={self.thread_key}"
+
+    def thread(self) -> list[EquipmentReservationMessage]:
+        """Every message on this reservation, oldest first (reads a ``with_thread()`` prefetch)."""
+        return list(self.messages.all())
+
+    def _ensure_has_thread(self) -> None:
+        """A manager's block holds time for nobody, so it has no conversation.
+
+        Raises:
+            EquipmentError: When this row is a block.
+        """
+        if self.is_block:
+            raise EquipmentError("A block has no messages.")
+
+    def post_message(self, *, author: User, body: str, photos: Sequence[Any] = ()) -> EquipmentReservationMessage:
+        """Post a message on this reservation's thread and tell the other side, every time.
+
+        The member who booked writing tells the managers of the equipment
+        (:meth:`EquipmentReservationMessage.manager_user_ids`); anyone else writing (a manager,
+        an admin) is the manager side and tells the member.
+
+        Raises:
+            EquipmentError: On a block, which has no thread.
+        """
+        self._ensure_has_thread()
+        return EquipmentReservationMessage.post(author=author, body=body, photos=list(photos), reservation=self)
+
+    def write_message(self, *, author: User | None, body: str) -> EquipmentReservationMessage | None:
+        """Save a message that rides on another notice (a decline's or a manager cancel's reason); tells nobody.
+
+        Blank text writes nothing and returns ``None``.
+        """
+        if not body.strip():
+            return None
+        return EquipmentReservationMessage.write(author=author, body=body, reservation=self)
+
+    def mark_messages_read(self, user: User | None, *, at: datetime_type | None = None) -> None:
+        """Record that ``user`` has seen this thread up to ``at`` (now by default), which clears their unread cue.
+
+        Never moves a stamp backwards, so a message posted with an older time cannot reopen it.
+        """
+        if user is None:
+            return
+        moment = at or timezone.now()
+        read, created = EquipmentReservationMessageRead.objects.get_or_create(
+            reservation=self, user=user, defaults={"read_at": moment}
+        )
+        if not created and read.read_at < moment:
+            # The guard in the filter keeps a concurrent later stamp from being overwritten.
+            EquipmentReservationMessageRead.objects.filter(pk=read.pk, read_at__lt=moment).update(read_at=moment)
+
+
+class EquipmentReservationMessage(ThreadMessage):
+    """One message on an :class:`EquipmentReservation`'s thread, between the member and the managers.
+
+    The member side is the member who booked; the manager side is whoever may manage the
+    equipment (``can_manage_equipment``: its staff, its guild's leadership, Equipment
+    Administrators, admins). A member's message tells the ``equipment_managers`` audience,
+    the one ``equipment.reservation_needs_approval`` reaches, plus anyone on the manager side
+    who already wrote here and still manages the item, minus the author
+    (:meth:`manager_user_ids`). A manager side message signs with the equipment's name as its tag.
+    """
+
+    reservation = models.ForeignKey(
+        EquipmentReservation,
+        on_delete=models.CASCADE,
+        related_name="messages",
+        help_text="The reservation this message is on.",
+    )
+
+    class Meta(ThreadMessage.Meta):
+        pass
+
+    def __str__(self) -> str:
+        return f"Message {self.pk} on reservation {self.reservation_id}"
+
+    @property
+    def member_user_ids(self) -> set[int]:
+        user_id = self.reservation.member.user_id
+        return {user_id} if user_id is not None else set()
+
+    @property
+    def member_side_name(self) -> str:
+        return self.reservation.member.display_name
+
+    @property
+    def staff_signature(self) -> str:
+        return self.reservation.equipment.name
+
+    def after_write(self) -> None:
+        """Whoever wrote has read the thread up to their own message."""
+        self.reservation.mark_messages_read(self.author, at=self.created_at)
+
+    def manager_user_ids(self) -> set[int]:
+        """Who a member's message reaches: the managers, plus staff side writers who still manage it, minus the author.
+
+        The audience is the ``equipment_managers`` resolver's for the item (its staff, its
+        guild's leadership, else the Equipment Administrators). Anyone else on the staff side
+        who has written on this thread (an admin who asked something, say) hears the answer
+        while they still may manage the item (:meth:`Member.can_manage_equipment`, or a
+        superuser, as the hub's gate lets them); someone who no longer does hears nothing more.
+        """
+        from core.events.resolvers import equipment_managers
+
+        reservation = self.reservation
+        equipment = reservation.equipment
+        audience = {user.pk for user, _reason in equipment_managers({"equipment": equipment})}
+        writer_ids = {
+            message.author_id
+            for message in reservation.messages.exclude(pk=self.pk).select_related("reservation__member")
+            if message.author_id is not None and message.is_from_staff
+        } - audience
+        writers = {
+            cast(int, member.user_id)
+            for member in Member.objects.filter(user_id__in=writer_ids).select_related("user")
+            if (member.user is not None and member.user.is_superuser) or member.can_manage_equipment(equipment)
+        }
+        return (audience | writers) - {self.author_id}
+
+    def _tell_member_side(self) -> bool:
+        """A manager side message: tell the member who booked (no account, nobody to tell)."""
+        if self.reservation.member.user is None:
+            return False
+        from membership import equipment as equipment_service
+
+        equipment_service.notify_message_to_member(self)
+        return True
+
+    def _tell_staff_side(self) -> bool:
+        """The member's message: tell the managers (:meth:`manager_user_ids`)."""
+        recipient_ids = self.manager_user_ids()
+        if not recipient_ids:
+            return False
+        from membership import equipment as equipment_service
+
+        equipment_service.notify_message_to_managers(self, recipient_ids)
+        return True
+
+    def told_sentence(self) -> str:
+        if not self.notified:
+            return ""
+        if self.is_from_staff:
+            return f" {self.reservation.member.display_name} was notified."
+        return f" The managers of the {self.reservation.equipment.name} were notified."
+
+
+class EquipmentReservationMessagePhoto(ThreadPhoto):
+    """One photo posted with an :class:`EquipmentReservationMessage`."""
+
+    message = models.ForeignKey(
+        EquipmentReservationMessage,
+        on_delete=models.CASCADE,
+        related_name="photos",
+        help_text="The message this photo was posted with.",
+    )
+    image = models.ImageField(
+        upload_to="reservation-messages/%Y/%m/", help_text="The uploaded photo, on the default storage."
+    )
+
+    class Meta(ThreadPhoto.Meta):
+        pass
+
+    def __str__(self) -> str:
+        return f"Photo {self.pk} on reservation message {self.message_id}"
+
+
+class EquipmentReservationMessageRead(models.Model):
+    """How far one person has read one reservation's thread: the unread cue on the lists reads it.
+
+    One row per reservation and person, stamped when they open the thread or write on it
+    (:meth:`EquipmentReservation.mark_messages_read`). A message by someone else newer than
+    the stamp, or any message with no stamp yet, is unread for them.
+    """
+
+    reservation = models.ForeignKey(
+        EquipmentReservation,
+        on_delete=models.CASCADE,
+        related_name="message_reads",
+        help_text="The reservation whose messages were read.",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="+",
+        help_text="Who read them.",
+    )
+    read_at = models.DateTimeField(help_text="When they last opened or wrote on the thread.")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["reservation", "user"], name="uniq_resmsg_read"),
+        ]
+
+    def __str__(self) -> str:
+        return f"User {self.user_id} read reservation {self.reservation_id} at {self.read_at:%Y-%m-%d %H:%M}"
 
 
 @dataclass(frozen=True)

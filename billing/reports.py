@@ -140,7 +140,7 @@ def build_report(
         rows.append(
             ReportRow(
                 created_at=entry.created_at,
-                member_name=entry.tab.member.display_name,
+                member_name=entry.tab.member.finance_name,
                 description=entry.description,
                 recipient_type=split.recipient_type,
                 recipient_label=recipient_label,

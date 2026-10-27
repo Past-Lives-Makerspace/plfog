@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("billing", "0023_alter_billingsettings_orientation_orientator_percent"),
+        ("billing", "0024_stripe_fee_records"),
     ]
 
     operations = [

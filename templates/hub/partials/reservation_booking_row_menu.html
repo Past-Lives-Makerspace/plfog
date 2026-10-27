@@ -7,10 +7,12 @@ row elsewhere gets the member menu. Confirms open the row's modal in reservation
 Refund Late Fee loads its form into the shared refund modal. A request awaiting approval (#748) shows
 Approve (posts at once, no confirm) and Decline Reservation in place of Cancel Reservation. A started,
 confirmed, hourly booking adds Credit Unused Time to the Money group (#787), opening its row's modal;
-the member's own in progress row adds End Early while the item allows it.
+the member's own in progress row adds End Early while the item allows it. Every row offers Messages, which opens the
+reservation's thread in the page's Messages modal (hub/partials/reservation_messages_modal.html).
 {% endcomment %}
 {% with r=row.reservation pk=row.reservation.pk|stringformat:"s" %}
 <a href="{% url 'hub_equipment_detail' r.equipment.slug %}" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">View Equipment</a>
+{% include "hub/partials/reservation_messages_launch.html" with launch_next=bookings_next launch_class="pl-row-menu__item" launch_in_menu=True %}
 {% if row.can_manage %}
 <a href="{% url 'hub_equipment_manage' r.equipment.slug %}?tab=reservations" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">Manage Equipment</a>
 {% if row.can_email %}
