@@ -459,7 +459,7 @@ def describe_reconciliation_split():
         with _Stripe():
             payouts.run_payouts(NOW)
         snapshot = ReconciliationSnapshot.take(
-            period_start=date(2026, 10, 1), period_end=date(2026, 10, 31), title="Oct"
+            period_start=date(2026, 10, 1), period_end=date(2026, 10, 19), title="Oct"
         )
         assert _row(result_from_snapshot(snapshot), RecipientKind.INSTRUCTOR, instructor).stripe_cents == 7000
         for group in snapshot.results["groups"]:
@@ -660,7 +660,7 @@ def describe_unanswered_transfers():
 
 def describe_snapshot_binds_the_split():
     def _october() -> ReconciliationSnapshot:
-        return ReconciliationSnapshot.take(period_start=date(2026, 10, 1), period_end=date(2026, 10, 31), title="Oct")
+        return ReconciliationSnapshot.take(period_start=date(2026, 10, 1), period_end=date(2026, 10, 19), title="Oct")
 
     def _switch(on: bool) -> None:
         bs = BillingSettings.load()
@@ -815,7 +815,7 @@ def describe_no_share_sits_or_doubles():
     def it_owes_a_counted_share_by_hand_and_alerts_once_payouts_stay_off_3_days_past_due():
         _turn_on()
         _registration(_payee(), class_at=NOW + timedelta(days=5))  # due NOW + 7 days
-        ReconciliationSnapshot.take(period_start=date(2026, 10, 1), period_end=date(2026, 10, 31), title="Oct")
+        ReconciliationSnapshot.take(period_start=date(2026, 10, 1), period_end=date(2026, 10, 19), title="Oct")
         _switch(False)
         with _Stripe() as fake, patch("core.events.emit.emit") as emit:
             payouts.run_payouts(NOW + timedelta(days=9))  # 2 days past due: still waiting

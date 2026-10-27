@@ -815,26 +815,33 @@ def _due_earlier_lines(
 ) -> list[TransactionLine]:
     """Class, orientation and reservation lines paid before ``window`` whose share may fall due inside it (#985).
 
-    The queries narrow by the base ``run_payouts`` uses (the later of taught and paid, plus
-    ``PAYOUT_DELAY``); the test that counts is the line's own ``LinePayout.due_at``, which is
-    ``Earning.due_at``, once its state attaches (``_owed_for``). A payment inside a period a
+    The queries narrow by the recorded ``Payout.due_at``, else the base ``run_payouts`` uses
+    (``fell_due_between``), or by a give up or a snapshot that placed the share in this window;
+    the test that counts is the line's own ``LinePayout.owed_at`` once its state attaches
+    (``_owed_for``). A payment inside a period a
     snapshot froze before #985 is left out: that snapshot already counted its share as owed.
     Six queries for any number of lines.
     """
-    from django.db.models import Min
+    from datetime import timedelta
+
+    from django.db.models import Min, Q
     from django.db.models.functions import Greatest
 
     from billing.models import ReconciliationSnapshot
-    from billing.payouts import PAYOUT_DELAY, in_snapshot
+    from billing.payouts import fell_due_between, in_snapshot
     from classes.models import Registration
     from membership.models import EquipmentReservation, OrientationBooking
 
-    due = {"due_base__gte": window.start_dt - PAYOUT_DELAY, "due_base__lt": window.end_dt - PAYOUT_DELAY}
-    due["due_base__lte"] = now - PAYOUT_DELAY
+    # Fell due in the window, became owed by hand in it after a give up, or counted by its snapshot.
+    due = (
+        fell_due_between(window.start_dt, min(window.end_dt, now + timedelta(microseconds=1)))
+        | Q(payout__owed_since__gte=window.start_dt, payout__owed_since__lt=window.end_dt)
+        | Q(payout__counted_owed_in__period_end__gte=window.start, payout__counted_owed_in__period_end__lte=window.end)
+    )
     registrations = (
         Registration.objects.filter(amount_paid_cents__gt=0, confirmed_at__lt=window.start_dt)
         .annotate(due_base=Greatest(Min("class_offering__sessions__starts_at"), "confirmed_at"))
-        .filter(**due)
+        .filter(due)
         .select_related("class_offering__instructor", "class_offering__category__guild", "member")
         .prefetch_related("refunds")
     )
@@ -842,7 +849,7 @@ def _due_earlier_lines(
         OrientationBooking.objects.filter(amount_paid_cents__gt=0, requested_at__lt=window.start_dt)
         .exclude(status=OrientationBooking.Status.PENDING_PAYMENT)
         .annotate(due_base=Greatest("slot__starts_at", "requested_at"))
-        .filter(**due)
+        .filter(due)
         .select_related("guild", "member", "oriented_by", "orientation_type__guild", "orientation_type__equipment")
         .prefetch_related("refunds")
     )
@@ -850,7 +857,7 @@ def _due_earlier_lines(
         EquipmentReservation.objects.filter(amount_paid_cents__gt=0, created_at__lt=window.start_dt)
         .exclude(status=EquipmentReservation.Status.PENDING_PAYMENT)
         .annotate(due_base=Greatest("starts_at", "created_at"))
-        .filter(**due)
+        .filter(due)
         .select_related("equipment__payee", "equipment__guild", "member", "payout__payee")
         .prefetch_related("refunds")
     )
@@ -877,14 +884,13 @@ def _in_window(line: TransactionLine, window: PanelWindow) -> TransactionLine:
 
 
 def _owed_for(line: TransactionLine, window: PanelWindow) -> bool:
-    """True when ``line``'s producer share counts in ``window``'s Owed now: still owed, and fell due inside it."""
-    payout = line.payout
-    return (
-        payout is not None
-        and payout.owed
-        and payout.due_at is not None
-        and window.start_dt <= payout.due_at < window.end_dt
-    )
+    """True when ``line``'s producer share counts in ``window``'s Owed now (``LinePayout.owed_in``)."""
+    return line.payout is not None and line.payout.owed_in(window.start_dt, window.end_dt)
+
+
+def owed_lines(result: ReconciliationResult) -> list[TransactionLine]:
+    """Every line whose producer share ``result`` counts in Owed now: paid in its window, or paid earlier."""
+    return [line for line in result.lines if _owed_for(line, result.window)] + result.due_earlier_lines
 
 
 def _attach_payouts(

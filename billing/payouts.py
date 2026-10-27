@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import stripe
 from django.db import models, transaction
-from django.db.models import Min, QuerySet
+from django.db.models import Min, Q, QuerySet
 from django.db.models.functions import Greatest
 from django.utils import timezone
 
@@ -34,7 +34,7 @@ from billing.models import PAYOUT_LOOKUP_UNREACHABLE, BillingSettings, Payout, P
 if TYPE_CHECKING:
     from django.http import HttpRequest
 
-    from billing.reconciliation import TransactionLine
+    from billing.reconciliation import ReconciliationResult, TransactionLine
     from membership.models import Member
 
 _UNANSWERED = (stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError)
@@ -168,7 +168,14 @@ class Earning:
 
     @property
     def due_at(self) -> datetime:
-        """48 hours after the class, slot or reservation starts, or after payment if that came later."""
+        """48 hours after the class, slot or reservation starts, or after payment if that came later.
+
+        Once the share has its ``Payout`` row, the date recorded there (#985): the send job sends
+        by it, and a session moved or split afterwards must not re-date a share already counted.
+        """
+        payout = self.payout
+        if payout is not None:
+            return payout.due_at
         return max(self.taught_at, self.paid_at) + PAYOUT_DELAY
 
     @property
@@ -211,7 +218,9 @@ def _registrations() -> QuerySet[Any]:
         )
         .annotate(first_session_at=Min("class_offering__sessions__starts_at"))
         .filter(first_session_at__isnull=False)
-        .select_related("class_offering__instructor", "class_offering__category__guild", "member", "payout")
+        .select_related(
+            "class_offering__instructor", "class_offering__category__guild", "member", "payout__counted_owed_in"
+        )
         .prefetch_related("refunds")
     )
 
@@ -229,7 +238,7 @@ def _bookings() -> QuerySet[Any]:
             "oriented_by",
             "orientation_type__guild",
             "orientation_type__equipment",
-            "payout",
+            "payout__counted_owed_in",
         )
         .prefetch_related("refunds")
     )
@@ -248,7 +257,7 @@ def _reservations() -> QuerySet[Any]:
     return (
         EquipmentReservation.objects.filter(amount_paid_cents__gt=0)
         .exclude(status=EquipmentReservation.Status.PENDING_PAYMENT)
-        .select_related("equipment__payee", "equipment__guild", "member", "payout__payee")
+        .select_related("equipment__payee", "equipment__guild", "member", "payout__payee", "payout__counted_owed_in")
         .prefetch_related("refunds")
     )
 
@@ -550,32 +559,87 @@ def _refresh_amount(payout: Payout) -> bool:
 
 
 def freeze_split(snapshot: ReconciliationSnapshot, window: Any) -> None:
-    """Bind a month-end snapshot's Sent through Stripe / Owed manually split into the ledger (#662).
+    """Bind a month-end snapshot's split into the ledger (#662, #985), before its results are read.
 
     Every instructor, orientor and manager share paid in ``window`` gets its ``Payout`` row now,
-    even if its class or reservation is weeks away: on the Stripe side a PENDING row tied to ``snapshot`` (sent
-    once due, whenever payouts are on), otherwise an OWED_MANUALLY row (never sent). A
-    transfer still FAILED at this moment was counted as owed, so it stops retrying. The
-    snapshot's results are then built from these rows, so nothing can contradict them later.
+    even if its class or reservation is weeks away: on the Stripe side a PENDING row tied to
+    ``snapshot`` (sent once due, whenever payouts are on), otherwise an OWED_MANUALLY row (never
+    sent). So does every share paid earlier that fell due in ``window`` (#985), which this
+    snapshot's Owed now pulls in. A transfer of either still FAILED at this moment is given up
+    and owed by hand in this snapshot's dates, so it stops retrying and nobody is left to pay it.
+    The snapshot's results are then read from these rows, so nothing can contradict them later.
     """
-    earnings = _earnings(
+    paid_in = _earnings(
         _registrations().filter(confirmed_at__gte=window.start_dt, confirmed_at__lt=window.end_dt),
         _bookings().filter(requested_at__gte=window.start_dt, requested_at__lt=window.end_dt),
         _reservations().filter(created_at__gte=window.start_dt, created_at__lt=window.end_dt),
     )
-    accounts = _accounts(earnings)
+    earlier = [earning for earning in _fell_due_in(window) if window.start_dt <= earning.due_at < window.end_dt]
+    accounts = _accounts([*paid_in, *earlier])
     since = _payouts_since()
-    for earning in earnings:
+    for earning in paid_in:
         payout = earning.payout
         if payout is None:
             _record(earning, accounts.get(earning.payee.pk), since, counted_in=snapshot)
         elif payout.status == Payout.Status.FAILED:
             # No lookup: its last attempt was refused outright and every earlier one was refused
-            # or replayed after a lookup, so no transfer exists; the snapshot counted it as owed.
-            payout.give_up(lookup=False)
+            # or replayed after a lookup, so no transfer exists; the snapshot counts it as owed.
+            payout.give_up(lookup=False, by_snapshot=True)
         elif payout.status == Payout.Status.PENDING:
             payout.counted_as_stripe_in = snapshot
             payout.save(update_fields=["counted_as_stripe_in"])
+    for earning in earlier:
+        payout = earning.payout
+        if payout is None:
+            _record(earning, accounts.get(earning.payee.pk), since)
+        elif payout.status == Payout.Status.FAILED:
+            payout.give_up(lookup=False, by_snapshot=True)
+
+
+def _fell_due_in(window: Any) -> list[Earning]:
+    """Earnings paid before ``window`` that may fall due inside it: by the recorded ``Payout.due_at``
+    once there is a row, else by the base ``run_payouts`` uses. The caller tests ``Earning.due_at``."""
+    due = fell_due_between(window.start_dt, window.end_dt)
+    return _earnings(
+        _registrations()
+        .filter(confirmed_at__lt=window.start_dt)
+        .annotate(due_base=Greatest("first_session_at", "confirmed_at"))
+        .filter(due),
+        _bookings()
+        .filter(requested_at__lt=window.start_dt)
+        .annotate(due_base=Greatest("slot__starts_at", "requested_at"))
+        .filter(due),
+        _reservations()
+        .filter(created_at__lt=window.start_dt)
+        .annotate(due_base=Greatest("starts_at", "created_at"))
+        .filter(due),
+    )
+
+
+def fell_due_between(start: datetime, end: datetime) -> Q:
+    """A filter on a source annotated with ``due_base``: its share falls due in ``[start, end)`` (#985).
+
+    The recorded ``Payout.due_at`` once there is a row, else ``due_base`` plus ``PAYOUT_DELAY``.
+    """
+    unrecorded = Q(payout__isnull=True, due_base__gte=start - PAYOUT_DELAY, due_base__lt=end - PAYOUT_DELAY)
+    return unrecorded | Q(payout__due_at__gte=start, payout__due_at__lt=end)
+
+
+def mark_counted_owed(snapshot: ReconciliationSnapshot, result: ReconciliationResult) -> None:
+    """Tie every share ``snapshot`` counts in Owed now to it, so no later report counts it again (#985).
+
+    ``result`` is the snapshot's own reconciliation, read after ``freeze_split`` gave every such
+    share its ``Payout`` row. One update per source kind.
+    """
+    from billing.reconciliation import owed_lines
+
+    keys: dict[str, list[int]] = {}
+    for line in owed_lines(result):
+        keys.setdefault(_SOURCE_FIELDS[line.source_kind], []).append(line.source_pk)
+    for field_name, pks in keys.items():
+        Payout.objects.filter(**{f"{field_name}__in": pks}, counted_owed_in__isnull=True).update(
+            counted_owed_in=snapshot
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -739,7 +803,7 @@ class LineState(models.TextChoices):
     OWED = "by_hand", "Owed now"
     NOT_DUE = "not_due", "Not yet due"
     STRIPE_NOT_DUE = "stripe_not_due", "Not yet due, Stripe sends it"
-    DUE_LATER = "due_later", "Fell due after these dates"
+    DUE_LATER = "due_later", "Owed after these dates"
 
 
 @dataclass(frozen=True)
@@ -762,16 +826,20 @@ class LinePayout:
       by hand first (``ReconciliationSnapshot.take``).
     - OWED: paid by hand, and ``due_at`` has passed.
     - NOT_DUE: paid by hand, and ``due_at`` is still ahead, or None for a class with no sessions.
-    - DUE_LATER: an OWED share seen in a Reconciliation window it did not fall due in. It counts
-      in the Owed now of the window ``due_at`` falls in, so here it counts in no column and is
+    - DUE_LATER: an OWED share seen in a Reconciliation window ``owed_at`` is not in. It counts
+      in the Owed now of the window ``owed_at`` falls in, so here it counts in no column and is
       not to be paid from this window (``for_window``).
 
     ``due_at`` is the share's ``Earning.due_at``, the one rule the Stripe payouts follow too.
+    ``owed_at`` places an OWED share in the one window whose Owed now counts it (#985): the end
+    of the snapshot that already counted it, else when Stripe gave it up (``Payout.owed_since``),
+    else ``due_at``.
     """
 
     state: LineState
     sent_at: datetime | None = None
     due_at: datetime | None = None
+    owed_at: datetime | None = None
 
     @property
     def through_stripe(self) -> bool:
@@ -794,10 +862,14 @@ class LinePayout:
         return self.state == LineState.RETRYING
 
     def for_window(self, start: datetime, end: datetime) -> LinePayout:
-        """This state as a Reconciliation window ``[start, end)`` shows it: Owed now only if it fell due inside."""
-        if self.state == LineState.OWED and self.due_at is not None and not start <= self.due_at < end:
+        """This state as a Reconciliation window ``[start, end)`` shows it: Owed now only if ``owed_at`` is inside."""
+        if self.state == LineState.OWED and not self.owed_in(start, end):
             return replace(self, state=LineState.DUE_LATER)
         return self
+
+    def owed_in(self, start: datetime, end: datetime) -> bool:
+        """True when this share counts in the Owed now of the window ``[start, end)``."""
+        return self.state == LineState.OWED and self.owed_at is not None and start <= self.owed_at < end
 
     @property
     def badge(self) -> PayoutBadge:
@@ -814,10 +886,10 @@ class LinePayout:
         if self.state in (LineState.SENT, LineState.TAKEN_BACK):
             words = "Sent through Stripe" if self.sent_at is None else f"Sent through Stripe {day(self.sent_at)}"
             return f"{words}, refund taken back" if self.state == LineState.TAKEN_BACK else words
-        if self.state in (LineState.OWED, LineState.DUE_LATER) and self.due_at is not None:
-            prefix = "Owed now, fell due" if self.state == LineState.OWED else "Fell due"
-            suffix = "" if self.state == LineState.OWED else ", after these dates"
-            return f"{prefix} {day(self.due_at)}{suffix}"
+        if self.state == LineState.OWED and self.due_at is not None:
+            return f"Owed now, fell due {day(self.due_at)}"
+        if self.state == LineState.DUE_LATER and self.owed_at is not None:
+            return f"Owed from {day(self.owed_at)}, after these dates"
         if self.state == LineState.NOT_DUE:
             if self.due_at is None:
                 return "Not yet due, no class date yet"
@@ -888,8 +960,23 @@ def line_payouts(
     states: dict[tuple[str, int], LinePayout] = {}
     for earning in earnings:
         state = _line_state(earning, accounts.get(earning.payee.pk), since, now)
-        states[(earning.kind, earning.source.pk)] = LinePayout(state, _sent_at(earning), earning.due_at)
+        states[(earning.kind, earning.source.pk)] = LinePayout(
+            state, _sent_at(earning), earning.due_at, _owed_at(earning)
+        )
     return states
+
+
+def _owed_at(earning: Earning) -> datetime:
+    """Where an owed share counts in Owed now (``LinePayout.owed_at``)."""
+    from billing.payments_panel import PanelWindow
+
+    payout = earning.payout
+    if payout is not None and payout.counted_owed_in is not None:
+        counted = payout.counted_owed_in
+        return PanelWindow(start=counted.period_start, end=counted.period_end).end_dt - timedelta(microseconds=1)
+    if payout is not None and payout.owed_since is not None:
+        return payout.owed_since
+    return earning.due_at
 
 
 def _line_state(earning: Earning, account: PayoutAccount | None, since: datetime | None, now: datetime) -> LineState:

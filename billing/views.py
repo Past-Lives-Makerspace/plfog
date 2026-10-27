@@ -1135,16 +1135,21 @@ def reconciliation_clear(request: HttpRequest, source_kind: str, source_pk: int)
 @require_POST
 def reconciliation_snapshot_take(request: HttpRequest) -> HttpResponse:
     """Freeze the current window's reconciliation into a snapshot."""
-    from billing.models import ReconciliationSnapshot
+    from urllib.parse import urlencode
+
+    from billing.models import ReconciliationSnapshot, SnapshotTooEarlyError
     from billing.payments_panel import parse_window
 
     window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
     title = request.POST.get("title", "").strip()
-    snapshot = ReconciliationSnapshot.take(
-        period_start=window.start, period_end=window.end, title=title, actor=request.user
-    )
-    django_messages.success(request, f"Snapshot taken for {snapshot.period_start:%b %Y}.")
-    from urllib.parse import urlencode
+    try:
+        snapshot = ReconciliationSnapshot.take(
+            period_start=window.start, period_end=window.end, title=title, actor=request.user
+        )
+    except SnapshotTooEarlyError as exc:
+        django_messages.error(request, str(exc))
+    else:
+        django_messages.success(request, f"Snapshot taken for {snapshot.period_start:%b %Y}.")
 
     query = urlencode({"tab": "reconciliation", "start": window.start.isoformat(), "end": window.end.isoformat()})
     return redirect(f"/billing/admin/dashboard/?{query}")

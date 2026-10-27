@@ -43,7 +43,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        from billing.models import ReconciliationSnapshot
+        from billing.models import ReconciliationSnapshot, SnapshotTooEarlyError
 
         month_arg: str = options["month"]
         title: str = options["title"]
@@ -65,12 +65,15 @@ class Command(BaseCommand):
             self.stdout.write(f"A snapshot already exists for {start:%B %Y} — skipping.")
             return
 
-        snapshot = ReconciliationSnapshot.take(
-            period_start=start,
-            period_end=end,
-            title=title.strip(),
-            is_auto=is_auto,
-        )
+        try:
+            snapshot = ReconciliationSnapshot.take(
+                period_start=start,
+                period_end=end,
+                title=title.strip(),
+                is_auto=is_auto,
+            )
+        except SnapshotTooEarlyError as exc:
+            raise CommandError(str(exc)) from exc
         self.stdout.write(
             self.style.SUCCESS(
                 f"Took reconciliation snapshot for {start:%B %Y} (${snapshot.grand_total_cents / 100:,.2f})."

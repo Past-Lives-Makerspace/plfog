@@ -36,6 +36,8 @@ NOW = datetime(2026, 10, 20, 18, 0, tzinfo=UTC)
 OCT_1 = datetime(2026, 10, 1, 18, 0, tzinfo=UTC)
 WINDOW = PanelWindow(start=date(2026, 10, 1), end=date(2026, 10, 31))
 WINDOW_QUERY = {"start": "2026-10-01", "end": "2026-10-31"}
+# NOW is Oct 20, and a snapshot may only freeze dates that are over (#985).
+CLOSED = PanelWindow(start=date(2026, 10, 1), end=date(2026, 10, 19))
 
 
 @pytest.fixture(autouse=True)
@@ -227,13 +229,15 @@ def describe_line_payout():
         end = datetime(2026, 11, 1, 7, tzinfo=UTC)
 
         def it_keeps_owed_now_for_a_share_that_fell_due_inside():
-            state = LinePayout(LineState.OWED, due_at=datetime(2026, 10, 20, tzinfo=UTC))
+            when = datetime(2026, 10, 20, tzinfo=UTC)
+            state = LinePayout(LineState.OWED, due_at=when, owed_at=when)
             assert state.for_window(start, end) == state
 
         def it_says_a_share_that_fell_due_after_the_window_counts_there():
-            state = LinePayout(LineState.OWED, due_at=datetime(2026, 11, 3, 18, tzinfo=UTC)).for_window(start, end)
+            when = datetime(2026, 11, 3, 18, tzinfo=UTC)
+            state = LinePayout(LineState.OWED, due_at=when, owed_at=when).for_window(start, end)
             assert state.state == LineState.DUE_LATER
-            assert state.badge == PayoutBadge("Fell due Nov 3, after these dates", "warn")
+            assert state.badge == PayoutBadge("Owed from Nov 3, after these dates", "warn")
             assert (state.through_stripe, state.owed, state.not_due) == (False, False, False)
 
         def it_leaves_every_other_state_alone():
@@ -397,7 +401,7 @@ def describe_snapshots():
     def it_freezes_the_split_but_no_payout_state_into_a_snapshot():
         _turn_on()
         _registration(_producer("Alex Eason"))
-        snapshot = ReconciliationSnapshot.take(period_start=WINDOW.start, period_end=WINDOW.end, title="Oct")
+        snapshot = ReconciliationSnapshot.take(period_start=CLOSED.start, period_end=CLOSED.end, title="Oct")
         rows = [row for group in snapshot.results["groups"] for row in group["rows"]]
         assert rows
         assert all(
@@ -439,7 +443,7 @@ def describe_reconciliation_tab():
         _turn_on()
         _login_admin(client)
         _registration(_producer("Alex Eason"))
-        snapshot = ReconciliationSnapshot.take(period_start=WINDOW.start, period_end=WINDOW.end, title="Oct")
+        snapshot = ReconciliationSnapshot.take(period_start=CLOSED.start, period_end=CLOSED.end, title="Oct")
         content = client.get(reverse("billing_reconciliation_snapshot_detail", args=[snapshot.pk])).content.decode()
         assert "data-recon-owed-now" in content
         assert "data-recon-not-due" in content

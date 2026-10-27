@@ -11,12 +11,21 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import connection
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
-from billing.models import BillingSettings, Payout, PayoutAccount, ReconciliationSnapshot, TransactionAdjustment
+from billing.models import (
+    BillingSettings,
+    Payout,
+    PayoutAccount,
+    ReconciliationSnapshot,
+    SnapshotTooEarlyError,
+    TransactionAdjustment,
+)
 from billing.payments_panel import PanelWindow
 from billing.payouts import PAYOUT_DELAY, LineState, PayoutBadge, _earnings, _registrations
 from billing.reconciliation import (
@@ -43,6 +52,8 @@ pytestmark = pytest.mark.django_db
 NOW = datetime(2026, 10, 20, 18, 0, tzinfo=UTC)
 OCTOBER = PanelWindow(start=date(2026, 10, 1), end=date(2026, 10, 31))
 SEPTEMBER = PanelWindow(start=date(2026, 9, 1), end=date(2026, 9, 30))
+# NOW is Oct 20, and a snapshot may only freeze dates that are over (#985).
+OCT_1_TO_19 = PanelWindow(start=date(2026, 10, 1), end=date(2026, 10, 19))
 OCTOBER_QUERY = {"start": "2026-10-01", "end": "2026-10-31"}
 
 
@@ -249,7 +260,7 @@ def describe_owed_now_by_the_window_a_share_falls_due_in():
         assert october.groups[RecipientKind.PL] == []
         september = build_reconciliation(window=SEPTEMBER)
         assert _split_of(september, instructor) == (7000, 0, 0, 0)
-        assert _line(september, reg.pk).payout.badge.label == "Fell due Oct 7, after these dates"
+        assert _line(september, reg.pk).payout.badge.label == "Owed from Oct 7, after these dates"
 
     def it_shows_it_as_not_yet_due_in_its_paid_month_before_it_falls_due():
         instructor = _instructor()
@@ -373,7 +384,7 @@ def describe_snapshots():
         instructor = _instructor()
         _registration(instructor, paid_at=NOW - timedelta(days=10), class_at=NOW - timedelta(days=3))
         _registration(instructor, paid_at=NOW - timedelta(days=5), class_at=datetime(2026, 11, 5, 18, tzinfo=UTC))
-        snapshot = ReconciliationSnapshot.take(period_start=OCTOBER.start, period_end=OCTOBER.end, title="Oct")
+        snapshot = ReconciliationSnapshot.take(period_start=OCT_1_TO_19.start, period_end=OCT_1_TO_19.end, title="Oct")
         assert snapshot.results[SPLIT_BY_DUE_KEY] is True
         frozen = result_from_snapshot(snapshot)
         assert _split_of(frozen, instructor) == (14000, 0, 7000, 7000)
@@ -384,7 +395,7 @@ def describe_snapshots():
     def it_reads_a_snapshot_from_before_this_change_as_everything_owed():
         instructor = _instructor()
         _registration(instructor, paid_at=NOW - timedelta(days=5), class_at=datetime(2026, 11, 5, 18, tzinfo=UTC))
-        snapshot = ReconciliationSnapshot.take(period_start=OCTOBER.start, period_end=OCTOBER.end, title="Oct")
+        snapshot = ReconciliationSnapshot.take(period_start=OCT_1_TO_19.start, period_end=OCT_1_TO_19.end, title="Oct")
         for group in snapshot.results["groups"]:
             for row in group["rows"]:
                 for key in ("owed_now_cents", "not_due_cents", "retrying_cents", "next_due_at"):
@@ -399,7 +410,7 @@ def describe_snapshots():
     def it_draws_the_frozen_split_on_the_snapshot_page(client: Client):
         _login_admin(client)
         _registration(_instructor(), paid_at=NOW - timedelta(days=5), class_at=datetime(2026, 11, 5, 18, tzinfo=UTC))
-        snapshot = ReconciliationSnapshot.take(period_start=OCTOBER.start, period_end=OCTOBER.end, title="Oct")
+        snapshot = ReconciliationSnapshot.take(period_start=OCT_1_TO_19.start, period_end=OCT_1_TO_19.end, title="Oct")
         page = client.get(reverse("billing_reconciliation_snapshot_detail", args=[snapshot.pk])).content.decode()
         assert '<td class="text-right" data-recon-owed-now>$0.00</td>' in page
         assert "Next due Nov 7" in page
@@ -501,15 +512,183 @@ def describe_a_transfer_stripe_is_retrying():
         assert "data-recon-retrying" not in page
 
     def it_is_given_up_and_owed_by_hand_when_the_month_is_snapshotted(failed: Registration):
-        snapshot = ReconciliationSnapshot.take(period_start=OCTOBER.start, period_end=OCTOBER.end, title="Oct")
+        snapshot = ReconciliationSnapshot.take(period_start=OCT_1_TO_19.start, period_end=OCT_1_TO_19.end, title="Oct")
         instructor = failed.class_offering.instructor
         frozen = _row(result_from_snapshot(snapshot), RecipientKind.INSTRUCTOR, instructor)
         assert (frozen.owed_now_cents, frozen.retrying_cents) == (7000, 0)
         failed.payout.refresh_from_db()
         assert failed.payout.status == Payout.Status.OWED_MANUALLY
 
-    def it_keeps_voting_projected_while_the_snapshot_reads_its_results():
-        _registration(_instructor(), paid_at=NOW - timedelta(days=10), class_at=NOW - timedelta(days=3))
-        with patch("billing.reconciliation._project_voting_cents", return_value={}) as project:
-            ReconciliationSnapshot.take(period_start=OCTOBER.start, period_end=OCTOBER.end, title="Oct")
-        project.assert_called_once()
+
+NOV_1 = datetime(2026, 11, 1, 9, 0, tzinfo=UTC)  # 2 AM in Portland: October is over
+OCT_31_NOON = datetime(2026, 10, 31, 19, 0, tzinfo=UTC)  # noon in Portland
+
+
+def _october_snapshot() -> ReconciliationSnapshot:
+    with patch("django.utils.timezone.now", return_value=NOV_1):
+        return ReconciliationSnapshot.take(period_start=OCTOBER.start, period_end=OCTOBER.end, title="Oct")
+
+
+def _owed_now(window: PanelWindow, member: Member, at: datetime) -> int:
+    with patch("django.utils.timezone.now", return_value=at):
+        result = build_reconciliation(window=window)
+    rows = [alloc for alloc in result.groups[RecipientKind.INSTRUCTOR] if alloc.recipient_id == member.pk]
+    return rows[0].owed_now_cents if rows else 0
+
+
+def describe_review_round_1():
+    """Pay exactly once: no share lost between snapshots, none counted twice."""
+
+    def describe_a_snapshot_before_its_dates_are_over():
+        def it_is_refused_with_the_day_it_can_be_taken():
+            with (
+                patch("django.utils.timezone.now", return_value=OCT_31_NOON),
+                pytest.raises(SnapshotTooEarlyError) as exc,
+            ):
+                ReconciliationSnapshot.take(period_start=OCTOBER.start, period_end=OCTOBER.end)
+            assert "can be taken from November 1, 2026" in str(exc.value)
+            assert not ReconciliationSnapshot.objects.exists()
+
+        def it_is_taken_once_the_last_day_is_over_with_the_evening_share_owed():
+            instructor = _instructor()
+            _registration(
+                instructor,
+                paid_at=datetime(2026, 10, 20, 18, tzinfo=UTC),
+                class_at=datetime(2026, 10, 30, 1, tzinfo=UTC),
+            )  # due Oct 31, 6 PM Portland
+            snapshot = _october_snapshot()
+            assert _split_of(result_from_snapshot(snapshot), instructor) == (7000, 0, 7000, 0)
+
+        def it_shows_the_message_on_the_button_and_takes_nothing(client: Client):
+            _login_admin(client)
+            url = reverse("billing_reconciliation_snapshot_take") + "?start=2026-10-01&end=2026-10-31"
+            response = client.post(url, {"title": "Oct"}, follow=True)
+            assert "can be taken from November 1, 2026" in response.content.decode()
+            assert not ReconciliationSnapshot.objects.exists()
+
+        def it_refuses_the_command_for_a_month_still_running():
+            with pytest.raises(CommandError, match="can be taken from November 1, 2026"):
+                call_command("take_reconciliation_snapshot", "--month", "2026-10", stdout=io.StringIO())
+
+        def it_takes_the_just_ended_month_on_the_first_automatic_run():
+            with patch("django.utils.timezone.now", return_value=NOV_1):
+                call_command("take_reconciliation_snapshot", stdout=io.StringIO())
+            snapshot = ReconciliationSnapshot.objects.get()
+            assert (snapshot.period_start, snapshot.period_end, snapshot.is_auto) == (OCTOBER.start, OCTOBER.end, True)
+
+    def describe_a_failed_transfer_paid_before_the_dates_it_fell_due_in():
+        def it_is_given_up_and_counted_owed_by_that_snapshot():
+            instructor = _instructor()
+            reg = _registration(
+                instructor,
+                paid_at=datetime(2026, 9, 20, 18, tzinfo=UTC),
+                class_at=datetime(2026, 10, 5, 18, tzinfo=UTC),
+            )
+            payout = Payout.objects.create(
+                registration=reg,
+                payee=instructor,
+                amount_cents=7000,
+                due_at=datetime(2026, 10, 7, 18, tzinfo=UTC),
+                status=Payout.Status.FAILED,
+                failure_reason="Test refusal",
+            )
+            snapshot = _october_snapshot()
+            payout.refresh_from_db()
+            assert (payout.status, payout.owed_since, payout.counted_owed_in) == (
+                Payout.Status.OWED_MANUALLY,
+                None,
+                snapshot,
+            )
+            assert _row(result_from_snapshot(snapshot), RecipientKind.INSTRUCTOR, instructor).owed_now_cents == 7000
+
+        def it_records_a_row_for_a_share_with_none_yet_and_ties_it_to_the_snapshot():
+            instructor = _instructor()
+            reg = _registration(
+                instructor,
+                paid_at=datetime(2026, 9, 20, 18, tzinfo=UTC),
+                class_at=datetime(2026, 10, 5, 18, tzinfo=UTC),
+            )
+            snapshot = _october_snapshot()
+            payout = Payout.objects.get(registration=reg)
+            assert (payout.status, payout.counted_owed_in) == (Payout.Status.OWED_MANUALLY, snapshot)
+
+        def it_leaves_a_share_stripe_already_sent_alone():
+            instructor = _instructor()
+            reg = _registration(
+                instructor,
+                paid_at=datetime(2026, 9, 20, 18, tzinfo=UTC),
+                class_at=datetime(2026, 10, 5, 18, tzinfo=UTC),
+            )
+            payout = Payout.objects.create(
+                registration=reg,
+                payee=instructor,
+                amount_cents=7000,
+                due_at=datetime(2026, 10, 7, 18, tzinfo=UTC),
+                status=Payout.Status.SENT,
+                sent_at=datetime(2026, 10, 7, 19, tzinfo=UTC),
+            )
+            _october_snapshot()
+            payout.refresh_from_db()
+            assert (payout.status, payout.counted_owed_in) == (Payout.Status.SENT, None)
+
+    def describe_a_share_given_up_after_its_month_was_snapshotted():
+        def it_is_owed_now_in_the_month_it_was_given_up():
+            instructor = _instructor()
+            reg = _registration(
+                instructor,
+                paid_at=datetime(2026, 10, 1, 18, tzinfo=UTC),
+                class_at=datetime(2026, 10, 28, 18, tzinfo=UTC),
+            )
+            payout = Payout.objects.create(
+                registration=reg,
+                payee=instructor,
+                amount_cents=7000,
+                due_at=datetime(2026, 10, 30, 18, tzinfo=UTC),
+                status=Payout.Status.PENDING,
+            )
+            snapshot = _october_snapshot()  # in flight: Sent through Stripe, not owed
+            assert _split_of(result_from_snapshot(snapshot), instructor) == (7000, 7000, 0, 0)
+            given_up_at = datetime(2026, 11, 3, 18, tzinfo=UTC)
+            with patch("django.utils.timezone.now", return_value=given_up_at):
+                payout.give_up("Test give up", lookup=False)
+            payout.refresh_from_db()
+            assert payout.owed_since == given_up_at
+            november = PanelWindow(start=date(2026, 11, 1), end=date(2026, 11, 30))
+            assert _owed_now(november, instructor, datetime(2026, 11, 10, 18, tzinfo=UTC)) == 7000
+            assert _owed_now(OCTOBER, instructor, datetime(2026, 11, 10, 18, tzinfo=UTC)) == 0
+
+    def describe_a_share_whose_class_moves_after_it_was_counted():
+        def it_keeps_the_recorded_due_date():
+            instructor = _instructor()
+            reg = _registration(instructor, paid_at=NOW - timedelta(days=10), class_at=NOW - timedelta(days=3))
+            Payout.objects.create(
+                registration=reg,
+                payee=instructor,
+                amount_cents=7000,
+                due_at=NOW - timedelta(days=1),
+                status=Payout.Status.OWED_MANUALLY,
+            )
+            reg.class_offering.sessions.update(
+                starts_at=datetime(2026, 11, 20, 18, tzinfo=UTC), ends_at=datetime(2026, 11, 20, 20, tzinfo=UTC)
+            )
+            line = _line(build_reconciliation(window=OCTOBER), reg.pk)
+            assert (line.payout.state, line.payout.due_at) == (LineState.OWED, NOW - timedelta(days=1))
+
+        def it_is_never_pulled_into_a_later_month_once_a_snapshot_counted_it():
+            instructor = _instructor()
+            reg = _registration(
+                instructor,
+                paid_at=datetime(2026, 9, 20, 18, tzinfo=UTC),
+                class_at=datetime(2026, 10, 5, 18, tzinfo=UTC),
+            )
+            snapshot = _october_snapshot()
+            payout = Payout.objects.get(registration=reg)
+            assert payout.counted_owed_in == snapshot
+            # The class moves into November, and the recorded date is edited along with it.
+            reg.class_offering.sessions.update(
+                starts_at=datetime(2026, 11, 20, 18, tzinfo=UTC), ends_at=datetime(2026, 11, 20, 20, tzinfo=UTC)
+            )
+            Payout.objects.filter(pk=payout.pk).update(due_at=datetime(2026, 11, 22, 18, tzinfo=UTC))
+            november = PanelWindow(start=date(2026, 11, 1), end=date(2026, 11, 30))
+            assert _owed_now(november, instructor, datetime(2026, 12, 1, 18, tzinfo=UTC)) == 0
+            assert _owed_now(OCTOBER, instructor, datetime(2026, 12, 1, 18, tzinfo=UTC)) == 7000

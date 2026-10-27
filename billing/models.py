@@ -1661,6 +1661,10 @@ class TransactionAdjustment(models.Model):
 # ---------------------------------------------------------------------------
 
 
+class SnapshotTooEarlyError(ValueError):
+    """A snapshot asked for before its last day is over (#985): a share falling due later that day would be lost."""
+
+
 class ReconciliationSnapshot(models.Model):
     """An immutable record of one month's reconciliation allocation.
 
@@ -1727,7 +1731,8 @@ class ReconciliationSnapshot(models.Model):
         """Freeze the reconciliation for ``[period_start, period_end]``.
 
         A create plus one ``SiteActivity`` audit row — no event, no email, no Airtable,
-        unlike ``FundingSnapshot.take()``. It also binds the payout split (#662): in the
+        unlike ``FundingSnapshot.take()``. Refused until ``period_end`` is over in Pacific time
+        (``SnapshotTooEarlyError``, #985). It also binds the payout split (#662): in the
         same transaction, every instructor, orientor and manager share in the window gets its
         ``Payout`` row first (``billing.payouts.freeze_split``), and the results are then read
         from those rows, so what the snapshot calls "Sent through Stripe" is what gets sent.
@@ -1735,9 +1740,16 @@ class ReconciliationSnapshot(models.Model):
         from core.models import SiteActivity
 
         from billing.payments_panel import PanelWindow
-        from billing.payouts import freeze_split
+        from billing.payouts import freeze_split, mark_counted_owed
         from billing.reconciliation import build_reconciliation
 
+        first_open_day = period_end + timedelta(days=1)
+        if timezone.localdate() < first_open_day:
+            raise SnapshotTooEarlyError(
+                f"These dates end {period_end:%B} {period_end.day}, so the snapshot can be taken from "
+                f"{first_open_day:%B} {first_open_day.day}, {first_open_day.year}. A share can still fall due "
+                "before the last day is over."
+            )
         window = PanelWindow(start=period_start, end=period_end)
         with transaction.atomic():
             snapshot = cls.objects.create(
@@ -1757,6 +1769,8 @@ class ReconciliationSnapshot(models.Model):
             snapshot.results = result.to_snapshot_dict()
             snapshot.grand_total_cents = result.grand_total_cents
             snapshot.save(update_fields=["results", "grand_total_cents"])
+            # Every share this snapshot counts in Owed now is owed in its dates only (#985).
+            mark_counted_owed(snapshot, result)
         SiteActivity.log(SiteActivity.Kind.RECONCILIATION_SNAPSHOT_TAKEN, actor=actor, target=snapshot)
         return snapshot
 
@@ -2339,6 +2353,26 @@ class Payout(models.Model):
             "pay it. If Stripe then rejects it, it is owed by hand at once and flagged with this snapshot."
         ),
     )
+    counted_owed_in = models.ForeignKey(
+        "billing.ReconciliationSnapshot",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="payouts_counted_owed",
+        help_text=(
+            "The month-end snapshot that counted this share in Owed now (#985). It is owed in that snapshot's "
+            "dates only, so no later report asks for it again, even if its class moves."
+        ),
+    )
+    owed_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When Stripe gave up on this share and it became owed by hand (#985). Owed now counts it in the "
+            "dates this falls in, since the dates it fell due in may already be closed. Empty when a snapshot "
+            "gave it up, which counts it in its own dates."
+        ),
+    )
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="When this row was made: the share fell due, or a snapshot froze it."
     )
@@ -2512,7 +2546,7 @@ class Payout(models.Model):
         self.save(update_fields=["attempt"])
         self.send()
 
-    def give_up(self, reason: str = "", *, lookup: bool = True) -> bool:
+    def give_up(self, reason: str = "", *, lookup: bool = True, by_snapshot: bool = False) -> bool:
         """Stop trying: the finance lead pays the share by hand, and it is never sent again.
 
         First asks Stripe whether an earlier attempt landed after all (``lookup``); if it did,
@@ -2522,6 +2556,10 @@ class Payout(models.Model):
 
         A lookup Stripe refuses outright (a rotated key) counts as no transfer found, and its
         error joins the reason; only an unanswered lookup stops the give up.
+
+        ``owed_since`` records when it became owed by hand, so Owed now counts it in the dates of
+        the give up rather than in dates that may already be snapshotted (#985). A give up by a
+        month-end snapshot (``by_snapshot``) leaves it empty: that snapshot counts it itself.
 
         Raises:
             stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError: the lookup got no
@@ -2547,8 +2585,9 @@ class Payout(models.Model):
                 return False
         self.status = self.Status.OWED_MANUALLY
         self.owed_reason = self.OwedReason.TRANSFER_FAILED
+        self.owed_since = None if by_snapshot else timezone.now()
         if reason:
             self.failure_reason = reason
-        self.save(update_fields=["status", "owed_reason", "failure_reason", "attempted_at"])
+        self.save(update_fields=["status", "owed_reason", "failure_reason", "attempted_at", "owed_since"])
         notify_admins_payout_failed(self, owed=True)
         return True

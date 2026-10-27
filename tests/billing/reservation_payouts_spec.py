@@ -571,7 +571,9 @@ def describe_the_month_end_snapshot():
         payee = _manager()
         reservation = _paid(_equipment(payee), amount=10000)
         today = timezone.localdate()
-        snapshot = ReconciliationSnapshot.take(period_start=today - timedelta(days=40), period_end=today, title="Oct")
+        snapshot = ReconciliationSnapshot.take(
+            period_start=today - timedelta(days=40), period_end=today - timedelta(days=1), title="Oct"
+        )
         assert snapshot.results["reservation_percents"] == {"manager": "70.00", "guild": "15.00", "pl": "15.00"}
         [group] = [group for group in snapshot.results["groups"] if group["kind"] == "manager"]
         assert group["rows"][0]["label"] == "Sami Okafor"
@@ -593,7 +595,9 @@ def describe_the_month_end_snapshot():
         _login_admin(client)
         _paid(_equipment(_manager()), amount=10000)
         today = timezone.localdate()
-        snapshot = ReconciliationSnapshot.take(period_start=today - timedelta(days=40), period_end=today)
+        snapshot = ReconciliationSnapshot.take(
+            period_start=today - timedelta(days=40), period_end=today - timedelta(days=1)
+        )
         content = client.get(reverse("billing_reconciliation_snapshot_detail", args=[snapshot.pk])).content.decode()
         assert "Equipment Managers" in content
         assert "data-recon-owed-now" in content
@@ -848,7 +852,9 @@ def describe_taking_the_share_back():
 
 def _take_snapshot() -> ReconciliationSnapshot:
     today = timezone.localdate()
-    return ReconciliationSnapshot.take(period_start=today - timedelta(days=40), period_end=today, title="Oct")
+    return ReconciliationSnapshot.take(
+        period_start=today - timedelta(days=40), period_end=today - timedelta(days=1), title="Oct"
+    )
 
 
 def _manager_row(snapshot: ReconciliationSnapshot) -> dict[str, Any]:
