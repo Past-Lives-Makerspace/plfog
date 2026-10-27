@@ -768,6 +768,25 @@ def describe_closing():
             assert request.status == Status.RECEIVED
             assert mail.outbox == []
 
+        @pytest.mark.parametrize(
+            "comment", [FeedbackRequest.NOT_A_BUG_OPENER, "  " + FeedbackRequest.NOT_A_BUG_OPENER.strip() + "\n"]
+        )
+        def it_refuses_the_opener_left_unedited(admin: User, comment: str):
+            request = FeedbackRequestFactory(category=Category.BUG)
+
+            with pytest.raises(FeedbackRequestError, match="right way"):
+                request.mark_not_a_bug(actor=admin, comment=comment)
+
+            request.refresh_from_db()
+            assert request.status == Status.RECEIVED
+            assert request.comments.count() == 0
+            assert mail.outbox == []
+
+        def it_accepts_the_opener_once_finished(admin: User):
+            request = FeedbackRequestFactory(category=Category.BUG)
+
+            assert request.mark_not_a_bug(actor=admin, comment=FeedbackRequest.NOT_A_BUG_OPENER + "tap Book.") is True
+
         @pytest.mark.parametrize("category", [Category.FEATURE, Category.FEEDBACK])
         def it_refuses_anything_but_a_bug_report(admin: User, category: str):
             request = FeedbackRequestFactory(category=category)

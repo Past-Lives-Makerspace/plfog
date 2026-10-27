@@ -600,6 +600,19 @@ def describe_resolving():
         assert request.status == Status.RECEIVED
         assert mail.outbox == []
 
+    def it_refuses_not_a_bug_when_the_opener_was_sent_unedited(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory(category="bug")
+
+        response = client.post(_not_a_bug(request.pk), {"comment": FeedbackRequest.NOT_A_BUG_OPENER})
+
+        follow = client.get(response["Location"])
+        assert [str(m) for m in follow.context["messages"]] == [FeedbackRequest.NOT_A_BUG_NEEDS_HOW]
+        request.refresh_from_db()
+        assert request.status == Status.RECEIVED
+        assert request.comments.count() == 0
+        assert mail.outbox == []
+
     def it_closes_general_feedback_with_no_comment(client: Client):
         _admin(client)
         request = FeedbackRequestFactory(category="feedback")

@@ -3380,7 +3380,7 @@ class FeedbackRequest(models.Model):
 
         General feedback is only Received or Closed, and only a bug report can be Not a bug. A move
         to Not planned or Not a bug needs a comment in the same save, so the sender reads why, or
-        the right way to do the thing.
+        the right way to do the thing; for Not a bug the unedited opener does not count.
         """
         if category == cls.Category.FEEDBACK and status not in cls.FEEDBACK_STATUSES:
             return cls.FEEDBACK_STAYS_RECEIVED
@@ -3389,7 +3389,8 @@ class FeedbackRequest(models.Model):
         moving = current_status != status
         if moving and status == cls.Status.NOT_PLANNED and not comment.strip():
             return cls.NOT_PLANNED_NEEDS_REASON
-        if moving and status == cls.Status.NOT_A_BUG and not comment.strip():
+        # The opener alone, unedited, tells the sender nothing: it counts as no comment.
+        if moving and status == cls.Status.NOT_A_BUG and comment.strip() in {"", cls.NOT_A_BUG_OPENER.strip()}:
             return cls.NOT_A_BUG_NEEDS_HOW
         return None
 

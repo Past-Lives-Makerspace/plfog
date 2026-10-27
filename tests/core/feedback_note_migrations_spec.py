@@ -1,7 +1,8 @@
 """BDD specs for the migrations that carry FeedbackRequest.staff_note into the comment thread.
 
 0129 copied each note into a comment with no author; 0130 copies any note left over (one old code
-could write during part 1's deploy window), skipping one already carried, then drops the column.
+could write during part 1's deploy window), skipping one already carried, then takes the field out of
+the model while the column stays, with a database default, for the release still serving.
 Each spec steps core back to 0129 with the real migration executor and forward again, so the
 functions run against the schema they were written for.
 """
@@ -17,7 +18,7 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 
 BEFORE = ("core", "0129_feedback_notes_to_comments")
-AFTER = ("core", "0130_drop_feedbackrequest_staff_note")
+AFTER = ("core", "0130_retire_feedbackrequest_staff_note")
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -78,7 +79,7 @@ def describe_0129_reverse():
 
 
 def describe_0130():
-    def it_copies_only_leftover_notes_then_drops_the_column(old_apps: Any):
+    def it_copies_only_leftover_notes_and_keeps_the_column_for_the_old_release(old_apps: Any):
         Comment = old_apps.get_model("core", "FeedbackComment")
         carried = _request(old_apps, "carried", "Zzalready in the thread")
         Comment.objects.create(request=carried, author=None, body="Zzalready in the thread")
@@ -94,11 +95,25 @@ def describe_0130():
         [copied] = NewComment.objects.filter(request_id=leftover.pk)
         assert (copied.author_id, copied.body) == (None, "Zzwritten during the deploy")
         assert NewComment.objects.count() == 2
+        NewRequest = new_apps.get_model("core", "FeedbackRequest")
+        assert "staff_note" not in {field.name for field in NewRequest._meta.get_fields()}
         columns = [
             column.name
             for column in connection.introspection.get_table_description(connection.cursor(), "core_feedbackrequest")
         ]
-        assert "staff_note" not in columns
+        assert "staff_note" in columns  # the part 1 release still reads and writes it during the deploy
+
+    def it_gives_a_new_request_a_blank_note_from_the_database_default():
+        new_apps = _migrate(AFTER)
+        user = new_apps.get_model("auth", "User").objects.create(username="fresh", email="fresh@example.com")
+
+        request = new_apps.get_model("core", "FeedbackRequest").objects.create(
+            user=user, category="bug", subject="s", message="m"
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT staff_note FROM core_feedbackrequest WHERE id = %s", [request.pk])
+            assert cursor.fetchone() == ("",)
 
     def it_restores_the_column_from_the_oldest_authorless_comment_on_the_way_back():
         new_apps = _migrate(AFTER)
