@@ -39,12 +39,12 @@ RESTORE_SHELF_FIRST = "Restore its shelf first."
 
 
 def _fresh_unit(cubby: Cubby) -> None:
-    """Re-read the cubby's unit size and archive state under the lock.
+    """Re-read the cubby's unit name, size and archive state under the lock.
 
     A form or a list read the unit before the lock; another staff member may have shrunk or
     archived it since, and the placement check must see the unit as it is now.
     """
-    cubby.unit.refresh_from_db(fields=["rows", "columns", "archived_at"])
+    cubby.unit.refresh_from_db(fields=["name", "rows", "columns", "archived_at"])
 
 
 def save_cubby(cubby: Cubby) -> None:
