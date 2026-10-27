@@ -470,10 +470,13 @@ def describe_posting_a_comment():
 
 
 def describe_member_replied():
-    def it_pills_a_request_the_sender_wrote_on_since_an_admin_opened_it(client: Client):
+    def it_pills_a_request_the_sender_wrote_on_since_an_admin_opened_it(
+        client: Client, django_capture_on_commit_callbacks
+    ):
         _admin(client)
         replied = FeedbackRequestFactory()
-        replied.add_comment(author=replied.user, body="More", photos=[])
+        with django_capture_on_commit_callbacks(execute=True):
+            replied.add_comment(author=replied.user, body="More", photos=[])
         quiet = FeedbackRequestFactory()
 
         body = client.get(INBOX).content.decode()
@@ -483,10 +486,11 @@ def describe_member_replied():
         quiet_row = body[body.index(f'data-feedback-row="{quiet.pk}"') :]
         assert "data-feedback-replied" not in quiet_row[: quiet_row.index("</tr>")]
 
-    def it_filters_the_inbox_to_member_replied(client: Client):
+    def it_filters_the_inbox_to_member_replied(client: Client, django_capture_on_commit_callbacks):
         _admin(client)
         replied = FeedbackRequestFactory()
-        replied.add_comment(author=replied.user, body="More", photos=[])
+        with django_capture_on_commit_callbacks(execute=True):
+            replied.add_comment(author=replied.user, body="More", photos=[])
         FeedbackRequestFactory()
 
         response = client.get(INBOX, {"replied": "1"})
@@ -495,11 +499,67 @@ def describe_member_replied():
         assert response.context["is_filtered"] is True
         assert '<option value="1" selected>Member replied</option>' in response.content.decode()
 
-    def it_clears_the_pill_once_an_admin_opens_the_request(client: Client):
+    def it_clears_the_pill_once_an_admin_opens_the_request(client: Client, django_capture_on_commit_callbacks):
         _admin(client)
         request = FeedbackRequestFactory()
-        request.add_comment(author=request.user, body="More", photos=[])
+        with django_capture_on_commit_callbacks(execute=True):
+            request.add_comment(author=request.user, body="More", photos=[])
 
         client.get(_page(request.pk))
 
         assert list(client.get(INBOX, {"replied": "1"}).context["page"].object_list) == []
+
+
+def describe_an_admin_who_sent_the_request():
+    def _webmaster(username: str) -> User:
+        from membership.models import AdminCapability
+
+        user = User.objects.create_user(username=username, password="pass", email=f"{username}@example.com")
+        user.member.admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)  # type: ignore[attr-defined]
+        return user
+
+    def it_says_only_sent_when_their_comment_reached_nobody(client: Client, django_capture_on_commit_callbacks):
+        admin = _admin(client)
+        request = FeedbackRequestFactory(user=admin)
+
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(_comment_url(request.pk), {"body": "Mine"})
+
+        follow = client.get(response["Location"])
+        assert [str(m) for m in follow.context["messages"]] == ["Sent."]
+        assert not Notification.objects.exists()
+
+    def it_names_the_webmasters_when_their_comment_reached_them(client: Client, django_capture_on_commit_callbacks):
+        admin = _admin(client)
+        _webmaster("otherwm")
+        request = FeedbackRequestFactory(user=admin)
+
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(_comment_url(request.pk), {"body": "Mine"})
+
+        follow = client.get(response["Location"])
+        assert [str(m) for m in follow.context["messages"]] == ["Sent. The Webmasters were notified."]
+
+    def it_says_only_saved_for_their_own_status_move(client: Client, django_capture_on_commit_callbacks):
+        admin = _admin(client)
+        request = FeedbackRequestFactory(user=admin)
+
+        with django_capture_on_commit_callbacks(execute=True):
+            response = _post(client, request, status="planned")
+
+        follow = client.get(response["Location"])
+        assert [str(m) for m in follow.context["messages"]] == ["Saved."]
+        assert not Notification.objects.exists()
+
+    def it_names_the_webmasters_for_a_comment_with_their_status_move(
+        client: Client, django_capture_on_commit_callbacks
+    ):
+        admin = _admin(client)
+        _webmaster("otherwm2")
+        request = FeedbackRequestFactory(user=admin)
+
+        with django_capture_on_commit_callbacks(execute=True):
+            response = _post(client, request, status="planned", note="Mine")
+
+        follow = client.get(response["Location"])
+        assert [str(m) for m in follow.context["messages"]] == ["Saved. The Webmasters were notified."]

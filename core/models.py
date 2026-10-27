@@ -3369,25 +3369,27 @@ class FeedbackRequest(models.Model):
             photos: Photos posted with it, already validated by the form.
 
         Returns:
-            The saved comment.
+            The saved comment; its ``notified`` says whether anyone was told
+            (:meth:`FeedbackComment.notify_other_side`).
         """
         with transaction.atomic():
             comment = self._create_comment(author=author, body=body, photos=photos)
-            if comment.is_from_staff:
-                comment._notify_sender()
-            else:
-                comment._notify_webmasters()
+            comment.notify_other_side()
         return comment
 
     def _create_comment(self, *, author: User, body: str, photos: list[UploadedFile]) -> FeedbackComment:
-        """Save a comment and its photos, and stamp who is waiting on whom; tell nobody."""
+        """Save a comment and its photos; tell nobody. A staff comment marks the request seen.
+
+        A sender's comment stamps ``member_replied_at`` once it commits, in
+        :meth:`FeedbackComment.notify_other_side`.
+        """
         comment = FeedbackComment.objects.create(request=self, author=author, body=body.strip())
         for photo in photos:
             photo.seek(0)
             FeedbackCommentPhoto.objects.create(comment=comment, image=photo)
-        stamp = "staff_seen_at" if comment.is_from_staff else "member_replied_at"
-        setattr(self, stamp, comment.created_at)
-        type(self).objects.filter(pk=self.pk).update(**{stamp: comment.created_at})
+        if comment.is_from_staff:
+            self.staff_seen_at = comment.created_at
+            type(self).objects.filter(pk=self.pk).update(staff_seen_at=comment.created_at)
         return comment
 
     def mark_seen_by_staff(self) -> None:
@@ -3415,7 +3417,8 @@ class FeedbackRequest(models.Model):
             actor: The admin saving it.
 
         Returns:
-            Whether the sender was notified.
+            Whether anyone was notified: the sender, or, when the admin is the sender, the
+            other Webmasters.
 
         Raises:
             FeedbackRequestError: General feedback moved off Received, or a move to Not planned
@@ -3457,16 +3460,19 @@ class FeedbackRequest(models.Model):
                 locked.live_notified_at = now
             locked.save()
             posted = locked._create_comment(author=actor, body=comment, photos=[]) if comment else None
-            if moved:
+            # An admin moving their own request is not told about it; their comment, if any, is
+            # then a sender's comment and goes where any sender's comment goes.
+            if moved and actor.pk != locked.user_id:
                 locked._notify_sender(
                     actor=actor,
                     note=comment,
                     period=f"feedback:{locked.pk}:{status}:{now:%Y%m%d%H%M%S%f}",
                 )
-            elif posted is not None:
-                posted._notify_sender()
+                notified = True
+            else:
+                notified = posted.notify_other_side() if posted is not None else False
         self.refresh_from_db()
-        return moved or posted is not None
+        return notified
 
     def live_announcement_skip(self) -> str | None:
         """Why a release listing this request must not announce it, or ``None`` when it may.
@@ -3588,6 +3594,9 @@ class FeedbackComment(models.Model):
     # What a comment with no author, or an admin with no name, signs as.
     STAFF_SIGNATURE = "Past Lives"
 
+    # Set by notify_other_side: whether posting it told anyone. Not a column.
+    notified: bool = False
+
     request = models.ForeignKey(
         FeedbackRequest,
         on_delete=models.CASCADE,
@@ -3650,13 +3659,39 @@ class FeedbackComment(models.Model):
             period=f"feedback-comment-{self.pk}",
         )
 
-    def _notify_webmasters(self) -> None:
-        """Tell the Webmasters, minus the author, that the sender wrote this comment."""
-        from core.events.emit import emit
-        from core.events.registry import FEEDBACK_MEMBER_REPLIED
+    def notify_other_side(self) -> bool:
+        """Tell whoever is on the other side of this comment; the one rule for both posting paths.
+
+        A staff comment tells the sender. A sender's comment (an admin's on their own request
+        too) tells the Webmasters minus the author, and stamps ``member_replied_at``; both run
+        once the comment commits, so the stamp is never older than the moment an admin could
+        first see the comment, and an admin opening the page in between cannot clear it.
+
+        Returns:
+            Whether anyone was told; also kept on :attr:`notified`.
+        """
+        if self.is_from_staff:
+            self._notify_sender()
+            self.notified = True
+            return True
         from core.events.resolvers import webmasters
 
+        recipient_ids = {user.pk for user, _reason in webmasters({}) if user.pk != self.author_id}
+        transaction.on_commit(lambda: self._replied(recipient_ids))
+        self.notified = bool(recipient_ids)
+        return self.notified
+
+    def _replied(self, recipient_ids: set[int]) -> None:
+        """After commit: put the request under Member replied, and tell ``recipient_ids``."""
+        from core.events.emit import emit
+        from core.events.registry import FEEDBACK_MEMBER_REPLIED
+
         request = self.request
+        now = timezone.now()
+        FeedbackRequest.objects.filter(pk=request.pk).update(member_replied_at=now)
+        request.member_replied_at = now
+        if not recipient_ids:
+            return
         emit(
             FEEDBACK_MEMBER_REPLIED,
             actor=self.author,
@@ -3669,7 +3704,7 @@ class FeedbackComment(models.Model):
             },
             url=request.inbox_url,
             period=f"feedback-comment-{self.pk}",
-            recipient_user_ids={user.pk for user, _reason in webmasters({}) if user.pk != self.author_id},
+            recipient_user_ids=recipient_ids,
         )
 
 

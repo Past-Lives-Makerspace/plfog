@@ -2,7 +2,8 @@
 
 Nothing records which admin wrote a note, so the comment has no author and the thread signs it
 "Past Lives". It is dated when the request's status last changed, the closest record of when the
-note was written. The reverse puts each carried over comment back as the note and deletes it.
+note was written. The reverse puts back only the oldest comment with no author on each request
+(the carried over note) and deletes it, leaving every other comment alone.
 """
 
 from __future__ import annotations
@@ -24,8 +25,13 @@ def notes_to_comments(apps: Any, schema_editor: Any) -> None:
 
 
 def comments_to_notes(apps: Any, schema_editor: Any) -> None:
+    """Put back only what the forward step made: the oldest comment with no author on each request."""
     FeedbackComment = apps.get_model("core", "FeedbackComment")
-    for comment in FeedbackComment.objects.filter(author__isnull=True).select_related("request"):
+    seen: set[int] = set()
+    for comment in FeedbackComment.objects.filter(author__isnull=True).order_by("request_id", "created_at", "pk"):
+        if comment.request_id in seen:
+            continue
+        seen.add(comment.request_id)
         comment.request.staff_note = comment.body
         comment.request.save(update_fields=["staff_note"])
         comment.delete()

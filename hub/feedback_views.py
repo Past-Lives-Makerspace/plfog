@@ -30,11 +30,21 @@ if TYPE_CHECKING:
 _SORTABLE = frozenset({"created_at", "subject", "category", "status"})
 
 
-def _saved_message(feedback_request: FeedbackRequest, notified: bool) -> str:
+def _told(feedback_request: FeedbackRequest, actor: User, notified: bool) -> str:
+    """Who heard about what an admin just did, as the toast's second sentence, or nothing.
+
+    The sender, unless the admin is the sender: then their comment went to the other Webmasters.
+    """
+    if not notified:
+        return ""
+    if actor.pk == feedback_request.user_id:
+        return " The Webmasters were notified."
+    return f" {feedback_request.sender_label} was notified."
+
+
+def _saved_message(feedback_request: FeedbackRequest, actor: User, notified: bool) -> str:
     """The toast after a save: who heard about it, if anyone."""
-    if notified:
-        return f"Saved. {feedback_request.sender_label} was notified."
-    return "Saved."
+    return "Saved." + _told(feedback_request, actor, notified)
 
 
 def _request_url(feedback_request: FeedbackRequest, query: str) -> str:
@@ -128,7 +138,7 @@ def hub_admin_feedback_request(request: HttpRequest, pk: int) -> HttpResponse:
         github_issue_url=form.cleaned_data["github_issue_url"],
         actor=cast("User", request.user),
     )
-    messages.success(request, _saved_message(feedback_request, notified))
+    messages.success(request, _saved_message(feedback_request, cast("User", request.user), notified))
     return redirect(_request_url(feedback_request, request.GET.urlencode()))
 
 
@@ -140,12 +150,11 @@ def hub_admin_feedback_comment(request: HttpRequest, pk: int) -> HttpResponse:
     comment_form = FeedbackCommentForm(request.POST, request.FILES)
     if not comment_form.is_valid():
         return _request_page(request, feedback_request, comment_form=comment_form)
-    feedback_request.add_comment(
-        author=cast("User", request.user),
-        body=comment_form.cleaned_data["body"],
-        photos=comment_form.cleaned_data["photos"],
+    author = cast("User", request.user)
+    comment = feedback_request.add_comment(
+        author=author, body=comment_form.cleaned_data["body"], photos=comment_form.cleaned_data["photos"]
     )
-    messages.success(request, f"Sent. {feedback_request.sender_label} was notified.")
+    messages.success(request, "Sent." + _told(feedback_request, author, comment.notified))
     return redirect(_request_url(feedback_request, request.GET.urlencode()))
 
 
@@ -162,5 +171,5 @@ def hub_admin_feedback_mark_live(request: HttpRequest, pk: int) -> HttpResponse:
     except FeedbackRequestError as refusal:
         messages.error(request, str(refusal))
     else:
-        messages.success(request, _saved_message(feedback_request, notified))
+        messages.success(request, _saved_message(feedback_request, cast("User", request.user), notified))
     return redirect(_request_url(feedback_request, request.GET.urlencode()))

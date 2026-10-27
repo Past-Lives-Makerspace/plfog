@@ -518,11 +518,14 @@ def describe_replying():
     def _url(pk: int) -> str:
         return f"/feedback/{pk}/comment/"
 
-    def it_posts_the_reply_with_photos_and_tells_the_webmasters(client: Client, webmaster: User):
+    def it_posts_the_reply_with_photos_and_tells_the_webmasters(
+        client: Client, webmaster: User, django_capture_on_commit_callbacks
+    ):
         user = _login(client, "replier")
         request = FeedbackRequestFactory(user=user)
 
-        response = client.post(_url(request.pk), {"body": "Zzit is a Pixel", "photos": [_photo(), _photo("b.png")]})
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(_url(request.pk), {"body": "Zzit is a Pixel", "photos": [_photo(), _photo("b.png")]})
 
         assert response["Location"] == f"/feedback/?sent={request.pk}#request-{request.pk}"
         [comment] = request.comments.all()

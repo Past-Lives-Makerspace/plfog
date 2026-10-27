@@ -536,11 +536,12 @@ def describe_add_comment():
             assert request.staff_seen_at == comment.created_at
 
     def describe_from_the_sender():
-        def it_tells_the_webmasters_but_not_a_plain_admin(admin: User):
+        def it_tells_the_webmasters_but_not_a_plain_admin(admin: User, django_capture_on_commit_callbacks):
             webmaster = _webmaster("webby")
             request = FeedbackRequestFactory()
 
-            comment = request.add_comment(author=request.user, body="It is a Pixel 8.", photos=[_photo()])
+            with django_capture_on_commit_callbacks(execute=True):
+                comment = request.add_comment(author=request.user, body="It is a Pixel 8.", photos=[_photo()])
 
             assert comment.is_from_staff is False
             [bell] = Notification.objects.filter(trigger=FEEDBACK_MEMBER_REPLIED)
@@ -552,31 +553,34 @@ def describe_add_comment():
             assert request.inbox_url in message.body
             assert not Notification.objects.filter(user=request.user).exists()
 
-        def it_never_tells_a_webmaster_about_their_own_comment():
+        def it_never_tells_a_webmaster_about_their_own_comment(django_capture_on_commit_callbacks):
             sender = _webmaster("selfsender")
             other = _webmaster("otherweb")
             request = FeedbackRequestFactory(user=sender)
 
-            request.add_comment(author=sender, body="Me again", photos=[])
+            with django_capture_on_commit_callbacks(execute=True):
+                request.add_comment(author=sender, body="Me again", photos=[])
 
             assert list(Notification.objects.values_list("user", flat=True)) == [other.pk]
 
-        def it_tells_nobody_when_no_one_holds_webmaster():
+        def it_tells_nobody_when_no_one_holds_webmaster(django_capture_on_commit_callbacks):
             request = FeedbackRequestFactory()
 
-            request.add_comment(author=request.user, body="Hello?", photos=[])
+            with django_capture_on_commit_callbacks(execute=True):
+                request.add_comment(author=request.user, body="Hello?", photos=[])
 
             assert not Notification.objects.exists()
             assert mail.outbox == []
             assert request.comments.count() == 1
 
-        def it_puts_the_request_under_member_replied():
+        def it_puts_the_request_under_member_replied(django_capture_on_commit_callbacks):
             request = FeedbackRequestFactory()
 
-            comment = request.add_comment(author=request.user, body="More", photos=[])
+            with django_capture_on_commit_callbacks(execute=True):
+                comment = request.add_comment(author=request.user, body="More", photos=[])
 
             request.refresh_from_db()
-            assert request.member_replied_at == comment.created_at
+            assert request.member_replied_at is not None and request.member_replied_at >= comment.created_at
             assert request.has_member_reply is True
             assert list(FeedbackRequest.objects.member_replied()) == [request]
 
@@ -588,9 +592,10 @@ def describe_member_replied():
         assert request.has_member_reply is False
         assert list(FeedbackRequest.objects.member_replied()) == []
 
-    def it_clears_once_an_admin_opens_the_request():
+    def it_clears_once_an_admin_opens_the_request(django_capture_on_commit_callbacks):
         request = FeedbackRequestFactory()
-        request.add_comment(author=request.user, body="More", photos=[])
+        with django_capture_on_commit_callbacks(execute=True):
+            request.add_comment(author=request.user, body="More", photos=[])
 
         request.mark_seen_by_staff()
 
@@ -598,11 +603,12 @@ def describe_member_replied():
         assert request.has_member_reply is False
         assert list(FeedbackRequest.objects.member_replied()) == []
 
-    def it_comes_back_when_the_sender_writes_after_that():
+    def it_comes_back_when_the_sender_writes_after_that(django_capture_on_commit_callbacks):
         request = FeedbackRequestFactory()
         request.mark_seen_by_staff()
 
-        request.add_comment(author=request.user, body="Still broken", photos=[])
+        with django_capture_on_commit_callbacks(execute=True):
+            request.add_comment(author=request.user, body="Still broken", photos=[])
 
         request.refresh_from_db()
         assert request.has_member_reply is True
@@ -651,3 +657,108 @@ def describe_comments():
         [loaded] = FeedbackRequest.objects.sent_by(request.user)
 
         assert list(loaded.comments.all()) == [first, second]
+
+
+def describe_a_reply_waits_for_commit():
+    def it_stamps_member_replied_and_tells_the_webmasters_only_once_the_comment_commits(
+        django_capture_on_commit_callbacks,
+    ):
+        _webmaster("webcommit")
+        request = FeedbackRequestFactory()
+
+        with django_capture_on_commit_callbacks() as callbacks:
+            comment = request.add_comment(author=request.user, body="Later", photos=[])
+            assert FeedbackRequest.objects.get(pk=request.pk).member_replied_at is None
+            assert not Notification.objects.exists()
+        for callback in callbacks:
+            callback()
+
+        stamped = FeedbackRequest.objects.get(pk=request.pk).member_replied_at
+        assert stamped is not None and stamped >= comment.created_at
+        assert Notification.objects.filter(trigger=FEEDBACK_MEMBER_REPLIED).count() == 1
+
+
+def describe_an_admin_who_sent_the_request():
+    @pytest.fixture
+    def own(admin: User) -> FeedbackRequest:
+        return FeedbackRequestFactory(user=admin)
+
+    def it_treats_their_comment_as_the_senders_and_tells_the_other_webmasters(
+        admin: User, own: FeedbackRequest, django_capture_on_commit_callbacks
+    ):
+        other = _webmaster("otherwm")
+
+        with django_capture_on_commit_callbacks(execute=True):
+            comment = own.add_comment(author=admin, body="Mine", photos=[])
+
+        assert (comment.is_from_staff, comment.notified) == (False, True)
+        assert list(Notification.objects.values_list("user", "trigger")) == [(other.pk, FEEDBACK_MEMBER_REPLIED)]
+
+    def it_says_nobody_was_told_when_no_other_webmaster_exists(
+        admin: User, own: FeedbackRequest, django_capture_on_commit_callbacks
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            comment = own.add_comment(author=admin, body="Mine", photos=[])
+
+        assert comment.notified is False
+        assert not Notification.objects.exists()
+        assert FeedbackRequest.objects.get(pk=own.pk).member_replied_at is not None
+
+    def it_never_tells_themself_about_their_own_status_move(
+        admin: User, own: FeedbackRequest, django_capture_on_commit_callbacks
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            assert _update(own, admin, status=Status.PLANNED) is False
+
+        assert own.status == Status.PLANNED
+        assert not Notification.objects.exists()
+        assert mail.outbox == []
+
+    def it_sends_a_comment_with_their_move_to_the_other_webmasters(
+        admin: User, own: FeedbackRequest, django_capture_on_commit_callbacks
+    ):
+        other = _webmaster("otherwm2")
+
+        with django_capture_on_commit_callbacks(execute=True):
+            assert _update(own, admin, status=Status.PLANNED, note="Zzmy own note") is True
+
+        assert list(Notification.objects.values_list("user", "trigger")) == [(other.pk, FEEDBACK_MEMBER_REPLIED)]
+        assert FeedbackRequest.objects.get(pk=own.pk).member_replied_at is not None
+
+
+def describe_the_note_migration_reverse():
+    def it_puts_back_only_the_oldest_comment_with_no_author_on_each_request(admin: User):
+        import importlib
+
+        from django.apps import apps
+
+        migration = importlib.import_module("core.migrations.0129_feedback_notes_to_comments")
+        request = FeedbackRequestFactory()
+        carried = FeedbackComment.objects.create(request=request, author=None, body="Zzcarried note")
+        later = FeedbackComment.objects.create(request=request, author=None, body="Zzlater no author")
+        staff = request.add_comment(author=admin, body="Zzstaff", photos=[])
+        untouched = FeedbackRequestFactory()
+
+        migration.comments_to_notes(apps, None)
+
+        request.refresh_from_db()
+        assert request.staff_note == "Zzcarried note"
+        assert set(request.comments.values_list("pk", flat=True)) == {later.pk, staff.pk}
+        assert not FeedbackComment.objects.filter(pk=carried.pk).exists()
+        untouched.refresh_from_db()
+        assert untouched.staff_note == ""
+
+    def it_copies_each_note_forward_as_an_authorless_comment():
+        import importlib
+
+        from django.apps import apps
+
+        migration = importlib.import_module("core.migrations.0129_feedback_notes_to_comments")
+        noted = FeedbackRequestFactory(staff_note="  Zzold note  ")
+        FeedbackRequestFactory(staff_note="   ")
+
+        migration.notes_to_comments(apps, None)
+
+        [comment] = FeedbackComment.objects.all()
+        assert (comment.request, comment.author, comment.body) == (noted, None, "Zzold note")
+        assert comment.created_at == noted.status_changed_at
