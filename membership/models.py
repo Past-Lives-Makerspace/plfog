@@ -16302,6 +16302,31 @@ class OrientationBooking(models.Model):
 
     # --- The booking's messages (the shared thread, core.threads) -------------------------
 
+    def may_be_run_by(self, member: Member) -> bool:
+        """Whether ``member`` may run this booking: the role form of ``hub.views._require_can_manage_booking``.
+
+        An equipment owned booking follows :meth:`Member.manageable_equipment_ids` (admin, the
+        EQUIPMENT capability, the owning guild's lead or staff, a manager of the item); a guild
+        owned one :meth:`Member.can_manage_orientations` on its guild; a superuser runs every booking,
+        as the hub's admin gate lets them. No ``view_as`` preview:
+        this decides who is told, not what a page shows.
+        """
+        if member.user is not None and member.user.is_superuser:
+            return True
+        orientation_type = self.orientation_type
+        if orientation_type.equipment is not None:
+            return bool(member.manageable_equipment_ids([orientation_type.equipment]))
+        return member.can_manage_orientations(cast(Guild, orientation_type.guild))
+
+    def orientors_hear_the_member(self) -> bool:
+        """Whether a message from this booking's member would reach anyone: the composer's notice line."""
+        return bool(OrientationBookingMessage(booking=self, author_id=self.member.user_id).orientor_user_ids())
+
+    @property
+    def takes_messages(self) -> bool:
+        """Whether this booking has a thread: every booking but a checkout hold, which is not a booking yet."""
+        return self.status != self.Status.PENDING_PAYMENT
+
     @property
     def member_messages_url(self) -> str:
         """The member's page for this booking and its messages: where a message to them links."""
@@ -16362,8 +16387,9 @@ class OrientationBookingMessage(ThreadMessage):
         return f"Message {self.pk} on orientation booking {self.booking_id}"
 
     @property
-    def member_user_id(self) -> int | None:
-        return self.booking.member.user_id
+    def member_user_ids(self) -> set[int]:
+        user_id = self.booking.member.user_id
+        return {user_id} if user_id is not None else set()
 
     @property
     def member_side_name(self) -> str:
@@ -16379,7 +16405,9 @@ class OrientationBookingMessage(ThreadMessage):
         The audience is the ``orientation_requested`` resolver's (a guild's shared slot reaches
         its whole leadership, a personal slot its orienter and the lead, equipment its managers).
         Anyone else on the staff side who has written on this thread (an admin, say) hears the
-        answer to what they wrote.
+        answer to what they wrote, while they still run the booking
+        (:meth:`OrientationBooking.may_be_run_by`): a demoted admin or an orientor taken off staff
+        hears nothing more.
         """
         from core.events.resolvers import guild_orienters_or_equipment_managers
         from membership.orientations import request_resolver_context
@@ -16388,10 +16416,15 @@ class OrientationBookingMessage(ThreadMessage):
         audience = {
             user.pk for user, _reason in guild_orienters_or_equipment_managers(request_resolver_context(booking))
         }
-        writers = {
+        writer_ids = {
             message.author_id
             for message in booking.messages.exclude(pk=self.pk)
             if message.author_id is not None and message.is_from_staff
+        } - audience
+        writers = {
+            cast(int, member.user_id)
+            for member in Member.objects.filter(user_id__in=writer_ids).select_related("user")
+            if booking.may_be_run_by(member)
         }
         return (audience | writers) - {self.author_id}
 

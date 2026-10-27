@@ -243,10 +243,6 @@ def describe_the_instructors_pages():
         assert "No messages yet. Ask the reviewers anything about this class, any time." in html
         assert f'name="next" value="{url}"' in html
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="components/thread.html marks You by author once part 1 (fog/threads-orientations) lands; drop this then",
-    )
     def it_marks_only_the_viewers_own_messages_as_you():
         world = _World("ovw-you")
         world.offering.post_message(author=world.erin.user, body="Zzerin wrote")
@@ -279,3 +275,44 @@ def describe_the_instructors_pages():
         teacher = _teacher("new-cls", "Erin Horgan")
         html = _client(teacher).get(reverse("classes:teach_class_create")).content.decode()
         assert 'data-thread-open="class-' not in html
+
+
+def describe_class_lists():
+    """No list of classes reads a thread: no per-class query for messages, audiences or writers."""
+
+    def _queries(client: Client, url: str) -> int:
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        client.get(url)  # warm caches (site settings, sessions) so only the list varies
+        with CaptureQueriesContext(connection) as ctx:
+            assert client.get(url).status_code == 200
+        return len(ctx)
+
+    def _classes_with_messages(world: _World, count: int) -> None:
+        for n in range(count):
+            offering = ClassOfferingFactory(
+                title=f"Zz list {world.guild.pk} {n}",
+                category=CategoryFactory(guild=world.guild),
+                instructors=[world.erin],
+            )
+            offering.write_message(author=world.lead.user, body="Zzreviewer")
+            offering.write_message(author=world.erin.user, body="Zzinstructor")
+
+    def it_keeps_the_teach_dashboard_constant_from_one_class_to_six():
+        world = _World("list-teach", submit=False)
+        client = _client(world.erin)
+        url = reverse("classes:teach_dashboard")
+        world.offering.write_message(author=world.lead.user, body="Zzhi")
+        one = _queries(client, url)
+        _classes_with_messages(world, 5)
+        assert _queries(client, url) == one
+
+    def it_keeps_the_admin_class_list_constant_from_one_class_to_six(admin_user):
+        world = _World("list-admin", submit=False)
+        client = _client(admin_user)
+        url = reverse("classes:admin_classes")
+        world.offering.write_message(author=world.lead.user, body="Zzhi")
+        one = _queries(client, url)
+        _classes_with_messages(world, 5)
+        assert _queries(client, url) == one

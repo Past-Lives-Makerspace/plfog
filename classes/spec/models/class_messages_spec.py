@@ -109,7 +109,7 @@ def describe_sides():
         message = world.offering.write_message(author=world.sam.user, body="Zzhello")
         assert message is not None
         assert (message.is_from_staff, message.author_name, message.shows_staff_tag) == (False, "Sam McKee", False)
-        assert message.member_user_id is None
+        assert message.member_user_ids == {world.erin.user.pk, world.sam.user.pk}
 
     def it_reads_a_reviewers_message_as_the_reviewer_side_tagged_reviewer():
         world = _GuildClass("side-r")
@@ -246,12 +246,24 @@ def describe_posting():
         assert message.notified is False
         assert Notification.objects.filter(trigger=CLASS_MESSAGE_TO_INSTRUCTORS).count() == 0
 
-    def it_never_adds_an_admin_who_wrote_to_who_hears():
+    def it_tells_a_reviewer_side_writer_the_answer_while_they_still_review():
         world = _GuildClass("post-admin")
         admin = _fog_admin("post-admin-ada", "Ada Admin")
         world.offering.post_message(author=admin.user, body="Zzadmin here")
         world.offering.post_message(author=world.erin.user, body="Zzthanks")
+        assert len(_bells(admin, CLASS_MESSAGE_TO_REVIEWERS)) == 1
+        # The CMS Administrators are not this guild-led class's audience until one writes.
+        assert _bells(world.cms, CLASS_MESSAGE_TO_REVIEWERS) == []
+
+    def it_stops_telling_a_writer_who_no_longer_reviews():
+        world = _GuildClass("post-demoted")
+        admin = _fog_admin("post-demoted-ada", "Ada Admin")
+        world.offering.post_message(author=admin.user, body="Zzadmin here")
+        admin.fog_role = Member.FogRole.MEMBER
+        admin.save(update_fields=["fog_role"])
+        world.offering.post_message(author=world.erin.user, body="Zzthanks")
         assert _bells(admin, CLASS_MESSAGE_TO_REVIEWERS) == []
+        assert len(_bells(world.lead, CLASS_MESSAGE_TO_REVIEWERS)) == 1
 
 
 def describe_decision_notes():

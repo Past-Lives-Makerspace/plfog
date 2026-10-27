@@ -41,6 +41,9 @@ def _png(name: str, color: tuple[int, int, int]) -> dict:
 def _sign_in(page: Page, login_via_code, email: str, *, fog_role: str = Member.FogRole.MEMBER) -> None:
     page.context.clear_cookies()
     login_via_code(email)
+    # The post-login page is the hub, which names the signed in user on <html>: wait for it, so the
+    # next goto never races the session cookie (a goto too soon lands on the login page).
+    page.wait_for_function("() => !!document.documentElement.dataset.plUser")
     member = Member.objects.get(user__username=email)
     member.fog_role = fog_role
     member.welcome_dismissed_at = timezone.now()
@@ -136,13 +139,21 @@ def describe_a_feedback_conversation():
         page.select_option("#feedback-replied", "1")
         page.get_by_role("button", name="Apply").click()
         page.wait_for_url(lambda url: "replied=1" in url)
+        # The filtered page itself, not the unfiltered one it replaces: only it has Clear.
+        expect(page.get_by_role("link", name="Clear")).to_be_visible()
         expect(page.locator(f'[data-feedback-row="{request.pk}"]')).to_be_visible()
         _capture(page, "admin-inbox")
 
-        # Opening it clears the pill.
+        # Opening it clears the pill. Wait on the request page's own composer (the inbox has
+        # none) before anything else, then on the inbox showing the pill gone, before the database.
         page.locator(f'[data-feedback-row="{request.pk}"] a').first.click()
+        page.wait_for_url(lambda url: f"/manage/feedback/{request.pk}/" in url)
+        expect(page.locator("[data-thread-reply] [data-thread-send]")).to_have_text("Send to Sam Sender")
         expect(page.locator('[data-thread-message][data-from="member"]')).to_contain_text("Zzit is a Pixel 8")
+        page.goto(f"{live_server.url}{reverse('hub_admin_feedback_inbox')}?replied=1")
+        expect(page.locator(f'[data-feedback-row="{request.pk}"]')).to_have_count(0)
         assert not FeedbackRequest.objects.member_replied().exists()
+        assert request.comments.filter(author=sender).count() == 1
 
 
 def describe_closing_feedback():

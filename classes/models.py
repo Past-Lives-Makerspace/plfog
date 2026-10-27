@@ -2418,8 +2418,8 @@ class ClassOffering(HeroCropMixin, models.Model):
     def reviewer_user_ids(self) -> set[int]:
         """Who an instructor's message reaches: the class's reviewers (the review request's audience).
 
-        Never widened with every admin: an admin reads and writes on every thread but hears
-        only as one of these people.
+        Never widened with every admin: an admin reads and writes on every thread, and hears
+        an instructor's answer only after writing there (:meth:`ClassMessage.reviewer_recipient_ids`).
         """
         from core.events.resolvers import guild_leadership_or_class_approvers
 
@@ -4517,19 +4517,9 @@ class ClassMessage(ThreadMessage):
         return f"Message {self.pk} on class {self.class_offering_id}"
 
     @property
-    def member_user_id(self) -> int | None:
-        """A class has several instructors, so no one account is the member side; see :attr:`member_user_ids`."""
-        return None
-
-    @property
     def member_user_ids(self) -> set[int]:
         """The instructor side's accounts: every instructor of the class (#686, all equal)."""
         return self.class_offering.instructor_user_ids()
-
-    @property
-    def is_from_staff(self) -> bool:
-        """From the reviewer side: written by anyone who does not teach the class, or with no author."""
-        return self.author_id is None or self.author_id not in self.member_user_ids
 
     @property
     def member_side_name(self) -> str:
@@ -4550,10 +4540,34 @@ class ClassMessage(ThreadMessage):
         self._emit(CLASS_MESSAGE_TO_INSTRUCTORS, context={"instructors": instructors})
         return True
 
-    def _tell_staff_side(self) -> bool:
-        """An instructor's message: tell the class's reviewers but the author."""
+    def reviewer_recipient_ids(self) -> set[int]:
+        """Who an instructor's message reaches: the class's reviewers, plus reviewer side writers, minus the author.
+
+        The reviewers are :meth:`ClassOffering.reviewer_user_ids` (the first gate's audience).
+        Anyone else who has written here from the reviewer side (an admin, a CMS Administrator
+        on a guild-led class) hears the answer to what they wrote, while they still have that
+        side (:meth:`ClassOffering.message_side`): someone who no longer reviews hears nothing more.
+        """
         offering = self.class_offering
-        recipient_ids = offering.reviewer_user_ids() - {self.author_id}
+        audience = offering.reviewer_user_ids()
+        writer_ids = {
+            message.author_id
+            for message in offering.messages.exclude(pk=self.pk).select_related("author")
+            if message.author_id is not None and message.author_id not in audience and message.is_from_staff
+        }
+        from django.contrib.auth import get_user_model
+
+        writers = {
+            user.pk
+            for user in get_user_model().objects.filter(pk__in=writer_ids)
+            if offering.message_side(user) == ClassOffering.MESSAGE_SIDE_REVIEWER
+        }
+        return (audience | writers) - {self.author_id}
+
+    def _tell_staff_side(self) -> bool:
+        """An instructor's message: tell :meth:`reviewer_recipient_ids`."""
+        offering = self.class_offering
+        recipient_ids = self.reviewer_recipient_ids()
         if not recipient_ids:
             return False
         from core.events.registry import CLASS_MESSAGE_TO_REVIEWERS

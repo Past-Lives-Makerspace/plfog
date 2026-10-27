@@ -5135,7 +5135,6 @@ def _class_thread_context(
         "class_thread": {
             "messages": offering.thread(),
             "viewer_is_staff": not is_instructor,
-            "viewer_id": request.user.pk if request.user.is_authenticated else None,
             "key": offering.message_thread_key,
             "empty": empty,
             "form": ThreadMessageForm(auto_id="id_class_message_%s"),

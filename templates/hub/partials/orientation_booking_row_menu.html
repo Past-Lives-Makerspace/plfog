@@ -16,7 +16,7 @@ orientation_booking_modals.html; the refunds load their form into the shared ref
 {% if row.can_view_member %}
 <a href="{% url 'hub_admin_member_edit' b.member.pk %}?tab=orientations" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">View Member</a>
 {% endif %}
-{% if b.status != "pending_payment" %}
+{% if b.takes_messages %}
 <a href="{% url 'hub_orientation_respond' b.pk %}?messages={{ b.pk }}#messages" class="pl-row-menu__item" role="menuitem" data-booking-messages="{{ pk }}" @click="closeAndRefocus()">Messages</a>
 {% endif %}
 {% if row.can_reply or row.can_move %}
@@ -60,7 +60,7 @@ orientation_booking_modals.html; the refunds load their form into the shared ref
 {% endif %}
 {% elif row.is_own %}
 <a href="{{ b.orientation_type.orientation_anchor_path }}" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">View Orientation</a>
-{% if b.status != "pending_payment" %}
+{% if b.takes_messages %}
 <a href="{% url 'hub_orientation_booking' b.pk %}" class="pl-row-menu__item" role="menuitem" data-booking-messages="{{ pk }}" @click="closeAndRefocus()">Messages</a>
 {% endif %}
 {% if row.can_finish_paying %}

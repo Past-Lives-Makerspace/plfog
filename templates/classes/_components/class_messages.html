@@ -2,18 +2,17 @@
 A class's messages between its instructors and its reviewers (#975): the shared thread
 (components/thread.html) and its composer, on the composer under Where Your Class Is, on the
 Overview and on the review page. Send always tells the other side. Each side is several people
-(the instructors, the reviewers); viewer_id is passed so "You" can mark only the viewer's own
-messages. A page shows one class thread, so its stylesheet and the thread script come with it;
+(the instructors, the reviewers); the shared thread names each author and says "You" only for the
+viewer's own instructor side messages. A page shows one class thread, so its stylesheet and the thread script come with it;
 the page includes components/busy_submit.html once.
 
-Context: class_thread (from classes.views._class_thread_context), with messages, viewer_is_staff,
-viewer_id, key, empty, form, action, next, body_label and note.
+Context: class_thread (from classes.views._class_thread_context), with messages, viewer_is_staff, key, empty, form, action, next, body_label and note.
 {% endcomment %}
 {% load static %}
 <link rel="stylesheet" href="{% static 'css/class-messages.css' %}">
 <section class="hub-card pl-class-messages" id="messages" data-thread-open="{{ class_thread.key }}" data-help-key="teach.class-messages">
   <h3 class="pl-class-messages__title">Messages</h3>
-  {% include "components/thread.html" with thread_messages=class_thread.messages viewer_is_staff=class_thread.viewer_is_staff viewer_id=class_thread.viewer_id thread_key=class_thread.key thread_empty=class_thread.empty %}
+  {% include "components/thread.html" with thread_messages=class_thread.messages viewer_is_staff=class_thread.viewer_is_staff thread_key=class_thread.key thread_empty=class_thread.empty %}
   {% include "components/thread_composer.html" with thread_form=class_thread.form thread_action=class_thread.action thread_next=class_thread.next thread_body_label=class_thread.body_label thread_note=class_thread.note thread_button="Send" %}
 </section>
 {% include "components/thread_script.html" %}

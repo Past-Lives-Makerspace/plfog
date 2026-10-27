@@ -100,14 +100,11 @@ Do not merge them.
 {% endif %}
 
 {% if pipeline and not pipeline.is_live and not pipeline.muted %}
-{# One place, one truth: the review pipeline, its headline, and the reviewer's note when bounced. #}
+{# One place, one truth: the review pipeline and its headline. The reviewer's note is in Messages below (#975). #}
 <section class="hub-card pl-pipeline-card pl-composer__pipeline" data-help-key="teach.review-pipeline">
     <h3 class="pl-composer__card-title">Where Your Class Is</h3>
     {% include "classes/_components/review_pipeline.html" with pipeline=pipeline %}
     {% if pipeline.is_bounced %}
-        <div class="pl-review-note">
-            <span class="pl-review-note__label">Reviewer's note</span>{% if pipeline.note %}{{ pipeline.note }}{% else %}The reviewer left no note.{% endif %}
-        </div>
         {% if not is_admin %}<p class="pl-composer__footnote">Fix the notes below and submit again.</p>{% endif %}
     {% elif offering.status == 'pending' and not is_admin %}
         <p class="pl-composer__footnote">You can still edit it until it is approved.</p>
