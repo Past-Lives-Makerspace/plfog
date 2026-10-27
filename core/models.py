@@ -3422,6 +3422,7 @@ class FeedbackRequest(models.Model):
         Reads a ``with_thread()`` prefetch.
         """
         opening = ThreadOpening(
+            author_id=self.user_id,
             name=lambda: self.sender_label,
             body=self.message,
             created_at=self.created_at,
@@ -3670,8 +3671,8 @@ class FeedbackComment(ThreadMessage):
         return f"Comment {self.pk} on request #{self.request_id}"
 
     @property
-    def member_user_id(self) -> int | None:
-        return self.request.user_id
+    def member_user_ids(self) -> set[int]:
+        return {self.request.user_id}
 
     @property
     def member_side_name(self) -> str:

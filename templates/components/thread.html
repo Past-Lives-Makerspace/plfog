@@ -1,8 +1,8 @@
 {% comment %}
 A conversation thread (core.threads): every message oldest first, the same look on every domain.
 The viewer's own side is drawn as "mine" and sits right: the member side's messages for a member
-(viewer_is_staff False), the staff side's for the staff (viewer_is_staff True); a member sees their
-own as "You". A staff message signs with its author's name and the thread's signature as a tag, or
+(viewer_is_staff False), the staff side's for the staff (viewer_is_staff True). A member side message
+the viewer wrote reads "You"; another member side account (a co-instructor) is named. A staff message signs with its author's name and the thread's signature as a tag, or
 with the signature alone when it has no author (a carried over note).
 
 An opening (core.threads.ThreadOpening: a feedback request's own message) has no pk and is
@@ -17,7 +17,7 @@ with no messages yet).
   <ol class="pl-thread">
     {% for message in thread_messages %}
     <li class="pl-thread-msg{% if message.is_from_staff == viewer_is_staff %} pl-thread-msg--mine{% endif %}" {% if message.pk %}data-thread-message="{{ message.pk }}"{% else %}data-thread-opening{% endif %} data-from="{% if message.is_from_staff %}staff{% else %}member{% endif %}">
-      <div class="pl-thread-msg__who"><strong>{% if not message.is_from_staff and not viewer_is_staff %}You{% else %}{{ message.author_name }}{% endif %}</strong>{% if message.shows_staff_tag %}<span class="pl-thread-msg__role">{{ message.staff_signature }}</span>{% endif %}<span>{{ message.created_at|date:"D, M j · g:i a" }}</span></div>
+      <div class="pl-thread-msg__who"><strong>{% if not message.is_from_staff and message.author_id and message.author_id == request.user.pk %}You{% else %}{{ message.author_name }}{% endif %}</strong>{% if message.shows_staff_tag %}<span class="pl-thread-msg__role">{{ message.staff_signature }}</span>{% endif %}<span>{{ message.created_at|date:"D, M j · g:i a" }}</span></div>
       <div class="pl-thread-msg__body">{{ message.body|linebreaksbr }}</div>
       {% with photos=message.thread_photos %}
       {% if photos %}

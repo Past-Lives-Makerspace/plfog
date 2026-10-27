@@ -416,7 +416,7 @@ Every booking has its own **Messages**. Use them to ask a question, explain a ti
 2. Write your message. Add photos if they help.
 3. Click **Send**. The Orientors get a notification.
 
-Their answers show in the same place, and you get a notification for each one. The note you add when you book is your first message. A note sent with a decline or a new time shows there too. To read the messages on any booking, including a declined one, open the Orientations page's **Bookings** tab, then the booking's **...** menu and **Messages**.
+Their answers show in the same place, and you get a notification for each one. The note you add when you book is your first message. A note sent with a decline or a new time shows there too. To read the messages on any booking, including a declined one, open the Orientations page's **Bookings** tab, then the booking's **...** menu and **Messages**. A declined or cancelled booking shows under **All**.
 
 ## Good to Know
 

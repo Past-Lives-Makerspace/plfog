@@ -23,6 +23,7 @@ from membership.models import Member, OrientationBooking, OrientationBookingMess
 from tests.membership.factories import (
     EquipmentStaffMembershipFactory,
     GuildFactory,
+    GuildStaffMembershipFactory,
     MemberFactory,
     MembershipPlanFactory,
     OrientationBookingFactory,
@@ -206,3 +207,77 @@ def describe_with_thread():
         for index in range(3):
             _guild_booking(f"wt{index}")
         assert _count(1) == _count(3)
+
+
+def describe_past_staff_writers():
+    def it_stops_telling_an_admin_who_was_demoted():
+        booking, lead = _guild_booking("demoted")
+        admin = _member("demoted_admin")
+        admin.fog_role = Member.FogRole.ADMIN
+        admin.save(update_fields=["fog_role"])
+        booking.write_message(author=admin.user, body="Zzan admin asked")
+        admin.fog_role = Member.FogRole.MEMBER
+        admin.save(update_fields=["fog_role"])
+
+        message = booking.post_message(author=booking.member.user, body="Zzanswering")
+
+        assert message.orientor_user_ids() == {lead.user_id}
+        assert _bells(admin.user, ORIENTATION_MESSAGE_TO_ORIENTORS) == []
+
+    def it_stops_telling_an_orientor_taken_off_staff():
+        booking, lead = _guild_booking("unstaffed")
+        orientor = _member("unstaffed_orientor")
+        staff = GuildStaffMembershipFactory(guild=booking.guild, member=orientor)
+        booking.write_message(author=orientor.user, body="Zzsee you then")
+        staff.delete()
+
+        message = booking.post_message(author=booking.member.user, body="Zzthanks")
+
+        assert message.orientor_user_ids() == {lead.user_id}
+
+    def it_keeps_telling_a_manager_of_the_equipment():
+        booking = OrientationBookingFactory(equipment_owned=True, member=_member("eq_writer_m"))
+        manager = _member("eq_writer_mgr")
+        EquipmentStaffMembershipFactory(equipment=booking.orientation_type.equipment, member=manager)
+        booking.write_message(author=manager.user, body="Zzlaser is ready")
+
+        assert manager.user_id in booking.post_message(author=booking.member.user, body="Zzok").orientor_user_ids()
+
+    def it_drops_a_writer_whose_account_has_no_membership():
+        booking, lead = _guild_booking("memberless")
+        loner = User.objects.create_user(username="memberless_writer", email="mw@example.com")
+        Member.objects.filter(user=loner).delete()
+        booking.write_message(author=loner, body="Zzhello")
+
+        assert booking.post_message(author=booking.member.user, body="Zzhi").orientor_user_ids() == {lead.user_id}
+
+
+def describe_may_be_run_by():
+    def it_follows_the_guild_rule_for_a_guild_booking():
+        booking, lead = _guild_booking("run_guild")
+        assert booking.may_be_run_by(lead) is True
+        assert booking.may_be_run_by(_member("run_guild_other")) is False
+
+    def it_follows_the_equipment_rule_for_an_equipment_booking():
+        booking = OrientationBookingFactory(equipment_owned=True, member=_member("run_eq_m"))
+        manager = _member("run_eq_mgr")
+        EquipmentStaffMembershipFactory(equipment=booking.orientation_type.equipment, member=manager)
+        assert booking.may_be_run_by(manager) is True
+        assert booking.may_be_run_by(_member("run_eq_other")) is False
+
+
+def describe_takes_messages_and_who_hears():
+    def it_takes_no_messages_on_a_checkout_hold():
+        booking, _lead = _guild_booking("hold_flag")
+        assert booking.takes_messages is True
+        booking.status = OrientationBooking.Status.PENDING_PAYMENT
+        assert booking.takes_messages is False
+
+    def it_says_whether_the_orientors_would_hear_the_member():
+        booking, _lead = _guild_booking("hears")
+        assert booking.orientors_hear_the_member() is True
+        lonely = OrientationBookingFactory(
+            slot=OrientationSlotFactory(guild=GuildFactory(name="Zzthread leaderless Guild")),
+            member=_member("hears_none"),
+        )
+        assert lonely.orientors_hear_the_member() is False

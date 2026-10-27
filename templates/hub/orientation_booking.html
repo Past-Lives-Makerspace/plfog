@@ -13,7 +13,7 @@ keeps its conversation here. Cancelling and answering a new time stay on the own
 {% endcomment %}
 <div class="pl-orient-booking">
   <p class="pl-orient-booking__back"><a href="{{ booking.orientation_type.orientation_anchor_path }}" class="hub-btn hub-btn--sm hub-btn--ghost">&larr; Back to {{ booking.orientation_type.owner_name }}</a></p>
-  <h1 class="hub-page-title">Your Orientation</h1>
+  <h1 class="hub-page-title pl-orient-booking__heading">Your Orientation</h1>
 
   <div class="hub-card pl-orient-booking__card" data-orientation-booking="{{ booking.pk }}">
     <p class="pl-orient-booking__title"><strong>{{ booking.orientation_type.name }}</strong> · {{ booking.orientation_type.owner_name }}</p>
@@ -33,7 +33,7 @@ keeps its conversation here. Cancelling and answering a new time stay on the own
     {% include "components/thread.html" with thread_messages=thread_messages viewer_is_staff=False thread_key="booking-"|add:pk_str thread_empty="No messages yet. Ask the Orientors anything about this orientation." %}
     {% endwith %}
     {% url 'hub_orientation_message' booking.pk as message_url %}
-    {% include "components/thread_composer.html" with thread_form=message_form thread_action=message_url thread_next="" thread_body_label="Write to the Orientors" thread_note="The Orientors get a notification." thread_button="Send" %}
+    {% include "components/thread_composer.html" with thread_form=message_form thread_action=message_url thread_next="" thread_body_label="Write to the Orientors" thread_note=orientors_hear|yesno:"The Orientors get a notification.," thread_button="Send" %}
   </div>
 </div>
 {% include "components/thread_script.html" %}
