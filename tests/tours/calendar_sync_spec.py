@@ -1561,9 +1561,77 @@ def describe_a_write_meeting_a_delete_of_its_own_event():
         assert not TourCalendarCleanup.objects.exists()
 
     def it_leaves_a_queued_delete_of_another_event_alone(connection: TourCalendarConnection, ours: str):
-        TourCalendarCleanup.objects.create(connection=connection, calendar_id="primary", event_id="someone-else")
-        calendar_sync._clear_queued_delete(connection, ours)
-        assert TourCalendarCleanup.objects.count() == 1
+        other = TourCalendarCleanup.objects.create(
+            connection=connection, calendar_id="primary", event_id="someone-else"
+        )
+        held: list[int] = []
+        calendar_sync._hold_queued_delete(connection, ours, held)
+        assert held == []
+        other.refresh_from_db()
+        assert other.claimed_until is None
+
+    @respx.mock
+    def it_keeps_the_queued_delete_when_the_write_fails_so_a_cancel_still_removes_the_event(
+        connection: TourCalendarConnection, booking: TourBooking, ours: str
+    ):
+        # The reviewer's case: the stale event's delete is queued, the write fails, the tour is cancelled.
+        TourCalendarCleanup.objects.create(connection=connection, calendar_id="primary", event_id=ours)
+        calendar_sync.mark_due(booking.pk)
+        respx.post(PRIMARY).mock(return_value=httpx.Response(503, json={}))
+        assert calendar_sync.sync_due_bookings(timezone.now()).failed == 1
+        left = TourCalendarCleanup.objects.get(event_id=ours)
+        assert left.claimed_until is None
+        TourBooking.objects.filter(pk=booking.pk).update(status=TourBooking.Status.CANCELLED)
+        calendar_sync.queue_booking_sync(None, booking=TourBooking.objects.get(pk=booking.pk))
+        TourCalendarSync.objects.filter(booking=booking).update(next_attempt_at=None)
+        calendar_sync.sync_due_bookings(timezone.now())
+        deleted = respx.delete(f"{PRIMARY}/{ours}").mock(return_value=httpx.Response(204))
+        assert calendar_sync.run_cleanups(timezone.now()).done == 1
+        assert deleted.called and not TourCalendarCleanup.objects.exists()
+
+    def it_releases_its_claim_when_the_run_pauses_mid_write(
+        connection: TourCalendarConnection, booking: TourBooking, ours: str
+    ):
+        TourCalendarCleanup.objects.create(connection=connection, calendar_id="primary", event_id=ours)
+        TourCalendarSync.objects.create(booking=booking)
+        with patch("tours.calendar_sync._write_event", side_effect=calendar_sync._Paused("spent")):
+            assert calendar_sync.sync_due_bookings(timezone.now()).deferred == 1
+        assert TourCalendarCleanup.objects.get(event_id=ours).claimed_until is None
+
+    @respx.mock
+    def it_claims_the_main_calendars_queued_delete_when_the_chosen_one_vanishes(
+        connection: TourCalendarConnection, booking: TourBooking, ours: str
+    ):
+        connection.calendar_id = TOURS_CAL
+        connection.save()
+        main = TourCalendarCleanup.objects.create(connection=connection, calendar_id="primary", event_id=ours)
+        TourCalendarSync.objects.create(booking=booking)
+        respx.post(TOURS_EVENTS).mock(return_value=httpx.Response(404, json={}))
+        claims: list[bool] = []
+
+        def write_on_main(request: httpx.Request) -> httpx.Response:
+            claims.append(calendar_sync._claim_cleanup(main.pk))  # another run cannot take it mid-write
+            return httpx.Response(200, json={"id": ours})
+
+        respx.post(PRIMARY).mock(side_effect=write_on_main)
+        assert _sync().done == 1
+        assert claims == [False]
+        assert not TourCalendarCleanup.objects.exists()
+
+    @respx.mock
+    def it_waits_when_another_run_holds_the_main_calendars_delete(
+        connection: TourCalendarConnection, booking: TourBooking, ours: str
+    ):
+        connection.calendar_id = TOURS_CAL
+        connection.save()
+        main = TourCalendarCleanup.objects.create(connection=connection, calendar_id="primary", event_id=ours)
+        assert calendar_sync._claim_cleanup(main.pk)
+        TourCalendarSync.objects.create(booking=booking)
+        respx.post(TOURS_EVENTS).mock(return_value=httpx.Response(404, json={}))
+        written = respx.post(PRIMARY).mock(return_value=httpx.Response(200, json={"id": ours}))
+        assert _sync().deferred == 1
+        assert not written.called
+        assert TourCalendarSync.objects.get(booking=booking).due
 
 
 def describe_a_queued_delete_that_breaks_unexpectedly():

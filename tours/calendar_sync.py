@@ -40,7 +40,7 @@ import math
 import time as clock
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from django.conf import settings
@@ -476,11 +476,14 @@ def chosen_calendar_gone(connection: TourCalendarConnection, lost: str = "") -> 
     )
 
 
-def _write_event(connection: TourCalendarConnection, event_id: str, booking: TourBooking, deadline: Deadline) -> str:
+def _write_event(
+    connection: TourCalendarConnection, event_id: str, booking: TourBooking, deadline: Deadline, held: list[int]
+) -> str:
     """Create or update the booking's event on the connection's chosen calendar; returns its id.
 
     A chosen calendar that answers "not found" to a create is gone: the main calendar takes over
-    (:func:`chosen_calendar_gone`) and the event is written there.
+    (:func:`chosen_calendar_gone`), a queued delete of the event there is claimed like the first
+    target's (:func:`_hold_queued_delete`), and the event is written there.
     """
     body = event_body(booking)
     if event_id:
@@ -503,6 +506,7 @@ def _write_event(connection: TourCalendarConnection, event_id: str, booking: Tou
         if connection.calendar_id == "primary":
             raise
         chosen_calendar_gone(connection)
+        _hold_queued_delete(connection, ours, held)
         return _insert(connection, ours, body, deadline)
 
 
@@ -530,11 +534,18 @@ def _guide_connection(booking: TourBooking) -> TourCalendarConnection | None:
     return TourCalendarConnection.objects.filter(guide_id=booking.guide_id).first()
 
 
-def _place(row: TourCalendarSync, connection: TourCalendarConnection | None, calendar_id: str, event_id: str) -> None:
+def _place(
+    row: TourCalendarSync,
+    connection: TourCalendarConnection | None,
+    calendar_id: str,
+    event_id: str,
+    *,
+    held: Sequence[int] = (),
+) -> None:
     """Record where the event is now, touching nothing else on the row (due and generation stay as queued).
 
     A row gone meanwhile (its booking deleted while the run was writing) leaves the event just
-    written with no booking: its delete is queued.
+    written with no booking: its delete is queued. ``held`` are the queued deletes this write claimed.
     """
     row.connection, row.calendar_id, row.event_id = connection, calendar_id, event_id
     placed = TourCalendarSync.objects.filter(pk=row.pk).update(
@@ -547,9 +558,10 @@ def _place(row: TourCalendarSync, connection: TourCalendarConnection | None, cal
         # One a run is deleting right now may still land after this write, so the booking is queued
         # again and the next run puts the event back.
         stale = TourCalendarCleanup.objects.filter(connection=connection, calendar_id=calendar_id, event_id=event_id)
-        if stale.filter(claimed_until__gte=timezone.now()).exists():
+        if stale.exclude(pk__in=held).filter(claimed_until__gte=timezone.now()).exists():
             mark_due(row.booking_id)
-        stale.filter(Q(claimed_until__isnull=True) | Q(claimed_until__lt=timezone.now())).delete()
+        unclaimed = Q(claimed_until__isnull=True) | Q(claimed_until__lt=timezone.now())
+        stale.filter(unclaimed | Q(pk__in=held)).delete()
 
 
 def _remove_old_event(row: TourCalendarSync, connection: TourCalendarConnection | None, deadline: Deadline) -> None:
@@ -585,21 +597,24 @@ def _remove_old_event(row: TourCalendarSync, connection: TourCalendarConnection 
     _place(row, None, "", "")
 
 
-def _clear_queued_delete(connection: TourCalendarConnection, event_id: str) -> None:
-    """Before writing an event, drop a queued delete of it; refuse while a run is running that delete.
+def _hold_queued_delete(connection: TourCalendarConnection, event_id: str, held: list[int]) -> None:
+    """Before writing an event to the connection's chosen calendar, claim a queued delete of it for this write.
 
-    The unclaimed ones go first, in one conditional DELETE, so a run that claims afterwards finds
-    nothing to claim. Any left are claimed: their delete may land after this write, so the write waits.
+    The claim (not a delete) keeps the queued delete alive should the write fail: a tour cancelled
+    before the retry still gets its old event removed. A successful write drops it (:func:`_place`),
+    and the caller releases the claim whatever happened. ``held`` collects the claimed rows.
 
     Raises:
-        _DeleteInFlight: a run holds a delete of this event right now.
+        _DeleteInFlight: another run is running that delete right now; nothing was written.
     """
     pending = TourCalendarCleanup.objects.filter(
         connection=connection, calendar_id=connection.calendar_id, event_id=event_id
-    )
-    pending.filter(Q(claimed_until__isnull=True) | Q(claimed_until__lt=timezone.now())).delete()
-    if pending.exists():
+    ).first()
+    if pending is None:
+        return
+    if not _claim_cleanup(pending.pk):
         raise _DeleteInFlight
+    held.append(pending.pk)
 
 
 def sync_booking(row: TourCalendarSync, *, now: datetime, guard: RunGuard | None = None) -> None:
@@ -626,13 +641,18 @@ def sync_booking(row: TourCalendarSync, *, now: datetime, guard: RunGuard | None
         return
     if connection.is_broken:
         raise _Waiting
-    _clear_queued_delete(connection, row.event_id or event_id_for(booking))
+    held: list[int] = []
     try:
-        event_id = _write_event(connection, row.event_id, booking, deadline)
-    except google.GoogleAuthError as exc:
-        mark_broken(connection, str(exc))
-        raise _Waiting from exc
-    _place(row, connection, connection.calendar_id, event_id)
+        _hold_queued_delete(connection, row.event_id or event_id_for(booking), held)
+        try:
+            event_id = _write_event(connection, row.event_id, booking, deadline, held)
+        except google.GoogleAuthError as exc:
+            mark_broken(connection, str(exc))
+            raise _Waiting from exc
+        _place(row, connection, connection.calendar_id, event_id, held=held)
+    finally:
+        # A failed write leaves the queued delete as it was, for a cancel or a move before the retry.
+        TourCalendarCleanup.objects.filter(pk__in=held).update(claimed_until=None)
 
 
 @dataclass
