@@ -1,0 +1,10 @@
+{# Body of the Change Staff Title modal on member edit > Permissions > Guild Roles (#968); `title_form` is a GuildStaffTitleForm. #}
+<form method="post" action="{% url 'hub_admin_member_guild_staff_edit' member.pk title_form.staff.pk %}" data-staff-title-form="{{ title_form.staff.pk }}">
+  {% csrf_token %}
+  <p class="hub-text-muted pl-guild-roles__modal-lead">{{ title_form.staff.guild.name }}: now {{ title_form.staff.display_title }}. Class Reviewer stays as it is.</p>
+  {% include "components/form_field.html" with field=title_form.role %}
+  {% include "components/form_field.html" with field=title_form.custom_title %}
+  <div class="pl-person-actions pl-guild-roles__modal-actions">
+    <button type="submit" class="hub-btn hub-btn--primary">Save</button>
+  </div>
+</form>

@@ -30,9 +30,7 @@ class Command(BaseCommand):
         guild = self._resolve_guild(options["guild"])
 
         if options["clear"]:
-            previous = guild.guild_lead
-            guild.guild_lead = None
-            guild.save(update_fields=["guild_lead"])
+            previous = guild.clear_lead()
             who = previous.display_name if previous is not None else "(none)"
             self.stdout.write(self.style.SUCCESS(f"Cleared lead of '{guild.name}' (was {who})."))
             return

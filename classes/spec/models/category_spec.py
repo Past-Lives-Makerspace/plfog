@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from django.db import IntegrityError
 
 from classes.factories import CategoryFactory
 from classes.models import Category
@@ -21,9 +22,10 @@ def describe_Category():
         assert names == ["Zero", "Alpha", "Beta"]
 
     def it_enforces_name_uniqueness(db):
-        CategoryFactory(name="Pottery")
-        with pytest.raises(Exception):
-            CategoryFactory(name="Pottery")
+        # The factory gets or creates by name (#964), so the duplicate goes through the manager.
+        CategoryFactory(name="Pottery", slug="pottery")
+        with pytest.raises(IntegrityError):
+            Category.objects.create(name="Pottery", slug="pottery-2")
 
     def it_is_labeled_guild_type_for_the_admin(db):
         # User-facing relabel: the model reads "Class Type"/"Class Types" in the Django admin.

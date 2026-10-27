@@ -183,6 +183,30 @@ class GuildFactory(factory.django.DjangoModelFactory):
     is_active = True
 
 
+class ShelfUnitFactory(factory.django.DjangoModelFactory):
+    """A guild's 3 by 4 shelf unit (#977)."""
+
+    class Meta:
+        model = "membership.ShelfUnit"
+
+    guild = factory.SubFactory(GuildFactory)
+    name = factory.Sequence(lambda n: f"Shelf {n}")
+    rows = 3
+    columns = 4
+
+
+class CubbyFactory(factory.django.DjangoModelFactory):
+    """A one square cubby at the unit's top left by default (#977); pass row, column, width, height."""
+
+    class Meta:
+        model = "membership.Cubby"
+
+    unit = factory.SubFactory(ShelfUnitFactory)
+    label = factory.Sequence(lambda n: f"C{n}")
+    row = 1
+    column = 1
+
+
 class LocationFactory(factory.django.DjangoModelFactory):
     """An active location with no guild by default (#616). Pass ``guild=`` to make it a guild's area."""
 
