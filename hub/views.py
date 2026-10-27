@@ -928,6 +928,12 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         else []
     )
 
+    # The Cubbies tab (#977): while the guild has it on, on the members surface, for a linked Member
+    # (the Reservations tab's two gates). None, and no query, otherwise.
+    from membership.cubbies import CubbyTab
+
+    cubby_tab = CubbyTab.load(guild) if guild.show_cubbies_tab and member is not None and not guilds_surface else None
+
     # The Kiln Tickets tab (#691): the kiln guild's page only; None (no query) on every other guild.
     from kiln.services import guild_kiln_home
 
@@ -1005,6 +1011,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "show_orientation": show_orientation,
             "show_reservations": bool(guild_reservation_cards),
             "reservation_cards": guild_reservation_cards,
+            "cubby_tab": cubby_tab,
             "orientation_sections": orientation_sections,
             "orientation_has_posted_times": orientation_has_posted_times,
             "unpaid_late_fee": unpaid_late_fee,
@@ -1461,6 +1468,7 @@ def _guild_edit_context(
         GuildWelcomeEmailForm,
         StudioHoursFormSet,
     )
+    from hub.cubby_forms import GuildCubbiesSettingsForm
     from membership.models import GuildOrientationSettings
     from membership.permissions import can_create_equipment, can_set_class_reviewers, manageable_equipment_ids
 
@@ -1530,6 +1538,8 @@ def _guild_edit_context(
         "announcement_settings_form": GuildAnnouncementSettingsForm(instance=guild),
         # The Reservations tab (#502): the guild page toggle, then the guild's items.
         "reservations_settings_form": GuildReservationsSettingsForm(instance=guild),
+        # The Cubbies tab (#977): the guild page switch; the shelves live on the Cubbies manager.
+        "cubbies_settings_form": GuildCubbiesSettingsForm(instance=guild),
         "reservable_items": [{"equipment": item, "can_manage": item.pk in manageable_ids} for item in reservable_items],
         "can_create_equipment": can_create_equipment(request),
     }
@@ -5333,6 +5343,7 @@ ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tool_manage_members",
             "tool_member_agreement",
             "tool_mailing_lists",
+            "tool_cubbies",
         ),
     ),
     (
@@ -5380,6 +5391,18 @@ def admin_tool_sections(flags: dict[str, bool]) -> dict[str, bool]:
         KeyError: a section names a flag the view did not compute.
     """
     return {key: any(flags[name] for name in names) for key, names in ADMIN_TOOL_SECTIONS}
+
+
+def _guild_cubby_counts(guild: Guild) -> dict[str, int]:
+    """Open and out of service cubbies for the Guild Tools Cubbies card (#977), in one query."""
+    from membership.models import Cubby
+
+    counts = (
+        Cubby.objects.active()
+        .filter(unit__guild=guild)
+        .aggregate(total=Count("pk"), out=Count("pk", filter=Q(out_of_service=True)))
+    )
+    return {"open": counts["total"] - counts["out"], "out": counts["out"], "total": counts["total"]}
 
 
 @login_required
@@ -5431,6 +5454,8 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
         "tool_registrations": guild_tools is not None
         and ClassOffering.objects.filter(category__guild__in=guild_tools.guilds).exists(),
         "tool_manage_members": is_admin,
+        # Guild cubbies (#977): admins open the manager here, with its guild picker.
+        "tool_cubbies": is_admin,
         "tool_manage_classes": is_admin,
         "tool_manage_events": tool_manage_events,
         "tool_payments": tool_payments,
@@ -5465,6 +5490,9 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_sections": admin_tool_sections(flags),
             "tools_page_title": tools_page_title,
             "guild_tools": guild_tools,
+            "guild_cubby_counts": _guild_cubby_counts(guild_tools.selected)
+            if guild_tools and guild_tools.selected
+            else None,
             "feedback_received_count": FeedbackRequest.objects.received().count() if is_admin else 0,
             "spotlight_waiting_count": QueuedDiscordMessage.objects.waiting().count() if is_admin else 0,
         },

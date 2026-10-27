@@ -1,0 +1,13 @@
+{# Add Shelf Unit (#977): name, rows and across, then Save. A refusal reopens this modal with its errors. #}
+<form method="post" action="{% url 'hub_shelf_unit_add' guild.pk %}" class="hub-form-group pl-cubby-addform" data-cubby-add-unit-form>
+  {% csrf_token %}
+  {% include "components/form_field.html" with field=unit_add_form.name %}
+  <div class="pl-cubby-pair">
+    {% include "components/form_field.html" with field=unit_add_form.rows %}
+    {% include "components/form_field.html" with field=unit_add_form.columns %}
+  </div>
+  <div class="pl-modal__actions">
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'cubby-add-unit')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+  </div>
+</form>

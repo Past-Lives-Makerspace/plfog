@@ -71,6 +71,8 @@ def delete_own_account(member: "Member") -> None:
         # Strip elevated authority (is_active=False is the real gate; this is defense in depth).
         Guild.objects.filter(guild_lead=member).update(guild_lead=None)
         GuildStaffMembership.objects.filter(member=member).delete()
+        # Who gets paid for cubbies (#977) is only ever the lead or staff they just stopped being.
+        Guild.all_objects.filter(cubby_payee=member).update(cubby_payee=None)
         member.sync_admin_capabilities([])
 
         # Clear device/notification state (FK is to User).
