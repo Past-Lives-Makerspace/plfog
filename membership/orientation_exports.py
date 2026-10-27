@@ -18,7 +18,7 @@ ORIENTATIONS_CSV_HEADERS = [
     "Member",
     "Guild",
     "Type",
-    "Orienter",
+    "Orientor",
     "When",
     "Status",
     "Completed",

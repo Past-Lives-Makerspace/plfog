@@ -4,7 +4,7 @@ A lead opens "<Guild> Orientations" and the Orientations card's one "Add New Ori
 opens the Add an Orientation page (#680, #732); on a hidden guild that page does not offer, an
 admin's click adds a row in place, scrolled into view with the cursor in it, and the autosave
 creates the orientation. The old Guild Settings link (``?tab=orientations``) lands on the page, and Guild
-Settings' Orientations tab is a link there. An orienter on staff sees only their own Edit
+Settings' Orientations tab is a link there. An orientor on staff sees only their own Edit
 Hours row. The page holds together at 375px and in the dark theme. Set
 ``CAPTURE_672_SCREENSHOTS=1`` to write the PR screenshots to ``mockups/screenshots/``. Run
 with ``pytest -m e2e`` on PostgreSQL.
@@ -72,11 +72,11 @@ def describe_the_orientations_page():
     def it_adds_a_type_from_the_card_and_autosaves_it(live_server, page, login_via_code):
         page.set_viewport_size({"width": 1280, "height": 900})
         guild = _tech_guild(_member(login_via_code, LEAD_EMAIL, "Lena Lead"))
-        sam = MemberFactory(full_legal_name="Sam Orienter")
+        sam = MemberFactory(full_legal_name="Sam Orientor")
         GuildStaffMembershipFactory(guild=guild, member=sam, role=GuildStaffMembership.Role.ORIENTER)
         _open(page, live_server, guild)
         expect(page.get_by_role("heading", level=1)).to_have_text("Tech Guild Orientations")
-        # A lead sees every orienter's Edit Hours row: their own and Sam's.
+        # A lead sees every orientor's Edit Hours row: their own and Sam's.
         expect(page.locator(".pl-orient-overview__group")).to_have_count(2)
         _capture(page, "672-lead.png")
         # The page's one add sits at the top right of the Orientations card (#732).
@@ -126,7 +126,7 @@ def describe_the_orientations_page():
 
     def it_shows_an_orienter_only_their_own_hours(live_server, page, login_via_code):
         page.set_viewport_size({"width": 1280, "height": 900})
-        orienter = _member(login_via_code, ORIENTER_EMAIL, "Omar Orienter")
+        orienter = _member(login_via_code, ORIENTER_EMAIL, "Omar Orientor")
         guild = _tech_guild(MemberFactory(full_legal_name="Lead Person"))
         GuildStaffMembershipFactory(guild=guild, member=orienter, role=GuildStaffMembership.Role.ORIENTER)
         _open(page, live_server, guild)

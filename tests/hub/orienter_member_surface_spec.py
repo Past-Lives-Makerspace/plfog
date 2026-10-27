@@ -152,7 +152,7 @@ def describe_respond_page():
         booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
         client.login(username="ms_respond_g", password="pass")
         response = client.get(reverse("hub_orientation_respond", args=[booking.pk]))
-        assert b"Runs with: Any orienter" in response.content
+        assert b"Runs with: Any orientor" in response.content
 
 
 def describe_bookings_tab_run_by_column():
@@ -165,7 +165,7 @@ def describe_bookings_tab_run_by_column():
         response = client.get(reverse("hub_orientations"), {"view": "bookings"})
         assert b'<th scope="col">Run By</th>' in response.content
         assert b'data-label="Run By">Bob Placeholder</td>' in response.content
-        assert b'data-label="Run By">Any orienter</td>' not in response.content
+        assert b'data-label="Run By">Any orientor</td>' not in response.content
 
     def it_exports_the_orienter_column_in_the_csv(client: Client):
         _member_user("ms_csv", fog_role=Member.FogRole.ADMIN)
@@ -177,9 +177,9 @@ def describe_bookings_tab_run_by_column():
         response = client.get(reverse("hub_orientations_export"))
         body = b"".join(response.streaming_content).decode()
         header = body.splitlines()[0]
-        # The Type column (issue #282) sits between Guild and Orienter.
+        # The Type column (issue #282) sits between Guild and Orientor.
         assert header.split(",")[2] == "Type"
-        assert header.split(",")[3] == "Orienter"
+        assert header.split(",")[3] == "Orientor"
         assert "Bob Placeholder" in body
 
 

@@ -1752,7 +1752,7 @@ class Member(StaffRequestMixin, models.Model):
         """True when this member may run the guild's orientations.
 
         Anyone who can edit the guild can run its orientations — that now includes
-        every staff member (orienters are a staff role). Role-based — use
+        every staff member (orientors are a staff role). Role-based — use
         ``membership.permissions.can_manage_orientations`` in views to honor
         ``view_as`` preview mode.
         """
@@ -1853,7 +1853,7 @@ class Member(StaffRequestMixin, models.Model):
     def is_guild_staff(self) -> bool:
         """True when this member holds a staff role on at least one guild.
 
-        Staff (co-leads, secretaries, treasurers, orienters) all carry full
+        Staff (co-leads, secretaries, treasurers, orientors) all carry full
         guild-lead permissions on the guilds where they hold a role, except class
         review, which only Class Reviewers share (#816).
         """
@@ -3906,7 +3906,7 @@ class GuildStaffMembership(models.Model):
     permission tier. The primary ``Guild.guild_lead`` stays an admin-assigned FK and is
     never managed here.
 
-    A member can hold several rows on one guild (Treasurer and Orienter); they are a Class
+    A member can hold several rows on one guild (Treasurer and Orientor); they are a Class
     Reviewer when any of those rows carries the flag, and the Staff tab switch sets every
     row of theirs at once (:meth:`Guild.set_class_reviewer`).
     """
@@ -3915,7 +3915,7 @@ class GuildStaffMembership(models.Model):
         CO_LEAD = "co_lead", "Co-Lead"
         SECRETARY = "secretary", "Secretary"
         TREASURER = "treasurer", "Treasurer"
-        ORIENTER = "orienter", "Orienter"
+        ORIENTER = "orienter", "Orientor"
 
     guild = models.ForeignKey(
         Guild,
@@ -14677,7 +14677,7 @@ class OrientationAvailabilityQuerySet(models.QuerySet):
         return self.filter(orienter=member)
 
     def guild_level(self) -> OrientationAvailabilityQuerySet:
-        """Legacy shared rules with no personal orienter ("any orienter")."""
+        """Legacy shared rules with no personal orientor ("any orientor")."""
         return self.filter(orienter__isnull=True)
 
     def for_equipment(self, equipment: Equipment) -> OrientationAvailabilityQuerySet:
@@ -14691,7 +14691,7 @@ class OrientationAvailability(models.Model):
     The slot-generation job materializes concrete ``OrientationSlot`` rows from
     each active rule across a rolling window. A rule with an ``orienter`` is one
     staff member's personal hours; ``orienter=NULL`` is a legacy guild-level rule
-    ("any orienter"). The owner of record is ``orientation_type`` (guild XOR
+    ("any orientor"). The owner of record is ``orientation_type`` (guild XOR
     equipment); ``guild`` is denormalized and empty for an equipment rule.
 
     ``cadence`` sets how often the window recurs. ``anchor_date`` is the first day
@@ -14773,7 +14773,7 @@ class OrientationAvailability(models.Model):
         related_name="orientation_availability_rules",
         help_text=(
             "The staff member who personally gives orientations during this window. "
-            "Empty means any orienter (legacy guild hours)."
+            "Empty means any orientor (legacy guild hours)."
         ),
     )
     booking_style = models.CharField(
@@ -14844,7 +14844,7 @@ class OrientationAvailability(models.Model):
         ]
 
     def __str__(self) -> str:
-        who = self.orienter.display_name if self.orienter is not None else "any orienter"
+        who = self.orienter.display_name if self.orienter is not None else "any orientor"
         return f"{self.owner_name} orientation: {self.cadence_display} {self.start_time:%H:%M} ({who})"
 
     @property
@@ -15005,7 +15005,7 @@ class OrientationAvailability(models.Model):
     overlap_skip_pks: frozenset[int] = frozenset()
 
     def overlapping_rule(self) -> OrientationAvailability | None:
-        """The orienter's other active row this one may not overlap, or None.
+        """The orientor's other active row this one may not overlap, or None.
 
         One person, one calendar (issue #532): an open window promises the whole span,
         so it may not share a weekday and hours with any other row of the same person,
@@ -15013,7 +15013,7 @@ class OrientationAvailability(models.Model):
         overlap: the Events Guild publishes two orientations over the same hours on
         purpose. The check is by weekday alone, so two cadences that never fall on the
         same date still clash; that is the conservative reading. Shared rows (no
-        orienter), paused rows and a row with no times yet take no part.
+        orientor), paused rows and a row with no times yet take no part.
         """
         if self.orienter_id is None or not self.is_active or self.start_time is None or self.end_time is None:
             return None
@@ -15072,13 +15072,13 @@ class OrientationDayOffQuerySet(models.QuerySet):
 
 
 class OrientationDayOff(models.Model):
-    """A day an orienter is away (#767): none of their orientation times that day can be booked.
+    """A day an orientor is away (#767): none of their orientation times that day can be booked.
 
     A day off belongs to the person, not a guild: one person, one calendar, so it covers
     their hours in every guild and on every piece of equipment. Generation skips the day
     for every rule of theirs (``orientations._horizon_spans``), and saving one cancels the
     day's upcoming times they already had (``orientations.cancel_day_off``). A shared rule
-    with no orienter is never affected. Deleting the row lets the next generation run offer
+    with no orientor is never affected. Deleting the row lets the next generation run offer
     the day's unbooked generated times again; a time that emailed members stays cancelled.
     """
 
@@ -15118,7 +15118,7 @@ class OrientationAvailabilityBlockQuerySet(models.QuerySet):
 
 
 class OrientationAvailabilityBlock(models.Model):
-    """An open window of an orienter's time that members book INTO (issues #283 and #532).
+    """An open window of an orientor's time that members book INTO (issues #283 and #532).
 
     Unlike a fixed whole-window slot, a window is a flexible span: a member picks an
     orientation type, then any 15-minute-aligned start inside the window that leaves
@@ -15127,7 +15127,7 @@ class OrientationAvailabilityBlock(models.Model):
     never physically split — free intervals are computed live as the window minus its
     occupied segments, so cancellations and expired payment holds free their segment
     automatically. Occupied means this window's own carved slots plus every other
-    seat holding slot of the same orienter over the span, in any guild: one person,
+    seat holding slot of the same orientor over the span, in any guild: one person,
     one calendar.
 
     A window is materialized by the slot generation job from an
@@ -15172,7 +15172,7 @@ class OrientationAvailabilityBlock(models.Model):
         max_length=200, blank=True, default="", help_text="Where orientations booked into this block happen."
     )
     is_cancelled = models.BooleanField(
-        default=False, help_text="Set when the orienter calls the window off. Stops new bookings only."
+        default=False, help_text="Set when the orientor calls the window off. Stops new bookings only."
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -15210,7 +15210,7 @@ class OrientationAvailabilityBlock(models.Model):
     SNAP_MINUTES = 15
 
     def _busy_spans(self) -> list[tuple[datetime_type, datetime_type]]:
-        """Merged occupied segments: this window's live carved-out slots plus the orienter's other busy time.
+        """Merged occupied segments: this window's live carved-out slots plus the orientor's other busy time.
 
         A carved slot occupies its span while it is uncancelled and either holds a seat
         (``PENDING_PAYMENT | REQUESTED | CONFIRMED`` booking) or has no bookings yet —
@@ -15219,7 +15219,7 @@ class OrientationAvailabilityBlock(models.Model):
         hold) frees its segment, as does a cancelled slot; orphan bookingless slots
         are deleted by the failure paths.
 
-        One person, one calendar (issue #532): the orienter's seat holding slots
+        One person, one calendar (issue #532): the orientor's seat holding slots
         anywhere else over this span, a fixed slot, a one off or another window's
         segment, in any guild, occupy this window too, so two members can never book
         the same person at once. An empty fixed slot does not: nobody is committed to it
@@ -15267,7 +15267,7 @@ class OrientationAvailabilityBlock(models.Model):
         """:meth:`free_intervals` for many windows in two queries, however many windows there are.
 
         The same occupancy rule as :meth:`_busy_spans` (each window's own live carved slots,
-        plus its orienter's seat holding slots anywhere else over its span), read for every
+        plus its orientor's seat holding slots anywhere else over its span), read for every
         window at once and split up in Python. Pages that list many windows (the
         Orientations page, #502) use it so their query count does not grow with the list.
         """
@@ -15424,7 +15424,7 @@ class OrientationAvailabilityBlock(models.Model):
         The window stops taking bookings; its booked segments live on their own slots.
         With ``availability`` cleared it no longer owns the ``(row, start)`` key, so the
         row regenerates a fresh window at that time once it is live again, and that
-        fresh window sees the old segments as busy through the orienter wide check. A
+        fresh window sees the old segments as busy through the orientor wide check. A
         manager's deliberate :meth:`cancel` stays attached and dead on purpose, so the
         time is never quietly re-offered.
         """
@@ -15557,10 +15557,10 @@ class OrientationSlotQuerySet(models.QuerySet):
         """Upcoming slots whose owner is currently accepting bookings (does not check seats).
 
         Owner-aware: a guild-owned slot requires the guild's settings gate and a
-        still-on-leadership orienter (a departed staffer's surviving slot must not
+        still-on-leadership orientor (a departed staffer's surviving slot must not
         reappear the moment its booking is declined or cancelled). An
         equipment-owned slot (``guild`` is None) requires active, open (not closed
-        for maintenance) equipment and an orienter who still manages it (or no orienter
+        for maintenance) equipment and an orientor who still manages it (or no orientor
         for a shared slot). For both owners a confirmed reservation or block over the
         span on any item the type uses hides the slot (a reserved machine cannot host
         an orientation, #665), and a slot generated from a paused rule stops taking NEW
@@ -15664,7 +15664,7 @@ class OrientationSlot(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="orientation_slots_offered",
-        help_text="The staff member this slot is booked with. Empty means any orienter.",
+        help_text="The staff member this slot is booked with. Empty means any orientor.",
     )
     starts_at = models.DateTimeField(help_text="When the orientation starts.")
     ends_at = models.DateTimeField(help_text="When the orientation ends.")
@@ -15728,7 +15728,7 @@ class OrientationSlot(models.Model):
 
     @property
     def orienter_first_name(self) -> str:
-        """The orienter's first name ("Bob"), or "" for a guild slot or a nameless member."""
+        """The orientor's first name ("Bob"), or "" for a guild slot or a nameless member."""
         if self.orienter is None:
             return ""
         name = (self.orienter.display_name or "").strip()
@@ -15744,9 +15744,9 @@ class OrientationSlot(models.Model):
 
     @property
     def is_bookable(self) -> bool:
-        """Future, uncancelled, has a free seat, owner accepting, rule not paused, orienter still current.
+        """Future, uncancelled, has a free seat, owner accepting, rule not paused, orientor still current.
 
-        A personal slot whose orienter is no longer in the guild's leadership (or no
+        A personal slot whose orientor is no longer in the guild's leadership (or no
         longer manages the equipment) blocks NEW bookings only — existing bookings on
         it are untouched. A slot whose orientation type was deactivated, or whose
         recurring rule was paused, blocks new bookings the same way (the per-slot
@@ -15760,13 +15760,13 @@ class OrientationSlot(models.Model):
         if rule is not None and not rule.is_active:
             return False
         if self.orientation_type.is_equipment_owned:
-            # No orienter-leadership check and no settings gate for equipment — the
+            # No orientor-leadership check and no settings gate for equipment — the
             # equipment's active + open state is the whole switch (via is_accepting).
             if not self.orientation_type.is_accepting:
                 return False
             equipment = cast("Equipment", self.orientation_type.equipment)
             # A personal slot whose manager no longer RUNS orientations here blocks NEW
-            # bookings only (the equipment twin of the departed-orienter guard).
+            # bookings only (the equipment twin of the departed-orientor guard).
             if self.orienter_id is not None and not equipment.is_run_by(cast(Member, self.orienter)):
                 return False
         else:
@@ -15785,7 +15785,7 @@ class OrientationSlot(models.Model):
     def ensure_bookable_for(self, member: Member, *, by_staff: bool = False) -> None:
         """Raise :class:`OrientationError` unless ``member`` may take a seat on this slot.
 
-        ``by_staff=True`` licenses exactly two things: it lets a lead, orienter or admin
+        ``by_staff=True`` licenses exactly two things: it lets a lead, orientor or admin
         seat a member who still owes a late cancellation fee (#456), and seat one inside
         the guild's Booking notice (#766), since the dashboard's add-a-member path is a
         staffer's call, not the member booking their own way around either block. It
@@ -16091,7 +16091,7 @@ class OrientationBooking(models.Model):
             )
 
     def confirm(self, *, oriented_by: Member | None = None) -> None:
-        """Accept the request; default the giver to the slot's orienter, then the owner's default runner."""
+        """Accept the request; default the giver to the slot's orientor, then the owner's default runner."""
         self._refuse_checkout_hold()
         self.status = self.Status.CONFIRMED
         self.confirmed_at = timezone.now()
@@ -18222,7 +18222,7 @@ class Equipment(HeroCropMixin, models.Model):
         plus the owning guild's leadership. Deliberately NOT :meth:`manager_members`, which
         also unions in every site-wide EQUIPMENT capability holder: that set is the right
         audience for notifications and the right gate for permissions, but listing every
-        council member as an orienter on every machine made the Orientation Schedule read
+        council member as an orientor on every machine made the Orientation Schedule read
         as a roster of thirteen people on a tool nobody had been assigned to.
 
         An admin who genuinely gives orientations on a tool joins it on the Staff tab, the
@@ -20376,8 +20376,8 @@ class WikiPage(StaffRequestMixin, models.Model):
         max_length=80,
         blank=True,
         default="",
-        help_text="The verifier's role at the moment they verified, e.g. 'Woodworking orienter'. Frozen on "
-        "purpose: 'Verified by Kate (Woodworking orienter), 3 Mar' is a historical statement and must not "
+        help_text="The verifier's role at the moment they verified, e.g. 'Woodworking orientor'. Frozen on "
+        "purpose: 'Verified by Kate (Woodworking orientor), 3 Mar' is a historical statement and must not "
         "silently rewrite itself when Kate leaves the guild.",
     )
     verified_note = models.CharField(
@@ -21662,9 +21662,9 @@ _WIKI_ROLE_LABEL_MAX = 80
 def _wiki_role_label(member: Member, guild: Guild | None) -> str:
     """The frozen credit string stored in ``WikiPage.verified_role_label``.
 
-    "Verified by Kate (Woodworking orienter), 3 Mar" is a statement about the past, so the
+    "Verified by Kate (Woodworking orientor), 3 Mar" is a statement about the past, so the
     role is denormalized at verify time and never recomputed: Kate can leave the guild
-    without the page claiming she is still its orienter.
+    without the page claiming she is still its orientor.
 
     Args:
         member: The verifier.
@@ -21682,7 +21682,7 @@ def _wiki_role_label(member: Member, guild: Guild | None) -> str:
         guild: The page's scope, or None for a space-wide page.
 
     Returns:
-        "Woodworking lead", "Woodworking orienter", "Admin", or "" when none of those is
+        "Woodworking lead", "Woodworking orientor", "Admin", or "" when none of those is
         true of this member. Callers truncate to :data:`_WIKI_ROLE_LABEL_MAX`.
     """
     if guild is not None:

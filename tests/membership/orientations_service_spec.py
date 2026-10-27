@@ -122,7 +122,7 @@ def describe_request_orientation():
         assert [m.to for m in mail.outbox] == [[member.primary_email]]
 
     def it_fans_the_in_app_request_out_to_all_orienters_not_just_the_lead():
-        # Decision 7: the in-app "needs a runner" ping reaches every orienter, fixing
+        # Decision 7: the in-app "needs a runner" ping reaches every orientor, fixing
         # the old lead-only asymmetry (email→all, in-app→lead only).
         guild, lead = _enabled_guild_with_lead("o7_lead")
         orienter = _member_with_user("o7_orienter")
@@ -134,7 +134,7 @@ def describe_request_orientation():
 
         notified = set(Notification.objects.filter(trigger="orientation_requested").values_list("user_id", flat=True))
         assert lead.user_id in notified
-        assert orienter.user_id in notified  # the orienter now gets the in-app ping too
+        assert orienter.user_id in notified  # the orientor now gets the in-app ping too
 
     def it_credits_the_actual_runner_who_confirms_not_the_lead():
         # Decision 7: confirm passes the acting staffer as oriented_by; the booking is

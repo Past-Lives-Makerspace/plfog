@@ -80,7 +80,7 @@ def describe_can_verify_wiki_page():
             assert can_verify_wiki_page(_request_for(staff), page) is True
 
         def it_admits_an_orienter(db):
-            """The brief's headline case: orienters teach the machine, so they may verify."""
+            """The brief's headline case: orientors teach the machine, so they may verify."""
             orienter = _member("verify_orienter")
             guild = GuildFactory()
             GuildStaffMembershipFactory(guild=guild, member=orienter, role="orienter")
@@ -366,7 +366,7 @@ def describe_the_frozen_role_label():
         GuildStaffMembershipFactory(guild=guild, member=orienter, role="orienter")
         page = WikiPageFactory(guild=guild)
         page.verify(orienter)
-        assert page.verified_role_label == "Woodworking orienter"
+        assert page.verified_role_label == "Woodworking orientor"
 
     def it_reads_Admin_for_someone_reaching_in_from_outside_the_guild(db):
         admin = _member("label_admin", fog_role=Member.FogRole.ADMIN)
@@ -403,7 +403,7 @@ def describe_the_frozen_role_label():
         page.verify(orienter)
         staff.delete()
         page.refresh_from_db()
-        assert page.verified_role_label == "Woodworking orienter"
+        assert page.verified_role_label == "Woodworking orientor"
 
 
 def describe_WikiPage_unverify():

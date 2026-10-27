@@ -294,7 +294,7 @@ def describe_event_registry():
 
         def it_routes_orientation_requested_to_orienters_or_equipment_managers():
             # Composed for equipment-owned orientations: equipment in context routes
-            # to the equipment's managers; a guild context keeps the orienter fan-out.
+            # to the equipment's managers; a guild context keeps the orientor fan-out.
             assert get_event("orientation_requested").recipient is Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS
 
         def it_routes_login_invite_to_single_user():

@@ -653,7 +653,7 @@ def describe_orientation_schedule_card():
         orientation_type = _owned_type(equipment)
         _manager_login(client, "sc_shared_plain", equipment)
         assert "Shared Hours (Any Manager)" not in _tab(client, equipment).content.decode()
-        _tool_rule(orientation_type)  # orienter-less: a row from the old window editor
+        _tool_rule(orientation_type)  # orientor-less: a row from the old window editor
         content = _tab(client, equipment).content.decode()
         assert "Shared Hours (Any Manager)" in content
         assert "Only an administrator or the owning guild's lead can change shared hours." in content

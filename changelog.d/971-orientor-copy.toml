@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-27"
+title = "Orientors are called Orientors everywhere"
+changes = [
+  "The people who run orientations are now called Orientors on every page, email, notification and help article, instead of the mix of Orienter and Orientator you may have seen.",
+]

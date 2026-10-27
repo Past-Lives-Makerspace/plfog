@@ -81,7 +81,7 @@ GROUP_ORDER: tuple[RecipientKind, ...] = (
 GROUP_LABELS: dict[RecipientKind, str] = {
     RecipientKind.GUILD: "Guilds",
     RecipientKind.INSTRUCTOR: "Instructors",
-    RecipientKind.ORIENTATOR: "Orientators",
+    RecipientKind.ORIENTATOR: "Orientors",
     RecipientKind.MANAGER: "Equipment Managers",
     RecipientKind.PL: "Past Lives",
 }
@@ -188,7 +188,7 @@ class ReconciliationResult:
 
     @property
     def producers_total_cents(self) -> int:
-        """Everything disbursed to guilds and producers (instructors, orientators, managers), not Past Lives."""
+        """Everything disbursed to guilds and producers (instructors, orientors, managers), not Past Lives."""
         return sum(
             alloc.total_cents for kind in GROUP_ORDER if kind is not RecipientKind.PL for alloc in self.groups[kind]
         )

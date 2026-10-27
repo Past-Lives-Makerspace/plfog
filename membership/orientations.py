@@ -283,7 +283,7 @@ def _ics(booking: OrientationBooking, *, method: str, status: str) -> tuple[str,
 
 def _fan_out_request(booking: OrientationBooking) -> None:
     """The full request fan-out: member "request received" email (+ TENTATIVE ``.ics``),
-    the ``ORIENTATION_REQUESTED`` activity row, and the lead/orienter request email + in-app.
+    the ``ORIENTATION_REQUESTED`` activity row, and the lead/orientor request email + in-app.
 
     Callable on an existing booking so the paid flow can fire it from the webhook —
     for a paid booking, emails only ever go out for money in hand. The ``emit``
@@ -319,7 +319,7 @@ def _lock_used_equipment(orientation_type: OrientationType) -> None:
 def request_orientation(
     slot: OrientationSlot, member: Member, *, note: str = "", by_staff: bool = False
 ) -> OrientationBooking:
-    """Book a slot (REQUESTED) and fan out the request emails, activity, and orienter notification.
+    """Book a slot (REQUESTED) and fan out the request emails, activity, and orientor notification.
 
     A slot books under the row lock of every item its type uses (guard + create in
     one ``transaction.atomic()``), so it can never double book a machine against a
@@ -374,7 +374,7 @@ def _create_custom_slot(
     It carries the type's guild, which is empty for an equipment owned type, like every
     equipment slot. A custom request passes no ``orienter``, so it is a shared slot and the
     request reaches the owner's whole team; a guild move (#853) passes the booking's own
-    orienter and place, so the moved orientation runs with the same person. CUSTOM marks it
+    orientor and place, so the moved orientation runs with the same person. CUSTOM marks it
     as the booking's own (:attr:`OrientationSlot.OWN_SOURCES`), never part of the posted
     schedule.
     """
@@ -416,7 +416,7 @@ def request_custom_orientation(
         starts_at: The proposed start, already in the future; one inside the type's Booking
             notice (#766) is refused before any slot is written.
         orientation_type: Which of the owner's orientations the member wants.
-        note: Optional free-text note passed to the orienter.
+        note: Optional free-text note passed to the orientor.
 
     Returns:
         The created (REQUESTED) :class:`~membership.models.OrientationBooking`.
@@ -1012,13 +1012,13 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
 
     One audience for every channel, the ``orientation_requested`` resolver
     (:func:`core.events.resolvers.guild_orienters_or_equipment_managers`): a guild's
-    shared slot reaches its whole leadership, a personal slot the orienter booked plus
+    shared slot reaches its whole leadership, a personal slot the orientor booked plus
     the guild lead, and equipment its managers. Each person's own Email switch decides
     the email (#524), which goes to their notification address. The activity row is
     logged by the caller.
     """
     # One body goes to the whole audience, so the confirm/decline links carry the
-    # slot's primary responder (personal slot: the orienter; guild slot: the lead)
+    # slot's primary responder (personal slot: the orientor; guild slot: the lead)
     # as the token recipient — a paid booking's email-link decline credits them.
     if booking.orientation_type.is_equipment_owned:
         # A personal slot's manager is its responder; a shared slot has none (managers
@@ -1143,7 +1143,7 @@ def cancel_orientation(
     )
     # Bell (and push / Discord per switch) that a booking was cancelled, to the same
     # audience the request reached (the orientation_requested resolver: a shared guild
-    # slot's whole leadership, a personal slot's orienter plus lead, or the equipment's
+    # slot's whole leadership, a personal slot's orientor plus lead, or the equipment's
     # managers). No email: the row's Email switch is about requests, and since #524 it
     # defaults ON, so letting this ping email would start a new bare cancel email to
     # every leader who never touched the page.
@@ -1204,7 +1204,7 @@ def _move_locked(locked: OrientationBooking, starts_at: datetime, *, oriented_by
 
     Runs inside the caller's transaction, after :func:`_locked_booking`. The slot is the
     custom request's one-off (:func:`_create_custom_slot`), sized by the type's length, with
-    the old slot's orienter and place. The guard, the slot, the move and the tidy of the slot
+    the old slot's orientor and place. The guard, the slot, the move and the tidy of the slot
     it left (:func:`_tidy_left_slot`) share one savepoint under the equipment locks, so a
     refusal writes nothing and nobody can book a freed seat before the tidy decides on it.
     Money is never touched.
@@ -1517,7 +1517,7 @@ def times_on_day_off(member: Member, day: date) -> DayOffTimes:
 
     Fixed slots that have not started, except one carved out of a live window (that is the
     window's booked segment, not a time of its own, as on the Upcoming Times card), and
-    open windows with time still ahead. A time with no orienter is never one of theirs.
+    open windows with time still ahead. A time with no orientor is never one of theirs.
     The day is a Pacific calendar day: both bounds are made aware on local wall clock time,
     so a late evening slot stays on its own day.
     """
@@ -1564,7 +1564,7 @@ def cancel_day_off(member: Member, day: date) -> tuple[int, int]:
     booked segments through :func:`cancel_slot` as well. A generated slot or window nobody
     was emailed about is then detached from its rule (``mark_retired``), so deleting the day
     off lets the next generation run offer the time again; a time that emailed members stays
-    cancelled at its key, as a manager's cancel does. Times with no orienter are untouched.
+    cancelled at its key, as a manager's cancel does. Times with no orientor are untouched.
 
     No transaction wraps the loop: ``cancel_slot`` talks to Stripe for held checkouts and
     must not run inside an outer atomic block.
@@ -1674,8 +1674,8 @@ def _horizon_spans(
 ) -> list[tuple[datetime, datetime]]:
     """Every ``(start, end)`` span ``rule`` yields across the rolling window, in order.
 
-    ``days_off`` are the rule's orienter's days off (#767): a day in it yields nothing, however
-    far ahead it sits. A shared rule has no orienter and is handed none.
+    ``days_off`` are the rule's orientor's days off (#767): a day in it yields nothing, however
+    far ahead it sits. A shared rule has no orientor and is handed none.
     """
     spans: list[tuple[datetime, datetime]] = []
     for offset in range(window_weeks * 7):
@@ -1687,7 +1687,7 @@ def _horizon_spans(
 
 
 def _days_off_by_orienter(*, today: date, window_weeks: int) -> dict[int, set[date]]:
-    """Every orienter's days off inside the horizon, loaded once per run so no rule costs a query (#767)."""
+    """Every orientor's days off inside the horizon, loaded once per run so no rule costs a query (#767)."""
     from membership.models import OrientationDayOff
 
     by_orienter: dict[int, set[date]] = defaultdict(set)
@@ -1739,15 +1739,15 @@ def _owner_accepting(rule: OrientationAvailability) -> bool:
 
 
 def _rule_generates(rule: OrientationAvailability, *, runners_by_equipment: dict[int, set[int]]) -> bool:
-    """The per-rule gate: an accepting owner, and a personal rule's orienter still current.
+    """The per-rule gate: an accepting owner, and a personal rule's orientor still current.
 
-    A stale personal rule — its orienter left the guild's leadership (or stopped
+    A stale personal rule — its orientor left the guild's leadership (or stopped
     running orientations on the equipment) without the hub's retirement flow (a
     lead-FK change, a Django-admin removal) — must never materialize new slots.
     ``runners_by_equipment`` caches each tool's ``orienter_members()`` ids for the run,
     so six personal rules on one tool cost one lookup, not six. That is the same narrow
     set the Orientation Schedule lists, so a rule generates exactly while its owner is
-    shown as an orienter — the guild branch above reads ``leadership_members()`` for the
+    shown as an orientor — the guild branch above reads ``leadership_members()`` for the
     identical reason.
     """
     if not _owner_accepting(rule):
@@ -1828,7 +1828,7 @@ def _materialize_windows(
 
     One :class:`OrientationAvailabilityBlock` per occurrence, keyed by row and start
     like a slot (``uq_orientblock_rule_start``), so a rerun creates nothing. The window
-    carries the row's orienter, its type (or none, for any orientation) and its location.
+    carries the row's orientor, its type (or none, for any orientation) and its location.
     """
     from membership.models import OrientationAvailabilityBlock
 

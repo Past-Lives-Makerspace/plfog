@@ -16,7 +16,7 @@ is_staff_view (the staff columns) and viewer_has_refund_authority (the Paid colu
     <span class="pl-bookings-table__owner">{{ b.orientation_type.owner_name }}</span>
   </td>
   {% if is_staff_view %}
-  <td data-label="Run By">{% if b.slot.orienter %}{{ b.slot.orienter.display_name }}{% else %}Any orienter{% endif %}</td>
+  <td data-label="Run By">{% if b.slot.orienter %}{{ b.slot.orienter.display_name }}{% else %}Any orientor{% endif %}</td>
   {% endif %}
   <td{% if is_staff_view %} data-label="Status"{% endif %} class="pl-bookings-table__status">
     <span class="hub-pill {% if b.status == 'confirmed' %}hub-pill--ok{% elif b.status == 'requested' or b.status == 'pending_payment' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-booking-status="{{ b.status }}">{{ b.get_status_display }}</span>

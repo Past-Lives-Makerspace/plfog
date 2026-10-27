@@ -66,7 +66,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "guild.manage-staff": {
         "title": "Manage guild staff",
         "short_text": (
-            "Add co-leads, secretaries, treasurers, and orienters on the Staff tab. "
+            "Add co-leads, secretaries, treasurers, and orientors on the Staff tab. "
             "Every staff role carries full lead authority."
         ),
         "article_slug": "guild-staff-roles",
@@ -128,7 +128,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "orientation.pick-a-time": {
         "title": "Pick a time",
         "short_text": (
-            "Open windows of orienter time. Choose a window and pick the start that suits you; "
+            "Open windows of orientor time. Choose a window and pick the start that suits you; "
             "the guild still confirms it like any other booking."
         ),
         "article_slug": "getting-oriented",
@@ -762,7 +762,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     },
     "admin.reconciliation": {
         "title": "Reconciliation",
-        "short_text": "Breaks down what each guild, instructor, and orientator is owed so you can reconcile payouts.",
+        "short_text": "Breaks down what each guild, instructor, and orientor is owed so you can reconcile payouts.",
         "article_slug": None,
         "anchor": None,
     },

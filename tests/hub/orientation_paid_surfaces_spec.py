@@ -387,7 +387,7 @@ def describe_late_cancel_fee_on_the_guild_page():
 
         _late_fees(True)
         settings_obj = GuildOrientationSettingsFactory(late_cancel_fee_cents=3750)
-        # A personal slot is bookable only while its orienter still staffs the guild.
+        # A personal slot is bookable only while its orientor still staffs the guild.
         orienter = MemberFactory(full_legal_name="Dana Reyes")
         GuildStaffMembershipFactory(guild=settings_obj.guild, member=orienter, role=GuildStaffMembership.Role.ORIENTER)
         OrientationSlotFactory(guild=settings_obj.guild, orienter=orienter)

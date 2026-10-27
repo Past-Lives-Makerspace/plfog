@@ -118,9 +118,9 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.REFUND_AUTHORITY: "Everyone who can issue a refund: all FOG admins plus the Refunds holders.",
     Recipients.GUILD_LEAD: "The guild's lead only.",
     Recipients.GUILD_MEMBERS: "Every active member of the guild.",
-    Recipients.GUILD_ORIENTERS: "The guild's lead and everyone holding the orienter role.",
+    Recipients.GUILD_ORIENTERS: "The guild's lead and everyone holding the orientor role.",
     Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: (
-        "The guild's lead and staff (for a personal slot, the orienter booked plus the lead); "
+        "The guild's lead and staff (for a personal slot, the orientor booked plus the lead); "
         "for an equipment orientation, the equipment's own managers and its guild's leadership "
         "(the Equipment Administrators only for equipment nobody manages)."
     ),
@@ -259,7 +259,7 @@ _CURATED: dict[str, EventCopy] = {
             "page_title": "SawStop Table Saw",
             "page_url": "https://pastlives.example/wiki/p/sawstop-table-saw/",
             "verifier_name": "Kate Mizuno",
-            "verifier_role": "Woodworking orienter",
+            "verifier_role": "Woodworking orientor",
             "guild_name": "Woodworking",
         },
         channels={

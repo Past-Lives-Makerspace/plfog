@@ -1,4 +1,4 @@
-"""BDD specs for the guild Staff tab — co-leads, secretaries, treasurers, orienters.
+"""BDD specs for the guild Staff tab — co-leads, secretaries, treasurers, orientors.
 
 Every staff role carries the same authority as the guild lead: staff can edit the
 guild page and its classes, run orientations, and receive the same emails. Staff are
@@ -471,7 +471,7 @@ def describe_staff_grouped_by_member_with_title_badges():
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert response.status_code == 200
         content = response.content.decode()
-        assert "Orienter" in content
+        assert "Orientor" in content
         assert "Glaze Technician" in content
         # The fix: one row per person, so the staff member's name shows exactly once.
         assert content.count(staff.member.display_name) == 1
@@ -489,7 +489,7 @@ def describe_staff_grouped_by_member_with_title_badges():
         grouped = response.context["staff_by_member"]
         assert [m.pk for m, _rows in grouped] == [staff.member.pk]
         content = response.content.decode()
-        assert "Orienter" in content
+        assert "Orientor" in content
         assert "Glaze Technician" in content
         # Each title has its own Remove control wired to that membership's confirm modal.
         assert f"del-staff-{sm_role.pk}" in content

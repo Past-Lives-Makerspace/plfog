@@ -307,7 +307,7 @@ def describe_who_runs_it():
 
 
 def describe_the_guild_upcoming_times_flag():
-    """#665: a guild slot over a reservation on an item it uses is flagged for its orienters."""
+    """#665: a guild slot over a reservation on an item it uses is flagged for its orientors."""
 
     def _guild_page(client: Client, username: str) -> tuple[Guild, Equipment, Any]:
         lead = _login(client, username)

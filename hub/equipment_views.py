@@ -1189,7 +1189,7 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
 
     The guild Orientations tab's shape, per manager: one overview group per
     ``orienter_members()`` entry with their personal rules, a Former Managers group
-    for orphan rules, the shared (orienter-less) rules, and the flat upcoming slot
+    for orphan rules, the shared (orientor-less) rules, and the flat upcoming slot
     list with attendee sub-rows. ``can_edit_others_hours`` gates the whole-schedule
     view and the Runs with picker; a plain manager sees only their own group.
     """
@@ -1815,7 +1815,7 @@ def _hours_scope_target(request: HttpRequest, raw: str) -> Member | None:
     if not raw:
         return None
     if not raw.isdigit():
-        raise Http404("Unknown orienter scope.")
+        raise Http404("Unknown orientor scope.")
     return get_object_or_404(Member, pk=int(raw))
 
 
@@ -1831,7 +1831,7 @@ def _hours_scope_queryset(equipment: Equipment, target: Member | None) -> Any:
 def hub_equipment_orientation_hours_form(request: HttpRequest, slug: str) -> HttpResponse:
     """Return the Edit Hours modal's formset partial for one manager, or the shared rows (HTMX GET).
 
-    ``?orienter=<pk>`` scopes to that manager; empty scopes to the shared (orienter-less)
+    ``?orienter=<pk>`` scopes to that manager; empty scopes to the shared (orientor-less)
     rows. Gated by ``can_edit_equipment_orienter_hours`` (403 otherwise), the same gate the
     save uses, so a former manager's leftover rows are editable by the "others" tier.
     """

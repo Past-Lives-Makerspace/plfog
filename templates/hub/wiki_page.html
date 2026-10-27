@@ -38,7 +38,7 @@ cannot drift apart.
             {% if page.status_note %}<span class="hub-text-muted pl-wp-statusnote">{{ page.status_note }}</span>{% endif %}
         </div>
         <div id="wiki-verify" class="pl-wp-tab__verify">
-            {% comment %}Spec B's Verify control. The credit line renders for everyone (the brief wants members to see "Verified by Kate (Woodworking orienter), 3 Mar"); the buttons render only for someone who may verify, and nothing at all on an Official page.{% endcomment %}
+            {% comment %}Spec B's Verify control. The credit line renders for everyone (the brief wants members to see "Verified by Kate (Woodworking orientor), 3 Mar"); the buttons render only for someone who may verify, and nothing at all on an Official page.{% endcomment %}
             {% if not is_archived %}{% include "hub/partials/_wiki_verify_control.html" with page=page can_verify=can_verify compact=False %}{% endif %}
         </div>
         <p class="hub-text-muted pl-wp-attrs">{{ page.attribute_line }}</p>

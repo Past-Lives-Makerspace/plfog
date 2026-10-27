@@ -3506,8 +3506,8 @@ EquipmentOrientationAvailabilityFormSet = forms.modelformset_factory(
 class OrientationSlotForm(forms.ModelForm):
     """Add a one off from the Upcoming Times card: a fixed slot, or an open window (#532).
 
-    Date and half hour times are ``<select>`` dropdowns (Rule 20), plus an Orienter select
-    whose choices are the guild's leadership and an "Any orienter (guild slot)" empty
+    Date and half hour times are ``<select>`` dropdowns (Rule 20), plus an Orientor select
+    whose choices are the guild's leadership and an "Any orientor (guild slot)" empty
     choice; a plain staff member gets the field locked to themselves (a crafted POST cannot
     override it). ``booking_style`` picks the shape. Fixed start times need an orientation,
     a duration and seats and save an :class:`OrientationSlot`. Any time in the window needs
@@ -3546,8 +3546,8 @@ class OrientationSlotForm(forms.ModelForm):
     orienter = forms.ModelChoiceField(
         queryset=Member.objects.none(),
         required=False,
-        label="Orienter",
-        empty_label="Any orienter (guild slot)",
+        label="Orientor",
+        empty_label="Any orientor (guild slot)",
     )
 
     class Meta:
@@ -3725,7 +3725,7 @@ class OrientationTimesBulkCancelForm(forms.Form):
 
 
 class OrientationDayOffForm(forms.ModelForm):
-    """One day off for one orienter (#767): the date and an optional note.
+    """One day off for one orientor (#767): the date and an optional note.
 
     The person is fixed by the view (the modal is per person), never posted. The date input
     carries the impact preview: on change it asks ``preview_url`` for the day's count line and
@@ -4983,7 +4983,7 @@ class GuildLeadForm(forms.Form):
 class GuildStaffAddForm(forms.Form):
     """Lead/admin/staff assigns a member a guild staff entry — a preset role or a free-text custom title.
 
-    Each entry is *either* one preset role (co-lead/secretary/treasurer/orienter) *or* one custom title
+    Each entry is *either* one preset role (co-lead/secretary/treasurer/orientor) *or* one custom title
     (e.g. "Studio Technician"), never both. Titles are cosmetic — every staff entry grants the same authority.
     """
 
@@ -7570,8 +7570,8 @@ class EquipmentCreditUnusedForm(forms.Form):
 class EquipmentOrientationSlotForm(forms.ModelForm):
     """Add a one-off orientation time from the equipment manage panel's Orientation tab.
 
-    Mirrors :class:`OrientationSlotForm` minus the orienter picker — equipment slots
-    are always "any manager" (the no-per-orienter-machinery decision). The view
+    Mirrors :class:`OrientationSlotForm` minus the orientor picker — equipment slots
+    are always "any manager" (the no-per-orientor-machinery decision). The view
     stamps ``guild=None`` (implicit) and ``source=MANUAL``.
     """
 
@@ -7624,7 +7624,7 @@ class EquipmentOrientationSlotForm(forms.ModelForm):
             self.fields["seats"].initial = first_type.default_seats
             if first_type.default_location:
                 self.fields["location"].initial = first_type.default_location
-        # Runs with: this tool's orienters plus "Any manager"; a plain manager is fixed to
+        # Runs with: this tool's orientors plus "Any manager"; a plain manager is fixed to
         # themselves. Mirrors the guild slot form, which offers ``leadership_members()``.
         manager_ids = {member.pk for member in equipment.orienter_members()}
         orienter_field = cast(forms.ModelChoiceField, self.fields["orienter"])

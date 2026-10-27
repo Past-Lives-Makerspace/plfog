@@ -1,12 +1,12 @@
 {% comment %}
-Edit Hours modal body — the orientation availability formset for one orienter (a guild
+Edit Hours modal body — the orientation availability formset for one orientor (a guild
 staffer or an equipment manager), or an equipment's shared rows, loaded via HTMX into
 #edit-hours-modal-body (see the Orientation Schedule card on the guild edit page and the
 equipment manage panel's Orientation tab).
 
 Prefix is ALWAYS "modal_rules": it is the sole whitelisted modal prefix, and the save views
 accept it only on an HTMX request (the posted formset_prefix field carries it). Every
-orienter edits their own hours through this modal, so no page renders an inline personal
+orientor edits their own hours through this modal, so no page renders an inline personal
 formset its DOM ids could collide with.
 
 Context: target (the Member being edited, or None for an equipment's shared rows), formset
