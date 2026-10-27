@@ -154,14 +154,16 @@
     </form>
     {% include "components/confirm_modal.html" with confirm_id="revoke-instructor" confirm_title="Remove instructor access?" confirm_message=person_name|add:" will lose their public instructor page and can no longer create new classes. Their existing classes and registrations are not affected." confirm_action_url=instructor_url confirm_field_name="action" confirm_field_value="revoke" confirm_button_text="Remove access" %}
 
+    {% include "hub/admin/_guild_roles.html" %}
+
     <form method="post" class="pl-person-form">
       {% csrf_token %}
       <input type="hidden" name="form_id" value="capabilities">
       <h2 class="hub-detail-label pl-permissions-section">Admin capabilities</h2>
       <p class="hub-text-muted pl-permissions-hint">
         Site-wide duties. Each one both sends this member the matching approval or alert emails and
-        lets them act on it, without granting full admin. Per-guild lead and staff roles are managed
-        on each guild's own Staff tab, not here.
+        lets them act on it, without granting full admin. Per guild lead and staff roles are under
+        Guild Roles above.
       </p>
       {% for field in capabilities_form %}
         {% include "components/toggle.html" with field=field toggle_label=field.label toggle_description=field.help_text %}

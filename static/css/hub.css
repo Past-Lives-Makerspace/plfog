@@ -1632,8 +1632,18 @@ a:hover { color: var(--hub-link-hover); }
 }
 
 .pl-staff-reviewer__label {
-    font-size: 0.8125rem;
-    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--hub-text);
+}
+
+/* The Staff tab add form's Class Reviewer switch (#968): its own full row above the button. */
+.pl-staff-add-reviewer {
+    flex-basis: 100%;
+}
+
+.pl-staff-add-reviewer .pl-toggle-row {
+    max-width: 520px;
 }
 
 /* "Delete unavailable (has registrations)" beside the class page's and the composer's actions (#816). */

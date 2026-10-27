@@ -841,6 +841,31 @@ urlpatterns = [
         name="hub_admin_member_teaching",
     ),
     path(
+        "manage/members/<int:pk>/guild-staff/add/",
+        views.admin_member_guild_staff_add,
+        name="hub_admin_member_guild_staff_add",
+    ),
+    path(
+        "manage/members/<int:pk>/guild-staff/<int:staff_pk>/edit/",
+        views.admin_member_guild_staff_edit,
+        name="hub_admin_member_guild_staff_edit",
+    ),
+    path(
+        "manage/members/<int:pk>/guild-staff/<int:staff_pk>/remove/",
+        views.admin_member_guild_staff_remove,
+        name="hub_admin_member_guild_staff_remove",
+    ),
+    path(
+        "manage/members/<int:pk>/guild-lead/",
+        views.admin_member_guild_lead_set,
+        name="hub_admin_member_guild_lead_set",
+    ),
+    path(
+        "manage/members/<int:pk>/guild-lead/<int:guild_pk>/clear/",
+        views.admin_member_guild_lead_clear,
+        name="hub_admin_member_guild_lead_clear",
+    ),
+    path(
         "manage/members/<int:pk>/orientations/record/",
         views.admin_member_orientation_record,
         name="hub_admin_member_orientation_record",

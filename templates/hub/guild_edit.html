@@ -764,7 +764,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
       Co-Leads, secretaries, treasurers, and orienters. Every staff member gets the same access as the
       guild lead except class review: they can edit this page, manage classes, run orientations, and receive
       orientation requests. Class review requests go only to the guild lead and the staff switched on as
-      Class Reviewer below, and only the guild lead or an admin can change that switch. The guild lead itself
+      Class Reviewer with the switch beside their name, and only the guild lead or an admin can change that switch. The guild lead itself
       is set by an admin, and only an admin can add a Co-Lead.
     </p>
 
@@ -776,6 +776,10 @@ confirm modal carries its own POST form, and template content can't nest a form.
         {# Class Reviewer (#816): saves on change over HTMX, outside every autosave form; read only unless lead or admin. #}
         <div class="pl-staff-reviewer" data-class-reviewer-row="{{ member.pk }}" data-autosave-ignore>
           <span class="pl-staff-reviewer__label">Class Reviewer</span>
+          <span class="pl-help pl-help--right" tabindex="0" aria-label="What Class Reviewer means">
+            <span class="pl-help__icon" aria-hidden="true">?</span>
+            <span class="pl-help__bubble" role="tooltip">On: they get this guild's class review requests and can approve its classes. Only the guild lead or an admin can change it.</span>
+          </span>
           <label class="pl-toggle pl-toggle--sm{% if not can_set_class_reviewers %} pl-toggle--disabled{% endif %}">
             <input type="checkbox" name="on"
                    aria-label="Class Reviewer: {{ member.display_name }}"
@@ -816,9 +820,14 @@ confirm modal carries its own POST form, and template content can't nest a form.
       <div style="flex:2; min-width:220px;">{% include "components/form_field.html" with field=staff_add_form.member %}</div>
       <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=staff_add_form.role %}</div>
       <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=staff_add_form.custom_title %}</div>
+      {% if can_set_class_reviewers %}
+      <div class="pl-staff-add-reviewer" data-staff-add-reviewer>
+        {% include "components/toggle.html" with field=staff_add_form.class_reviewer toggle_label=staff_add_form.class_reviewer.label toggle_description=staff_add_form.class_reviewer.help_text %}
+      </div>
+      {% endif %}
       <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Add staff member</button>
       <p class="hub-text-muted" style="flex-basis:100%; margin:0.25rem 0 0; font-size:0.8125rem;">
-        Pick a preset role or write your own title.
+        Pick a preset role or write your own title.{% if can_set_class_reviewers %} To add someone only as a Class Reviewer, leave both blank and turn Class Reviewer on.{% endif %}
       </p>
     </form>
   </div>

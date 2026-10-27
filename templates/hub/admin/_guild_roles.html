@@ -1,0 +1,116 @@
+{% comment %}
+Member edit > Permissions > Guild Roles (#968): every guild this person leads or staffs, and the
+pickers to add them to one. The same rows the guild's Staff tab shows, through the same model
+methods, so a change on either page is the change on both. The Class Reviewer switch posts to the
+Staff tab's own endpoint (hub_guild_staff_class_reviewer) and saves at once with a toast; the
+other actions are full page POSTs that come back here with a message, like the Instructor switch.
+Immediate controls only: it sits above the capabilities form so that form's Save stays last (Rule 21).
+{% endcomment %}
+<section id="guild-roles" class="pl-guild-roles" data-guild-roles>
+  <h2 class="hub-detail-label pl-permissions-section">Guild Roles</h2>
+  <p class="hub-text-muted pl-permissions-hint">
+    Guilds this member leads or is on the staff of. This is the same list as each guild's Staff tab:
+    a change here shows there at once. Class Reviewer gets that guild's class review requests and can
+    approve its classes; a guild lead always does. Nothing is emailed when these change.
+  </p>
+
+  {% if guild_roles %}
+  <div class="pl-guild-roles__list">
+    {% for roles in guild_roles %}
+    <div class="pl-guild-role" data-guild-role="{{ roles.guild.pk }}">
+      <div class="pl-guild-role__head">
+        <a class="pl-guild-role__name" href="{% url 'hub_guild_edit' roles.guild.pk %}?tab=staff">{{ roles.guild.name }}</a>
+        {% if not roles.guild.is_active %}<span class="hub-pill hub-pill--neutral">Hidden</span>{% endif %}
+        {% if roles.is_lead %}
+        <span class="pl-guild-role__note">Class Reviewer: always, as guild lead</span>
+        {% else %}
+        <div class="pl-staff-reviewer" data-class-reviewer-guild="{{ roles.guild.pk }}">
+          <span class="pl-staff-reviewer__label">Class Reviewer</span>
+          <label class="pl-toggle pl-toggle--sm">
+            <input type="checkbox" name="on"
+                   aria-label="Class Reviewer: {{ roles.guild.name }}"
+                   {% if roles.reviews_classes %}checked{% endif %}
+                   hx-post="{% url 'hub_guild_staff_class_reviewer' roles.guild.pk member.pk %}"
+                   hx-trigger="change"
+                   hx-swap="none"
+                   hx-disabled-elt="this"
+                   hx-on::response-error="this.checked = !this.checked"
+                   hx-on::send-error="this.checked = !this.checked">
+            <span class="pl-toggle__slider"></span>
+          </label>
+        </div>
+        {% endif %}
+      </div>
+      <div class="pl-badge-group pl-guild-role__titles">
+        {% if roles.is_lead %}
+        <span class="pl-staff-chip">
+          <span class="hub-badge">Guild Lead</span>
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+                  aria-label="Remove {{ person_name }} as lead of {{ roles.guild.name }}"
+                  @click="$dispatch('open-confirm', 'clear-lead-{{ roles.guild.pk }}')">Remove</button>
+        </span>
+        {% endif %}
+        {% for sm in roles.staff %}
+        <span class="pl-staff-chip">
+          <span class="hub-badge">{{ sm.display_title }}</span>
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
+                  aria-label="Change {{ sm.display_title }} on {{ roles.guild.name }}"
+                  @click="$dispatch('open-modal', 'retitle-staff-{{ sm.pk }}')">Change</button>
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+                  aria-label="Remove {{ sm.display_title }} on {{ roles.guild.name }}"
+                  @click="$dispatch('open-confirm', 'member-del-staff-{{ sm.pk }}')">Remove</button>
+        </span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="hub-text-muted pl-guild-roles__empty">Not a lead or staff member of any guild yet.</p>
+  {% endif %}
+
+  <form method="post" action="{% url 'hub_admin_member_guild_staff_add' member.pk %}" class="pl-guild-roles__form" data-guild-staff-add>
+    {% csrf_token %}
+    <h3 class="hub-detail-label pl-guild-roles__form-title">Add to a Guild</h3>
+    <div class="pl-guild-roles__fields">
+      <div class="pl-guild-roles__field">{% include "components/form_field.html" with field=guild_staff_form.guild %}</div>
+      <div class="pl-guild-roles__field">{% include "components/form_field.html" with field=guild_staff_form.role %}</div>
+      <div class="pl-guild-roles__field">{% include "components/form_field.html" with field=guild_staff_form.custom_title %}</div>
+    </div>
+    <div class="pl-guild-roles__toggle">
+      {% include "components/toggle.html" with field=guild_staff_form.class_reviewer toggle_label=guild_staff_form.class_reviewer.label toggle_description=guild_staff_form.class_reviewer.help_text %}
+    </div>
+    <p class="hub-text-muted pl-form-note">Pick a role or type a title. To make them only a Class Reviewer, leave both blank and turn Class Reviewer on.</p>
+    <button type="submit" class="hub-btn hub-btn--primary">Add to Guild</button>
+  </form>
+
+  <form method="post" action="{% url 'hub_admin_member_guild_lead_set' member.pk %}" class="pl-guild-roles__form" data-guild-lead-set>
+    {% csrf_token %}
+    <h3 class="hub-detail-label pl-guild-roles__form-title">Make Guild Lead</h3>
+    <div class="pl-guild-roles__fields">
+      <div class="pl-guild-roles__field pl-guild-roles__field--wide">{% include "components/form_field.html" with field=guild_lead_form.guild field_hint="A guild has one lead. Picking one that has a lead replaces them." %}</div>
+    </div>
+    <button type="submit" class="hub-btn hub-btn--primary pl-btn--spaced">Make Lead</button>
+  </form>
+</section>
+
+{# Remove as lead, remove a staff title, and rename a staff title: one confirm or modal each. #}
+{% for roles in guild_roles %}
+  {% if roles.is_lead %}
+    {% url 'hub_admin_member_guild_lead_clear' member.pk roles.guild.pk as lead_clear_url %}
+    {% with gpk=roles.guild.pk|stringformat:"s" %}
+      {% include "components/confirm_modal.html" with confirm_id="clear-lead-"|add:gpk confirm_title="Remove as guild lead?" confirm_message="They stop being this guild's lead. Their staff titles here stay. You can make them lead again anytime." confirm_action_url=lead_clear_url confirm_button_text="Remove as lead" %}
+    {% endwith %}
+  {% endif %}
+  {% for sm in roles.staff %}
+    {% url 'hub_admin_member_guild_staff_remove' member.pk sm.pk as staff_remove_url %}
+    {% with pks=sm.pk|stringformat:"s" %}
+      {% include "components/confirm_modal.html" with confirm_id="member-del-staff-"|add:pks confirm_action_url=staff_remove_url confirm_title="Remove staff title?" confirm_message="They lose this title on the guild, and guild staff access if it is their last one there. You can add them back anytime." %}
+    {% endwith %}
+  {% endfor %}
+{% endfor %}
+{% for title_form in staff_title_forms %}
+  {% with spk=title_form.staff.pk|stringformat:"s" %}
+    {% include "components/modal.html" with modal_id="retitle-staff-"|add:spk modal_title="Change Staff Title" modal_size="sm" modal_body_include="hub/admin/_staff_title_form.html" %}
+  {% endwith %}
+{% endfor %}

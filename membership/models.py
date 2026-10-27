@@ -6,7 +6,7 @@ import logging
 import os
 import re
 import secrets
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date as date_type
@@ -236,6 +236,15 @@ class NextMeetingSources:
         """The soonest loaded Google row whose title has ``guild``'s name in it, any case."""
         name = guild.name.lower()
         return next((event for event in self.calendar_events if name in event.title.lower()), None)
+
+
+class GuildRoles(NamedTuple):
+    """One guild's line on the member edit page's Guild Roles section (#968): what this person holds there."""
+
+    guild: Guild
+    is_lead: bool
+    staff: list[GuildStaffMembership]
+    reviews_classes: bool
 
 
 class FlyerWhen(NamedTuple):
@@ -1870,6 +1879,29 @@ class Member(StaffRequestMixin, models.Model):
             models.Q(guild_lead=self)
             | models.Q(staff_memberships__member=self, staff_memberships__can_review_classes=True)
         ).distinct()
+
+    def guild_roles(self) -> list[GuildRoles]:
+        """Every guild this member leads or is on the staff of, name ordered, with what they hold there (#968).
+
+        Two queries. ``reviews_classes`` is true for the lead and for staff with Class Reviewer on
+        any row, matching :meth:`Guild.reviews_classes`; staff titles read in
+        :meth:`Guild.staff_by_member` order.
+        """
+        guilds: dict[int, Guild] = {guild.pk: guild for guild in Guild.objects.filter(guild_lead=self)}
+        led = set(guilds)
+        staff_by_guild: dict[int, list[GuildStaffMembership]] = defaultdict(list)
+        for row in self.guild_staff_roles.select_related("guild"):
+            staff_by_guild[row.guild_id].append(row)
+            guilds.setdefault(row.guild_id, row.guild)
+        return [
+            GuildRoles(
+                guild=guild,
+                is_lead=pk in led,
+                staff=sorted(staff_by_guild[pk], key=Guild._staff_title_sort_key),
+                reviews_classes=pk in led or any(row.can_review_classes for row in staff_by_guild[pk]),
+            )
+            for pk, guild in sorted(guilds.items(), key=lambda item: item[1].name.lower())
+        ]
 
     @property
     def joined_guilds(self) -> models.QuerySet[Guild]:
@@ -3660,6 +3692,82 @@ class Guild(HeroCropMixin, models.Model):
         """
         return self.staff_memberships.filter(member=member).update(can_review_classes=on)
 
+    def add_staff(
+        self, member: Member, *, role: str = "", custom_title: str = "", class_reviewer: bool = False
+    ) -> GuildStaffMembership | None:
+        """Add ``member`` to this guild's staff, the one path the Staff tab and the member edit page share (#968).
+
+        A preset ``role`` or a ``custom_title`` adds that row. With neither, ``class_reviewer``
+        makes them a Class Reviewer in one step: a member already on the staff has the switch
+        turned on, and anyone else gets a row titled "Class Reviewer". ``class_reviewer`` sets
+        every row they hold here (:meth:`set_class_reviewer`), so the switch reads one state
+        per person. Sends nothing.
+
+        Args:
+            member: Who joins the staff.
+            role: A :class:`GuildStaffMembership.Role` value, or "".
+            custom_title: A free text title, or "".
+            class_reviewer: Turn Class Reviewer on for them here.
+
+        Returns:
+            The row added, or None when an existing member of the staff was only switched on.
+
+        Raises:
+            ValueError: The member leads this guild, or the title is refused
+                (:meth:`GuildStaffMembership.title_problem`).
+        """
+        if self.guild_lead_id == member.pk:
+            raise ValueError(f"{member.display_name} leads {self.name} and already has every staff power.")
+        problem = GuildStaffMembership.title_problem(self, member, role, custom_title, class_reviewer=class_reviewer)
+        if problem:
+            raise ValueError(problem)
+        with transaction.atomic():
+            if not role and not custom_title:
+                if self.set_class_reviewer(member, True):
+                    return None
+                custom_title = GuildStaffMembership.CLASS_REVIEWER_TITLE
+            reviews = class_reviewer or self.reviews_classes(member)
+            staff = GuildStaffMembership.objects.create(
+                guild=self, member=member, role=role, custom_title=custom_title, can_review_classes=reviews
+            )
+            if class_reviewer:
+                self.set_class_reviewer(member, True)
+        return staff
+
+    def remove_staff(self, staff: GuildStaffMembership) -> int:
+        """Delete one staff row, retiring the member's orienter hours if it was their last role here.
+
+        Shared by the Staff tab and the member edit page (#968). A member can hold several rows
+        (Treasurer and Orienter); dropping one keeps their hours.
+
+        Returns:
+            How many upcoming booked orientation slots they still hold here (0 when they stay on).
+
+        Raises:
+            ValueError: ``staff`` belongs to another guild.
+        """
+        if staff.guild_id != self.pk:
+            raise ValueError(f"That staff row is not on {self.name}.")
+        member = staff.member
+        staff.delete()
+        if member.pk in {leader.pk for leader in self.leadership_members()}:
+            return 0
+        from membership import orientations
+
+        _removed, booked_remaining = orientations.retire_orienter(self, member)
+        return booked_remaining
+
+    def clear_lead(self) -> Member | None:
+        """Remove this guild's lead (``guild_lead`` to None) and return who it was.
+
+        The web counterpart of ``set_guild_lead --clear``: the FK goes and nothing else changes,
+        so staff rows and orienter hours stay as they are.
+        """
+        previous = self.guild_lead
+        self.guild_lead = None
+        self.save(update_fields=["guild_lead"])
+        return previous
+
     @property
     def co_leads(self) -> list[Member]:
         """Members holding the Co-Lead staff role, without repeating the lead.
@@ -3979,6 +4087,54 @@ class GuildStaffMembership(models.Model):
     def display_title(self) -> str:
         """The label to show for this staff entry — the custom title if set, else the preset role's label."""
         return self.custom_title or self.get_role_display()
+
+    CLASS_REVIEWER_TITLE: ClassVar[str] = "Class Reviewer"
+
+    @classmethod
+    def title_problem(
+        cls,
+        guild: Guild,
+        member: Member,
+        role: str,
+        custom_title: str,
+        *,
+        class_reviewer: bool = False,
+        exclude_pk: int | None = None,
+    ) -> str:
+        """Why this role or title cannot be given to ``member`` on ``guild``, or "" when it can.
+
+        One preset role or one custom title, never both. Neither is allowed only when the action
+        is just turning on Class Reviewer (:meth:`Guild.add_staff`). A custom title may not
+        repeat a preset's label, and the member may not hold the same role or title twice.
+        ``exclude_pk`` skips the row being renamed.
+        """
+        if role and custom_title:
+            return "Pick a preset role or type a custom title — not both."
+        if not role and not custom_title:
+            return "" if class_reviewer else "Pick a role or type a custom title."
+        if custom_title and custom_title.casefold() in {label.casefold() for label in cls.Role.labels}:
+            return "That title is already a preset role — pick it from the dropdown instead."
+        held = guild.staff_memberships.filter(member=member)
+        if exclude_pk is not None:
+            held = held.exclude(pk=exclude_pk)
+        if role and held.filter(role=role).exists():
+            return f"{member.display_name} is already {cls.Role(role).label} of this guild."
+        if custom_title and held.filter(custom_title__iexact=custom_title).exists():
+            return f"{member.display_name} already holds the title “{custom_title}”."
+        return ""
+
+    def retitle(self, role: str, custom_title: str) -> None:
+        """Change this row to another preset role or custom title, keeping its Class Reviewer flag.
+
+        Raises:
+            ValueError: The new title is refused (:meth:`title_problem`).
+        """
+        problem = self.title_problem(self.guild, self.member, role, custom_title, exclude_pk=self.pk)
+        if problem:
+            raise ValueError(problem)
+        self.role = role
+        self.custom_title = custom_title
+        self.save(update_fields=["role", "custom_title"])
 
     def __str__(self) -> str:
         return f"{self.member.display_name} — {self.display_title} of {self.guild.name}"
