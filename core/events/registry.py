@@ -135,7 +135,7 @@ class Recipients(str, Enum):
     # audience so the settings page shows its rows to the kiln crew only, not to every
     # guild's leadership.
     KILN_CREW = "kiln_crew"
-    # Facility tours (#948): the tour's guide, or every Tour Guide holder when it has none.
+    # Facility tours (#948): the tour's guide, or the admins when it has none (#949).
     TOUR_GUIDES = "tour_guides"
 
 
@@ -1565,8 +1565,8 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # tour.booked: a visitor booked a facility tour on tours.pastlives.space (#948). Goes to
-    # the tour's guide (email, bell and push), or every Tour Guide holder when the tour has no
-    # guide. The email is the structural shell in templates/tours/emails/guide_booked.*.
+    # the tour's guide (email, bell and push), or the admins when the tour has no guide (#949:
+    # only an admin can see or act on it). The email is the structural shell in templates/tours/emails/guide_booked.*.
     EventType(
         key=TOUR_BOOKED,
         label="New tour booked",

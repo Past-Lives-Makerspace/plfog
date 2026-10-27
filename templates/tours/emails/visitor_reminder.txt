@@ -1,4 +1,4 @@
-Hi {{ greeting_name }},
+{% autoescape off %}Hi {{ greeting_name }},
 
 A quick reminder: your tour of Past Lives Makerspace is tomorrow!
 
@@ -6,4 +6,4 @@ A quick reminder: your tour of Past Lives Makerspace is tomorrow!
 See you soon!
 
 Your tour: {{ manage_url }}
-{% include "tours/emails/_actions.txt" %}{% include "tours/emails/_footer.txt" %}
+{% include "tours/emails/_actions.txt" %}{% include "tours/emails/_footer.txt" %}{% endautoescape %}

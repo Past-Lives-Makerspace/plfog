@@ -1,0 +1,4 @@
+{% autoescape off %}{% if staff_message %}{{ note_label }}:
+{{ staff_message }}
+
+{% endif %}{% endautoescape %}

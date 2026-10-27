@@ -1,9 +1,9 @@
-Hi {{ greeting_name }},
+{% autoescape off %}Hi {{ greeting_name }},
 
 Your tour of Past Lives Makerspace has a new time.{% if previous_when %} We moved it from {{ previous_when }}.{% endif %}
 
-{% include "tours/emails/_tour.txt" %}
+{% include "tours/emails/_staff_message.txt" %}{% include "tours/emails/_tour.txt" %}
 We attached an updated calendar invite. It replaces the one you have.
 
 Your tour: {{ manage_url }}
-{% include "tours/emails/_actions.txt" %}{% include "tours/emails/_footer.txt" %}
+{% include "tours/emails/_actions.txt" %}{% include "tours/emails/_footer.txt" %}{% endautoescape %}

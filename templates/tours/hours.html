@@ -6,11 +6,10 @@
 {% endblock %}
 {% block content %}
 {% comment %}
-The Tours page (#947), for Tour Guides and admins, opened from the Tours card on the Tools page
-(tours.views.tour_hours). Its first tab, My Hours,
-is a guide's weekly tour hours (rows of day, from, until, tour length and seats, each cut into back
-to back tours) and their days off. An admin picks whose hours to edit with the guide picker.
-Admins also get the Settings tab (tours/settings.html). Upcoming and Past join the tab row in part 3 (#949).
+The Tours page's My Hours tab (#947, tours.views.tour_hours), for Tour Guides and admins: a guide's
+weekly tour hours (rows of day, from, until, tour length and seats, each cut into back to back
+tours) and their days off. An admin picks whose hours to edit with the guide picker. The page opens
+on Upcoming (tours/bookings.html, #949); admins also get the Settings tab (tours/settings.html).
 {% endcomment %}
 {% include "tours/partials/_page_top.html" with tab="hours" %}
 

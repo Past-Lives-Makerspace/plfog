@@ -1,0 +1,5 @@
+{% comment %}
+The Cancel Tour confirm's body on the Upcoming tab (#949), included by components/confirm_modal.html
+with the row's context. Context: booking.
+{% endcomment %}
+<p class="pl-tours-confirm-text">Cancel {{ booking.visitor_name }}'s tour for {{ booking.party_label }} on {{ booking.starts_at|date:"l, F j" }} at {{ booking.starts_at|time:"g:i A" }}? Its seats open again, and we email them the cancellation with a calendar update.</p>

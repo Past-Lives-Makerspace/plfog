@@ -1,12 +1,14 @@
-{% if change == "cancelled" %}Tour cancelled
+{% autoescape off %}{% if change == "cancelled" %}Tour cancelled{% else %}Tour moved{% endif %}
 
-{{ booking.visitor_name }} cancelled their tour for {{ people }} on {{ when }}. Their seats are open again.{% elif stays_with_guide %}Tour moved
+{% if actor_name %}{% if change == "cancelled" %}{{ actor_name }} cancelled {{ booking.visitor_name }}'s tour for {{ people }} on {{ when }}. The visitor has been emailed and the seats are open again.{% elif stays_with_guide %}{{ actor_name }} moved {{ booking.visitor_name }}'s tour for {{ people }} from {{ previous_when }} to {{ when }}. The visitor has been emailed.{% else %}{{ actor_name }} moved {{ booking.visitor_name }}'s tour for {{ people }} on {{ previous_when }} to {{ new_guide_name }}. It is off your schedule.{% endif %}
 
-{{ booking.visitor_name }} moved their tour for {{ people }} from {{ previous_when }} to {{ when }}.{% else %}Tour moved
+{% include "tours/emails/_staff_message.txt" with note_label="Their note to the visitor" %}{% elif change == "cancelled" %}{{ booking.visitor_name }} cancelled their tour for {{ people }} on {{ when }}. Their seats are open again.
 
-{{ booking.visitor_name }} moved their tour for {{ people }} on {{ previous_when }} to another guide's time. It is off your schedule.{% endif %}
+{% elif stays_with_guide %}{{ booking.visitor_name }} moved their tour for {{ people }} from {{ previous_when }} to {{ when }}.
 
-Visitor: {{ booking.visitor_email }}{% if booking.visitor_phone %}, {{ booking.visitor_phone }}{% endif %}
+{% else %}{{ booking.visitor_name }} moved their tour for {{ people }} on {{ previous_when }} to another guide's time. It is off your schedule.
+
+{% endif %}Visitor: {{ booking.visitor_email }}{% if booking.visitor_phone %}, {{ booking.visitor_phone }}{% endif %}
 
 Open Tours: {{ tours_page_url }}
-{% include "membership/emails/_footer.txt" %}
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}

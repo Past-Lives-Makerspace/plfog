@@ -1,3 +1,3 @@
-  When: {{ when }}
+{% autoescape off %}  When: {{ when }}
   Where: {{ address }}
-  Who: {{ booking.party_size }} {% if booking.party_size == 1 %}person{% else %}people{% endif %}{% if guide_name %}, with {{ guide_name }} as your guide{% endif %}
+  Who: {{ booking.party_size }} {% if booking.party_size == 1 %}person{% else %}people{% endif %}{% if guide_name %}, with {{ guide_name }} as your guide{% endif %}{% endautoescape %}

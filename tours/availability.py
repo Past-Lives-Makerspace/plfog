@@ -79,13 +79,18 @@ class BookingWindow:
     earliest_start: datetime
 
     @classmethod
-    def at(cls, now: datetime, tour_settings: FacilityTourSettings) -> BookingWindow:
-        """The window as it stands at ``now``."""
+    def at(cls, now: datetime, tour_settings: FacilityTourSettings, *, staff: bool = False) -> BookingWindow:
+        """The window as it stands at ``now``.
+
+        ``staff`` drops the minimum notice (#949): a guide or an admin moving a tour may pick any
+        tour that has not started yet. The horizon still holds.
+        """
         today = timezone.localdate(now)
+        notice = timedelta(0) if staff else timedelta(hours=tour_settings.min_notice_hours)
         return cls(
             first_day=today,
             last_day=today + timedelta(days=tour_settings.booking_horizon_days),
-            earliest_start=now + timedelta(hours=tour_settings.min_notice_hours),
+            earliest_start=now + notice,
         )
 
     def admits(self, starts_at: datetime) -> bool:
@@ -118,6 +123,7 @@ def open_tours(
     guide: Member | None = None,
     include_full: bool = False,
     now: datetime | None = None,
+    staff: bool = False,
 ) -> list[OpenTour]:
     """The tours visitors can book from ``first_day`` to ``last_day`` (local days, both included).
 
@@ -133,11 +139,12 @@ def open_tours(
         guide: only this guide's tours, when given.
         include_full: keep tours with no seat left (with ``seats_left`` 0).
         now: the moment to judge the horizon and notice from; defaults to now.
+        staff: a guide or an admin is choosing, so the minimum notice does not apply (#949).
 
     Returns:
         The tours, soonest first, guides by name within a start time.
     """
-    window = BookingWindow.at(now or timezone.now(), FacilityTourSettings.load())
+    window = BookingWindow.at(now or timezone.now(), FacilityTourSettings.load(), staff=staff)
     first_day = max(first_day, window.first_day)
     last_day = min(last_day, window.last_day)
     if last_day < first_day:
@@ -185,7 +192,7 @@ def open_tours(
 
 
 def open_tour_at(
-    guide: Member, starts_at: datetime, *, lock: bool = False, now: datetime | None = None
+    guide: Member, starts_at: datetime, *, lock: bool = False, now: datetime | None = None, staff: bool = False
 ) -> OpenTour | None:
     """The guide's tour starting at ``starts_at`` if visitors may book it now, full or not; else None.
 
@@ -202,6 +209,7 @@ def open_tour_at(
             row before the transaction ends; every booking of one tour takes the same lock, so
             the seat count each one reads includes every booking committed before it.
         now: the moment to judge the horizon and notice from; defaults to now.
+        staff: a guide or an admin is moving a tour, so the minimum notice does not apply (#949).
 
     Returns:
         The tour, or None.
@@ -212,7 +220,7 @@ def open_tour_at(
     if lock and not transaction.get_connection().in_atomic_block:
         raise RuntimeError("open_tour_at(lock=True) must run inside transaction.atomic().")
     starts_at = starts_at.astimezone(UTC)
-    window = BookingWindow.at(now or timezone.now(), FacilityTourSettings.load())
+    window = BookingWindow.at(now or timezone.now(), FacilityTourSettings.load(), staff=staff)
     if not window.admits(starts_at):
         return None
     day = timezone.localdate(starts_at)

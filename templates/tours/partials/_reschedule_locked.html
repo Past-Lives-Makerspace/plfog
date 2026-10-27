@@ -1,0 +1,10 @@
+{% comment %}
+The Reschedule modal's body when the tour can no longer move (#949): cancelled or started since the
+Upcoming tab loaded (tours.views.tour_booking_reschedule). Context: booking, message.
+{% endcomment %}
+<div class="pl-tours-move" data-tour-move-locked="{{ booking.pk }}">
+  <p class="pl-field-error pl-tours-move__error" role="alert">{{ message }}</p>
+  <div class="pl-tours-modal-actions">
+    <a href="{% url 'tours:upcoming' %}" class="pl-btn pl-btn--secondary" data-tour-move-refresh>Refresh Upcoming</a>
+  </div>
+</div>

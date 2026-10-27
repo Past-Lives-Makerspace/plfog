@@ -1,7 +1,7 @@
 {% extends "membership/emails/_base.html" %}
 {% block content %}
-<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">New tour booked</p>
-<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;"><strong>{{ booking.visitor_name }}</strong> booked a tour for {{ people }}.</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">{% if actor_name %}Tour moved to you{% else %}New tour booked{% endif %}</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">{% if actor_name %}{{ actor_name }} moved <strong>{{ booking.visitor_name }}</strong>'s tour for {{ people }} to you. The visitor has been emailed.{% else %}<strong>{{ booking.visitor_name }}</strong> booked a tour for {{ people }}.{% endif %}</p>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 8px 0 16px;">
 <tr>
 <td style="padding: 12px 0; border-top: 1px solid rgba(13, 72, 118, 0.12);">

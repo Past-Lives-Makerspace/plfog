@@ -3,6 +3,7 @@
 <p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
 <p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">Your tour has a new time</p>
 <p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">{% if previous_when %}We moved your tour from {{ previous_when }}. {% endif %}Here is your <a href="{{ manage_url }}" style="color: #0d4876; text-decoration: none; font-weight: 700;">new tour time</a>.</p>
+{% include "tours/emails/_staff_message.html" %}
 {% include "tours/emails/_tour.html" %}
 <p style="margin: 0 0 16px; font-size: 13px; color: #55697a; line-height: 1.6;">We attached an updated calendar invite. It replaces the one you have.</p>
 {% include "tours/emails/_actions.html" %}

@@ -63,7 +63,7 @@ def _login_superuser(client: Client, username: str = "fogadmin") -> User:
     return User.objects.get(username=username)
 
 
-_TOURS_HREF = reverse("tours:hours")
+_TOURS_HREF = reverse("tours:upcoming")
 
 
 def describe_admin_tools_tours_card():
