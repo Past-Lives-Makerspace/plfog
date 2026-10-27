@@ -986,6 +986,18 @@ urlpatterns = [
         name="hub_admin_spotlight_crawl_speed",
     ),
     # The Home announcements (#889), in the Spotlight page's Announcements section.
+    # Discord pings waiting for review (#943): Edit, Approve and Discard.
+    path("manage/spotlight/discord/<int:pk>/edit/", spotlight_views.hub_admin_ping_edit, name="hub_admin_ping_edit"),
+    path(
+        "manage/spotlight/discord/<int:pk>/approve/",
+        spotlight_views.hub_admin_ping_approve,
+        name="hub_admin_ping_approve",
+    ),
+    path(
+        "manage/spotlight/discord/<int:pk>/discard/",
+        spotlight_views.hub_admin_ping_discard,
+        name="hub_admin_ping_discard",
+    ),
     path(
         "manage/spotlight/announcements/new/",
         announcement_admin_views.hub_admin_announcement_new,

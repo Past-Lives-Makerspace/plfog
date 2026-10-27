@@ -411,6 +411,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="queue_discord_pings",
+        name="Discord pings to Spotlight",
+        description=(
+            "Reads new Discord messages and queues each one that pings @everyone or a guild for review "
+            "in Admin Tools > Spotlight. Nothing goes live until an admin approves it."
+        ),
+        command="queue_discord_pings",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="process_discord_removals",
         name="Remove ex-members from Discord",
         description=(

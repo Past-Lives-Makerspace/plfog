@@ -43,7 +43,7 @@ from classes.access import class_access
 from classes.models import Category, ClassOffering
 from core.htmx import wants_fragment
 from core.features import is_on
-from core.models import BiometricCredential, FeedbackRequest, HeroCropMixin, SiteConfiguration
+from core.models import BiometricCredential, FeedbackRequest, HeroCropMixin, QueuedDiscordMessage, SiteConfiguration
 from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     AutomationsForm,
@@ -5439,6 +5439,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tools_page_title": tools_page_title,
             "guild_tools": guild_tools,
             "feedback_received_count": FeedbackRequest.objects.received().count() if is_admin else 0,
+            "spotlight_waiting_count": QueuedDiscordMessage.objects.waiting().count() if is_admin else 0,
         },
     )
 
