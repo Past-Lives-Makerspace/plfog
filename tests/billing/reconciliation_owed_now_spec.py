@@ -177,7 +177,7 @@ def describe_a_share_whose_class_has_not_happened():
             '<td class="r">$70.00</td><td class="r">$140.00<br><span class="muted">next due Nov 7</span></td>'
             in printed
         )
-        assert "<th class=\"r\">Owed manually</th>" not in printed
+        assert '<th class="r">Owed manually</th>' not in printed
 
     def it_reads_a_class_with_no_sessions_as_not_yet_due_with_no_date():
         instructor = _instructor()
