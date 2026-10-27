@@ -1620,6 +1620,7 @@ class SiteSettingsForm(_OwnFieldErrorsOnly):
             "discord_officers_webhook_url",
             "discord_reservations_webhook_url",
             "discord_server_id",
+            "discord_member_role_id",
             "discord_role_message_channel_id",
             "discord_role_message_id",
             "member_event_policy",

@@ -83,6 +83,43 @@ def describe_next_meeting_card():
         assert next_meeting is not None
         assert date_filter(next_meeting.when, "l, F j") in content
 
+    def it_shows_studio_hours_with_their_title_when_they_come_first(client: Client):
+        # Anything the guild staff coordinates is the Next Meeting (#953), titled when it is an event.
+        _member(client, "v5")
+        guild = GuildFactory()
+        start = timezone.localtime(timezone.now()) + timezone.timedelta(days=2)
+        CommunityEventFactory(
+            studio_hours=True,
+            guild=guild,
+            title="Open Bench Hours",
+            starts_at=start,
+            ends_at=start + timezone.timedelta(hours=3),
+        )
+        content = client.get(f"/guilds/{guild.slug}/").content.decode()
+        card = content.split('<h3 class="hub-detail-label">Next Meeting</h3>')[1].split("Get Involved")[0]
+        assert '<div class="hub-member-name pl-guild-next__title">Open Bench Hours</div>' in card
+        assert f'<div class="pl-guild-next__date">{date_filter(start, "l, F j")}</div>' in card
+        assert f"Next up {date_filter(start, 'M j')}" in content
+        assert "Next meeting " not in content.split('class="pl-guild-statbar__chips"')[1].split("</div>")[0]
+
+    def it_says_next_meeting_in_the_badge_for_a_meeting(client: Client):
+        _member(client, "v7")
+        guild = GuildFactory()
+        start = timezone.localtime(timezone.now()) + timezone.timedelta(days=2)
+        CommunityEventFactory(
+            guild_meeting=True, guild=guild, starts_at=start, ends_at=start + timezone.timedelta(hours=1)
+        )
+        content = client.get(f"/guilds/{guild.slug}/").content.decode()
+        assert f"Next meeting {date_filter(start, 'M j')}" in content
+
+    def it_still_reads_tba_for_a_tba_guild_with_nothing_dated(client: Client):
+        _member(client, "v6")
+        guild = GuildFactory(meeting_is_tba=True)
+        content = client.get(f"/guilds/{guild.slug}/").content.decode()
+        card = content.split('<h3 class="hub-detail-label">Next Meeting</h3>')[1].split("Get Involved")[0]
+        assert "TBA" in card
+        assert "Next meeting " not in content.split('class="pl-guild-statbar__chips"')[1].split("</div>")[0]
+
 
 def describe_home_upcoming_widget():
     def it_labels_studio_hours_rows_as_studio_hours(client: Client):

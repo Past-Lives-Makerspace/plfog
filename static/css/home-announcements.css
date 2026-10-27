@@ -256,6 +256,87 @@
     }
 }
 
+/* Waiting for Review (#943): the queued Discord pings, a block of its own between the card's head and its intro.
+   The card's 1rem flex gap and this margin clear the head by 1.5rem. */
+.pl-ping-queue {
+    margin-top: 0.5rem;
+    padding: 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 10px;
+}
+
+.pl-ping-queue__title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1rem;
+}
+
+.pl-ping-queue__intro {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.pl-ping-queue__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.pl-ping-queue__row {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 10px;
+    background: var(--hub-surface);
+}
+
+.pl-ping-queue__label {
+    margin-top: 0.75rem;
+    color: var(--hub-text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.pl-ping-queue__original {
+    margin: 0.25rem 0 0;
+    padding-left: 0.75rem;
+    border-left: 3px solid var(--hub-border);
+    color: var(--hub-text);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.pl-ping-queue__meta {
+    margin-top: 0.75rem;
+}
+
+.pl-ping-queue__link {
+    color: var(--color-tuscan-yellow);
+    font-weight: 600;
+}
+
+.pl-ping-queue__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+[data-theme="light"] .pl-ping-queue .hub-pill--neutral {
+    color: #5b6675;
+}
+
+[data-theme="light"] .pl-ping-queue__link {
+    color: #9c5e0d;
+}
+
 /* The Crawl speed slider (#942) at the foot of the card: the slider, Slow and Fast either side of the speed in words,
    a note, and a preview that is Home's own ticker (the ticker rules above) crawling at the slider's speed. */
 .pl-crawl-speed {

@@ -170,16 +170,70 @@ def _format_time_range(start: datetime_type, end: datetime_type) -> str:
 
 
 class NextMeeting(NamedTuple):
-    """A guild's soonest upcoming meeting, for the two "Next Meeting" surfaces.
+    """A guild's soonest upcoming thing, for the "Next Meeting" card and the Meetings page (#953).
 
-    ``when`` is the start datetime (aware). ``has_time`` is False only for a legacy cadence
-    that has no ``meeting_time`` set, so the card can render the date without a bogus midnight
-    time; an event-derived meeting always carries a real time and its own ``location``.
+    ``when`` is the start datetime (aware). ``has_time`` is False for a legacy cadence with no
+    ``meeting_time``, a Meeting row with no time and an all day Google event, so the card can
+    render the date without a bogus midnight time. ``title`` is the event's title when it comes
+    from an event (a guild's own or a Google calendar row), blank otherwise. ``is_meeting`` is
+    False for anything that is not a meeting (studio hours, a potluck, a Google row), which is
+    where "Start the agenda" must not be offered.
     """
 
     when: datetime_type
     location: str
     has_time: bool
+    title: str = ""
+    is_meeting: bool = True
+
+
+# How far ahead the Next Meeting card looks: a year of occurrences.
+NEXT_MEETING_HORIZON_DAYS = 370
+
+
+@dataclass(frozen=True)
+class NextMeetingSources:
+    """What the Next Meeting card reads beyond a guild's own events, loaded once for many guilds (#953).
+
+    ``meetings`` is the soonest upcoming :class:`Meeting` per guild pk. ``calendar_events`` are the
+    upcoming Google calendar rows (:class:`CalendarEvent`, guild and general feeds, soonest first)
+    whose title names one of the loaded guilds. Two queries whatever the number of guilds, so a list
+    page passes one of these to every :meth:`Guild.next_meeting_occurrence` call instead of paying
+    per guild. Google rows are only read here, never linked or written.
+    """
+
+    meetings: dict[int, Meeting]
+    calendar_events: list[CalendarEvent]
+
+    @classmethod
+    def load(cls, guilds: Sequence[Guild]) -> NextMeetingSources:
+        """Load the upcoming Meeting rows and name matched Google rows for ``guilds``."""
+        if not guilds:
+            return cls(meetings={}, calendar_events=[])
+        now = timezone.now()
+        meetings: dict[int, Meeting] = {}
+        for meeting in Meeting.objects.upcoming().filter(guild_id__in=[guild.pk for guild in guilds]):
+            # A timed meeting from earlier today is over; an untimed one dated today is still
+            # today's meeting and sorts by its date.
+            if meeting.scheduled_time is not None and cast(datetime_type, meeting.starts_at) < now:
+                continue
+            meetings.setdefault(cast(int, meeting.guild_id), meeting)  # soonest first: the first one wins
+        names = Q()
+        for guild in guilds:
+            names |= Q(title__icontains=guild.name)
+        calendar_events = list(
+            CalendarEvent.objects.filter(
+                names, start_dt__gte=now, start_dt__lte=now + timedelta(days=NEXT_MEETING_HORIZON_DAYS)
+            )
+            .exclude(source=CalendarEvent.Source.CLASSES)
+            .order_by("start_dt")
+        )
+        return cls(meetings=meetings, calendar_events=calendar_events)
+
+    def calendar_event_for(self, guild: Guild) -> CalendarEvent | None:
+        """The soonest loaded Google row whose title has ``guild``'s name in it, any case."""
+        name = guild.name.lower()
+        return next((event for event in self.calendar_events if name in event.title.lower()), None)
 
 
 class FlyerWhen(NamedTuple):
@@ -3323,30 +3377,48 @@ class Guild(HeroCropMixin, models.Model):
             )
         return blocks
 
-    def next_meeting_occurrence(self) -> NextMeeting | None:
-        """The soonest upcoming meeting, across event-based GUILD_MEETING occurrences and the
-        legacy cadence — so a weekly meeting entered as an event surfaces in the "Next Meeting"
-        card without duplicating recurrence logic.
+    def next_meeting_occurrence(
+        self, sources: NextMeetingSources | None = None, *, meetings_only: bool = False
+    ) -> NextMeeting | None:
+        """The soonest thing this guild has coming up, for the "Next Meeting" card (#953).
 
-        Returns a :class:`NextMeeting` (``when`` datetime + ``location`` + ``has_time``) so both
-        the aside card and the stat chip render coherently: an event carries its own time and
-        location; the legacy cadence carries ``meeting_time``/``meeting_location`` only when set.
-        ``None`` ⇒ TBA. Reads the prefetched ``events`` cache (no per-guild query).
+        Counts every published event of the guild's own, of any type (meetings, studio hours,
+        anything else), the meeting cadence or override, the soonest upcoming :class:`Meeting`
+        row, and the soonest upcoming Google calendar row whose title names the guild. An event
+        carries its own title, time and location; the cadence carries ``meeting_time`` and
+        ``meeting_location`` only when set. ``None`` means nothing dated: the card reads TBA.
+
+        Reads the prefetched ``events`` cache. ``sources`` carries the Meeting and Google rows
+        for a page that lists many guilds (:meth:`NextMeetingSources.load`, two queries for the
+        page); without it this guild's own are loaded, two queries.
+
+        ``meetings_only`` keeps to meetings (guild meeting events, Meeting rows, the cadence):
+        what "Start the agenda" and the Meetings page read, so weekly studio hours never hide
+        the monthly meeting there.
         """
-        now = timezone.now()
-        today = timezone.localdate()
-        horizon = today + timedelta(days=370)
-        candidates: list[NextMeeting] = []
-        for event in self.events.all():
-            if (
-                event.event_type != CommunityEvent.EventType.GUILD_MEETING
-                or event.moderation_state != CommunityEvent.ModerationState.PUBLISHED
-            ):
-                continue
-            for occurrence in event.occurrences_in(today, horizon):
-                if occurrence >= now:
-                    candidates.append(NextMeeting(when=occurrence, location=event.location, has_time=True))
-                    break
+        if sources is None:
+            sources = NextMeetingSources.load([self])
+        candidates = self._next_event_occurrences(meetings_only=meetings_only)
+        meeting = sources.meetings.get(self.pk)
+        if meeting is not None:
+            candidates.append(
+                NextMeeting(
+                    when=cast(datetime_type, meeting.starts_at),
+                    location="",
+                    has_time=meeting.scheduled_time is not None,
+                )
+            )
+        calendar_event = None if meetings_only else sources.calendar_event_for(self)
+        if calendar_event is not None:
+            candidates.append(
+                NextMeeting(
+                    when=calendar_event.start_dt,
+                    location=calendar_event.location,
+                    has_time=not calendar_event.all_day,
+                    title=calendar_event.title,
+                    is_meeting=False,
+                )
+            )
         legacy_date = self.next_meeting_at
         if legacy_date is not None:
             aware = timezone.make_aware(datetime_type.combine(legacy_date, self.meeting_time or time_type()))
@@ -3356,6 +3428,35 @@ class Guild(HeroCropMixin, models.Model):
         if not candidates:
             return None
         return min(candidates, key=lambda candidate: candidate.when)
+
+    def _next_event_occurrences(self, *, meetings_only: bool) -> list[NextMeeting]:
+        """The next occurrence of each published event of the guild's own (its guild meetings
+        alone when ``meetings_only``), from the prefetched ``events`` cache."""
+        now = timezone.now()
+        today = timezone.localdate()
+        horizon = today + timedelta(days=NEXT_MEETING_HORIZON_DAYS)
+        found: list[NextMeeting] = []
+        for event in self.events.all():
+            is_meeting = event.event_type == CommunityEvent.EventType.GUILD_MEETING
+            if event.moderation_state != CommunityEvent.ModerationState.PUBLISHED or (meetings_only and not is_meeting):
+                continue
+            occurrence = next((when for when in event.occurrences_in(today, horizon) if when >= now), None)
+            if occurrence is not None:
+                found.append(
+                    NextMeeting(
+                        when=occurrence,
+                        location=event.location,
+                        has_time=True,
+                        title=event.title,
+                        is_meeting=is_meeting,
+                    )
+                )
+        return found
+
+    def has_something_coming_up(self, sources: NextMeetingSources | None = None) -> bool:
+        """Whether the guild has anything on the books (#953): its meeting is marked TBA, or
+        :meth:`next_meeting_occurrence` finds a date. The Needs attention check reads this."""
+        return self.meeting_is_tba or self.next_meeting_occurrence(sources) is not None
 
     @property
     def active_leases(self) -> models.QuerySet[Lease]:
@@ -3960,6 +4061,59 @@ class AdminCapability(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member.display_name} — {self.get_capability_display()}"
+
+
+class GuildNeedsAttentionQuerySet(models.QuerySet):
+    def open(self) -> GuildNeedsAttentionQuerySet:
+        """The stretches still running: the guild still breaks the rule."""
+        return self.filter(cleared_at__isnull=True)
+
+
+class GuildNeedsAttention(models.Model):
+    """One stretch of time a guild breaks a Needs attention rule (#953), from the daily check that
+    found it to the run (or guild save) that saw it fixed.
+
+    The inbox items for the stretch are keyed to this row: each of the guild's leads and staff gets
+    one, and one reminder 30 days later while it stays open. A later stretch is a new row, so it
+    starts over. The rules themselves live in code (``membership.needs_attention.RULES``).
+    """
+
+    guild = models.ForeignKey(
+        Guild,
+        on_delete=models.CASCADE,
+        related_name="needs_attention",
+        help_text="The guild that breaks the rule.",
+    )
+    rule = models.CharField(
+        max_length=60,
+        help_text="The key of the Needs attention rule it breaks (membership.needs_attention.RULES).",
+    )
+    opened_at = models.DateTimeField(
+        default=timezone.now, help_text="When the daily check first found the guild breaking the rule."
+    )
+    cleared_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the guild was seen fixed and its inbox items marked read. Blank while still open.",
+    )
+
+    objects = GuildNeedsAttentionQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-opened_at"]
+        verbose_name = "Guild needs attention"
+        verbose_name_plural = "Guild needs attention"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["guild", "rule"],
+                condition=Q(cleared_at__isnull=True),
+                name="uq_guildneedsattn_open",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        state = "open" if self.cleared_at is None else f"cleared {self.cleared_at:%Y-%m-%d}"
+        return f"{self.guild.name}: {self.rule} ({state})"
 
 
 class GuildImage(models.Model):

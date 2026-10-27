@@ -104,6 +104,8 @@ def describe_discord_tab_render():
         resp = client.get(reverse("hub_admin_site_settings") + "?tab=discord")
         content = resp.content.decode()
         assert 'name="discord_server_id"' in content
+        assert content.count('name="discord_member_role_id"') == 1
+        assert "Discord Member role ID" in content
         assert 'name="discord_role_message_id"' in content
         assert "Emoji → Guild Map" in content
         assert "No emoji mappings yet" in content  # empty state
@@ -118,6 +120,7 @@ def describe_discord_connection_ids():
             reverse("hub_admin_site_settings"),
             _settings_post(
                 discord_server_id="933",
+                discord_member_role_id="4242",
                 discord_role_message_channel_id="1121",
                 discord_role_message_id="1301",
             ),
@@ -125,6 +128,7 @@ def describe_discord_connection_ids():
         assert resp.status_code == 302
         config = SiteConfiguration.load()
         assert config.discord_server_id == "933"
+        assert config.discord_member_role_id == "4242"
         assert config.discord_role_message_channel_id == "1121"
         assert config.discord_role_message_id == "1301"
 

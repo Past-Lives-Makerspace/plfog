@@ -53,6 +53,30 @@ def _date_input() -> forms.DateInput:
     )
 
 
+def clean_spotlight_body(raw: str) -> str:
+    """A Spotlight message's text, sanitized to bold, italic and links and held to :data:`ANNOUNCEMENT_MAX_CHARS`."""
+    html = sanitize_announcement_html(limit_rich_text(raw))
+    count = len(rich_html_to_text(html))
+    if not count:
+        raise forms.ValidationError(ANNOUNCEMENT_EMPTY)
+    if count > ANNOUNCEMENT_MAX_CHARS:
+        raise forms.ValidationError(announcement_too_long(count))
+    return html
+
+
+class QueuedLineForm(forms.Form):
+    """Edit the drafted line of a Discord message waiting for review (#943), by the Spotlight message's own rule."""
+
+    body = forms.CharField(
+        label="Spotlight message",
+        widget=InlineRichTextWidget(),
+        help_text=f"Up to {ANNOUNCEMENT_MAX_CHARS} characters. Bold, italic and links.",
+    )
+
+    def clean_body(self) -> str:
+        return clean_spotlight_body(self.cleaned_data["body"])
+
+
 class AnnouncementForm(forms.ModelForm):
     """Add or edit a Spotlight message (#889): the text, optional Show from and Show until, and Active.
 
@@ -98,13 +122,7 @@ class AnnouncementForm(forms.ModelForm):
         self.initial[f"{name}_time"] = key
 
     def clean_body(self) -> str:
-        html = sanitize_announcement_html(limit_rich_text(self.cleaned_data["body"]))
-        count = len(rich_html_to_text(html))
-        if not count:
-            raise forms.ValidationError(ANNOUNCEMENT_EMPTY)
-        if count > ANNOUNCEMENT_MAX_CHARS:
-            raise forms.ValidationError(announcement_too_long(count))
-        return html
+        return clean_spotlight_body(self.cleaned_data["body"])
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())

@@ -6,8 +6,16 @@ import secrets
 
 import factory
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
-from core.models import Announcement, CopyReviewComment, ScheduledJobState, ScheduledTaskRun, UserProfile
+from core.models import (
+    Announcement,
+    CopyReviewComment,
+    QueuedDiscordMessage,
+    ScheduledJobState,
+    ScheduledTaskRun,
+    UserProfile,
+)
 from core.scheduled_jobs import Trigger
 
 User = get_user_model()
@@ -68,3 +76,19 @@ class AnnouncementFactory(factory.django.DjangoModelFactory):
         model = Announcement
 
     body = factory.Sequence(lambda n: f"<p>Zorblax notice {n}</p>")
+
+
+class QueuedDiscordMessageFactory(factory.django.DjangoModelFactory):
+    """A Discord @everyone ping waiting for review in Spotlight (#943), from an unlinked account."""
+
+    class Meta:
+        model = QueuedDiscordMessage
+
+    discord_message_id = factory.Sequence(lambda n: str(900000 + n))
+    discord_channel_id = "111"
+    discord_url = factory.LazyAttribute(lambda o: f"https://discord.com/channels/1/111/{o.discord_message_id}")
+    original_text = factory.Sequence(lambda n: f"Quorbling the kiln shelves tonight {n}")
+    line = factory.LazyAttribute(lambda o: f"<p>{o.original_text} (Discord Dee)</p>")
+    sender_discord_id = "555"
+    sender_name = "Discord Dee"
+    sent_at = factory.LazyFunction(timezone.now)

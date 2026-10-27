@@ -553,6 +553,7 @@ KILN_READY_FOR_PICKUP = "kiln.ready_for_pickup"  # your pieces came out of a fir
 TOUR_BOOKED = "tour.booked"  # a visitor booked one of your facility tours (#948)
 TOUR_VISITOR_CHANGED = "tour.visitor_changed"  # a visitor moved or cancelled your tour from their email (#948)
 TOUR_VISITOR_UPDATE = "tour.visitor_update"  # the visitor's own tour emails, by address only (#948)
+GUILD_NEEDS_ATTENTION = "guild.needs_attention"  # a guild breaks a Needs attention rule (#953)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -1597,6 +1598,18 @@ _NEW_EVENTS: list[EventType] = [
         category="Tours",
         recipient=Recipients.SINGLE_USER,
         channels=(),
+        activity_kind=None,
+    ),
+    # guild.needs_attention — the daily Needs attention check found a guild breaking one of its
+    # rules (#953), such as nothing coming up. The guild's lead and staff get an inbox item that
+    # clears itself once it is fixed. Inbox only: no email, no digest, no Discord.
+    EventType(
+        key=GUILD_NEEDS_ATTENTION,
+        label="Your guild needs attention",
+        description="Your guild has something to set up, such as its next meeting.",
+        category="Guilds",
+        recipient=Recipients.GUILD_LEADERSHIP,
+        channels=(_IN_APP_ON,),
         activity_kind=None,
     ),
 ]

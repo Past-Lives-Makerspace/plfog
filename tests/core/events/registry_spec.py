@@ -92,6 +92,7 @@ _BRAND_NEW_KEYS = {
     "tour.booked",
     "tour.visitor_changed",
     "tour.visitor_update",
+    "guild.needs_attention",
 }
 
 # The five staff emails #524 moved off fixed address lists, pinned as a literal: who gets

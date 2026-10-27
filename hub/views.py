@@ -43,7 +43,7 @@ from classes.access import class_access
 from classes.models import Category, ClassOffering
 from core.htmx import wants_fragment
 from core.features import is_on
-from core.models import BiometricCredential, FeedbackRequest, HeroCropMixin, SiteConfiguration
+from core.models import BiometricCredential, FeedbackRequest, HeroCropMixin, QueuedDiscordMessage, SiteConfiguration
 from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     AutomationsForm,
@@ -950,8 +950,10 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
 
     guild_ct = ContentType.objects.get_for_model(Guild)
 
+    from membership.models import NextMeetingSources
     from membership.services.location_status import guild_location_statuses
 
+    meeting_sources = NextMeetingSources.load([guild])
     return render(
         request,
         "hub/guild_detail.html",
@@ -974,6 +976,10 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             # Every post expired: "No current announcements." rather than "No announcements yet."
             "has_published_announcements": published_announcement_count > 0,
             "next_guild_meeting": next_guild_meeting,
+            # The Next Meeting card and its stat chip show the soonest of anything (#953); the
+            # Meetings tab's "Start the agenda" reads the soonest meeting. One load feeds both.
+            "next_meeting": guild.next_meeting_occurrence(meeting_sources),
+            "next_scheduled_meeting": guild.next_meeting_occurrence(meeting_sources, meetings_only=True),
             "can_propose_next": can_propose_next,
             "propose_form": propose_form,
             "pending_proposal_count": pending_proposal_count,
@@ -1542,8 +1548,12 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method == "POST":
         form = GuildEditForm(request.POST, request.FILES, instance=guild)
         if form.is_valid():
+            from membership.needs_attention import clear_fixed
+
             form.save()
             guild.add_gallery_images(request.FILES.getlist("gallery_images"))
+            # Setting a meeting from the Needs attention item clears it now, not on tomorrow's run (#953).
+            clear_fixed(guild)
             if wants_autosave(request):
                 return autosave_saved()
             messages.success(request, "Guild page updated.")
@@ -5429,6 +5439,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tools_page_title": tools_page_title,
             "guild_tools": guild_tools,
             "feedback_received_count": FeedbackRequest.objects.received().count() if is_admin else 0,
+            "spotlight_waiting_count": QueuedDiscordMessage.objects.waiting().count() if is_admin else 0,
         },
     )
 

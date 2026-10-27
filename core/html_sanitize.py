@@ -461,7 +461,8 @@ def _plaintext_with_lists_to_html(value: str) -> str:
     even one holding spaces, ends a paragraph and a single newline is a ``<br>``. Inside a
     paragraph, a run of two or more consecutive ``- `` lines becomes a ``<ul>``; a lone ``- `` line (a ``- Penina`` sign off) stays a line
     of text, because a list of one is not a list. Everything is escaped, so no HTML in the
-    text ever runs.
+    text ever runs. A typed web address then becomes a hardened link (the Discord link on an
+    approved ping, #943) through the same linkify pass the editor's HTML takes.
     """
     from django.utils.html import escape
 
@@ -493,7 +494,7 @@ def _plaintext_with_lists_to_html(value: str) -> str:
             index += 1
         if text:
             blocks.append(paragraph(text))
-    return "".join(blocks)
+    return linkify("".join(blocks), _harden_link)
 
 
 def render_rich_email_body(value: str) -> str:

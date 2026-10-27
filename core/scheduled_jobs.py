@@ -383,6 +383,19 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         schedule_label="Nightly ~6 AM",
         cadence=Cadence.DAILY,
     ),
+    # Must stay after sync_all_sources: daily jobs run in list order, and the check reads the
+    # Google rows that import brings in (#953).
+    ScheduledJob(
+        key="check_needs_attention",
+        name="Guild needs attention",
+        description=(
+            "Checks every active guild for things its staff should have in order, such as something "
+            "coming up, and puts an inbox item in front of its leads and staff when one is missing."
+        ),
+        command="check_needs_attention",
+        schedule_label="Daily ~6 AM",
+        cadence=Cadence.DAILY,
+    ),
     ScheduledJob(
         key="announce_live_requests",
         name="Requests gone live",
@@ -402,6 +415,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
             "shows it. A post that cannot be fetched is tried again a day later."
         ),
         command="fetch_video_thumbnails",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
+        key="queue_discord_pings",
+        name="Discord pings to Spotlight",
+        description=(
+            "Reads new Discord messages and queues each one that pings @everyone or a guild for review "
+            "in Admin Tools > Spotlight. Nothing goes live until an admin approves it."
+        ),
+        command="queue_discord_pings",
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,
     ),
