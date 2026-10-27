@@ -17,9 +17,9 @@ client prefetching the link changes nothing; the button POSTs. Context: booking,
       </div>
       <div class="detail-body">
         {% include "tours/public/_details.html" %}
-        <form method="post" action="{% url 'tours_public:cancel' booking.self_serve_token %}" class="pl-tourpub__form" hx-boost="false" data-tour-cancel-form>
+        <form method="post" action="{% url 'tours_public:cancel' booking.self_serve_token %}" class="pl-tourpub__form" hx-boost="false" data-tour-cancel-form data-pl-busy-submit data-pl-busy-label="Cancelling...">
           {% csrf_token %}
-          <button type="submit" class="btn-reg pl-tourpub__submit pl-tourpub__submit--danger">Yes, Cancel My Tour</button>
+          <button type="submit" class="btn-reg pl-tourpub__submit pl-tourpub__submit--danger" data-pl-busy>Yes, Cancel My Tour</button>
         </form>
         <p class="pl-tourpub__fine pl-tourpub__center"><a href="{% url 'tours_public:manage' booking.self_serve_token %}" data-tour-keep>Keep my tour</a></p>
       </div>

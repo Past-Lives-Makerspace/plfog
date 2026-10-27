@@ -296,6 +296,13 @@ class TourBookingForm(forms.Form):
     party_size = forms.TypedChoiceField(coerce=int, label="How many people")
     # Starts on: accounts are encouraged (Felix, #948), and the class booking form defaults its box on too.
     create_account = forms.BooleanField(required=False, initial=True, label=CREATE_ACCOUNT_LABEL)
+    #: A honeypot: off screen for a person, filled by a bot that fills every field (the guest
+    #: RSVP form's ``website``). A filled one books nothing.
+    website = forms.CharField(
+        required=False,
+        label="Leave this field empty",
+        widget=forms.TextInput(attrs={"autocomplete": "off", "tabindex": "-1", "aria-hidden": "true"}),
+    )
 
     def __init__(self, *args: Any, max_party: int, offer_account: bool, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -307,3 +314,8 @@ class TourBookingForm(forms.Form):
         self.fields["phone"].widget = forms.TextInput(attrs={"type": "tel", "autocomplete": "tel"})
         if not offer_account:
             del self.fields["create_account"]
+
+    @property
+    def honeypot_tripped(self) -> bool:
+        """Whether the hidden field came back filled: a bot, answered as if nothing went wrong."""
+        return bool(str(self.data.get("website", "")).strip())

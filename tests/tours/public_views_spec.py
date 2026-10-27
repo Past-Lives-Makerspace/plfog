@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -21,6 +22,13 @@ from tours.forms import CREATE_ACCOUNT_LABEL
 from tours.models import FacilityTourSettings, TourBooking
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits() -> None:
+    """Each spec starts with the booking POST's rate limit unspent (its counters live in the cache)."""
+    cache.clear()
+
 
 HOST = "tours.pastlives.space"
 BOOK = reverse("tours_public:book")
@@ -86,6 +94,13 @@ def describe_booking_page():
         assert f'data-tour-time="{_key(guide, 16)}"' in content
         assert re.search(r"4:00 PM</span>\s*<span class=\"pl-tourpub__time-seats\">1 seat left</span>", content)
         assert re.search(r"5:00 PM</span>\s*<span class=\"pl-tourpub__time-seats\">4 seats left</span>", content)
+
+    def it_names_no_guide_for_a_blank_name_when_two_share_a_time(guide: Member, hours: Any):
+        other = make_guide(full_legal_name="", preferred_name="")
+        TourHoursFactory(guide=other, weekday=_day().weekday())
+        response = _client().get(f"/?date={_day():%Y-%m-%d}")
+        assert response.status_code == 200
+        assert "4 seats left</span>" in response.content.decode()
 
     def it_names_the_guide_when_two_share_a_time(guide: Member, hours: Any):
         other = make_guide(full_legal_name="Olive Other")
@@ -183,13 +198,48 @@ def describe_booking():
         assert TourBooking.objects.get().user == member.user
 
     def it_says_the_time_filled_up_instead_of_overbooking(guide: Member, hours: Any):
-        TourBookingFactory(guide=guide, starts_at=local(_day(), 16), party_size=3)
+        TourBookingFactory(guide=guide, starts_at=local(_day(), 16), party_size=4)
         response = _client().post("/", _post(guide, party_size="2"))
         content = response.content.decode()
         assert response.status_code == 200
         assert "data-tour-error>That time just filled up, pick another.</div>" in content
         assert "data-tour-time" in content
         assert TourBooking.objects.count() == 1
+
+    def it_says_how_many_seats_are_left_for_a_party_too_big(guide: Member, hours: Any):
+        TourBookingFactory(guide=guide, starts_at=local(_day(), 16), party_size=3)
+        content = _client().post("/", _post(guide, party_size="2")).content.decode()
+        assert "data-tour-error>Only 1 seat is left at that time.</div>" in content
+        assert TourBooking.objects.count() == 1
+
+    def it_lands_a_second_press_of_book_on_the_first_booking(guide: Member, hours: Any):
+        first = _client().post("/", _post(guide))
+        second = _client().post("/", _post(guide))
+        assert TourBooking.objects.count() == 1
+        assert second["Location"] == first["Location"]
+
+    def it_books_nothing_for_a_filled_honeypot(guide: Member, hours: Any):
+        response = _client().post("/", _post(guide, website="https://spam.example"))
+        assert (response.status_code, response["Location"]) == (302, "/")
+        assert not TourBooking.objects.exists()
+
+    def it_turns_away_a_connection_past_its_hourly_limit(guide: Member, hours: Any):
+        from tours.public_views import BOOKING_HOURLY_LIMIT
+
+        for number in range(BOOKING_HOURLY_LIMIT):
+            _client().post("/", _post(guide, email=f"v{number}@example.com", party_size="1", hour=17))
+        booked = TourBooking.objects.count()
+        content = _client().post("/", _post(guide, email="late@example.com", party_size="1")).content.decode()
+        assert "data-tour-error>Too many bookings from this connection. Try again in an hour.</div>" in content
+        assert TourBooking.objects.count() == booked
+        assert not TourBooking.objects.filter(visitor_email="late@example.com").exists()
+
+    def it_disables_the_book_button_once_pressed(guide: Member, hours: Any):
+        content = _client().get(f"/?tour={_key(guide, 16)}").content.decode()
+        assert 'data-tour-form data-pl-busy-submit data-pl-busy-label="Booking..."' in content
+        assert "window.plBusySubmitBound" in content
+        assert "No password. You sign in with a code we email you." in content
+        assert "shows up in your account" not in content
 
     def it_refuses_a_tour_key_for_nobody(guide: Member, hours: Any):
         content = _client().post("/", _post(guide, tour="0-20300101T0000Z")).content.decode()
@@ -274,8 +324,25 @@ def describe_reschedule_page():
     def it_shows_why_a_move_failed(guide: Member, booking: TourBooking):
         TourBookingFactory(guide=guide, starts_at=local(_day(), 17), party_size=3)
         content = _client().post(_url("reschedule", booking), {"tour": _key(guide, 17)}).content.decode()
-        assert "data-tour-error>That time just filled up, pick another.</div>" in content
+        assert "data-tour-error>Only 1 seat is left at that time.</div>" in content
         assert "data-tour-move-form" not in content
+
+    def it_offers_no_time_and_moves_nothing_while_bookings_are_closed(guide: Member, booking: TourBooking):
+        tour_settings = FacilityTourSettings.load()
+        tour_settings.accepting_bookings = False
+        tour_settings.closed_message = "Back in the spring."
+        tour_settings.save()
+        page = _client().get(_url("reschedule", booking)).content.decode()
+        assert "data-tour-closed>Back in the spring.</p>" in page
+        assert "data-tour-time" not in page
+        assert f'href="{_url("cancel", booking)}"' in page
+        refused = _client().post(_url("reschedule", booking), {"tour": _key(guide, 17)}).content.decode()
+        assert "data-tour-closed>" in refused
+        booking.refresh_from_db()
+        assert (booking.starts_at, booking.sequence) == (local(_day(), 16), 0)
+        assert _client().post(_url("cancel", booking)).status_code == 302
+        booking.refresh_from_db()
+        assert booking.status == TourBooking.Status.CANCELLED
 
     def it_refuses_a_key_for_nobody(booking: TourBooking):
         content = _client().post(_url("reschedule", booking), {"tour": "bad"}).content.decode()
@@ -335,3 +402,15 @@ def describe_cancel_page():
         with patch("tours.public_views._refusal", return_value=""):
             content = _client().post(_url("cancel", booking)).content.decode()
         assert 'data-tour-reason="cancelled"' in content
+
+
+def describe_google_analytics():
+    def it_redacts_the_booking_token_before_a_page_is_sent(booking: TourBooking):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.google_analytics_measurement_id = "G-TOURS948"
+        config.save()
+        content = _client().get(_url("manage", booking)).content.decode()
+        assert "var tourToken = /^\\/tour\\/b\\/[^\\/]+/;" in content
+        assert "u.pathname.replace(tourToken, '/tour/b/redacted')" in content

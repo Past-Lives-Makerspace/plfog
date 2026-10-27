@@ -13,13 +13,14 @@ the transaction has committed (:func:`_after_commit`).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 from django.utils import timezone
 
 from core.services.guest_account import ensure_guest_account, find_user_for_email
+from membership.models import Member
 from tours import signals
 from tours.availability import open_tour_at
 from tours.models import FacilityTourSettings, TourBooking
@@ -27,11 +28,21 @@ from tours.models import FacilityTourSettings, TourBooking
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
-    from membership.models import Member
-
 FILLED_MESSAGE = "That time just filled up, pick another."
 GONE_MESSAGE = "That time is no longer open, pick another."
 SAME_TIME_MESSAGE = "That is already your tour time. Pick a different one."
+#: A second identical booking (same email, guide and start) inside this long is the same visitor
+#: pressing Book twice, answered with the first booking rather than a second one.
+REPEAT_WINDOW = timedelta(minutes=10)
+
+
+def seats_message(seats_left: int) -> str:
+    """What a visitor reads when their party does not fit: filled up, or how many seats remain."""
+    if seats_left <= 0:
+        return FILLED_MESSAGE
+    if seats_left == 1:
+        return "Only 1 seat is left at that time."
+    return f"Only {seats_left} seats are left at that time."
 
 
 class TourBookingError(Exception):
@@ -42,7 +53,7 @@ class TourFullError(TourBookingError):
     """The tour has fewer seats left than the party needs."""
 
     def __init__(self, seats_left: int) -> None:
-        super().__init__(FILLED_MESSAGE)
+        super().__init__(seats_message(seats_left))
         self.seats_left = seats_left
 
 
@@ -100,9 +111,15 @@ def book_tour(
     """Book ``visitor`` onto the guide's tour at ``starts_at``.
 
     The booking links to ``user`` when the visitor is signed in, else to the account the email
-    already belongs to. With neither and ``create_account``, a GUEST account is made through
+    already belongs to (the account itself is left as it is). With neither and
+    ``create_account``, a GUEST account is made through
     :func:`core.services.guest_account.ensure_guest_account` after the booking stands; without
-    it, nothing is created.
+    it, nothing is created. Nor is anything created when the email is a member's who has no
+    account: some members are kept without one on purpose (Member 529, Member 733), so the
+    booking stands with no account.
+
+    The same visitor pressing Book twice (a booked tour with the same email, guide and start made
+    in the last :data:`REPEAT_WINDOW`) gets the first booking back, with nothing sent again.
 
     Raises:
         TourUnavailableError: no tour of that guide's is bookable at that start now.
@@ -113,6 +130,19 @@ def book_tour(
         tour = open_tour_at(guide, starts_at, lock=True, now=now)
         if tour is None:
             raise TourUnavailableError(GONE_MESSAGE)
+        repeat = (
+            TourBooking.objects.filter(
+                status=TourBooking.Status.BOOKED,
+                guide=guide,
+                starts_at=tour.starts_at,
+                visitor_email__iexact=visitor.email.strip(),
+                created_at__gte=timezone.now() - REPEAT_WINDOW,
+            )
+            .order_by("created_at")
+            .first()
+        )
+        if repeat is not None:
+            return repeat
         if tour.seats_left < visitor.party_size:
             raise TourFullError(tour.seats_left)
         booking = TourBooking.objects.create(
@@ -126,7 +156,7 @@ def book_tour(
             user=account,
         )
         _after_commit(booking, signals.BOOKED)
-    if account is None and create_account:
+    if account is None and create_account and not Member.objects.unlinked_with_email(visitor.email.strip()).exists():
         first, last = visitor.first_and_last
         made = ensure_guest_account(visitor.email, first_name=first, last_name=last)
         if made is not None:

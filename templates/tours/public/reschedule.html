@@ -25,10 +25,10 @@ error, page_url, address, support_email.
           <div class="pl-tourpub__chosen-when">Move your tour to {{ chosen_when }}?</div>
           <div class="pl-tourpub__chosen-meta">{{ booking.party_size }} {% if booking.party_size == 1 %}person{% else %}people{% endif %} · <a href="{{ page_url }}?date={{ chosen.starts_at|date:'Y-m-d' }}" data-tour-change>Pick a different time</a></div>
         </div>
-        <form method="post" action="{{ page_url }}" class="pl-tourpub__form" hx-boost="false" data-tour-move-form>
+        <form method="post" action="{{ page_url }}" class="pl-tourpub__form" hx-boost="false" data-tour-move-form data-pl-busy-submit data-pl-busy-label="Moving...">
           {% csrf_token %}
           <input type="hidden" name="tour" value="{{ chosen.key }}">
-          <button type="submit" class="btn-reg pl-tourpub__submit">Move My Tour</button>
+          <button type="submit" class="btn-reg pl-tourpub__submit" data-pl-busy>Move My Tour</button>
         </form>
         {% else %}
         {% include "tours/public/_picker.html" %}

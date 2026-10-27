@@ -104,7 +104,7 @@ the class site), since only the tour pages and sign in resolve here. Children fi
 
 {% block body_class %}tours-portal{% endblock %}
 
-{% block content %}<div class="cp-page">{% block tours_content %}{% endblock %}</div>{% endblock %}
+{% block content %}<div class="cp-page">{% block tours_content %}{% endblock %}</div>{% include "components/busy_submit.html" %}{% endblock %}
 
 {% block extra_head %}
 <meta name="description" content="Book a free tour of {{ brand_name }}, Portland's community makerspace. Pick a time and we will show you around.">

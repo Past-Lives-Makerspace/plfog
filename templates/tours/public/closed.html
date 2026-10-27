@@ -1,7 +1,8 @@
 {% extends "tours/public/base.html" %}
 {% comment %}
-What tours.pastlives.space shows while Tour Settings is not accepting bookings (#948).
-Context: closed_message, support_email.
+What tours.pastlives.space shows while Tour Settings is not accepting bookings (#948), also in
+place of the reschedule page then (a booking can still be cancelled). Context: closed_message,
+support_email, and for a reschedule booking, when, guide_name, address.
 {% endcomment %}
 {% block title %}Tours | Past Lives Makerspace{% endblock %}
 
@@ -17,6 +18,13 @@ Context: closed_message, support_email.
       </div>
       <div class="detail-body">
         <p class="pl-tourpub__lead" data-tour-closed>{{ closed_message }}</p>
+        {% if booking %}
+        <p class="pl-tourpub__lead">Your tour can't be moved online right now, but it is still on.</p>
+        {% include "tours/public/_details.html" %}
+        <div class="pl-tourpub__actions">
+          <a href="{% url 'tours_public:cancel' booking.self_serve_token %}" class="back-link pl-tourpub__secondary" data-tour-cancel>Cancel My Tour</a>
+        </div>
+        {% endif %}
         <p class="pl-tourpub__fine">Questions? Email us at <a href="mailto:{{ support_email }}">{{ support_email }}</a>.</p>
       </div>
     </div>

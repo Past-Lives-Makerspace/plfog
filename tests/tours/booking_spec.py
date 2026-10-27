@@ -13,9 +13,11 @@ from allauth.account.models import EmailAddress
 from django.contrib.auth.models import User
 from django.core import mail
 from django.db import connection
+from django.utils import timezone
 
 from core.models import Notification, SiteConfiguration
 from membership.models import Member
+from tests.membership.factories import MemberFactory
 from tests.tours.conftest import make_guide, signed_in
 from tests.tours.factories import TourBookingFactory, TourHoursFactory, local
 from tours import booking as booking_service
@@ -79,10 +81,38 @@ def describe_book_tour():
 
     def it_refuses_a_party_bigger_than_the_seats_left(guide: Member, hours: Any):
         TourBookingFactory(guide=guide, starts_at=FOUR, party_size=3)
-        with pytest.raises(TourFullError, match=FILLED_MESSAGE) as refused:
+        with pytest.raises(TourFullError, match="Only 1 seat is left at that time.") as refused:
             book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(2), now=NOW)
         assert refused.value.seats_left == 1
         assert TourBooking.objects.count() == 1
+
+    def it_says_how_many_seats_remain_or_that_it_filled_up(guide: Member, hours: Any):
+        TourBookingFactory(guide=guide, starts_at=FOUR, party_size=2)
+        with pytest.raises(TourFullError, match="Only 2 seats are left at that time."):
+            book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(3), now=NOW)
+        TourBookingFactory(guide=guide, starts_at=FOUR, party_size=2)
+        with pytest.raises(TourFullError, match=FILLED_MESSAGE):
+            book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(1), now=NOW)
+
+    def it_answers_a_second_identical_booking_with_the_first(
+        guide: Member, hours: Any, django_capture_on_commit_callbacks: Any
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            first = book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(2), now=NOW)
+        sent = len(mail.outbox)
+        with django_capture_on_commit_callbacks(execute=True):
+            again = book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(2, email="SAM@example.com"), now=NOW)
+        assert again.pk == first.pk
+        assert TourBooking.objects.count() == 1
+        assert len(mail.outbox) == sent
+
+    def it_books_again_once_the_repeat_window_has_passed(guide: Member, hours: Any):
+        first = book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(1), now=NOW)
+        TourBooking.objects.filter(pk=first.pk).update(
+            created_at=timezone.now() - booking_service.REPEAT_WINDOW - timedelta(minutes=1)
+        )
+        again = book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(1), now=NOW)
+        assert again.pk != first.pk
 
     def it_refuses_a_time_no_hours_yield(guide: Member, hours: Any):
         with pytest.raises(TourUnavailableError, match=GONE_MESSAGE):
@@ -136,6 +166,17 @@ def describe_book_tour():
         )
         assert booking.user is not None
         assert Member.objects.get(user=booking.user).status == Member.Status.GUEST
+
+    def it_makes_no_account_for_a_member_kept_without_one(guide: Member, hours: Any):
+        userless = MemberFactory(full_legal_name="Mira Userless", _pre_signup_email="mira@example.com")
+        users = User.objects.count()
+        booking = book_tour(
+            guide=guide, starts_at=FOUR, visitor=_visitor(email="Mira@example.com"), create_account=True, now=NOW
+        )
+        assert booking.user is None
+        assert User.objects.count() == users
+        userless.refresh_from_db()
+        assert userless.user is None
 
     def it_keeps_the_booking_when_the_account_cannot_be_made(guide: Member, hours: Any):
         with patch("core.services.guest_account._find_or_create_user", side_effect=RuntimeError("boom")):
@@ -222,7 +263,7 @@ def describe_reschedule_tour():
 
     def it_refuses_a_time_with_too_few_seats(guide: Member, booked: TourBooking):
         TourBookingFactory(guide=guide, starts_at=FIVE, party_size=3)
-        with pytest.raises(TourFullError):
+        with pytest.raises(TourFullError, match="Only 1 seat is left at that time."):
             reschedule_tour(booked, guide=guide, starts_at=FIVE, now=NOW)
         booked.refresh_from_db()
         assert (booked.starts_at, booked.sequence) == (FOUR, 0)

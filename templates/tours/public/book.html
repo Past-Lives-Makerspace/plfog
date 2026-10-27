@@ -25,7 +25,7 @@ books, or None), form, error, page_url, address, support_email.
           <div class="pl-tourpub__chosen-meta">{{ chosen.seats_left }} seat{{ chosen.seats_left|pluralize }} left · <a href="{{ page_url }}?date={{ chosen.starts_at|date:'Y-m-d' }}" data-tour-change>Pick a different time</a></div>
         </div>
         {% if form.non_field_errors %}<div class="reg-error-block pl-tourpub__notice">{% for err in form.non_field_errors %}{{ err }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div>{% endif %}
-        <form method="post" action="{{ page_url }}" class="reg-form pl-tourpub__form" hx-boost="false" data-tour-form>
+        <form method="post" action="{{ page_url }}" class="reg-form pl-tourpub__form" hx-boost="false" data-tour-form data-pl-busy-submit data-pl-busy-label="Booking...">
           {% csrf_token %}
           {{ form.tour }}
           <div class="reg-row">
@@ -54,10 +54,15 @@ books, or None), form, error, page_url, address, support_email.
           </div>
           {% if form.create_account %}
           <div class="pl-tourpub__account" data-tour-account>
-            {% include "components/toggle.html" with field=form.create_account toggle_label=form.create_account.label toggle_description="No password. We email you a sign in code, and your tour shows up in your account." %}
+            {% include "components/toggle.html" with field=form.create_account toggle_label=form.create_account.label toggle_description="No password. You sign in with a code we email you." %}
           </div>
           {% endif %}
-          <button type="submit" class="btn-reg pl-tourpub__submit">Book My Tour</button>
+          {# The honeypot: off screen for people, filled by bots that fill every field; a filled one books nothing. #}
+          <div class="pl-honeypot" aria-hidden="true">
+            <label for="{{ form.website.id_for_label }}">{{ form.website.label }}</label>
+            {{ form.website }}
+          </div>
+          <button type="submit" class="btn-reg pl-tourpub__submit" data-pl-busy>Book My Tour</button>
           <p class="reg-help pl-tourpub__fine">Tours are free. We will email you a confirmation with links to reschedule or cancel.</p>
         </form>
         {% else %}

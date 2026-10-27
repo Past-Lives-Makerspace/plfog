@@ -5,7 +5,8 @@ then the booking page, as on tours.pastlives.space) and points ``TOURS_BASE_URL`
 so the Reschedule and Cancel links in the emails open here. Signed out throughout. The visitor picks
 a day and 4:00 PM, books for 2, lands on the confirmation, follows the confirmation email's
 Reschedule link to 5:00 PM, then the moved email's Cancel link (whose page changes nothing until
-Yes). A tour three hours away shows the "too close" page; with bookings closed the host shows the
+Yes). The account toggle starts on, so that visitor gets a GUEST account; a second visitor switches it
+off and gets none. Google Analytics only ever sees the booking page with its token redacted. A tour three hours away shows the "too close" page; with bookings closed the host shows the
 closed message. At a phone's width nothing scrolls sideways.
 
 ``CAPTURE_948_DIR=<dir>`` saves each page at desktop (1100) and phone (390) widths in both themes,
@@ -25,6 +26,7 @@ from django.contrib.auth.models import User
 from django.core import mail
 from django.utils import timezone
 
+from core.models import SiteConfiguration
 from membership.models import AdminCapability, Member
 from tests.membership.factories import MembershipPlanFactory
 from tests.tours.factories import TourBookingFactory, TourHoursFactory, local
@@ -84,6 +86,17 @@ def _only(subject_start: str, to: str = VISITOR_EMAIL):
     return found[0]
 
 
+def _page_locations(page) -> list[str]:
+    """Every page_location queued for Google (config calls and page views), read off dataLayer."""
+    return page.evaluate(
+        """() => (window.dataLayer || [])
+              .map(a => Array.from(a))
+              .map(a => a.find(x => x && typeof x === 'object' && 'page_location' in x))
+              .filter(Boolean)
+              .map(o => o.page_location)"""
+    )
+
+
 def _make_guide() -> Member:
     MembershipPlanFactory()  # so the user signal provisions the member
     user = User.objects.create_user(username=GUIDE_EMAIL, email=GUIDE_EMAIL)
@@ -109,6 +122,10 @@ def describe_tour_booking():
         day = timezone.localdate() + timedelta(days=4)
         TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
         four, five = local(day, 16), local(day, 17)
+        # Analytics on, so the spec can read what the token pages would send Google.
+        config = SiteConfiguration.load()
+        config.google_analytics_measurement_id = "G-TOURS948"
+        config.save()
 
         # The booking page: the date strip and the day's times.
         page.set_viewport_size(DESKTOP)
@@ -136,11 +153,18 @@ def describe_tour_booking():
         page.locator("[data-tour-cancel]").wait_for()
         _capture(page, "confirmation")
         booking = TourBooking.objects.get()
-        assert (booking.starts_at, booking.party_size, booking.user) == (four, 2, None)
+        assert (booking.starts_at, booking.party_size) == (four, 2)
+        # The account toggle starts on, so the visitor now has a GUEST account, never a member one.
+        assert booking.user is not None and booking.user.email == VISITOR_EMAIL
+        assert Member.objects.get(user=booking.user).status == Member.Status.GUEST
         tour = open_tour_at(guide, four)
         assert tour is not None and tour.seats_left == 2
         confirmed = _only("Your Past Lives tour is booked")
-        assert _only("New tour booked", to=GUIDE_EMAIL)
+        guide_booked = _only("New tour booked", to=GUIDE_EMAIL)
+        # Google sees the booking page with its token redacted, never the token itself.
+        locations = _page_locations(page)
+        assert locations and all("/tour/b/redacted/" in location for location in locations), locations
+        assert not any(booking.self_serve_token in location for location in locations)
 
         # Reschedule from the confirmation email.
         page.goto(_link(confirmed, "Reschedule"))
@@ -180,6 +204,23 @@ def describe_tour_booking():
         cancelled = _only("Your Past Lives tour on")
         assert _only("Tour cancelled", to=GUIDE_EMAIL)
 
+        # The account toggle switched off: a booking with no account made.
+        page.goto(f"{live_server.url}/?date={day:%Y-%m-%d}")
+        page.locator(".pl-tourpub__time").filter(has_text="4:00 PM").click()
+        page.locator("[data-tour-form]").wait_for()
+        page.locator('input[name="name"]').fill("Pat Noaccount")
+        page.locator('input[name="email"]').fill("pat.noaccount@example.com")
+        toggle = page.locator('[data-tour-account] input[name="create_account"]')
+        assert toggle.is_checked()
+        page.locator("[data-tour-account] .pl-toggle").click()
+        assert not toggle.is_checked()
+        with page.expect_navigation():
+            page.locator("[data-tour-form] button[type=submit]").click()
+        page.locator("[data-tour-confirmed]").wait_for()
+        second = TourBooking.objects.get(visitor_email="pat.noaccount@example.com")
+        assert second.user is None
+        assert not User.objects.filter(email="pat.noaccount@example.com").exists()
+
         # Too close to change online.
         soon = TourBookingFactory(guide=guide, starts_at=timezone.now() + timedelta(hours=3), visitor_name="Pat Late")
         page.goto(f"{live_server.url}/tour/b/{soon.self_serve_token}/cancel/")
@@ -198,7 +239,7 @@ def describe_tour_booking():
         _save_email(page, "visitor-confirmed", _html(confirmed))
         _save_email(page, "visitor-moved", _html(moved))
         _save_email(page, "visitor-cancelled", _html(cancelled))
-        _save_email(page, "guide-booked", _html(_only("New tour booked", to=GUIDE_EMAIL)))
+        _save_email(page, "guide-booked", _html(guide_booked))
         _save_email(page, "guide-moved", _html(_only("Tour moved", to=GUIDE_EMAIL)))
         _save_email(page, "guide-cancelled", _html(_only("Tour cancelled", to=GUIDE_EMAIL)))
         reminder = build_reminder_occurrence(soon).messages
