@@ -27,7 +27,7 @@ from tours.booking import (
     reschedule_tour_by_staff,
 )
 from tours.models import FacilityTourSettings, TourBooking
-from tours.notify import person_name
+from tours.notify import note_label, person_name
 
 pytestmark = pytest.mark.django_db
 
@@ -308,16 +308,39 @@ def describe_mark_tour_outcome():
         mark_tour_outcome(booked, TourBooking.Status.ATTENDED, now=FIVE)
         assert UserProfile.objects.get(user=user).completed_tour_at == FOUR
 
-    def it_never_stamps_a_no_show_and_keeps_a_stamp_when_changed_to_one(booked: TourBooking):
+    def it_never_stamps_a_no_show_and_clears_its_own_stamp_when_corrected_to_one(booked: TourBooking):
         user = _user(MemberFactory())
         TourBooking.objects.filter(pk=booked.pk).update(user=user)
         mark_tour_outcome(booked, TourBooking.Status.NO_SHOW, now=FIVE)
         assert UserProfile.objects.get_or_create(user=user)[0].completed_tour_at is None
         mark_tour_outcome(booked, TourBooking.Status.ATTENDED, now=FIVE)
+        assert UserProfile.objects.get(user=user).completed_tour_at == FOUR
         mark_tour_outcome(booked, TourBooking.Status.NO_SHOW, now=FIVE)
         booked.refresh_from_db()
         assert booked.status == TourBooking.Status.NO_SHOW
+        assert UserProfile.objects.get(user=user).completed_tour_at is None
+
+    def it_keeps_an_earlier_tours_stamp_when_corrected_to_no_show(booked: TourBooking):
+        user = _user(MemberFactory())
+        earlier = FOUR - timedelta(days=30)
+        UserProfile.objects.update_or_create(user=user, defaults={"completed_tour_at": earlier})
+        TourBooking.objects.filter(pk=booked.pk).update(user=user)
+        mark_tour_outcome(booked, TourBooking.Status.ATTENDED, now=FIVE)
+        mark_tour_outcome(booked, TourBooking.Status.NO_SHOW, now=FIVE)
+        assert UserProfile.objects.get(user=user).completed_tour_at == earlier
+
+    def it_leaves_the_stamp_alone_when_attended_is_marked_again(booked: TourBooking):
+        user = _user(MemberFactory())
+        TourBooking.objects.filter(pk=booked.pk).update(user=user)
+        mark_tour_outcome(booked, TourBooking.Status.ATTENDED, now=FIVE)
+        mark_tour_outcome(booked, TourBooking.Status.ATTENDED, now=FIVE)
         assert UserProfile.objects.get(user=user).completed_tour_at == FOUR
+
+    def it_clears_nothing_for_a_no_show_with_no_account(booked: TourBooking):
+        TourBooking.objects.filter(pk=booked.pk).update(status=TourBooking.Status.ATTENDED)
+        mark_tour_outcome(booked, TourBooking.Status.NO_SHOW, now=FIVE)
+        booked.refresh_from_db()
+        assert booked.status == TourBooking.Status.NO_SHOW
 
     def it_marks_a_booking_with_no_account_without_stamping(booked: TourBooking):
         mark_tour_outcome(booked, TourBooking.Status.ATTENDED, now=FIVE)
@@ -350,6 +373,54 @@ def describe_person_name():
         Member.objects.filter(user=nameless).delete()
         nameless.refresh_from_db()
         assert person_name(nameless) == "nameless@example.com"
+        nameless.email = ""
+        assert person_name(nameless) == "Past Lives staff"
+
+
+def describe_note_label():
+    def it_heads_the_note_with_a_first_name_or_past_lives():
+        assert note_label(None) == ""
+        assert note_label(_user(MemberFactory(full_legal_name="Mona Member"))) == "A note from Mona"
+        bare = User.objects.create_user("bare2", "bare2@example.com", first_name="Bea")
+        Member.objects.filter(user=bare).delete()
+        bare.refresh_from_db()
+        assert note_label(bare) == "A note from Bea"
+        nameless = User.objects.create_user("nameless2", "")
+        Member.objects.filter(user=nameless).delete()
+        nameless.refresh_from_db()
+        assert note_label(nameless) == "A note from Past Lives"
+
+    def it_sends_a_nameless_actors_cancel_without_failing(
+        guide: Member, booked: TourBooking, django_capture_on_commit_callbacks: Any
+    ):
+        guide_user = _user(guide)
+        nameless = User.objects.create_user("nameless3", "")
+        Member.objects.filter(user=nameless).delete()
+        nameless.refresh_from_db()
+        with django_capture_on_commit_callbacks(execute=True):
+            cancel_tour_by_staff(booked, actor=nameless, message="Closed today.", now=NOW)
+        assert "A note from Past Lives:\nClosed today." in _to("sam@example.com")[0].body
+        assert "Past Lives staff cancelled Sam Rivera's tour" in _to(guide_user.email)[0].body
+
+
+def describe_plain_text_emails():
+    def it_sends_quotes_and_markup_raw_in_text_and_escaped_in_html(
+        guide: Member, booked: TourBooking, admin: Member, django_capture_on_commit_callbacks: Any
+    ):
+        TourBooking.objects.filter(pk=booked.pk).update(visitor_name="Sam O'Brien <b>x</b>")
+        booked.refresh_from_db()
+        guide_user = _user(guide)
+        message = "We're sorry <script>alert(1)</script>"
+        with django_capture_on_commit_callbacks(execute=True):
+            cancel_tour_by_staff(booked, actor=_user(admin), message=message, now=NOW)
+        for sent in (_to("sam@example.com")[0], _to(guide_user.email)[0]):
+            assert message in sent.body
+            assert "&#x27;" not in sent.body and "&lt;" not in sent.body
+            html = str(sent.alternatives[0][0])
+            assert "<script>alert(1)</script>" not in html
+            assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+        assert "Sam O'Brien <b>x</b>" in _to(guide_user.email)[0].body
+        assert "Sam O&#x27;Brien &lt;b&gt;x&lt;/b&gt;" in str(_to(guide_user.email)[0].alternatives[0][0])
 
 
 def describe_the_booking_lists_and_labels():

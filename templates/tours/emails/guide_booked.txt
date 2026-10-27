@@ -1,4 +1,4 @@
-{% if actor_name %}Tour moved to you
+{% autoescape off %}{% if actor_name %}Tour moved to you
 
 {{ actor_name }} moved {{ booking.visitor_name }}'s tour for {{ people }} to you. The visitor has been emailed.{% else %}New tour booked
 
@@ -8,4 +8,4 @@
   Visitor: {{ booking.visitor_email }}{% if booking.visitor_phone %}, {{ booking.visitor_phone }}{% endif %}
 
 Open Tours: {{ tours_page_url }}
-{% include "membership/emails/_footer.txt" %}
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}

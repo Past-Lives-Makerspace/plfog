@@ -504,6 +504,17 @@ class TourBooking(models.Model):
         }
         return tones[self.Status(self.status)]
 
+    def staff_refusal(self, now: datetime) -> str:
+        """Why a Tour Guide or an admin may not move or cancel this tour (#949), or "" when they may.
+
+        ``"cancelled"``, or ``"past"`` once it has started or been marked. No cancel cutoff binds staff.
+        """
+        if self.status == self.Status.CANCELLED:
+            return "cancelled"
+        if self.status != self.Status.BOOKED or self.starts_at <= now:
+            return "past"
+        return ""
+
     def self_serve_refusal(self, *, now: datetime, cancel_cutoff_hours: int) -> str:
         """Why the visitor may not move or cancel this tour from the email links, or "" when they may.
 

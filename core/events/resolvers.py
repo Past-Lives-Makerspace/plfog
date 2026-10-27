@@ -729,17 +729,16 @@ def wiki_page_contributors(context: dict[str, Any]) -> list[Recipient]:
 
 
 def tour_guides(context: dict[str, Any]) -> list[Recipient]:
-    """The facility tour's guide (``context["guide"]``), or every Tour Guide holder when it has none (#948).
+    """The facility tour's guide (``context["guide"]``), or the admins when it has none (#948, #949).
 
     A tour's guide is set when it is booked; it is empty only when that guide's member record
-    was deleted, and then the people holding the permission hear about it instead.
+    was deleted. Only an admin can see or act on a tour with no guide (the Tours page shows a
+    guide their own tours alone), so the admins hear about it rather than every Tour Guide.
     """
-    from membership.models import AdminCapability
-
     guide: Member | None = _require(context, "guide")
     if guide is not None:
         return _members_to_recipients([guide], "tour_guide")
-    return _capability_recipients(AdminCapability.Capability.TOUR_GUIDE)
+    return fog_admins(context)
 
 
 def kiln_crew(context: dict[str, Any]) -> list[Recipient]:

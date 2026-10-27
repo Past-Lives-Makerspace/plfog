@@ -279,10 +279,9 @@ def _locked_for_staff(booking: TourBooking, now: datetime) -> TourBooking:
     No cancel cutoff: staff may change a tour right up to its start.
     """
     locked = TourBooking.objects.select_for_update().get(pk=booking.pk)
-    if locked.status == TourBooking.Status.CANCELLED:
-        raise TourLockedError("cancelled")
-    if locked.status != TourBooking.Status.BOOKED or locked.starts_at <= now:
-        raise TourLockedError("past")
+    reason = locked.staff_refusal(now)
+    if reason:
+        raise TourLockedError(reason)
     return locked
 
 
@@ -353,7 +352,8 @@ def mark_tour_outcome(booking: TourBooking, outcome: str, *, now: datetime | Non
 
     Attended stamps the visitor's ``UserProfile.completed_tour_at`` (the tour's start) when the
     booking is linked to an account whose stamp is still empty; an earlier stamp is never
-    overwritten. No show never stamps, and changing attended to no show leaves a stamp as it is.
+    overwritten. No show never stamps; correcting attended to no show clears the stamp only when
+    it is this tour's own (equal to its start).
     Nobody is emailed.
 
     Raises:
@@ -369,16 +369,29 @@ def mark_tour_outcome(booking: TourBooking, outcome: str, *, now: datetime | Non
             raise TourLockedError("cancelled")
         if locked.starts_at > moment:
             raise TourLockedError("upcoming")
+        was_attended = locked.status == TourBooking.Status.ATTENDED
         locked.status = outcome
         locked.save(update_fields=["status"])
-        if outcome == TourBooking.Status.ATTENDED and locked.user is not None:
-            _stamp_completed_tour(locked.user, locked.starts_at)
+        if locked.user is not None:
+            if outcome == TourBooking.Status.ATTENDED:
+                _stamp_completed_tour(locked.user, locked.starts_at)
+            elif was_attended:
+                _unstamp_completed_tour(locked.user, locked.starts_at)
     return locked
 
 
 def _stamp_completed_tour(user: User, toured_at: datetime) -> None:
-    """Stamp the visitor's ``completed_tour_at`` with the tour's start, only when it is still empty."""
-    profile, _created = UserProfile.objects.get_or_create(user=user)
-    if profile.completed_tour_at is None:
-        profile.completed_tour_at = toured_at
-        profile.save(update_fields=["completed_tour_at"])
+    """Stamp the visitor's ``completed_tour_at`` with the tour's start, only when it is still empty.
+
+    One conditional UPDATE, so two marks racing can never overwrite a stamp the other just wrote.
+    """
+    UserProfile.objects.get_or_create(user=user)
+    UserProfile.objects.filter(user=user, completed_tour_at__isnull=True).update(completed_tour_at=toured_at)
+
+
+def _unstamp_completed_tour(user: User, toured_at: datetime) -> None:
+    """Undo this tour's stamp when attended is corrected away: only a stamp equal to this tour's start.
+
+    A stamp from an earlier tour (or SimplyBook) is a different instant and stays.
+    """
+    UserProfile.objects.filter(user=user, completed_tour_at=toured_at).update(completed_tour_at=None)

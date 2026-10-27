@@ -450,3 +450,62 @@ def describe_where_it_lives():
         for tab in ("upcoming", "past", "hours"):
             assert f'data-tours-tab="{tab}"' in tabs
         assert 'data-tours-tab="settings"' not in tabs
+
+
+def describe_review_fixes():
+    def it_shows_why_a_cancelled_or_started_tour_cannot_move(guide: Member, booked: TourBooking):
+        client = signed_in(guide)
+        TourBooking.objects.filter(pk=booked.pk).update(status=TourBooking.Status.CANCELLED)
+        cancelled = client.get(_reschedule_url(booked), **HTMX).content.decode()
+        assert f'data-tour-move-locked="{booked.pk}"' in cancelled
+        assert "This tour was already cancelled." in cancelled and "data-tour-move-time" not in cancelled
+        started = _past(guide, 1)
+        content = client.get(_reschedule_url(started), **HTMX).content.decode()
+        assert "This tour has already started" in content
+
+    def it_says_the_time_is_gone_when_a_refused_message_meets_a_full_tour(guide: Member, booked: TourBooking):
+        TourBookingFactory(guide=guide, starts_at=FIVE, party_size=4)
+        content = (
+            signed_in(guide)
+            .post(
+                _reschedule_url(booked),
+                {"tour": _tour_key(guide, FIVE), "message": "x" * (MAX_STAFF_MESSAGE + 1)},
+                **HTMX,
+            )
+            .content.decode()
+        )
+        assert "That time is no longer open, pick another." in content
+        assert "data-tour-move-chosen" not in content
+
+    def it_names_the_cancelled_time_from_the_locked_row(guide: Member, booked: TourBooking):
+        moved = TourBooking.objects.get(pk=booked.pk)
+        moved.starts_at = FIVE
+        with patch("tours.views.cancel_tour_by_staff", return_value=moved):
+            response = signed_in(guide).post(_cancel_url(booked), **HTMX)
+        assert _flashes(response) == [f"Sam Rivera's tour on {short_when(FIVE)} is cancelled. We emailed them."]
+
+
+def describe_the_admins_guide_picker_scenario():
+    """The e2e's admin reassignment (#949): the server offers Olive's 4:00 once Olive is picked.
+
+    The flaky e2e showed Gina's own picker (her 4:00 left out as Sam's own tour, her 5:00 with 4
+    seats) under a select reading Olive: the change was fired before htmx had wired up the swapped
+    in select, so no request went out. These pin both renders, so that screenshot can only mean
+    the request never left the browser, never a wrong answer from here.
+    """
+
+    def it_offers_olives_four_with_room_and_gina_only_her_five(admin: Member, guide: Member, other: Member):
+        _hours(guide, seats=4)
+        _hours(other, seats=4)
+        sam = TourBookingFactory(guide=guide, starts_at=FOUR, party_size=2, visitor_name="Sam Rivera")
+        TourBookingFactory(guide=other, starts_at=FOUR, party_size=1, visitor_name="Oli Visitor")
+        client = signed_in(admin)
+        olive = client.get(_reschedule_url(sam), {"guide": other.pk}, **HTMX).content.decode()
+        assert f'data-tour-move-time="{_tour_key(other, FOUR)}"' in olive
+        assert f'data-tour-move-time="{_tour_key(other, FIVE)}"' in olive
+        assert "3 seats left" in olive
+        assert f'<option value="{other.pk}" selected>Olive Other</option>' in olive
+        gina = client.get(_reschedule_url(sam), **HTMX).content.decode()
+        assert f'data-tour-move-time="{_tour_key(guide, FOUR)}"' not in gina
+        assert f'data-tour-move-time="{_tour_key(guide, FIVE)}"' in gina
+        assert f'<option value="{guide.pk}" selected>Gina Guide</option>' in gina

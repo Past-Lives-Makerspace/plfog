@@ -1,4 +1,4 @@
-{% if staff_message %}{% if sender_name %}A note from {{ sender_name }}{% else %}Their note to the visitor{% endif %}:
+{% autoescape off %}{% if staff_message %}{{ note_label }}:
 {{ staff_message }}
 
-{% endif %}
+{% endif %}{% endautoescape %}

@@ -1,3 +1,3 @@
-Reschedule: {{ reschedule_url }}
+{% autoescape off %}Reschedule: {{ reschedule_url }}
 Cancel: {{ cancel_url }}
-You can change your tour online until {{ cancel_cutoff_hours }} hour{{ cancel_cutoff_hours|pluralize }} before it starts. After that, email {{ support_email }}.
+You can change your tour online until {{ cancel_cutoff_hours }} hour{{ cancel_cutoff_hours|pluralize }} before it starts. After that, email {{ support_email }}.{% endautoescape %}

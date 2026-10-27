@@ -9,7 +9,7 @@
 {% else %}
 <p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">{{ actor_name }} moved <strong>{{ booking.visitor_name }}</strong>'s tour for {{ people }} on {{ previous_when }} to {{ new_guide_name }}. It is off your schedule.</p>
 {% endif %}
-{% include "tours/emails/_staff_message.html" with sender_name="" %}
+{% include "tours/emails/_staff_message.html" with note_label="Their note to the visitor" %}
 {% elif change == "cancelled" %}
 <p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;"><strong>{{ booking.visitor_name }}</strong> cancelled their tour for {{ people }} on {{ when }}. Their seats are open again.</p>
 {% elif stays_with_guide %}

@@ -981,7 +981,11 @@ def _tour_visitor(data: SampleData, subject: str, **fields: Any) -> dict[str, An
     extra: dict[str, Any] = {"previous_when": "Tuesday, November 3 at 4:00 PM"} if previous else {}
     if staff:
         # A staff move (#949): the guide's note to the visitor.
-        extra.update(by_staff=True, sender_name="Gina", staff_message="Our 4:00 slot ran long, so I moved you to 5:00.")
+        extra.update(
+            by_staff=True,
+            note_label="A note from Gina",
+            staff_message="Our 4:00 slot ran long, so I moved you to 5:00.",
+        )
     return {
         "subject": subject.format(when=short_when(booking.starts_at)),
         "template_context": visitor_context(booking, **extra),

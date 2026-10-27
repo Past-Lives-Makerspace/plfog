@@ -359,6 +359,9 @@ def _render_reschedule(
     if chosen is not None and form is None:
         form = StaffRescheduleForm(initial={"tour": chosen.key})
     if chosen is None:
+        if form is not None and not error:
+            # A refused message on a time that filled or closed meanwhile: say so over the picker.
+            error = GONE_MESSAGE
         form = None
     day = f"{timezone.localdate(chosen.starts_at):%Y-%m-%d}" if chosen else raw_day
     is_admin = _is_admin(request)
@@ -417,6 +420,13 @@ def tour_booking_reschedule(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method != "POST":
         if not wants_fragment(request):
             return redirect("tours:upcoming")
+        reason = booking.staff_refusal(timezone.now())
+        if reason:
+            return render(
+                request,
+                "tours/partials/_reschedule_locked.html",
+                {"booking": booking, "message": STAFF_LOCKED_MESSAGES[reason]},
+            )
         guide = _destination_guide(request, booking, request.GET.get("guide", ""))
         return _render_reschedule(
             request, booking, guide, raw_tour=request.GET.get("tour", ""), raw_day=request.GET.get("date", "")
@@ -461,12 +471,14 @@ def tour_booking_cancel(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, str(form.errors["message"][0]))
         return _done(request)
     try:
-        cancel_tour_by_staff(booking, actor=cast("User", request.user), message=form.cleaned_data["message"])
+        cancelled = cancel_tour_by_staff(
+            booking, actor=cast("User", request.user), message=form.cleaned_data["message"]
+        )
     except TourLockedError as exc:
         messages.error(request, STAFF_LOCKED_MESSAGES[exc.reason])
         return _done(request)
     messages.success(
-        request, f"{booking.visitor_name}'s tour on {short_when(booking.starts_at)} is cancelled. We emailed them."
+        request, f"{cancelled.visitor_name}'s tour on {short_when(cancelled.starts_at)} is cancelled. We emailed them."
     )
     return _done(request)
 

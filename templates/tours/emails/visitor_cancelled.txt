@@ -1,4 +1,4 @@
-Hi {{ greeting_name }},
+{% autoescape off %}Hi {{ greeting_name }},
 
 {% if by_staff %}We are sorry, we had to cancel your tour of Past Lives Makerspace.{% else %}Your tour of Past Lives Makerspace is cancelled, and we let your guide know.{% endif %}
 
@@ -6,4 +6,4 @@ Hi {{ greeting_name }},
 The attached calendar update takes it off your calendar.
 
 Book another time: {{ book_url }}
-{% include "tours/emails/_footer.txt" %}
+{% include "tours/emails/_footer.txt" %}{% endautoescape %}

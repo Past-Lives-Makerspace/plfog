@@ -772,7 +772,7 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Guilds & Orientations",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent to the tour's guide when a visitor books one of their tours (with a bell and push), or to every Tour Guide holder when the tour has no guide. Also sent, as Tour moved to you, when an admin hands a tour to this guide."
+            "Sent to the tour's guide when a visitor books one of their tours (with a bell and push), or to the admins when the tour has no guide. Also sent, as Tour moved to you, when an admin hands a tour to this guide."
         ),
         edit_pointer=_tpl("tours/emails", "guide_booked"),
         audience="The tour's guide.",

@@ -98,19 +98,27 @@ def describe_who_hears():
     def it_tells_the_tours_guide(guide: Member):
         assert [user for user, _reason in tour_guides({"guide": guide})] == ([guide.user] if guide.user else [])
 
-    def it_tells_every_tour_guide_holder_when_the_tour_has_no_guide(guide: Member):
+    def it_tells_the_admins_not_the_guides_when_the_tour_has_no_guide(guide: Member):
         signed_in(guide)
         guide.refresh_from_db()
-        admin_without = MemberFactory(fog_role=Member.FogRole.ADMIN)
-        signed_in(admin_without)
-        assert [user for user, _reason in tour_guides({"guide": None})] == [guide.user]
+        admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
+        signed_in(admin)
+        admin.refresh_from_db()
+        assert [user for user, _reason in tour_guides({"guide": None})] == [admin.user]
 
-    def it_emails_the_holders_about_an_unassigned_booking(guide: Member):
+    def it_emails_the_admins_about_an_unassigned_booking_and_its_changes(guide: Member):
         signed_in(guide)
         guide.refresh_from_db()
+        admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
+        signed_in(admin)
+        admin.refresh_from_db()
         unassigned = TourBookingFactory(guide=None, starts_at=FOUR)
         tell_guide_booked(unassigned, None)
-        assert [message.to for message in mail.outbox] == [[guide.user.email]]
+        announce(unassigned, signals.CANCELLED)
+        assert [message.to for message in mail.outbox if message.to != [unassigned.visitor_email]] == [
+            [admin.user.email],
+            [admin.user.email],
+        ]
 
     def it_tells_a_guide_once_about_a_move_within_their_tours(guide: Member, booking: TourBooking):
         signed_in(guide)

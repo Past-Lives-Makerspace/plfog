@@ -85,12 +85,30 @@ def guide_first_name(guide: Member | None) -> str:
     return name.split()[0] if name else ""
 
 
+#: Who acted, when the account carries no name and no email.
+UNNAMED_STAFF = "Past Lives staff"
+
+
 def person_name(user: User) -> str:
-    """Who acted, as staff and visitors read it: the member's name, else the account's, else its email."""
+    """Who acted, as guides read it: the member's name, else the account's, else its email, never empty."""
     member: Member | None = getattr(user, "member", None)
     if member is not None and member.display_name.strip():
         return member.display_name.strip()
-    return user.get_full_name().strip() or user.email
+    return user.get_full_name().strip() or user.email.strip() or UNNAMED_STAFF
+
+
+def note_label(actor: User | None) -> str:
+    """The heading over a staff member's note in the visitor's email: ``A note from Gina``.
+
+    Their first name when the member or account has one, else ``A note from Past Lives`` (never
+    an email address, never an empty name). Empty with no actor, where no note is shown.
+    """
+    if actor is None:
+        return ""
+    member: Member | None = getattr(actor, "member", None)
+    name = member.display_name if member is not None else actor.get_full_name()
+    first = (name.split() or [""])[0]
+    return f"A note from {first or 'Past Lives'}"
 
 
 def tours_page_url() -> str:
@@ -205,7 +223,7 @@ def guide_context(booking: TourBooking, **extra: Any) -> dict[str, Any]:
 
 
 def tell_guide_booked(booking: TourBooking, guide: Member | None, *, actor_name: str = "") -> None:
-    """Tell ``guide`` (or every Tour Guide holder when there is none) a tour of theirs was booked.
+    """Tell ``guide`` (or the admins when there is none) a tour of theirs was booked.
 
     With ``actor_name`` (#949) a staff member moved someone else's tour to this guide.
     """
@@ -303,7 +321,7 @@ def announce(
         previous_when=when_label(previous_starts_at) if previous_starts_at else "",
         staff_message=staff_message,
         by_staff=actor is not None,
-        sender_name=person_name(actor).split()[0] if actor is not None else "",
+        note_label=note_label(actor),
     )
     if actor is not None:
         _tell_guides_staff_changed(booking, change, actor, previous_guide, previous_starts_at, staff_message)

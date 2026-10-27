@@ -23,7 +23,7 @@ from django.utils import timezone
 
 from core.models import UserProfile
 from membership.models import AdminCapability, Member
-from tests.membership.factories import MembershipPlanFactory
+from tests.membership.factories import MemberFactory, MembershipPlanFactory
 from tests.tours.factories import TourBookingFactory, TourHoursFactory, local
 from tours.models import TourBooking
 
@@ -74,6 +74,19 @@ def _make_guide() -> Member:
 
 def _key(guide: Member, starts_at) -> str:  # noqa: ANN001
     return f"{guide.pk}-{starts_at.astimezone(UTC):%Y%m%dT%H%MZ}"
+
+
+def _settled(page, selector: str) -> None:
+    """Wait for ``selector`` to arrive in an htmx swap, then for htmx to finish settling it.
+
+    htmx wires up the attributes of swapped in content (``hx-get`` on the guide select, the day
+    and time buttons) only in its settle step, ``settleDelay`` (20ms) after the insert, when it
+    also drops ``htmx-settling`` from the target. An interaction inside that window reaches an
+    element with no htmx listener and silently does nothing: selecting Olive right after the
+    modal first rendered left Gina's times on screen (#949, flaky 3 of 4 on CI).
+    """
+    page.locator(selector).first.wait_for()
+    page.wait_for_function("() => !document.querySelector('.htmx-settling, .htmx-swapping, .htmx-request')")
 
 
 def _no_sideways_scroll(page) -> None:
@@ -137,11 +150,11 @@ def describe_tours_upcoming_and_past():
         # Reschedule Sam from 4:00 to 5:00 through the modal.
         page.locator(f'[data-tour-reschedule="{sam.pk}"]').click()
         modal = page.locator("#tour-reschedule-body")
-        modal.locator(f'[data-tour-move-time="{_key(guide, five)}"]').wait_for()
+        _settled(page, f'#tour-reschedule-body [data-tour-move-time="{_key(guide, five)}"]')
         assert modal.locator(f'[data-tour-move-time="{_key(guide, four)}"]').count() == 0
         _capture(page, "reschedule-modal")
         modal.locator(f'[data-tour-move-time="{_key(guide, five)}"]').click()
-        modal.locator(f'[data-tour-move-chosen="{_key(guide, five)}"]').wait_for()
+        _settled(page, f'#tour-reschedule-body [data-tour-move-chosen="{_key(guide, five)}"]')
         modal.locator('textarea[name="message"]').fill("Our 4:00 ran long, see you at 5:00.")
         _capture(page, "reschedule-confirm")
         mail.outbox = []
@@ -176,6 +189,7 @@ def describe_tours_upcoming_and_past():
         row = page.locator(f'[data-tour-booking="{pat.pk}"]')
         row.wait_for()
         _capture(page, "past")
+        _settled(page, f'[data-tour-booking="{pat.pk}"] [data-tour-mark="attended"]')
         row.locator('[data-tour-mark="attended"]').click()
         page.locator(f'[data-tour-booking="{pat.pk}"] [data-tour-booking-status="attended"]').wait_for()
         page.locator(".plt-msg", has_text="Pat Past marked attended.").first.wait_for()
@@ -184,3 +198,68 @@ def describe_tours_upcoming_and_past():
         assert UserProfile.objects.get(user=visitor).completed_tour_at is not None
         _capture(page, "past-marked")
         _no_sideways_scroll(page)
+
+
+ADMIN_EMAIL = "tour-admin-upcoming@example.com"
+
+
+def _make_admin() -> Member:
+    MembershipPlanFactory()
+    user = User.objects.create_user(username=ADMIN_EMAIL, email=ADMIN_EMAIL)
+    member = user.member
+    member.status = Member.Status.ACTIVE
+    member.full_legal_name = "Ada Admin"
+    member.fog_role = Member.FogRole.ADMIN
+    member.save(update_fields=["status", "full_legal_name", "fog_role"])
+    return member
+
+
+def _other_guide(name: str) -> Member:
+    member = MemberFactory(full_legal_name=name)
+    member.admin_capabilities.create(capability=AdminCapability.Capability.TOUR_GUIDE)
+    return member
+
+
+def describe_admin_view():
+    def it_filters_by_guide_and_reassigns_through_the_guide_picker(live_server, page, login_via_code):
+        _make_admin()
+        gina, olive = _other_guide("Gina Guide"), _other_guide("Olive Other")
+        day = timezone.localdate() + timedelta(days=3)
+        for guide in (gina, olive):
+            TourHoursFactory(guide=guide, weekday=day.weekday(), start_time=time(16), end_time=time(18), seats=4)
+        four = local(day, 16)
+        sam = TourBookingFactory(
+            guide=gina, starts_at=four, party_size=2, visitor_name="Sam Rivera", visitor_email="sam@example.com"
+        )
+        oli = TourBookingFactory(
+            guide=olive, starts_at=four, party_size=1, visitor_name="Oli Visitor", visitor_email="oli@example.com"
+        )
+        login_via_code(ADMIN_EMAIL)
+        page.set_viewport_size(DESKTOP)
+
+        # Every guide's tours, then one guide's through the filter.
+        page.goto(f"{live_server.url}{reverse('tours:upcoming')}")
+        page.locator(f'[data-tour-booking="{oli.pk}"]').wait_for()
+        assert page.locator(f'[data-tour-booking="{sam.pk}"]').count() == 1
+        _capture(page, "admin-upcoming")
+        with page.expect_navigation():
+            page.locator("#tours-guide-filter").select_option(str(gina.pk))
+        page.locator(f'[data-tour-booking="{sam.pk}"]').wait_for()
+        assert page.locator(f'[data-tour-booking="{oli.pk}"]').count() == 0
+        _capture(page, "admin-filtered")
+        _no_sideways_scroll(page)
+
+        # The modal's guide picker shows Olive's times; picking one reassigns Sam to her.
+        page.locator(f'[data-tour-reschedule="{sam.pk}"]').click()
+        modal = page.locator("#tour-reschedule-body")
+        _settled(page, "#tour-reschedule-body [data-tour-move-guide]")
+        modal.locator("[data-tour-move-guide]").select_option(str(olive.pk))
+        _settled(page, f'#tour-reschedule-body [data-tour-move-time="{_key(olive, four)}"]')
+        _capture(page, "admin-reschedule-guide-picker")
+        modal.locator(f'[data-tour-move-time="{_key(olive, four)}"]').click()
+        _settled(page, "#tour-reschedule-body [data-tour-move-save]")
+        with page.expect_navigation():
+            modal.locator("[data-tour-move-save]").click()
+        page.locator(".plt-msg", has_text="Sam Rivera's tour moved to").first.wait_for()
+        sam.refresh_from_db()
+        assert sam.guide == olive

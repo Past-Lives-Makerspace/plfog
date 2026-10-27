@@ -580,7 +580,7 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         # Only the kiln guild's lead and staff receive kiln.maker_replied (#691).
         Recipients.KILN_CREW: profile.is_kiln_crew,
         # A tour's guide is a Tour Guide holder or an admin (tours.models.guide_filter); the
-        # no guide fallback reaches the holders.
+        # no guide fallback reaches the admins (#949).
         Recipients.TOUR_GUIDES: cap.TOUR_GUIDE in caps or profile.is_admin,
     }
     return checks[recipient]

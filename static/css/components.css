@@ -952,6 +952,7 @@
     border-radius: 6px;
     color: var(--hub-text, #F4EFDD);
     padding: 0.5rem 0.75rem;
+    font-family: inherit;
     font-size: 0.875rem;
     width: 100%;
     transition: border-color 0.15s ease;
