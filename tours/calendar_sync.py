@@ -36,6 +36,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import math
 import time as clock
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
@@ -53,6 +54,7 @@ from tours.models import (
     TOUR_ADDRESS,
     FacilityTourSettings,
     TourBooking,
+    TourCalendarCleanup,
     TourCalendarConnection,
     TourCalendarSync,
 )
@@ -66,6 +68,12 @@ T = TypeVar("T")
 #: The most the job spends reading one guide's busy times, and writing one booking's event.
 BUSY_DEADLINE_SECONDS = 30.0
 WRITE_DEADLINE_SECONDS = 30.0
+#: The whole run's budget: a scheduled tick (inline, ahead of the other jobs), and Run now (inside a
+#: web request under gunicorn's 30 seconds). What is left waits for the next tick.
+JOB_BUDGET_SECONDS = 120.0
+MANUAL_BUDGET_SECONDS = 20.0
+#: Consecutive timeouts or server errors after which the run stops calling Google (the breaker).
+BREAKER_FAILURES = 3
 #: Disconnect's patience for Google's revoke, inside the guide's request.
 REVOKE_TIMEOUT = 5.0
 #: How long a run holds a row it is writing; a run that died lets go after this.
@@ -91,11 +99,17 @@ EVENT_MARKER = "plfogTour"
 BUSY_EVENT = "tour.calendar_busy"
 BROKEN_EVENT = "tour.calendar_broken"
 GONE_EVENT = "tour.calendar_gone"
+UNREAD_EVENT = "tour.calendar_unread"
+UNREAD_TITLE = "We could not read your Google Calendar"
 BUSY_TITLE = "Your calendar now shows you busy during a booked tour"
 
 
 class _Waiting(Exception):
     """The row needs a connection that is broken: it stays due until the guide reconnects."""
+
+
+class _Paused(Exception):
+    """The run's budget is spent or its breaker is open: what is left waits for the next tick, uncounted."""
 
 
 # --- Connecting -----------------------------------------------------------------------------------
@@ -124,6 +138,7 @@ def connect_from_code(guide: Member, code: str, *, now: datetime | None = None) 
             connection = TourCalendarConnection(guide=guide)
         elif connection.google_email and connection.google_email != email:
             TourCalendarSync.objects.filter(connection=connection).update(connection=None, calendar_id="", event_id="")
+            TourCalendarCleanup.objects.filter(connection=connection).delete()
         if connection.calendar_id != "primary" and connection.calendar_id not in {cal.id for cal in calendars}:
             connection.calendar_id = "primary"
         connection.google_email = email
@@ -194,6 +209,23 @@ def mark_due(booking_id: int) -> None:
         TourCalendarSync.objects.get_or_create(booking_id=booking_id)
 
 
+def queue_cleanup(connection: TourCalendarConnection | None, calendar_id: str, event_id: str) -> None:
+    """Queue the delete of an event no booking points at any more (:class:`~tours.models.TourCalendarCleanup`)."""
+    if connection is None or not event_id:
+        return
+    TourCalendarCleanup.objects.create(connection=connection, calendar_id=calendar_id, event_id=event_id)
+
+
+def forget_deleted_booking(sender: Any, *, instance: TourBooking, **kwargs: Any) -> None:
+    """``pre_delete`` receiver for a booking: queue its Google event's delete before the row goes.
+
+    Normal flows cancel a booking and never delete one; this covers the Django admin and a shell.
+    """
+    row = TourCalendarSync.objects.filter(booking=instance).select_related("connection").first()
+    if row is not None:
+        queue_cleanup(row.connection, row.calendar_id, row.event_id)
+
+
 def queue_booking_sync(sender: Any, *, booking: TourBooking, **kwargs: Any) -> None:
     """``tour_booking_changed`` receiver: mark the booking due when Google has anything to learn.
 
@@ -233,36 +265,83 @@ def access_token(connection: TourCalendarConnection, *, timeout: float, fresh: b
     return connection.access_token
 
 
-class Deadline:
-    """A time limit for a run of calls: each call gets what is left, at most Google's own timeout."""
+class RunGuard:
+    """One run's limits: a total budget, and a breaker that opens after :data:`BREAKER_FAILURES`
+    timeouts or server errors in a row (an auth refusal, a 404 or a 409 is an answer and resets it).
+    """
 
-    def __init__(self, seconds: float) -> None:
+    def __init__(self, seconds: float = math.inf) -> None:
         self.ends = clock.monotonic() + seconds
+        self.failures = 0
+
+    @property
+    def why_stopped(self) -> str:
+        """Why the run stops calling Google, or "" while it may go on."""
+        if self.failures >= BREAKER_FAILURES:
+            return f"Google failed {self.failures} times in a row"
+        if clock.monotonic() >= self.ends:
+            return "the run's time was spent"
+        return ""
+
+    def answered(self) -> None:
+        self.failures = 0
+
+    def failed(self) -> None:
+        self.failures += 1
+
+
+class Deadline:
+    """A time limit for one guide's read or one booking's write, inside the run's :class:`RunGuard`.
+
+    Each call, and each page of a list, gets what is left, at most Google's own timeout.
+    """
+
+    def __init__(self, seconds: float, guard: RunGuard | None = None) -> None:
+        self.ends = clock.monotonic() + seconds
+        self.guard = guard or RunGuard()
 
     def timeout(self) -> float:
-        """The next call's timeout.
+        """The next request's timeout.
 
         Raises:
-            google.GoogleError: the time is spent.
+            _Paused: the run's budget is spent or its breaker is open.
+            google.GoogleError: this deadline is spent.
         """
-        left = self.ends - clock.monotonic()
+        if self.guard.why_stopped:
+            raise _Paused(self.guard.why_stopped)
+        left = min(self.ends, self.guard.ends) - clock.monotonic()
         if left <= 0:
             raise google.GoogleError("Google took too long to answer.")
         return min(google.DEFAULT_TIMEOUT, left)
 
 
-def _with_token(connection: TourCalendarConnection, call: Callable[[str, float], T], deadline: Deadline) -> T:
+def _with_token(
+    connection: TourCalendarConnection, call: Callable[[str, Callable[[], float]], T], deadline: Deadline
+) -> T:
     """``call(token, timeout)`` with the connection's token; on a 401, once more with a fresh token.
 
+    ``timeout`` is the deadline's own :meth:`Deadline.timeout`, asked before every request and page.
     Only a refresh Google refuses, or a 401 on a token it has just issued, reaches the caller as a
-    :class:`google.GoogleAuthError`.
+    :class:`google.GoogleAuthError`. A timeout or server error counts towards the run's breaker.
     """
-    token = access_token(connection, timeout=deadline.timeout())
+    guard = deadline.guard
     try:
-        return call(token, deadline.timeout())
-    except google.GoogleUnauthorizedError:
-        token = access_token(connection, timeout=deadline.timeout(), fresh=True)
-        return call(token, deadline.timeout())
+        try:
+            token = access_token(connection, timeout=deadline.timeout())
+            result = call(token, deadline.timeout)
+        except google.GoogleUnauthorizedError:
+            token = access_token(connection, timeout=deadline.timeout(), fresh=True)
+            result = call(token, deadline.timeout)
+    except google.GoogleAuthError:
+        raise
+    except (google.GoogleNotFoundError, google.GoogleConflictError):
+        guard.answered()
+        raise
+    except google.GoogleError:
+        guard.failed()
+        raise
+    guard.answered()
+    return result
 
 
 def mark_broken(connection: TourCalendarConnection, reason: str) -> bool:
@@ -398,7 +477,7 @@ def _write_event(connection: TourCalendarConnection, event_id: str, booking: Tou
             _with_token(
                 connection,
                 lambda token, timeout: google.update_event(
-                    token, connection.calendar_id, event_id, body, timeout=timeout
+                    token, connection.calendar_id, event_id, body, timeout=timeout()
                 ),
                 deadline,
             )
@@ -422,13 +501,13 @@ def _insert(connection: TourCalendarConnection, event_id: str, body: dict[str, A
     try:
         return _with_token(
             connection,
-            lambda token, timeout: google.insert_event(token, calendar_id, {"id": event_id, **body}, timeout=timeout),
+            lambda token, timeout: google.insert_event(token, calendar_id, {"id": event_id, **body}, timeout=timeout()),
             deadline,
         )
     except google.GoogleConflictError:
         _with_token(
             connection,
-            lambda token, timeout: google.update_event(token, calendar_id, event_id, body, timeout=timeout),
+            lambda token, timeout: google.update_event(token, calendar_id, event_id, body, timeout=timeout()),
             deadline,
         )
         return event_id
@@ -441,17 +520,26 @@ def _guide_connection(booking: TourBooking) -> TourCalendarConnection | None:
 
 
 def _place(row: TourCalendarSync, connection: TourCalendarConnection | None, calendar_id: str, event_id: str) -> None:
-    """Record where the event is now, touching nothing else on the row (due and generation stay as queued)."""
+    """Record where the event is now, touching nothing else on the row (due and generation stay as queued).
+
+    A row gone meanwhile (its booking deleted while the run was writing) leaves the event just
+    written with no booking: its delete is queued.
+    """
     row.connection, row.calendar_id, row.event_id = connection, calendar_id, event_id
-    TourCalendarSync.objects.filter(pk=row.pk).update(connection=connection, calendar_id=calendar_id, event_id=event_id)
+    placed = TourCalendarSync.objects.filter(pk=row.pk).update(
+        connection=connection, calendar_id=calendar_id, event_id=event_id
+    )
+    if not placed:
+        queue_cleanup(connection, calendar_id, event_id)
 
 
 def _remove_old_event(row: TourCalendarSync, connection: TourCalendarConnection | None, deadline: Deadline) -> None:
     """Delete the event from the calendar holding it, or forget it when that calendar is out of reach.
 
-    A broken holder that is not the booking's guide (a reassignment away from them) is out of reach
-    for good, like a disconnect: the event is forgotten and the new guide's calendar is still
-    written. The guide's own broken calendar comes back with a reconnect, so the row waits for it.
+    A broken holder that is not the booking's guide (a reassignment away from them) cannot be reached
+    now: its delete is queued for when they reconnect (:func:`queue_cleanup`) and the new guide's
+    calendar is still written. The guide's own broken calendar comes back with a reconnect, so the
+    row waits for it.
 
     Raises:
         _Waiting: the event is on the guide's own broken calendar.
@@ -460,33 +548,37 @@ def _remove_old_event(row: TourCalendarSync, connection: TourCalendarConnection 
     own = holder is not None and connection is not None and holder.pk == connection.pk
     if holder is not None and holder.is_broken and own:
         raise _Waiting
-    if holder is not None and not holder.is_broken:
-        calendar_id, event_id = row.calendar_id, row.event_id
+    calendar_id, event_id = row.calendar_id, row.event_id
+    if holder is not None and holder.is_broken:
+        queue_cleanup(holder, calendar_id, event_id)
+    elif holder is not None:
         try:
             _with_token(
                 holder,
-                lambda token, timeout: google.delete_event(token, calendar_id, event_id, timeout=timeout),
+                lambda token, timeout: google.delete_event(token, calendar_id, event_id, timeout=timeout()),
                 deadline,
             )
         except google.GoogleAuthError as exc:
             mark_broken(holder, str(exc))
             if own:
                 raise _Waiting from exc
+            queue_cleanup(holder, calendar_id, event_id)
     _place(row, None, "", "")
 
 
-def sync_booking(row: TourCalendarSync, *, now: datetime) -> None:
+def sync_booking(row: TourCalendarSync, *, now: datetime, guard: RunGuard | None = None) -> None:
     """Bring one booking's Google event to what the booking says now (``row.booking`` read fresh).
 
     Leaves ``due`` alone: :func:`sync_due_bookings` clears it only if nothing was queued meanwhile.
 
     Raises:
         _Waiting: the guide's own calendar is broken (marked so here when Google just refused it).
+        _Paused: the run's budget is spent or its breaker is open.
         google.GoogleError: Google failed; the caller records it and tries again later.
     """
     booking = row.booking
     connection = _guide_connection(booking)
-    deadline = Deadline(WRITE_DEADLINE_SECONDS)
+    deadline = Deadline(WRITE_DEADLINE_SECONDS, guard)
     want = booking.status != TourBooking.Status.CANCELLED and connection is not None
     in_place = (
         connection is not None and row.connection_id == connection.pk and row.calendar_id == connection.calendar_id
@@ -513,6 +605,7 @@ class SyncCounts:
     waiting: int = 0
     failed: int = 0
     given_up: int = 0
+    deferred: int = 0
 
 
 def _settle(row: TourCalendarSync, generation: int, **fields: Any) -> bool:
@@ -531,15 +624,25 @@ def _record_failure(row: TourCalendarSync, generation: int, exc: Exception, now:
     )
 
 
-def _claim(pk: int, now: datetime) -> TourCalendarSync | None:
-    """Take the row for this run, read fresh with its booking, or None when another run holds it."""
+def _claim(pk: int) -> TourCalendarSync | None:
+    """Take the row for this run, read fresh with its booking, or None when another run holds it.
+
+    On the real clock, not the run's start: a run that has gone on for a while still holds what it claims.
+    """
+    now = timezone.now()
     free = Q(claimed_until__isnull=True) | Q(claimed_until__lt=now)
     if not TourCalendarSync.objects.filter(free, pk=pk, due=True).update(claimed_until=now + CLAIM_FOR):
         return None
-    return TourCalendarSync.objects.select_related("booking", "connection").get(pk=pk)
+    # Deleted with its booking between the claim and this read: nothing to write.
+    return TourCalendarSync.objects.select_related("booking", "connection").filter(pk=pk).first()
 
 
-def _sync_one(row: TourCalendarSync, now: datetime, counts: SyncCounts) -> None:
+def _sync_one(row: TourCalendarSync, now: datetime, counts: SyncCounts, guard: RunGuard) -> None:
+    """Write one claimed row and settle it.
+
+    Raises:
+        _Paused: the run stops here; the row stays due as it was, uncounted.
+    """
     generation = row.generation
     if row.booking.ends_at < now - GIVE_UP_AFTER_END:
         logger.warning("Gave up writing tour booking %s to Google Calendar: %s", row.booking_id, row.last_error)
@@ -547,7 +650,9 @@ def _sync_one(row: TourCalendarSync, now: datetime, counts: SyncCounts) -> None:
         counts.given_up += 1
         return
     try:
-        sync_booking(row, now=now)
+        sync_booking(row, now=now, guard=guard)
+    except _Paused:
+        raise
     except _Waiting:
         _settle(
             row,
@@ -570,27 +675,84 @@ def _sync_one(row: TourCalendarSync, now: datetime, counts: SyncCounts) -> None:
         counts.done += 1
 
 
-def sync_due_bookings(now: datetime) -> SyncCounts:
+def sync_due_bookings(now: datetime, guard: RunGuard | None = None) -> SyncCounts:
     """Write every due row whose wait is over, soonest tour first, at most :data:`SYNC_BATCH`.
 
     Rows waiting on a broken calendar carry a :data:`WAIT_RECHECK` wait, so they never fill the batch.
+    Once ``guard`` stops the run, the rest are ``deferred``: still due, for the next tick.
     """
+    guard = guard or RunGuard()
     counts = SyncCounts()
     pks = list(
         TourCalendarSync.objects.filter(due=True)
         .filter(Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lte=now))
-        .filter(Q(claimed_until__isnull=True) | Q(claimed_until__lt=now))
+        .filter(Q(claimed_until__isnull=True) | Q(claimed_until__lt=timezone.now()))
         .order_by("booking__starts_at", "pk")
         .values_list("pk", flat=True)[:SYNC_BATCH]
     )
-    for pk in pks:
-        row = _claim(pk, now)
+    for index, pk in enumerate(pks):
+        if guard.why_stopped:
+            counts.deferred += len(pks) - index
+            break
+        row = _claim(pk)
         if row is None:
             continue
         try:
-            _sync_one(row, now, counts)
+            _sync_one(row, now, counts, guard)
+        except _Paused:
+            counts.deferred += len(pks) - index
+            break
         finally:
             TourCalendarSync.objects.filter(pk=pk).update(claimed_until=None)
+    return counts
+
+
+@dataclass
+class CleanupCounts:
+    """What one pass over the queued deletes did."""
+
+    done: int = 0
+    failed: int = 0
+    deferred: int = 0
+
+
+def run_cleanups(now: datetime, guard: RunGuard | None = None) -> CleanupCounts:
+    """Delete the queued events (:class:`~tours.models.TourCalendarCleanup`) whose calendar works now.
+
+    One on a broken calendar waits, untried, for the guide to reconnect (or goes with a disconnect).
+    A failure waits like a write's; a refusal breaks the connection, and the delete waits again.
+    """
+    guard = guard or RunGuard()
+    counts = CleanupCounts()
+    pending = list(
+        TourCalendarCleanup.objects.filter(connection__status=TourCalendarConnection.Status.CONNECTED)
+        .filter(Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lte=now))
+        .select_related("connection")
+        .order_by("pk")[:SYNC_BATCH]
+    )
+    for index, cleanup in enumerate(pending):
+        deadline = Deadline(WRITE_DEADLINE_SECONDS, guard)
+        calendar_id, event_id = cleanup.calendar_id, cleanup.event_id
+        try:
+            _with_token(
+                cleanup.connection,
+                lambda token, timeout: google.delete_event(token, calendar_id, event_id, timeout=timeout()),
+                deadline,
+            )
+        except _Paused:
+            counts.deferred += len(pending) - index
+            break
+        except google.GoogleAuthError as exc:
+            mark_broken(cleanup.connection, str(exc))
+        except google.GoogleError as exc:
+            cleanup.attempts += 1
+            cleanup.last_error = (str(exc) or type(exc).__name__)[:300]
+            cleanup.next_attempt_at = now + min(RETRY_BASE * 2 ** (cleanup.attempts - 1), RETRY_CAP)
+            cleanup.save(update_fields=["attempts", "last_error", "next_attempt_at"])
+            counts.failed += 1
+        else:
+            TourCalendarCleanup.objects.filter(pk=cleanup.pk).delete()
+            counts.done += 1
     return counts
 
 
@@ -707,15 +869,18 @@ def read_busy(
     return merged
 
 
-def refresh_busy(connection: TourCalendarConnection, *, now: datetime) -> bool:
+def refresh_busy(connection: TourCalendarConnection, *, now: datetime, guard: RunGuard | None = None) -> bool:
     """:func:`read_busy` within :data:`BUSY_DEADLINE_SECONDS`, keeping the cache as it was when Google
     fails, and breaking the connection when it refuses.
 
     Returns:
         Whether the busy times were read.
+
+    Raises:
+        _Paused: the run's budget is spent or its breaker is open; the cache stays as it was.
     """
     try:
-        read_busy(connection, now=now, deadline=Deadline(BUSY_DEADLINE_SECONDS))
+        read_busy(connection, now=now, deadline=Deadline(BUSY_DEADLINE_SECONDS, guard))
     except google.GoogleAuthError as exc:
         mark_broken(connection, str(exc))
         return False
@@ -781,40 +946,106 @@ class SyncReport:
 
     read: int = 0
     read_failed: int = 0
+    reads_deferred: int = 0
     conflicts: int = 0
+    unread_told: int = 0
+    stopped: str = ""
     writes: SyncCounts = field(default_factory=SyncCounts)
+    cleanups: CleanupCounts = field(default_factory=CleanupCounts)
     stuck: list[str] = field(default_factory=list)
+
+
+def _unread(now: datetime) -> Any:
+    """Connected calendars unread for over :data:`STALE_ALERT` (not just connected)."""
+    old = now - STALE_ALERT
+    return (
+        TourCalendarConnection.objects.healthy()
+        .filter(connected_at__lt=old)
+        .filter(Q(busy_checked_at__isnull=True) | Q(busy_checked_at__lt=old))
+    )
 
 
 def stuck_problems(now: datetime) -> list[str]:
     """What has been failing long enough that a person should look: the job fails on these."""
     problems: list[str] = []
     failing = TourCalendarSync.objects.filter(due=True, attempts__gte=STUCK_ATTEMPTS).count()
+    failing += TourCalendarCleanup.objects.filter(attempts__gte=STUCK_ATTEMPTS).count()
     if failing:
         problems.append(f"{failing} tour event write(s) failed {STUCK_ATTEMPTS} or more times in a row")
-    old = now - STALE_ALERT
-    stale = (
-        TourCalendarConnection.objects.healthy()
-        .filter(connected_at__lt=old)
-        .filter(Q(busy_checked_at__isnull=True) | Q(busy_checked_at__lt=old))
-        .count()
-    )
+    stale = _unread(now).count()
     if stale:
-        problems.append(f"{stale} connected calendar(s) have not been read for over an hour")
+        problems.append(f"{stale} guide(s)' connected Google Calendar has not been read for over an hour")
     return problems
 
 
-def run(now: datetime | None = None) -> SyncReport:
-    """The ``sync_tour_calendars`` job: read every connected guide's busy times (so the cache is at most
-    a tick old), bell any clash with a booked tour, write due events."""
+def tell_guides_unread(now: datetime) -> int:
+    """Bell each guide whose calendar has gone unread for over an hour, once per stretch unread.
+
+    The period is the last good read (or the connection, never read), so a guide hears again only
+    after a read succeeded and then stopped again. Returns how many such guides there are.
+    """
+    from core.events.emit import emit
+
+    stale = list(_unread(now).select_related("guide"))
+    for connection in stale:
+        since = connection.busy_checked_at or connection.connected_at
+        emit(
+            UNREAD_EVENT,
+            target=connection,
+            context={"guide": connection.guide},
+            title=UNREAD_TITLE,
+            body=(
+                "We could not read your Google Calendar, so busy times may be out of date and visitors may "
+                "be offered times you are busy. We keep trying; reconnect on My Hours if it goes on."
+            ),
+            url=reverse("tours:hours"),
+            period=f"tour_calendar:{connection.pk}:unread:{since:%Y%m%dT%H%M%S}",
+        )
+    return len(stale)
+
+
+def run_budget() -> float:
+    """The run's budget: :data:`MANUAL_BUDGET_SECONDS` under Run now (a web request), else :data:`JOB_BUDGET_SECONDS`."""
+    from core.scheduled_jobs import Trigger, current_run
+
+    open_run = current_run()
+    if open_run is not None and open_run.trigger == Trigger.MANUAL:
+        return MANUAL_BUDGET_SECONDS
+    return JOB_BUDGET_SECONDS
+
+
+def run(now: datetime | None = None, *, budget: float | None = None) -> SyncReport:
+    """The ``sync_tour_calendars`` job: read every connected guide's busy times, longest unread first
+    (so one slow guide never starves the others), bell any clash with a booked tour, write due events,
+    and bell guides whose calendar has gone unread for an hour.
+
+    Within ``budget`` seconds (:func:`run_budget` by default) and until :data:`BREAKER_FAILURES`
+    failures in a row; what is left then waits for the next tick, uncounted.
+    """
     now = now or timezone.now()
+    guard = RunGuard(run_budget() if budget is None else budget)
     report = SyncReport()
-    for connection in TourCalendarConnection.objects.healthy().select_related("guide"):
-        if refresh_busy(connection, now=now):
+    connections = list(
+        TourCalendarConnection.objects.healthy()
+        .select_related("guide")
+        .order_by(F("busy_checked_at").asc(nulls_first=True), "pk")
+    )
+    for index, connection in enumerate(connections):
+        try:
+            if guard.why_stopped:
+                raise _Paused(guard.why_stopped)
+            read = refresh_busy(connection, now=now, guard=guard)
+        except _Paused:
+            report.reads_deferred = len(connections) - index
+            break
+        if read:
             report.read += 1
         else:
             report.read_failed += 1
     report.conflicts = alert_busy_conflicts(now)
-    report.writes = sync_due_bookings(now)
+    report.writes = sync_due_bookings(now, guard)
+    report.cleanups = run_cleanups(now, guard)
+    report.stopped = guard.why_stopped
+    report.unread_told = tell_guides_unread(now)
     report.stuck = stuck_problems(now)
     return report

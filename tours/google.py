@@ -30,6 +30,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -53,6 +54,8 @@ SCOPES: tuple[str, ...] = (EVENTS_SCOPE, CALENDAR_LIST_SCOPE)
 DEFAULT_TIMEOUT = 10.0
 #: Most pages of events read from one calendar (250 each): a horizon with more is cut short.
 MAX_EVENT_PAGES = 20
+#: A call's timeout: seconds, or a callable asked before each page (a caller's shrinking deadline).
+Timeout = float | Callable[[], float]
 #: 403 reasons that mean the token lacks a permission rather than a passing limit.
 _PERMISSION_REASONS = frozenset({"insufficientPermissions", "forbidden", "requiredAccessLevel"})
 
@@ -250,15 +253,23 @@ def _api(
     raise GoogleError(f"Google Calendar returned {status}: {message}")
 
 
-def list_calendars(token: str, *, timeout: float = DEFAULT_TIMEOUT) -> list[Calendar]:
-    """The calendars the guide owns (the only ones ``calendar.events.owned`` can write), main one first."""
+def _seconds(timeout: Timeout) -> float:
+    """The next request's timeout: asked afresh before every page when ``timeout`` is a callable."""
+    return timeout() if callable(timeout) else timeout
+
+
+def list_calendars(token: str, *, timeout: Timeout = DEFAULT_TIMEOUT) -> list[Calendar]:
+    """The calendars the guide owns (the only ones ``calendar.events.owned`` can write), main one first.
+
+    A callable ``timeout`` is asked before each page, so a caller's deadline covers every page.
+    """
     calendars: list[Calendar] = []
     page_token = ""
     for _page in range(MAX_EVENT_PAGES):
         params: dict[str, Any] = {"minAccessRole": "owner", "maxResults": 250}
         if page_token:
             params["pageToken"] = page_token
-        answer = _api("GET", "/users/me/calendarList", token=token, timeout=timeout, params=params)
+        answer = _api("GET", "/users/me/calendarList", token=token, timeout=_seconds(timeout), params=params)
         for item in answer.get("items", []):
             calendars.append(
                 Calendar(
@@ -280,9 +291,12 @@ def _events_path(calendar_id: str, event_id: str = "") -> str:
 
 
 def list_events(
-    token: str, calendar_id: str, time_min: datetime, time_max: datetime, *, timeout: float = DEFAULT_TIMEOUT
+    token: str, calendar_id: str, time_min: datetime, time_max: datetime, *, timeout: Timeout = DEFAULT_TIMEOUT
 ) -> list[dict[str, Any]]:
-    """Every event on one calendar overlapping ``time_min`` to ``time_max``, repeats expanded."""
+    """Every event on one calendar overlapping ``time_min`` to ``time_max``, repeats expanded.
+
+    A callable ``timeout`` is asked before each page, so a caller's deadline covers every page.
+    """
     fields = (
         "nextPageToken,items(id,status,transparency,eventType,start,end,"
         "attendees(self,responseStatus),extendedProperties/private)"
@@ -299,7 +313,7 @@ def list_events(
         }
         if page_token:
             params["pageToken"] = page_token
-        answer = _api("GET", _events_path(calendar_id), token=token, timeout=timeout, params=params)
+        answer = _api("GET", _events_path(calendar_id), token=token, timeout=_seconds(timeout), params=params)
         events.extend(item for item in answer.get("items", []) if isinstance(item, dict))
         page_token = str(answer.get("nextPageToken", ""))
         if not page_token:

@@ -559,6 +559,7 @@ TOUR_CHECKED_IN = "tour.checked_in"  # your visitor checked in at the front desk
 TOUR_CALENDAR_BUSY = "tour.calendar_busy"  # your Google Calendar now shows you busy during a booked tour (#951)
 TOUR_CALENDAR_BROKEN = "tour.calendar_broken"  # Google stopped accepting your calendar connection (#951)
 TOUR_CALENDAR_GONE = "tour.calendar_gone"  # the calendar you picked for tours is gone; the main one took over (#951)
+TOUR_CALENDAR_UNREAD = "tour.calendar_unread"  # your Google Calendar could not be read for over an hour (#951)
 GUILD_NEEDS_ATTENTION = "guild.needs_attention"  # a guild breaks a Needs attention rule (#953)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
@@ -1636,6 +1637,18 @@ _NEW_EVENTS: list[EventType] = [
         key=TOUR_CALENDAR_GONE,
         label="Tours calendar gone",
         description="The Google Calendar you picked for tours is gone, so tours go to your main calendar.",
+        category="Tours",
+        recipient=Recipients.TOUR_GUIDES,
+        channels=(_IN_APP_ON,),
+        activity_kind=None,
+    ),
+    # tour.calendar_unread: a Tour Guide's connected Google Calendar has not been read for over an
+    # hour (#951: Google slow or failing), so busy times may be out of date. Bell only, once per
+    # stretch unread (tours.calendar_sync.tell_guides_unread); the Webmasters' job alert stays.
+    EventType(
+        key=TOUR_CALENDAR_UNREAD,
+        label="Google Calendar not read",
+        description="We could not read your Google Calendar for over an hour, so busy times may be out of date.",
         category="Tours",
         recipient=Recipients.TOUR_GUIDES,
         channels=(_IN_APP_ON,),

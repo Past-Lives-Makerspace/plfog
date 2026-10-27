@@ -777,3 +777,36 @@ class TourCalendarSync(models.Model):
 
     def __str__(self) -> str:
         return f"{self.booking}: {self.event_id or 'no event'}{' (due)' if self.due else ''}"
+
+
+class TourCalendarCleanup(models.Model):
+    """A tour event to delete from a guide's Google Calendar that no booking points at any more (#951).
+
+    Made when a booking is deleted (the Django admin or a shell; normal flows cancel instead), when a
+    write lands after its booking was deleted, and when a tour is reassigned away from a guide whose
+    calendar is broken. The ``sync_tour_calendars`` job deletes the event once the connection works
+    (at once, or after the guide reconnects) and then the row. Disconnecting drops the row with the
+    connection: the token that could reach the event is gone.
+    """
+
+    connection = models.ForeignKey(
+        TourCalendarConnection,
+        on_delete=models.CASCADE,
+        related_name="pending_cleanups",
+        help_text="Whose Google Calendar holds the event.",
+    )
+    calendar_id = models.CharField(max_length=255, help_text="The calendar holding the event.")
+    event_id = models.CharField(max_length=255, help_text="The Google event to delete.")
+    attempts = models.PositiveSmallIntegerField(default=0, help_text="Failed tries since it was queued.")
+    next_attempt_at = models.DateTimeField(
+        null=True, blank=True, help_text="After a failure: the earliest the job tries again."
+    )
+    last_error = models.CharField(max_length=300, blank=True, default="", help_text="Why the last try failed.")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the delete was queued.")
+
+    class Meta:
+        verbose_name = "tour Google Calendar event to delete"
+        verbose_name_plural = "tour Google Calendar events to delete"
+
+    def __str__(self) -> str:
+        return f"Delete {self.event_id} from {self.calendar_id}"
