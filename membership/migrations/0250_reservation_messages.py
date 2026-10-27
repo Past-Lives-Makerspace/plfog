@@ -8,7 +8,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0248_orientation_notes_to_messages"),
+        ("membership", "0249_orientation_notes_to_messages"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
