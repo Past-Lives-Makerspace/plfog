@@ -102,6 +102,7 @@ def describe_help_content():
                 "leadership-directory": "getting-started",
                 "guilds-and-guild-pages": "guilds",
                 "getting-oriented": "guilds",
+                "reserving-equipment": "guilds",
                 "guild-voting": "guilds",
                 "taking-a-class": "classes",
                 "community-calendar": "events-community",

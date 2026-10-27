@@ -35,7 +35,13 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
 
     from billing.models import LateCancellationFee
-    from membership.models import Equipment, EquipmentCredit, EquipmentReservation, Member
+    from membership.models import (
+        Equipment,
+        EquipmentCredit,
+        EquipmentReservation,
+        EquipmentReservationMessage,
+        Member,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -447,6 +453,57 @@ def notify_manager_cancelled(reservation: EquipmentReservation) -> None:
         },
         url=reverse("hub_equipment_detail", args=[reservation.equipment.slug]),
         period=f"reservation:{reservation.pk}:manager_cancelled",
+    )
+
+
+def notify_message_to_member(message: EquipmentReservationMessage) -> None:
+    """A manager or an admin wrote on a reservation's thread: tell the member who booked.
+
+    The button opens the Reservations page's Bookings tab with the thread open. The period is
+    the message, so every message notifies once. The caller checks the member has an account.
+    """
+    from core.events.emit import emit
+
+    reservation = message.reservation
+    emit(
+        "equipment.reservation_message_to_member",
+        actor=message.author,
+        target=reservation,
+        context={
+            "user": reservation.member.user,
+            "author_name": message.author_name,
+            "message_body": message.body,
+            "reservation_url": _absolute_url(reservation.member_messages_url),
+            **_placeholder_context(reservation),
+        },
+        url=reservation.member_messages_url,
+        period=f"reservation-message-{message.pk}",
+    )
+
+
+def notify_message_to_managers(message: EquipmentReservationMessage, recipient_ids: set[int]) -> None:
+    """The member wrote on their reservation's thread: tell ``recipient_ids`` (the managers minus the author).
+
+    The event's ``equipment_managers`` resolver still runs from the context, then
+    ``recipient_user_ids`` narrows it to exactly these people. The button opens the
+    equipment's Manage > Reservations tab with the thread open.
+    """
+    from core.events.emit import emit
+
+    reservation = message.reservation
+    emit(
+        "equipment.reservation_message_to_managers",
+        actor=message.author,
+        target=reservation,
+        context={
+            "equipment": reservation.equipment,
+            "message_body": message.body,
+            "reservation_url": _absolute_url(reservation.staff_messages_url),
+            **_placeholder_context(reservation),
+        },
+        url=reservation.staff_messages_url,
+        period=f"reservation-message-{message.pk}",
+        recipient_user_ids=recipient_ids,
     )
 
 

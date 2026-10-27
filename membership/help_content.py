@@ -442,6 +442,38 @@ Their answers show in the same place, and you get a notification for each one. T
         ],
     },
     {
+        "slug": "reserving-equipment",
+        "category": "guilds",
+        "title": "Reserving Equipment",
+        "sort_order": 25,
+        "related": ["getting-oriented"],
+        "body": """Book time on a tool once you are oriented on it, and talk with the people who manage it about your reservation.
+
+## Book a Time {#reserve-book-a-time}
+
+1. Click **Reservations** in the sidebar and open the tool.
+2. Under **Book a Time**, pick a day on the schedule, then a **Start** and a **Duration**.
+3. Click **Reserve** (**Reserve and Pay** on a tool that charges by the hour) and confirm.
+
+Some tools need a manager's approval. Your reservation then shows **Awaiting approval** and holds the time until a manager approves or declines it. You get an email either way.
+
+## Your Reservations {#reserve-your-reservations}
+
+Your reservations on a tool are listed on its page under **Your Reservations Here**. All of them are on the **Reservations** page's **Bookings** tab, where each row's **...** menu holds what you can do with it.
+
+## Message the Managers {#reservation-messages}
+
+Every reservation has its own **Messages**, a conversation between you and the people who manage the tool. Use them to ask a question, or to answer one, before or after the reservation is approved.
+
+1. Open **Messages** on the tool's page under **Your Reservations Here**, or from a reservation's **...** menu on the **Bookings** tab.
+2. Write your message. Add photos if they help.
+3. Click **Send**. The tool's managers get a notification.
+
+Their answers show in the same place, and you get a notification for each one. A reservation with a message you have not read shows **New message**. If a manager declines or cancels your reservation, their reason is posted there too, so you can reply.
+""",
+        "screenshots": [],
+    },
+    {
         "slug": "guild-voting",
         "category": "guilds",
         "title": "Guild Voting",
@@ -1590,6 +1622,16 @@ The new time runs with the same orientor. The payment stays with the booking eit
 **Manage Bookings** in the left menu is the one place for everything you run. Leads, staff, equipment managers and admins see it; nobody else does. **Needs Attention** holds the orientation requests waiting on you and the reservation requests on equipment you manage, with their actions in each row's menu. **What You Run** is one card per guild and piece of equipment you run: whether booking is on, its orientations, and links to its Orientations page and its Bookings. **Your Hours** is your own recurring hours everywhere, with **Edit Hours**.
 
 ![Manage Bookings: what needs your reply, what you run, and your hours.](/static/help/running-orientations/02-manage-bookings.png)
+
+### Messages on Reservations {#reservation-messages-managers}
+
+Every reservation on a tool you manage has **Messages**, a conversation between the member who booked and the tool's managers. Open it from **Messages** on the tool's **Manage** page, **Reservations** tab (on requests waiting for approval and on upcoming reservations), from Manage Bookings, or from a row's **...** menu on the **Reservations** page's **Bookings** tab.
+
+- Write a message, add photos if they help, and click **Send**. The member gets a notification every time.
+- When the member writes, the tool's managers get a notification. Admins can read and write on every reservation.
+- You can ask and answer while a request waits for approval, before you decide.
+- A reason you give when you decline or cancel is posted here too, and goes out in that email, so the member gets one notice.
+- A row with a message you have not read shows **New message**.
 
 ### The Bookings Tab {#orientation-dashboard}
 

@@ -103,6 +103,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 /settings/emails/               Email preferences
 /feedback/                      Feedback form
 /orientation/bookings/<pk>/     A member's orientation booking and its messages (the shared thread)
+/equipment/reservations/<pk>/messages/  A reservation's messages for the Messages modal (the shared thread)
 /tab/                           My Tab (current balance + add entry)
 /tab/history/                   Past billing charges
 /                               Home / redirects (core.views)

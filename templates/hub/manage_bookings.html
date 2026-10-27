@@ -86,6 +86,7 @@ bookings_next, which is this page, so the viewer lands back here.
   {% endif %}
   {% include "hub/partials/orientation_booking_modals.html" %}
   {% include "hub/partials/reservation_booking_modals.html" %}
+  {% include "hub/partials/reservation_messages_modal.html" with reservation_thread_next=bookings_next %}
   </div>
 
   <section class="pl-manage__section" data-what-you-run>

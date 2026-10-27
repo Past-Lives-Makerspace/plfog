@@ -639,6 +639,16 @@ urlpatterns = [
         name="hub_equipment_reservation_decline",
     ),
     path(
+        "equipment/reservations/<int:pk>/messages/",
+        equipment_views.hub_equipment_reservation_messages,
+        name="hub_equipment_reservation_messages",
+    ),
+    path(
+        "equipment/reservations/<int:pk>/messages/send/",
+        equipment_views.hub_equipment_reservation_message,
+        name="hub_equipment_reservation_message",
+    ),
+    path(
         "equipment/<slug:slug>/manage/hours/",
         equipment_views.hub_equipment_hours_save,
         name="hub_equipment_hours_save",
