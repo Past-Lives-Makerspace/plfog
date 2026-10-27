@@ -161,7 +161,8 @@ def _meeting_value(guild: Guild) -> str:
 
     Delegates to :meth:`Guild.next_meeting_occurrence` — the same authoritative method the guild
     page uses — so an event-based ``GUILD_MEETING`` is never dropped (the old reimplementation only
-    understood the legacy cadence fields). Formats the returned :class:`NextMeeting` tuple; falls
+    understood the legacy cadence fields). Formats the returned :class:`NextMeeting` tuple, its
+    title first when it comes from an event (#953); falls
     back to the free-text ``meeting_schedule`` only when there's no upcoming occurrence. Returns
     ``""`` when nothing is configured (caller omits the field).
     """
@@ -172,6 +173,8 @@ def _meeting_value(guild: Guild) -> str:
     if occurrence.has_time:
         parts.append(occurrence.when.strftime("%-I:%M %p"))
     value = " · ".join(parts)
+    if occurrence.title:
+        value = f"{occurrence.title}\n{value}"
     if occurrence.location:
         value += f"\n{occurrence.location}"
     return value

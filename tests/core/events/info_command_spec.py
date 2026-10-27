@@ -134,6 +134,18 @@ def describe_info():
             assert when.strftime("%A, %b %-d") in value
             assert "Studio C" in value
 
+        def it_names_the_event_on_the_first_line(  # #953: same title the guild page card shows
+        ):
+            guild = GuildFactory(name="G8c", about="x")
+            when = timezone.now() + timedelta(days=2)
+            CommunityEventFactory(guild=guild, title="Open Forge", starts_at=when)
+            assert _field(_by_option("G8c"), "Next meeting").startswith("Open Forge\n")
+
+        def it_gives_a_cadence_date_with_no_title():
+            GuildFactory(name="G8d", about="x", meeting_next_override=timezone.localdate() + timedelta(days=5))
+            value = _field(_by_option("G8d"), "Next meeting")
+            assert value == (timezone.localdate() + timedelta(days=5)).strftime("%A, %b %-d")
+
         def it_uses_the_free_text_schedule_as_a_fallback():
             GuildFactory(name="G9", about="x", meeting_schedule="Tuesdays 6pm, Studio B")
             assert "Tuesdays 6pm" in _field(_by_option("G9"), "Next meeting")

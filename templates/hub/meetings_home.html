@@ -68,14 +68,14 @@ layout inlined because its action must OPEN A MODAL, not follow a link.
     {% for row in start_agenda_rows %}
     <div class="pl-meeting-attention__row pl-meeting-attention__row--start">
         <span class="pl-meeting-attention__title">{{ row.label }}</span>
-        <span class="hub-text-muted">Next per schedule: {{ row.cadence.when|date:"D, M j" }}{% if row.cadence.has_time %} · {{ row.cadence.when|time:"g:i A" }}{% endif %}</span>
+        <span class="hub-text-muted">Next per schedule: {{ row.agenda.when|date:"D, M j" }}{% if row.agenda.has_time %} · {{ row.agenda.when|time:"g:i A" }}{% endif %}</span>
         {# §6.2 Start-the-agenda contract: POST scope+date+time to hub_meeting_create; an existing scope+date meeting redirects into it. #}
         <form method="post" action="{% url 'hub_meeting_create' %}" class="pl-meeting-attention__start">
             {% csrf_token %}
             <input type="hidden" name="scope" value="{% if row.guild %}{{ row.guild.pk }}{% else %}council{% endif %}">
             <input type="hidden" name="kind" value="monthly">
-            <input type="hidden" name="date" value="{{ row.cadence.when|date:'Y-m-d' }}">
-            <input type="hidden" name="time" value="{% if row.cadence.has_time %}{{ row.cadence.when|time:'H:i' }}{% endif %}">
+            <input type="hidden" name="date" value="{{ row.agenda.when|date:'Y-m-d' }}">
+            <input type="hidden" name="time" value="{% if row.agenda.has_time %}{{ row.agenda.when|time:'H:i' }}{% endif %}">
             <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Start the agenda</button>
         </form>
     </div>
@@ -117,15 +117,15 @@ layout inlined because its action must OPEN A MODAL, not follow a link.
                     {% if row.next_meeting %}
                     <a href="{% url 'hub_meeting' row.next_meeting.pk %}">{{ row.next_meeting.scheduled_date|date:"D, M j" }}{% if row.next_meeting.scheduled_time %} · {{ row.next_meeting.scheduled_time|time:"g:i A" }}{% endif %}</a>
                     {% elif row.cadence %}
-                    <span>{{ row.cadence.when|date:"D, M j" }}{% if row.cadence.has_time %} · {{ row.cadence.when|time:"g:i A" }}{% endif %} <span class="hub-text-muted">(from schedule)</span></span>
-                    {% if row.can_edit %}
+                    <span>{{ row.cadence.when|date:"D, M j" }}{% if row.cadence.has_time %} · {{ row.cadence.when|time:"g:i A" }}{% endif %} <span class="hub-text-muted">{% if row.cadence.title %}{{ row.cadence.title }}{% else %}(from schedule){% endif %}</span></span>
+                    {% if row.can_edit and row.agenda %}
                     {# The §6.2 Start-the-agenda contract: POST guild+date+time to hub_meeting_create; an existing scope+date meeting redirects into it instead of a twin. #}
                     <form method="post" action="{% url 'hub_meeting_create' %}" class="pl-meeting-dash__start">
                         {% csrf_token %}
                         <input type="hidden" name="scope" value="{% if row.guild %}{{ row.guild.pk }}{% else %}council{% endif %}">
                         <input type="hidden" name="kind" value="monthly">
-                        <input type="hidden" name="date" value="{{ row.cadence.when|date:'Y-m-d' }}">
-                        <input type="hidden" name="time" value="{% if row.cadence.has_time %}{{ row.cadence.when|time:'H:i' }}{% endif %}">
+                        <input type="hidden" name="date" value="{{ row.agenda.when|date:'Y-m-d' }}">
+                        <input type="hidden" name="time" value="{% if row.agenda.has_time %}{{ row.agenda.when|time:'H:i' }}{% endif %}">
                         <button type="submit" class="pl-btn pl-btn--sm">Start the agenda</button>
                     </form>
                     {% endif %}

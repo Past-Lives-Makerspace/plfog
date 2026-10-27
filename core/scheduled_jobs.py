@@ -375,6 +375,19 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         schedule_label="Nightly ~6 AM",
         cadence=Cadence.DAILY,
     ),
+    # Must stay after sync_all_sources: daily jobs run in list order, and the check reads the
+    # Google rows that import brings in (#953).
+    ScheduledJob(
+        key="check_needs_attention",
+        name="Guild needs attention",
+        description=(
+            "Checks every active guild for things its staff should have in order, such as something "
+            "coming up, and puts an inbox item in front of its leads and staff when one is missing."
+        ),
+        command="check_needs_attention",
+        schedule_label="Daily ~6 AM",
+        cadence=Cadence.DAILY,
+    ),
     ScheduledJob(
         key="announce_live_requests",
         name="Requests gone live",

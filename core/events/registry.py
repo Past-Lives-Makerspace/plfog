@@ -546,6 +546,7 @@ FEEDBACK_REQUEST_UPDATED = "feedback.request_updated"  # your feature request or
 KILN_CREW_REPLIED = "kiln.crew_replied"  # the kiln crew wrote on your kiln ticket (#691)
 KILN_MAKER_REPLIED = "kiln.maker_replied"  # a maker wrote on a kiln ticket (the kiln crew, #691)
 KILN_READY_FOR_PICKUP = "kiln.ready_for_pickup"  # your pieces came out of a firing (#691 part 3)
+GUILD_NEEDS_ATTENTION = "guild.needs_attention"  # a guild breaks a Needs attention rule (#953)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -1554,6 +1555,18 @@ _NEW_EVENTS: list[EventType] = [
         category="Kiln tickets",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # guild.needs_attention — the daily Needs attention check found a guild breaking one of its
+    # rules (#953), such as nothing coming up. The guild's lead and staff get an inbox item that
+    # clears itself once it is fixed. Inbox only: no email, no digest, no Discord.
+    EventType(
+        key=GUILD_NEEDS_ATTENTION,
+        label="Your guild needs attention",
+        description="Your guild has something to set up, such as its next meeting.",
+        category="Guilds",
+        recipient=Recipients.GUILD_LEADERSHIP,
+        channels=(_IN_APP_ON,),
         activity_kind=None,
     ),
 ]

@@ -61,11 +61,18 @@ _DISPATCHER_DAILY = {
     "send_overdue_review_alerts",
     "welcome_new_members",
     "send_wiki_guild_digest",
+    "check_needs_attention",
 }
 _DISPATCHER_WEEKLY = {"post_weekly_calendar_digest", "post_weekly_classes_digest"}
 
 
 def describe_registry():
+    def it_runs_the_needs_attention_check_after_the_calendar_import():
+        # The dispatcher runs a tick's daily jobs in list order, so the check sees the Google
+        # rows sync_all_sources just imported (#953).
+        keys = [job.key for job in SCHEDULED_JOBS]
+        assert keys.index("check_needs_attention") > keys.index("sync_all_sources")
+
     def it_indexes_every_job_by_key():
         assert set(JOBS_BY_KEY) == {job.key for job in SCHEDULED_JOBS}
 
