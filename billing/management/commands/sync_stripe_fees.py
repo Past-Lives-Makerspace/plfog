@@ -24,7 +24,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--backfill",
             action="store_true",
-            help="Match payouts over all history, not the last 35 days, and list every payment Stripe does not have.",
+            help="Match payouts over all history, not the last 35 days, ask again about not found payments, and list every payment Stripe does not have.",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -33,8 +33,11 @@ class Command(BaseCommand):
         self.stdout.write(
             f"Added {report.added}, recorded {report.recorded}, waiting on Stripe {report.waiting}, "
             f"not found {report.not_found}, Stripe errors {report.stripe_errors}, "
+            f"no key to read with {report.unreadable}, overtaken by a refund {report.stale}, "
             f"matched to a payout {report.payouts_stamped}."
         )
+        for account in report.skipped_accounts:
+            self.stdout.write(f"Skipped {account} account payouts: no secret key is set for this mode.")
         if backfill:
             if report.not_found_sources:
                 self.stdout.write(f"{len(report.not_found_sources)} paid payment(s) are on neither Stripe account:")

@@ -16,20 +16,22 @@ from django.core.management.base import CommandError
 from django.test import Client
 from django.urls import reverse
 from django.db import IntegrityError
+from django.db.models import Sum
 from django.utils import timezone
 
 from billing import stripe_fees, stripe_utils
-from billing.exceptions import StripeSettlementNotReadyError
+from billing.exceptions import StripeAccountUnavailableError, StripeSettlementNotReadyError
 from billing.models import (
     STRIPE_FEE_STUCK_AFTER_READS,
     BillingSettings,
     LateCancellationFee,
     StripeFeeRecord,
+    StripeFeeRefund,
     TabCharge,
 )
 from billing.payments_panel import parse_window
 from billing.reconciliation import _split_by_weight, attach_stripe_fees, build_reconciliation
-from billing.stripe_utils import ChargeSettlement
+from billing.stripe_utils import ChargeSettlement, RefundSettlement
 from classes.factories import RegistrationFactory
 from membership.models import EquipmentReservation, OrientationBooking
 from tests.billing.factories import (
@@ -92,11 +94,22 @@ def _settlement(**overrides: Any) -> ChargeSettlement:
         "fee_cents": 175,
         "net_cents": 4825,
         "available_on": datetime.fromtimestamp(AVAILABLE_TS, tz=UTC),
-        "refunded_cents": 0,
-        "refund_fee_cents": 0,
     }
     values.update(overrides)
     return ChargeSettlement(**values)
+
+
+def _refund(refund_id: str = "re_fake_1", **overrides: Any) -> RefundSettlement:
+    values: dict[str, Any] = {
+        "refund_id": refund_id,
+        "balance_transaction_id": f"txn_{refund_id}",
+        "amount_cents": -1000,
+        "fee_cents": -30,
+        "net_cents": -970,
+        "available_on": timezone.now() - timedelta(days=1),
+    }
+    values.update(overrides)
+    return RefundSettlement(**values)
 
 
 def _recorded(pi: str, **overrides: Any) -> StripeFeeRecord:
@@ -136,27 +149,70 @@ def describe_StripeFeeRecord():
         with pytest.raises(IntegrityError):
             StripeFeeRecord.objects.create(stripe_payment_intent_id="pi_fake_bad", status="recorded")
 
-    def it_records_what_stripe_answered_and_keeps_a_stamped_payout():
-        now = timezone.now()
-        record = StripeFeeRecord.objects.create(
-            stripe_payment_intent_id="pi_fake_r", attempts=3, last_error="old", stripe_payout_id="po_fake_kept"
-        )
-        record.record(
-            account="previous",
-            charge_id="ch_fake",
-            balance_transaction_id="txn_fake",
-            amount_cents=100,
-            fee_cents=33,
-            net_cents=67,
-            available_on=now,
-            refunded_cents=10,
-            refund_fee_cents=0,
-            now=now,
-        )
-        record.refresh_from_db()
-        assert record.status == StripeFeeRecord.Status.RECORDED
-        assert (record.account, record.fee_cents, record.net_cents, record.refunded_cents) == ("previous", 33, 67, 10)
-        assert (record.attempts, record.last_error, record.stripe_payout_id) == (0, "", "po_fake_kept")
+    def it_reads_a_pending_row_as_unknown_even_with_old_amounts():
+        record = _recorded("pi_fake_stale_amounts", status=StripeFeeRecord.Status.PENDING)
+        assert record.fee_after_refunds_cents is None
+        assert record.net_after_refunds_cents is None
+
+    def describe_record():
+        def it_stores_the_charge_and_its_refunds_and_keeps_payout_ids_stamped_elsewhere():
+            now = timezone.now()
+            record = StripeFeeRecord.objects.create(
+                stripe_payment_intent_id="pi_fake_r", attempts=3, last_error="old", stripe_payout_id="po_fake_kept"
+            )
+            StripeFeeRefund.objects.create(
+                record=record,
+                stripe_refund_id="re_fake_1",
+                stripe_balance_transaction_id="txn_old",
+                amount_cents=-1,
+                fee_cents=0,
+                net_cents=-1,
+                available_on=now,
+                stripe_payout_id="po_fake_refund_kept",
+            )
+            StripeFeeRefund.objects.create(
+                record=record,
+                stripe_refund_id="re_fake_failed_later",
+                stripe_balance_transaction_id="txn_gone",
+                amount_cents=-5,
+                fee_cents=0,
+                net_cents=-5,
+                available_on=now,
+            )
+            # The stale in-memory row says no payout; the save must not blank the stamped one.
+            record.stripe_payout_id = ""
+            assert record.record(
+                _settlement(account="previous", refunds=(_refund("re_fake_1"),)), read_started_at=now, now=now
+            )
+            assert record.status == StripeFeeRecord.Status.RECORDED
+            assert (record.account, record.fee_cents, record.refunded_cents, record.refund_fee_cents) == (
+                "previous",
+                175,
+                1000,
+                -30,
+            )
+            assert (record.attempts, record.last_error, record.stripe_payout_id) == (0, "", "po_fake_kept")
+            refund = StripeFeeRefund.objects.get()
+            assert (refund.stripe_refund_id, refund.net_cents, refund.stripe_payout_id) == (
+                "re_fake_1",
+                -970,
+                "po_fake_refund_kept",
+            )
+
+        def it_writes_nothing_when_a_refund_webhook_overtook_the_read():
+            started = timezone.now()
+            record = StripeFeeRecord.objects.create(stripe_payment_intent_id="pi_fake_race")
+            StripeFeeRecord.refresh("pi_fake_race", started + timedelta(seconds=1))
+            assert not record.record(_settlement(), read_started_at=started, now=started)
+            record.refresh_from_db()
+            assert record.status == StripeFeeRecord.Status.PENDING
+            assert record.fee_cents is None
+
+        def it_records_a_read_that_started_after_the_last_refresh():
+            requested = timezone.now()
+            record = StripeFeeRecord.objects.create(stripe_payment_intent_id="pi_fake_after")
+            StripeFeeRecord.refresh("pi_fake_after", requested)
+            assert record.record(_settlement(), read_started_at=requested + timedelta(seconds=1), now=requested)
 
     def it_counts_a_failed_read_and_trims_the_reason():
         now = timezone.now()
@@ -174,23 +230,41 @@ def describe_StripeFeeRecord():
         record.refresh_from_db()
         assert record.status == StripeFeeRecord.Status.NOT_FOUND
 
-    def it_adds_one_pending_record_per_payment_intent():
+    def it_adds_one_pending_record_per_payment_intent_and_learns_its_mode_once():
         StripeFeeRecord.add_pending("pi_fake_once")
-        StripeFeeRecord.add_pending("pi_fake_once")
-        assert StripeFeeRecord.objects.filter(stripe_payment_intent_id="pi_fake_once").count() == 1
+        StripeFeeRecord.add_pending("pi_fake_once", livemode=True)
+        StripeFeeRecord.add_pending("pi_fake_once", livemode=False)
+        record = StripeFeeRecord.objects.get(stripe_payment_intent_id="pi_fake_once")
+        assert record.livemode is True
+
+    def it_reads_unreadable_as_pending_without_counting_a_failure():
+        record = StripeFeeRecord.objects.create(stripe_payment_intent_id="pi_fake_nokey", attempts=2)
+        record.note_unreadable("no key", timezone.now())
+        record.refresh_from_db()
+        assert (record.status, record.attempts, record.last_error) == ("pending", 2, "no key")
+
+    def it_names_a_refund_row():
+        record = _recorded("pi_fake_named")
+        refund = StripeFeeRefund.objects.create(
+            record=record,
+            stripe_refund_id="re_fake_named",
+            stripe_balance_transaction_id="txn_x",
+            amount_cents=-1,
+            fee_cents=0,
+            net_cents=-1,
+            available_on=timezone.now(),
+        )
+        assert "re_fake_named" in str(refund)
 
     def describe_refresh():
-        def it_sends_a_recorded_payment_back_to_pending_and_keeps_its_payout():
-            _recorded("pi_fake_ref", stripe_payout_id="po_fake_1")
-            assert StripeFeeRecord.refresh("pi_fake_ref") == 1
+        @pytest.mark.parametrize("status", ["recorded", "pending", "not_found"])
+        def it_sends_the_payment_back_to_pending_whatever_its_state_and_keeps_its_payout(status):
+            now = timezone.now()
+            _recorded("pi_fake_ref", status=status, stripe_payout_id="po_fake_1", attempts=4)
+            assert StripeFeeRecord.refresh("pi_fake_ref", now) == 1
             record = StripeFeeRecord.objects.get(stripe_payment_intent_id="pi_fake_ref")
-            assert record.status == StripeFeeRecord.Status.PENDING
+            assert (record.status, record.attempts, record.refresh_requested_at) == ("pending", 0, now)
             assert record.stripe_payout_id == "po_fake_1"
-
-        def it_leaves_a_pending_or_not_found_record_alone():
-            StripeFeeRecord.objects.create(stripe_payment_intent_id="pi_fake_p", attempts=2)
-            assert StripeFeeRecord.refresh("pi_fake_p") == 0
-            assert StripeFeeRecord.objects.get(stripe_payment_intent_id="pi_fake_p").attempts == 2
 
     def describe_queryset():
         def it_finds_records_stuck_for_a_week():
@@ -211,6 +285,18 @@ def describe_StripeFeeRecord():
             StripeFeeRecord.objects.create(stripe_payment_intent_id="pi_fake_pending")
             ids = set(StripeFeeRecord.objects.awaiting_payout(now).values_list("stripe_payment_intent_id", flat=True))
             assert ids == {"pi_fake_due"}
+
+        def it_reads_live_and_unknown_rows_live_and_only_test_rows_in_test_mode():
+            for pi, livemode in (("pi_fake_live", True), ("pi_fake_test", False), ("pi_fake_unknown", None)):
+                StripeFeeRecord.objects.create(stripe_payment_intent_id=pi, livemode=livemode)
+
+            def ids(live: bool) -> set[str]:
+                return set(
+                    StripeFeeRecord.objects.readable(live=live).values_list("stripe_payment_intent_id", flat=True)
+                )
+
+            assert ids(True) == {"pi_fake_live", "pi_fake_unknown"}
+            assert ids(False) == {"pi_fake_test"}
 
         def it_keys_records_by_payment_intent():
             _recorded("pi_fake_a")
@@ -247,10 +333,20 @@ def describe_retrieve_charge_settlement():
         accounts[PREVIOUS_KEY].v1.payment_intents.retrieve.side_effect = _missing()
         assert stripe_utils.retrieve_charge_settlement(payment_intent_id="pi_fake_gone") is None
 
-    def it_answers_none_without_a_previous_account(accounts):
+    def it_will_not_call_a_payment_missing_without_a_previous_account_to_ask(accounts):
         _configure(previous_key="")
         accounts[ACTIVE_KEY].v1.payment_intents.retrieve.side_effect = _missing()
-        assert stripe_utils.retrieve_charge_settlement(payment_intent_id="pi_fake_gone") is None
+        with pytest.raises(StripeAccountUnavailableError):
+            stripe_utils.retrieve_charge_settlement(payment_intent_id="pi_fake_gone")
+
+    def it_reads_nothing_without_a_key_for_this_mode(accounts):
+        bs = BillingSettings.load()
+        bs.test_mode = True
+        bs.connect_platform_secret_key = ACTIVE_KEY
+        bs.save()
+        with pytest.raises(StripeAccountUnavailableError):
+            stripe_utils.retrieve_charge_settlement(payment_intent_id="pi_fake_live")
+        accounts[ACTIVE_KEY].v1.payment_intents.retrieve.assert_not_called()
 
     def it_raises_any_other_stripe_refusal(accounts):
         _configure()
@@ -277,31 +373,58 @@ def describe_retrieve_charge_settlement():
         with pytest.raises(StripeSettlementNotReadyError):
             stripe_utils.retrieve_charge_settlement(payment_intent_id="pi_fake_1")
 
-    def it_sums_succeeded_refunds_and_their_fee_change(accounts):
+    def it_reads_each_succeeded_refund_on_its_own_balance_transaction(accounts):
         _configure()
         refunds = [
-            SimpleNamespace(status="succeeded", amount=1000, balance_transaction=_balance(fee=-30)),
-            SimpleNamespace(status="succeeded", amount=500, balance_transaction=None),
-            SimpleNamespace(status="succeeded", amount=250, balance_transaction="txn_fake_unexpanded"),
-            SimpleNamespace(status="pending", amount=9999, balance_transaction=_balance(fee=-99)),
+            SimpleNamespace(
+                id="re_fake_1",
+                status="succeeded",
+                balance_transaction=_balance(id="txn_re_1", amount=-1000, fee=-30, net=-970),
+            ),
+            SimpleNamespace(id="re_fake_2", status="pending", balance_transaction=None),
         ]
         _answer(accounts[ACTIVE_KEY], charge=_charge(), refunds=refunds)
         settlement = stripe_utils.retrieve_charge_settlement(payment_intent_id="pi_fake_1")
         assert settlement is not None
-        assert (settlement.refunded_cents, settlement.refund_fee_cents) == (1750, -30)
+        assert settlement.refunds == (
+            RefundSettlement(
+                refund_id="re_fake_1",
+                balance_transaction_id="txn_re_1",
+                amount_cents=-1000,
+                fee_cents=-30,
+                net_cents=-970,
+                available_on=datetime.fromtimestamp(AVAILABLE_TS, tz=UTC),
+            ),
+        )
+        assert (settlement.refunded_cents, settlement.refund_fee_cents) == (1000, -30)
+
+    @pytest.mark.parametrize("balance", [None, "txn_fake_unexpanded"], ids=["none", "not_expanded"])
+    def it_says_not_ready_while_a_succeeded_refund_is_unsettled(accounts, balance):
+        _configure()
+        refund = SimpleNamespace(id="re_fake_1", status="succeeded", balance_transaction=balance)
+        _answer(accounts[ACTIVE_KEY], charge=_charge(), refunds=[refund])
+        with pytest.raises(StripeSettlementNotReadyError):
+            stripe_utils.retrieve_charge_settlement(payment_intent_id="pi_fake_1")
+
+
+def describe_fee_accounts():
+    def it_offers_only_accounts_with_a_key_for_this_mode(accounts):
+        _configure(previous_key="")
+        assert list(stripe_utils.fee_accounts()) == ["active"]
+        _configure()
+        assert list(stripe_utils.fee_accounts()) == ["active", "previous"]
 
 
 def describe_iter_paid_payouts():
-    def it_yields_each_paid_payout_with_its_balance_transactions(accounts):
-        _configure()
-        client = accounts[PREVIOUS_KEY]
+    def it_yields_each_paid_payout_with_its_balance_transactions():
+        client = MagicMock()
         client.v1.payouts.list.return_value.auto_paging_iter.return_value = [SimpleNamespace(id="po_fake_1")]
         client.v1.balance_transactions.list.return_value.auto_paging_iter.return_value = [
             SimpleNamespace(id="txn_fake_1"),
             SimpleNamespace(id="txn_fake_2"),
         ]
         since = datetime.fromtimestamp(AVAILABLE_TS, tz=UTC)
-        assert list(stripe_utils.iter_paid_payouts(account="previous", arrived_since=since)) == [
+        assert list(stripe_utils.iter_paid_payouts(client=client, arrived_since=since)) == [
             ("po_fake_1", ["txn_fake_1", "txn_fake_2"])
         ]
         client.v1.payouts.list.assert_called_once_with(
@@ -373,12 +496,38 @@ def describe_fill():
     def it_records_the_settlement():
         record = _pending()
         report = stripe_fees.SyncReport()
-        with patch.object(stripe_utils, "retrieve_charge_settlement", return_value=_settlement(refunded_cents=100)):
+        settlement = _settlement(refunds=(_refund(),))
+        with patch.object(stripe_utils, "retrieve_charge_settlement", return_value=settlement):
             stripe_fees.fill(record, report, timezone.now())
         record.refresh_from_db()
         assert record.status == StripeFeeRecord.Status.RECORDED
-        assert (record.fee_cents, record.net_cents, record.refunded_cents) == (175, 4825, 100)
+        assert (record.fee_cents, record.net_cents, record.refunded_cents) == (175, 4825, 1000)
         assert report.recorded == 1
+
+    def it_leaves_the_record_pending_when_a_refund_lands_mid_read():
+        record = _pending()
+        report = stripe_fees.SyncReport()
+
+        def refund_lands_during_the_read(*, payment_intent_id: str) -> ChargeSettlement:
+            StripeFeeRecord.refresh(payment_intent_id, timezone.now() + timedelta(seconds=1))
+            return _settlement()
+
+        with patch.object(stripe_utils, "retrieve_charge_settlement", side_effect=refund_lands_during_the_read):
+            stripe_fees.fill(record, report, timezone.now())
+        record.refresh_from_db()
+        assert record.status == StripeFeeRecord.Status.PENDING
+        assert report.stale == 1
+
+    def it_leaves_the_record_pending_without_a_key_to_read_it_with():
+        record = _pending()
+        report = stripe_fees.SyncReport()
+        with patch.object(
+            stripe_utils, "retrieve_charge_settlement", side_effect=StripeAccountUnavailableError("no key")
+        ):
+            stripe_fees.fill(record, report, timezone.now())
+        record.refresh_from_db()
+        assert (record.status, record.attempts) == ("pending", 0)
+        assert report.unreadable == 1
 
     def it_waits_when_stripe_has_not_settled():
         record = _pending()
@@ -411,42 +560,124 @@ def describe_fill():
         assert report.not_found == 1
 
 
+def _payout_answers(payouts: dict[str, list[tuple[str, list[str]]]]) -> Any:
+    """Patch Stripe so each account (by its fake client) lists the given payouts."""
+    clients = {account: MagicMock(name=account) for account in payouts}
+    by_client = {id(client): payouts[account] for account, client in clients.items()}
+    return (
+        patch.object(stripe_utils, "fee_accounts", return_value=clients),
+        patch.object(
+            stripe_utils,
+            "iter_paid_payouts",
+            side_effect=lambda client, arrived_since: iter(by_client[id(client)]),
+        ),
+    )
+
+
+def _refund_row(record: StripeFeeRecord, refund_id: str, **overrides: Any) -> StripeFeeRefund:
+    values: dict[str, Any] = {
+        "record": record,
+        "stripe_refund_id": refund_id,
+        "stripe_balance_transaction_id": f"txn_{refund_id}",
+        "amount_cents": -1000,
+        "fee_cents": 0,
+        "net_cents": -1000,
+        "available_on": timezone.now() - timedelta(days=1),
+    }
+    values.update(overrides)
+    return StripeFeeRefund.objects.create(**values)
+
+
 def describe_stamp_payouts():
-    def it_matches_payments_to_the_payout_that_carried_them():
+    def it_matches_charges_to_the_payout_that_carried_them():
         _recorded("pi_fake_1")
         _recorded("pi_fake_2")
         _recorded("pi_fake_old", account=StripeFeeRecord.Account.PREVIOUS)
-        payouts = {
-            "active": [("po_fake_empty", []), ("po_fake_a", ["txn_pi_fake_1", "txn_pi_fake_old"])],
-            "previous": [("po_fake_b", ["txn_pi_fake_old"])],
-        }
+        accounts_patch, payouts_patch = _payout_answers(
+            {
+                "active": [("po_fake_empty", []), ("po_fake_a", ["txn_pi_fake_1", "txn_pi_fake_old"])],
+                "previous": [("po_fake_b", ["txn_pi_fake_old"])],
+            }
+        )
         report = stripe_fees.SyncReport()
-        with patch.object(
-            stripe_utils, "iter_paid_payouts", side_effect=lambda account, arrived_since: iter(payouts[account])
-        ):
-            stripe_fees.stamp_payouts(report, timezone.now(), backfill=False)
+        with accounts_patch, payouts_patch:
+            stripe_fees.stamp_payouts(report, timezone.now(), live=True, backfill=False)
         stamped = dict(StripeFeeRecord.objects.values_list("stripe_payment_intent_id", "stripe_payout_id"))
         assert stamped == {"pi_fake_1": "po_fake_a", "pi_fake_2": "", "pi_fake_old": "po_fake_b"}
         assert report.payouts_stamped == 2
 
+    def it_puts_a_later_refund_in_its_own_payout_so_each_payout_sums_to_its_deposit():
+        charge_row = _recorded("pi_fake_dep", amount_cents=5000, fee_cents=175, net_cents=4825)
+        _refund_row(charge_row, "re_fake_dep", amount_cents=-2000, fee_cents=0, net_cents=-2000)
+        other = _recorded("pi_fake_dep2", amount_cents=3000, fee_cents=117, net_cents=2883)
+        accounts_patch, payouts_patch = _payout_answers(
+            {
+                "active": [
+                    ("po_fake_monday", ["txn_pi_fake_dep"]),
+                    ("po_fake_friday", ["txn_re_fake_dep", "txn_pi_fake_dep2"]),
+                ]
+            }
+        )
+        with accounts_patch, payouts_patch:
+            stripe_fees.stamp_payouts(stripe_fees.SyncReport(), timezone.now(), live=True, backfill=False)
+        charge_row.refresh_from_db()
+        other.refresh_from_db()
+        assert (charge_row.stripe_payout_id, other.stripe_payout_id) == ("po_fake_monday", "po_fake_friday")
+        assert StripeFeeRefund.objects.get().stripe_payout_id == "po_fake_friday"
+
+        def deposit(payout_id: str) -> int:
+            charges = StripeFeeRecord.objects.filter(stripe_payout_id=payout_id).aggregate(total=Sum("net_cents"))
+            refunds = StripeFeeRefund.objects.filter(stripe_payout_id=payout_id).aggregate(total=Sum("net_cents"))
+            return (charges["total"] or 0) + (refunds["total"] or 0)
+
+        assert deposit("po_fake_monday") == 4825
+        assert deposit("po_fake_friday") == 2883 - 2000
+
     def it_looks_back_35_days_daily_and_all_the_way_on_a_backfill():
         now = timezone.now()
         old = now - timedelta(days=200)
-        _recorded("pi_fake_ancient", available_on=old)
+        record = _recorded("pi_fake_ancient", available_on=now - timedelta(days=1))
+        _refund_row(record, "re_fake_ancient", available_on=old)
         calls: list[datetime] = []
 
-        def record_call(account: str, arrived_since: datetime) -> Iterator[tuple[str, list[str]]]:
+        def record_call(client: Any, arrived_since: datetime) -> Iterator[tuple[str, list[str]]]:
             calls.append(arrived_since)
             return iter([])
 
-        with patch.object(stripe_utils, "iter_paid_payouts", side_effect=record_call):
-            stripe_fees.stamp_payouts(stripe_fees.SyncReport(), now, backfill=False)
-            stripe_fees.stamp_payouts(stripe_fees.SyncReport(), now, backfill=True)
+        with (
+            patch.object(stripe_utils, "fee_accounts", return_value={"active": MagicMock()}),
+            patch.object(stripe_utils, "iter_paid_payouts", side_effect=record_call),
+        ):
+            stripe_fees.stamp_payouts(stripe_fees.SyncReport(), now, live=True, backfill=False)
+            stripe_fees.stamp_payouts(stripe_fees.SyncReport(), now, live=True, backfill=True)
         assert calls == [now - stripe_fees.PAYOUT_LOOKBACK, old - stripe_fees.PAYOUT_ARRIVAL_SLACK]
 
+    def it_skips_an_account_with_no_key_and_still_matches_the_other():
+        _recorded("pi_fake_cur")
+        _recorded("pi_fake_closed", account=StripeFeeRecord.Account.PREVIOUS)
+        accounts_patch, payouts_patch = _payout_answers({"active": [("po_fake_cur", ["txn_pi_fake_cur"])]})
+        report = stripe_fees.SyncReport()
+        with accounts_patch, payouts_patch:
+            stripe_fees.stamp_payouts(report, timezone.now(), live=True, backfill=True)
+        assert report.skipped_accounts == ["previous"]
+        assert StripeFeeRecord.objects.get(stripe_payment_intent_id="pi_fake_cur").stripe_payout_id == "po_fake_cur"
+
+    def it_matches_only_rows_that_suit_the_mode():
+        _recorded("pi_fake_livepay", livemode=True)
+        with (
+            patch.object(stripe_utils, "fee_accounts") as accounts_call,
+            patch.object(stripe_utils, "iter_paid_payouts") as payouts,
+        ):
+            stripe_fees.stamp_payouts(stripe_fees.SyncReport(), timezone.now(), live=False, backfill=True)
+        payouts.assert_not_called()
+        accounts_call.assert_called_once()
+
     def it_asks_stripe_nothing_when_nothing_awaits_a_payout():
-        with patch.object(stripe_utils, "iter_paid_payouts") as payouts:
-            stripe_fees.stamp_payouts(stripe_fees.SyncReport(), timezone.now(), backfill=True)
+        with (
+            patch.object(stripe_utils, "fee_accounts", return_value={}),
+            patch.object(stripe_utils, "iter_paid_payouts") as payouts,
+        ):
+            stripe_fees.stamp_payouts(stripe_fees.SyncReport(), timezone.now(), live=True, backfill=True)
         payouts.assert_not_called()
 
 
@@ -464,11 +695,16 @@ def describe_not_found_sources():
 
 
 def describe_sync():
+    @pytest.fixture(autouse=True)
+    def live_mode() -> None:
+        _configure()
+
     def it_adds_fills_and_stamps_in_one_run():
         RegistrationFactory(amount_paid_cents=5000, stripe_payment_id="pi_fake_s1")
         past = _settlement(available_on=timezone.now() - timedelta(days=3))
         with (
             patch.object(stripe_utils, "retrieve_charge_settlement", return_value=past),
+            patch.object(stripe_utils, "fee_accounts", return_value={"active": MagicMock()}),
             patch.object(stripe_utils, "iter_paid_payouts", return_value=iter([("po_fake_s", ["txn_fake_1"])])),
         ):
             report = stripe_fees.sync()
@@ -503,6 +739,31 @@ def describe_sync():
             report = stripe_fees.sync(backfill=True)
         assert report.not_found_sources == [("class", reg.pk)]
 
+    def it_asks_again_about_not_found_payments_on_a_backfill_only():
+        StripeFeeRecord.objects.create(stripe_payment_intent_id="pi_fake_retry", status="not_found")
+        with patch.object(stripe_utils, "retrieve_charge_settlement", return_value=_settlement()) as read:
+            stripe_fees.sync()
+            read.assert_not_called()
+            stripe_fees.sync(backfill=True)
+        assert StripeFeeRecord.objects.get(stripe_payment_intent_id="pi_fake_retry").status == "recorded"
+
+    def it_never_reads_live_or_unknown_payments_in_test_mode():
+        bs = BillingSettings.load()
+        bs.test_mode = True
+        bs.save()
+        RegistrationFactory(amount_paid_cents=5000, stripe_payment_id="pi_fake_unknown_mode")
+        StripeFeeRecord.objects.create(stripe_payment_intent_id="pi_fake_live_mode", livemode=True)
+        StripeFeeRecord.objects.create(stripe_payment_intent_id="pi_fake_test_mode", livemode=False)
+        with patch.object(stripe_utils, "retrieve_charge_settlement", return_value=None) as read:
+            stripe_fees.sync()
+        read.assert_called_once_with(payment_intent_id="pi_fake_test_mode")
+        assert set(
+            StripeFeeRecord.objects.filter(status="pending").values_list("stripe_payment_intent_id", flat=True)
+        ) == {
+            "pi_fake_unknown_mode",
+            "pi_fake_live_mode",
+        }
+
 
 # ---------------------------------------------------------------------------
 # The command
@@ -528,6 +789,10 @@ def describe_sync_stripe_fees_command():
         sync.assert_called_once_with(backfill=True)
         assert "1 paid payment(s) are on neither Stripe account" in output
         assert "  late_fee 7" in output
+
+    def it_names_an_account_whose_payouts_it_skipped():
+        with patch.object(stripe_fees, "sync", return_value=stripe_fees.SyncReport(skipped_accounts=["previous"])):
+            assert "Skipped previous account payouts" in _run()
 
     def it_says_so_when_a_backfill_found_everything():
         with patch.object(stripe_fees, "sync", return_value=stripe_fees.SyncReport()):
@@ -556,8 +821,9 @@ def _event(event_type: str, obj: dict[str, Any], **extra: Any) -> dict[str, Any]
 
 def describe_note_event():
     def it_adds_a_pending_record_when_a_payment_intent_succeeds():
-        stripe_fees.note_event(_event("payment_intent.succeeded", {"id": "pi_fake_w1"}))
-        assert StripeFeeRecord.objects.get(stripe_payment_intent_id="pi_fake_w1").status == "pending"
+        stripe_fees.note_event(_event("payment_intent.succeeded", {"id": "pi_fake_w1"}, livemode=True))
+        record = StripeFeeRecord.objects.get(stripe_payment_intent_id="pi_fake_w1")
+        assert (record.status, record.livemode) == ("pending", True)
 
     def it_adds_a_pending_record_for_a_paid_checkout():
         stripe_fees.note_event(
@@ -654,6 +920,13 @@ def describe_reconciliation_fees():
         line = _lines_by_pk("class")[reg.pk]
         assert line.stripe_payment_intent_id == "pi_fake_line"
         assert (line.stripe_fee_cents, line.stripe_net_cents) == (175, 3825)
+
+    def it_reads_unknown_while_a_refund_waits_to_be_read_again():
+        reg = _paid_class("pi_fake_refunding", 5000)
+        _recorded("pi_fake_refunding")
+        StripeFeeRecord.refresh("pi_fake_refunding", timezone.now())
+        line = _lines_by_pk("class")[reg.pk]
+        assert (line.stripe_fee_cents, line.stripe_net_cents) == (None, None)
 
     def it_reads_unknown_without_a_record_or_before_stripe_answers():
         no_record = _paid_class("pi_fake_none")

@@ -596,8 +596,20 @@ def find_transfer_reversal(*, transfer_id: str, refund_pk: int) -> str | None:
 
 
 @dataclass(frozen=True)
+class RefundSettlement:
+    """One succeeded refund's balance transaction, signed as Stripe's balance shows it (amount and net negative)."""
+
+    refund_id: str
+    balance_transaction_id: str
+    amount_cents: int
+    fee_cents: int
+    net_cents: int
+    available_on: datetime
+
+
+@dataclass(frozen=True)
 class ChargeSettlement:
-    """What Stripe's balance says about one paid PaymentIntent: the fee, the net, refunds and when it is paid out."""
+    """What Stripe's balance says about one paid PaymentIntent: the charge's fee, net and availability, and its refunds."""
 
     account: str  # "active" | "previous": StripeFeeRecord.Account values
     charge_id: str
@@ -606,37 +618,64 @@ class ChargeSettlement:
     fee_cents: int
     net_cents: int
     available_on: datetime
-    refunded_cents: int
-    refund_fee_cents: int
+    refunds: tuple[RefundSettlement, ...] = ()
+
+    @property
+    def refunded_cents(self) -> int:
+        """The refunds' total, as a positive amount."""
+        return -sum(refund.amount_cents for refund in self.refunds)
+
+    @property
+    def refund_fee_cents(self) -> int:
+        """Stripe's fee change across the refunds; negative when fee came back."""
+        return sum(refund.fee_cents for refund in self.refunds)
 
 
-def _fee_lookup_clients() -> list[tuple[str, stripe.StripeClient]]:
-    """The accounts a payment can live on, in lookup order: the active one, then the previous one when set."""
-    clients = [("active", _get_stripe_client())]
-    previous_key = _billing_settings().active_previous_secret_key
-    if previous_key:
-        clients.append(("previous", stripe.StripeClient(previous_key)))
-    return clients
+def fee_accounts() -> dict[str, stripe.StripeClient]:
+    """The accounts with a secret key for the current mode, in lookup order: "active", then "previous"."""
+    bs = _billing_settings()
+    keys = {"active": bs.active_secret_key, "previous": bs.active_previous_secret_key}
+    return {account: stripe.StripeClient(key) for account, key in keys.items() if key}
 
 
-def _fee_client(account: str) -> stripe.StripeClient:
-    """The client for ``account`` ("active" or "previous"), as recorded on a StripeFeeRecord."""
-    return dict(_fee_lookup_clients())[account]
+def _settled_at(timestamp: int) -> datetime:
+    return datetime.fromtimestamp(timestamp, tz=UTC)
+
+
+def _refund_settlement(refund: Any) -> RefundSettlement:
+    """A succeeded refund's settlement; one without an expanded balance transaction is not settled yet."""
+    from billing.exceptions import StripeSettlementNotReadyError
+
+    balance = refund.balance_transaction
+    if balance is None or isinstance(balance, str):
+        raise StripeSettlementNotReadyError("Stripe has not settled a refund on this payment yet.")
+    return RefundSettlement(
+        refund_id=refund.id,
+        balance_transaction_id=balance.id,
+        amount_cents=balance.amount,
+        fee_cents=balance.fee,
+        net_cents=balance.net,
+        available_on=_settled_at(balance.available_on),
+    )
 
 
 def retrieve_charge_settlement(*, payment_intent_id: str) -> ChargeSettlement | None:
     """Read a PaymentIntent's fee, net, availability and refunds from whichever account holds it.
 
     Returns:
-        The settlement, or ``None`` when neither the active nor the previous account has the PaymentIntent.
+        The settlement, or ``None`` when both the active and the previous account answered that they have no such PaymentIntent.
 
     Raises:
-        StripeSettlementNotReadyError: Stripe has the payment but no settled charge yet.
+        StripeAccountUnavailableError: An account the answer depends on has no key for this mode, so "not found" cannot be concluded.
+        StripeSettlementNotReadyError: Stripe has the payment but has not settled the charge or a refund yet.
         stripe.StripeError: Stripe could not answer; the caller retries later.
     """
-    from billing.exceptions import StripeSettlementNotReadyError
+    from billing.exceptions import StripeAccountUnavailableError, StripeSettlementNotReadyError
 
-    for account, client in _fee_lookup_clients():
+    clients = fee_accounts()
+    if "active" not in clients:
+        raise StripeAccountUnavailableError("No Stripe secret key is set for this mode.")
+    for account, client in clients.items():
         try:
             payment_intent = client.v1.payment_intents.retrieve(
                 payment_intent_id, params={"expand": ["latest_charge.balance_transaction"]}
@@ -654,15 +693,6 @@ def retrieve_charge_settlement(*, payment_intent_id: str) -> ChargeSettlement | 
         refunds = client.v1.refunds.list(
             params={"payment_intent": payment_intent_id, "expand": ["data.balance_transaction"], "limit": 100}
         )
-        refunded_cents = 0
-        refund_fee_cents = 0
-        for refund in refunds.auto_paging_iter():
-            if refund.status != "succeeded":
-                continue
-            refunded_cents += refund.amount
-            refund_balance = refund.balance_transaction
-            if refund_balance is not None and not isinstance(refund_balance, str):
-                refund_fee_cents += refund_balance.fee
         return ChargeSettlement(
             account=account,
             charge_id=charge.id,
@@ -670,19 +700,21 @@ def retrieve_charge_settlement(*, payment_intent_id: str) -> ChargeSettlement | 
             amount_cents=balance.amount,
             fee_cents=balance.fee,
             net_cents=balance.net,
-            available_on=datetime.fromtimestamp(balance.available_on, tz=UTC),
-            refunded_cents=refunded_cents,
-            refund_fee_cents=refund_fee_cents,
+            available_on=_settled_at(balance.available_on),
+            refunds=tuple(
+                _refund_settlement(refund) for refund in refunds.auto_paging_iter() if refund.status == "succeeded"
+            ),
         )
+    if "previous" not in clients:
+        raise StripeAccountUnavailableError("Not on the current account, and no previous account key is set.")
     return None
 
 
-def iter_paid_payouts(*, account: str, arrived_since: datetime) -> Iterator[tuple[str, list[str]]]:
-    """Each paid Stripe payout on ``account`` that arrived since ``arrived_since``, with its balance transaction ids.
+def iter_paid_payouts(*, client: stripe.StripeClient, arrived_since: datetime) -> Iterator[tuple[str, list[str]]]:
+    """Each paid Stripe payout on ``client``'s account that arrived since ``arrived_since``, with its balance transaction ids.
 
     Only automatic payouts list their balance transactions; a manual one yields an empty list.
     """
-    client = _fee_client(account)
     payouts = client.v1.payouts.list(
         params={"status": "paid", "arrival_date": {"gte": int(arrived_since.timestamp())}, "limit": 100}
     )
