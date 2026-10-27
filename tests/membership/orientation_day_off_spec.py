@@ -1,8 +1,8 @@
 """BDD specs for days off (#767): the ``OrientationDayOff`` model, generation skipping a day the
-rule's orienter has off (``_horizon_spans``, in any guild or on any equipment, with a shared rule
+rule's orientor has off (``_horizon_spans``, in any guild or on any equipment, with a shared rule
 unaffected, however far ahead), ``times_on_day_off`` and ``cancel_day_off`` (fixed slots through
 ``cancel_slot`` with the member's email and a hold released, open windows cancelled with their
-booked segments, times with no orienter and other people's and other days' times untouched, the
+booked segments, times with no orientor and other people's and other days' times untouched, the
 local day boundary), and what the next generation run recreates once a day off is deleted."""
 
 from __future__ import annotations
@@ -148,7 +148,7 @@ def describe_generation_skips_a_day_off():
         assert len(without) == 4 and len(with_day_off) == 3
         assert _at(day, 18) in [start for start, _end in without]
         assert _at(day, 18) not in [start for start, _end in with_day_off]
-        # A shared rule has no orienter, so generation hands it nothing to skip.
+        # A shared rule has no orientor, so generation hands it nothing to skip.
         assert len(orientations._horizon_spans(shared, today=_day(0), window_weeks=4)) == 4
 
     def it_creates_nothing_of_theirs_that_day_in_any_guild_or_on_any_equipment_however_far_ahead():

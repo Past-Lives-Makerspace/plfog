@@ -974,8 +974,8 @@ def describe_departed_manager_gate():
         """Site-wide EQUIPMENT authority does not make someone bookable by name here.
 
         The booking gate reads the same narrow set that generates slots and fills the
-        Orientation Schedule, so a slot is bookable exactly while its orienter is one of
-        the tool's orienters. A guild orienter needs a staff row for the same reason.
+        Orientation Schedule, so a slot is bookable exactly while its orientor is one of
+        the tool's orientors. A guild orientor needs a staff row for the same reason.
         """
         from membership.models import AdminCapability
 

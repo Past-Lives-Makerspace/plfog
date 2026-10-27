@@ -13,7 +13,7 @@ description: >-
 # fog-feature-round — sequential multi-PR shipping for plfog
 
 This skill encodes the pipeline that shipped the 2026-08-26 six-feature round (v1.9.6 → v1.14.0: event
-delete, refunds + Payments panel, roster/waitlist, guild subscriptions, orienter availability, paid
+delete, refunds + Payments panel, roster/waitlist, guild subscriptions, orientor availability, paid
 orientations) with zero production incidents. The value is in the sequencing discipline and the recorded
 failure modes — follow both.
 

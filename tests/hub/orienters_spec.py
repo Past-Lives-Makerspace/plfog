@@ -1,6 +1,6 @@
-"""BDD specs for orienters — now a guild staff role that can run orientations.
+"""BDD specs for orientors — now a guild staff role that can run orientations.
 
-Orienters are members given the ``orienter`` staff role on a guild (managed on the
+Orientors are members given the ``orienter`` staff role on a guild (managed on the
 guild's Staff tab). Like every staff role they carry full guild-lead permissions, so
 they reach the orientation dashboard, the config editor, and the booking actions for
 their guild. See ``membership.permissions.can_manage_orientations``.
@@ -55,14 +55,14 @@ def _future_date() -> str:
 
 def describe_orienter_access_to_the_config_editor():
     def it_lets_an_orienter_open_the_editor(client: Client):
-        # The editor is an in-page tab now; the old URL redirects an orienter through to it.
+        # The editor is an in-page tab now; the old URL redirects an orientor through to it.
         guild = GuildFactory()
         user = _member_user("o_edit")
         _make_orienter(guild, user)
         client.login(username="o_edit", password="pass")
         response = client.get(reverse("hub_guild_orientation_edit", args=[guild.pk]), follow=True)
         assert response.status_code == 200
-        # An orienter now sees the Orientation Schedule (scoped to their own editable row),
+        # An orientor now sees the Orientation Schedule (scoped to their own editable row),
         # not a separate inline My Hours card.
         assert b"Orientation Schedule" in response.content
 
@@ -141,6 +141,6 @@ def describe_orienter_dashboard_and_booking_actions():
             },
         )
         assert response.status_code == 302
-        # A plain orienter's one-off slot is theirs — the form locks the orienter to self.
+        # A plain orientor's one-off slot is theirs — the form locks the orientor to self.
         slot = guild.orientation_slots.get()
         assert slot.orienter == user.member

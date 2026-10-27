@@ -1,6 +1,6 @@
 """End-to-end: "+ Add an Orientation" and the Add an Orientation page (#637, #680) in a real browser.
 
-A single guild orienter clicks the header button on ``/orientations/``, lands on the add
+A single guild orientor clicks the header button on ``/orientations/``, lands on the add
 page with their guild already chosen, fills the form, picks Donation based, saves, and lands
 on the guild's Orientations page showing the new type. An admin gets the same plain link, no
 menu, and a Guild select of every active guild. At 375px, in light and dark, the page holds

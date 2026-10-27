@@ -487,7 +487,7 @@ def describe_your_hours():
 
     def it_shows_for_a_staffer_on_the_orienter_role(client: Client):
         member = _login(client, "mb_hours_orienter")
-        guild = GuildFactory(name="Orienter Guild")
+        guild = GuildFactory(name="Orientor Guild")
         GuildStaffMembershipFactory(guild=guild, member=member, role=GuildStaffMembership.Role.ORIENTER)
         assert "data-your-hours" in _page(client)
 

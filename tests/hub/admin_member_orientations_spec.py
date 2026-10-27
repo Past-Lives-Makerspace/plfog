@@ -112,7 +112,7 @@ def describe_record_orientation():
         admin = _login_admin(client)
         target = _target_member()
         guild, basics = _woodshop_basics()
-        orienter = MemberFactory(full_legal_name="Dana Orienter")
+        orienter = MemberFactory(full_legal_name="Dana Orientor")
         mail.outbox.clear()
         with mock.patch("core.events.emit.emit") as emit:
             response = client.post(
@@ -290,7 +290,7 @@ def describe_orientations_tab():
         target = _target_member()
         guild, basics = _woodshop_basics()
         lathe = OrientationTypeFactory(guild=guild, name="Lathe")
-        orienter = MemberFactory(full_legal_name="Dana Orienter")
+        orienter = MemberFactory(full_legal_name="Dana Orientor")
         _completed_booking(target, basics, days_ago=10)
         record = OrientationRecordFactory(
             member=target, orientation_type=lathe, oriented_by=orienter, completed_on=timezone.localdate()
@@ -303,7 +303,7 @@ def describe_orientations_tab():
         assert rows[1]["record"] is None
         assert 'class="hub-pill hub-pill--ok">Booked' in content
         assert 'class="hub-pill hub-pill--neutral">Recorded' in content
-        assert "oriented by Dana Orienter" in content
+        assert "oriented by Dana Orientor" in content
         assert f"remove-orientation-{record.pk}" in content
         assert 'id="orientation-type-options"' in content
 
@@ -373,8 +373,8 @@ def describe_orientation_record_form():
         assert form.fields["completed_on"].widget.attrs["class"] == "pl-slot-date"
 
     def it_offers_only_active_members_as_orienters():
-        active = MemberFactory(full_legal_name="Active Orienter")
-        gone = MemberFactory(full_legal_name="Gone Orienter", status=Member.Status.FORMER)
+        active = MemberFactory(full_legal_name="Active Orientor")
+        gone = MemberFactory(full_legal_name="Gone Orientor", status=Member.Status.FORMER)
         queryset = OrientationRecordForm(MemberFactory()).fields["oriented_by"].queryset
         assert active in queryset
         assert gone not in queryset

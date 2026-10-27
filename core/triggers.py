@@ -201,7 +201,7 @@ TRIGGERS: list[Trigger] = [
     Trigger(
         "wiki.page_verified",
         "Your wiki page was verified",
-        "A guild lead or orienter read a page you wrote and marked it verified.",
+        "A guild lead or orientor read a page you wrote and marked it verified.",
         "Wiki",
         # The load-bearing notification of the whole wiki round: the message that somebody
         # with authority read your page and stands behind it is the single strongest

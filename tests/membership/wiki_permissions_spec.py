@@ -197,7 +197,7 @@ def describe_can_verify_wiki_page():
 
     def describe_an_equipment_page():
         def it_defers_the_tools_own_orienter():
-            # Brief section 9.1: "equipment orienters who are not guild staff stay
+            # Brief section 9.1: "equipment orientors who are not guild staff stay
             # deferred", and spec B section 10 records the same. This helper shipped the
             # leg anyway; spec B removed it, because it disagreed with the guild tab's
             # bulk permission shortcut AND because _wiki_role_label recognized no guild

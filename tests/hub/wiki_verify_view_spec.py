@@ -199,7 +199,7 @@ def describe_the_control_on_the_reading_page():
         assert "Remove verification" not in html
 
     def it_shows_the_credit_line_to_everyone(db, client):
-        """The brief wants a member to read "Verified by Kate (Woodworking orienter)"."""
+        """The brief wants a member to read "Verified by Kate (Woodworking orientor)"."""
         orienter = _member_user("verify_ctl_orienter")
         guild = GuildFactory(name="Woodworking")
         GuildStaffMembershipFactory(guild=guild, member=orienter.member, role="orienter")
@@ -207,7 +207,7 @@ def describe_the_control_on_the_reading_page():
         page.verify(orienter.member, note="Blade guard checked.")
         _login(client, "verify_ctl_reader")
         html = _page_html(client, page)
-        assert "Woodworking orienter" in html
+        assert "Woodworking orientor" in html
         assert "Blade guard checked." in html
         assert ">Verify</button>" not in html
 

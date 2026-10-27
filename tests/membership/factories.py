@@ -669,7 +669,7 @@ class OrientationAvailabilityBlockFactory(factory.django.DjangoModelFactory):
 
     @factory.post_generation
     def orienter_on_staff(obj, create, extracted, **kwargs):  # noqa: N805
-        """Put the orienter on the guild's staff — carved-out slots are only bookable for leadership.
+        """Put the orientor on the guild's staff — carved-out slots are only bookable for leadership.
 
         Pass ``orienter_on_staff=False`` to skip (e.g. to exercise the departed-staffer path).
         """

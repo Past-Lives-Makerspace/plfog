@@ -1,7 +1,7 @@
 """BDD specs for the Days Off modal (#767) on both owners' Orientation Schedule cards: the modal body
 and its rows, the impact preview (the count line and the Save label following the date), saving (the
 cancel, the toast, the redirect, the two refusals), deleting, who reaches whose (own only for a plain
-orienter or manager, anyone for a lead or an admin, a crafted POST refused), and the "Off Nov 26,
+orientor or manager, anyone for a lead or an admin, a crafted POST refused), and the "Off Nov 26,
 Dec 25." line under each person's hours on each card."""
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ def _at(day: date, hour: int) -> datetime:
 
 
 def _guild_setup() -> tuple[object, User, User, User]:
-    """An orientation guild with a lead and two orienters, Bob and Alice, who can all log in."""
+    """An orientation guild with a lead and two orientors, Bob and Alice, who can all log in."""
     lead = _member_user("do_lead", name="Lead Person")
     guild = GuildFactory(guild_lead=lead.member)
     GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
@@ -299,7 +299,7 @@ def describe_saving():
         theirs.refresh_from_db()
         assert theirs.is_cancelled is False
         assert client.get(_modal_url(guild, stranger.member), HTTP_HX_REQUEST="true").status_code == 403
-        # The same lead reaches their own orienter as before.
+        # The same lead reaches their own orientor as before.
         response = client.post(
             _save_url(guild), {"orienter": str(bob.member.pk), "day_off-date": day.isoformat()}, HTTP_HX_REQUEST="true"
         )

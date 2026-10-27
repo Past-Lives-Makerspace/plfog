@@ -96,7 +96,7 @@ def describe_OrientationRecord():
         def it_creates_the_row_and_logs_the_admin_as_actor():
             admin = User.objects.create_user(username="rec-admin", email="rec-admin@example.com", password="x")
             member = MemberFactory()
-            orienter = MemberFactory(full_legal_name="Dana Orienter")
+            orienter = MemberFactory(full_legal_name="Dana Orientor")
             guild = GuildFactory(name="Metalshop")
             lathe = OrientationTypeFactory(guild=guild, name="Lathe")
             day = timezone.localdate() - timedelta(days=10)
