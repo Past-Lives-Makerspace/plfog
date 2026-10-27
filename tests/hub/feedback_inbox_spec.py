@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+from io import BytesIO
+
 import pytest
 from django.contrib.auth.models import User
 from django.core import mail
 from django.db import connection
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from PIL import Image
 
-from core.events.registry import FEEDBACK_REQUEST_UPDATED
-from core.models import FeedbackRequest, Notification
+from core.events.registry import FEEDBACK_COMMENT_ADDED, FEEDBACK_REQUEST_UPDATED
+from core.models import FeedbackComment, FeedbackRequest, Notification
 from membership.models import Member
 from tests.core.factories import FeedbackRequestFactory
 
@@ -19,6 +23,12 @@ pytestmark = pytest.mark.django_db
 
 Status = FeedbackRequest.Status
 INBOX = reverse("hub_admin_feedback_inbox")
+
+
+def _photo(name: str = "shot.png") -> SimpleUploadedFile:
+    buf = BytesIO()
+    Image.new("RGB", (1, 1)).save(buf, format="PNG")
+    return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
 def _admin(client: Client, username: str = "inboxer") -> User:
@@ -43,13 +53,17 @@ def _page(pk: int) -> str:
     return reverse("hub_admin_feedback_request", args=[pk])
 
 
+def _comment_url(pk: int) -> str:
+    return reverse("hub_admin_feedback_comment", args=[pk])
+
+
 def _post(client: Client, request: FeedbackRequest, *, status: str, note: str = "", github: str = "", query: str = ""):
     url = _page(request.pk) + (f"?{query}" if query else "")
-    return client.post(url, {"status": status, "staff_note": note, "github_issue_url": github})
+    return client.post(url, {"status": status, "comment": note, "github_issue_url": github})
 
 
 def describe_permissions():
-    @pytest.mark.parametrize("view", ["inbox", "page", "mark_live"])
+    @pytest.mark.parametrize("view", ["inbox", "page", "mark_live", "comment"])
     def it_refuses_a_non_admin(client: Client, view: str):
         _member(client)
         request = FeedbackRequestFactory()
@@ -57,13 +71,16 @@ def describe_permissions():
             "inbox": INBOX,
             "page": _page(request.pk),
             "mark_live": reverse("hub_admin_feedback_mark_live", args=[request.pk]),
+            "comment": _comment_url(request.pk),
         }[view]
 
-        response = client.post(url) if view == "mark_live" else client.get(url)
+        response = client.post(url, {"body": "Zzsneaky"}) if view in {"mark_live", "comment"} else client.get(url)
 
         assert response.status_code == 403
         request.refresh_from_db()
         assert request.status == Status.RECEIVED
+        assert request.comments.count() == 0
+        assert request.staff_seen_at is None
 
     def it_sends_an_anonymous_visitor_to_log_in(client: Client):
         response = client.get(INBOX)
@@ -233,11 +250,8 @@ def describe_request_page():
         assert response.status_code == 302
         assert response["Location"] == f"{_page(request.pk)}?category=feature"
         request.refresh_from_db()
-        assert (request.status, request.staff_note, request.github_issue_url) == (
-            "planned",
-            "Next up.",
-            "https://github.com/o/r/issues/7",
-        )
+        assert (request.status, request.github_issue_url) == ("planned", "https://github.com/o/r/issues/7")
+        assert [comment.body for comment in request.comments.all()] == ["Next up."]
         assert Notification.objects.filter(user=request.user, trigger=FEEDBACK_REQUEST_UPDATED).count() == 1
         follow = client.get(response["Location"])
         assert [str(m) for m in follow.context["messages"]] == ["Saved. Robin Vale was notified."]
@@ -260,7 +274,7 @@ def describe_request_page():
         response = _post(client, request, status="not_planned", note="")
 
         assert response.status_code == 200
-        assert response.context["form"].errors["staff_note"] == [FeedbackRequest.NOT_PLANNED_NEEDS_REASON]
+        assert response.context["form"].errors["comment"] == [FeedbackRequest.NOT_PLANNED_NEEDS_REASON]
         assert FeedbackRequest.NOT_PLANNED_NEEDS_REASON in response.content.decode()
         request.refresh_from_db()
         assert request.status == Status.RECEIVED
@@ -348,10 +362,204 @@ def describe_general_feedback_page():
         assert request.status == Status.RECEIVED
         assert mail.outbox == []
 
-    def it_saves_and_sends_a_note_only_reply(client: Client):
+    def it_saves_and_sends_a_comment_only_reply(client: Client):
         _admin(client)
         request = FeedbackRequestFactory(category="feedback")
 
         _post(client, request, status="received", note="Thanks for this.")
 
         assert "Thanks for this." in mail.outbox[0].body
+
+
+def describe_conversation():
+    def it_shows_the_original_message_first_then_every_comment(client: Client):
+        admin = _admin(client)
+        request = FeedbackRequestFactory(message="Zzthe original", user__first_name="Robin", user__last_name="Vale")
+        request.add_comment(author=request.user, body="Zzfrom the sender", photos=[])
+        FeedbackComment.objects.create(request=request, author=None, body="Zzcarried over note")
+        request.add_comment(author=admin, body="Zzfrom an admin", photos=[])
+
+        body = client.get(_page(request.pk)).content.decode()
+
+        assert body.index("Zzthe original") < body.index("Zzfrom the sender") < body.index("Zzcarried over note")
+        assert body.index("Zzcarried over note") < body.index("Zzfrom an admin")
+        assert "data-feedback-original" in body
+        assert body.count('data-from="staff"') == 2
+        assert 'data-from="sender"' in body
+        assert "<strong>Past Lives</strong>" in body
+
+    def it_names_who_hears_the_comment_on_its_button(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory(user__first_name="Robin", user__last_name="Vale")
+
+        body = client.get(_page(request.pk)).content.decode()
+
+        assert "data-feedback-send data-pl-busy>Send to Robin Vale<" in body
+        assert "data-feedback-comment-form data-pl-busy-submit" in body
+        assert "data-feedback-photos>" in body
+        assert 'class="pl-feedback-admin__status"' in body
+        assert 'class="pl-feedback-admin__link"' in body
+        assert 'enctype="multipart/form-data"' in body
+
+    def it_loads_the_thread_without_a_query_per_comment(client: Client):
+        admin = _admin(client)
+        request = FeedbackRequestFactory()
+        request.add_comment(author=admin, body="One", photos=[])
+        client.get(_page(request.pk))
+        with CaptureQueriesContext(connection) as few:
+            client.get(_page(request.pk))
+        for n in range(4):
+            request.add_comment(author=request.user if n % 2 else admin, body=f"More {n}", photos=[])
+
+        with CaptureQueriesContext(connection) as many:
+            client.get(_page(request.pk))
+
+        assert len(many) == len(few)
+
+
+def describe_posting_a_comment():
+    def it_posts_it_tells_the_sender_and_says_so(client: Client):
+        admin = _admin(client)
+        request = FeedbackRequestFactory(user__first_name="Robin", user__last_name="Vale")
+
+        response = client.post(
+            _comment_url(request.pk) + "?status=received",
+            {"body": "Zzwhich phone?", "photos": _photo()},
+        )
+
+        assert response["Location"] == f"{_page(request.pk)}?status=received"
+        [comment] = request.comments.all()
+        assert (comment.author, comment.body, comment.photos.count()) == (admin, "Zzwhich phone?", 1)
+        assert Notification.objects.filter(user=request.user, trigger=FEEDBACK_COMMENT_ADDED).count() == 1
+        follow = client.get(response["Location"])
+        assert [str(m) for m in follow.context["messages"]] == ["Sent. Robin Vale was notified."]
+
+    def it_refuses_an_empty_comment_and_keeps_the_page(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory()
+
+        response = client.post(_comment_url(request.pk), {"body": "  "})
+
+        assert response.status_code == 200
+        assert "body" in response.context["comment_form"].errors
+        assert request.comments.count() == 0
+        assert mail.outbox == []
+
+    def it_refuses_too_many_photos(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory()
+
+        response = client.post(
+            _comment_url(request.pk), {"body": "Hi", "photos": [_photo(f"p{n}.png") for n in range(6)]}
+        )
+
+        assert response.status_code == 200
+        assert "photos" in response.context["comment_form"].errors
+        assert request.comments.count() == 0
+
+    def it_only_posts(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory()
+
+        assert client.get(_comment_url(request.pk)).status_code == 405
+
+    def it_answers_404_for_an_unknown_request(client: Client):
+        _admin(client)
+
+        assert client.post(_comment_url(999999), {"body": "Hi"}).status_code == 404
+
+
+def describe_member_replied():
+    def it_pills_a_request_the_sender_wrote_on_since_an_admin_opened_it(
+        client: Client, django_capture_on_commit_callbacks
+    ):
+        _admin(client)
+        replied = FeedbackRequestFactory()
+        with django_capture_on_commit_callbacks(execute=True):
+            replied.add_comment(author=replied.user, body="More", photos=[])
+        quiet = FeedbackRequestFactory()
+
+        body = client.get(INBOX).content.decode()
+
+        row = body[body.index(f'data-feedback-row="{replied.pk}"') :]
+        assert "data-feedback-replied>Member replied<" in row[: row.index("</tr>")]
+        quiet_row = body[body.index(f'data-feedback-row="{quiet.pk}"') :]
+        assert "data-feedback-replied" not in quiet_row[: quiet_row.index("</tr>")]
+
+    def it_filters_the_inbox_to_member_replied(client: Client, django_capture_on_commit_callbacks):
+        _admin(client)
+        replied = FeedbackRequestFactory()
+        with django_capture_on_commit_callbacks(execute=True):
+            replied.add_comment(author=replied.user, body="More", photos=[])
+        FeedbackRequestFactory()
+
+        response = client.get(INBOX, {"replied": "1"})
+
+        assert list(response.context["page"].object_list) == [replied]
+        assert response.context["is_filtered"] is True
+        assert '<option value="1" selected>Member replied</option>' in response.content.decode()
+
+    def it_clears_the_pill_once_an_admin_opens_the_request(client: Client, django_capture_on_commit_callbacks):
+        _admin(client)
+        request = FeedbackRequestFactory()
+        with django_capture_on_commit_callbacks(execute=True):
+            request.add_comment(author=request.user, body="More", photos=[])
+
+        client.get(_page(request.pk))
+
+        assert list(client.get(INBOX, {"replied": "1"}).context["page"].object_list) == []
+
+
+def describe_an_admin_who_sent_the_request():
+    def _webmaster(username: str) -> User:
+        from membership.models import AdminCapability
+
+        user = User.objects.create_user(username=username, password="pass", email=f"{username}@example.com")
+        user.member.admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)  # type: ignore[attr-defined]
+        return user
+
+    def it_says_only_sent_when_their_comment_reached_nobody(client: Client, django_capture_on_commit_callbacks):
+        admin = _admin(client)
+        request = FeedbackRequestFactory(user=admin)
+
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(_comment_url(request.pk), {"body": "Mine"})
+
+        follow = client.get(response["Location"])
+        assert [str(m) for m in follow.context["messages"]] == ["Sent."]
+        assert not Notification.objects.exists()
+
+    def it_names_the_webmasters_when_their_comment_reached_them(client: Client, django_capture_on_commit_callbacks):
+        admin = _admin(client)
+        _webmaster("otherwm")
+        request = FeedbackRequestFactory(user=admin)
+
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(_comment_url(request.pk), {"body": "Mine"})
+
+        follow = client.get(response["Location"])
+        assert [str(m) for m in follow.context["messages"]] == ["Sent. The Webmasters were notified."]
+
+    def it_says_only_saved_for_their_own_status_move(client: Client, django_capture_on_commit_callbacks):
+        admin = _admin(client)
+        request = FeedbackRequestFactory(user=admin)
+
+        with django_capture_on_commit_callbacks(execute=True):
+            response = _post(client, request, status="planned")
+
+        follow = client.get(response["Location"])
+        assert [str(m) for m in follow.context["messages"]] == ["Saved."]
+        assert not Notification.objects.exists()
+
+    def it_names_the_webmasters_for_a_comment_with_their_status_move(
+        client: Client, django_capture_on_commit_callbacks
+    ):
+        admin = _admin(client)
+        _webmaster("otherwm2")
+        request = FeedbackRequestFactory(user=admin)
+
+        with django_capture_on_commit_callbacks(execute=True):
+            response = _post(client, request, status="planned", note="Mine")
+
+        follow = client.get(response["Location"])
+        assert [str(m) for m in follow.context["messages"]] == ["Saved. The Webmasters were notified."]

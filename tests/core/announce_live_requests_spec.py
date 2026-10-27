@@ -15,7 +15,7 @@ from django.core.management import call_command
 
 from core.events.registry import FEEDBACK_REQUEST_LIVE
 from core.management.commands import announce_live_requests as job
-from core.models import FeedbackRequest, Notification
+from core.models import FeedbackComment, FeedbackRequest, Notification
 from core.scheduled_jobs import SCHEDULED_JOBS, Cadence
 from tests.core.factories import FeedbackRequestFactory
 
@@ -190,15 +190,19 @@ def describe_when_the_web_serves_the_release():
         assert "general feedback" in out
         assert mail.outbox == []
 
-    def it_clears_a_not_planned_reason_on_the_way(fragments: pathlib.Path, web: respx.MockRouter):
-        request = FeedbackRequestFactory(status=Status.NOT_PLANNED, staff_note="Zzno room")
+    def it_announces_a_not_planned_request_keeping_its_reason_in_the_thread(
+        fragments: pathlib.Path, web: respx.MockRouter
+    ):
+        request = FeedbackRequestFactory(status=Status.NOT_PLANNED)
+        FeedbackComment.objects.create(request=request, author=None, body="Zzno room")
         _fragment(fragments, [request.pk])
         _web_serves(web, OWN_VERSION)
 
         _run()
 
         request.refresh_from_db()
-        assert (request.status, request.staff_note) == (Status.LIVE, "")
+        assert request.status == Status.LIVE
+        assert [comment.body for comment in request.comments.all()] == ["Zzno room"]
         assert "Zzno room" not in mail.outbox[0].body
 
 

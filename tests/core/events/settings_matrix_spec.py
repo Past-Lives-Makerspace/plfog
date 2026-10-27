@@ -424,7 +424,8 @@ def describe_row_groups():
         ),
         "group.feedback_request": (
             "Updates to your requests",
-            "A feature request or bug report you sent is planned, being built, live, or not planned.",
+            "A feature request or bug report you sent is planned, being built, live, or not planned, "
+            "or Past Lives wrote on something you sent.",
             "Your requests",
         ),
         "group.space_request_decision": (

@@ -14,9 +14,11 @@ from PIL import Image
 
 from django.contrib.auth.models import User
 
-from core.events.registry import FEEDBACK_REQUEST_UPDATED, Channel
+from core.events.registry import FEEDBACK_COMMENT_ADDED, FEEDBACK_MEMBER_REPLIED, FEEDBACK_REQUEST_UPDATED, Channel
 from core.models import (
     EventDelivery,
+    FeedbackComment,
+    FeedbackCommentPhoto,
     FeedbackRequest,
     FeedbackRequestError,
     FeedbackRequestPhoto,
@@ -51,7 +53,11 @@ def pushed() -> Iterator[MagicMock]:
 
 
 def _update(request: FeedbackRequest, admin: User, *, status: str, note: str = "", github: str = "") -> bool:
-    return request.apply_admin_update(status=status, staff_note=note, github_issue_url=github, actor=admin)
+    return request.apply_admin_update(status=status, comment=note, github_issue_url=github, actor=admin)
+
+
+def _staff_comments(request: FeedbackRequest) -> list[str]:
+    return [comment.body for comment in request.comments.all() if comment.is_from_staff]
 
 
 def _bells(request: FeedbackRequest) -> list[Notification]:
@@ -187,7 +193,7 @@ def describe_apply_admin_update():
     def it_refuses_not_planned_without_a_reason(admin: User):
         request = FeedbackRequestFactory()
 
-        with pytest.raises(FeedbackRequestError, match="reason"):
+        with pytest.raises(FeedbackRequestError, match="why"):
             _update(request, admin, status=Status.NOT_PLANNED, note="   ")
 
         request.refresh_from_db()
@@ -222,30 +228,45 @@ def describe_apply_admin_update():
         request.refresh_from_db()
         assert request.status == Status.RECEIVED
 
-    def it_tells_the_sender_about_a_new_note_on_general_feedback(admin: User):
+    def it_posts_a_comment_with_no_status_move_and_tells_the_sender_about_it(admin: User):
         request = FeedbackRequestFactory(category=Category.FEEDBACK)
 
         assert _update(request, admin, status=Status.RECEIVED, note="Thanks, passed it on.") is True
 
         [message] = mail.outbox
-        assert "is received" in message.subject
+        assert message.subject == f"Past Lives wrote on your request: {request.subject}"
         assert "Thanks, passed it on." in message.body
+        assert _staff_comments(request) == ["Thanks, passed it on."]
+        assert _bells(request) == []
 
-    def it_sends_one_notice_when_the_status_and_note_change_together(admin: User):
+    def it_sends_one_notice_carrying_the_comment_when_the_status_moves_with_one(admin: User):
         request = FeedbackRequestFactory()
 
         _update(request, admin, status=Status.BUILDING, note="Started this week.")
 
         assert len(_bells(request)) == 1
-        assert len(mail.outbox) == 1
+        [message] = mail.outbox
+        assert "is being built" in message.subject
+        assert "Started this week." in message.body
+        assert _staff_comments(request) == ["Started this week."]
+        assert not Notification.objects.filter(trigger=FEEDBACK_COMMENT_ADDED).exists()
 
-    def it_stays_quiet_when_the_note_is_cleared_or_unchanged(admin: User):
-        request = FeedbackRequestFactory(status=Status.PLANNED, staff_note="Soon.")
+    def it_posts_a_comment_every_time_one_is_written(admin: User):
+        request = FeedbackRequestFactory(status=Status.PLANNED)
 
-        assert _update(request, admin, status=Status.PLANNED, note="Soon.") is False
-        assert _update(request, admin, status=Status.PLANNED, note="") is False
+        assert _update(request, admin, status=Status.PLANNED, note="Soon.") is True
+        assert _update(request, admin, status=Status.PLANNED, note="Soon.") is True
+
+        assert _staff_comments(request) == ["Soon.", "Soon."]
+        assert len(mail.outbox) == 2
+
+    def it_stays_quiet_with_no_move_and_no_comment(admin: User):
+        request = FeedbackRequestFactory(status=Status.PLANNED)
+
+        assert _update(request, admin, status=Status.PLANNED, note="   ") is False
 
         assert _bells(request) == []
+        assert request.comments.count() == 0
 
     def it_leaves_no_missing_marker_when_there_is_no_note(admin: User):
         request = FeedbackRequestFactory()
@@ -280,7 +301,7 @@ def describe_apply_admin_update():
         _update(request, admin, status=Status.PLANNED)
         moved = request.status_changed_at
 
-        _update(request, admin, status=Status.PLANNED, note="A note.")
+        _update(request, admin, status=Status.PLANNED, note="A comment.")
 
         assert moved > first
         assert request.status_changed_at == moved
@@ -329,16 +350,15 @@ def describe_apply_admin_update():
 
 
 def describe_mark_live():
-    def it_moves_the_request_live_keeping_its_note_and_link(admin: User):
-        request = FeedbackRequestFactory(
-            status=Status.BUILDING, staff_note="Nearly there.", github_issue_url="https://github.com/o/r/issues/2"
-        )
+    def it_moves_the_request_live_keeping_its_link_and_posting_no_comment(admin: User):
+        request = FeedbackRequestFactory(status=Status.BUILDING, github_issue_url="https://github.com/o/r/issues/2")
 
         assert request.mark_live(actor=admin) is True
 
         request.refresh_from_db()
         assert request.status == Status.LIVE
-        assert (request.staff_note, request.github_issue_url) == ("Nearly there.", "https://github.com/o/r/issues/2")
+        assert request.github_issue_url == "https://github.com/o/r/issues/2"
+        assert request.comments.count() == 0
         assert "is live" in mail.outbox[0].subject
 
     def it_says_fixed_for_a_bug_report(admin: User):
@@ -363,8 +383,8 @@ def describe_two_saves_at_once():
         first = FeedbackRequest.objects.get(pk=request.pk)
         second = FeedbackRequest.objects.get(pk=request.pk)  # loaded before the first save, like a double click
 
-        assert _update(first, admin, status=Status.PLANNED, note="Soon.") is True
-        assert _update(second, admin, status=Status.PLANNED, note="Soon.") is False
+        assert _update(first, admin, status=Status.PLANNED) is True
+        assert _update(second, admin, status=Status.PLANNED) is False
 
         assert len(_bells(request)) == 1
         assert len(mail.outbox) == 1
@@ -399,57 +419,39 @@ def describe_two_saves_at_once():
         assert locked == [True, True]
 
 
-def describe_the_note_in_a_notice():
-    def it_leaves_out_a_note_that_did_not_change_in_this_save(admin: User):
+def describe_the_comment_in_a_notice():
+    def it_leaves_out_comments_from_earlier_saves(admin: User):
         request = FeedbackRequestFactory()
-        _update(request, admin, status=Status.PLANNED, note="Zzplanned note")
+        _update(request, admin, status=Status.PLANNED, note="Zzplanned comment")
         mail.outbox.clear()
 
-        _update(request, admin, status=Status.BUILDING, note="Zzplanned note")
+        _update(request, admin, status=Status.BUILDING)
         request.mark_live(actor=admin)
 
         assert len(mail.outbox) == 2
         for message in mail.outbox:
-            assert "Zzplanned note" not in message.body
-            assert "Zzplanned note" not in message.alternatives[0][0]
-        request.refresh_from_db()
-        assert request.staff_note == "Zzplanned note"
+            assert "Zzplanned comment" not in message.body
+            assert "Zzplanned comment" not in message.alternatives[0][0]
+        assert _staff_comments(request) == ["Zzplanned comment"]
 
-    def it_carries_a_note_written_in_the_same_save(admin: User):
-        request = FeedbackRequestFactory(status=Status.PLANNED, staff_note="Old words")
-
-        _update(request, admin, status=Status.BUILDING, note="Zznew words")
-
-        [message] = mail.outbox
-        assert "Zznew words" in message.body
-        assert "Old words" not in message.body
-
-    def it_clears_the_not_planned_reason_when_the_request_goes_live(admin: User):
-        request = FeedbackRequestFactory(status=Status.NOT_PLANNED, staff_note="Zzno room this year")
+    def it_keeps_the_not_planned_reason_in_the_thread_when_the_request_goes_live(admin: User):
+        request = FeedbackRequestFactory()
+        _update(request, admin, status=Status.NOT_PLANNED, note="Zzno room this year")
+        mail.outbox.clear()
 
         request.mark_live(actor=admin)
 
-        request.refresh_from_db()
-        assert (request.status, request.staff_note) == (Status.LIVE, "")
+        assert request.status == Status.LIVE
         assert "Zzno room this year" not in mail.outbox[0].body
+        assert _staff_comments(request) == ["Zzno room this year"]
 
-    @pytest.mark.parametrize("status", [Status.RECEIVED, Status.PLANNED, Status.BUILDING])
-    def it_clears_the_not_planned_reason_on_any_move_away(admin: User, status: str):
-        request = FeedbackRequestFactory(status=Status.NOT_PLANNED, staff_note="Zzreason")
+    def it_saves_again_on_not_planned_without_a_new_comment(admin: User):
+        request = FeedbackRequestFactory()
+        _update(request, admin, status=Status.NOT_PLANNED, note="Zzreason")
 
-        _update(request, admin, status=status, note="Zzreason")
+        assert _update(request, admin, status=Status.NOT_PLANNED, github="https://github.com/o/r/issues/3") is False
 
-        request.refresh_from_db()
-        assert request.staff_note == ""
-
-    def it_keeps_a_new_note_written_while_leaving_not_planned(admin: User):
-        request = FeedbackRequestFactory(status=Status.NOT_PLANNED, staff_note="Zzreason")
-
-        _update(request, admin, status=Status.PLANNED, note="Changed our minds.")
-
-        request.refresh_from_db()
-        assert request.staff_note == "Changed our minds."
-        assert "Changed our minds." in mail.outbox[0].body
+        assert request.github_issue_url == "https://github.com/o/r/issues/3"
 
 
 def describe_general_feedback():
@@ -472,7 +474,7 @@ def describe_general_feedback():
 
         assert mail.outbox == []
 
-    def it_still_notifies_a_note_only_reply(admin: User):
+    def it_still_notifies_a_comment_only_reply(admin: User):
         request = FeedbackRequestFactory(category=Category.FEEDBACK)
 
         assert _update(request, admin, status=Status.RECEIVED, note="Thank you!") is True
@@ -482,3 +484,281 @@ def describe_general_feedback():
     def it_stays_received_only_for_general_feedback():
         assert FeedbackRequestFactory.build(category=Category.FEEDBACK).stays_received is True
         assert FeedbackRequestFactory.build(category=Category.BUG).stays_received is False
+
+
+def _webmaster(username: str) -> User:
+    from membership.models import AdminCapability
+
+    user = UserFactory(username=username, email=f"{username}@example.com")
+    user.member.admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)  # type: ignore[attr-defined]
+    return user
+
+
+def describe_add_comment():
+    def describe_from_past_lives():
+        def it_saves_the_comment_with_its_photos_and_tells_the_sender(admin: User):
+            request = FeedbackRequestFactory()
+
+            comment = request.add_comment(author=admin, body="  Which phone?  ", photos=[_photo(), _photo("b.png")])
+
+            assert (comment.body, comment.author, comment.is_from_staff) == ("Which phone?", admin, True)
+            assert comment.photos.count() == 2
+            [bell] = Notification.objects.filter(user=request.user, trigger=FEEDBACK_COMMENT_ADDED)
+            assert (bell.title, bell.body) == ("Past Lives wrote on your request", "Which phone?")
+            [message] = mail.outbox
+            assert message.to == [request.user.email]
+            assert message.subject == f"Past Lives wrote on your request: {request.subject}"
+            assert request.member_url in message.body
+
+        def it_tells_the_sender_every_time(admin: User):
+            request = FeedbackRequestFactory()
+
+            request.add_comment(author=admin, body="One", photos=[])
+            request.add_comment(author=admin, body="One", photos=[])
+
+            assert Notification.objects.filter(trigger=FEEDBACK_COMMENT_ADDED).count() == 2
+
+        def it_escapes_the_comment_in_the_html_email(admin: User):
+            request = FeedbackRequestFactory()
+
+            request.add_comment(author=admin, body="<b>hi</b>", photos=[])
+
+            html = mail.outbox[0].alternatives[0][0]
+            assert "<b>hi</b>" not in html
+            assert "&lt;b&gt;hi&lt;/b&gt;" in html
+
+        def it_marks_the_request_seen_by_staff(admin: User):
+            request = FeedbackRequestFactory()
+
+            comment = request.add_comment(author=admin, body="Hi", photos=[])
+
+            request.refresh_from_db()
+            assert request.staff_seen_at == comment.created_at
+
+    def describe_from_the_sender():
+        def it_tells_the_webmasters_but_not_a_plain_admin(admin: User, django_capture_on_commit_callbacks):
+            webmaster = _webmaster("webby")
+            request = FeedbackRequestFactory()
+
+            with django_capture_on_commit_callbacks(execute=True):
+                comment = request.add_comment(author=request.user, body="It is a Pixel 8.", photos=[_photo()])
+
+            assert comment.is_from_staff is False
+            [bell] = Notification.objects.filter(trigger=FEEDBACK_MEMBER_REPLIED)
+            assert bell.user == webmaster
+            assert bell.title == f"{request.sender_label} wrote back on a request"
+            assert bell.body == "It is a Pixel 8."
+            [message] = mail.outbox
+            assert message.to == [webmaster.email]
+            assert request.inbox_url in message.body
+            assert not Notification.objects.filter(user=request.user).exists()
+
+        def it_never_tells_a_webmaster_about_their_own_comment(django_capture_on_commit_callbacks):
+            sender = _webmaster("selfsender")
+            other = _webmaster("otherweb")
+            request = FeedbackRequestFactory(user=sender)
+
+            with django_capture_on_commit_callbacks(execute=True):
+                request.add_comment(author=sender, body="Me again", photos=[])
+
+            assert list(Notification.objects.values_list("user", flat=True)) == [other.pk]
+
+        def it_tells_nobody_when_no_one_holds_webmaster(django_capture_on_commit_callbacks):
+            request = FeedbackRequestFactory()
+
+            with django_capture_on_commit_callbacks(execute=True):
+                request.add_comment(author=request.user, body="Hello?", photos=[])
+
+            assert not Notification.objects.exists()
+            assert mail.outbox == []
+            assert request.comments.count() == 1
+
+        def it_puts_the_request_under_member_replied(django_capture_on_commit_callbacks):
+            request = FeedbackRequestFactory()
+
+            with django_capture_on_commit_callbacks(execute=True):
+                comment = request.add_comment(author=request.user, body="More", photos=[])
+
+            request.refresh_from_db()
+            assert request.member_replied_at is not None and request.member_replied_at >= comment.created_at
+            assert request.has_member_reply is True
+            assert list(FeedbackRequest.objects.member_replied()) == [request]
+
+
+def describe_member_replied():
+    def it_is_off_with_no_reply():
+        request = FeedbackRequestFactory()
+
+        assert request.has_member_reply is False
+        assert list(FeedbackRequest.objects.member_replied()) == []
+
+    def it_clears_once_an_admin_opens_the_request(django_capture_on_commit_callbacks):
+        request = FeedbackRequestFactory()
+        with django_capture_on_commit_callbacks(execute=True):
+            request.add_comment(author=request.user, body="More", photos=[])
+
+        request.mark_seen_by_staff()
+
+        request.refresh_from_db()
+        assert request.has_member_reply is False
+        assert list(FeedbackRequest.objects.member_replied()) == []
+
+    def it_comes_back_when_the_sender_writes_after_that(django_capture_on_commit_callbacks):
+        request = FeedbackRequestFactory()
+        request.mark_seen_by_staff()
+
+        with django_capture_on_commit_callbacks(execute=True):
+            request.add_comment(author=request.user, body="Still broken", photos=[])
+
+        request.refresh_from_db()
+        assert request.has_member_reply is True
+        assert list(FeedbackRequest.objects.member_replied()) == [request]
+
+
+def describe_comments():
+    def it_names_itself_and_its_photos(admin: User):
+        request = FeedbackRequestFactory()
+        comment = request.add_comment(author=admin, body="Hi", photos=[_photo()])
+        photo = FeedbackCommentPhoto.objects.get()
+
+        assert str(comment) == f"Comment {comment.pk} on request #{request.pk}"
+        assert str(photo) == f"Photo {photo.pk} on comment {comment.pk}"
+
+    def it_signs_as_the_sender_an_admin_by_name_or_past_lives():
+        request = FeedbackRequestFactory(user=UserFactory(first_name="Robin", last_name="Vale"))
+        named = UserFactory(first_name="Dana", last_name="Reyes")
+        nameless = UserFactory(first_name="", last_name="")
+        from membership.models import Member
+
+        Member.objects.filter(user=nameless).delete()
+
+        def sign(author: User | None) -> str:
+            return FeedbackComment(request=request, author=author, body="x").author_name
+
+        def tagged(author: User | None) -> bool:
+            return FeedbackComment(request=request, author=author, body="x").shows_staff_tag
+
+        assert (tagged(request.user), tagged(named), tagged(nameless), tagged(None)) == (False, True, False, False)
+        assert sign(request.user) == "Robin Vale"
+        assert sign(named) == "Dana Reyes"
+        assert sign(nameless) == "Past Lives"
+        assert sign(None) == "Past Lives"
+
+    def it_counts_a_comment_with_no_author_as_from_staff():
+        request = FeedbackRequestFactory()
+
+        assert FeedbackComment(request=request, author=None, body="x").is_from_staff is True
+
+    def it_lists_the_thread_oldest_first(admin: User):
+        request = FeedbackRequestFactory()
+        first = request.add_comment(author=admin, body="First", photos=[])
+        second = request.add_comment(author=request.user, body="Second", photos=[])
+
+        [loaded] = FeedbackRequest.objects.sent_by(request.user)
+
+        assert list(loaded.comments.all()) == [first, second]
+
+
+def describe_a_reply_waits_for_commit():
+    def it_stamps_member_replied_and_tells_the_webmasters_only_once_the_comment_commits(
+        django_capture_on_commit_callbacks,
+    ):
+        _webmaster("webcommit")
+        request = FeedbackRequestFactory()
+
+        with django_capture_on_commit_callbacks() as callbacks:
+            comment = request.add_comment(author=request.user, body="Later", photos=[])
+            assert FeedbackRequest.objects.get(pk=request.pk).member_replied_at is None
+            assert not Notification.objects.exists()
+        for callback in callbacks:
+            callback()
+
+        stamped = FeedbackRequest.objects.get(pk=request.pk).member_replied_at
+        assert stamped is not None and stamped >= comment.created_at
+        assert Notification.objects.filter(trigger=FEEDBACK_MEMBER_REPLIED).count() == 1
+
+
+def describe_an_admin_who_sent_the_request():
+    @pytest.fixture
+    def own(admin: User) -> FeedbackRequest:
+        return FeedbackRequestFactory(user=admin)
+
+    def it_treats_their_comment_as_the_senders_and_tells_the_other_webmasters(
+        admin: User, own: FeedbackRequest, django_capture_on_commit_callbacks
+    ):
+        other = _webmaster("otherwm")
+
+        with django_capture_on_commit_callbacks(execute=True):
+            comment = own.add_comment(author=admin, body="Mine", photos=[])
+
+        assert (comment.is_from_staff, comment.notified) == (False, True)
+        assert list(Notification.objects.values_list("user", "trigger")) == [(other.pk, FEEDBACK_MEMBER_REPLIED)]
+
+    def it_says_nobody_was_told_when_no_other_webmaster_exists(
+        admin: User, own: FeedbackRequest, django_capture_on_commit_callbacks
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            comment = own.add_comment(author=admin, body="Mine", photos=[])
+
+        assert comment.notified is False
+        assert not Notification.objects.exists()
+        assert FeedbackRequest.objects.get(pk=own.pk).member_replied_at is not None
+
+    def it_never_tells_themself_about_their_own_status_move(
+        admin: User, own: FeedbackRequest, django_capture_on_commit_callbacks
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            assert _update(own, admin, status=Status.PLANNED) is False
+
+        assert own.status == Status.PLANNED
+        assert not Notification.objects.exists()
+        assert mail.outbox == []
+
+    def it_sends_a_comment_with_their_move_to_the_other_webmasters(
+        admin: User, own: FeedbackRequest, django_capture_on_commit_callbacks
+    ):
+        other = _webmaster("otherwm2")
+
+        with django_capture_on_commit_callbacks(execute=True):
+            assert _update(own, admin, status=Status.PLANNED, note="Zzmy own note") is True
+
+        assert list(Notification.objects.values_list("user", "trigger")) == [(other.pk, FEEDBACK_MEMBER_REPLIED)]
+        assert FeedbackRequest.objects.get(pk=own.pk).member_replied_at is not None
+
+
+def describe_the_note_migration_reverse():
+    def it_puts_back_only_the_oldest_comment_with_no_author_on_each_request(admin: User):
+        import importlib
+
+        from django.apps import apps
+
+        migration = importlib.import_module("core.migrations.0129_feedback_notes_to_comments")
+        request = FeedbackRequestFactory()
+        carried = FeedbackComment.objects.create(request=request, author=None, body="Zzcarried note")
+        later = FeedbackComment.objects.create(request=request, author=None, body="Zzlater no author")
+        staff = request.add_comment(author=admin, body="Zzstaff", photos=[])
+        untouched = FeedbackRequestFactory()
+
+        migration.comments_to_notes(apps, None)
+
+        request.refresh_from_db()
+        assert request.staff_note == "Zzcarried note"
+        assert set(request.comments.values_list("pk", flat=True)) == {later.pk, staff.pk}
+        assert not FeedbackComment.objects.filter(pk=carried.pk).exists()
+        untouched.refresh_from_db()
+        assert untouched.staff_note == ""
+
+    def it_copies_each_note_forward_as_an_authorless_comment():
+        import importlib
+
+        from django.apps import apps
+
+        migration = importlib.import_module("core.migrations.0129_feedback_notes_to_comments")
+        noted = FeedbackRequestFactory(staff_note="  Zzold note  ")
+        FeedbackRequestFactory(staff_note="   ")
+
+        migration.notes_to_comments(apps, None)
+
+        [comment] = FeedbackComment.objects.all()
+        assert (comment.request, comment.author, comment.body) == (noted, None, "Zzold note")
+        assert comment.created_at == noted.status_changed_at

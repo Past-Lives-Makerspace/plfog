@@ -29,7 +29,7 @@ from hub.forms import (
     announcement_recipient_choices,
     site_addable_member_choices,
 )
-from membership.models import AnnouncementDraft, Member
+from membership.models import AdminCapability, AnnouncementDraft, Member
 from tests.membership.factories import (
     AnnouncementDraftFactory,
     GuildFactory,
@@ -54,6 +54,13 @@ def _account(email: str, name: str = "", *, guild: Any = None, status: str = Mem
     if guild is not None:
         GuildMembershipFactory(guild=guild, member=member)
     return member
+
+
+def _webmaster() -> None:
+    """A Webmaster, so the new feedback request email has someone to go to."""
+    _account("webmaster@example.com", "Wren Webmaster").admin_capabilities.create(
+        capability=AdminCapability.Capability.WEBMASTER
+    )
 
 
 def _labels(choices: list[tuple[str, str]]) -> list[str]:
@@ -141,6 +148,7 @@ def describe_the_other_names_shown_next_to_an_email():
         assert draft.added_labels == ["Amy Archer", "Zed Zimmer"]
 
     def it_names_the_feedback_sender_by_member(mailoutbox: Any):
+        _webmaster()
         user = _account("fixer@example.com", "Fran Fixer").user
         form = BetaFeedbackForm(data={"category": "bug", "subject": "Broken", "message": "It broke."})
         assert form.is_valid(), form.errors
@@ -148,6 +156,7 @@ def describe_the_other_names_shown_next_to_an_email():
         assert "From: Fran Fixer (fixer@example.com)" in mailoutbox[0].body
 
     def it_names_the_feedback_sender_by_email_once_without_a_name(mailoutbox: Any):
+        _webmaster()
         user = _account("anon@example.com", "").user
         form = BetaFeedbackForm(data={"category": "bug", "subject": "Broken", "message": "It broke."})
         assert form.is_valid(), form.errors

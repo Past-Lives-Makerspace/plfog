@@ -758,6 +758,7 @@ urlpatterns = [
         name="hub_profile_settings",
     ),
     path("feedback/", views.beta_feedback, name="hub_beta_feedback"),
+    path("feedback/<int:pk>/comment/", views.feedback_comment, name="hub_feedback_comment"),
     path("tab/", views.tab_detail, name="hub_tab_detail"),
     path("tab/history/", views.tab_history, name="hub_tab_history"),
     path("tab/void/<int:entry_pk>/", views.void_tab_entry, name="hub_void_tab_entry"),
@@ -1024,6 +1025,11 @@ urlpatterns = [
         name="hub_admin_announcement_delete",
     ),
     path("manage/feedback/<int:pk>/", feedback_views.hub_admin_feedback_request, name="hub_admin_feedback_request"),
+    path(
+        "manage/feedback/<int:pk>/comment/",
+        feedback_views.hub_admin_feedback_comment,
+        name="hub_admin_feedback_comment",
+    ),
     path(
         "manage/feedback/<int:pk>/mark-live/",
         feedback_views.hub_admin_feedback_mark_live,

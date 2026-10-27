@@ -7,6 +7,7 @@ from datetime import date as date_type
 from decimal import Decimal
 from functools import cached_property
 import json
+import logging
 import re
 from dataclasses import dataclass
 from collections.abc import Collection
@@ -98,6 +99,8 @@ from membership.models import (
     normalize_wiki_ask,
     orientation_way_phrase,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _meeting_time_label(hour24: int, minute: int) -> str:
@@ -831,6 +834,36 @@ class MultiplePhotoField(forms.FileField):
         return cleaned
 
 
+def feedback_photos_help() -> str:
+    """The photo field's hint, derived from the real caps so the copy can never lie.
+
+    The per photo cap is env tunable via MAX_UPLOAD_IMAGE_BYTES.
+    """
+    per_photo_mb = settings.MAX_UPLOAD_IMAGE_BYTES // (1024 * 1024)
+    total_mb = MAX_FEEDBACK_PHOTO_TOTAL_BYTES // (1024 * 1024)
+    return (
+        f"Attach up to {MAX_FEEDBACK_PHOTOS} photos or screenshots. {per_photo_mb} MB each, {total_mb} MB total. "
+        "If the form shows an error, please pick your photos again before resending."
+    )
+
+
+def clean_feedback_photos(photos: list[UploadedFile]) -> list[UploadedFile]:
+    """Enforce the feedback photo count and combined size caps with plain messages.
+
+    Shared by the Feedback form and a comment's photos, so both take the same photos.
+    """
+    if len(photos) > MAX_FEEDBACK_PHOTOS:
+        raise forms.ValidationError(
+            f"You can attach up to {MAX_FEEDBACK_PHOTOS} photos. Please remove some and try again."
+        )
+    # A cleaned upload always has a size; the stubs type it int | None for unsaved files.
+    total_bytes = sum(cast(int, photo.size) for photo in photos)
+    if total_bytes > MAX_FEEDBACK_PHOTO_TOTAL_BYTES:
+        limit_mb = MAX_FEEDBACK_PHOTO_TOTAL_BYTES // (1024 * 1024)
+        raise forms.ValidationError(f"Your photos add up to too much. Please keep the total under {limit_mb} MB.")
+    return photos
+
+
 class BetaFeedbackForm(forms.Form):
     """Form for submitting feedback (bug reports, feature requests, general feedback)."""
 
@@ -849,14 +882,7 @@ class BetaFeedbackForm(forms.Form):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # Derive the numbers from the real caps so the copy can never lie
-        # (the per photo cap is env tunable via MAX_UPLOAD_IMAGE_BYTES).
-        per_photo_mb = settings.MAX_UPLOAD_IMAGE_BYTES // (1024 * 1024)
-        total_mb = MAX_FEEDBACK_PHOTO_TOTAL_BYTES // (1024 * 1024)
-        self.fields["photos"].help_text = (
-            f"Attach up to {MAX_FEEDBACK_PHOTOS} photos or screenshots. {per_photo_mb} MB each, {total_mb} MB total. "
-            "If the form shows an error, please pick your photos again before resending."
-        )
+        self.fields["photos"].help_text = feedback_photos_help()
 
     @classmethod
     def preselected(cls, category: str) -> BetaFeedbackForm:
@@ -871,20 +897,10 @@ class BetaFeedbackForm(forms.Form):
 
     def clean_photos(self) -> list[UploadedFile]:
         """Enforce the photo count and combined-size caps with plain messages."""
-        photos: list[UploadedFile] = self.cleaned_data["photos"]
-        if len(photos) > MAX_FEEDBACK_PHOTOS:
-            raise forms.ValidationError(
-                f"You can attach up to {MAX_FEEDBACK_PHOTOS} photos. Please remove some and try again."
-            )
-        # A cleaned upload always has a size; the stubs type it int | None for unsaved files.
-        total_bytes = sum(cast(int, photo.size) for photo in photos)
-        if total_bytes > MAX_FEEDBACK_PHOTO_TOTAL_BYTES:
-            limit_mb = MAX_FEEDBACK_PHOTO_TOTAL_BYTES // (1024 * 1024)
-            raise forms.ValidationError(f"Your photos add up to too much. Please keep the total under {limit_mb} MB.")
-        return photos
+        return clean_feedback_photos(self.cleaned_data["photos"])
 
     def submit(self, *, user: User) -> FeedbackRequest:
-        """Save the request with its photos (#693), then email the admins as before.
+        """Save the request with its photos (#693), then email the Webmasters.
 
         The row is written first, so a failed email never loses what the sender wrote.
         """
@@ -899,16 +915,23 @@ class BetaFeedbackForm(forms.Form):
         return feedback_request
 
     def send(self, *, user: User, feedback_request: FeedbackRequest) -> None:
-        """Send the feedback email to the configured recipients, linking the saved request.
+        """Email the new request to the Webmasters, linking the saved request.
 
-        Routes through the ``core.email.send`` choke-point (Decision 8) so the
-        send is audited in ``TransactionalEmailLog`` instead of bypassing it via
-        Django's ``send_mail``. Best-effort: a failed feedback email is logged but
-        must not 500 the feedback page.
+        The Webmasters are the ``WEBMASTER`` capability holders (the same people a sender's
+        comment notifies), never a settings email list. With nobody holding it the email is
+        logged and dropped; the request is saved either way. Routes through the
+        ``core.email.send`` choke-point (Decision 8) so the send is audited in
+        ``TransactionalEmailLog``. Best-effort: a failed feedback email is logged but must not
+        500 the feedback page.
         """
         from core.email import Attachment
         from core.email import send as send_email
+        from core.events.resolvers import webmasters
 
+        to = [recipient.email for recipient, _reason in webmasters({}) if recipient.email]
+        if not to:
+            logger.info("Feedback request %s saved; no Webmaster to email it to.", feedback_request.pk)
+            return
         category_label = dict(self.CATEGORY_CHOICES)[self.cleaned_data["category"]]
         subject = f"[{category_label}] {self.cleaned_data['subject']}"
         photos: list[UploadedFile] = self.cleaned_data["photos"]
@@ -927,7 +950,7 @@ class BetaFeedbackForm(forms.Form):
             # octet-stream is only the fallback for a format Pillow knows but MIME doesn't.
             attachments.append((photo.name or "photo", photo.read(), photo.content_type or "application/octet-stream"))
         send_email(
-            to=list(settings.BETA_FEEDBACK_EMAILS),
+            to=to,
             subject=subject,
             trigger_kind="hub.beta_feedback",
             text_body=body,
@@ -936,44 +959,74 @@ class BetaFeedbackForm(forms.Form):
         )
 
 
+class FeedbackCommentForm(forms.Form):
+    """One comment on a feedback request's thread, with photos, from the sender or an admin.
+
+    The photos take the Feedback form's field and caps. Rendered once per request on the
+    Feedback page, so the caller passes an ``auto_id`` that keeps each row's ids apart.
+    """
+
+    body = forms.CharField(label="Comment", widget=forms.Textarea(attrs={"rows": 3}))
+    photos = MultiplePhotoField(
+        required=False,
+        label="Photos (optional)",
+        widget=MultiplePhotoInput(attrs={"accept": "image/*"}),
+    )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["photos"].help_text = feedback_photos_help()
+
+    def clean_photos(self) -> list[UploadedFile]:
+        """Enforce the photo count and combined-size caps with plain messages."""
+        return clean_feedback_photos(self.cleaned_data["photos"])
+
+
 class FeedbackRequestAdminForm(forms.Form):
-    """An admin's status, note to the sender and GitHub link for one request (#693).
+    """An admin's status, optional comment and GitHub link for one request (#693).
 
     A plain form, not a ModelForm: a ModelForm writes the posted values onto the instance while
     validating, and :meth:`core.models.FeedbackRequest.apply_admin_update` needs the saved values
-    to tell whether anything changed.
+    to tell whether anything changed. A filled comment is posted to the thread with the save.
     """
 
-    status = forms.ChoiceField(choices=FeedbackRequest.Status.choices, label="Status")
-    staff_note = forms.CharField(required=False, label="Note to the member", widget=forms.Textarea(attrs={"rows": 4}))
-    github_issue_url = forms.URLField(required=False, label="GitHub issue link", assume_scheme="https")
+    # Sized to what they hold (FRONTEND rule 28): feedback.css caps the select and the link.
+    status = forms.ChoiceField(
+        choices=FeedbackRequest.Status.choices,
+        label="Status",
+        widget=forms.Select(attrs={"class": "pl-feedback-admin__status"}),
+    )
+    comment = forms.CharField(required=False, label="Comment (optional)", widget=forms.Textarea(attrs={"rows": 3}))
+    github_issue_url = forms.URLField(
+        required=False,
+        label="GitHub issue link",
+        assume_scheme="https",
+        widget=forms.URLInput(attrs={"class": "pl-feedback-admin__link"}),
+    )
 
     def __init__(self, data: Any = None, *, feedback_request: FeedbackRequest) -> None:
         """Fill the form with ``feedback_request``'s saved values; general feedback offers only Received."""
         super().__init__(
             data,
-            initial={
-                "status": feedback_request.status,
-                "staff_note": feedback_request.staff_note,
-                "github_issue_url": feedback_request.github_issue_url,
-            },
+            initial={"status": feedback_request.status, "github_issue_url": feedback_request.github_issue_url},
         )
         self.category = feedback_request.category
+        self.current_status = feedback_request.status
         if feedback_request.stays_received:
             received = FeedbackRequest.Status.RECEIVED
             cast(forms.ChoiceField, self.fields["status"]).choices = [(received.value, received.label)]
 
     def clean(self) -> dict[str, Any]:
-        """Refuse what the model refuses (Not planned without a reason), in its words."""
+        """Refuse what the model refuses (Not planned without a comment), in its words."""
         cleaned = cast(dict[str, Any], super().clean())
         status = cleaned.get("status")  # absent when the status itself failed validation
         if status is None:
             return cleaned
         refusal = FeedbackRequest.update_refusal(
-            category=self.category, status=status, staff_note=cleaned["staff_note"]
+            category=self.category, current_status=self.current_status, status=status, comment=cleaned["comment"]
         )
         if refusal is not None:
-            self.add_error("staff_note", refusal)
+            self.add_error("comment", refusal)
         return cleaned
 
 

@@ -16,7 +16,11 @@
     <form method="post" enctype="multipart/form-data" class="hub-form">
         {% csrf_token %}
         {% for field in form %}
+        {% if field.name == "photos" %}
+        {% include "hub/partials/_feedback_photos_field.html" with field=field %}
+        {% else %}
         {% include "components/form_field.html" with field=field %}
+        {% endif %}
         {% endfor %}
         {% if form.non_field_errors %}
         <ul class="hub-field-errors">
@@ -32,4 +36,6 @@
 </div>
 
 {% include "hub/partials/_feedback_requests.html" %}
+{% include "hub/partials/_feedback_photos_script.html" %}
+{% include "components/busy_submit.html" %}
 {% endblock %}

@@ -375,8 +375,11 @@ ROW_GROUPS: tuple[RowGroup, ...] = (
     RowGroup(
         group_id="group.feedback_request",
         label="Updates to your requests",
-        description="A feature request or bug report you sent is planned, being built, live, or not planned.",
-        event_keys=("feedback.request_updated", "feedback.request_live"),
+        description=(
+            "A feature request or bug report you sent is planned, being built, live, or not planned, "
+            "or Past Lives wrote on something you sent."
+        ),
+        event_keys=("feedback.request_updated", "feedback.request_live", "feedback.comment_added"),
     ),
     RowGroup(
         group_id="group.space_request_decision",

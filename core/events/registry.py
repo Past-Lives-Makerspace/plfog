@@ -549,6 +549,8 @@ MEMBERSHIP_ORIENTATION_ORPHAN_PAYMENT = "membership.orientation_orphan_payment" 
 AUTOMATION_FAILED = "automation.failed"  # a scheduled job failed (Webmasters, once a day per job)
 FEEDBACK_REQUEST_LIVE = "feedback.request_live"  # a release listing your request shipped (#693 part 2)
 FEEDBACK_REQUEST_UPDATED = "feedback.request_updated"  # your feature request or bug report moved, or got a note (#693)
+FEEDBACK_COMMENT_ADDED = "feedback.comment_added"  # Past Lives wrote on a request you sent
+FEEDBACK_MEMBER_REPLIED = "feedback.member_replied"  # a sender wrote back on their request (the Webmasters)
 KILN_CREW_REPLIED = "kiln.crew_replied"  # the kiln crew wrote on your kiln ticket (#691)
 KILN_MAKER_REPLIED = "kiln.maker_replied"  # a maker wrote on a kiln ticket (the kiln crew, #691)
 KILN_READY_FOR_PICKUP = "kiln.ready_for_pickup"  # your pieces came out of a firing (#691 part 3)
@@ -1500,8 +1502,8 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # feedback.request_updated — a request sent from the Feedback page moved to Planned,
-    # Building, Live (Fixed for a bug) or Not planned, or got a new note (#693). One key for
-    # every transition: the status and the note travel in the context. The sender is a User,
+    # Building, Live (Fixed for a bug) or Not planned (#693). One key for every transition: the
+    # status and any comment written in the same save travel in the context. The sender is a User,
     # who may have no Member row. The period carries the status and a timestamp, so each
     # transition notifies once. No activity row: the request's own status date is the record.
     EventType(
@@ -1524,6 +1526,32 @@ _NEW_EVENTS: list[EventType] = [
         description="A release delivered a feature request or bug report you sent.",
         category="Your requests",
         recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # feedback.comment_added — an admin wrote a comment on a request's thread, with no status
+    # move in the same save (a move carries its comment in feedback.request_updated instead).
+    # Every comment notifies: the period is the comment. No activity row: the thread is the
+    # record. Grouped with feedback.request_updated as one settings row.
+    EventType(
+        key=FEEDBACK_COMMENT_ADDED,
+        label="Replies to your requests",
+        description="Past Lives wrote on a feature request, bug report or feedback you sent.",
+        category="Your requests",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # feedback.member_replied — the sender of a request wrote a comment back. Goes to the
+    # Webmasters, never a settings email list; the sender passes that set minus the author, so
+    # a Webmaster commenting on their own request is not told about it. The period is the
+    # comment. No activity row: the thread and the inbox's Member replied pill are the record.
+    EventType(
+        key=FEEDBACK_MEMBER_REPLIED,
+        label="Replies on feedback requests",
+        description="A member wrote back on a feature request, bug report or feedback they sent. Goes to the Webmasters.",
+        category="Your requests",
+        recipient=Recipients.WEBMASTERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

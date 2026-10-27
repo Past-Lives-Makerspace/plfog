@@ -13,7 +13,9 @@ from PIL import Image
 
 from django.contrib.auth.models import User
 
-from core.models import FeedbackRequest
+from core.models import FeedbackComment, FeedbackRequest
+from core.events.registry import FEEDBACK_MEMBER_REPLIED
+from core.models import Notification
 from hub.forms import MAX_FEEDBACK_PHOTOS, BetaFeedbackForm
 from membership.models import Member
 from tests.core.factories import FeedbackRequestFactory
@@ -26,6 +28,16 @@ def _photo(name: str = "shot.png") -> SimpleUploadedFile:
     buf = BytesIO()
     Image.new("RGB", (1, 1)).save(buf, format="PNG")
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
+
+
+@pytest.fixture
+def webmaster(db) -> User:
+    """A Webmaster: who the new request email and a sender's replies go to."""
+    from membership.models import AdminCapability
+
+    user = User.objects.create_user(username="webmaster", password="pass", email="webmaster@example.com")
+    user.member.admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)  # type: ignore[attr-defined]
+    return user
 
 
 def _form_with_photos(photos: list[SimpleUploadedFile]) -> BetaFeedbackForm:
@@ -133,7 +145,7 @@ def describe_BetaFeedbackForm():
             assert "total" in form.errors["photos"][0]
 
     def describe_send():
-        def it_attaches_photos_and_notes_the_count(db):
+        def it_attaches_photos_and_notes_the_count(webmaster: User):
             user = User.objects.create_user(username="attacher", password="pass", email="attacher@example.com")
             form = _form_with_photos([_photo("first.png"), _photo("second.png")])
             assert form.is_valid()
@@ -150,7 +162,30 @@ def describe_BetaFeedbackForm():
                 assert content  # the bytes actually made it in
                 assert mimetype == "image/png"
 
-        def it_sends_without_attachments_when_no_photos(db):
+        def it_emails_the_webmasters_and_not_a_plain_admin(webmaster: User):
+            User.objects.create_superuser(username="plainadmin", password="pass", email="plainadmin@example.com")
+            user = User.objects.create_user(username="sender", password="pass", email="sender@example.com")
+            form = BetaFeedbackForm(dict(VALID_DATA))
+            assert form.is_valid()
+
+            form.submit(user=user)
+
+            [sent] = mail.outbox
+            assert sent.to == ["webmaster@example.com"]
+
+        def it_saves_the_request_and_drops_the_email_when_no_one_holds_webmaster(db, caplog):
+            user = User.objects.create_user(username="lonely", password="pass", email="lonely@example.com")
+            form = BetaFeedbackForm(dict(VALID_DATA))
+            assert form.is_valid()
+
+            with caplog.at_level("INFO", logger="hub.forms"):
+                request = form.submit(user=user)
+
+            assert mail.outbox == []
+            assert FeedbackRequest.objects.get() == request
+            assert f"Feedback request {request.pk} saved; no Webmaster to email it to." in caplog.text
+
+        def it_sends_without_attachments_when_no_photos(webmaster: User):
             user = User.objects.create_user(username="plain", password="pass", email="plain@example.com")
             form = BetaFeedbackForm(dict(VALID_DATA))
             assert form.is_valid()
@@ -180,7 +215,7 @@ def describe_beta_feedback_view():
         assert response.status_code == 200
         assert isinstance(response.context["form"], BetaFeedbackForm)
 
-    def it_sends_email_on_valid_post(client: Client):
+    def it_sends_email_on_valid_post(client: Client, webmaster: User):
         User.objects.create_user(username="reporter", password="pass", email="reporter@example.com")
         client.login(username="reporter", password="pass")
 
@@ -229,7 +264,7 @@ def describe_beta_feedback_view():
         assert b'enctype="multipart/form-data"' in response.content
         assert b'accept="image/*"' in response.content
 
-    def it_accepts_a_photo_upload(client: Client):
+    def it_accepts_a_photo_upload(client: Client, webmaster: User):
         User.objects.create_user(username="shutterbug", password="pass", email="shutterbug@example.com")
         client.login(username="shutterbug", password="pass")
 
@@ -293,7 +328,7 @@ def describe_saving_a_request():
         assert request.status == FeedbackRequest.Status.RECEIVED
         assert request.photos.count() == 1
 
-    def it_links_the_saved_request_in_the_email_to_the_admins(client: Client, settings):
+    def it_links_the_saved_request_in_the_email_to_the_webmasters(client: Client, settings, webmaster: User):
         settings.MEMBER_BASE_URL = "https://members.example"
         User.objects.create_user(username="linker", password="pass", email="linker@example.com")
         client.login(username="linker", password="pass")
@@ -357,20 +392,58 @@ def describe_your_requests():
 
         response = client.get("/feedback/")
 
-        assert list(response.context["feedback_requests"]) == [newer, older]
+        assert [item for item, _form in response.context["feedback_rows"]] == [newer, older]
         body = response.content.decode()
         assert body.index("Zznewer request") < body.index("Zzolder request")
         assert f'data-feedback-request="{other.pk}"' not in body
 
-    def it_shows_status_last_changed_date_and_the_staff_note(client: Client):
+    def it_shows_the_status_and_its_last_changed_date(client: Client):
         user = _login(client, "detail")
-        FeedbackRequestFactory(user=user, status=FeedbackRequest.Status.PLANNED, staff_note="Zznote from the admins")
+        FeedbackRequestFactory(user=user, status=FeedbackRequest.Status.PLANNED)
 
         body = client.get("/feedback/").content.decode()
 
         assert 'data-feedback-status="planned">Planned<' in body
-        assert "Zznote from the admins" in body
         assert "Updated " in body
+
+    def it_shows_the_thread_with_the_original_message_first(client: Client):
+        user = _login(client, "threader")
+        admin = User.objects.create_superuser(username="answerer", password="pass", email="answerer@example.com")
+        admin.first_name, admin.last_name = "Dana", "Reyes"
+        admin.save()
+        Member.objects.filter(user=admin).delete()
+        request = FeedbackRequestFactory(user=user, message="Zzwhat I sent")
+        FeedbackComment.objects.create(request=request, author=None, body="Zzcarried over note")
+        request.add_comment(author=admin, body="Zzfrom dana", photos=[_photo()])
+        request.add_comment(author=user, body="Zzmy reply", photos=[])
+
+        body = client.get("/feedback/").content.decode()
+
+        assert body.index("Zzwhat I sent") < body.index("Zzcarried over note") < body.index("Zzfrom dana")
+        assert body.index("Zzfrom dana") < body.index("Zzmy reply")
+        assert '<strong>Dana Reyes</strong><span class="pl-feedback-msg__role">Past Lives</span>' in body
+        assert "<strong>Past Lives</strong><span>" in body
+        assert body.count("<strong>You</strong>") == 2
+        assert request.comments.get(author=admin).photos.get().image.url in body
+
+    def it_loads_every_thread_without_a_query_per_comment(client: Client):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        user = _login(client, "counter")
+        request = FeedbackRequestFactory(user=user)
+        request.add_comment(author=user, body="One", photos=[_photo()])
+        client.get("/feedback/")
+        with CaptureQueriesContext(connection) as few:
+            client.get("/feedback/")
+        for n in range(3):
+            more = FeedbackRequestFactory(user=user)
+            more.add_comment(author=user, body=f"More {n}", photos=[_photo()])
+
+        with CaptureQueriesContext(connection) as many:
+            client.get("/feedback/")
+
+        assert len(many) == len(few)
 
     def it_shows_fixed_for_a_bug_and_live_for_a_feature(client: Client):
         user = _login(client, "fixer")
@@ -433,3 +506,86 @@ def describe_beta_feedback_category_preselect():
 
         assert not form.is_bound
         assert form.initial == {"category": "feature"}
+
+
+@pytest.mark.django_db
+def describe_replying():
+    def _login(client: Client, username: str) -> User:
+        user = User.objects.create_user(username=username, password="pass", email=f"{username}@example.com")
+        client.login(username=username, password="pass")
+        return user
+
+    def _url(pk: int) -> str:
+        return f"/feedback/{pk}/comment/"
+
+    def it_posts_the_reply_with_photos_and_tells_the_webmasters(
+        client: Client, webmaster: User, django_capture_on_commit_callbacks
+    ):
+        user = _login(client, "replier")
+        request = FeedbackRequestFactory(user=user)
+
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(_url(request.pk), {"body": "Zzit is a Pixel", "photos": [_photo(), _photo("b.png")]})
+
+        assert response["Location"] == f"/feedback/?sent={request.pk}#request-{request.pk}"
+        [comment] = request.comments.all()
+        assert (comment.author, comment.body, comment.photos.count()) == (user, "Zzit is a Pixel", 2)
+        assert Notification.objects.filter(user=webmaster, trigger=FEEDBACK_MEMBER_REPLIED).count() == 1
+        follow = client.get(response["Location"])
+        assert [str(m) for m in follow.context["messages"]] == ["Sent. Past Lives will see your reply."]
+        assert f'data-feedback-request="{request.pk}" open' in follow.content.decode()
+
+    def it_answers_404_for_someone_elses_request(client: Client, webmaster: User):
+        _login(client, "snoop")
+        request = FeedbackRequestFactory()
+
+        response = client.post(_url(request.pk), {"body": "Zzsneaky"})
+
+        assert response.status_code == 404
+        assert request.comments.count() == 0
+        assert not Notification.objects.exists()
+
+    def it_sends_an_anonymous_visitor_to_log_in(client: Client):
+        request = FeedbackRequestFactory()
+
+        response = client.post(_url(request.pk), {"body": "Hi"})
+
+        assert response.status_code == 302
+        assert "/accounts/login/" in response["Location"]
+        assert request.comments.count() == 0
+
+    def it_only_posts(client: Client):
+        user = _login(client, "getter")
+        request = FeedbackRequestFactory(user=user)
+
+        assert client.get(_url(request.pk)).status_code == 405
+
+    def it_refuses_an_empty_reply_with_the_row_open_and_the_error_shown(client: Client):
+        user = _login(client, "blank")
+        request = FeedbackRequestFactory(user=user)
+        other = FeedbackRequestFactory(user=user)
+
+        response = client.post(_url(request.pk), {"body": " "})
+
+        assert response.status_code == 200
+        assert request.comments.count() == 0
+        body = response.content.decode()
+        assert f'data-feedback-request="{request.pk}" open' in body
+        assert f'data-feedback-request="{other.pk}" open' not in body
+        forms = dict((item.pk, form) for item, form in response.context["feedback_rows"])
+        assert "body" in forms[request.pk].errors
+        assert not forms[other.pk].is_bound
+        assert f'id="id_reply_{request.pk}_body"' in body
+        assert f'id="id_reply_{other.pk}_body"' in body
+
+    def it_offers_a_reply_box_with_photos_on_every_request(client: Client):
+        user = _login(client, "boxes")
+        request = FeedbackRequestFactory(user=user)
+
+        body = client.get("/feedback/").content.decode()
+
+        assert f'action="/feedback/{request.pk}/comment/" enctype="multipart/form-data"' in body
+        assert f'id="id_reply_{request.pk}_photos"' in body
+        assert f'data-feedback-reply="{request.pk}" data-pl-busy-submit' in body
+        assert body.count("data-feedback-photos>") == 2  # the Feedback form's zone and this reply's
+        assert "window.plBusySubmitBound" in body

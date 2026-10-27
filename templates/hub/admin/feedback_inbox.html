@@ -6,12 +6,13 @@
 {% endblock %}
 {% block content %}
 {% comment %}
-The admin Feedback inbox (#693): every FeedbackRequest, newest first, filterable by category and
-status, built by hub.feedback_views.hub_admin_feedback_inbox. Each row links to the request's page
+The admin Feedback inbox (#693): every FeedbackRequest, newest first, filterable by category,
+status and Member replied (the sender wrote since an admin last opened it, which also shows as a
+pill on the row), built by hub.feedback_views.hub_admin_feedback_inbox. Each row links to the request's page
 with the inbox's query string, so Back to inbox keeps the filters. Rows stack into labelled cards
 at 768px and below (the members table stacking).
 {% endcomment %}
-{% include "components/page_header.html" with title="Feedback Inbox" description="Bug reports, feature requests and feedback members sent from the Feedback page. Open one to set where it stands; the sender is told." %}
+{% include "components/page_header.html" with title="Feedback Inbox" description="Bug reports, feature requests and feedback members sent from the Feedback page. Open one to answer it and set where it stands; the sender is told." %}
 
 <div class="hub-card pl-feedback-inbox">
   <form method="get" action="{% url 'hub_admin_feedback_inbox' %}" class="pl-feedback-inbox__filters" data-feedback-filters>
@@ -27,6 +28,13 @@ at 768px and below (the members table stacking).
       <select id="feedback-status" name="status">
         <option value="">Any status</option>
         {% for value, label in statuses %}<option value="{{ value }}"{% if value == filters.status %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="hub-form-group">
+      <label for="feedback-replied">Replies</label>
+      <select id="feedback-replied" name="replied">
+        <option value="">Any</option>
+        <option value="1"{% if filters.replied %} selected{% endif %}>Member replied</option>
       </select>
     </div>
     <div class="pl-feedback-inbox__actions">
@@ -49,7 +57,7 @@ at 768px and below (the members table stacking).
     <tbody>
       {% for item in page.object_list %}
       <tr data-feedback-row="{{ item.pk }}">
-        <td data-label="Subject" class="pl-feedback-inbox__subject"><a href="{% url 'hub_admin_feedback_request' item.pk %}{% if inbox_query %}?{{ inbox_query }}{% endif %}">{{ item.subject }}</a></td>
+        <td data-label="Subject" class="pl-feedback-inbox__subject"><a href="{% url 'hub_admin_feedback_request' item.pk %}{% if inbox_query %}?{{ inbox_query }}{% endif %}">{{ item.subject }}</a>{% if item.has_member_reply %} <span class="hub-pill hub-pill--primary pl-feedback-inbox__replied" data-feedback-replied>Member replied</span>{% endif %}</td>
         <td data-label="From">{{ item.sender_label }}</td>
         <td data-label="Category">{{ item.get_category_display }}</td>
         <td data-label="Status"><span class="hub-pill hub-pill--{{ item.status_tone }}" data-feedback-status="{{ item.status }}">{{ item.status_label }}</span></td>
