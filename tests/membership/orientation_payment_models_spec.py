@@ -212,7 +212,7 @@ def describe_checkout_hold_transition_guards():
     def it_refuses_to_decline_a_hold():
         hold = _hold()
         with pytest.raises(OrientationError, match="still finishing checkout"):
-            hold.decline(note="no")
+            hold.decline()
         hold.refresh_from_db()
         assert hold.status == OrientationBooking.Status.PENDING_PAYMENT
 
@@ -232,5 +232,5 @@ def describe_checkout_hold_transition_guards():
 
     def it_still_transitions_real_bookings():
         booking = OrientationBookingFactory()
-        booking.decline(note="busy")
+        booking.decline()
         assert booking.status == OrientationBooking.Status.DECLINED

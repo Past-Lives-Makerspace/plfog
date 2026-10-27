@@ -313,7 +313,8 @@ def describe_orientation_respond():
         assert response.status_code == 302
         booking.refresh_from_db()
         assert booking.status == OrientationBooking.Status.DECLINED
-        assert booking.lead_note == "later"
+        [message] = booking.thread()
+        assert (message.body, message.author.username, message.is_from_staff) == ("later", "resp_dec", True)
 
     def it_ignores_an_unknown_action(client: Client):
         _user_with_role("resp_bogus", fog_role=Member.FogRole.ADMIN)

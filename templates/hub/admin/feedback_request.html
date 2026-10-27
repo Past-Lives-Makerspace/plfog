@@ -8,7 +8,7 @@
 {% comment %}
 One feedback request in the admin Feedback inbox (#693), built by
 hub.feedback_views.hub_admin_feedback_request: the sender, then the thread (the original message
-first, hub/partials/_feedback_thread.html) and a comment box with photos whose Send always tells
+first, components/thread.html) and a comment box with photos (components/thread_composer.html) whose Send always tells
 the sender (hub_admin_feedback_comment), then the one form for status, an optional comment and
 the GitHub link. The Resolve It card holds Mark live and the Not a Bug and Close modals
 (hub/admin/_feedback_resolve_form.html), each posting to its own view. inbox_query is the inbox's query string, kept on
@@ -35,13 +35,15 @@ every link and post so Back to inbox keeps the filters.
 
 <div class="hub-card pl-feedback-admin__card" data-feedback-conversation>
   <h2 class="hub-detail-label">Conversation</h2>
-  {% include "hub/partials/_feedback_thread.html" with feedback_request=feedback_request as_staff=True %}
-  <form method="post" action="{% url 'hub_admin_feedback_comment' feedback_request.pk %}{% if inbox_query %}?{{ inbox_query }}{% endif %}" enctype="multipart/form-data" class="pl-feedback-reply" data-feedback-comment-form data-pl-busy-submit data-pl-busy-label="Sending...">
-    {% csrf_token %}
-    {% include "components/form_field.html" with field=comment_form.body field_label="Comment to "|add:feedback_request.sender_label field_hint_off=True %}
-    {% include "hub/partials/_feedback_photos_field.html" with field=comment_form.photos %}
-    <div class="pl-feedback-reply__row"><span class="pl-feedback-reply__note">{{ feedback_request.sender_label }} gets it in the app and by email, per their settings.</span><button type="submit" class="hub-btn hub-btn--primary" data-feedback-send data-pl-busy>Send to {{ feedback_request.sender_label }}</button></div>
-  </form>
+  {% with pk_str=feedback_request.pk|stringformat:"s" sender=feedback_request.sender_label %}
+  {% include "components/thread.html" with thread_messages=feedback_request.thread viewer_is_staff=True thread_key="request-"|add:pk_str %}
+  {% url 'hub_admin_feedback_comment' feedback_request.pk as comment_url %}
+  {% if inbox_query %}{% with comment_action=comment_url|add:"?"|add:inbox_query %}
+  {% include "components/thread_composer.html" with thread_form=comment_form thread_action=comment_action thread_next="" thread_body_label="Comment to "|add:sender thread_note=sender|add:" gets it in the app and by email, per their settings." thread_button="Send to "|add:sender %}
+  {% endwith %}{% else %}
+  {% include "components/thread_composer.html" with thread_form=comment_form thread_action=comment_url thread_next="" thread_body_label="Comment to "|add:sender thread_note=sender|add:" gets it in the app and by email, per their settings." thread_button="Send to "|add:sender %}
+  {% endif %}
+  {% endwith %}
 </div>
 
 {% if feedback_request.status != "closed" or not feedback_request.stays_received and feedback_request.status != "live" %}
@@ -87,6 +89,6 @@ every link and post so Back to inbox keeps the filters.
   </form>
 </div>
 </div>
-{% include "hub/partials/_feedback_photos_script.html" %}
+{% include "components/thread_script.html" %}
 {% include "components/busy_submit.html" %}
 {% endblock %}

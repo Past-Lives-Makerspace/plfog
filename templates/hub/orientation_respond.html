@@ -1,6 +1,9 @@
 {% extends "hub/base.html" %}
-{% load classes_tags %}
+{% load classes_tags static %}
 {% block title %}Orientation request · {{ booking.orientation_type.owner_name }}{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/orientation-booking.css' %}">
+{% endblock %}
 {% block content %}
 <div x-data="{}">
   <h1 class="hub-page-title">Orientation Request</h1>
@@ -31,7 +34,6 @@
       {% endif %}
     </p>
     {% endif %}
-    {% if booking.member_note %}<p class="hub-text-muted" style="margin:0;">Note: {{ booking.member_note }}</p>{% endif %}
   </div>
 
   {% if late_fee %}
@@ -65,7 +67,7 @@
       {% csrf_token %}
       <input type="hidden" name="action" value="decline">
       <div class="hub-form-group">
-        <label for="decline-note">Decline with an optional note (e.g. suggest another time):</label>
+        <label for="decline-note">Decline with an optional note (e.g. suggest another time). It goes in the decline email and the booking's messages:</label>
         <textarea id="decline-note" name="note" rows="3"></textarea>
       </div>
       {% if booking.amount_paid_cents %}
@@ -105,6 +107,20 @@
   {% endwith %}
   {% endif %}
 
+  {# The booking's messages with the member (components/thread.html); Send always tells them. A checkout hold has none. #}
+  {% if booking.takes_messages %}
+  <div class="hub-card pl-orient-respond-messages" id="messages" data-thread-open="{{ booking.pk }}">
+    <h2 class="hub-detail-label">Messages</h2>
+    {% with pk_str=booking.pk|stringformat:"s" first_name=booking.member.display_name %}
+    {% include "components/thread.html" with thread_messages=thread_messages viewer_is_staff=True thread_key="booking-"|add:pk_str thread_empty="No messages yet." %}
+    {% url 'hub_orientation_message' booking.pk as message_url %}
+    {% include "components/thread_composer.html" with thread_form=message_form thread_action=message_url thread_next="" thread_body_label="Message to "|add:first_name thread_note=member_hears_line thread_button="Send to "|add:first_name %}
+    {% endwith %}
+  </div>
+  {% endif %}
+
   <p><a href="{{ booking.orientation_type.owner_page_path }}">← Back to {{ booking.orientation_type.owner_name }}</a></p>
 </div>
+{% include "components/thread_script.html" %}
+{% include "components/busy_submit.html" %}
 {% endblock %}

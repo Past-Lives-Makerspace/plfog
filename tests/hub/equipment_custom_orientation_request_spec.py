@@ -360,7 +360,7 @@ def describe_the_equipment_road():
         assert booking.status == OrientationBooking.Status.REQUESTED
         assert booking.orientation_type == orientation_type
         assert booking.guild is None
-        assert booking.member_note == "evenings"
+        assert [m.body for m in booking.thread()] == ["evenings"]
         slot = booking.slot
         assert slot.source == OrientationSlot.Source.CUSTOM
         assert slot.seats == 1
