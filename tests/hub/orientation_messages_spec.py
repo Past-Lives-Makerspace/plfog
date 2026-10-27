@@ -27,6 +27,7 @@ from membership.models import Member, OrientationBooking
 from tests.membership.factories import (
     GuildFactory,
     GuildOrientationSettingsFactory,
+    MemberFactory,
     MembershipPlanFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
@@ -279,3 +280,77 @@ def describe_messages_that_ride_on_another_notice():
         assert "A note from Lead Quillfeather" in email.body
         assert "A note from Lead Quillfeather" in email.alternatives[0][0]
         assert "Zzfull this month" in email.body
+
+
+def describe_a_checkout_hold():
+    def _hold() -> tuple[Member, OrientationBooking]:
+        lead, booking = _world()
+        OrientationBooking.objects.filter(pk=booking.pk).update(status=OrientationBooking.Status.PENDING_PAYMENT)
+        booking.refresh_from_db()
+        return lead, booking
+
+    def it_has_no_booking_page(client: Client):
+        _lead, booking = _hold()
+        client.force_login(booking.member.user)
+        assert client.get(reverse("hub_orientation_booking", args=[booking.pk])).status_code == 404
+
+    def it_refuses_a_message_from_either_side(client: Client):
+        lead, booking = _hold()
+        client.force_login(booking.member.user)
+        assert _post(client, booking).status_code == 404
+        client.force_login(lead.user)
+        assert _post(client, booking).status_code == 404
+        assert booking.thread() == []
+
+    def it_shows_no_messages_card_on_the_request_page(client: Client):
+        lead, booking = _hold()
+        client.force_login(lead.user)
+        content = client.get(reverse("hub_orientation_respond", args=[booking.pk])).content.decode()
+        assert 'id="messages"' not in content
+        assert reverse("hub_orientation_message", args=[booking.pk]) not in content
+
+
+def describe_who_hears_line():
+    def it_leaves_out_the_orientors_line_when_nobody_would_hear(client: Client):
+        member = _user("thr_lonely", "Zzlonely Member")
+        guild = GuildFactory(name="Zzleaderless Guild")
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=member)
+        client.force_login(member.user)
+
+        page = client.get(reverse("hub_orientation_booking", args=[booking.pk])).content.decode()
+        card = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+
+        assert "The Orientors get a notification." not in page
+        assert "The Orientors get a notification." not in card
+
+    def it_says_the_orientors_hear_when_they_do(client: Client):
+        _lead, booking = _world()
+        client.force_login(booking.member.user)
+        page = client.get(reverse("hub_orientation_booking", args=[booking.pk])).content.decode()
+        assert "The Orientors get a notification." in page
+
+    def it_says_nothing_about_a_member_with_no_account(client: Client):
+        lead, booking = _world()
+        OrientationBooking.objects.filter(pk=booking.pk).update(member=MemberFactory(full_legal_name="Zznoaccount"))
+        client.force_login(lead.user)
+        content = client.get(reverse("hub_orientation_respond", args=[booking.pk])).content.decode()
+        assert "Send to Zznoaccount" in content
+        assert "gets it in the app and by email" not in content
+
+
+def describe_the_you_label():
+    def it_calls_only_the_viewers_own_member_side_messages_you(client: Client):
+        lead, booking = _world()
+        booking.write_message(author=booking.member.user, body="Zzmine")
+        booking.write_message(author=lead.user, body="Zztheirs")
+
+        client.force_login(booking.member.user)
+        member_view = client.get(reverse("hub_orientation_booking", args=[booking.pk])).content.decode()
+        client.force_login(lead.user)
+        lead_view = client.get(reverse("hub_orientation_respond", args=[booking.pk])).content.decode()
+
+        assert "<strong>You</strong>" in member_view
+        assert "<strong>Lead Quillfeather</strong>" in member_view
+        assert "<strong>You</strong>" not in lead_view
+        assert "<strong>Orla Thistlewood</strong>" in lead_view

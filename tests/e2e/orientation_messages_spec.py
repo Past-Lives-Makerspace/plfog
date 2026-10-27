@@ -45,6 +45,9 @@ def _png(name: str, color: tuple[int, int, int]) -> dict:
 def _sign_in(page: Page, login_via_code, email: str, name: str) -> Member:
     page.context.clear_cookies()
     login_via_code(email)
+    # The post-login page is the hub, which names the signed in user on <html>: wait for it, so the
+    # next goto never races the session cookie (a goto too soon lands on the login page).
+    page.wait_for_function("() => !!document.documentElement.dataset.plUser")
     member = Member.objects.get(user__username=email)
     member.full_legal_name = name
     member.welcome_dismissed_at = timezone.now()

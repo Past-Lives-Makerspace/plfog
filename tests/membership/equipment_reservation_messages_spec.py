@@ -180,6 +180,45 @@ def describe_posting_as_the_member():
         assert _bell_users(TO_MANAGERS) == {holder.user.pk}
 
 
+def describe_staff_side_writers():
+    def it_tells_an_admin_who_asked_when_the_member_answers():
+        equipment, first, second = _tool("wr_admin")
+        admin = _admin("wr_admin_a")
+        reservation = _reservation(equipment, _member("wr_admin_bk"))
+        reservation.post_message(author=admin.user, body="Zzwhat are you cutting?")
+        Notification.objects.all().delete()
+        reservation.post_message(author=reservation.member.user, body="Zzwalnut")
+        assert _bell_users(TO_MANAGERS) == {first.user.pk, second.user.pk, admin.user.pk}
+
+    def it_never_tells_a_writer_who_no_longer_manages_it():
+        equipment, first, second = _tool("wr_gone")
+        reservation = _reservation(equipment, _member("wr_gone_bk"))
+        reservation.post_message(author=second.user, body="Zzwhich blade?")
+        equipment.staff_memberships.filter(member=second).delete()
+        Notification.objects.all().delete()
+        reservation.post_message(author=reservation.member.user, body="Zzthe fine one")
+        assert _bell_users(TO_MANAGERS) == {first.user.pk}
+
+    def it_tells_a_superuser_who_wrote():
+        equipment, first, _second = _tool("wr_su")
+        root = _member("wr_su_root")
+        assert root.user is not None
+        root.user.is_superuser = True
+        root.user.save(update_fields=["is_superuser"])
+        reservation = _reservation(equipment, _member("wr_su_bk"))
+        reservation.write_message(author=root.user, body="Zzchecking in")
+        reservation.post_message(author=reservation.member.user, body="Zzall good")
+        assert root.user.pk in _bell_users(TO_MANAGERS)
+
+    def it_does_not_add_the_members_own_earlier_messages():
+        equipment, first, second = _tool("wr_self")
+        reservation = _reservation(equipment, _member("wr_self_bk"))
+        reservation.post_message(author=reservation.member.user, body="Zzone")
+        Notification.objects.all().delete()
+        reservation.post_message(author=reservation.member.user, body="Zztwo")
+        assert _bell_users(TO_MANAGERS) == {first.user.pk, second.user.pk}
+
+
 def describe_posting_as_staff():
     def it_tells_the_member_only():
         equipment, first, second = _tool("ps")

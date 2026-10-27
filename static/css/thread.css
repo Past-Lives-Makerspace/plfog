@@ -57,6 +57,8 @@
 
 /* A thread folded into a card (an orientation booking's Messages on its card), clear of what is above. */
 .pl-thread-fold { margin-top: 0.75rem; }
+/* "Tap to open." only while the fold is closed. */
+.pl-thread-fold[open] .pl-thread-fold__tap { display: none; }
 
 /* A thread anchored by ?messages=<key> scrolls clear of the sticky top bar. */
 [data-thread-open] { scroll-margin-top: 5rem; }

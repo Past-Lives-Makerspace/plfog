@@ -107,15 +107,17 @@
   {% endwith %}
   {% endif %}
 
-  {# The booking's messages with the member (components/thread.html); Send always tells them. #}
+  {# The booking's messages with the member (components/thread.html); Send always tells them. A checkout hold has none. #}
+  {% if booking.takes_messages %}
   <div class="hub-card pl-orient-respond-messages" id="messages" data-thread-open="{{ booking.pk }}">
     <h2 class="hub-detail-label">Messages</h2>
     {% with pk_str=booking.pk|stringformat:"s" first_name=booking.member.display_name %}
     {% include "components/thread.html" with thread_messages=thread_messages viewer_is_staff=True thread_key="booking-"|add:pk_str thread_empty="No messages yet." %}
     {% url 'hub_orientation_message' booking.pk as message_url %}
-    {% include "components/thread_composer.html" with thread_form=message_form thread_action=message_url thread_next="" thread_body_label="Message to "|add:first_name thread_note=first_name|add:" gets it in the app and by email, per their settings." thread_button="Send to "|add:first_name %}
+    {% include "components/thread_composer.html" with thread_form=message_form thread_action=message_url thread_next="" thread_body_label="Message to "|add:first_name thread_note=member_hears_line thread_button="Send to "|add:first_name %}
     {% endwith %}
   </div>
+  {% endif %}
 
   <p><a href="{{ booking.orientation_type.owner_page_path }}">← Back to {{ booking.orientation_type.owner_name }}</a></p>
 </div>

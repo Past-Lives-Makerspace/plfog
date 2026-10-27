@@ -1,7 +1,8 @@
 /* An orientation booking's pages: the member's page for one booking (hub/orientation_booking.html,
    its card and its Messages card) and the Messages card on the leader's request page
    (hub/orientation_respond.html). The thread itself is thread.css. */
-.pl-orient-booking__back { margin-bottom: 1rem; }
+/* The title carries its own gap below the back link (FRONTEND rule 26). */
+.pl-orient-booking__heading { margin-top: 1rem; }
 .pl-orient-booking__card { margin-top: 1.5rem; }
 .pl-orient-booking__title { font-size: 1.05rem; }
 .pl-orient-booking__when { margin-top: 0.5rem; }

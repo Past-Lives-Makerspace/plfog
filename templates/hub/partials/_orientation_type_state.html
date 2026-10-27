@@ -79,14 +79,14 @@ Both owner wordings come from sec.type.is_equipment_owned.
   <summary class="pl-disclosure__summary">
     <span class="pl-disclosure__text">
       <span class="pl-disclosure__title">Messages{% if thread %} ({{ thread|length }}){% endif %}</span>
-      <span class="pl-disclosure__hint">{% if thread %}Your conversation with the Orientors. Tap to open.{% else %}Questions for the Orientors? Write to them here.{% endif %}</span>
+      <span class="pl-disclosure__hint">{% if thread %}Your conversation with the Orientors.{% else %}Questions for the Orientors? Write to them here.{% endif %}<span class="pl-thread-fold__tap"> Tap to open.</span></span>
     </span>
     <span class="pl-disclosure__chevron" aria-hidden="true"></span>
   </summary>
   <div class="pl-disclosure__body">
     {% include "components/thread.html" with thread_messages=thread viewer_is_staff=False thread_key="booking-"|add:pk_str thread_empty="No messages yet." %}
     {% url 'hub_orientation_message' sec.booking.pk as message_url %}
-    {% include "components/thread_composer.html" with thread_form=sec.message_form thread_action=message_url thread_next=next_url|default:request.get_full_path thread_body_label="Write to the Orientors" thread_note="The Orientors get a notification." thread_button="Send" %}
+    {% include "components/thread_composer.html" with thread_form=sec.message_form thread_action=message_url thread_next=next_url|default:request.get_full_path thread_body_label="Write to the Orientors" thread_note=sec.orientors_hear|yesno:"The Orientors get a notification.," thread_button="Send" %}
   </div>
 </details>
 {% endwith %}

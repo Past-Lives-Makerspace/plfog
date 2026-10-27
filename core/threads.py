@@ -35,7 +35,7 @@ class ThreadMessage(models.Model):
     """One message on a thread, from the member side or the staff side.
 
     Concrete models add the foreign key to the object the thread is on, and implement
-    :attr:`member_user_id`, :attr:`member_side_name`, :meth:`_tell_member_side`,
+    :attr:`member_user_ids`, :attr:`member_side_name`, :meth:`_tell_member_side`,
     :meth:`_tell_staff_side` and :meth:`told_sentence`. Their photo model has a foreign key
     to them with ``related_name="photos"``.
     """
@@ -64,13 +64,17 @@ class ThreadMessage(models.Model):
     # --- The contract each concrete thread fills in --------------------------------------
 
     @property
-    def member_user_id(self) -> int | None:
-        """The member side's account: whoever writes as it is the member side."""
+    def member_user_ids(self) -> set[int]:
+        """The member side's accounts: whoever writes as one of them is the member side.
+
+        One account for a feedback sender or a booking's member; several for a thread whose
+        member side is a group (a class's equal instructors).
+        """
         raise NotImplementedError
 
     @property
     def member_side_name(self) -> str:
-        """What the member side's messages sign as for someone on the staff side."""
+        """What this member side message signs as: the member's name, or its author's in a group."""
         raise NotImplementedError
 
     @property
@@ -97,8 +101,8 @@ class ThreadMessage(models.Model):
 
     @property
     def is_from_staff(self) -> bool:
-        """Written by anyone but the member side's account, or carried over with no author."""
-        return self.author_id is None or self.author_id != self.member_user_id
+        """Written by anyone but the member side's accounts, or carried over with no author."""
+        return self.author_id is None or self.author_id not in self.member_user_ids
 
     @property
     def author_name(self) -> str:
@@ -192,7 +196,10 @@ class ThreadOpening:
     staff_signature = ""
     pk = None
 
-    def __init__(self, *, name: Callable[[], str], body: str, created_at: datetime, photos: list[Any]) -> None:
+    def __init__(
+        self, *, author_id: int | None, name: Callable[[], str], body: str, created_at: datetime, photos: list[Any]
+    ) -> None:
+        self.author_id = author_id
         self._name = name
         self.body = body
         self.created_at = created_at

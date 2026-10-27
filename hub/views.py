@@ -654,6 +654,8 @@ def _orientation_sections(
                 "message_form": (
                     ThreadMessageForm(auto_id=f"id_booking_{live_booking.pk}_%s") if live_booking is not None else None
                 ),
+                # Whether the Orientors would hear a message from it: the composer says so only then.
+                "orientors_hear": live_booking is not None and live_booking.orientors_hear_the_member(),
                 "hold": hold,
                 "slots": type_slots[:slot_cap] if slot_cap is not None else type_slots,
                 # Under length and price on the guild page and the card (#766); "" with no notice.
@@ -2577,6 +2579,12 @@ def _respond_page(request: HttpRequest, booking: Any, *, message_form: Any = Non
             "booking": booking,
             "thread_messages": OrientationBooking.objects.with_thread().get(pk=booking.pk).thread(),
             "message_form": message_form or ThreadMessageForm(),
+            # Who a message tells, beside Send; nothing for a member with no account, who hears nothing.
+            "member_hears_line": (
+                f"{booking.member.display_name} gets it in the app and by email, per their settings."
+                if booking.member.user_id is not None
+                else ""
+            ),
             # Move to Another Time (#853): the modal's form, seeded with the current time.
             "move_form": OrientationMoveForm(booking=booking, auto_id="id_move_%s") if booking.is_movable else None,
             "refund_state": booking.refund_state if booking.amount_paid_cents else "none",
@@ -2717,11 +2725,14 @@ def orientation_booking(request: HttpRequest, booking_pk: int) -> HttpResponse:
 
     Where a message to the member links, and where a booking the cards no longer show (a
     declined or cancelled one) keeps its conversation. Someone who runs the booking lands on
-    the request page's Messages card instead; anyone else gets a 404, as if it did not exist.
+    the request page's Messages card instead; anyone else gets a 404, as if it did not exist,
+    and so does a checkout hold, which is not a booking yet.
     """
     from membership.models import OrientationBooking
 
     booking = get_object_or_404(OrientationBooking.objects.with_thread().select_related("slot"), pk=booking_pk)
+    if not booking.takes_messages:
+        raise Http404
     member = _get_member(request)
     if member is None or booking.member_id != member.pk:
         if _require_can_manage_booking(request, booking) is None:
@@ -2742,6 +2753,7 @@ def _member_booking_page(request: HttpRequest, booking: Any, *, message_form: An
             "booking": booking,
             "thread_messages": booking.thread(),
             "message_form": message_form or ThreadMessageForm(),
+            "orientors_hear": booking.orientors_hear_the_member(),
         },
     )
 
@@ -2752,7 +2764,8 @@ def orientation_message(request: HttpRequest, booking_pk: int) -> HttpResponse:
     """Post a message, with photos, on a booking's thread; the other side is always told.
 
     The booking's member writes as the member side; anyone who may run the booking (its
-    orientors, the equipment's managers, admins) writes as the guild. Anyone else gets a 404.
+    orientors, the equipment's managers, admins) writes as the guild. Anyone else gets a 404, and
+    a checkout hold takes no messages (a 404 too).
     A refused message renders the poster's page again with what they typed: the member's
     booking page, or the request page. Lands on ``next`` when it is a local path, with the
     thread reopened, else on that same page.
@@ -2764,6 +2777,8 @@ def orientation_message(request: HttpRequest, booking_pk: int) -> HttpResponse:
         OrientationBooking.objects.select_related("slot", "guild", "member", "orientation_type__equipment"),
         pk=booking_pk,
     )
+    if not booking.takes_messages:
+        raise Http404
     member = _get_member(request)
     is_member = member is not None and booking.member_id == member.pk
     if not is_member and _require_can_manage_booking(request, booking) is not None:

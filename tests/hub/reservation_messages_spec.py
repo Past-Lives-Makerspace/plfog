@@ -15,8 +15,10 @@ import pytest
 from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.http import HttpResponse
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
@@ -108,6 +110,8 @@ def describe_the_messages_fragment():
         content = client.get(_fragment_url(reservation), **HX).content.decode()
         assert "Zzbandsaw Prime</strong> · Robin Valewright" in content
         assert "Zzwhich blade?" in content
+        assert "<strong>Robin Valewright</strong>" in content  # never "You" for someone else's message
+        assert "<strong>You</strong>" not in content
         assert "Write to Robin Valewright" in content
         assert "Robin Valewright gets a notification." in content
         assert 'name="next"' not in content
@@ -129,6 +133,13 @@ def describe_the_messages_fragment():
         client.get(_fragment_url(reservation), **HX)
         assert EquipmentReservationMessageRead.objects.filter(reservation=reservation, user=manager.user).exists()
         assert not Notification.objects.exists()
+
+    def it_calls_the_members_own_message_you(client: Client):
+        _manager, reservation = _world()
+        reservation.write_message(author=reservation.member.user, body="Zzmine")
+        _login(client, reservation.member)
+        content = client.get(_fragment_url(reservation), **HX).content.decode()
+        assert "<strong>You</strong>" in content
 
     def it_drops_a_next_naming_another_host(client: Client):
         _manager, reservation = _world()
@@ -325,3 +336,61 @@ def describe_the_equipment_page():
         _login(client, reservation.member)
         content = client.get(reverse("hub_equipment_detail", args=[reservation.equipment.slug])).content.decode()
         assert f'data-my-reservation-messages="{reservation.pk}"' in content
+
+
+def describe_query_counts():
+    """A list's Messages buttons and New message pills cost no query per row: 1 or 6 rows read the same."""
+
+    def _threaded(
+        reservation: EquipmentReservation, manager: Member, offset: int, *, member_last: bool
+    ) -> EquipmentReservation:
+        """Another reservation by the same member on the same tool, with a message from each side.
+
+        ``member_last`` puts the member's message second, so it is unread for the manager; else the manager's is.
+        """
+        starts = reservation.starts_at + timedelta(hours=2 * offset)
+        row = EquipmentReservationFactory(
+            equipment=reservation.equipment,
+            member=reservation.member,
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=EquipmentReservation.Status.CONFIRMED,
+        )
+        assert manager.user is not None
+        writers = [manager.user, reservation.member.user] if member_last else [reservation.member.user, manager.user]
+        for index, author in enumerate(writers):
+            row.post_message(author=author, body=f"Zzmsg {offset} {index}")
+        return row
+
+    def _count(client: Client, url: str) -> int:
+        with CaptureQueriesContext(connection) as queries:
+            assert client.get(url).status_code == 200
+        return len(queries.captured_queries)
+
+    def it_keeps_the_manage_reservations_tab_flat(client: Client):
+        manager, reservation = _world(status=EquipmentReservation.Status.CONFIRMED)
+        _threaded(reservation, manager, 1, member_last=True)
+        _login(client, manager)
+        url = f"{reverse('hub_equipment_manage', args=[reservation.equipment.slug])}?tab=reservations"
+        client.get(url)  # warm the per process caches first
+        one = _count(client, url)
+        for offset in range(2, 7):
+            _threaded(reservation, manager, offset, member_last=True)
+        content = client.get(url).content.decode()
+        assert content.count('data-reservation-messages="') == 7
+        assert content.count('data-thread-unread="res-') == 6
+        assert _count(client, url) == one
+
+    def it_keeps_the_members_bookings_tab_flat(client: Client):
+        manager, reservation = _world(status=EquipmentReservation.Status.CONFIRMED)
+        _threaded(reservation, manager, 1, member_last=False)
+        _login(client, reservation.member)
+        url = f"{reverse('hub_equipment_index')}?view=bookings"
+        client.get(url)  # warm the per process caches first
+        one = _count(client, url)
+        for offset in range(2, 7):
+            _threaded(reservation, manager, offset, member_last=False)
+        content = client.get(url).content.decode()
+        assert content.count('role="menuitem" data-reservation-messages=') == 7
+        assert content.count('data-thread-unread="res-') == 6
+        assert _count(client, url) == one
