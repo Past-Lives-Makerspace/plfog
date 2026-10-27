@@ -2274,6 +2274,9 @@ class Payout(models.Model):
         NOT_THROUGH_STRIPE = "not_through_stripe", "Not paid through Stripe"
         TRANSFER_FAILED = "transfer_failed", "Stripe kept rejecting the transfer"
 
+    SETTLED_STATUSES = (Status.SENT, Status.TAKEN_BACK)
+    """Statuses whose recorded ``due_at`` is final: the transfer happened (#985, ``is_settled``)."""
+
     registration = models.OneToOneField(
         "classes.Registration",
         null=True,
@@ -2378,6 +2381,14 @@ class Payout(models.Model):
     )
 
     objects = PayoutQuerySet.as_manager()
+
+    @property
+    def is_settled(self) -> bool:
+        """True once the recorded ``due_at`` is final (#985): sent through Stripe, counted in a
+        snapshot's Owed now, or owed by hand after a give up. Until then a moved class re-dates it."""
+        return (
+            self.status in self.SETTLED_STATUSES or self.counted_owed_in_id is not None or self.owed_since is not None
+        )
 
     class Meta:
         ordering = ["-due_at"]

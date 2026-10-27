@@ -170,11 +170,13 @@ class Earning:
     def due_at(self) -> datetime:
         """48 hours after the class, slot or reservation starts, or after payment if that came later.
 
-        Once the share has its ``Payout`` row, the date recorded there (#985): the send job sends
-        by it, and a session moved or split afterwards must not re-date a share already counted.
+        Once the share is settled, the date recorded on its ``Payout`` (#985): sent through Stripe,
+        counted in a snapshot's Owed now, or owed by hand after a give up. A session moved or split
+        afterwards must not re-date a share already paid or counted. Before that, a moved class,
+        slot or reservation moves the date with it, so nobody is paid for something not yet held.
         """
         payout = self.payout
-        if payout is not None:
+        if payout is not None and payout.is_settled:
             return payout.due_at
         return max(self.taught_at, self.paid_at) + PAYOUT_DELAY
 
@@ -619,10 +621,16 @@ def _fell_due_in(window: Any) -> list[Earning]:
 def fell_due_between(start: datetime, end: datetime) -> Q:
     """A filter on a source annotated with ``due_base``: its share falls due in ``[start, end)`` (#985).
 
-    The recorded ``Payout.due_at`` once there is a row, else ``due_base`` plus ``PAYOUT_DELAY``.
+    The recorded ``Payout.due_at`` once the share is settled (``Payout.is_settled``), else
+    ``due_base`` plus ``PAYOUT_DELAY``, as ``Earning.due_at`` reads it.
     """
-    unrecorded = Q(payout__isnull=True, due_base__gte=start - PAYOUT_DELAY, due_base__lt=end - PAYOUT_DELAY)
-    return unrecorded | Q(payout__due_at__gte=start, payout__due_at__lt=end)
+    settled = (
+        Q(payout__counted_owed_in__isnull=False)
+        | Q(payout__owed_since__isnull=False)
+        | Q(payout__status__in=Payout.SETTLED_STATUSES)
+    )
+    moving = Q(due_base__gte=start - PAYOUT_DELAY, due_base__lt=end - PAYOUT_DELAY) & ~settled
+    return moving | (settled & Q(payout__due_at__gte=start, payout__due_at__lt=end))
 
 
 def mark_counted_owed(snapshot: ReconciliationSnapshot, result: ReconciliationResult) -> None:

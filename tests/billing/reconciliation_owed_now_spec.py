@@ -661,18 +661,47 @@ def describe_review_round_1():
         def it_keeps_the_recorded_due_date():
             instructor = _instructor()
             reg = _registration(instructor, paid_at=NOW - timedelta(days=10), class_at=NOW - timedelta(days=3))
+            counted_in = ReconciliationSnapshot.objects.create(
+                title="Oct",
+                period_start=OCT_1_TO_19.start,
+                period_end=OCT_1_TO_19.end,
+                results={SPLIT_BY_DUE_KEY: True},
+            )
             Payout.objects.create(
                 registration=reg,
                 payee=instructor,
                 amount_cents=7000,
                 due_at=NOW - timedelta(days=1),
                 status=Payout.Status.OWED_MANUALLY,
+                counted_owed_in=counted_in,
             )
             reg.class_offering.sessions.update(
                 starts_at=datetime(2026, 11, 20, 18, tzinfo=UTC), ends_at=datetime(2026, 11, 20, 20, tzinfo=UTC)
             )
             line = _line(build_reconciliation(window=OCTOBER), reg.pk)
             assert (line.payout.state, line.payout.due_at) == (LineState.OWED, NOW - timedelta(days=1))
+
+        def it_follows_a_class_moved_later_before_it_happens():
+            instructor = _instructor()
+            reg = _registration(
+                instructor,
+                paid_at=datetime(2026, 10, 5, 18, tzinfo=UTC),
+                class_at=datetime(2026, 11, 20, 18, tzinfo=UTC),
+            )
+            _october_snapshot()  # records the share, due Nov 22, as Not yet due
+            payout = Payout.objects.get(registration=reg)
+            assert (payout.due_at, payout.counted_owed_in) == (datetime(2026, 11, 22, 18, tzinfo=UTC), None)
+            # On Nov 10 the class moves to January.
+            reg.class_offering.sessions.update(
+                starts_at=datetime(2027, 1, 15, 18, tzinfo=UTC), ends_at=datetime(2027, 1, 15, 20, tzinfo=UTC)
+            )
+            november = PanelWindow(start=date(2026, 11, 1), end=date(2026, 11, 30))
+            assert _owed_now(november, instructor, datetime(2026, 11, 25, 18, tzinfo=UTC)) == 0
+            with patch("django.utils.timezone.now", return_value=datetime(2026, 11, 25, 18, tzinfo=UTC)):
+                line = _line(build_reconciliation(window=OCTOBER), reg.pk)
+            assert line.payout.badge.label == "Not yet due, falls due Jan 17"
+            january = PanelWindow(start=date(2027, 1, 1), end=date(2027, 1, 31))
+            assert _owed_now(january, instructor, datetime(2027, 1, 20, 18, tzinfo=UTC)) == 7000
 
         def it_is_never_pulled_into_a_later_month_once_a_snapshot_counted_it():
             instructor = _instructor()
