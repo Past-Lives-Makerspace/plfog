@@ -34,6 +34,14 @@ SAME_TIME_MESSAGE = "That is already your tour time. Pick a different one."
 #: A second identical booking (same email, guide and start) inside this long is the same visitor
 #: pressing Book twice, answered with the first booking rather than a second one.
 REPEAT_WINDOW = timedelta(minutes=10)
+ALREADY_BOOKED_MESSAGE = (
+    "You're already booked for this time. Check your email for the confirmation with links to reschedule or cancel."
+)
+
+
+def _same_name(first: str, second: str) -> bool:
+    """Whether two typed names are the same, ignoring case and spacing."""
+    return " ".join(first.split()).casefold() == " ".join(second.split()).casefold()
 
 
 def seats_message(seats_left: int) -> str:
@@ -59,6 +67,10 @@ class TourFullError(TourBookingError):
 
 class TourUnavailableError(TourBookingError):
     """No bookable tour starts then: never offered, a day off, past the horizon or inside the notice."""
+
+
+class TourAlreadyBookedError(TourBookingError):
+    """The same visitor already booked this tour moments ago; they are sent to their email, never the booking."""
 
 
 class TourLockedError(TourBookingError):
@@ -118,31 +130,22 @@ def book_tour(
     account: some members are kept without one on purpose (Member 529, Member 733), so the
     booking stands with no account.
 
-    The same visitor pressing Book twice (a booked tour with the same email, guide and start made
-    in the last :data:`REPEAT_WINDOW`) gets the first booking back, with nothing sent again.
+    The same visitor pressing Book twice (:func:`_is_repeat`) books once: the second press raises
+    :class:`TourAlreadyBookedError` and sends nothing. It never hands back the first booking, whose
+    token would let anyone who knows the email see and cancel it.
 
     Raises:
         TourUnavailableError: no tour of that guide's is bookable at that start now.
         TourFullError: the tour has fewer seats left than ``visitor.party_size``.
+        TourAlreadyBookedError: this exact booking was just made (a double press of Book).
     """
     account = user if user is not None and user.is_authenticated else find_user_for_email(visitor.email)
     with transaction.atomic():
         tour = open_tour_at(guide, starts_at, lock=True, now=now)
         if tour is None:
             raise TourUnavailableError(GONE_MESSAGE)
-        repeat = (
-            TourBooking.objects.filter(
-                status=TourBooking.Status.BOOKED,
-                guide=guide,
-                starts_at=tour.starts_at,
-                visitor_email__iexact=visitor.email.strip(),
-                created_at__gte=timezone.now() - REPEAT_WINDOW,
-            )
-            .order_by("created_at")
-            .first()
-        )
-        if repeat is not None:
-            return repeat
+        if _is_repeat(guide, tour.starts_at, visitor, now or timezone.now()):
+            raise TourAlreadyBookedError(ALREADY_BOOKED_MESSAGE)
         if tour.seats_left < visitor.party_size:
             raise TourFullError(tour.seats_left)
         booking = TourBooking.objects.create(
@@ -163,6 +166,23 @@ def book_tour(
             TourBooking.objects.filter(pk=booking.pk).update(user=made)
             booking.user = made
     return booking
+
+
+def _is_repeat(guide: Member, starts_at: datetime, visitor: Visitor, now: datetime) -> bool:
+    """Whether ``visitor`` booked this very tour in the last :data:`REPEAT_WINDOW`: a double press of Book.
+
+    Every typed field must match (email ignoring case, name ignoring case and spacing, party size),
+    so someone who only knows another visitor's email makes a booking of their own instead.
+    """
+    candidates = TourBooking.objects.filter(
+        status=TourBooking.Status.BOOKED,
+        guide=guide,
+        starts_at=starts_at,
+        visitor_email__iexact=visitor.email.strip(),
+        party_size=visitor.party_size,
+        created_at__gte=now - REPEAT_WINDOW,
+    ).values_list("visitor_name", flat=True)
+    return any(_same_name(name, visitor.name) for name in candidates)
 
 
 def _locked_for_change(booking: TourBooking, now: datetime) -> TourBooking:

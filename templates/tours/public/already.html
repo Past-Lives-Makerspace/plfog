@@ -1,0 +1,26 @@
+{% extends "tours/public/base.html" %}
+{% comment %}
+A second press of Book for a booking just made (#948, tours.booking.TourAlreadyBookedError). It
+names nothing about the booking and links to none of its pages: whoever posted may only know the
+visitor's email, so the way in is the confirmation in the visitor's own inbox. Context: message.
+{% endcomment %}
+{% block title %}Already Booked | Past Lives Makerspace{% endblock %}
+
+{% block tours_content %}
+<div class="view">
+  <div class="cp-container">
+    <div class="detail-card pl-tourpub" data-tour-page="already">
+      <div class="detail-head">
+        <div>
+          <div class="dc-cat">Free Tours</div>
+          <h1 class="dc-title">You're Already Booked</h1>
+        </div>
+      </div>
+      <div class="detail-body">
+        <p class="pl-tourpub__lead" data-tour-already>{{ message }}</p>
+        <p class="pl-tourpub__fine"><a href="/">Back to tour times</a></p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -13,7 +13,6 @@ from allauth.account.models import EmailAddress
 from django.contrib.auth.models import User
 from django.core import mail
 from django.db import connection
-from django.utils import timezone
 
 from core.models import Notification, SiteConfiguration
 from membership.models import Member
@@ -27,6 +26,7 @@ from tours.booking import (
     FILLED_MESSAGE,
     GONE_MESSAGE,
     SAME_TIME_MESSAGE,
+    TourAlreadyBookedError,
     TourFullError,
     TourLockedError,
     TourUnavailableError,
@@ -94,25 +94,37 @@ def describe_book_tour():
         with pytest.raises(TourFullError, match=FILLED_MESSAGE):
             book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(1), now=NOW)
 
-    def it_answers_a_second_identical_booking_with_the_first(
+    def it_refuses_a_second_identical_booking_and_sends_nothing(
         guide: Member, hours: Any, django_capture_on_commit_callbacks: Any
     ):
         with django_capture_on_commit_callbacks(execute=True):
             first = book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(2), now=NOW)
+        TourBooking.objects.filter(pk=first.pk).update(created_at=NOW - timedelta(minutes=1))
         sent = len(mail.outbox)
-        with django_capture_on_commit_callbacks(execute=True):
-            again = book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(2, email="SAM@example.com"), now=NOW)
-        assert again.pk == first.pk
+        same = _visitor(2, email="SAM@example.com", name="  sam   RIVERA ")
+        with django_capture_on_commit_callbacks(execute=True), pytest.raises(TourAlreadyBookedError):
+            book_tour(guide=guide, starts_at=FOUR, visitor=same, now=NOW)
         assert TourBooking.objects.count() == 1
         assert len(mail.outbox) == sent
 
-    def it_books_again_once_the_repeat_window_has_passed(guide: Member, hours: Any):
+    def it_books_separately_when_the_name_or_party_differs(guide: Member, hours: Any):
+        first = book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(2), now=NOW)
+        TourBooking.objects.filter(pk=first.pk).update(created_at=NOW - timedelta(minutes=1))
+        other_name = book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(1, name="Mallory Q"), now=NOW)
+        other_party = book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(1), now=NOW)
+        assert len({first.pk, other_name.pk, other_party.pk}) == 3
+
+    def it_counts_the_repeat_window_from_now(guide: Member, hours: Any):
         first = book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(1), now=NOW)
-        TourBooking.objects.filter(pk=first.pk).update(
-            created_at=timezone.now() - booking_service.REPEAT_WINDOW - timedelta(minutes=1)
-        )
+        # Made just now on the wall clock, which is years before NOW: outside the window as NOW counts it.
         again = book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(1), now=NOW)
         assert again.pk != first.pk
+        TourBooking.objects.filter(pk=again.pk).update(
+            created_at=NOW - booking_service.REPEAT_WINDOW - timedelta(minutes=1)
+        )
+        TourBooking.objects.filter(pk=first.pk).update(created_at=NOW - timedelta(minutes=9))
+        with pytest.raises(TourAlreadyBookedError):
+            book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(1), now=NOW)
 
     def it_refuses_a_time_no_hours_yield(guide: Member, hours: Any):
         with pytest.raises(TourUnavailableError, match=GONE_MESSAGE):

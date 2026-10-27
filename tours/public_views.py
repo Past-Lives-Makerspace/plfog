@@ -28,6 +28,8 @@ from core.abuse_limits import client_rate_key, record_keyed_attempt
 from membership.models import Member
 from tours.availability import OpenTour, open_tours, parse_tour_key
 from tours.booking import (
+    ALREADY_BOOKED_MESSAGE,
+    TourAlreadyBookedError,
     GONE_MESSAGE,
     TourBookingError,
     TourLockedError,
@@ -166,6 +168,7 @@ class _Attempt:
     """What a booking POST came to: a page to send the visitor to, or what to show again."""
 
     redirect_to: str = ""
+    already: bool = False
     error: str = ""
     form: TourBookingForm | None = None
     chosen: OpenTour | None = None
@@ -185,6 +188,8 @@ def _try_booking(request: HttpRequest, form: TourBookingForm) -> _Attempt:
             user=request.user if request.user.is_authenticated else None,
             create_account=bool(data.get("create_account")),
         )
+    except TourAlreadyBookedError:
+        return _Attempt(already=True)
     except TourBookingError as exc:
         return _Attempt(error=str(exc))
     return _Attempt(redirect_to=f"{reverse('tours_public:manage', args=[booking.self_serve_token])}?booked=1")
@@ -232,6 +237,9 @@ def book(request: HttpRequest) -> HttpResponse:
         attempt = _post_booking(request, tours, offer_account)
         if attempt.redirect_to:
             return redirect(attempt.redirect_to)
+        if attempt.already:
+            # Token free on purpose: the booking is the visitor's to open from their own email.
+            return _page(request, "tours/public/already.html", {"message": ALREADY_BOOKED_MESSAGE})
         if attempt.error:
             tours = _all_open_tours()
     else:

@@ -212,11 +212,30 @@ def describe_booking():
         assert "data-tour-error>Only 1 seat is left at that time.</div>" in content
         assert TourBooking.objects.count() == 1
 
-    def it_lands_a_second_press_of_book_on_the_first_booking(guide: Member, hours: Any):
-        first = _client().post("/", _post(guide))
+    def it_books_once_for_a_double_press_and_shows_no_booking(guide: Member, hours: Any):
+        _client().post("/", _post(guide))
+        victim = TourBooking.objects.get()
         second = _client().post("/", _post(guide))
+        content = second.content.decode()
+        assert second.status_code == 200
+        assert "data-tour-already>You&#x27;re already booked for this time. Check your email" in content
+        assert victim.self_serve_token not in content
+        assert "Sam Rivera" not in content and "Gina" not in content
         assert TourBooking.objects.count() == 1
-        assert second["Location"] == first["Location"]
+
+    def it_never_hands_someone_with_a_visitors_email_their_booking(guide: Member, hours: Any):
+        _client().post("/", _post(guide))
+        victim = TourBooking.objects.get()
+        attacker = _client()
+        same = attacker.post("/", _post(guide))
+        other = attacker.post("/", _post(guide, name="Mallory Q", party_size="1"))
+        for response in (same, other):
+            assert victim.self_serve_token not in response.get("Location", "")
+            assert victim.self_serve_token not in response.content.decode()
+        assert other.status_code == 302
+        assert TourBooking.objects.filter(visitor_name="Mallory Q").count() == 1
+        victim.refresh_from_db()
+        assert victim.status == TourBooking.Status.BOOKED
 
     def it_books_nothing_for_a_filled_honeypot(guide: Member, hours: Any):
         response = _client().post("/", _post(guide, website="https://spam.example"))
