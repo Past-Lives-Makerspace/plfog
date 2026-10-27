@@ -265,6 +265,27 @@ def describe_cubby_payee():
         guild.refresh_from_db()
         assert guild.cubby_payee is None
 
+    def it_clears_when_the_payees_account_is_deleted():
+        from membership.services.account_deletion import delete_own_account
+
+        lead, staff = _member("deleted lead"), _member("deleted staff")
+        paid_lead = GuildFactory(guild_lead=lead, cubby_payee=lead)
+        paid_staff = GuildFactory(cubby_payee=staff)
+        GuildStaffMembership.objects.create(guild=paid_staff, member=staff, role="treasurer")
+        delete_own_account(lead)
+        delete_own_account(staff)
+        paid_lead.refresh_from_db()
+        paid_staff.refresh_from_db()
+        assert paid_lead.cubby_payee is None and paid_lead.guild_lead is None
+        assert paid_staff.cubby_payee is None
+
+    def it_clears_when_the_payees_member_record_is_removed():
+        staff = _member("removed staff")
+        guild = GuildFactory(cubby_payee=staff)
+        staff.delete()
+        guild.refresh_from_db()
+        assert guild.cubby_payee is None
+
     def it_assigns_and_clears_a_lead_on_a_guild_with_none():
         guild = GuildFactory()
         assert guild.clear_lead() is None
@@ -286,6 +307,27 @@ def describe_service():
             with pytest.raises(ValidationError) as refusal:
                 cubbies.save_cubby(Cubby(unit=unit, label="A2", row=1, column=1))
             assert "overlaps cubby A1" in refusal.value.message_dict["column"][0]
+
+        def it_rechecks_against_a_unit_shrunk_after_the_form_was_built():
+            from hub.cubby_forms import CubbyForm
+
+            unit = ShelfUnitFactory(rows=4)
+            form = CubbyForm(
+                {"label": "R4", "row": "4", "column": "1", "shape": "one", "size": "", "note": ""}, unit=unit
+            )
+            assert form.is_valid(), form.errors
+            ShelfUnit.objects.filter(pk=unit.pk).update(rows=3)  # another staff member's resize
+            with pytest.raises(ValidationError) as refusal:
+                cubbies.save_cubby(form.save(commit=False))
+            assert refusal.value.message_dict["row"] == [f"{unit.name} has 3 rows, so it does not fit there."]
+            assert not Cubby.objects.exists()
+
+        def it_refuses_a_cubby_whose_unit_was_archived_meanwhile():
+            unit = ShelfUnitFactory()
+            cubby = Cubby(unit=unit, label="A1", row=1, column=1)
+            ShelfUnit.objects.filter(pk=unit.pk).update(archived_at=timezone.now())
+            with pytest.raises(ValidationError, match="Restore its shelf first."):
+                cubbies.save_cubby(cubby)
 
     def describe_resize_unit():
         def it_renames_and_resizes():
@@ -326,6 +368,21 @@ def describe_service():
             assert not Cubby.objects.active().exists()
             cubbies.restore_cubby(cubby)
             assert Cubby.objects.active().get() == cubby
+
+        def it_refuses_restoring_a_cubby_onto_an_archived_shelf():
+            unit = ShelfUnitFactory(archived_at=timezone.now())
+            cubby = CubbyFactory(unit=unit, archived_at=timezone.now())
+            with pytest.raises(ValidationError, match="Restore its shelf first."):
+                cubbies.restore_cubby(cubby)
+            cubby.refresh_from_db()
+            assert cubby.is_archived
+
+        def it_rechecks_a_restore_against_a_unit_shrunk_since_it_was_read():
+            unit = ShelfUnitFactory(rows=3)
+            cubby = CubbyFactory(unit=unit, row=3, archived_at=timezone.now())
+            ShelfUnit.objects.filter(pk=unit.pk).update(rows=2)
+            with pytest.raises(ValidationError, match="has 2 rows"):
+                cubbies.restore_cubby(cubby)
 
         def it_refuses_restoring_a_cubby_whose_square_was_filled():
             unit = ShelfUnitFactory()

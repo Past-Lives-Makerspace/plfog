@@ -142,6 +142,25 @@ def describe_permissions():
         assert client.get(reverse("hub_guild_cubbies", args=[guild.pk])).status_code == 200
 
 
+def describe_the_payee_through_the_member_permissions_tab():
+    def it_clears_when_an_admin_removes_the_payee_from_the_staff_there(client: Client):
+        _login(client, "perm_admin", fog_role=Member.FogRole.ADMIN)
+        staff = User.objects.create_user(username="perm_staff").member
+        guild = GuildFactory(cubby_payee=staff)
+        row = GuildStaffMembership.objects.create(guild=guild, member=staff, role="treasurer")
+        client.post(reverse("hub_admin_member_guild_staff_remove", args=[staff.pk, row.pk]))
+        guild.refresh_from_db()
+        assert guild.cubby_payee is None
+
+    def it_clears_when_an_admin_removes_the_payee_as_lead_there(client: Client):
+        _login(client, "perm_admin_two", fog_role=Member.FogRole.ADMIN)
+        lead = User.objects.create_user(username="perm_lead").member
+        guild = GuildFactory(guild_lead=lead, cubby_payee=lead)
+        client.post(reverse("hub_admin_member_guild_lead_clear", args=[lead.pk, guild.pk]))
+        guild.refresh_from_db()
+        assert guild.guild_lead is None and guild.cubby_payee is None
+
+
 def describe_cubbies_home():
     def it_refuses_someone_who_runs_no_guild(client: Client):
         _login(client, "runs_nothing")
@@ -363,6 +382,21 @@ def describe_cubby_page():
             content = client.post(reverse("hub_cubby_add", args=[unit.pk]), _cubby_post()).content.decode()
         assert "That spot overlaps cubby R2." in content
 
+    def it_shows_a_whole_form_refusal_when_the_shelf_was_archived_meanwhile(client: Client):
+        _member, guild = _lead(client)
+        unit = ShelfUnitFactory(guild=guild)
+        with patch("hub.cubby_views.cubbies.save_cubby", side_effect=ValidationError("Restore its shelf first.")):
+            content = client.post(reverse("hub_cubby_add", args=[unit.pk]), _cubby_post()).content.decode()
+        assert "Restore its shelf first." in content.split("data-cubby-panel", 1)[1]
+        assert not Cubby.objects.exists()
+
+    def it_ignores_the_hidden_price_boxes_while_set_its_own_price_is_off(client: Client):
+        _member, guild = _lead(client)
+        unit = ShelfUnitFactory(guild=guild)
+        response = client.post(reverse("hub_cubby_add", args=[unit.pk]), _cubby_post(floor="ten", suggested="0.001"))
+        assert response.status_code == 302
+        assert Cubby.objects.get().uses_guild_price
+
     def it_saves_its_own_price_and_refuses_a_bad_one(client: Client):
         _member, guild = _lead(client)
         unit = ShelfUnitFactory(guild=guild)
@@ -426,6 +460,15 @@ def describe_archive_restore_and_photo():
         CubbyFactory(unit=unit, label="A2")
         response = client.post(reverse("hub_cubby_restore", args=[cubby.pk]), follow=True)
         assert "That spot overlaps cubby A2." in response.content.decode()
+
+    def it_refuses_restoring_a_cubby_onto_an_archived_shelf(client: Client):
+        _member, guild = _lead(client)
+        unit = ShelfUnitFactory(guild=guild, archived_at=timezone.now())
+        cubby = CubbyFactory(unit=unit, label="A1", archived_at=timezone.now())
+        response = client.post(reverse("hub_cubby_restore", args=[cubby.pk]), follow=True)
+        assert "Restore its shelf first." in response.content.decode()
+        cubby.refresh_from_db()
+        assert cubby.is_archived
 
     def it_removes_a_photo(client: Client, settings, tmp_path):
         settings.MEDIA_ROOT = tmp_path

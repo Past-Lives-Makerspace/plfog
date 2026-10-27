@@ -199,7 +199,12 @@ class CubbyForm(forms.ModelForm):
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
-        if cleaned.get("set_own_price"):
+        if not cleaned.get("set_own_price"):
+            # The boxes are hidden while the switch is off; whatever they hold is not a price.
+            for name in ("floor", "suggested"):
+                self.errors.pop(name, None)
+                cleaned.pop(name, None)
+        else:
             floor, suggested = cleaned.get("floor"), cleaned.get("suggested")
             if floor is None and "floor" not in self.errors:
                 self.add_error("floor", "Enter the minimum, or turn off Set Its Own Price.")

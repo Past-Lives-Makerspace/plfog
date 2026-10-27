@@ -290,9 +290,12 @@ def _cubby_page(
             try:
                 cubbies.save_cubby(saved)
             except ValidationError as refusal:
-                for name, problems in refusal.message_dict.items():
-                    for problem in problems:
-                        form.add_error(name, problem)
+                if hasattr(refusal, "error_dict"):
+                    for name, problems in refusal.message_dict.items():
+                        for problem in problems:
+                            form.add_error(name, problem)
+                else:
+                    form.add_error(None, refusal)
             else:
                 messages.success(request, f"Cubby {saved.label} saved.")
                 return redirect(_layout_url(guild, f"cubby-unit-{unit.pk}"))

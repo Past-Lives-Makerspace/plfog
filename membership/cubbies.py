@@ -34,14 +34,31 @@ def _lock_guild(guild_id: int) -> None:
     Guild.objects.select_for_update().filter(pk=guild_id).first()
 
 
+#: The refusal for placing or restoring a cubby on a shelf unit that is archived.
+RESTORE_SHELF_FIRST = "Restore its shelf first."
+
+
+def _fresh_unit(cubby: Cubby) -> None:
+    """Re-read the cubby's unit size and archive state under the lock.
+
+    A form or a list read the unit before the lock; another staff member may have shrunk or
+    archived it since, and the placement check must see the unit as it is now.
+    """
+    cubby.unit.refresh_from_db(fields=["rows", "columns", "archived_at"])
+
+
 def save_cubby(cubby: Cubby) -> None:
     """Place or update ``cubby`` after checking its spot and label again under the guild lock.
 
     Raises:
-        ValidationError: keyed by field, when the spot or the label was taken meanwhile.
+        ValidationError: keyed by field, when the spot or the label was taken meanwhile or the
+            unit shrank; on the whole form when the unit was archived meanwhile.
     """
     with transaction.atomic():
         _lock_guild(cubby.unit.guild_id)
+        _fresh_unit(cubby)
+        if cubby.unit.is_archived:
+            raise ValidationError(RESTORE_SHELF_FIRST)
         problems = cubby.placement_problems()
         if problems:
             raise ValidationError(problems)
@@ -97,10 +114,14 @@ def restore_cubby(cubby: Cubby) -> None:
     """Put an archived cubby back where it was.
 
     Raises:
-        ValidationError: when its square or its label was taken meanwhile, or its unit shrank.
+        ValidationError: when its unit is archived ("Restore its shelf first."), or its square
+            or its label was taken meanwhile, or its unit shrank.
     """
     with transaction.atomic():
         _lock_guild(cubby.unit.guild_id)
+        _fresh_unit(cubby)
+        if cubby.unit.is_archived:
+            raise ValidationError(RESTORE_SHELF_FIRST)
         problems = cubby.placement_problems()
         if problems:
             raise ValidationError(" ".join(problems.values()))

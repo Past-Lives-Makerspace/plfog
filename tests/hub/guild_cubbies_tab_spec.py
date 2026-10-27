@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import pytest
 from django.contrib.auth.models import User
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from membership.models import Member
+from membership.models import Cubby, Member, ShelfUnit
 from tests.membership.factories import CubbyFactory, GuildFactory, MembershipPlanFactory, ShelfUnitFactory
 
 pytestmark = pytest.mark.django_db
@@ -118,6 +120,37 @@ def describe_the_guild_page_tab():
         assert response.status_code == 200
         assert response.wsgi_request.surface == "guilds"
         assert response.context["cubby_tab"] is None
+
+
+def _cubby_queries(client: Client, guild) -> list[str]:
+    """Every query the guild page ran that reads a shelf unit or a cubby."""
+    tables = (f'"{ShelfUnit._meta.db_table}"', f'"{Cubby._meta.db_table}"')
+    with CaptureQueriesContext(connection) as queries:
+        _page(client, guild)
+    return [q["sql"] for q in queries.captured_queries if any(table in q["sql"] for table in tables)]
+
+
+def describe_the_guild_page_queries():
+    def it_runs_no_cubby_query_while_the_switch_is_off(client: Client):
+        _login(client, "queries_off")
+        guild = GuildFactory()
+        _shelf(guild)
+        assert _cubby_queries(client, guild) == []
+
+    def it_runs_the_same_queries_for_one_cubby_or_many(client: Client):
+        _login(client, "queries_on")
+        one = GuildFactory(show_cubbies_tab=True)
+        CubbyFactory(unit=ShelfUnitFactory(guild=one), label="O1")
+        many = GuildFactory(show_cubbies_tab=True)
+        for unit_index in range(3):
+            unit = ShelfUnitFactory(guild=many, rows=2, columns=3)
+            for row in (1, 2):
+                for column in (1, 2, 3):
+                    CubbyFactory(unit=unit, label=f"M{unit_index}{row}{column}", row=row, column=column)
+        _page(client, one)  # warm per-request caches that are not the tab's
+        one_queries = _cubby_queries(client, one)
+        many_queries = _cubby_queries(client, many)
+        assert len(one_queries) == len(many_queries) == 2
 
 
 def describe_guild_settings():

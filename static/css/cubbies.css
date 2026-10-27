@@ -1,8 +1,8 @@
 /* Guild cubbies (#976, #977): the guild page's Cubbies tab, the staff Cubbies manager and its
    Guild Tools card, lifted from mockups/guild-cubbies.html (its first <style> block). Tokens only:
    the --pl-cubby-* tokens are color-mix() of the theme's own tokens. Every cubby state carries an
-   icon and a word, never color alone. Rules for later parts (rent sheet, Your Cubby, Rentals,
-   waitlist) are kept here as approved so parts 2 to 4 build on the same file. */
+   icon and a word, never color alone. Only what part 1 draws is here; parts 2 to 4 (renting, Your
+   Cubby, Rentals, the waitlist) lift their rules from the same mockup when they draw them. */
 /* ---- Tokens: wood and shade mixed from the theme's own tokens ---- */
 :root {
     --pl-cubby-wood: color-mix(in srgb, var(--color-tuscan-yellow) 22%, var(--hub-elevated));
@@ -15,9 +15,6 @@
     --pl-cubby-glow: color-mix(in srgb, var(--color-tuscan-yellow) 18%, transparent);
     --pl-cubby-open-edge: color-mix(in srgb, var(--color-tuscan-yellow) 55%, transparent);
     --pl-cubby-hatch: color-mix(in srgb, var(--hub-text-muted) 24%, transparent);
-    --pl-cubby-danger-soft: color-mix(in srgb, var(--hub-danger-text) 13%, transparent);
-    --pl-cubby-pl-bg: var(--hub-blue);
-    --pl-cubby-pl-fg: var(--color-navy);
     --pl-cubby-row: 7rem;
 }
 [data-theme="light"] {
@@ -31,7 +28,6 @@
     --pl-cubby-glow: color-mix(in srgb, var(--color-tuscan-yellow) 26%, transparent);
     --pl-cubby-open-edge: color-mix(in srgb, var(--hub-link) 70%, transparent);
     --pl-cubby-hatch: color-mix(in srgb, var(--hub-text-muted) 22%, transparent);
-    --pl-cubby-pl-fg: var(--color-cream);
 }
 
 .pl-cubby-ico { width: 1em; height: 1em; flex: 0 0 auto; vertical-align: -0.125em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -106,8 +102,7 @@
 .pl-cubby__label { font-family: var(--font-heading); font-size: 1.125rem; font-weight: 900; line-height: 1; letter-spacing: 0.02em; }
 .pl-cubby__state { position: relative; z-index: 1; display: flex; align-items: center; gap: 0.3rem; margin-top: 0.25rem; font-size: 0.75rem; font-weight: 700; line-height: 1.2; }
 .pl-cubby__price { position: relative; z-index: 1; margin-top: auto; font-size: 0.75rem; color: var(--hub-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.pl-cubby__who { position: relative; z-index: 1; font-size: 0.75rem; color: var(--hub-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pl-cubby__stuff { position: absolute; right: 0.375rem; bottom: 0.25rem; width: 48%; max-width: 3.75rem; aspect-ratio: 1; color: var(--hub-text-muted); opacity: 0.3; pointer-events: none; }
+
 .pl-cubby__short { display: none; }
 
 .pl-cubby--open {
@@ -121,24 +116,18 @@
     box-shadow: inset 0 0 0 2px var(--color-tuscan-yellow), 0 10px 18px -10px var(--pl-cubby-shade);
 }
 .pl-cubby--rented .pl-cubby__label, .pl-cubby--rented .pl-cubby__state { color: var(--hub-text-muted); }
-.pl-cubby--mine {
-    background: radial-gradient(120% 90% at 50% 0%, var(--pl-cubby-glow), transparent 75%), var(--pl-cubby-back);
-    box-shadow: inset 0 0 0 3px var(--color-tuscan-yellow), inset 0 14px 16px -12px var(--pl-cubby-shade);
-}
-.pl-cubby--mine .pl-cubby__stuff { color: var(--hub-link); opacity: 0.4; }
-.pl-cubby__yours { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.15rem 0.45rem; border-radius: 999px; background: var(--color-tuscan-yellow); color: var(--color-navy); font-size: 0.6875rem; font-weight: 800; white-space: nowrap; }
+
 .pl-cubby--out { background: repeating-linear-gradient(135deg, var(--pl-cubby-hatch) 0 6px, transparent 6px 12px), var(--pl-cubby-back); }
 .pl-cubby--out .pl-cubby__label, .pl-cubby--out .pl-cubby__state { color: var(--hub-text-muted); }
-.pl-cubby--past-due { box-shadow: inset 0 0 0 3px var(--hub-danger-text), inset 0 14px 16px -12px var(--pl-cubby-shade); }
 
 /* Narrow cells (phones, wide units): short words, then icon only. The state stays in the aria-label. */
 @container (max-width: 5.25rem) {
     .pl-cubby__long { display: none; }
     .pl-cubby__short { display: inline; }
-    .pl-cubby__yours { padding: 0.15rem 0.35rem; }
+
 }
 @container (max-width: 4rem) {
-    .pl-cubby__price, .pl-cubby__who { display: none; }
+    .pl-cubby__price { display: none; }
     .pl-cubby__state { font-size: 0.6875rem; }
 }
 @container (max-width: 2.5rem) {
@@ -170,92 +159,39 @@
     .pl-cubby-row > .pl-cubby-chip, .pl-cubby-row__end { grid-column: 2; justify-self: start; }
 }
 
-/* State chips, for lists and the staff table. Icon and word, always. */
+/* State chips. Icon and word, always. */
 .pl-cubby-chip { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.6rem; border: 1px solid transparent; border-radius: 999px; font-size: 0.75rem; font-weight: 700; line-height: 1.3; white-space: nowrap; }
 .pl-cubby-chip--open { color: var(--hub-link); border-color: var(--pl-cubby-open-edge); }
-.pl-cubby-chip--rented, .pl-cubby-chip--ended { color: var(--hub-text-muted); background: var(--hub-surface); border-color: var(--hub-border); }
-.pl-cubby-chip--mine { color: var(--color-navy); background: var(--color-tuscan-yellow); }
+
 .pl-cubby-chip--out { color: var(--hub-text-muted); background: repeating-linear-gradient(135deg, var(--pl-cubby-hatch) 0 5px, transparent 5px 10px); border-color: var(--hub-border-strong); }
-.pl-cubby-chip--active { color: var(--pl-lifecycle-live); background: color-mix(in srgb, var(--pl-lifecycle-live) 14%, transparent); }
-.pl-cubby-chip--past-due { color: var(--hub-danger-text); background: var(--pl-cubby-danger-soft); border-color: color-mix(in srgb, var(--hub-danger-text) 35%, transparent); }
-.pl-cubby-chip--cancelling { color: var(--pl-lifecycle-review); background: color-mix(in srgb, var(--pl-lifecycle-review) 14%, transparent); }
-.pl-cubby-chip--comped { color: var(--hub-blue); background: var(--hub-blue-soft); border-color: color-mix(in srgb, var(--hub-blue) 30%, transparent); }
 
-/* ---- Your Cubby card ---- */
-.pl-cubby-mine { display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); gap: 0 1.5rem; padding: 1.5rem; border-color: color-mix(in srgb, var(--color-tuscan-yellow) 45%, var(--hub-border)); }
-.pl-cubby-mine__after { grid-column: 2; min-width: 0; }
-.pl-cubby-mine .pl-cubby-alert { margin-bottom: 1.5rem; }
-.pl-cubby-mini { grid-row: span 2; align-self: start; padding: 0.625rem; border-radius: 8px; background: linear-gradient(180deg, var(--pl-cubby-wood-edge), var(--pl-cubby-wood)); box-shadow: 0 14px 20px -14px var(--pl-cubby-shade); }
-.pl-cubby-mini .pl-cubby { height: 7.25rem; }
-.pl-cubby-eyebrow { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--hub-link); }
-.pl-cubby-mine__title { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-top: 0.375rem; font-family: var(--font-heading); font-size: 1.375rem; font-weight: 900; color: var(--hub-text); }
-.pl-cubby-facts { display: grid; grid-template-columns: repeat(2, minmax(0, max-content)); gap: 0.75rem 2.5rem; margin: 1.25rem 0 0; }
-.pl-cubby-facts dt { font-size: 0.75rem; font-weight: 600; color: var(--hub-text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
-.pl-cubby-facts dd { margin: 0.25rem 0 0; font-size: 1rem; font-weight: 700; color: var(--hub-text); font-variant-numeric: tabular-nums; }
-.pl-cubby-thanks { display: flex; align-items: flex-start; gap: 0.5rem; margin-top: 1.25rem; font-size: 0.875rem; color: var(--hub-text-muted); line-height: 1.5; }
-.pl-cubby-thanks .pl-cubby-ico { margin-top: 0.15rem; color: var(--hub-link); }
-.pl-cubby-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-top: 1.5rem; }
-.pl-cubby-actions__end { margin-left: auto; }
-.pl-cubby-actions .pl-btn { display: inline-flex; align-items: center; gap: 0.4rem; }
-@media (max-width: 639.98px) {
-    .pl-cubby-mine { grid-template-columns: 5.5rem minmax(0, 1fr); gap: 0 1rem; padding: 1.25rem; }
-    .pl-cubby-mini { grid-row: auto; }
-    .pl-cubby-mini .pl-cubby { height: 5rem; }
-    .pl-cubby-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 1.5rem; }
-    .pl-cubby-mine__after { grid-column: 1 / -1; }
-    .pl-cubby-mine .pl-cubby-actions { flex-direction: column; align-items: stretch; gap: 0.75rem; }
-    .pl-cubby-mine .pl-cubby-actions .pl-btn { justify-content: center; width: 100%; min-height: 44px; }
-    .pl-cubby-actions__end { margin-left: 0; }
-}
-
-/* Past Due banner inside the card. */
-.pl-cubby-alert { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 1rem 1rem; padding: 1rem 1.25rem; border: 1px solid color-mix(in srgb, var(--hub-danger-text) 40%, transparent); border-radius: 10px; background: var(--pl-cubby-danger-soft); }
-.pl-cubby-alert__icon { align-self: start; width: 1.5rem; height: 1.5rem; color: var(--hub-danger-text); }
-.pl-cubby-alert__text strong { font-weight: 700; }
-@media (max-width: 639.98px) { .pl-cubby-alert { grid-template-columns: auto minmax(0, 1fr); } .pl-cubby-alert .pl-btn { grid-column: 2; justify-self: start; } }
-.pl-cubby-alert__text { font-size: 0.9375rem; line-height: 1.5; color: var(--hub-text); }
-.pl-cubby-alert__text strong { display: block; margin-bottom: 0.15rem; font-size: 1rem; }
-.pl-cubby-mine--past-due { border-color: color-mix(in srgb, var(--hub-danger-text) 45%, var(--hub-border)); }
-
-/* ---- Rent sheet (inside components/modal.html; a bottom sheet on a phone) ---- */
+/* ---- The cubby sheet (components/modal.html with pl-cubby-sheet; a bottom sheet on a phone) ---- */
 .pl-cubby-rent__top { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 1.25rem; align-items: start; }
 .pl-cubby-rent__photo { aspect-ratio: 1; border-radius: 10px; overflow: hidden; border: 1px solid var(--hub-border); }
 .pl-cubby-rent__label { display: flex; align-items: center; gap: 0.625rem; font-family: var(--font-heading); font-size: 1.75rem; font-weight: 900; line-height: 1; color: var(--hub-text); }
 .pl-cubby-rent__where { margin-top: 0.5rem; font-size: 0.9375rem; color: var(--hub-text); }
 .pl-cubby-rent__size { margin-top: 0.25rem; font-size: 0.875rem; color: var(--hub-text-muted); font-variant-numeric: tabular-nums; }
 .pl-cubby-rent__note { margin-top: 0.75rem; padding-left: 0.75rem; border-left: 3px solid var(--hub-border-strong); font-size: 0.875rem; color: var(--hub-text-muted); line-height: 1.5; }
-.pl-cubby-rent__section { min-width: 0; margin: 1.5rem 0 0; padding: 1.5rem 0 0; border: 0; border-top: 1px solid var(--hub-border); }
-.pl-cubby-rent__title { margin: 0; font-family: var(--font-heading); font-size: 1.0625rem; font-weight: 800; color: var(--hub-link); }
-.pl-cubby-rent__hint { margin-top: 0.375rem; font-size: 0.875rem; color: var(--hub-text-muted); line-height: 1.5; }
+
 .pl-cubby-amounts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.625rem; margin-top: 1rem; }
 .pl-cubby-amount { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem; min-height: 4.25rem; padding: 0.5rem; border: 1.5px solid var(--hub-border-strong); border-radius: 10px; background: var(--hub-surface); color: var(--hub-text); cursor: pointer; text-align: center; }
-.pl-cubby-amount input { position: absolute; opacity: 0; pointer-events: none; }
+
 .pl-cubby-amount__value { font-family: var(--font-heading); font-size: 1.25rem; font-weight: 900; font-variant-numeric: tabular-nums; }
 .pl-cubby-amount__sub { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--hub-text-muted); }
 .pl-cubby-amount--suggested .pl-cubby-amount__sub { color: var(--hub-link); }
-.pl-cubby-amount:has(input:checked) { border-color: var(--color-tuscan-yellow); background: var(--hub-elevated); box-shadow: 0 0 0 1px var(--color-tuscan-yellow); }
-.pl-cubby-amount:has(input:focus-visible) { outline: 2px solid var(--hub-blue); outline-offset: 2px; }
-.pl-cubby-amount__tick { position: absolute; top: 0.375rem; right: 0.375rem; display: none; width: 1.125rem; height: 1.125rem; border-radius: 999px; background: var(--color-tuscan-yellow); color: var(--color-navy); align-items: center; justify-content: center; }
-.pl-cubby-amount__tick .pl-cubby-ico { width: 0.7rem; height: 0.7rem; stroke-width: 3.5; }
-.pl-cubby-amount:has(input:checked) .pl-cubby-amount__tick { display: inline-flex; }
-.pl-cubby-other { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-top: 1rem; }
-.pl-cubby-other label { font-size: 0.875rem; font-weight: 600; color: var(--hub-text); }
+
 .pl-cubby-money { position: relative; display: inline-flex; align-items: center; }
 .pl-cubby-money__sign { position: absolute; left: 0.75rem; color: var(--hub-text-muted); font-weight: 600; pointer-events: none; }
 .pl-cubby-money input, .hub-form-group .pl-cubby-money input { width: 6rem; min-height: 44px; padding: 0.5rem 0.75rem 0.5rem 1.6rem; border: 1px solid var(--hub-input-border); border-radius: 8px; background: var(--hub-input-bg); color: var(--hub-text); font: inherit; font-size: 1rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .pl-cubby-money input:focus { outline: none; border-color: var(--hub-blue); box-shadow: 0 0 0 3px var(--hub-blue-soft); }
-.pl-cubby-money input[aria-invalid="true"] { border-color: var(--hub-danger-text); box-shadow: 0 0 0 3px var(--pl-cubby-danger-soft); }
-.pl-cubby-other__unit { font-size: 0.875rem; color: var(--hub-text-muted); }
-.pl-cubby-other + .pl-field-error, .pl-cubby-error { margin-top: 0.75rem; }
+
 .pl-cubby-total { display: flex; align-items: flex-start; gap: 0.625rem; margin: 1.25rem 0 0; padding: 0.875rem 1rem; border-radius: 10px; background: var(--hub-surface); border: 1px solid var(--hub-border); font-size: 0.9375rem; line-height: 1.5; color: var(--hub-text); }
 .pl-cubby-total .pl-cubby-ico { margin-top: 0.2rem; color: var(--hub-link); }
 .pl-cubby-total strong { font-variant-numeric: tabular-nums; }
-.pl-cubby-why { display: flex; align-items: flex-start; gap: 0.5rem; margin-top: 1rem; font-size: 0.875rem; color: var(--hub-text-muted); line-height: 1.5; }
-.pl-cubby-why .pl-cubby-ico { margin-top: 0.15rem; color: var(--hub-link); }
+
 .pl-cubby-sheet__actions { justify-content: flex-end; flex-wrap: wrap; }
 .pl-cubby-sheet__actions .pl-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; min-height: 44px; }
-.pl-cubby-sheet__actions .pl-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
-.pl-cubby-sheet__fine { margin-top: 0.75rem; text-align: right; font-size: 0.75rem; color: var(--hub-text-muted); }
+
 @media (max-width: 639.98px) {
     .pl-modal-backdrop:has(.pl-cubby-sheet) { align-items: flex-end; padding: 0; }
     .pl-cubby-sheet.pl-modal { max-width: none; max-height: 92vh; border-radius: 16px 16px 0 0; }
@@ -264,17 +200,7 @@
     .pl-cubby-rent__label { font-size: 1.5rem; }
     .pl-cubby-amounts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .pl-cubby-sheet__actions { flex-direction: column-reverse; align-items: stretch; }
-    .pl-cubby-sheet__fine { text-align: center; }
 }
-
-/* ---- Waitlist (every cubby taken) ---- */
-.pl-cubby-wait { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1rem 1.25rem; align-items: start; padding: 1.5rem; }
-.pl-cubby-wait__icon { display: inline-flex; align-items: center; justify-content: center; width: 3rem; height: 3rem; border-radius: 999px; background: color-mix(in srgb, var(--color-tuscan-yellow) 16%, transparent); color: var(--hub-link); font-size: 1.375rem; }
-.pl-cubby-wait--joined .pl-cubby-wait__icon { background: color-mix(in srgb, var(--pl-lifecycle-live) 16%, transparent); color: var(--pl-lifecycle-live); }
-.pl-cubby-wait__title { margin: 0; font-family: var(--font-heading); font-size: 1.25rem; font-weight: 900; color: var(--hub-text); }
-.pl-cubby-wait__text { margin-top: 0.5rem; max-width: 60ch; color: var(--hub-text-muted); line-height: 1.55; }
-.pl-cubby-wait .pl-cubby-actions { margin-top: 1.25rem; }
-.pl-cubby-place { font-family: var(--font-heading); font-weight: 900; color: var(--hub-text); }
 
 /* ---- Guild Tools card: live counts under the description ---- */
 .pl-cubby-toolstats { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: auto; padding-top: 0.25rem; }
@@ -288,7 +214,6 @@
 .pl-cubby-live .pl-toggle-row { flex: 1 1 24rem; margin: 0; padding: 0; border: 0; }
 .pl-cubby-live__link { font-size: 0.875rem; font-weight: 600; color: var(--hub-link); text-decoration: none; white-space: nowrap; }
 .pl-cubby-live--off { border-style: dashed; }
-.pl-cubby-tabcount { display: inline-block; min-width: 1.4rem; margin-left: 0.4rem; padding: 0 0.35rem; border-radius: 999px; background: var(--hub-surface); font-size: 0.75rem; font-weight: 700; text-align: center; color: var(--hub-text); }
 
 /* Layout tab: one editor card per shelf unit; the panel joins on the right when a cubby is picked. */
 .pl-cubby-build { display: grid; gap: 1.5rem; align-items: start; }
@@ -338,14 +263,13 @@
 .pl-cubby-span__pic { display: grid; grid-template-columns: repeat(2, 0.625rem); grid-template-rows: repeat(2, 0.625rem); gap: 2px; }
 .pl-cubby-span__pic i { border-radius: 1px; background: var(--hub-border-strong); }
 .pl-cubby-span__pic i.on { background: var(--color-tuscan-yellow); }
-.pl-cubby-photo-preview { width: 100%; max-width: 15rem; aspect-ratio: 4 / 3; margin-bottom: 0.75rem; border-radius: 8px; overflow: hidden; border: 1px solid var(--hub-border); }
+
 .pl-cubby-panel .pl-toggle-row { margin-top: 0.25rem; }
 .pl-cubby-reveal { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; margin: 0.75rem 0 0; padding: 1rem 0 0.25rem 1rem; border-left: 2px solid var(--hub-border-strong); }
 .pl-cubby-reveal .pl-form-group { margin: 0; }
-.pl-cubby-uses { margin: 0.75rem 0 0; font-size: 0.8125rem; color: var(--hub-text-muted); line-height: 1.5; }
+
 .pl-cubby-panel__danger { margin-top: 1.5rem; }
-.pl-cubby-hint { display: block; margin-top: 0.375rem; font-size: 0.8125rem; line-height: 1.45; color: var(--hub-text-muted); }
-.pl-cubby-panel .cls-image-upload-zone { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; }
+
 .pl-cubby-panel__danger p { margin-top: 0.5rem; font-size: 0.8125rem; color: var(--hub-text-muted); }
 .pl-cubby-panel__save { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; }
 
@@ -372,65 +296,12 @@
 .pl-cubby-payee .pl-form-group { margin: 1.25rem 0 0; }
 .pl-cubby-payee select { width: 100%; max-width: 520px; }
 .pl-cubby-payee__status { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.75rem; font-size: 0.875rem; color: var(--hub-text-muted); }
-.pl-cubby-split { margin-top: 1.5rem; }
-.pl-cubby-split__bar { display: flex; height: 2.75rem; border-radius: 10px; overflow: hidden; font-size: 0.8125rem; font-weight: 800; }
-.pl-cubby-split__seg { display: flex; align-items: center; padding: 0 0.875rem; white-space: nowrap; overflow: hidden; }
-.pl-cubby-split__seg--guild { flex: 85; background: var(--pl-split-guild-bg); color: var(--pl-split-guild-fg); }
-.pl-cubby-split__seg--pl { flex: 15; justify-content: center; padding: 0 0.5rem; background: var(--pl-cubby-pl-bg); color: var(--pl-cubby-pl-fg); }
-.pl-cubby-split__text { margin-top: 0.75rem; font-size: 0.875rem; color: var(--hub-text); line-height: 1.55; }
-.pl-cubby-split__text span { color: var(--hub-text-muted); }
+
 .pl-cubby-save-row { display: flex; justify-content: flex-end; margin-top: 1.75rem; padding-top: 1.5rem; border-top: 1px solid var(--hub-border); }
 
 /* Rentals tab. */
-.pl-cubby-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-.pl-cubby-tile { padding: 1.125rem 1.25rem; }
-.pl-cubby-tile__label { display: flex; align-items: center; gap: 0.375rem; font-size: 0.8125rem; font-weight: 600; color: var(--hub-text-muted); }
-.pl-cubby-tile__value { margin-top: 0.375rem; font-family: var(--font-heading); font-size: 1.75rem; font-weight: 900; line-height: 1.1; color: var(--hub-text); font-variant-numeric: tabular-nums; }
-.pl-cubby-tile__sub { margin-top: 0.25rem; font-size: 0.8125rem; color: var(--hub-text-muted); }
-.pl-cubby-tile--alert { border-color: color-mix(in srgb, var(--hub-danger-text) 45%, var(--hub-border)); }
-.pl-cubby-tile--alert .pl-cubby-tile__label, .pl-cubby-tile--alert .pl-cubby-tile__value { color: var(--hub-danger-text); }
-@media (max-width: 899.98px) { .pl-cubby-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; } .pl-cubby-tile__value { font-size: 1.5rem; } }
-.pl-cubby-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1rem; margin-bottom: 1rem; }
-.pl-cubby-toolbar__chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.pl-cubby-toolbar__chips .pl-chip { min-height: 40px; }
-.pl-cubby-toolbar__chips .pl-chip input { position: absolute; opacity: 0; }
-.pl-cubby-toolbar__end { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-left: auto; }
-.pl-cubby-toolbar__end .pl-btn, .pl-cubby-toolbar__end a { display: inline-flex; align-items: center; gap: 0.4rem; }
-.pl-cubby-csv { font-size: 0.875rem; font-weight: 600; color: var(--hub-link); text-decoration: none; padding: 0.5rem 0.25rem; }
-.pl-cubby-rtable td { vertical-align: middle; }
-.pl-cubby-rtable .pl-cubby-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.pl-cubby-rtable small { display: block; font-size: 0.75rem; color: var(--hub-text-muted); }
-.pl-cubby-who { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
-.pl-cubby-avatar { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 2rem; height: 2rem; border-radius: 999px; background: var(--hub-elevated); border: 1px solid var(--hub-border-strong); font-size: 0.75rem; font-weight: 700; color: var(--hub-text); }
-.pl-cubby-rtable tr.pl-cubby-rtable__ended td { color: var(--hub-text-muted); }
-.pl-cubby-rcards { display: none; margin: 0; padding: 0; list-style: none; }
-@media (max-width: 767.98px) {
-    .pl-cubby-rwide { display: none; }
-    .pl-cubby-rcards { display: grid; gap: 0.75rem; }
-    .pl-cubby-toolbar__end { margin-left: 0; width: 100%; justify-content: space-between; }
-}
-.pl-cubby-rcard { padding: 1rem; }
-.pl-cubby-rcard__top { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
-.pl-cubby-rcard__name { font-weight: 700; color: var(--hub-text); }
-.pl-cubby-rcard__lines { margin-top: 0.625rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; font-size: 0.8125rem; color: var(--hub-text-muted); }
-.pl-cubby-rcard__lines strong { display: block; color: var(--hub-text); font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
-.pl-cubby-rcard__where { margin-top: 0.375rem; font-size: 0.875rem; color: var(--hub-text); }
-.pl-cubby-rcard .pl-btn { margin-top: 1rem; }
 
 /* Assign a Cubby modal. */
-.pl-cubby-assign .pl-form-group { margin: 0 0 1.25rem; }
-.pl-cubby-search { position: relative; max-width: 520px; }
-.pl-cubby-search input, .hub-form-group .pl-cubby-search input { padding-left: 2.5rem; }
-.pl-cubby-search > .pl-cubby-ico { position: absolute; left: 0.875rem; top: 50%; margin-top: -0.5em; z-index: 1; color: var(--hub-text-muted); }
-.pl-cubby-results { margin: 0.5rem 0 0; padding: 0.375rem; list-style: none; border: 1px solid var(--hub-border-strong); border-radius: 10px; background: var(--hub-elevated); box-shadow: 0 12px 24px -12px var(--pl-cubby-shade); }
-.pl-cubby-results li { display: flex; align-items: center; gap: 0.625rem; min-height: 44px; padding: 0.375rem 0.625rem; border-radius: 8px; font-size: 0.875rem; color: var(--hub-text); }
-.pl-cubby-results li small { color: var(--hub-text-muted); margin-left: auto; font-size: 0.75rem; }
-.pl-cubby-results li[aria-selected="true"] { background: var(--hub-blue-soft); outline: 1px solid color-mix(in srgb, var(--hub-blue) 45%, transparent); }
-.pl-cubby-assign select { max-width: 520px; }
-.pl-cubby-assign .pl-radio-group { margin-top: 0.5rem; }
-.hub-form-group.pl-cubby-assign .pl-radio-option { display: flex; align-items: flex-start; gap: 0.625rem; margin: 0; font-weight: 400; }
-.hub-form-group.pl-cubby-assign .pl-radio-option input { width: auto; margin-top: 0.2rem; }
-.pl-cubby-assign .pl-cubby-other { margin: 0.75rem 0 0 1.75rem; }
 
 /* ---- Part 1 additions the mockup does not draw (#977) ---- */
 /* The icon sprite each page carries once. */
