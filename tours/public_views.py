@@ -54,6 +54,12 @@ BOOKING_SCOPE = "tour_booking"
 BOOKING_HOURLY_LIMIT = 10
 BOOKING_DAILY_LIMIT = 30
 RATE_LIMITED_MESSAGE = "Too many bookings from this connection. Try again in an hour."
+#: The front desk kiosk's own booking limit (#950): cairn shares the makerspace's public address
+#: with every phone on the Wi-Fi, so a kiosk (a request holding the kiosk cookie) never spends the
+#: website's allowance, nor the website the kiosk's. The kiosk check in's caps.
+KIOSK_BOOKING_SCOPE = "tour_kiosk_booking"
+KIOSK_BOOKING_HOURLY_LIMIT = 60
+KIOSK_BOOKING_DAILY_LIMIT = 300
 
 
 def tours_surface_only(view: View) -> View:
@@ -149,12 +155,13 @@ def post_booking(request: HttpRequest, tours: list[OpenTour], offer_account: boo
     """A booking POST, cheapest refusal first: the rate limit (one attempt per POST), the honeypot
     (a filled one is sent back to the page and books nothing), the form, then the booking.
 
-    The kiosk (#950) books through here too, with ``kiosk`` set."""
+    The kiosk (#950) books through here too, with ``kiosk`` set (only its views pass it, each behind
+    the kiosk cookie), spending its own limit."""
     allowed, reason = record_keyed_attempt(
-        BOOKING_SCOPE,
+        KIOSK_BOOKING_SCOPE if kiosk else BOOKING_SCOPE,
         client_rate_key(request),
-        hourly_limit=BOOKING_HOURLY_LIMIT,
-        daily_limit=BOOKING_DAILY_LIMIT,
+        hourly_limit=KIOSK_BOOKING_HOURLY_LIMIT if kiosk else BOOKING_HOURLY_LIMIT,
+        daily_limit=KIOSK_BOOKING_DAILY_LIMIT if kiosk else BOOKING_DAILY_LIMIT,
     )
     if not allowed:
         logger.warning("Tour booking rate limited (%s)", reason)

@@ -11,14 +11,15 @@ booking page.
 
 **Finding a tour.** Only tours still booked for today (local) are ever matched
 (:meth:`tours.models.TourBookingQuerySet.booked_on_day`): never a cancelled one, never another
-day's. By email, ignoring case; by name, ignoring case, spacing and the dots and commas people
-type (:func:`name_matches`).
+day's. By email, ignoring case; by name, ignoring case, spacing, accents, word order and the
+hyphens, apostrophes, dots and commas people type (:func:`name_matches`).
 """
 
 from __future__ import annotations
 
 import hmac
 import re
+import unicodedata
 from datetime import date
 from typing import TYPE_CHECKING
 
@@ -66,29 +67,34 @@ def remember_kiosk(request: HttpRequest, response: HttpResponse, tour_settings: 
 
 
 def _words(text: str) -> list[str]:
-    """``text`` as lowercase words, without the dots and commas people type (``Sam R.``)."""
-    return re.sub(r"[.,]", " ", text).casefold().split()
+    """``text`` as lowercase words with accents folded (``José`` is ``jose``), split on spaces,
+    hyphens, apostrophes, dots and commas (``Jean-Luc O'Neil`` is four words)."""
+    folded = "".join(char for char in unicodedata.normalize("NFKD", text) if not unicodedata.combining(char))
+    return [word for word in re.split(r"[\s\-'\u2019.,]+", folded.casefold()) if word]
+
+
+def _in_order(typed: list[str], booked: list[str]) -> bool:
+    """Whether ``typed`` names ``booked`` read front to back: the leading words (``Mary Ann``), the
+    trailing words (``Smith``), or the leading words then the start of the last (``Sam R``)."""
+    size = len(typed)
+    if typed == booked[:size] or typed == booked[-size:]:
+        return True
+    return size >= 2 and len(booked) >= size and typed[:-1] == booked[: size - 1] and booked[-1].startswith(typed[-1])
 
 
 def name_matches(typed: str, booked: str) -> bool:
     """Whether a name typed at the kiosk names the visitor who booked as ``booked``.
 
-    Case, spacing, dots and commas never matter. The whole name matches; so does the first name
-    alone, the last name alone, and the first name with the start of the last name (``Sam R``).
+    Case, spacing, accents, hyphens, apostrophes, dots and commas never matter, nor word order. The
+    whole name matches; so do the first name or names alone, the last name alone, and the first
+    name with the start of the last name (``Sam R``), read either way round (``Rivera Sam``).
     """
     typed_words, booked_words = _words(typed), _words(booked)
     if not typed_words or not booked_words:
         return False
-    if typed_words == booked_words:
+    if sorted(typed_words) == sorted(booked_words):
         return True
-    if len(typed_words) == 1:
-        return typed_words[0] in (booked_words[0], booked_words[-1])
-    return (
-        len(typed_words) == 2
-        and len(booked_words) >= 2
-        and typed_words[0] == booked_words[0]
-        and booked_words[-1].startswith(typed_words[1])
-    )
+    return _in_order(typed_words, booked_words) or _in_order(typed_words[::-1], booked_words)
 
 
 def todays_tours(today: date) -> TourBookingQuerySet:

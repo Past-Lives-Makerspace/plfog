@@ -79,6 +79,30 @@ def describe_name_matches():
     def it_refuses_other_names(typed: str):
         assert not kiosk.name_matches(typed, "Sam Rivera")
 
+    @pytest.mark.parametrize(
+        ("typed", "booked"),
+        [
+            ("jose", "José Álvarez"),
+            ("José Alvarez", "Jose Alvarez"),
+            ("Jean-Luc", "Jean-Luc Picard"),
+            ("jean luc p", "Jean-Luc Picard"),
+            ("Picard Jean-Luc", "Jean-Luc Picard"),
+            ("Mary Ann", "Mary Ann Smith"),
+            ("Mary Smith", "Mary Ann Smith"),
+            ("smith mary ann", "Mary Ann Smith"),
+            ("Rivera Sam", "Sam Rivera"),
+            ("R Sam", "Sam Rivera"),
+            ("o'neil", "Pat O\u2019Neil"),
+            ("pat o'neil", "Pat O'Neil"),
+        ],
+    )
+    def it_folds_accents_splits_hyphens_and_reads_either_way(typed: str, booked: str):
+        assert kiosk.name_matches(typed, booked)
+
+    @pytest.mark.parametrize(("typed", "booked"), [("Ann", "Mary Ann Smith"), ("Luc", "Jean-Luc Picard")])
+    def it_still_wants_a_first_or_last_name(typed: str, booked: str):
+        assert not kiosk.name_matches(typed, booked)
+
     def it_matches_a_one_word_booking_by_that_word():
         assert kiosk.name_matches("cher", "Cher")
         assert not kiosk.name_matches("cher x", "Cher")
@@ -176,7 +200,8 @@ def describe_check_in_tour():
         booking = TourBookingFactory(guide=None, starts_at=local(_today(), 16))
         with django_capture_on_commit_callbacks(execute=True):
             check_in_tour(booking)
-        assert Notification.objects.filter(user=admin.user, trigger="tour.checked_in").count() == 1
+        bell = Notification.objects.get(user=admin.user, trigger="tour.checked_in")
+        assert bell.title == "A 4:00 tour is here (no guide)"
 
     def it_never_marks_attended_or_stamps_the_completed_tour(guide: Member):
         visitor = _with_guide_user(MemberFactory())
@@ -273,12 +298,28 @@ def describe_kiosk_check_in():
         # Opened again (the back button, a reload): nothing to show, home.
         assert kiosk_client.get(RESULT)["Location"] == HOME
 
-    def it_checks_in_by_a_tapped_name(kiosk_client: Client, guide: Member):
+    def it_asks_is_this_you_before_a_tapped_name_checks_in(kiosk_client: Client, guide: Member):
         booking = _today_booking(guide, visitor_name="Sam Rivera")
+        kiosk_client.post(CHECK_IN, {"pick": str(booking.pk)})
+        confirm = kiosk_client.get(RESULT).content.decode()
+        assert 'data-kiosk-screen="confirm"' in confirm and "Sam R., 4:00 PM" in confirm
+        assert f'name="booking" value="{booking.pk}"' in confirm and "Yes, Check Me In" in confirm
+        assert f'href="{CHECK_IN}" class="pl-kiosk__choice" data-kiosk-not-me' in confirm
+        booking.refresh_from_db()
+        assert booking.checked_in_at is None
         kiosk_client.post(CHECK_IN, {"booking": str(booking.pk)})
         assert "Welcome, Sam!" in kiosk_client.get(RESULT).content.decode()
         booking.refresh_from_db()
         assert booking.checked_in_at is not None
+
+    def it_answers_a_tap_on_a_tour_no_longer_listed(kiosk_client: Client, guide: Member):
+        booking = _today_booking(guide, status=TourBooking.Status.CANCELLED)
+        kiosk_client.post(CHECK_IN, {"pick": str(booking.pk)})
+        assert 'data-kiosk-screen="no-match"' in kiosk_client.get(RESULT).content.decode()
+        listed = _today_booking(guide)
+        kiosk_client.post(CHECK_IN, {"pick": str(listed.pk)})
+        listed.delete()
+        assert kiosk_client.get(RESULT)["Location"] == HOME
 
     def it_welcomes_without_a_guide_name_when_the_tour_has_none(kiosk_client: Client):
         TourBookingFactory(guide=None, starts_at=local(_today(), 16), visitor_name="Sam Rivera")
@@ -291,13 +332,25 @@ def describe_kiosk_check_in():
         kiosk_client.post(CHECK_IN, {"name": "  SAM "})
         pick = kiosk_client.get(RESULT).content.decode()
         assert 'data-kiosk-screen="pick"' in pick
-        assert f'value="{sam.pk}"' in pick and f'value="{other.pk}"' in pick
-        assert "Sam R." in pick and "Sam O." in pick
+        assert f'name="pick" value="{sam.pk}"' in pick and f'name="pick" value="{other.pk}"' in pick
+        assert "Sam R." in pick and "Sam O." in pick and "under that name" in pick
+        kiosk_client.post(CHECK_IN, {"pick": str(other.pk)})
+        assert "Sam O., 5:00 PM" in kiosk_client.get(RESULT).content.decode()
+        sam.refresh_from_db()
+        other.refresh_from_db()
+        assert other.checked_in_at is None
         kiosk_client.post(CHECK_IN, {"booking": str(other.pk)})
         assert "Welcome, Sam!" in kiosk_client.get(RESULT).content.decode()
         other.refresh_from_db()
         sam.refresh_from_db()
         assert other.checked_in_at is not None and sam.checked_in_at is None
+
+    def it_says_for_that_email_when_an_email_matches_several(kiosk_client: Client, guide: Member):
+        _today_booking(guide, 16, visitor_email="family@example.com")
+        _today_booking(guide, 17, visitor_email="family@example.com")
+        kiosk_client.post(CHECK_IN, {"email": "family@example.com"})
+        pick = kiosk_client.get(RESULT).content.decode()
+        assert "for that email" in pick and "under that name" not in pick
 
     def it_shows_try_again_when_nothing_today_matches(kiosk_client: Client, guide: Member):
         _today_booking(guide, visitor_name="Sam Rivera", status=TourBooking.Status.CANCELLED)
@@ -377,6 +430,21 @@ def describe_kiosk_booking():
         assert "You're Booked, Kim!" in confirmation and 'data-kiosk-done="8"' in confirmation
         assert booking.self_serve_token not in confirmation
         assert kiosk_client.get(BOOKED)["Location"] == HOME
+
+    def it_spends_its_own_booking_limit_never_the_websites(
+        kiosk_client: Client, guide: Member, day: date, monkeypatch: pytest.MonkeyPatch
+    ):
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        data = {"tour": _key_for(guide, local(day, 16)), "name": "Kim K", "email": "k@example.com", "party_size": "1"}
+        # The website's allowance is spent (every phone on the makerspace Wi-Fi): the kiosk still books.
+        monkeypatch.setattr("tours.public_views.BOOKING_HOURLY_LIMIT", 0)
+        assert kiosk_client.post(BOOK, data)["Location"] == BOOKED
+        assert TourBooking.objects.get().source == TourBooking.Source.KIOSK
+        # Its own allowance spent, the kiosk says so.
+        monkeypatch.setattr("tours.public_views.KIOSK_BOOKING_HOURLY_LIMIT", 0)
+        data["email"] = "other@example.com"
+        assert "Too many bookings" in kiosk_client.post(BOOK, data).content.decode()
+        assert TourBooking.objects.count() == 1
 
     def it_never_links_the_booking_to_whoever_is_signed_in(guide: Member, key: str, day: date):
         TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)

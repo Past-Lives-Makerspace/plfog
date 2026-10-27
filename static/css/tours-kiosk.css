@@ -156,6 +156,13 @@
     box-shadow: 0 1px 3px rgba(9, 46, 76, 0.06), 0 16px 40px rgba(9, 46, 76, 0.1);
 }
 
+/* Yes, Check Me In is a real submit button drawn as a choice card. */
+.cp-page button.pl-kiosk__choice {
+    width: 100%;
+    font: inherit;
+    cursor: pointer;
+}
+
 .cp-page .pl-kiosk__choices--buttons .pl-kiosk__choice {
     min-height: 6rem;
 }

@@ -17,7 +17,7 @@ are off; the one Save sits at the bottom (FRONTEND rule 21).
 {# The kiosk link acts at once, so it comes before the form whose Save sits last (FRONTEND rule 21). #}
 <div class="hub-card pl-tours-panel" data-tour-settings-kiosk>
   <h2 class="hub-detail-label pl-tours-panel__title">Front Desk Kiosk</h2>
-  <p class="hub-text-muted pl-tours-panel__intro">The lobby screen opens this link once to become the kiosk, where visitors check in for a tour or book one. It shows today's visitors by first name, so keep the link private.</p>
+  <p class="hub-text-muted pl-tours-panel__intro">The lobby screen opens this link once to become the kiosk, where visitors check in for a tour or book one. It shows today's visitors by first name and last initial, so keep the link private.</p>
   {% if kiosk_url %}
   <div class="hub-form-group pl-tours-kiosk" x-data="{ copied: false }">
     <label for="tour-kiosk-url">Kiosk link</label>

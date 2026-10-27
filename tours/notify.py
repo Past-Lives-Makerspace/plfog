@@ -379,15 +379,16 @@ def _tell_guides_staff_changed(
 def tell_guide_checked_in(booking: TourBooking) -> None:
     """Ping the tour's guide (or the admins when it has none) that the visitor is at the front desk (#950).
 
-    Bell and push only, "Your 4:00 tour is here". The period is the booking, so a second check in
-    never pings twice.
+    Bell and push only, "Your 4:00 tour is here", or for the admins of a tour with no guide "A 4:00
+    tour is here (no guide)". The period is the booking, so a second check in never pings twice.
     """
     local = timezone.localtime(booking.starts_at)
+    title = f"Your {local:%-I:%M} tour is here" if booking.guide else f"A {local:%-I:%M} tour is here (no guide)"
     emit(
         GUIDE_CHECKED_IN_EVENT,
         target=booking,
         context={"guide": booking.guide},
-        title=f"Your {local:%-I:%M} tour is here",
+        title=title,
         body=f"{booking.visitor_name}, {_people(booking)}, checked in at the front desk.",
         url=reverse("tours:upcoming"),
         period=f"tour:{booking.pk}:checked_in",

@@ -1,8 +1,2 @@
 bump = "minor"
-date = "2026-10-27"
-title = "Tours of Past Lives are booked right here now"
-changes = [
-  "Anyone curious about Past Lives can book a free tour at tours.pastlives.space, and move or cancel it from their confirmation email.",
-  "The lobby screen is now the front desk: visitors check in for their tour or book one on the spot, and their guide gets a ping.",
-  "Members with the Tour Guide permission set their tour hours and see who is coming under Tools, then Tours.",
-]
+audience = "internal"

@@ -4,7 +4,8 @@
 tours.pastlives.space). Without the kiosk key ``/kiosk/`` is the public booking page with no names;
 the kiosk link (``/kiosk/?key=``) sets the cookie and lands on the kiosk home. A visitor checks in
 by email, by tapping their name in today's list, and by typing a name that matches two tours (the
-pick list); a name that matches nothing shows the try again screen. Each check in stamps the
+pick list). A tapped name or a pick list choice asks "Is this you?" first (Not Me checks in nobody); a
+name that matches nothing shows the try again screen. Each check in stamps the
 booking and rings the guide's bell. A tour is scheduled from the kiosk (source kiosk). The kiosk
 returns home 60 seconds after the last input and a few seconds after a finished screen, and the
 back button brings no visitor back. Rotating the key locks the screen out. Driven on Playwright's
@@ -12,7 +13,8 @@ fake clock, so no spec waits real seconds.
 
 The Settings tab's kiosk link is the second spec (the members host, signed in as an admin).
 
-``CAPTURE_950_DIR=<dir>`` saves every kiosk screen at cairn's 1920 by 1080 in both themes, and the
+``CAPTURE_950_DIR=<dir>`` saves every kiosk screen (home, check in, list, confirm, welcome, pick list, no match, schedule picker,
+form, confirmation) at cairn's 1920 by 1080 in both themes, and the
 Settings tab's kiosk section at desktop (1100) and phone (390, sidebar drawer closed) widths in both
 themes. Run with ``pytest -m e2e`` on PostgreSQL.
 """
@@ -206,9 +208,23 @@ def describe_tours_kiosk():
         page.locator("[data-kiosk-back]").click()
         _at_home(page, live_server)
 
-        # By tapping a name.
+        # By tapping a name: "Is this you?" first. Not Me goes back and checks in nobody.
         _check_in_screen(page)
+        page.locator(f'[data-kiosk-name="{sam.pk}"]').click()
+        _screen(page, "confirm")
+        expect(page.locator("[data-kiosk-confirm-who]")).to_have_text("Sam R., 4:00 PM")
+        page.locator("[data-kiosk-not-me]").click()
+        _screen(page, "check-in")
+        sam.refresh_from_db()
+        assert sam.checked_in_at is None
         page.locator(f'[data-kiosk-name="{jo.pk}"]').click()
+        _screen(page, "confirm")
+        expect(page.locator("[data-kiosk-confirm-who]")).to_have_text("Jo T., 3:30 PM")
+        expect(page.locator("[data-kiosk-confirm-yes]")).to_be_focused()
+        _capture(page, "confirm")
+        jo.refresh_from_db()
+        assert jo.checked_in_at is None
+        page.locator("[data-kiosk-confirm-yes]").click()
         _welcomed(page, live_server, "Jo", "Gina will be right with you.")
         _goes_home_on_its_own(page, live_server, "welcome")
         jo.refresh_from_db()
@@ -222,6 +238,9 @@ def describe_tours_kiosk():
         expect(page.locator("[data-kiosk-pick] [data-kiosk-name]")).to_have_count(2)
         _capture(page, "pick-list")
         page.locator(f'[data-kiosk-pick] [data-kiosk-name="{ortiz.pk}"]').click()
+        _screen(page, "confirm")
+        expect(page.locator("[data-kiosk-confirm-who]")).to_have_text("Sam O., 5:00 PM")
+        page.locator("[data-kiosk-confirm-yes]").click()
         _welcomed(page, live_server, "Sam", "Gina will be right with you.")
         _goes_home_on_its_own(page, live_server, "welcome")
         ortiz.refresh_from_db()

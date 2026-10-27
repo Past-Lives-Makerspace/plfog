@@ -103,8 +103,10 @@ def home(request: HttpRequest) -> HttpResponse:
 def check_in(request: HttpRequest) -> HttpResponse:
     """The three ways to check in (GET), and finding the tour a POST names.
 
-    POST ``booking`` (a tapped name or a pick list button), ``email`` or ``name``. The outcome goes
-    to :func:`check_in_result` through the session.
+    POST ``pick`` (a tapped name or a pick list button) asks "Is this you?" first, so a wrong tap
+    never checks in someone else; ``booking`` (that screen's Yes, Check Me In) checks in. ``email``
+    checks in at once, and ``name`` too when it matches one tour. The outcome goes to
+    :func:`check_in_result` through the session.
     """
     today = timezone.localdate()
     if request.method != "POST":
@@ -118,14 +120,21 @@ def check_in(request: HttpRequest) -> HttpResponse:
     if not allowed:
         logger.warning("Tour kiosk check in rate limited (%s)", reason)
         return _result(request, {"kind": "limited"})
+    if "pick" in request.POST:
+        picked = kiosk.find_by_pk(request.POST["pick"], today)
+        if not picked:
+            return _result(request, {"kind": "no_match"})
+        return _result(request, {"kind": "confirm", "booking": picked[0].pk})
+    via = "name"
     if "booking" in request.POST:
         found = kiosk.find_by_pk(request.POST["booking"], today)
     elif request.POST.get("email", "").strip():
+        via = "email"
         found = kiosk.find_by_email(request.POST["email"], today)
     else:
         found = kiosk.find_by_name(request.POST.get("name", ""), today)
     if len(found) > 1:
-        return _result(request, {"kind": "pick", "bookings": [booking.pk for booking in found]})
+        return _result(request, {"kind": "pick", "via": via, "bookings": [booking.pk for booking in found]})
     if not found:
         return _result(request, {"kind": "no_match"})
     try:
@@ -142,7 +151,7 @@ def _result(request: HttpRequest, outcome: dict[str, Any]) -> HttpResponse:
 
 @kiosk_only
 def check_in_result(request: HttpRequest) -> HttpResponse:
-    """What a check in came to, shown once: welcome, a pick list, no match, or too many tries.
+    """What a check in came to, shown once: welcome, "Is this you?", a pick list, no match, or too many tries.
 
     Opened again (the back button, a reload), it has nothing to show and goes home.
     """
@@ -164,9 +173,14 @@ def check_in_result(request: HttpRequest) -> HttpResponse:
                 "done_seconds": DONE_SECONDS,
             },
         )
+    if kind == "confirm":
+        confirming = kiosk.todays_tours(timezone.localdate()).filter(pk=outcome["booking"]).first()
+        if confirming is None:
+            return redirect("tours_kiosk:home")
+        return _render(request, "tours/kiosk/confirm.html", {"booking": confirming})
     if kind == "pick":
         bookings = list(kiosk.todays_tours(timezone.localdate()).filter(pk__in=outcome["bookings"]))
-        return _render(request, "tours/kiosk/pick.html", {"bookings": bookings})
+        return _render(request, "tours/kiosk/pick.html", {"bookings": bookings, "via": outcome["via"]})
     return _render(request, "tours/kiosk/no_match.html", {"limited": kind == "limited"})
 
 
