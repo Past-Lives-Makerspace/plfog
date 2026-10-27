@@ -374,6 +374,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.DAILY,
     ),
     ScheduledJob(
+        key="sync_stripe_fees",
+        name="Stripe fees and payouts",
+        description=(
+            "Records what Stripe kept as its fee on each payment, what reached the bank, and the payout that "
+            "carried it, for the Reconciliation and Payment reports."
+        ),
+        command="sync_stripe_fees",
+        schedule_label="Nightly ~6 AM",
+        cadence=Cadence.DAILY,
+    ),
+    ScheduledJob(
         key="send_wiki_guild_digest",
         name="Guild wiki digest",
         description=(

@@ -142,6 +142,11 @@ class TransactionLine:
     note: str = ""
     payee_kept_share: bool = False  # refunded after its share was sent, and the payee kept it (#662)
     payout: LinePayout | None = None  # live tab only: how its producer share is paid (#905)
+    stripe_payment_intent_id: str = ""  # blank for money Stripe never saw (a staff Mark as Paid)
+    # What Stripe kept and what reached the bank, refunds included (#984). None means unknown:
+    # no fee record yet, Stripe not read yet, or not a Stripe payment. Never read None as zero.
+    stripe_fee_cents: int | None = None
+    stripe_net_cents: int | None = None
 
 
 @dataclass
@@ -309,6 +314,7 @@ def _member_share_line(
     guild_label: str | None,
     percents: dict[str, Decimal],
     adjustment: TransactionAdjustment | None,
+    stripe_payment_intent_id: str,
 ) -> TransactionLine:
     """Build one class, orientation or reservation line, rolling any unset recipient's share to Past Lives.
 
@@ -374,6 +380,7 @@ def _member_share_line(
         overridden=overridden,
         unassigned=unassigned,
         note="; ".join(notes),
+        stripe_payment_intent_id=stripe_payment_intent_id,
     )
 
 
@@ -420,6 +427,7 @@ def _class_line(
         guild_label=guild.name if guild is not None else None,
         percents=percents,
         adjustment=adjustments.get(("class", reg.pk)),
+        stripe_payment_intent_id=reg.stripe_payment_id,
     )
 
 
@@ -463,6 +471,7 @@ def _orientation_line(
         guild_label=booking.guild.name if booking.guild is not None else None,
         percents=percents,
         adjustment=adjustments.get(("orientation", booking.pk)),
+        stripe_payment_intent_id=booking.stripe_payment_id,
     )
 
 
@@ -518,6 +527,7 @@ def _reservation_line(
         guild_label=guild.name if guild is not None else None,
         percents=percents,
         adjustment=adjustments.get(("reservation", reservation.pk)),
+        stripe_payment_intent_id=reservation.stripe_payment_id,
     )
 
 
@@ -607,6 +617,7 @@ def _tab_lines(
                 "shares": {},
                 "labels": {},
                 "gross": 0,
+                "payment_intent": charge.stripe_payment_intent_id,
             }
             charges[charge.pk] = bucket
             order.append(charge.pk)
@@ -638,6 +649,7 @@ def _tab_lines(
                 shares=bucket["shares"],
                 labels=bucket["labels"],
                 omitted=bool(adjustment is not None and adjustment.is_omitted),
+                stripe_payment_intent_id=bucket["payment_intent"],
             )
         )
     return lines
@@ -730,6 +742,7 @@ def build_reconciliation(
     lines.extend(_orientation_lines(window, orientation_percents, adjustments))
     lines.extend(_reservation_lines(window, reservation_percents, adjustments))
     lines.sort(key=lambda line: line.date, reverse=True)
+    lines = attach_stripe_fees(lines)
 
     from billing.payouts import kept_share_notes
 
@@ -771,6 +784,43 @@ def build_reconciliation(
         voting_projected=voting_projected,
         voting_snapshotted_on=voting_on,
     )
+
+
+def _split_by_weight(total: int, weights: list[int]) -> list[int]:
+    """``total`` split across ``weights`` in proportion; the last part takes the rounding so the parts sum exactly."""
+    whole = sum(weights)
+    parts = [total * weight // whole for weight in weights[:-1]]
+    return [*parts, total - sum(parts)]
+
+
+def attach_stripe_fees(lines: list[TransactionLine]) -> list[TransactionLine]:
+    """``lines`` with Stripe's fee and net from each payment's :class:`StripeFeeRecord` (#984), in one query.
+
+    A line with no PaymentIntent, no record or an unread record keeps None (unknown). Lines
+    that share one PaymentIntent split its fee and net by their gross, so no fee is counted twice.
+    """
+    from billing.models import StripeFeeRecord
+
+    indexes_by_pi: dict[str, list[int]] = {}
+    for index, line in enumerate(lines):
+        if line.stripe_payment_intent_id:
+            indexes_by_pi.setdefault(line.stripe_payment_intent_id, []).append(index)
+    records = StripeFeeRecord.objects.by_payment_intent(list(indexes_by_pi))
+    attached = list(lines)
+    for payment_intent_id, indexes in indexes_by_pi.items():
+        if payment_intent_id not in records:
+            continue
+        record = records[payment_intent_id]
+        fee = record.fee_after_refunds_cents
+        net = record.net_after_refunds_cents
+        if fee is None or net is None:
+            continue
+        weights = [max(lines[index].gross_cents, 1) for index in indexes]
+        for index, fee_part, net_part in zip(
+            indexes, _split_by_weight(fee, weights), _split_by_weight(net, weights), strict=True
+        ):
+            attached[index] = replace(attached[index], stripe_fee_cents=fee_part, stripe_net_cents=net_part)
+    return attached
 
 
 def _attach_payouts(

@@ -61,6 +61,7 @@ _DISPATCHER_DAILY = {
     "sync_all_sources",
     "generate_orientation_slots",
     "sweep_stale_refunds",
+    "sync_stripe_fees",
     "send_overdue_review_alerts",
     "welcome_new_members",
     "send_wiki_guild_digest",
