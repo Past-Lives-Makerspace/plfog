@@ -5096,12 +5096,11 @@ def _review_thread_context(
     """The review page's Messages card: shown to whoever may write on the class's thread.
 
     On the admin page that is anyone :meth:`ClassOffering.message_side` places. On a review
-    link the token is the credential, as it is for the decision: whoever may decide the gate
-    (:meth:`ClassApproval.may_be_decided_by`, signed out included) reads and writes, through
-    the link's own post address.
+    link it is the same people signed in, and signed out the link itself while its review round
+    is live (:func:`_review_link_takes_messages`), through the link's own post address.
     """
     side = offering.message_side(request.user)
-    if token is not None and approval is not None and (side is not None or approval.may_be_decided_by(request.user)):
+    if token is not None and approval is not None and _review_link_takes_messages(request, approval, side):
         post_url = reverse("classes:class_review_message", kwargs={"token": token})
         return _class_thread_context(
             request, offering, side=side or ClassOffering.MESSAGE_SIDE_REVIEWER, post_url=post_url
@@ -5109,6 +5108,19 @@ def _review_thread_context(
     if token is None and side is not None:
         return _class_thread_context(request, offering, side=side)
     return {"class_thread": None}
+
+
+def _review_link_takes_messages(request: HttpRequest, approval: ClassApproval, side: str | None) -> bool:
+    """Whether a review link shows its class's messages and takes a post from this request.
+
+    Signed in, the person needs a side on the thread (:meth:`ClassOffering.message_side`).
+    Signed out, the token is the credential, as for the decision, but only while that gate's
+    round is live (:attr:`ClassApproval.review_cycle_is_live`): an old or forwarded link reads
+    nothing and writes nothing once the class moved on.
+    """
+    if request.user.is_authenticated:
+        return side is not None
+    return approval.review_cycle_is_live
 
 
 def _class_thread_context(
@@ -5191,9 +5203,10 @@ def class_messages(request: HttpRequest, pk: int) -> HttpResponse:
 
     The stable link every message notice carries. An instructor of the class lands on its
     Overview; a reviewer who can open the Overview (an admin, a CMS Administrator) lands
-    there too; a guild reviewer who cannot lands on the newest review link of the class. A
-    POST writes as the poster's side and tells the other side. Anyone with no side on the
-    thread (:meth:`ClassOffering.message_side`) gets a 404, as if it did not exist.
+    there too; a guild reviewer who cannot lands on the newest guild lead gate they may decide,
+    never on an admin gate (whose link decides for anyone holding it), and gets a 404 when there
+    is none. A POST writes as the poster's side and tells the other side. Anyone with no side
+    on the thread (:meth:`ClassOffering.message_side`) gets a 404, as if it did not exist.
     """
     offering = get_object_or_404(ClassOffering.objects.select_related("category__guild"), pk=pk)
     side = offering.message_side(request.user)
@@ -5204,8 +5217,8 @@ def class_messages(request: HttpRequest, pk: int) -> HttpResponse:
     if side == ClassOffering.MESSAGE_SIDE_INSTRUCTOR or (access is not None and access.can_view_overview):
         landing = overview
     else:
-        # A guild lead gate first ("guild_lead" sorts after "admin"): that link is the guild reviewer's.
-        row = offering.approvals.order_by("-role", "-created_at").first()
+        gates = offering.approvals.filter(role=ClassApproval.Role.GUILD_LEAD).order_by("-created_at")
+        row = next((gate for gate in gates if gate.may_be_decided_by(request.user)), None)
         if row is None:
             raise Http404("This class has no review page for this viewer.")
         landing = row.review_path
@@ -5216,15 +5229,15 @@ def class_messages(request: HttpRequest, pk: int) -> HttpResponse:
 
 @require_POST
 def class_review_message(request: HttpRequest, token: str) -> HttpResponse:
-    """Post a message from a review link (#975): the token is the credential, as for the decision.
+    """Post a message from a review link (#975), for whoever :func:`_review_link_takes_messages` admits.
 
-    Whoever may decide the link's gate writes, signed out included (a message with no author,
-    signed as the reviewer); a signed in instructor of the class writes as the instructor. Lands
-    back on the review link.
+    Signed in, the person writes as their side; signed out, while the link's round is live, the
+    message has no author and signs as the reviewer. Anyone else gets a 404. Lands back on the
+    review link.
     """
     approval = get_object_or_404(ClassApproval.objects.select_related("class_offering__category__guild"), token=token)
     offering = approval.class_offering
-    if offering.message_side(request.user) is None and not approval.may_be_decided_by(request.user):
+    if not _review_link_takes_messages(request, approval, offering.message_side(request.user)):
         raise Http404("This class's messages are not this viewer's.")
     return _send_class_message(request, offering, default=approval.review_path)
 

@@ -2437,8 +2437,10 @@ class ClassOffering(HeroCropMixin, models.Model):
         """Which side of this class's thread ``user`` writes on, or ``None`` when it is not theirs.
 
         An instructor of the class writes as the instructor side, whatever else they are. The
-        reviewer side is the class's reviewers (the guild's lead and Class Reviewers, any
-        guild's class included), the CMS Administrators, and every admin.
+        reviewer side is the class's reviewers (the lead and Class Reviewers of
+        :attr:`message_review_guild`, a guild with a lead, so the same people its messages
+        reach), the CMS Administrators, and every admin. A guild with no lead does not review
+        its classes, so its Class Reviewers have no side on them.
         """
         if user is None or not user.is_authenticated:
             return None
@@ -2453,7 +2455,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             return None
         if member.is_fog_admin or member.has_admin_capability(AdminCapability.Capability.CLASS_APPROVER):
             return self.MESSAGE_SIDE_REVIEWER
-        guild = self.category.guild if self.category_id else None
+        guild = self.message_review_guild
         if guild is not None and guild.reviews_classes(member):
             return self.MESSAGE_SIDE_REVIEWER
         return None
@@ -4381,6 +4383,23 @@ class ClassApproval(models.Model):
         )
         stale = [pk for pk, token in tokens_by_pk.items() if token and token not in still_open]
         return Notification.objects.filter(pk__in=stale).update(read_at=timezone.now())
+
+    @property
+    def review_cycle_is_live(self) -> bool:
+        """Whether this gate's review round is still the class's current one (#975).
+
+        Live while the class is pending and this gate is undecided, or while the class is a
+        draft this gate sent back (the newest bounce). A gate decided in a round that moved on,
+        or any gate once the class is published, cancelled or archived, is spent: a review link
+        used signed out reads and writes the class's messages only while it is live.
+        """
+        offering = self.class_offering
+        if offering.status == ClassOffering.Status.PENDING:
+            return not self.decision
+        if offering.status == ClassOffering.Status.DRAFT and self.decision in _BOUNCE_DECISIONS:
+            bounce = offering.latest_bounce_row
+            return bounce is not None and bounce.pk == self.pk
+        return False
 
     def may_be_decided_by(self, user: "AbstractBaseUser | AnonymousUser | None") -> bool:
         """Whether ``user`` may record this gate's decision from the tokenized review page (#816).

@@ -8,6 +8,7 @@ on a review link for whoever may decide that gate. Anyone else gets a 404. Viewi
 
 from __future__ import annotations
 
+from datetime import timedelta
 from io import BytesIO
 
 import pytest
@@ -316,3 +317,111 @@ def describe_class_lists():
         one = _queries(client, url)
         _classes_with_messages(world, 5)
         assert _queries(client, url) == one
+
+
+def describe_a_guild_that_does_not_review_the_class():
+    """A guild with no lead does not review its classes, so its Class Reviewers get no side and no admin gate."""
+
+    def _leadless(prefix: str) -> tuple[ClassOffering, Member, Member, Member]:
+        reviewer = _person(f"{prefix}-rev", "Amber Capwell")
+        guild = GuildFactory(name=f"Zz {prefix} Guild", guild_lead=None)
+        GuildStaffMembershipFactory(
+            guild=guild, member=reviewer, role=GuildStaffMembership.Role.CO_LEAD, can_review_classes=True
+        )
+        cms = _person(f"{prefix}-cms", "Casey Approver")
+        cms.admin_capabilities.create(capability=AdminCapability.Capability.CLASS_APPROVER)
+        erin = _teacher(f"{prefix}-erin", "Erin Horgan")
+        offering = ClassOfferingFactory(
+            title=f"Zz {prefix} Mugs", category=CategoryFactory(guild=guild), instructors=[erin], ready=True
+        )
+        (gate,) = offering.submit_for_review()
+        assert gate.role == ClassApproval.Role.ADMIN
+        return offering, reviewer, cms, erin
+
+    def it_gives_a_leadless_guilds_class_reviewer_no_side_no_link_and_no_messages():
+        offering, reviewer, cms, erin = _leadless("leadless")
+        url = reverse("classes:class_messages", kwargs={"pk": offering.pk})
+        assert offering.message_side(reviewer.user) is None
+        assert _client(reviewer).get(url).status_code == 404
+        assert _client(reviewer).post(url, {"body": "Zzhi"}).status_code == 404
+        offering.post_message(author=erin.user, body="Zzquestion")
+        assert Notification.objects.filter(user=reviewer.user, trigger=CLASS_MESSAGE_TO_REVIEWERS).count() == 0
+        assert Notification.objects.filter(user=cms.user, trigger=CLASS_MESSAGE_TO_REVIEWERS).count() == 1
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.PENDING
+
+    def it_never_hands_a_lead_who_arrived_after_submission_the_admin_gate():
+        offering, _reviewer, _cms, erin = _leadless("late-lead")
+        lead = _person("late-lead-jay", "Jay Holtman")
+        guild = offering.category.guild
+        guild.guild_lead = lead
+        guild.save(update_fields=["guild_lead"])
+        offering = ClassOffering.objects.get(pk=offering.pk)
+        # The guild reviews the class now: the lead writes and hears as a reviewer...
+        assert offering.message_side(lead.user) == ClassOffering.MESSAGE_SIDE_REVIEWER
+        offering.post_message(author=erin.user, body="Zzquestion")
+        assert Notification.objects.filter(user=lead.user, trigger=CLASS_MESSAGE_TO_REVIEWERS).count() == 1
+        # ...but the only gate is the admin's, whose link decides for anyone: no landing on it.
+        response = _client(lead).get(reverse("classes:class_messages", kwargs={"pk": offering.pk}))
+        assert response.status_code == 404
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.PENDING
+
+
+def describe_a_spent_review_link_signed_out():
+    def it_shows_and_takes_nothing_once_the_class_is_published(admin_user):
+        world = _World("spent-pub")
+        assert world.gate is not None
+        world.gate.decide(ClassApproval.Decision.APPROVED, user=world.lead.user)
+        world.offering.refresh_from_db()
+        world.offering.approve(admin_user)
+        world.offering.refresh_from_db()
+        assert world.offering.status == ClassOffering.Status.PUBLISHED
+        html = Client().get(world.gate.review_path).content.decode()
+        assert 'data-thread-open="class-' not in html
+        assert "class_review_message" not in html and "/messages/" not in html
+        url = reverse("classes:class_review_message", kwargs={"token": world.gate.token})
+        assert Client().post(url, {"body": "Zzlate"}).status_code == 404
+        assert world.offering.messages.count() == 0
+
+    def it_shows_and_takes_nothing_from_a_gate_decided_in_an_earlier_round(admin_user):
+        world = _World("spent-round")
+        assert world.gate is not None
+        world.gate.decide(ClassApproval.Decision.APPROVED, user=world.lead.user)
+        world.offering.refresh_from_db()
+        admin_gate = world.offering.approvals.get(role=ClassApproval.Role.ADMIN)
+        admin_gate.decide(ClassApproval.Decision.CHANGES_REQUESTED, user=admin_user, notes="Zzfix it")
+        world.offering.refresh_from_db()
+        world.offering.submit_for_review()
+        world.gate.refresh_from_db()
+        assert world.gate.decision == ClassApproval.Decision.APPROVED
+        assert world.gate.review_cycle_is_live is False
+        assert 'data-thread-open="class-' not in Client().get(world.gate.review_path).content.decode()
+        url = reverse("classes:class_review_message", kwargs={"token": world.gate.token})
+        assert Client().post(url, {"body": "Zzlate"}).status_code == 404
+
+    def it_keeps_a_bounced_drafts_link_live_for_its_own_bounce_only():
+        world = _World("live-bounce")
+        assert world.gate is not None
+        world.gate.decide(ClassApproval.Decision.CHANGES_REQUESTED, user=world.lead.user, notes="Zzmore photos")
+        world.gate.refresh_from_db()
+        assert world.gate.review_cycle_is_live is True
+        assert "Zzmore photos" in Client().get(world.gate.review_path).content.decode()
+        url = reverse("classes:class_review_message", kwargs={"token": world.gate.token})
+        assert Client().post(url, {"body": "Zzsigned out"}).status_code == 302
+        older = ClassApproval.objects.create(
+            class_offering=world.offering,
+            role=ClassApproval.Role.ADMIN,
+            decision=ClassApproval.Decision.DENIED,
+            decided_at=world.gate.decided_at - timedelta(days=1),
+        )
+        assert older.review_cycle_is_live is False
+
+    def it_refuses_a_signed_in_member_with_no_side_even_on_an_admin_gate():
+        offering = ClassOfferingFactory(title="Zz admin gate", ready=True)
+        (gate,) = offering.submit_for_review()
+        assert gate.role == ClassApproval.Role.ADMIN
+        stranger = _person("admin-gate-x", "Out Sider")
+        assert 'data-thread-open="class-' not in _client(stranger).get(gate.review_path).content.decode()
+        url = reverse("classes:class_review_message", kwargs={"token": gate.token})
+        assert _client(stranger).post(url, {"body": "Zzhi"}).status_code == 404

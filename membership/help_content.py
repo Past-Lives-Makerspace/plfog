@@ -1001,7 +1001,7 @@ You never self-publish — every class is reviewed before it appears in the cata
 3. If your class's category belongs to a guild with a lead, that **guild lead** reviews it first.
 4. An **admin** gives the final yes. Only then does it publish.
 
-Reviewers can approve, request changes, or decline — and they have to leave a note when sending something back, so you always know what to fix. You get an email as each decision lands. Every class also has **Messages** between you and its reviewers: ask a question or answer a note there any time, without resubmitting.
+Reviewers can approve, request changes, or decline, and they have to leave a note when sending something back, so you always know what to fix. You get an email as each decision lands. Every class also has **Messages** between you and its reviewers: ask a question or answer a note there any time, without resubmitting.
 
 ## The Quality Bar {#the-quality-bar}
 
