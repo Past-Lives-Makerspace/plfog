@@ -378,6 +378,7 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
 
     now = now or timezone.now()
     run = PayoutRun()
+    refresh_unsent_due_dates(now)
     for refund_pk in list(_pending_take_backs().values_list("pk", flat=True)):
         take_back(refund_pk, now)
     for pk in list(Payout.objects.stale(now).in_current_mode().values_list("pk", flat=True)):
@@ -412,6 +413,38 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
     for pk in list(Payout.objects.to_send(now).in_current_mode().values_list("pk", flat=True)):
         _send_one(pk, now, snapshots, run)
     return run
+
+
+def refresh_unsent_due_dates(now: datetime) -> int:
+    """Re-date every PENDING share not yet due from its class, slot or reservation as they stand (#985).
+
+    A snapshot records a Stripe share as PENDING long before its class, and ``to_send`` and
+    ``stale`` read the recorded ``due_at``. A class moved later must move the send with it, or
+    Stripe pays before the class happens (and a failed send is given up and owed by hand for
+    a class not yet held). The rule is ``Earning.due_at``'s. Only a row whose recorded date is
+    still ahead of ``now`` and that Stripe never tried moves: once due, an attempt a crash rolled
+    back may have landed, and only the stale path looks that up before anything else is sent.
+    Returns how many rows moved. A fixed number of queries.
+    """
+    waiting = {
+        "payout__status": Payout.Status.PENDING,
+        "payout__attempted_at__isnull": True,
+        "payout__due_at__gt": now,
+    }
+    moved = [
+        earning
+        for earning in _earnings(
+            _registrations().filter(**waiting), _bookings().filter(**waiting), _reservations().filter(**waiting)
+        )
+        if earning.payout is not None and not earning.payout.is_settled and earning.payout.due_at != earning.due_at
+    ]
+    payouts = []
+    for earning in moved:
+        payout = cast(Payout, earning.payout)
+        payout.due_at = earning.due_at
+        payouts.append(payout)
+    Payout.objects.bulk_update(payouts, ["due_at"])
+    return len(payouts)
 
 
 def in_snapshot(when: datetime, snapshots: list[tuple[Any, Any]]) -> bool:

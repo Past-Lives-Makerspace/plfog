@@ -667,6 +667,61 @@ def describe_snapshot_binds_the_split():
         bs.connect_enabled = on
         bs.save()
 
+    def _move_class(reg: Registration, to: datetime) -> None:
+        reg.class_offering.sessions.update(starts_at=to, ends_at=to + timedelta(hours=2))
+
+    def it_sends_a_share_whose_class_moved_later_by_the_new_date_not_the_old_one():
+        _turn_on()
+        reg = _registration(_payee(), class_at=NOW + timedelta(days=5))
+        _october()
+        assert Payout.objects.get().due_at == NOW + timedelta(days=7)
+        _move_class(reg, NOW + timedelta(days=60))
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW)  # the next 15 minute tick after the move re-dates it
+            payouts.run_payouts(NOW + timedelta(days=8))  # the old date has passed
+            assert fake.transfers == []
+        payout = Payout.objects.get()
+        assert (payout.status, payout.due_at) == (Payout.Status.PENDING, NOW + timedelta(days=62))
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW + timedelta(days=63))
+        assert len(fake.transfers) == 1
+        assert Payout.objects.get().status == Payout.Status.SENT
+
+    def it_does_not_give_up_a_share_whose_class_moved_later_before_the_new_date():
+        _turn_on()
+        reg = _registration(_payee(), class_at=NOW + timedelta(days=5))
+        _october()
+        _move_class(reg, NOW + timedelta(days=60))
+        _switch(False)
+        with _Stripe(), patch("core.events.emit.emit"):
+            payouts.run_payouts(NOW)  # the next tick after the move re-dates it, payouts off or not
+            payouts.run_payouts(NOW + timedelta(days=11))  # 3 days past the old date
+        payout = Payout.objects.get()
+        assert (payout.status, payout.owed_since) == (Payout.Status.PENDING, None)
+        later = NOW + timedelta(days=66)  # 3 days past the new date, payouts still off
+        with _Stripe(), patch("core.events.emit.emit"), patch("django.utils.timezone.now", return_value=later):
+            payouts.run_payouts(later)
+        payout.refresh_from_db()
+        assert (payout.status, payout.owed_since) == (Payout.Status.OWED_MANUALLY, NOW + timedelta(days=66))
+
+    def it_keeps_the_date_of_a_share_stripe_already_tried():
+        _turn_on()
+        reg = _registration(_payee(), class_at=NOW + timedelta(days=5))
+        _october()
+        Payout.objects.update(attempted_at=NOW)
+        _move_class(reg, NOW + timedelta(days=60))
+        assert payouts.refresh_unsent_due_dates(NOW) == 0
+        assert Payout.objects.get().due_at == NOW + timedelta(days=7)
+
+    def it_keeps_the_date_of_a_share_already_due_by_its_recorded_date():
+        _turn_on()
+        reg = _registration(_payee(), class_at=NOW + timedelta(days=5))
+        _october()
+        _move_class(reg, NOW + timedelta(days=60))
+        # Past the recorded date a crash may have rolled back an attempt that landed; leave it to the stale lookup.
+        assert payouts.refresh_unsent_due_dates(NOW + timedelta(days=8)) == 0
+        assert Payout.objects.get().due_at == NOW + timedelta(days=7)
+
     def it_still_sends_a_share_counted_as_stripe_once_after_the_switch_goes_off_and_on():
         _turn_on()
         instructor = _payee()
