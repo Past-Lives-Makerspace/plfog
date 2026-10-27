@@ -5,13 +5,13 @@ New orientation request for {{ owner_name }}
 {% if orientation_type %}  Orientation: {{ orientation_type.name }}
 {% endif %}  When: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}
 {% if slot.location %}  Where: {{ slot.location }}
-{% endif %}{% if booking.member_note %}  Note: {{ booking.member_note }}
+{% endif %}{% if member_message %}  Note: {{ member_message.body }}
 {% endif %}
 Quick actions (no login needed):
   Confirm: {{ confirm_url }}
   Decline: {{ decline_url }}
 
-Or respond on the hub (suggest another time, see details):
+Or respond on the hub (suggest another time, write back, see details):
 {{ respond_url }}
 
 The {{ owner_page_label }}: {{ owner_url }}

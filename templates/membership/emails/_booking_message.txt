@@ -1,0 +1,3 @@
+A note from {{ message.author_name }}:
+{{ message.body }}
+Reply in the app: {{ messages_url }}

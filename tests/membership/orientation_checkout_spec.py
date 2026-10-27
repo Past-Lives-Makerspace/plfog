@@ -62,7 +62,7 @@ def describe_start_orientation_checkout():
         # never-paid hold can never render as a paid row anywhere.
         assert hold.amount_paid_cents == 0
         assert hold.stripe_session_id == "cs_test_1"
-        assert hold.member_note == "hi"
+        assert [(m.body, m.author_id) for m in hold.thread()] == [("hi", member.user_id)]
         # Nothing has happened yet: no emails, no activity, no notifications.
         assert mail.outbox == []
         assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_REQUESTED).exists()

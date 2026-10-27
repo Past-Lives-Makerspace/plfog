@@ -202,7 +202,9 @@ def describe_decline_orientation():
 
         booking.refresh_from_db()
         assert booking.status == OrientationBooking.Status.DECLINED
-        assert booking.lead_note == "try next month"
+        [message] = booking.thread()
+        assert (message.body, message.author_id, message.is_from_staff) == ("try next month", None, True)
+        assert "try next month" in mail.outbox[0].body
         assert mail.outbox[0].to == [member.primary_email]
         assert mail.outbox[0].attachments == []
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_DECLINED).exists()

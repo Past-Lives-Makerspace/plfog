@@ -1,10 +1,12 @@
 {% comment %}
 A member's live state on one orientation type (#502): the checkout hold (Payment pending,
 Resume payment, Cancel) or the booking (Requested or Confirmed, when and where, Cancel my
-orientation, plus Accept and Keep for a new time the guild asked for, #853), with their confirm modals. One copy for the guild page, the equipment page
+orientation, plus Accept and Keep for a new time the guild asked for, #853, and the booking's Messages,
+the shared thread with the Orientors), with their confirm modals. One copy for the guild page, the equipment page
 and the Orientations page card, so the three never drift. Context:
-  sec      — a section from hub.views._orientation_sections (type, hold, booking,
-             late_cancel_warning); renders nothing unless sec.hold or sec.booking is set
+  sec      — a section from hub.views._orientation_sections (type, hold, booking loaded with
+             its thread, message_form, late_cancel_warning); renders nothing unless
+             sec.hold or sec.booking is set
   next_url — optional local path the cancel forms post as ``next`` (the Orientations page
              passes its own, so the member lands back on it); empty lands on the owner page
 Both owner wordings come from sec.type.is_equipment_owned.
@@ -71,6 +73,23 @@ Both owner wordings come from sec.type.is_equipment_owned.
   </div>
 </div>
 {% endif %}
+{% with thread=sec.booking.thread pk_str=sec.booking.pk|stringformat:"s" %}
+{# The booking's messages with the Orientors (components/thread.html); ?messages=<pk> reopens it after Send. #}
+<details class="pl-disclosure pl-thread-fold" data-thread-open="{{ sec.booking.pk }}">
+  <summary class="pl-disclosure__summary">
+    <span class="pl-disclosure__text">
+      <span class="pl-disclosure__title">Messages{% if thread %} ({{ thread|length }}){% endif %}</span>
+      <span class="pl-disclosure__hint">{% if thread %}Your conversation with the Orientors. Tap to open.{% else %}Questions for the Orientors? Write to them here.{% endif %}</span>
+    </span>
+    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+  </summary>
+  <div class="pl-disclosure__body">
+    {% include "components/thread.html" with thread_messages=thread viewer_is_staff=False thread_key="booking-"|add:pk_str thread_empty="No messages yet." %}
+    {% url 'hub_orientation_message' sec.booking.pk as message_url %}
+    {% include "components/thread_composer.html" with thread_form=sec.message_form thread_action=message_url thread_next=next_url|default:request.get_full_path thread_body_label="Write to the Orientors" thread_note="The Orientors get a notification." thread_button="Send" %}
+  </div>
+</details>
+{% endwith %}
 <div class="pl-orient-card__actions">
   <button type="button" class="hub-btn hub-btn--sm hub-btn--danger" data-help-key="orientation.cancel-booking" @click="$dispatch('open-confirm', 'cancel-my-orientation-{{ sec.booking.pk }}')">Cancel my orientation</button>
 </div>

@@ -55,6 +55,7 @@ from PIL import UnidentifiedImageError
 from core.files import delete_orphan_on_replace
 from core.images import cut_hero_crop, image_upload_refusal, normalize_field_if_uploaded
 from core.models import HERO_CROP_FIELDS, AutomationAction, EventDelivery, HeroCropMixin, StaffRequestMixin
+from core.threads import ThreadMessage, ThreadPhoto
 from core.urls_util import member_absolute_url
 from core.phone import phone_tel_number
 from core.validators import (
@@ -15840,7 +15841,9 @@ class OrientationSlot(models.Model):
 
         Args:
             member: The member requesting the orientation.
-            note: Optional free-text note the member adds.
+            note: Optional free-text note the member adds; it becomes the first message on the
+                booking's thread, written as the member, telling nobody (the request's own
+                notice carries it).
             by_staff: A staffer is seating this member by hand — see
                 :meth:`ensure_bookable_for` for the one guard that relaxes.
 
@@ -15852,13 +15855,14 @@ class OrientationSlot(models.Model):
                 completed or already has a live booking for this slot's orientation type.
         """
         self.ensure_bookable_for(member, by_staff=by_staff)
-        return OrientationBooking.objects.create(
+        booking = OrientationBooking.objects.create(
             slot=self,
             guild=self.guild,
             orientation_type=self.orientation_type,
             member=member,
-            member_note=note,
         )
+        booking.write_message(author=member.user, body=note)
+        return booking
 
     def mark_cancelled(self, *, reason: str = "") -> None:
         """Flip the slot's own cancel state without touching its bookings.
@@ -15922,6 +15926,15 @@ class OrientationBookingQuerySet(models.QuerySet):
     def completed(self) -> OrientationBookingQuerySet:
         return self.filter(is_completed=True)
 
+    def with_thread(self) -> OrientationBookingQuerySet:
+        """Load each booking's messages, their authors' names and photos in three queries, whatever the count."""
+        return self.select_related("member", "orientation_type__guild", "orientation_type__equipment").prefetch_related(
+            Prefetch(
+                "messages",
+                queryset=OrientationBookingMessage.objects.select_related("author__member").prefetch_related("photos"),
+            )
+        )
+
 
 class OrientationBooking(models.Model):
     """A member's orientation request and, once it happens, the orientation record.
@@ -15977,8 +15990,6 @@ class OrientationBooking(models.Model):
         related_name="orientations_given",
         help_text="Who gave the orientation.",
     )
-    member_note = models.TextField(blank=True, default="", help_text="Optional note from the member when requesting.")
-    lead_note = models.TextField(blank=True, default="", help_text="Note from the lead when declining or following up.")
     amount_paid_cents = models.PositiveIntegerField(
         default=0,
         help_text=(
@@ -16087,14 +16098,13 @@ class OrientationBooking(models.Model):
         self.oriented_by = oriented_by or self.slot.orienter or self.orientation_type.default_runner()
         self.save(update_fields=["status", "confirmed_at", "oriented_by"])
 
-    def decline(self, *, note: str = "") -> None:
-        """Turn down the request, optionally with a note for the member. Clears any open proposal."""
+    def decline(self) -> None:
+        """Turn down the request. Clears any open proposal. A note for the member is a message on its thread."""
         self._refuse_checkout_hold()
         self.status = self.Status.DECLINED
         self.declined_at = timezone.now()
-        self.lead_note = note
         self._drop_proposal()
-        self.save(update_fields=["status", "declined_at", "lead_note", *self.PROPOSAL_FIELDS])
+        self.save(update_fields=["status", "declined_at", *self.PROPOSAL_FIELDS])
 
     def cancel(self) -> None:
         """Cancel the booking, freeing its seat. Clears any open proposal."""
@@ -16289,6 +16299,178 @@ class OrientationBooking(models.Model):
         from billing.refunds import issue_refund
 
         return issue_refund(self, amount_cents=amount_cents, reason=reason, actor=actor)
+
+    # --- The booking's messages (the shared thread, core.threads) -------------------------
+
+    @property
+    def member_messages_url(self) -> str:
+        """The member's page for this booking and its messages: where a message to them links."""
+        return reverse("hub_orientation_booking", args=[self.pk])
+
+    @property
+    def staff_messages_url(self) -> str:
+        """The request page's Messages card: where a message to the orientors links."""
+        return f"{reverse('hub_orientation_respond', args=[self.pk])}#messages"
+
+    def thread(self) -> list[OrientationBookingMessage]:
+        """Every message on this booking, oldest first (reads a ``prefetch_related`` of ``messages``)."""
+        return list(self.messages.all())
+
+    def latest_message(self, *, from_staff: bool) -> OrientationBookingMessage | None:
+        """The newest message from one side, or ``None``: what an email shows as the note."""
+        side = [message for message in self.thread() if message.is_from_staff == from_staff]
+        return side[-1] if side else None
+
+    def post_message(self, *, author: User, body: str, photos: Sequence[Any] = ()) -> OrientationBookingMessage:
+        """Post a message on this booking's thread and tell the other side, every time.
+
+        The member writing tells the orientors (:meth:`OrientationBookingMessage.orientor_user_ids`);
+        anyone else writing is the guild (or the equipment's managers) and tells the member.
+        """
+        return OrientationBookingMessage.post(author=author, body=body, photos=list(photos), booking=self)
+
+    def write_message(self, *, author: User | None, body: str) -> OrientationBookingMessage | None:
+        """Save a message that rides on another notice (a request's note, a decline's note); tells nobody.
+
+        Blank text writes nothing and returns ``None``, so an optional note left empty adds no message.
+        """
+        if not body.strip():
+            return None
+        return OrientationBookingMessage.write(author=author, body=body, booking=self)
+
+
+class OrientationBookingMessage(ThreadMessage):
+    """One message on an :class:`OrientationBooking`'s thread, between the member and its orientors.
+
+    The member side is the booking's member; the staff side is whoever may run the booking: the
+    audience ``orientation_requested`` reaches (a guild's leadership or orienter, an equipment's
+    managers) and admins. A note carried over from the old ``lead_note`` has no author and signs
+    as the guild or the equipment (:attr:`staff_signature`).
+    """
+
+    booking = models.ForeignKey(
+        OrientationBooking,
+        on_delete=models.CASCADE,
+        related_name="messages",
+        help_text="The booking this message is on.",
+    )
+
+    class Meta(ThreadMessage.Meta):
+        pass
+
+    def __str__(self) -> str:
+        return f"Message {self.pk} on orientation booking {self.booking_id}"
+
+    @property
+    def member_user_id(self) -> int | None:
+        return self.booking.member.user_id
+
+    @property
+    def member_side_name(self) -> str:
+        return self.booking.member.display_name
+
+    @property
+    def staff_signature(self) -> str:
+        return self.booking.orientation_type.owner_name
+
+    def orientor_user_ids(self) -> set[int]:
+        """Who a member's message reaches: the request's audience, plus staff who wrote here, minus the author.
+
+        The audience is the ``orientation_requested`` resolver's (a guild's shared slot reaches
+        its whole leadership, a personal slot its orienter and the lead, equipment its managers).
+        Anyone else on the staff side who has written on this thread (an admin, say) hears the
+        answer to what they wrote.
+        """
+        from core.events.resolvers import guild_orienters_or_equipment_managers
+        from membership.orientations import request_resolver_context
+
+        booking = self.booking
+        audience = {user.pk for user, _reason in guild_orienters_or_equipment_managers(request_resolver_context(booking))}
+        writers = {
+            message.author_id
+            for message in booking.messages.exclude(pk=self.pk)
+            if message.author_id is not None and message.is_from_staff
+        }
+        return (audience | writers) - {self.author_id}
+
+    def _tell_member_side(self) -> bool:
+        """A staff message: tell the booking's member (no account, nobody to tell)."""
+        from core.events.emit import emit
+        from core.events.registry import ORIENTATION_MESSAGE_TO_MEMBER
+
+        booking = self.booking
+        user = booking.member.user
+        if user is None:
+            return False
+        emit(
+            ORIENTATION_MESSAGE_TO_MEMBER,
+            actor=self.author,
+            target=booking,
+            context={
+                "user": user,
+                "author_name": self.author_name,
+                "owner_name": booking.orientation_type.owner_name,
+                "orientation_name": booking.orientation_type.name,
+                "message_body": self.body,
+                "booking_url": member_absolute_url(booking.member_messages_url),
+            },
+            url=booking.member_messages_url,
+            period=f"orientation-message-{self.pk}",
+        )
+        return True
+
+    def _tell_staff_side(self) -> bool:
+        """The member's message: tell the orientors (:meth:`orientor_user_ids`)."""
+        from core.events.emit import emit
+        from core.events.registry import ORIENTATION_MESSAGE_TO_ORIENTORS
+
+        booking = self.booking
+        recipient_ids = self.orientor_user_ids()
+        if not recipient_ids:
+            return False
+        emit(
+            ORIENTATION_MESSAGE_TO_ORIENTORS,
+            actor=self.author,
+            target=booking,
+            context={
+                "member_name": booking.member.display_name,
+                "owner_name": booking.orientation_type.owner_name,
+                "orientation_name": booking.orientation_type.name,
+                "message_body": self.body,
+                "booking_url": member_absolute_url(booking.staff_messages_url),
+            },
+            url=booking.staff_messages_url,
+            period=f"orientation-message-{self.pk}",
+            recipient_user_ids=recipient_ids,
+        )
+        return True
+
+    def told_sentence(self) -> str:
+        if not self.notified:
+            return ""
+        if self.is_from_staff:
+            return f" {self.booking.member.display_name} was notified."
+        return f" The orientors for {self.booking.orientation_type.owner_name} were notified."
+
+
+class OrientationBookingMessagePhoto(ThreadPhoto):
+    """One photo posted with an :class:`OrientationBookingMessage`."""
+
+    message = models.ForeignKey(
+        OrientationBookingMessage,
+        on_delete=models.CASCADE,
+        related_name="photos",
+        help_text="The message this photo was posted with.",
+    )
+    image = models.ImageField(
+        upload_to="orientation-messages/%Y/%m/", help_text="The uploaded photo, on the default storage."
+    )
+
+    class Meta(ThreadPhoto.Meta):
+        pass
+
+    def __str__(self) -> str:
+        return f"Photo {self.pk} on orientation message {self.message_id}"
 
 
 class OrientationRecordQuerySet(models.QuerySet):

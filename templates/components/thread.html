@@ -1,0 +1,34 @@
+{% comment %}
+A conversation thread (core.threads): every message oldest first, the same look on every domain.
+The viewer's own side is drawn as "mine" and sits right: the member side's messages for a member
+(viewer_is_staff False), the staff side's for the staff (viewer_is_staff True); a member sees their
+own as "You". A staff message signs with its author's name and the thread's signature as a tag, or
+with the signature alone when it has no author (a carried over note).
+
+Context: thread_messages (ThreadMessage rows, loaded with their photos and authors), viewer_is_staff,
+thread_key (a short id, e.g. "booking-12", for the page script and specs), thread_empty (the line shown
+with no messages yet).
+{% endcomment %}
+<div class="pl-thread-wrap" data-thread="{{ thread_key }}">
+  {% if thread_messages %}
+  <ol class="pl-thread">
+    {% for message in thread_messages %}
+    <li class="pl-thread-msg{% if message.is_from_staff == viewer_is_staff %} pl-thread-msg--mine{% endif %}" data-thread-message="{{ message.pk }}" data-from="{% if message.is_from_staff %}staff{% else %}member{% endif %}">
+      <div class="pl-thread-msg__who"><strong>{% if not message.is_from_staff and not viewer_is_staff %}You{% else %}{{ message.author_name }}{% endif %}</strong>{% if message.shows_staff_tag %}<span class="pl-thread-msg__role">{{ message.staff_signature }}</span>{% endif %}<span>{{ message.created_at|date:"D, M j · g:i a" }}</span></div>
+      <div class="pl-thread-msg__body">{{ message.body|linebreaksbr }}</div>
+      {% with photos=message.thread_photos %}
+      {% if photos %}
+      <div class="pl-thread-photos pl-thread-msg__photos">
+        {% for photo in photos %}
+        <a href="{{ photo.image.url }}" target="_blank" rel="noopener" hx-boost="false" class="pl-thread-photos__item"><img src="{{ photo.image.url }}" alt="Photo {{ forloop.counter }} with this message" loading="lazy"></a>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endwith %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="pl-thread__empty" data-thread-empty>{{ thread_empty }}</p>
+  {% endif %}
+</div>

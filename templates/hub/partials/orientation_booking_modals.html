@@ -15,12 +15,12 @@ Stripe. Context: booking_rows, bookings_next.
 {% endwith %}
 {% if b.amount_paid_cents %}
 {% with price=b.amount_paid_cents|cents_as_price %}
-{% with decline_message="We'll email "|add:name|add:" and include your note. Their "|add:price|add:" is refunded automatically." %}
+{% with decline_message="We'll email "|add:name|add:" and include your note, which also goes in the booking's messages. Their "|add:price|add:" is refunded automatically." %}
 {% include "components/confirm_modal.html" with confirm_id="booking-decline-"|add:pk confirm_title="Decline This Request?" confirm_message=decline_message confirm_action_url=respond_url confirm_field_name="action" confirm_field_value="decline" confirm_next=bookings_next confirm_note_name="note" confirm_note_label="Note (optional)" confirm_note_placeholder="Suggest another time" confirm_button_text="Decline" %}
 {% endwith %}
 {% endwith %}
 {% else %}
-{% with decline_message="We'll email "|add:name|add:" and include your note." %}
+{% with decline_message="We'll email "|add:name|add:" and include your note, which also goes in the booking's messages." %}
 {% include "components/confirm_modal.html" with confirm_id="booking-decline-"|add:pk confirm_title="Decline This Request?" confirm_message=decline_message confirm_action_url=respond_url confirm_field_name="action" confirm_field_value="decline" confirm_next=bookings_next confirm_note_name="note" confirm_note_label="Note (optional)" confirm_note_placeholder="Suggest another time" confirm_button_text="Decline" %}
 {% endwith %}
 {% endif %}

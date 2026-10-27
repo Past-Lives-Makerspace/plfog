@@ -152,7 +152,12 @@ def describe_OrientationSlot():
             assert booking.status == OrientationBooking.Status.REQUESTED
             assert booking.member == member
             assert booking.guild_id == slot.guild_id
-            assert booking.member_note == "excited!"
+            [message] = booking.thread()
+            assert (message.body, message.author_id, message.is_from_staff) == ("excited!", member.user_id, False)
+
+        def it_writes_no_message_without_a_note():
+            booking = OrientationSlotFactory().book(MemberFactory(), note="   ")
+            assert booking.thread() == []
 
         def it_raises_when_the_slot_is_not_bookable():
             slot = OrientationSlotFactory(enabled_settings=False)
@@ -246,12 +251,11 @@ def describe_OrientationBooking():
             assert booking.oriented_by == giver
 
     def describe_decline():
-        def it_sets_declined_status_and_note():
+        def it_sets_declined_status_and_timestamp():
             booking = OrientationBookingFactory()
-            booking.decline(note="try next week")
+            booking.decline()
             assert booking.status == OrientationBooking.Status.DECLINED
             assert booking.declined_at is not None
-            assert booking.lead_note == "try next week"
 
     def describe_cancel():
         def it_sets_cancelled_status_and_timestamp():

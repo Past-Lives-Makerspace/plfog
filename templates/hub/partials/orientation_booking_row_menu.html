@@ -2,13 +2,15 @@
 Menu items for one Bookings tab row (#626), rendered inside components/row_actions.html, so it
 reads row (a hub.orientation_bookings.BookingRow) from the table loop. Every item shows only
 when the row's flag says its endpoint would take it. Staff rows (row.can_manage) get the staff
-menu in groups (Look, Reply and Move, Oriented, Money, Stop) with a divider only between non empty
-groups; the viewer's own row elsewhere gets the member menu. Confirms open the row's modal in
+menu in groups (Look, which holds Messages, Reply and Move, Oriented, Money, Stop) with a divider only between non empty
+groups; the viewer's own row elsewhere gets the member menu,
+whose Messages opens the member's booking page. Confirms open the row's modal in
 orientation_booking_modals.html; the refunds load their form into the shared refund modal.
 {% endcomment %}
 {% with b=row.booking pk=row.booking.pk|stringformat:"s" %}
 {% if row.can_manage %}
 <a href="{% url 'hub_orientation_respond' b.pk %}" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">View Request</a>
+<a href="{% url 'hub_orientation_respond' b.pk %}?messages={{ b.pk }}#messages" class="pl-row-menu__item" role="menuitem" data-booking-messages="{{ pk }}" @click="closeAndRefocus()">Messages</a>
 {% if row.can_email %}
 <a href="mailto:{{ b.member.primary_email }}" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">Email Member</a>
 {% endif %}
@@ -56,6 +58,7 @@ orientation_booking_modals.html; the refunds load their form into the shared ref
 {% endif %}
 {% elif row.is_own %}
 <a href="{{ b.orientation_type.orientation_anchor_path }}" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">View Orientation</a>
+<a href="{% url 'hub_orientation_booking' b.pk %}" class="pl-row-menu__item" role="menuitem" data-booking-messages="{{ pk }}" @click="closeAndRefocus()">Messages</a>
 {% if row.can_finish_paying %}
 {# Unboosted: it answers with a redirect to Stripe Checkout. #}
 <form method="post" action="{% url 'hub_orientation_checkout_resume' b.pk %}" hx-boost="false" class="pl-bookings-menu-form">

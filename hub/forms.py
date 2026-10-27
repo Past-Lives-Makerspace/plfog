@@ -959,6 +959,33 @@ class BetaFeedbackForm(forms.Form):
         )
 
 
+class ThreadMessageForm(forms.Form):
+    """One message on a shared thread (``core.threads``), with photos, from either side.
+
+    The photos take the Feedback form's field and caps. A page that shows several threads
+    passes an ``auto_id`` per thread so each composer's ids stay apart.
+    """
+
+    body = forms.CharField(label="Message", widget=forms.Textarea(attrs={"rows": 3}))
+    photos = MultiplePhotoField(
+        required=False,
+        label="Photos (optional)",
+        widget=MultiplePhotoInput(attrs={"accept": "image/*"}),
+    )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["photos"].help_text = feedback_photos_help()
+
+    def clean_photos(self) -> list[UploadedFile]:
+        """Enforce the photo count and combined-size caps with plain messages."""
+        return clean_feedback_photos(self.cleaned_data["photos"])
+
+    def error_summary(self) -> str:
+        """Every error as one sentence run, for a page that redirects with a message."""
+        return " ".join(str(message) for messages in self.errors.values() for message in messages)
+
+
 class FeedbackCommentForm(forms.Form):
     """One comment on a feedback request's thread, with photos, from the sender or an admin.
 
@@ -4583,7 +4610,7 @@ class OrientationCustomRequestForm(forms.Form):
 
 
 class OrientationMoveForm(forms.Form):
-    """Move a booking to another time (#853): a date, a half hour start, and how it moves.
+    """Move a booking to another time (#853): a date, a half hour start, how it moves, and a message.
 
     The start is a half hour ``<select>`` (Rule 20) beside a date input; ``clean`` joins them
     in the site timezone as ``cleaned_data["starts_at"]`` and refuses a time already past.
@@ -4617,6 +4644,13 @@ class OrientationMoveForm(forms.Form):
             "required": "Pick Move it now or Ask the member first.",
             "invalid_choice": "Pick Move it now or Ask the member first.",
         },
+    )
+
+    message = forms.CharField(
+        required=False,
+        label="Message to the member (optional)",
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Posted to the booking's messages and included in the email about the new time.",
     )
 
     def __init__(self, *args: Any, booking: OrientationBooking | None = None, **kwargs: Any) -> None:

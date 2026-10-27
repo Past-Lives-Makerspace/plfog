@@ -551,6 +551,8 @@ FEEDBACK_REQUEST_LIVE = "feedback.request_live"  # a release listing your reques
 FEEDBACK_REQUEST_UPDATED = "feedback.request_updated"  # your feature request or bug report moved, or got a note (#693)
 FEEDBACK_COMMENT_ADDED = "feedback.comment_added"  # Past Lives wrote on a request you sent
 FEEDBACK_MEMBER_REPLIED = "feedback.member_replied"  # a sender wrote back on their request (the Webmasters)
+ORIENTATION_MESSAGE_TO_MEMBER = "orientation.message_to_member"  # an orientor wrote on your orientation booking
+ORIENTATION_MESSAGE_TO_ORIENTORS = "orientation.message_to_orientors"  # a member wrote on their orientation booking
 KILN_CREW_REPLIED = "kiln.crew_replied"  # the kiln crew wrote on your kiln ticket (#691)
 KILN_MAKER_REPLIED = "kiln.maker_replied"  # a maker wrote on a kiln ticket (the kiln crew, #691)
 KILN_READY_FOR_PICKUP = "kiln.ready_for_pickup"  # your pieces came out of a firing (#691 part 3)
@@ -1556,6 +1558,33 @@ _NEW_EVENTS: list[EventType] = [
         description="A member wrote back on a feature request, bug report or feedback they sent. Goes to the Webmasters.",
         category="Your requests",
         recipient=Recipients.WEBMASTERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # orientation.message_to_member — someone on the staff side (an orientor, a manager of the
+    # equipment, an admin) posted a message on a member's orientation booking (the shared
+    # thread, core.threads). A message written with another action that already tells the
+    # member (a decline note, a move or proposal message) rides in that action's email and
+    # never fires this. The period is the message. No activity row: the thread is the record.
+    EventType(
+        key=ORIENTATION_MESSAGE_TO_MEMBER,
+        label="Messages about your orientation",
+        description="An Orientor wrote on one of your orientation bookings.",
+        category="Orientations",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # orientation.message_to_orientors — a member posted a message on their orientation booking.
+    # Goes to the audience orientation_requested reaches, plus anyone on the staff side who has
+    # written on that booking; the sender passes that set minus the author. The period is the
+    # message. No activity row: the thread is the record.
+    EventType(
+        key=ORIENTATION_MESSAGE_TO_ORIENTORS,
+        label="Messages on orientation bookings",
+        description="A member wrote on an orientation booking you run.",
+        category="Orientations",
+        recipient=Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

@@ -1,0 +1,16 @@
+{% comment %}
+The box under a thread (core.threads): the message, photos through the shared drop zone
+(components/thread_photos_field.html) and a Send button guarded against a double submit
+(components/busy_submit.html, included once per page with components/thread_script.html). Sending
+always tells the other side; the note beside the button says who.
+
+Context: thread_form (a hub.forms.ThreadMessageForm), thread_action (the POST url), thread_next (a
+local path to land back on, or ""), thread_body_label, thread_note (who hears it), thread_button.
+{% endcomment %}
+<form method="post" action="{{ thread_action }}" enctype="multipart/form-data" class="pl-thread-reply" data-thread-reply data-pl-busy-submit data-pl-busy-label="Sending...">
+  {% csrf_token %}
+  {% if thread_next %}<input type="hidden" name="next" value="{{ thread_next }}">{% endif %}
+  {% include "components/form_field.html" with field=thread_form.body field_label=thread_body_label field_hint_off=True %}
+  {% include "components/thread_photos_field.html" with field=thread_form.photos %}
+  <div class="pl-thread-reply__row"><span class="pl-thread-reply__note">{{ thread_note }}</span><button type="submit" class="hub-btn hub-btn--primary" data-thread-send data-pl-busy>{{ thread_button }}</button></div>
+</form>

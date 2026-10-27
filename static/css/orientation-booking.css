@@ -1,0 +1,15 @@
+/* An orientation booking's pages: the member's page for one booking (hub/orientation_booking.html,
+   its card and its Messages card) and the Messages card on the leader's request page
+   (hub/orientation_respond.html). The thread itself is thread.css. */
+.pl-orient-booking__back { margin-bottom: 1rem; }
+.pl-orient-booking__card { margin-top: 1.5rem; }
+.pl-orient-booking__title { font-size: 1.05rem; }
+.pl-orient-booking__when { margin-top: 0.5rem; }
+.pl-orient-booking__status { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+.pl-orient-booking__manage { margin-top: 0.75rem; font-size: 0.875rem; color: var(--hub-text-muted); }
+@media (max-width: 640px) {
+    .pl-orient-booking__card { padding: 1.25rem; }
+}
+
+/* The request page's Messages card, matching its other cards' padding and gap. */
+.pl-orient-respond-messages { padding: 1.5rem; margin-bottom: 1.5rem; }

@@ -41,6 +41,7 @@ if TYPE_CHECKING:
         OrientationAvailability,
         OrientationAvailabilityBlock,
         OrientationBooking,
+        OrientationBookingMessage,
         OrientationSlot,
         OrientationType,
     )
@@ -220,6 +221,8 @@ def _context(booking: OrientationBooking, **extra: Any) -> dict[str, Any]:
         "owner_url": booking.orientation_type.owner_page_url(),
         "owner_page_label": "equipment page" if booking.orientation_type.is_equipment_owned else "guild page",
         "cancel_url": _action_url(booking, "cancel", recipient=member),
+        # The member's booking page, where they read and answer the booking's messages.
+        "messages_url": _absolute_url(booking.member_messages_url),
         # The cancelled email's guarded fee block (#456): the row and its page, set by cancel_orientation.
         "late_fee": None,
         "late_fee_pay_url": "",
@@ -607,13 +610,15 @@ def start_orientation_checkout(
         # amount_paid_cents stays 0 until money is actually in hand — the finalize
         # step stamps it from the session's amount_total. A provisional amount here
         # would make never-paid holds render as paid rows in staff surfaces.
-        return OrientationBooking.objects.create(
+        hold = OrientationBooking.objects.create(
             slot=slot,
             guild=slot.guild,
             member=member,
-            member_note=note,
             status=OrientationBooking.Status.PENDING_PAYMENT,
         )
+        # The note is the thread's first message; the request email carries it once paid.
+        hold.write_message(author=member.user, body=note)
+        return hold
 
     # The Equipment row locks cover ONLY the guard and the hold: they are committed
     # before the Stripe round trip below, never held across it (a lock held over
@@ -987,8 +992,11 @@ def _refund_if_paid(booking: OrientationBooking, *, actor: User | None) -> None:
         )
 
 
-def _request_resolver_context(booking: OrientationBooking) -> dict[str, Any]:
+def request_resolver_context(booking: OrientationBooking) -> dict[str, Any]:
     """The ``orientation_requested`` resolver context, keyed by the booking's owner type.
+
+    Public because a member's message on the booking reaches the same audience
+    (:meth:`membership.models.OrientationBookingMessage.orientor_user_ids`).
 
     Equipment-owned routes via the composed resolver's equipment leg
     (:func:`core.events.resolvers.guild_orienters_or_equipment_managers`);
@@ -1022,13 +1030,15 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
         primary_responder = booking.slot.orienter if booking.slot.orienter_id is not None else guild.guild_lead
     ctx = _context(
         booking,
+        # The member's newest message: the request's note, shown as the email's Note line.
+        member_message=booking.latest_message(from_staff=False),
         respond_url=_absolute_url(reverse("hub_orientation_respond", args=[booking.pk])),
         confirm_url=_action_url(booking, "confirm", recipient=primary_responder),
         decline_url=_action_url(booking, "decline", recipient=primary_responder),
     )
     emit_with_email_shell(
         "orientation_requested",
-        context=_request_resolver_context(booking),
+        context=request_resolver_context(booking),
         subject=f"New orientation request — {booking.orientation_type.owner_name}",
         text_template="membership/emails/orientation_lead_request.txt",
         html_template="membership/emails/orientation_lead_request.html",
@@ -1069,8 +1079,12 @@ def decline_orientation(booking: OrientationBooking, *, note: str = "", actor: U
 
     ``actor`` attributes the automatic refund (the acting user for authenticated
     declines; the token recipient's user for email-link declines; ``None`` = System).
+    A ``note`` is posted on the booking's thread as ``actor``'s message in the same
+    transaction, and the decline email carries it: one notice, never a second one.
     """
-    booking.decline(note=note)
+    with transaction.atomic():
+        booking.decline()
+        decline_message = booking.write_message(author=actor, body=note)
     _refund_if_paid(booking, actor=actor)
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_DECLINED, actor=None, target=booking)
     _emit_member_email(
@@ -1078,6 +1092,7 @@ def decline_orientation(booking: OrientationBooking, *, note: str = "", actor: U
         action="decline",
         subject=f"About your orientation request — {booking.orientation_type.owner_name}",
         template="orientation_declined",
+        extra_context={"decline_message": decline_message},
         ics=None,
         in_app_title="Orientation not confirmed",
         in_app_body=f"Your orientation request for {booking.orientation_type.owner_name} couldn't be confirmed.",
@@ -1134,7 +1149,7 @@ def cancel_orientation(
     # every leader who never touched the page.
     emit(
         "orientation_requested",
-        context=_request_resolver_context(booking),
+        context=request_resolver_context(booking),
         title="Orientation cancelled",
         body=f"{actor_label} cancelled the orientation for {booking.orientation_type.owner_name}.",
         url=reverse("hub_orientation_respond", args=[booking.pk]),
@@ -1215,8 +1230,13 @@ def _move_locked(locked: OrientationBooking, starts_at: datetime, *, oriented_by
     return old_slot.starts_at
 
 
-def _emit_moved(booking: OrientationBooking, old_starts_at: datetime) -> None:
-    """Email the member that their orientation moved: old and new time, an updated invite, the cancel link."""
+def _emit_moved(
+    booking: OrientationBooking, old_starts_at: datetime, *, message: OrientationBookingMessage | None = None
+) -> None:
+    """Email the member that their orientation moved: old and new time, an updated invite, the cancel link.
+
+    ``message`` is the leader's message posted with the move, shown in the email.
+    """
     owner_name = booking.orientation_type.owner_name
     _emit_member_email(
         booking,
@@ -1224,20 +1244,23 @@ def _emit_moved(booking: OrientationBooking, old_starts_at: datetime) -> None:
         action=f"move:{booking.slot_id}",
         subject=f"Your {owner_name} orientation has a new time",
         template="orientation_moved",
-        extra_context={"old_starts_at": old_starts_at},
+        extra_context={"old_starts_at": old_starts_at, "move_message": message},
         ics=_ics(booking, method="REQUEST", status="CONFIRMED"),
         in_app_title="Your orientation moved",
         in_app_body=f"Your orientation for {owner_name} is now {_when(booking.slot.starts_at)}.",
     )
 
 
-def move_orientation(booking: OrientationBooking, starts_at: datetime, *, actor: Member | None) -> OrientationBooking:
+def move_orientation(
+    booking: OrientationBooking, starts_at: datetime, *, actor: Member | None, message: str = ""
+) -> OrientationBooking:
     """Move It Now: put ``booking`` at ``starts_at``, confirmed, and email the member.
 
     Decides on the row-locked booking, so a cancel that landed first is refused, and the
     email goes out only once the move has committed. The payment stays with the booking:
     nothing is refunded or charged, and a later cancel by the member never carries a late
-    fee (:attr:`OrientationBooking.moved_by_guild`).
+    fee (:attr:`OrientationBooking.moved_by_guild`). A ``message`` is posted on the
+    booking's thread as the leader's in the same transaction and rides in the moved email.
 
     Returns:
         The moved booking, as saved.
@@ -1248,19 +1271,27 @@ def move_orientation(booking: OrientationBooking, starts_at: datetime, *, actor:
     with transaction.atomic():
         locked = _locked_booking(booking)
         old_starts_at = _move_locked(locked, starts_at, oriented_by=actor)
-    _emit_moved(locked, old_starts_at)
+        written = locked.write_message(author=_user_of(actor), body=message)
+    _emit_moved(locked, old_starts_at, message=written)
     return locked
 
 
+def _user_of(member: Member | None) -> User | None:
+    """The account a leader's message is written as, or ``None`` (it then signs as the guild)."""
+    return member.user if member is not None else None
+
+
 def propose_orientation_time(
-    booking: OrientationBooking, starts_at: datetime, *, actor: Member | None
+    booking: OrientationBooking, starts_at: datetime, *, actor: Member | None, message: str = ""
 ) -> OrientationBooking:
     """Ask the Member First: record ``starts_at`` as a proposal and email the member Accept and Keep.
 
     The booking keeps its time and status until the member answers; a new proposal replaces
     an open one (and its links go stale). Decides on the row-locked booking, so a booking
     cancelled first gets no proposal and no email. The email links work without signing in,
-    and the member's booking card shows the same two buttons.
+    and the member's booking card shows the same two buttons, beside the booking's messages,
+    where the member can also answer in words. A ``message`` is posted on the thread as the
+    leader's in the same transaction and rides in the proposal email: one notice.
 
     Returns:
         The booking with its proposal, as saved.
@@ -1274,6 +1305,7 @@ def propose_orientation_time(
         _lock_used_equipment(locked.orientation_type)
         _ensure_move_target(locked.orientation_type, starts_at)
         locked.propose_time(starts_at, proposed_by=actor)
+        written = locked.write_message(author=_user_of(actor), body=message)
     member = locked.member
     key = locked.proposal_key
     owner_name = locked.orientation_type.owner_name
@@ -1284,6 +1316,7 @@ def propose_orientation_time(
         template="orientation_time_proposed",
         extra_context={
             "proposed_starts_at": starts_at,
+            "proposal_message": written,
             "accept_url": _action_url(locked, "accept_time", recipient=member, proposal=key),
             "keep_url": _action_url(locked, "keep_time", recipient=member, proposal=key),
         },
@@ -1313,7 +1346,7 @@ def _tell_leaders_of_answer(booking: OrientationBooking, key: str, *, accepted: 
         body = f"{name} kept their current time for their {owner_name} orientation."
     emit(
         "orientation_requested",
-        context=_request_resolver_context(booking),
+        context=request_resolver_context(booking),
         title=title,
         body=body,
         url=reverse("hub_orientation_respond", args=[booking.pk]),
