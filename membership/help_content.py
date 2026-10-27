@@ -1947,7 +1947,7 @@ The repository lives at [github.com/Past-Lives-Makerspace/plfog](https://github.
 
 ## Ways to Contribute (No Coding Required)
 
-- **Report a bug or share an idea in the app.** The **Feedback** link at the bottom of the sidebar goes straight to the people who build the Member Portal. Under **Your Requests** you see where each one stands, read what we write back and reply, with photos if they help. You get a notification when we write.
+- **Report a bug or share an idea in the app.** The **Feedback** link at the bottom of the sidebar goes straight to the people who build the Member Portal. Under **Your Requests** you see where each one stands, read what we write back and reply, with photos if they help. You get a notification when we write. When we close a request, or mark a bug report **Not a bug** with the right way to do the thing, you hear about it too, and you can still reply. Admins answer, close and mark requests from **Admin Tools > Feedback Inbox**, where a request a member replied to stays in view even after it is closed.
 - **Open a GitHub issue.** If you have a GitHub account, [open an issue](https://github.com/Past-Lives-Makerspace/plfog/issues) describing the bug or idea. Screenshots help a lot.
 - **Improve these guides.** The Help Center articles live in the code too — typo fixes and clearer wording are real contributions.
 

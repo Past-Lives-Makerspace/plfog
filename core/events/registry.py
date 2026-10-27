@@ -1506,14 +1506,14 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # feedback.request_updated — a request sent from the Feedback page moved to Planned,
-    # Building, Live (Fixed for a bug) or Not planned (#693). One key for every transition: the
-    # status and any comment written in the same save travel in the context. The sender is a User,
-    # who may have no Member row. The period carries the status and a timestamp, so each
-    # transition notifies once. No activity row: the request's own status date is the record.
+    # Building, Live (Fixed for a bug), Not planned, Not a bug or Closed (#693, #963). One key for
+    # every transition: the status and any comment written in the same save travel in the context.
+    # The sender is a User, who may have no Member row. The period carries the status and a
+    # timestamp, so each transition notifies once. No activity row: the status date is the record.
     EventType(
         key=FEEDBACK_REQUEST_UPDATED,
         label="Updates to your requests",
-        description="A feature request or bug report you sent is planned, being built, live, or not planned.",
+        description="Something you sent is planned, being built, live, not planned, not a bug or closed.",
         category="Your requests",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),

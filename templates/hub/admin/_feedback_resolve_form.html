@@ -1,0 +1,18 @@
+{% comment %}
+The body of the Not a Bug and Close modals on a feedback request's admin page: the comment posted
+with the status in one save and one notice. resolve is "not_a_bug" (the comment starts with the
+opener and is required) or "close" (optional). Expects feedback_request, inbox_query, resolve and
+resolve_form (FeedbackResolveForm.for_not_a_bug() or for_close()).
+{% endcomment %}
+<form method="post" action="{% if resolve == "not_a_bug" %}{% url 'hub_admin_feedback_not_a_bug' feedback_request.pk %}{% else %}{% url 'hub_admin_feedback_close' feedback_request.pk %}{% endif %}{% if inbox_query %}?{{ inbox_query }}{% endif %}" data-feedback-resolve-form="{{ resolve }}" data-pl-busy-submit data-pl-busy-label="Sending...">
+  {% csrf_token %}
+  {% if resolve == "not_a_bug" %}
+  {% include "components/form_field.html" with field=resolve_form.comment field_label="Comment to "|add:feedback_request.sender_label field_hint="Finish the opener: tell them the right way to do it. Required." %}
+  {% else %}
+  {% include "components/form_field.html" with field=resolve_form.comment field_label="Comment to "|add:feedback_request.sender_label field_hint="Optional. They see it with Closed." %}
+  {% endif %}
+  <div class="pl-feedback-admin__modal-actions">
+    <button type="submit" class="hub-btn hub-btn--primary" data-pl-busy>{% if resolve == "not_a_bug" %}Mark Not a Bug{% else %}Close Request{% endif %}</button>
+    <button type="button" class="hub-btn hub-btn--ghost" @click="$dispatch('close-modal', 'feedback-{% if resolve == "not_a_bug" %}not-a-bug{% else %}close{% endif %}')">Cancel</button>
+  </div>
+</form>

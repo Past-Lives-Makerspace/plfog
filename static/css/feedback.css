@@ -104,7 +104,13 @@
 /* Inputs sized to what they hold (FRONTEND rule 28); on a phone they are simply full width. */
 .pl-feedback-admin .pl-feedback-admin__status { width: 14rem; max-width: 100%; }
 .pl-feedback-admin .pl-feedback-admin__link { max-width: 520px; }
-.pl-feedback-admin__mark-live { margin-top: 0.75rem; }
+/* Resolve It: Mark Fixed or Live, Not a Bug and Close in one wrapping row under the hint. */
+.pl-feedback-admin__actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.75rem; }
+.pl-feedback-admin__actions form { margin: 0; }
+.pl-feedback-admin__modal-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.5rem; }
+
+/* The line under a closed request's reply box on the Feedback page */
+.pl-feedback-reply__closed { margin-top: 0.75rem; font-size: 0.85rem; color: var(--hub-text-muted); }
 .pl-feedback-inbox__table .hub-pill { white-space: nowrap; }
 
 /* Light (Slate) legibility for the shared pills, as the other pages scope it */

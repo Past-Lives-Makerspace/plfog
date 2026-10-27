@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-27"
+title = "Feedback requests can be closed"
+changes = [
+  "When the team closes your request, or marks a bug report as not a bug, you get a notice with a note on what to do instead.",
+  "You can still reply on a closed request if you need more help.",
+]

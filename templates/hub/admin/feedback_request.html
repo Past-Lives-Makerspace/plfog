@@ -10,7 +10,8 @@ One feedback request in the admin Feedback inbox (#693), built by
 hub.feedback_views.hub_admin_feedback_request: the sender, then the thread (the original message
 first, hub/partials/_feedback_thread.html) and a comment box with photos whose Send always tells
 the sender (hub_admin_feedback_comment), then the one form for status, an optional comment and
-the GitHub link. Mark live posts to its own view. inbox_query is the inbox's query string, kept on
+the GitHub link. The Resolve It card holds Mark live and the Not a Bug and Close modals
+(hub/admin/_feedback_resolve_form.html), each posting to its own view. inbox_query is the inbox's query string, kept on
 every link and post so Back to inbox keeps the filters.
 {% endcomment %}
 <div class="pl-feedback-admin">
@@ -43,15 +44,31 @@ every link and post so Back to inbox keeps the filters.
   </form>
 </div>
 
-{% if feedback_request.status != "live" and not feedback_request.stays_received %}
-<div class="hub-card pl-feedback-admin__card" data-feedback-mark-live>
-  <h2 class="hub-detail-label">Shipped?</h2>
-  <p class="hub-text-muted">Mark it {% if feedback_request.category == "bug" %}Fixed{% else %}Live{% endif %} and tell {{ feedback_request.sender_label }}.</p>
-  <form method="post" action="{% url 'hub_admin_feedback_mark_live' feedback_request.pk %}{% if inbox_query %}?{{ inbox_query }}{% endif %}">
-    {% csrf_token %}
-    <button type="submit" class="hub-btn hub-btn--sm pl-feedback-admin__mark-live">Mark {% if feedback_request.category == "bug" %}Fixed{% else %}Live{% endif %}</button>
-  </form>
+{% if feedback_request.status != "closed" or not feedback_request.stays_received and feedback_request.status != "live" %}
+<div class="hub-card pl-feedback-admin__card" data-feedback-resolve>
+  <h2 class="hub-detail-label">Resolve It</h2>
+  <p class="hub-text-muted">Each one tells {{ feedback_request.sender_label }}, with your comment when you write one. They can still reply.</p>
+  <div class="pl-feedback-admin__actions">
+    {% if feedback_request.status != "live" and not feedback_request.stays_received %}
+    <form method="post" action="{% url 'hub_admin_feedback_mark_live' feedback_request.pk %}{% if inbox_query %}?{{ inbox_query }}{% endif %}" data-feedback-mark-live data-pl-busy-submit>
+      {% csrf_token %}
+      <button type="submit" class="hub-btn hub-btn--sm pl-feedback-admin__mark-live" data-pl-busy>Mark {% if feedback_request.category == "bug" %}Fixed{% else %}Live{% endif %}</button>
+    </form>
+    {% endif %}
+    {% if feedback_request.category == "bug" and feedback_request.status != "not_a_bug" %}
+    <button type="button" class="hub-btn hub-btn--sm" data-feedback-not-a-bug @click="$dispatch('open-modal', 'feedback-not-a-bug')">Not a Bug</button>
+    {% endif %}
+    {% if feedback_request.status != "closed" %}
+    <button type="button" class="hub-btn hub-btn--sm" data-feedback-close @click="$dispatch('open-modal', 'feedback-close')">Close</button>
+    {% endif %}
+  </div>
 </div>
+{% if feedback_request.category == "bug" and feedback_request.status != "not_a_bug" %}
+{% include "components/modal.html" with modal_id="feedback-not-a-bug" modal_title="Not a Bug" modal_body_include="hub/admin/_feedback_resolve_form.html" resolve="not_a_bug" resolve_form=not_a_bug_form %}
+{% endif %}
+{% if feedback_request.status != "closed" %}
+{% include "components/modal.html" with modal_id="feedback-close" modal_title="Close This Request" modal_body_include="hub/admin/_feedback_resolve_form.html" resolve="close" resolve_form=close_form %}
+{% endif %}
 {% endif %}
 
 <div class="hub-card pl-feedback-admin__card">
@@ -60,11 +77,11 @@ every link and post so Back to inbox keeps the filters.
     {% csrf_token %}
     {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
     {% if feedback_request.stays_received %}
-    {% include "components/form_field.html" with field=form.status field_hint="General feedback stays Received. Answer it with a comment." %}
+    {% include "components/form_field.html" with field=form.status field_hint="General feedback is Received or Closed. Closed tells "|add:feedback_request.sender_label|add:"." %}
     {% else %}
-    {% include "components/form_field.html" with field=form.status field_hint="Planned, Building, Live and Not planned tell "|add:feedback_request.sender_label|add:". Received tells nobody." %}
+    {% include "components/form_field.html" with field=form.status field_hint="Every status but Received tells "|add:feedback_request.sender_label|add:"." %}
     {% endif %}
-    {% include "components/form_field.html" with field=form.comment field_hint="Posted to the conversation and sent to "|add:feedback_request.sender_label|add:" with the status. Required for Not planned." %}
+    {% include "components/form_field.html" with field=form.comment field_hint="Posted to the conversation and sent to "|add:feedback_request.sender_label|add:" with the status. Required for Not planned and Not a bug." %}
     {% include "components/form_field.html" with field=form.github_issue_url field_hint="Only admins see this." %}
     <button type="submit" class="hub-btn hub-btn--primary pl-feedback-admin__save" data-pl-busy>Save</button>
   </form>
