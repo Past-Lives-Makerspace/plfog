@@ -380,6 +380,37 @@ def has_events_admin_access(request: "HttpRequest") -> bool:
     return member is not None and member.has_admin_capability(AdminCapability.Capability.EVENTS_APPROVER)
 
 
+def tour_guide_access_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator gating the Tours page (#947): fog-admins or Tour Guides.
+
+    Admins always have the Tour Guide abilities, by the actual role like every gate here. Which
+    guide's hours a request may touch is the view's own check (``tours.views``): a guide their own,
+    an admin anyone's.
+    """
+    from membership.models import AdminCapability
+
+    return _capability_or_admin_required(
+        AdminCapability.Capability.TOUR_GUIDE,
+        "The Tours page requires admin privileges or the Tour Guide permission.",
+    )(view_func)
+
+
+def has_tour_guide_access(request: "HttpRequest") -> bool:
+    """True when the user may open the Tours page: fog-admin (actual) or ``TOUR_GUIDE`` holder.
+
+    The template-side twin of :func:`tour_guide_access_required`, for the Admin Tools Tours card;
+    like :func:`has_billing_admin_access` it reads the actual role, and the view stays decorator
+    gated regardless.
+    """
+    from membership.models import AdminCapability
+
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.has_actual(ROLE_ADMIN):
+        return True
+    member = getattr(request.user, "member", None)
+    return member is not None and member.has_admin_capability(AdminCapability.Capability.TOUR_GUIDE)
+
+
 class ViewAsMiddleware:
     """Attach ``request.view_as`` to every request.
 

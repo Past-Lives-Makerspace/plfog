@@ -1,0 +1,22 @@
+{% comment %}
+The Add Day Off modal body on the Tours page (#947), the orientation Days Off form's shape: a
+first day, an optional last day for a run of days, and a note. Rendered inside the modal on the
+page, and again by tours.views.tour_day_off_save with its errors when a save is refused.
+
+Context: target (the guide), is_self (the guide is the viewer), day_off_form (a TourDayOffForm).
+{% endcomment %}
+<p class="pl-form-note pl-tours-modal-lead">Visitors cannot book {% if is_self %}your{% else %}{{ target.display_name }}'s{% endif %} tours on these days. Tours already booked stay booked.</p>
+<form class="hub-form" method="post" action="{% url 'tours:day_off_save' %}" hx-post="{% url 'tours:day_off_save' %}" hx-target="#tour-day-off-modal-body" hx-swap="innerHTML" data-tour-day-off-form>
+  {% csrf_token %}
+  <input type="hidden" name="guide" value="{{ target.pk }}">
+  {% for error in day_off_form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+  <div class="pl-tours-row__fields">
+    <div class="pl-tours-row__field pl-tours-row__field--date">{% include "components/form_field.html" with field=day_off_form.starts_on %}</div>
+    <div class="pl-tours-row__field pl-tours-row__field--date">{% include "components/form_field.html" with field=day_off_form.ends_on %}</div>
+  </div>
+  {% include "components/form_field.html" with field=day_off_form.note %}
+  <div class="pl-tours-modal-actions">
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'tour-day-off-modal')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this" data-tour-day-off-save>Save</button>
+  </div>
+</form>

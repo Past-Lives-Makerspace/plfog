@@ -50,6 +50,10 @@ disallow_untyped_defs = true
 module = "kiln.*"
 disallow_untyped_defs = true
 
+[[tool.mypy.overrides]]
+module = "tours.*"
+disallow_untyped_defs = true
+
 [tool.django-stubs]
 django_settings_module = "plfog.settings"
 

@@ -4501,8 +4501,8 @@ def _tools_page_title(request: HttpRequest, member: Member | None) -> str | None
     aware :func:`~hub.guild_tools.runs_a_guild`, so an admin previewing as a guild officer, or
     as the member they are when they lead a guild, sees the page as that viewer would. Then,
     unchanged, "Admin Tools" for an instructor (by the public profile flag or by actually
-    teaching, same as :func:`_can_compose`), a Billing Administrator (Payments and Reports) or a
-    Calendar Administrator (Manage Events). An actual admin previewing below admin who runs no
+    teaching, same as :func:`_can_compose`), a Billing Administrator (Payments and Reports), a
+    Calendar Administrator (Manage Events) or a Tour Guide (Tours, #947). An actual admin previewing below admin who runs no
     guild gets None, as before, and so does a member with none of these roles.
 
     Args:
@@ -4525,9 +4525,13 @@ def _tools_page_title(request: HttpRequest, member: Member | None) -> str | None
     unlocks_a_tool = (
         member.is_instructor
         or _compose_editable_classes(request, member).exists()
-        # One query for both grants: this runs on every hub page through the sidebar.
+        # One query for every grant: this runs on every hub page through the sidebar.
         or member.admin_capabilities.filter(
-            capability__in=[AdminCapability.Capability.BILLING_APPROVER, AdminCapability.Capability.EVENTS_APPROVER]
+            capability__in=[
+                AdminCapability.Capability.BILLING_APPROVER,
+                AdminCapability.Capability.EVENTS_APPROVER,
+                AdminCapability.Capability.TOUR_GUIDE,
+            ]
         ).exists()
     )
     return ADMIN_TOOLS_TITLE if unlocks_a_tool else None
@@ -5301,6 +5305,7 @@ ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tool_instructor_inquiries",
             "tool_push_test",
             "tool_orientations",
+            "tool_tours",
             "tool_spotlight",
             "tool_polls",
             "tool_feedback",
@@ -5358,7 +5363,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
     """
     from classes.models import ClassOffering
     from hub.guild_tools import GUILD_TOOLS_TITLE, GuildToolsGuilds
-    from hub.view_as import has_billing_admin_access, has_events_admin_access
+    from hub.view_as import has_billing_admin_access, has_events_admin_access, has_tour_guide_access
 
     member = _get_member(request)
     tools_page_title = _tools_page_title(request, member)
@@ -5375,11 +5380,15 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
     previewing_admin = view_as is not None and view_as.actual_is_admin and not is_admin
     tool_payments = tool_reports = has_billing_admin_access(request) and not previewing_admin
     tool_manage_events = has_events_admin_access(request) and not previewing_admin
+    tool_tours = has_tour_guide_access(request) and not previewing_admin
     flags = {
         "tool_announcements": _can_compose(request, member),
         "tool_mailing_lists": bool(guild_tools.guilds) if guild_tools else manageable_guilds(request).exists(),
         # Guild Tools shows the same page as Orientation Bookings under Reports instead.
         "tool_orientations": is_admin,
+        # Facility tours (#947): admins and Tour Guides, through the has_*_access twin like the billing
+        # cards, so a guide who is not an admin keeps it and an admin previewing below admin does not.
+        "tool_tours": tool_tours,
         "tool_guild": guild_tools is not None and guild_tools.selected is not None,
         "tool_orientation_bookings": guild_tools is not None,
         "tool_registrations": guild_tools is not None

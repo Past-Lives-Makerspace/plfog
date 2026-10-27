@@ -13,9 +13,10 @@
 | `kiln/` | Ceramics Guild kiln tickets (#691), a tab on that guild's page: tickets with photos and flags, loading, unloading with ready for pickup notices, the kiln log, the clay and glaze lists; see `kiln/AGENTS.md` |
 | `polls/` | Polls (#708, back in #925): one site-wide poll on Home while open, one per guild on its page's Polls tab, Past Polls at `/polls/`, Admin Tools > Polls at `/polls/manage/`; never in the Spotlight. See `polls/AGENTS.md` |
 | `hq/` | The Holiday Bizarre HQ (Track C): one hub page per event with a hero band, goal chips and nine door cards an admin opens to the public, to members or to named people; behind the `holiday_bizarre` switch; `manage.py seed_holiday_bizarre --event <pk>` writes Lee's hub, doors, goals and shifts from `hq/holiday_bizarre.py`; see `hq/AGENTS.md` |
+| `tours/` | Facility tours (#947, replacing SimplyBook; not the in-app guided tours in `core/tours.py`): Tour Settings, each Tour Guide's weekly tour hours and days off, bookings, and open tour times computed live (`tours/availability.py`); see `tours/AGENTS.md` |
 | `plfog/` | Django project: settings, urls, wsgi, auto_admin, adapters |
 
-Those nine plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
+Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
 
 | Directory | What it is |
 |-----------|-----------|
@@ -32,7 +33,7 @@ Those nine plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Oth
 - `MembershipPlan` — tiered pricing (monthly_price, deposit_required)
 - `Guild` — interest guild; members vote on which guild receives funding
 - `GuildStaffMembership` — guild staff roles (co-lead/secretary/treasurer/orienter); each grants full lead authority
-- `AdminCapability` — scoped admin authority per member (class/space/discount/calendar/billing approver); routes the matching approval/alert notifications AND grants the action, decoupled from the `fog_role=admin` tier
+- `AdminCapability` — scoped admin authority per member (class/space/discount/calendar/billing approver, Tour Guide); routes the matching approval/alert notifications AND grants the action, decoupled from the `fog_role=admin` tier
 - `GuildMembership` — a member's membership in a guild
 - `GuildOrientationSettings` / `GuildFAQItem` / `GuildLink` / `GuildAnnouncement` / `GuildImage` — guild-page content & orientations
 - `OrientationType` — one kind of orientation a guild offers (Shop Basics, Lathe, …) with its own duration/price/seats/location; `OrientationAvailability`/`OrientationSlot`/`OrientationBooking` each FK a type; "oriented for the guild" = any completed type, one live booking per (type, member)
@@ -121,6 +122,7 @@ Those nine plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Oth
 /classes/admin/registrations/export/  Registrations CSV download (admins only)
 /account/                       Book CMS account area (classes.account)
 /hq/                            The Holiday Bizarre HQ: 302 to the open hub's page (/hq/<slug>/, public); /hq/new/, /hq/<slug>/edit/ and /hq/<slug>/cards/<pk>/edit/ for admins
+/facility-tours/                The Tours page, opened from the Tools page's Tours card (Tour Guides and admins): My Hours (weekly tour hours and days off) and, for admins, Settings at /facility-tours/settings/
 /kiln/                          Kiln tickets (a guest's home; members land on the Ceramics Guild page's ?tab=kiln; /kiln/load/, /kiln/unload/, /kiln/log/, /kiln/lists/ for the crew and admins)
 /tools/                         Admin Tools for admins, Guild Tools for guild officers, leads and staff (#912, #921; hub/guild_tools.py)
 /manage/spotlight/              Admin Tools > Spotlight (#708): the Spotlight messages that crawl across the top of Home (#935)

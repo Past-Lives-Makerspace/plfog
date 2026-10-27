@@ -51,10 +51,53 @@ def _login_guild_lead(client: Client, username: str = "lead") -> User:
     return user
 
 
+def _login_tour_guide(client: Client, username: str = "tour_guide") -> User:
+    user = _login_user(client, username)
+    user.member.admin_capabilities.create(capability=AdminCapability.Capability.TOUR_GUIDE)  # type: ignore[attr-defined]
+    return user
+
+
 def _login_superuser(client: Client, username: str = "fogadmin") -> User:
     User.objects.create_superuser(username=username, password="pass", email=f"{username}@example.com")
     client.login(username=username, password="pass")
     return User.objects.get(username=username)
+
+
+_TOURS_HREF = reverse("tours:hours")
+
+
+def describe_admin_tools_tours_card():
+    """#947: the Tours card shows to admins and Tour Guides and to nobody else, and opens what it shows."""
+
+    def it_shows_a_tour_guide_the_tools_entry_and_the_card(client: Client):
+        _login_tour_guide(client, "tours_guide")
+        assert reverse("hub_admin_tools") in client.get(reverse("hub_member_directory")).content.decode()
+        content = client.get(reverse("hub_admin_tools")).content.decode()
+        assert f'href="{_TOURS_HREF}" data-tool-tours' in content
+        assert client.get(_TOURS_HREF).status_code == 200
+
+    def it_shows_an_admin_the_card(client: Client):
+        _login_superuser(client, "tours_admin")
+        assert "data-tool-tours" in client.get(reverse("hub_admin_tools")).content.decode()
+
+    def it_keeps_a_plain_member_off_the_page_and_the_card(client: Client):
+        _login_user(client, "tours_plain")
+        assert reverse("hub_admin_tools") not in client.get(reverse("hub_member_directory")).content.decode()
+        assert client.get(reverse("hub_admin_tools")).url == reverse("hub_home")
+        assert client.get(_TOURS_HREF).status_code == 403
+
+    def it_hides_the_card_from_a_guild_lead_who_does_not_guide(client: Client):
+        _login_guild_lead(client, "tours_lead")
+        assert "data-tool-tours" not in client.get(reverse("hub_admin_tools")).content.decode()
+
+    def it_follows_an_admins_preview_while_the_page_stays_open(client: Client):
+        user = _login_superuser(client, "tours_preview")
+        GuildFactory(guild_lead=user.member)  # type: ignore[attr-defined]
+        session = client.session
+        session["view_as_role"] = "member"
+        session.save()
+        assert "data-tool-tours" not in client.get(reverse("hub_admin_tools")).content.decode()
+        assert client.get(_TOURS_HREF).status_code == 200
 
 
 def describe_admin_tools_billing_cards():
@@ -247,6 +290,7 @@ _ADMIN_SECTIONS = [
             "Instructor Inquiries",
             "Push Notification Test",
             "Orientations",
+            "Tours",
             "Spotlight",
             "Polls",
             "Feedback Inbox",
@@ -285,7 +329,7 @@ def describe_admin_tools_sections():
         _login_superuser(client, "sections_once")
         GuildFactory()
         titles = _card_titles(client)
-        assert len(titles) == len(set(titles)) == 25
+        assert len(titles) == len(set(titles)) == 26
 
     def it_keeps_the_help_key_on_the_wrapper_the_admin_tour_targets(client: Client):
         _login_superuser(client, "sections_help_key")
@@ -306,6 +350,18 @@ def describe_admin_tools_sections():
     def it_gives_a_billing_approver_only_the_reports_section_without_growth(client: Client):
         _login_billing_approver(client, "sections_biller")
         assert _sections(client) == [("reports", "Reports", ["Payments", "Reports"])]
+
+    def it_gives_a_tour_guide_only_the_tools_section_with_tours(client: Client):
+        # #947: Tours lives on the Tools page, not the sidebar; a guide who is not an admin gets Admin Tools.
+        _login_tour_guide(client, "sections_guide")
+        response = client.get(reverse("hub_admin_tools"))
+        assert response.context["tools_page_title"] == "Admin Tools"
+        assert _sections(client) == [("tools", "Tools", ["Tours"])]
+
+    def it_gives_a_guild_lead_who_guides_tours_in_guild_tools(client: Client):
+        user = _login_guild_lead(client, "sections_lead_guide")
+        user.member.admin_capabilities.create(capability=AdminCapability.Capability.TOUR_GUIDE)  # type: ignore[attr-defined]
+        assert ("tools", "Tools", ["Email Members", "Tours"]) in _sections(client)
 
     def it_gives_a_calendar_administrator_only_the_manage_section(client: Client):
         _login_events_approver(client, "sections_calendar")

@@ -85,11 +85,11 @@ def describe_capabilities_form():
         assert initial["cap_space_manager"] is True
         assert initial["cap_equipment"] is False
 
-    def it_offers_the_webmaster_toggle_last():
+    def it_offers_the_webmaster_toggle_right_before_tour_guide():
         form = MemberCapabilitiesForm({"cap_webmaster": "on"})
         assert form.is_valid()
         assert form.selected() == ["webmaster"]
-        assert list(form.fields)[-1] == "cap_webmaster"
+        assert list(form.fields)[-2] == "cap_webmaster"
         assert form.fields["cap_webmaster"].label == "Webmaster"
         assert form.fields["cap_webmaster"].help_text == (
             "Gets an alert when an automation fails, such as the reminder emails, saying what broke and when. "
@@ -112,6 +112,22 @@ def describe_capabilities_form():
             form.fields["cap_event_creator"].help_text
             == (AdminCapability.DESCRIPTIONS[AdminCapability.Capability.EVENT_CREATOR])
         )
+
+    def it_offers_the_tour_guide_toggle_last():
+        # #947: Tour Guide opens the Tours page and offers the holder's tour hours to visitors.
+        form = MemberCapabilitiesForm({"cap_tour_guide": "on"})
+        assert form.is_valid()
+        assert form.selected() == ["tour_guide"]
+        assert list(form.fields)[-1] == "cap_tour_guide"
+        assert form.fields["cap_tour_guide"].label == "Tour Guide"
+        assert form.fields["cap_tour_guide"].help_text == (
+            "Gives facility tours: sets their own tour hours and hears about bookings in them."
+        )
+
+    def it_initializes_the_tour_guide_toggle_from_an_existing_grant():
+        member = _member_user("guideinit").member
+        member.admin_capabilities.create(capability=AdminCapability.Capability.TOUR_GUIDE)
+        assert MemberCapabilitiesForm.initial_for(member)["cap_tour_guide"] is True
 
     def it_initializes_the_can_create_events_toggle_from_an_existing_grant():
         member = _member_user("creatorinit").member
@@ -224,6 +240,23 @@ def describe_admin_member_edit_permissions():
         assert re.search(
             r'<input type="checkbox" name="cap_event_creator"[^>]*\bchecked\b', client.get(url).content.decode()
         )
+
+        client.post(url, _cap_post())
+        assert target.admin_capabilities.count() == 0
+
+    def it_renders_and_grants_the_tour_guide_toggle_on_the_permissions_tab(client: Client):
+        _member_user("boss9", fog_role=Member.FogRole.ADMIN)
+        target = _member_user("target9").member
+        client.login(username="boss9", password="pass")
+        url = reverse("hub_admin_member_edit", args=[target.pk])
+
+        content = client.get(url).content.decode()
+        assert 'name="cap_tour_guide"' in content
+        description = AdminCapability.DESCRIPTIONS[AdminCapability.Capability.TOUR_GUIDE]
+        assert f'<div class="pl-toggle-desc">{description}</div>' in content
+
+        client.post(url, _cap_post(cap_tour_guide=True))
+        assert set(target.admin_capabilities.values_list("capability", flat=True)) == {"tour_guide"}
 
         client.post(url, _cap_post())
         assert target.admin_capabilities.count() == 0
