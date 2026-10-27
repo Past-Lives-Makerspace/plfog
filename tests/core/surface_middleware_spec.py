@@ -284,6 +284,42 @@ def describe_guilds_surface():
             middleware(request)
 
 
+def describe_tours_surface():
+    @pytest.fixture(autouse=True)
+    def _tours_settings():
+        with override_settings(
+            ALLOWED_HOSTS=["tours.pastlives.space", "members.pastlives.space", "testserver"],
+            TOURS_HOSTS=["tours.pastlives.space"],
+            PUBLIC_HOSTS=["book.pastlives.space"],
+            MEMBER_HOST="members.pastlives.space",
+        ):
+            yield
+
+    def it_serves_the_booking_page_at_the_root():
+        request, middleware = _build("tours.pastlives.space", "/")
+        response = middleware(request)
+        assert response.status_code == 200
+        assert request.surface == "tours"
+        assert (request.path, request.path_info) == ("/", "/tour/")
+
+    @pytest.mark.parametrize(
+        "path",
+        ["/tour/", "/tour/b/abc/", "/tour/b/abc/reschedule/", "/tour/b/abc/cancel/", "/accounts/login/"],
+    )
+    def it_allows_the_tour_pages_and_sign_in(path):
+        request, middleware = _build("tours.pastlives.space", path)
+        assert middleware(request).status_code == 200
+
+    @pytest.mark.parametrize(
+        "path",
+        ["/settings/", "/members/", "/classes/", "/facility-tours/", "/guilds/", "/account/lookup/", "/no/such/"],
+    )
+    def it_404s_everything_else(path):
+        request, middleware = _build("tours.pastlives.space", path)
+        with pytest.raises(Http404):
+            middleware(request)
+
+
 def describe_signage_surface():
     @pytest.fixture(autouse=True)
     def _signage_settings():

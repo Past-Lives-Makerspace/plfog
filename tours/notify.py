@@ -1,0 +1,304 @@
+"""The facility tour emails and notices (#948): the visitor's, with a calendar invite, and the guide's.
+
+Every send goes through the notification spine with its email rendered from a structural shell
+in ``templates/tours/emails/`` (:func:`core.events.senders.emit_with_email_shell`):
+
+- ``tour.visitor_update``: the visitor's confirmation, moved, cancelled and reminder emails, by
+  address (``email_to``) since a visitor usually has no account. Each carries an ``.ics`` with
+  the booking's stable UID and its SEQUENCE, and the Reschedule and Cancel links.
+- ``tour.booked``: the guide's "New tour booked" (email, bell and push).
+- ``tour.visitor_changed``: the guide hears every move and cancel a visitor makes.
+
+The reminder goes 24 hours before through the scheduled occurrences walker
+(:func:`tour_reminder_occurrences`, the ``send_tour_reminders`` job), once per start.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
+
+import icalendar
+from django.conf import settings
+from django.urls import reverse
+from django.utils import timezone
+
+from core.events.channels import Message
+from core.events.registry import Channel
+from core.events.scheduler import ScheduledOccurrence
+from core.events.scheduling import DEFAULT_WINDOW
+from core.events.senders import email_shell_message, emit_with_email_shell
+from tours import signals
+from tours.models import TOUR_ADDRESS, FacilityTourSettings, TourBooking
+
+if TYPE_CHECKING:
+    from membership.models import Member
+
+VISITOR_EVENT = "tour.visitor_update"
+GUIDE_BOOKED_EVENT = "tour.booked"
+GUIDE_CHANGED_EVENT = "tour.visitor_changed"
+#: How long before a tour its reminder goes out.
+REMINDER_BEFORE = timedelta(hours=24)
+
+
+def tours_url(path: str) -> str:
+    """An absolute link on the tours site (``TOURS_BASE_URL``), for emails."""
+    return f"{settings.TOURS_BASE_URL.rstrip('/')}{path}"
+
+
+def visitor_links(booking: TourBooking) -> dict[str, str]:
+    """The visitor's absolute links: the booking page, Reschedule, Cancel, and booking another tour."""
+    token = booking.self_serve_token
+    return {
+        "manage_url": tours_url(reverse("tours_public:manage", args=[token])),
+        "reschedule_url": tours_url(reverse("tours_public:reschedule", args=[token])),
+        "cancel_url": tours_url(reverse("tours_public:cancel", args=[token])),
+        "book_url": tours_url("/"),
+    }
+
+
+def when_label(moment: datetime) -> str:
+    """``Tuesday, November 3 at 4:00 PM``, in the makerspace's time."""
+    local = timezone.localtime(moment)
+    return f"{local:%A, %B} {local.day} at {local:%-I:%M %p}"
+
+
+def short_when(moment: datetime) -> str:
+    """``Tue, Nov 3 at 4:00 PM``, for subjects and bell rows."""
+    local = timezone.localtime(moment)
+    return f"{local:%a, %b} {local.day} at {local:%-I:%M %p}"
+
+
+def guide_first_name(guide: Member | None) -> str:
+    """The first word of the guide's name, or "" with no guide."""
+    if guide is None:
+        return ""
+    name = guide.display_name.strip()
+    return name.split()[0] if name else ""
+
+
+def _people(booking: TourBooking) -> str:
+    """``1 person`` or ``3 people``."""
+    return "1 person" if booking.party_size == 1 else f"{booking.party_size} people"
+
+
+def build_ics(booking: TourBooking, *, cancelled: bool = False) -> bytes:
+    """A single event calendar invite for the booking, like ``membership.orientations.build_ics``.
+
+    The UID is the booking's for its whole life (:attr:`TourBooking.ics_uid`) and SEQUENCE is
+    :attr:`TourBooking.sequence`, which every move and cancel raises, so a calendar that holds
+    the event updates it in place rather than adding a second one.
+
+    Args:
+        booking: the booking to describe.
+        cancelled: write a ``METHOD:CANCEL`` / ``STATUS:CANCELLED`` retraction.
+
+    Returns:
+        The serialized iCalendar bytes.
+    """
+    cal = icalendar.Calendar()
+    cal.add("prodid", "-//Past Lives Makerspace//Tours//EN")
+    cal.add("version", "2.0")
+    cal.add("method", "CANCEL" if cancelled else "REQUEST")
+    event = icalendar.Event()
+    event.add("uid", booking.ics_uid)
+    event.add("summary", "Past Lives Makerspace tour")
+    # In UTC, so every calendar reads the same instant without needing a time zone block.
+    event.add("dtstart", booking.starts_at.astimezone(UTC))
+    event.add("dtend", booking.ends_at.astimezone(UTC))
+    event.add("dtstamp", timezone.now())
+    event.add("sequence", booking.sequence)
+    event.add("status", "CANCELLED" if cancelled else "CONFIRMED")
+    event.add("location", TOUR_ADDRESS)
+    event.add(
+        "description",
+        f"A tour of Past Lives Makerspace for {_people(booking)}. "
+        f"To reschedule or cancel: {visitor_links(booking)['manage_url']}",
+    )
+    cal.add_component(event)
+    return bytes(cal.to_ical())
+
+
+def _ics_attachment(booking: TourBooking, *, cancelled: bool = False) -> tuple[str, bytes, str]:
+    return ("tour.ics", build_ics(booking, cancelled=cancelled), "text/calendar")
+
+
+def support_email() -> str:
+    """Where visitors write when they cannot change a tour online (Site Settings' support email)."""
+    from core.models import SiteConfiguration
+
+    return SiteConfiguration.load().org_support_email or "info@pastlives.space"
+
+
+def visitor_context(booking: TourBooking, **extra: Any) -> dict[str, Any]:
+    """What every visitor email renders against."""
+    return {
+        "booking": booking,
+        "greeting_name": booking.visitor_first_name,
+        "when": when_label(booking.starts_at),
+        "address": TOUR_ADDRESS,
+        "guide_name": guide_first_name(booking.guide),
+        "support_email": support_email(),
+        "cancel_cutoff_hours": FacilityTourSettings.load().cancel_cutoff_hours,
+        **visitor_links(booking),
+        **extra,
+    }
+
+
+#: The visitor's emails: template name and subject, by what happened.
+_VISITOR_EMAILS: dict[str, tuple[str, str]] = {
+    signals.BOOKED: ("visitor_confirmed", "Your Past Lives tour is booked: {when}"),
+    signals.MOVED: ("visitor_moved", "Your Past Lives tour moved to {when}"),
+    signals.CANCELLED: ("visitor_cancelled", "Your Past Lives tour on {when} is cancelled"),
+}
+
+
+def send_visitor_email(booking: TourBooking, change: str, **extra: Any) -> None:
+    """Email the visitor that their tour was booked, moved or cancelled, with the calendar invite."""
+    template, subject = _VISITOR_EMAILS[change]
+    cancelled = change == signals.CANCELLED
+    emit_with_email_shell(
+        VISITOR_EVENT,
+        target=booking,
+        context={"user": None},
+        subject=subject.format(when=short_when(booking.starts_at)),
+        text_template=f"tours/emails/{template}.txt",
+        html_template=f"tours/emails/{template}.html",
+        template_context=visitor_context(booking, **extra),
+        attachments=[_ics_attachment(booking, cancelled=cancelled)],
+        email_to=booking.visitor_email,
+        period=f"tour:{booking.pk}:{change}:{booking.sequence}",
+        recipient_user_ids=set(),
+    )
+
+
+def guide_context(booking: TourBooking, **extra: Any) -> dict[str, Any]:
+    """What the guide's emails render against."""
+    return {
+        "booking": booking,
+        "when": when_label(booking.starts_at),
+        "people": _people(booking),
+        "tours_page_url": f"{settings.MEMBER_BASE_URL.rstrip('/')}{reverse('tours:hours')}",
+        **extra,
+    }
+
+
+def tell_guide_booked(booking: TourBooking, guide: Member | None) -> None:
+    """Tell ``guide`` (or every Tour Guide holder when there is none) a visitor booked their tour."""
+    when = short_when(booking.starts_at)
+    emit_with_email_shell(
+        GUIDE_BOOKED_EVENT,
+        target=booking,
+        context={"guide": guide},
+        subject=f"New tour booked: {when}",
+        text_template="tours/emails/guide_booked.txt",
+        html_template="tours/emails/guide_booked.html",
+        template_context=guide_context(booking),
+        in_app_title="New tour booked",
+        in_app_body=f"{booking.visitor_name}, {_people(booking)}, {when}.",
+        url=reverse("tours:hours"),
+        period=f"tour:{booking.pk}:booked:{guide.pk if guide else 0}:{booking.sequence}",
+    )
+
+
+def tell_guide_changed(
+    booking: TourBooking,
+    guide: Member | None,
+    change: str,
+    *,
+    previous_starts_at: datetime | None = None,
+) -> None:
+    """Tell ``guide`` the visitor moved (from ``previous_starts_at``) or cancelled their tour."""
+    when = short_when(previous_starts_at or booking.starts_at)
+    if change == signals.CANCELLED:
+        title, body = "Tour cancelled", f"{booking.visitor_name} cancelled their tour on {when}."
+        subject = f"Tour cancelled: {when}"
+    else:
+        new_when = short_when(booking.starts_at)
+        title, body = "Tour moved", f"{booking.visitor_name} moved their tour on {when} to {new_when}."
+        subject = f"Tour moved: {when} to {new_when}"
+    emit_with_email_shell(
+        GUIDE_CHANGED_EVENT,
+        target=booking,
+        context={"guide": guide},
+        subject=subject,
+        text_template="tours/emails/guide_changed.txt",
+        html_template="tours/emails/guide_changed.html",
+        template_context=guide_context(
+            booking,
+            change=change,
+            previous_when=when_label(previous_starts_at) if previous_starts_at else "",
+            stays_with_guide=guide is not None and booking.guide_id == guide.pk,
+        ),
+        in_app_title=title,
+        in_app_body=body,
+        url=reverse("tours:hours"),
+        period=f"tour:{booking.pk}:{change}:{guide.pk if guide else 0}:{booking.sequence}",
+    )
+
+
+def announce(
+    booking: TourBooking,
+    change: str,
+    *,
+    previous_guide: Member | None = None,
+    previous_starts_at: datetime | None = None,
+) -> None:
+    """Every email and notice for a booking just booked, moved or cancelled (after commit).
+
+    A move to another guide's tour tells the old guide it moved away and the new guide it was
+    booked; a move within one guide's tours tells that guide once.
+    """
+    send_visitor_email(booking, change, previous_when=when_label(previous_starts_at) if previous_starts_at else "")
+    if change == signals.BOOKED:
+        tell_guide_booked(booking, booking.guide)
+        return
+    if change == signals.CANCELLED:
+        tell_guide_changed(booking, booking.guide, change)
+        return
+    tell_guide_changed(booking, previous_guide, change, previous_starts_at=previous_starts_at)
+    if previous_guide is None or booking.guide_id != previous_guide.pk:
+        tell_guide_booked(booking, booking.guide)
+
+
+def build_reminder_occurrence(booking: TourBooking) -> ScheduledOccurrence:
+    """The visitor's reminder, 24 hours before the tour, as a scheduled occurrence.
+
+    Keyed on the booking and its start, so it goes once per start: a moved tour gets a
+    reminder for its new time, and a re-run of the tick never sends a second.
+    """
+    message: Message = email_shell_message(
+        event_key=VISITOR_EVENT,
+        subject=f"Reminder: your Past Lives tour is {short_when(booking.starts_at)}",
+        text_template="tours/emails/visitor_reminder.txt",
+        html_template="tours/emails/visitor_reminder.html",
+        template_context=visitor_context(booking),
+    )
+    return ScheduledOccurrence(
+        event_key=VISITOR_EVENT,
+        anchor=booking.starts_at,
+        offset=-REMINDER_BEFORE,
+        context={"user": None},
+        period=f"tour:{booking.pk}:reminder:{booking.starts_at:%Y%m%dT%H%MZ}",
+        target=booking,
+        messages={Channel.EMAIL: message},
+        attachments={Channel.EMAIL: [_ics_attachment(booking)]},
+        email_to=booking.visitor_email,
+    )
+
+
+def tour_reminder_occurrences(now: datetime) -> Iterator[ScheduledOccurrence]:
+    """This tick's reminder candidates: booked tours starting 24 hours from now, give or take a tick.
+
+    Cancelled tours are never candidates. The walker (:func:`core.events.scheduler.run_due`)
+    fires only the ones whose fire time falls in this tick's window.
+    """
+    first = now + REMINDER_BEFORE
+    bookings = TourBooking.objects.filter(
+        status=TourBooking.Status.BOOKED,
+        starts_at__gte=first,
+        starts_at__lt=first + DEFAULT_WINDOW,
+    ).select_related("guide")
+    for booking in bookings:
+        yield build_reminder_occurrence(booking)

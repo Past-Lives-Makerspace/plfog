@@ -1,0 +1,70 @@
+{% extends "tours/public/base.html" %}
+{% comment %}
+The booking page, the root of tours.pastlives.space (#948, tours.public_views.book): the date
+strip and times, or the form for the picked time. Context: picker, chosen (the OpenTour the form
+books, or None), form, error, page_url, address, support_email.
+{% endcomment %}
+{% block title %}Book a Tour | Past Lives Makerspace{% endblock %}
+
+{% block tours_content %}
+<div class="view">
+  <div class="cp-container">
+    <div class="detail-card pl-tourpub" data-tour-page="book">
+      <div class="detail-head">
+        <div>
+          <div class="dc-cat">Free Tours</div>
+          <h1 class="dc-title">Book a Tour of Past Lives</h1>
+          <div class="dc-inst">See the shops, meet the makers and ask us anything. Tours meet at {{ address }}.</div>
+        </div>
+      </div>
+      <div class="detail-body">
+        {% if error %}<div class="reg-error-block pl-tourpub__notice" role="alert" data-tour-error>{{ error }}</div>{% endif %}
+        {% if form %}
+        <div class="reg-summary pl-tourpub__chosen" data-tour-chosen="{{ chosen.key }}">
+          <div class="pl-tourpub__chosen-when">{{ chosen.starts_at|date:"l, F j" }} at {{ chosen.starts_at|time:"g:i A" }}</div>
+          <div class="pl-tourpub__chosen-meta">{{ chosen.seats_left }} seat{{ chosen.seats_left|pluralize }} left · <a href="{{ page_url }}?date={{ chosen.starts_at|date:'Y-m-d' }}" data-tour-change>Pick a different time</a></div>
+        </div>
+        {% if form.non_field_errors %}<div class="reg-error-block pl-tourpub__notice">{% for err in form.non_field_errors %}{{ err }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div>{% endif %}
+        <form method="post" action="{{ page_url }}" class="reg-form pl-tourpub__form" hx-boost="false" data-tour-form>
+          {% csrf_token %}
+          {{ form.tour }}
+          <div class="reg-row">
+            <div class="reg-field">
+              <label for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+              {{ form.name }}
+              {% if form.name.errors %}<ul class="reg-errors">{% for e in form.name.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+            </div>
+            <div class="reg-field">
+              <label for="{{ form.email.id_for_label }}">{{ form.email.label }}</label>
+              {{ form.email }}
+              {% if form.email.errors %}<ul class="reg-errors">{% for e in form.email.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+            </div>
+          </div>
+          <div class="reg-row">
+            <div class="reg-field">
+              <label for="{{ form.phone.id_for_label }}">{{ form.phone.label }}</label>
+              {{ form.phone }}
+              {% if form.phone.errors %}<ul class="reg-errors">{% for e in form.phone.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+            </div>
+            <div class="reg-field pl-tourpub__party">
+              <label for="{{ form.party_size.id_for_label }}">{{ form.party_size.label }}</label>
+              {{ form.party_size }}
+              {% if form.party_size.errors %}<ul class="reg-errors">{% for e in form.party_size.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+            </div>
+          </div>
+          {% if form.create_account %}
+          <div class="pl-tourpub__account" data-tour-account>
+            {% include "components/toggle.html" with field=form.create_account toggle_label=form.create_account.label toggle_description="No password. We email you a sign in code, and your tour shows up in your account." %}
+          </div>
+          {% endif %}
+          <button type="submit" class="btn-reg pl-tourpub__submit">Book My Tour</button>
+          <p class="reg-help pl-tourpub__fine">Tours are free. We will email you a confirmation with links to reschedule or cancel.</p>
+        </form>
+        {% else %}
+        {% include "tours/public/_picker.html" %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% if change == "cancelled" %}Tour cancelled
+
+{{ booking.visitor_name }} cancelled their tour for {{ people }} on {{ when }}. Their seats are open again.{% elif stays_with_guide %}Tour moved
+
+{{ booking.visitor_name }} moved their tour for {{ people }} from {{ previous_when }} to {{ when }}.{% else %}Tour moved
+
+{{ booking.visitor_name }} moved their tour for {{ people }} on {{ previous_when }} to another guide's time. It is off your schedule.{% endif %}
+
+Visitor: {{ booking.visitor_email }}{% if booking.visitor_phone %}, {{ booking.visitor_phone }}{% endif %}
+
+Open Tours: {{ tours_page_url }}
+{% include "membership/emails/_footer.txt" %}

@@ -1,0 +1,35 @@
+{% extends "tours/public/base.html" %}
+{% comment %}
+Why a tour link cannot act (#948): reason is "too_close" (inside the cancel cutoff),
+"cancelled", "past", or "invalid" (a tampered or unknown token, served with a 404).
+Context: reason, booking and when (not for "invalid"), address, support_email.
+{% endcomment %}
+{% block title %}Your Tour | Past Lives Makerspace{% endblock %}
+
+{% block tours_content %}
+<div class="view">
+  <div class="cp-container">
+    <div class="detail-card pl-tourpub" data-tour-page="refused" data-tour-reason="{{ reason }}">
+      <div class="detail-head">
+        <div>
+          <div class="dc-cat">Your Tour</div>
+          <h1 class="dc-title">{% if reason == "invalid" %}We Could Not Find That Tour{% elif reason == "too_close" %}Too Close to Change Online{% elif reason == "cancelled" %}This Tour Was Cancelled{% else %}This Tour Has Passed{% endif %}</h1>
+        </div>
+      </div>
+      <div class="detail-body">
+        {% if reason == "invalid" %}
+        <p class="pl-tourpub__lead">This link does not match a tour booking. It may be mistyped or incomplete. Check the link in your email, or email us at <a href="mailto:{{ support_email }}">{{ support_email }}</a>.</p>
+        {% elif reason == "too_close" %}
+        <p class="pl-tourpub__lead" data-tour-too-close>It is too close to your tour to change it online. Email us at <a href="mailto:{{ support_email }}">{{ support_email }}</a>.</p>
+        {% elif reason == "cancelled" %}
+        <p class="pl-tourpub__lead">This tour was cancelled, so there is nothing left to change.</p>
+        {% else %}
+        <p class="pl-tourpub__lead">This tour has already happened, so it can no longer be changed. Thanks for visiting!</p>
+        {% endif %}
+        {% if booking %}{% include "tours/public/_details.html" %}{% endif %}
+        <p class="pl-tourpub__fine"><a href="/" data-tour-book-again>Book a new tour</a></p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

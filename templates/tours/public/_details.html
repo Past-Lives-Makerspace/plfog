@@ -1,0 +1,18 @@
+{% comment %}
+One booking's facts on the visitor's pages (#948): when, where, how many, and the guide.
+Context: booking, when, guide_name (the guide's first name), address.
+{% endcomment %}
+<dl class="pl-tourpub__facts" data-tour-facts>
+  <div class="pl-tourpub__fact">
+    <dt class="dc-lbl">When</dt>
+    <dd class="pl-tourpub__fact-value" data-tour-when>{{ when }}</dd>
+  </div>
+  <div class="pl-tourpub__fact">
+    <dt class="dc-lbl">Where</dt>
+    <dd class="pl-tourpub__fact-value">{{ address }}</dd>
+  </div>
+  <div class="pl-tourpub__fact">
+    <dt class="dc-lbl">Who</dt>
+    <dd class="pl-tourpub__fact-value">{{ booking.visitor_name }}, {{ booking.party_size }} {% if booking.party_size == 1 %}person{% else %}people{% endif %}{% if guide_name %}, with {{ guide_name }}{% endif %}</dd>
+  </div>
+</dl>

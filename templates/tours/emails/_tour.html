@@ -1,0 +1,15 @@
+{% comment %}
+The tour's facts in a visitor email (#948): when, where, who. Context: when, address, booking, guide_name.
+{% endcomment %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 8px 0 16px;">
+<tr>
+<td style="padding: 12px 0; border-top: 1px solid rgba(13, 72, 118, 0.12);">
+    <span style="font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">When</span><br>
+    <span style="font-size: 14px; color: #33424f;">{{ when }}</span><br><br>
+    <span style="font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">Where</span><br>
+    <span style="font-size: 14px; color: #33424f;">{{ address }}</span><br><br>
+    <span style="font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">Who</span><br>
+    <span style="font-size: 14px; color: #33424f;">{{ booking.party_size }} {% if booking.party_size == 1 %}person{% else %}people{% endif %}{% if guide_name %}, with {{ guide_name }} as your guide{% endif %}</span>
+</td>
+</tr>
+</table>

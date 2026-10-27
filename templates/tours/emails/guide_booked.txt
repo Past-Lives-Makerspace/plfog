@@ -1,0 +1,9 @@
+New tour booked
+
+{{ booking.visitor_name }} booked a tour for {{ people }}.
+
+  When: {{ when }}
+  Visitor: {{ booking.visitor_email }}{% if booking.visitor_phone %}, {{ booking.visitor_phone }}{% endif %}
+
+Open Tours: {{ tours_page_url }}
+{% include "membership/emails/_footer.txt" %}

@@ -89,6 +89,9 @@ _BRAND_NEW_KEYS = {
     "kiln.crew_replied",
     "kiln.maker_replied",
     "kiln.ready_for_pickup",
+    "tour.booked",
+    "tour.visitor_changed",
+    "tour.visitor_update",
 }
 
 # The five staff emails #524 moved off fixed address lists, pinned as a literal: who gets
@@ -161,6 +164,8 @@ def describe_event_registry():
                 "guild_welcome",
                 # The Eventbrite buyer's finish link goes by email_to to an address that may have no account (#652).
                 "classes.eventbrite_finish_registration",
+                # A facility tour visitor's emails go by email_to; most visitors have no account (#948).
+                "tour.visitor_update",
                 "voting.discord_reminder",
                 "voting.results_discord",
                 # A plain post to the portal alerts channel; the admin queue and Home carry the rest (#817).

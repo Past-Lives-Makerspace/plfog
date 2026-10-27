@@ -115,6 +115,7 @@ _CATEGORY_SECTIONS: dict[str, str] = {
     "Spaces & Equipment": "Membership & Account",
     "Your requests": "Membership & Account",  # feedback.request_updated (#693)
     "Kiln tickets": "Guilds & Orientations",  # kiln.crew_replied / kiln.maker_replied (#691)
+    "Tours": "Guilds & Orientations",  # facility tours booked like an orientation (#948)
     "Voting": "Voting",
     "Events": "Events",
     "Meetings": "Events",  # meetings ride the events rails; their spine cards group there
@@ -706,6 +707,93 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         html_template="membership/emails/wiki_guild_digest.html",
         context_builder="wiki_guild_digest_context",
     ),
+    # --- Facility tours (#948) -----------------------------------------------
+    GalleryEmail(
+        key="tour_visitor_confirmed",
+        name="Tour booked (visitor)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when a visitor books a facility tour on tours.pastlives.space, with a calendar invite and the Reschedule and Cancel links. Goes to the address they booked with."
+        ),
+        edit_pointer=_tpl("tours/emails", "visitor_confirmed"),
+        audience="The visitor who booked the tour (by address; most have no account).",
+        event_keys=frozenset({"tour.visitor_update"}),
+        text_template="tours/emails/visitor_confirmed.txt",
+        html_template="tours/emails/visitor_confirmed.html",
+        context_builder="tour_visitor_confirmed_context",
+    ),
+    GalleryEmail(
+        key="tour_visitor_moved",
+        name="Tour moved (visitor)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when a visitor moves their tour from the Reschedule link. The calendar invite keeps its UID with a higher SEQUENCE, so it replaces the old one."
+        ),
+        edit_pointer=_tpl("tours/emails", "visitor_moved"),
+        audience="The visitor who booked the tour (by address).",
+        event_keys=frozenset({"tour.visitor_update"}),
+        text_template="tours/emails/visitor_moved.txt",
+        html_template="tours/emails/visitor_moved.html",
+        context_builder="tour_visitor_moved_context",
+    ),
+    GalleryEmail(
+        key="tour_visitor_cancelled",
+        name="Tour cancelled (visitor)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=("Sent when a visitor cancels their tour from the Cancel link, with a calendar cancellation."),
+        edit_pointer=_tpl("tours/emails", "visitor_cancelled"),
+        audience="The visitor who booked the tour (by address).",
+        event_keys=frozenset({"tour.visitor_update"}),
+        text_template="tours/emails/visitor_cancelled.txt",
+        html_template="tours/emails/visitor_cancelled.html",
+        context_builder="tour_visitor_cancelled_context",
+    ),
+    GalleryEmail(
+        key="tour_visitor_reminder",
+        name="Tour reminder (visitor)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=("Sent 24 hours before a booked tour by the send_tour_reminders job; never for a cancelled tour."),
+        edit_pointer=_tpl("tours/emails", "visitor_reminder"),
+        audience="The visitor who booked the tour (by address).",
+        event_keys=frozenset({"tour.visitor_update"}),
+        text_template="tours/emails/visitor_reminder.txt",
+        html_template="tours/emails/visitor_reminder.html",
+        context_builder="tour_visitor_reminder_context",
+    ),
+    GalleryEmail(
+        key="tour_guide_booked",
+        name="New tour booked (guide)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent to the tour's guide when a visitor books one of their tours (with a bell and push), or to every Tour Guide holder when the tour has no guide."
+        ),
+        edit_pointer=_tpl("tours/emails", "guide_booked"),
+        audience="The tour's guide.",
+        event_keys=frozenset({"tour.booked"}),
+        text_template="tours/emails/guide_booked.txt",
+        html_template="tours/emails/guide_booked.html",
+        context_builder="tour_guide_booked_context",
+    ),
+    GalleryEmail(
+        key="tour_guide_changed",
+        name="Tour moved or cancelled (guide)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent to the tour's guide when a visitor moves or cancels it from their email links (with a bell)."
+        ),
+        edit_pointer=_tpl("tours/emails", "guide_changed"),
+        audience="The tour's guide.",
+        event_keys=frozenset({"tour.visitor_changed"}),
+        text_template="tours/emails/guide_changed.txt",
+        html_template="tours/emails/guide_changed.html",
+        context_builder="tour_guide_changed_context",
+    ),
     # --- Billing ---------------------------------------------------------------
     GalleryEmail(
         key="receipt",
@@ -999,6 +1087,7 @@ _TEMPLATE_DIRS: tuple[str, ...] = (
     "templates/membership/emails",
     "templates/billing/email",
     "templates/account/email",
+    "templates/tours/emails",
 )
 
 _ALLAUTH_MESSAGE_SUFFIX = "_message"

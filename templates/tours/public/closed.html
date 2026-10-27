@@ -1,0 +1,25 @@
+{% extends "tours/public/base.html" %}
+{% comment %}
+What tours.pastlives.space shows while Tour Settings is not accepting bookings (#948).
+Context: closed_message, support_email.
+{% endcomment %}
+{% block title %}Tours | Past Lives Makerspace{% endblock %}
+
+{% block tours_content %}
+<div class="view">
+  <div class="cp-container">
+    <div class="detail-card pl-tourpub" data-tour-page="closed">
+      <div class="detail-head">
+        <div>
+          <div class="dc-cat">Free Tours</div>
+          <h1 class="dc-title">Tours of Past Lives</h1>
+        </div>
+      </div>
+      <div class="detail-body">
+        <p class="pl-tourpub__lead" data-tour-closed>{{ closed_message }}</p>
+        <p class="pl-tourpub__fine">Questions? Email us at <a href="mailto:{{ support_email }}">{{ support_email }}</a>.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

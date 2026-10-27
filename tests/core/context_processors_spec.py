@@ -293,7 +293,9 @@ def describe_surface():
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
             "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
+            "TOURS_BASE_URL": settings.TOURS_BASE_URL,
             "is_signage_surface": False,
+            "is_tours_surface": False,
             "guilds_page_base": "hub/base.html",
             "signage_page_base": "hub/base.html",
             "parent_template": "classes/base_public.html",
@@ -314,7 +316,9 @@ def describe_surface():
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
             "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
+            "TOURS_BASE_URL": settings.TOURS_BASE_URL,
             "is_signage_surface": False,
+            "is_tours_surface": False,
             "guilds_page_base": "guilds/base_public.html",
             "signage_page_base": "hub/base.html",
             "parent_template": "guilds/base_public.html",
@@ -335,7 +339,9 @@ def describe_surface():
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
             "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
+            "TOURS_BASE_URL": settings.TOURS_BASE_URL,
             "is_signage_surface": False,
+            "is_tours_surface": False,
             "guilds_page_base": "hub/base.html",
             "signage_page_base": "hub/base.html",
             "parent_template": "base.html",
@@ -356,10 +362,35 @@ def describe_surface():
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
             "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
+            "TOURS_BASE_URL": settings.TOURS_BASE_URL,
             "is_signage_surface": True,
+            "is_tours_surface": False,
             "guilds_page_base": "hub/base.html",
             "signage_page_base": "signage/base.html",
             "parent_template": "base.html",
+        }
+
+    def it_reports_tours_when_request_surface_is_tours(settings):
+        rf = RequestFactory()
+        request = rf.get("/")
+        request.surface = "tours"
+        result = surface(request)
+        assert result == {
+            "surface": "tours",
+            "is_public_surface": False,
+            "is_guilds_surface": False,
+            "is_guest_surface": True,
+            "MEMBER_HOST": settings.MEMBER_HOST,
+            "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
+            "BOOK_BASE_URL": settings.BOOK_BASE_URL,
+            "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
+            "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
+            "TOURS_BASE_URL": settings.TOURS_BASE_URL,
+            "is_signage_surface": False,
+            "is_tours_surface": True,
+            "guilds_page_base": "hub/base.html",
+            "signage_page_base": "hub/base.html",
+            "parent_template": "tours/public/base.html",
         }
 
     def it_defaults_to_members_when_attribute_missing(settings):
@@ -378,7 +409,9 @@ def describe_surface():
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
             "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
+            "TOURS_BASE_URL": settings.TOURS_BASE_URL,
             "is_signage_surface": False,
+            "is_tours_surface": False,
             "guilds_page_base": "hub/base.html",
             "signage_page_base": "hub/base.html",
             "parent_template": "base.html",

@@ -1,0 +1,29 @@
+{% extends "tours/public/base.html" %}
+{% comment %}
+Confirm a cancel (#948, tours.public_views.cancel): a GET only shows this page, so an email
+client prefetching the link changes nothing; the button POSTs. Context: booking, when, address.
+{% endcomment %}
+{% block title %}Cancel Your Tour | Past Lives Makerspace{% endblock %}
+
+{% block tours_content %}
+<div class="view">
+  <div class="cp-container">
+    <div class="detail-card pl-tourpub" data-tour-page="cancel">
+      <div class="detail-head">
+        <div>
+          <div class="dc-cat">Cancel</div>
+          <h1 class="dc-title">Cancel Your Tour?</h1>
+        </div>
+      </div>
+      <div class="detail-body">
+        {% include "tours/public/_details.html" %}
+        <form method="post" action="{% url 'tours_public:cancel' booking.self_serve_token %}" class="pl-tourpub__form" hx-boost="false" data-tour-cancel-form>
+          {% csrf_token %}
+          <button type="submit" class="btn-reg pl-tourpub__submit pl-tourpub__submit--danger">Yes, Cancel My Tour</button>
+        </form>
+        <p class="pl-tourpub__fine pl-tourpub__center"><a href="{% url 'tours_public:manage' booking.self_serve_token %}" data-tour-keep>Keep my tour</a></p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

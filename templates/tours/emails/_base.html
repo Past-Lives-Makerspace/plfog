@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+</head>
+<body style="margin: 0; padding: 0; background-color: #eef0f3; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+{% comment %}
+The facility tour visitor's email shell (#948): the members' branded shell (membership/emails/_base.html)
+with a footer for someone who booked a tour, who usually has no account, so no email preferences link.
+Context: book_url, plus whatever the email's own block uses.
+{% endcomment %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #eef0f3; padding: 40px 20px;">
+<tr>
+<td align="center">
+<table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width: 480px; width: 100%;">
+    <tr>
+    <td style="text-align: center; padding-bottom: 32px;">
+        <a href="{{ book_url }}" style="font-size: 22px; font-weight: 700; color: #092E4C; letter-spacing: 0.02em; text-decoration:none;">Past Lives Makerspace</a>
+    </td>
+    </tr>
+    <tr>
+    <td style="background-color: #eef0f3; border-radius: 12px; padding: 40px 32px;">
+        {% block content %}{% endblock %}
+    </td>
+    </tr>
+    <tr>
+    <td style="text-align: center; padding-top: 32px;">
+        <a href="{{ book_url }}" style="font-size:15px; font-weight:700; color:#092E4C; text-decoration:none;">Past Lives Makerspace</a>
+        <p style="margin: 10px 0 0; font-size: 11px; color: #5B6B77; line-height: 1.5;">You're getting this email because you booked a tour of Past Lives Makerspace.</p>
+    </td>
+    </tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>

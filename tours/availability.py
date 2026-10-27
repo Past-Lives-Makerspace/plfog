@@ -16,12 +16,18 @@ Two entry points:
 
 Neither reads the "Accepting tour bookings" switch: the booking page decides what a closed site
 shows, and staff keep moving tours while it is closed.
+
+Every instant here is compared and keyed in UTC (#948). On the fall back night the carve yields
+1:00 AM in the repeated hour as a local datetime whose offset depends on ``fold``; PEP 495 makes
+such a value never compare equal to the same instant in another zone, so a booking read back from
+the database (UTC) would miss its tour. :class:`OpenTour` therefore carries UTC instants (templates
+show them in local time through the ``date`` filter as always).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from django.db import transaction
 from django.utils import timezone
@@ -32,7 +38,7 @@ from tours.models import FacilityTourSettings, TourBooking, TourDayOff, TourHour
 
 @dataclass(frozen=True)
 class OpenTour:
-    """One tour: a guide, a start and end, and its seats.
+    """One tour: a guide, a start and end (both UTC), and its seats.
 
     ``hours_id`` is the :class:`~tours.models.TourHours` row that yields it.
     """
@@ -53,6 +59,11 @@ class OpenTour:
     def is_full(self) -> bool:
         """Whether no seat is left."""
         return self.seats_left == 0
+
+    @property
+    def key(self) -> str:
+        """This tour as one string, ``<guide pk>-<UTC start as YYYYMMDDTHHMMZ>``: the booking form's choice."""
+        return f"{self.guide.pk}-{self.starts_at:%Y%m%dT%H%MZ}"
 
 
 @dataclass(frozen=True)
@@ -78,8 +89,21 @@ class BookingWindow:
         )
 
     def admits(self, starts_at: datetime) -> bool:
-        """Whether a tour starting at ``starts_at`` may be booked now."""
-        return starts_at >= self.earliest_start and timezone.localdate(starts_at) <= self.last_day
+        """Whether a tour starting at ``starts_at`` may be booked now (compared in UTC)."""
+        start = starts_at.astimezone(UTC)
+        return start >= self.earliest_start.astimezone(UTC) and timezone.localdate(start) <= self.last_day
+
+
+def parse_tour_key(raw: str) -> tuple[int, datetime] | None:
+    """The guide pk and UTC start an :attr:`OpenTour.key` names, or None when ``raw`` is not one."""
+    guide_pk, _, stamp = raw.partition("-")
+    if not guide_pk.isdigit():
+        return None
+    try:
+        starts_at = datetime.strptime(stamp, "%Y%m%dT%H%MZ").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+    return int(guide_pk), starts_at
 
 
 def _local_midnight(day: date) -> datetime:
@@ -137,7 +161,8 @@ def open_tours(
         for row in rows:
             if row.weekday != day.weekday() or row.guide_id in off:
                 continue
-            for starts_at, ends_at in row.carve_spans(day):
+            for span_start, span_end in row.carve_spans(day):
+                starts_at, ends_at = span_start.astimezone(UTC), span_end.astimezone(UTC)
                 key = (row.guide_id, starts_at)
                 # A guide's rows never overlap through the editor; one written another way must not
                 # offer the same tour twice.
@@ -186,6 +211,7 @@ def open_tour_at(
     """
     if lock and not transaction.get_connection().in_atomic_block:
         raise RuntimeError("open_tour_at(lock=True) must run inside transaction.atomic().")
+    starts_at = starts_at.astimezone(UTC)
     window = BookingWindow.at(now or timezone.now(), FacilityTourSettings.load())
     if not window.admits(starts_at):
         return None
@@ -195,16 +221,16 @@ def open_tour_at(
         rows_query = rows_query.select_for_update()
     for row in rows_query:
         for span_start, span_end in row.carve_spans(day):
-            if span_start != starts_at:
+            if span_start.astimezone(UTC) != starts_at:
                 continue
             if TourDayOff.objects.filter(guide=guide).touching(day, day).exists():
                 return None
             return OpenTour(
                 guide=guide,
                 hours_id=row.pk,
-                starts_at=span_start,
-                ends_at=span_end,
+                starts_at=starts_at,
+                ends_at=span_end.astimezone(UTC),
                 seats=row.seats,
-                seats_taken=TourBooking.objects.seats_taken(guide, span_start),
+                seats_taken=TourBooking.objects.seats_taken(guide, starts_at),
             )
     return None

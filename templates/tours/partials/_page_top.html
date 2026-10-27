@@ -4,10 +4,11 @@ card opens it, the page header, and the tab row. My Hours is everyone's; Setting
 tours.views.tour_settings) is for admins only.
 
 Context: tab ("hours" or "settings"), is_admin (the actual role), tools_page_title (from
-hub.context_processors: "Admin Tools" or "Guild Tools").
+hub.context_processors: "Admin Tools" or "Guild Tools", empty when the viewer has no Tools page).
 {% endcomment %}
 {% load tab_picker %}
-<p class="pl-tours-back"><a href="{% url 'hub_admin_tools' %}" class="hub-btn hub-btn--sm hub-btn--ghost" data-tours-back>&larr; Back to {{ tools_page_title|default:"Admin Tools" }}</a></p>
+{# No Tools page to go back to (an admin previewing as a member or guest has none): no link. #}
+{% if tools_page_title %}<p class="pl-tours-back"><a href="{% url 'hub_admin_tools' %}" class="hub-btn hub-btn--sm hub-btn--ghost" data-tours-back>&larr; Back to {{ tools_page_title }}</a></p>{% endif %}
 {% include "components/page_header.html" with title="Tours" description="Facility tours for people curious about Past Lives. Set the weekly hours you can give tours, and mark the days you are away." %}
 
 {% tab_picker "Tours" %}

@@ -243,6 +243,29 @@ SIGNAGE_BASE_URL = os.environ.get("SIGNAGE_BASE_URL", "https://slideshow.pastliv
 # read-only player and its poll target. There is no login on this surface.
 SIGNAGE_ALLOWED_VIEW_NAMES: frozenset[str] = frozenset({"signage_player", "signage_deck"})
 
+# Tours surface (#948). TOURS_HOSTS serve the public facility tour booking page
+# (tours.pastlives.space): the root is the booking page, and only the views below (plus
+# allauth's ``account_*`` sign in views, so a visitor can sign in to have their name and
+# email filled in) resolve there; everything else 404s, and the tour views 404 on every
+# other host. Hosts are auto-added to ALLOWED_HOSTS and, over https, CSRF_TRUSTED_ORIGINS,
+# so go-live needs only DNS and the Render custom domain. Do NOT add a tours host to
+# PUBLIC_HOSTS or GUILDS_HOSTS.
+TOURS_HOSTS = [
+    h.strip().lower() for h in os.environ.get("TOURS_HOSTS", "tours.pastlives.space").split(",") if h.strip()
+]
+ALLOWED_HOSTS += [h for h in TOURS_HOSTS if h not in ALLOWED_HOSTS]
+CSRF_TRUSTED_ORIGINS += [f"https://{h}" for h in TOURS_HOSTS if f"https://{h}" not in CSRF_TRUSTED_ORIGINS]
+# Absolute base URL of the tours surface: the visitor emails' Reschedule and Cancel links.
+TOURS_BASE_URL = os.environ.get("TOURS_BASE_URL", "https://tours.pastlives.space").rstrip("/")
+TOURS_ALLOWED_VIEW_NAMES: frozenset[str] = frozenset(
+    {
+        "tours_public:book",
+        "tours_public:manage",
+        "tours_public:reschedule",
+        "tours_public:cancel",
+    }
+)
+
 # Allauth needs to know about the reverse proxy to resolve client IPs for rate limiting
 ALLAUTH_TRUSTED_PROXY_COUNT = int(os.environ.get("ALLAUTH_TRUSTED_PROXY_COUNT", "0"))
 

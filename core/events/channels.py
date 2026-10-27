@@ -245,6 +245,8 @@ _CHANNEL_BY_CATEGORY: dict[str, str] = {
     "Wiki": PUSH_CHANNEL_GUILDS,
     # Kiln ticket messages run between a maker and the Ceramics Guild crew (#691).
     "Kiln tickets": PUSH_CHANNEL_GUILDS,
+    # Facility tours: a guide hears a visitor booked, moved or cancelled (#948).
+    "Tours": PUSH_CHANNEL_GENERAL,
 }
 
 

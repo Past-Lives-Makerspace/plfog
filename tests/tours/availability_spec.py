@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from datetime import date, time, timedelta
+from typing import Any
 
 import pytest
 from django.contrib.auth.models import User
 from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from membership.models import Member
 from tests.membership.factories import MemberFactory
@@ -33,7 +35,7 @@ def _settings(**values: int) -> FacilityTourSettings:
 
 
 def _starts(tours: list[OpenTour]) -> list[tuple[str, str]]:
-    return [(tour.guide.full_legal_name, f"{tour.starts_at:%Y-%m-%d %H:%M}") for tour in tours]
+    return [(tour.guide.full_legal_name, f"{timezone.localtime(tour.starts_at):%Y-%m-%d %H:%M}") for tour in tours]
 
 
 def describe_open_tours():
@@ -75,7 +77,7 @@ def describe_open_tours():
     def it_drops_every_tour_past_the_horizon(guide: Member):
         TourHoursFactory(guide=guide)
         far = MONDAY + timedelta(days=90)
-        tuesdays = sorted({tour.starts_at.date() for tour in open_tours(MONDAY, far, now=NOW)})
+        tuesdays = sorted({timezone.localdate(tour.starts_at) for tour in open_tours(MONDAY, far, now=NOW)})
         # 30 days from Monday the 7th is Wednesday Feb 6, so the last Tuesday is Feb 5.
         assert tuesdays[0] == TUESDAY
         assert tuesdays[-1] == date(2030, 2, 5)
@@ -85,7 +87,7 @@ def describe_open_tours():
         far = MONDAY + timedelta(days=60)
         assert len(open_tours(MONDAY, far, now=NOW)) == 10
         _settings(booking_horizon_days=7)
-        assert {tour.starts_at.date() for tour in open_tours(MONDAY, far, now=NOW)} == {TUESDAY}
+        assert {timezone.localdate(tour.starts_at) for tour in open_tours(MONDAY, far, now=NOW)} == {TUESDAY}
 
     def it_skips_the_days_a_guide_is_off(guide: Member):
         TourHoursFactory(guide=guide)
@@ -93,7 +95,7 @@ def describe_open_tours():
         TourHoursFactory(guide=other)
         TourDayOffFactory(guide=guide, starts_on=TUESDAY, ends_on=TUESDAY + timedelta(days=7))
         tours = open_tours(TUESDAY, TUESDAY + timedelta(days=14), now=NOW)
-        assert {(tour.guide.pk, tour.starts_at.date()) for tour in tours} == {
+        assert {(tour.guide.pk, timezone.localdate(tour.starts_at)) for tour in tours} == {
             (other.pk, TUESDAY),
             (other.pk, TUESDAY + timedelta(days=7)),
             (other.pk, TUESDAY + timedelta(days=14)),
@@ -250,3 +252,54 @@ def describe_booking_window():
         )
         assert window.admits(local(MONDAY + timedelta(days=30), 21))
         assert not window.admits(local(MONDAY + timedelta(days=31), 9))
+
+
+def describe_the_fall_back_night():
+    """2026-11-01: 1:00 to 1:59 AM happens twice. A tour carved in the first 1:00 (PDT, fold 0) and a
+    booking read back from the database in UTC are the same instant and must meet (#948)."""
+
+    SUNDAY = date(2026, 11, 1)
+    BEFORE = local(date(2026, 10, 29), 9)
+
+    def _one_am_utc() -> Any:
+        from datetime import UTC, datetime
+
+        return datetime(2026, 11, 1, 8, 0, tzinfo=UTC)  # 1:00 AM PDT, the first one
+
+    def it_counts_a_booking_in_the_repeated_hour(guide: Member):
+        TourHoursFactory(guide=guide, weekday=TourHours.Weekday.SUNDAY, start_time=time(0, 0), end_time=time(3, 0))
+        TourBookingFactory(guide=guide, starts_at=_one_am_utc(), party_size=3)
+        tours = open_tours(SUNDAY, SUNDAY, now=BEFORE, include_full=True)
+        assert [(f"{timezone.localtime(tour.starts_at):%H:%M %Z}", tour.seats_taken) for tour in tours] == [
+            ("00:00 PDT", 0),
+            ("01:00 PDT", 3),
+            ("02:00 PST", 0),
+        ]
+
+    def it_finds_the_tour_by_its_utc_start(guide: Member):
+        TourHoursFactory(guide=guide, weekday=TourHours.Weekday.SUNDAY, start_time=time(0, 0), end_time=time(3, 0))
+        TourBookingFactory(guide=guide, starts_at=_one_am_utc(), party_size=3)
+        offered = [tour.starts_at for tour in open_tours(SUNDAY, SUNDAY, now=BEFORE)]
+        assert _one_am_utc() in offered
+        tour = open_tour_at(guide, _one_am_utc(), now=BEFORE)
+        assert tour is not None
+        assert (tour.starts_at, tour.seats_taken, tour.seats_left) == (_one_am_utc(), 3, 1)
+        local_start = timezone.localtime(_one_am_utc())
+        same = open_tour_at(guide, local_start, now=BEFORE)
+        assert same is not None and same.starts_at == _one_am_utc()
+
+
+def describe_parse_tour_key():
+    def it_reads_back_an_open_tours_key(guide: Member):
+        from datetime import UTC, datetime
+
+        from tours.availability import parse_tour_key
+
+        assert parse_tour_key(f"{guide.pk}-20300109T0000Z") == (guide.pk, datetime(2030, 1, 9, tzinfo=UTC))
+
+    def it_refuses_anything_else():
+        from tours.availability import parse_tour_key
+
+        assert parse_tour_key("x-20300109T0000Z") is None
+        assert parse_tour_key("12-tomorrow") is None
+        assert parse_tour_key("") is None

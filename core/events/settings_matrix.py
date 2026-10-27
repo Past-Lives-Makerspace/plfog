@@ -88,6 +88,7 @@ CATEGORY_ORDER: tuple[str, ...] = (
     "Meetings",
     "Your requests",
     "Kiln tickets",
+    "Tours",
 )
 
 # The one section that collects every event a viewer gets because of a role or an admin
@@ -129,6 +130,8 @@ STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
         Recipients.WIKI_SCOPE_LEADERSHIP,
         # The kiln guild's lead and staff (#691): shown to them alone (_eligible_for).
         Recipients.KILN_CREW,
+        # Facility tour guides (#948): Tour Guide holders and admins, who always give tours.
+        Recipients.TOUR_GUIDES,
     }
 )
 
@@ -136,7 +139,7 @@ STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
 class PermissionGroup(str, Enum):
     """The groups inside Admin / Permissions: the permission that brings a row, in page order.
 
-    The eight capability groups share their value with :class:`membership.models.AdminCapability`
+    The nine capability groups share their value with :class:`membership.models.AdminCapability`
     ``Capability`` and read their heading from its label, so the settings page and the
     Permissions tab use the same words. Which of these a viewer holds is
     :meth:`_StaffProfile.holds`; which a row can reach them through is
@@ -152,6 +155,7 @@ class PermissionGroup(str, Enum):
     DISCOUNT_APPROVER = "discount_approver"
     EQUIPMENT = "equipment"
     WEBMASTER = "webmaster"
+    TOUR_GUIDE = "tour_guide"
     GUILD_LEADERSHIP = "guild_leadership"
     EQUIPMENT_MANAGER = "equipment_manager"
 
@@ -191,6 +195,7 @@ _GROUPS_BY_RECIPIENT: dict[Recipients, tuple[PermissionGroup, ...]] = {
     Recipients.GUILD_ORIENTERS: (PermissionGroup.GUILD_LEADERSHIP,),
     Recipients.ALL_GUILD_LEADS: (PermissionGroup.GUILD_LEADERSHIP,),
     Recipients.KILN_CREW: (PermissionGroup.GUILD_LEADERSHIP,),
+    Recipients.TOUR_GUIDES: (PermissionGroup.TOUR_GUIDE, PermissionGroup.ADMIN),
 }
 
 
@@ -490,6 +495,7 @@ class _StaffProfile:
             PermissionGroup.DISCOUNT_APPROVER: capability.DISCOUNT_APPROVER in caps,
             PermissionGroup.EQUIPMENT: capability.EQUIPMENT in caps,
             PermissionGroup.WEBMASTER: capability.WEBMASTER in caps,
+            PermissionGroup.TOUR_GUIDE: capability.TOUR_GUIDE in caps,
             PermissionGroup.GUILD_LEADERSHIP: self.is_leadership or self.is_officer,
             PermissionGroup.EQUIPMENT_MANAGER: self.manages_equipment,
         }
@@ -573,6 +579,9 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         Recipients.WIKI_SCOPE_LEADERSHIP: lead or profile.is_admin,
         # Only the kiln guild's lead and staff receive kiln.maker_replied (#691).
         Recipients.KILN_CREW: profile.is_kiln_crew,
+        # A tour's guide is a Tour Guide holder or an admin (tours.models.guide_filter); the
+        # no guide fallback reaches the holders.
+        Recipients.TOUR_GUIDES: cap.TOUR_GUIDE in caps or profile.is_admin,
     }
     return checks[recipient]
 
@@ -608,6 +617,7 @@ def _group_headings() -> dict[PermissionGroup, str]:
         PermissionGroup.DISCOUNT_APPROVER: capability.DISCOUNT_APPROVER.label,
         PermissionGroup.EQUIPMENT: capability.EQUIPMENT.label,
         PermissionGroup.WEBMASTER: capability.WEBMASTER.label,
+        PermissionGroup.TOUR_GUIDE: capability.TOUR_GUIDE.label,
         PermissionGroup.GUILD_LEADERSHIP: "Guild leadership",
         PermissionGroup.EQUIPMENT_MANAGER: "Equipment manager",
     }

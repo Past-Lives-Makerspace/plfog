@@ -1,0 +1,42 @@
+{% extends "tours/public/base.html" %}
+{% comment %}
+The visitor's booking (#948, tours.public_views.manage), opened from the email or right after
+booking (just = "booked"), moving ("moved") or cancelling ("cancelled"). Reschedule and Cancel
+show while refusal is empty. Context: booking, when, refusal, just, address, support_email.
+{% endcomment %}
+{% block title %}Your Tour | Past Lives Makerspace{% endblock %}
+
+{% block tours_content %}
+<div class="view">
+  <div class="cp-container">
+    <div class="detail-card pl-tourpub" data-tour-page="manage" data-tour-status="{{ booking.status }}">
+      <div class="detail-head">
+        <div>
+          <div class="dc-cat">{{ booking.get_status_display }}</div>
+          <h1 class="dc-title">{% if just == "booked" %}You're Booked{% elif just == "moved" %}Your Tour Moved{% elif booking.status == "cancelled" %}Your Tour Is Cancelled{% else %}Your Tour{% endif %}</h1>
+        </div>
+      </div>
+      <div class="detail-body">
+        {% if just == "booked" or just == "moved" %}
+        <p class="pl-tourpub__lead" data-tour-confirmed>We emailed {{ booking.visitor_email }} a confirmation with a calendar invite. See you soon!</p>
+        {% elif just == "cancelled" %}
+        <p class="pl-tourpub__lead" data-tour-cancelled>Your tour is cancelled and we let your guide know. We emailed {{ booking.visitor_email }} to confirm.</p>
+        {% endif %}
+        {% include "tours/public/_details.html" %}
+        {% if not refusal %}
+        <div class="pl-tourpub__actions">
+          <a href="{% url 'tours_public:reschedule' booking.self_serve_token %}" class="btn-reg" data-tour-reschedule>Reschedule</a>
+          <a href="{% url 'tours_public:cancel' booking.self_serve_token %}" class="back-link pl-tourpub__secondary" data-tour-cancel>Cancel My Tour</a>
+        </div>
+        {% elif refusal == "too_close" %}
+        <p class="pl-tourpub__fine" data-tour-too-close>It is too close to your tour to change it online. Email us at <a href="mailto:{{ support_email }}">{{ support_email }}</a>.</p>
+        {% elif refusal == "cancelled" %}
+        <p class="pl-tourpub__fine">Want to come another time? <a href="/" data-tour-book-again>Book a new tour</a>.</p>
+        {% else %}
+        <p class="pl-tourpub__fine">This tour has already happened. Thanks for visiting!</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

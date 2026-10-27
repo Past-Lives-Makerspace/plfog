@@ -378,3 +378,14 @@ def describe_tour_settings():
         content = signed_in(admin).get(reverse("hub_admin_tools")).content.decode()
         assert f'href="{SETTINGS}"' not in content
         assert "data-tool-tours" in content
+
+
+def describe_the_back_link():
+    def it_drops_the_way_back_for_an_admin_previewing_as_a_member(admin: Member):
+        client = signed_in(admin)
+        session = client.session
+        session["view_as_role"] = "member"
+        session.save()
+        content = client.get(HOURS).content.decode()
+        assert "data-tours-back" not in content
+        assert "Facility tours for people curious about Past Lives." in content
