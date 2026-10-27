@@ -10,14 +10,14 @@ orientation_booking_modals.html; the refunds load their form into the shared ref
 {% with b=row.booking pk=row.booking.pk|stringformat:"s" %}
 {% if row.can_manage %}
 <a href="{% url 'hub_orientation_respond' b.pk %}" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">View Request</a>
-{% if b.status != "pending_payment" %}
-<a href="{% url 'hub_orientation_respond' b.pk %}?messages={{ b.pk }}#messages" class="pl-row-menu__item" role="menuitem" data-booking-messages="{{ pk }}" @click="closeAndRefocus()">Messages</a>
-{% endif %}
 {% if row.can_email %}
 <a href="mailto:{{ b.member.primary_email }}" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">Email Member</a>
 {% endif %}
 {% if row.can_view_member %}
 <a href="{% url 'hub_admin_member_edit' b.member.pk %}?tab=orientations" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">View Member</a>
+{% endif %}
+{% if b.status != "pending_payment" %}
+<a href="{% url 'hub_orientation_respond' b.pk %}?messages={{ b.pk }}#messages" class="pl-row-menu__item" role="menuitem" data-booking-messages="{{ pk }}" @click="closeAndRefocus()">Messages</a>
 {% endif %}
 {% if row.can_reply or row.can_move %}
 <div class="pl-row-menu__divider" role="separator"></div>

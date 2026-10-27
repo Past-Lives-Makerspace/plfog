@@ -66,7 +66,7 @@ def messages_to_notes(apps: Any, schema_editor: Any) -> None:
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0246_orientation_booking_messages"),
+        ("membership", "0247_orientation_booking_messages"),
     ]
 
     operations = [

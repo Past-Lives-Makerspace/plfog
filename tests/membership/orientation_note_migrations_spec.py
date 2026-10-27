@@ -1,8 +1,8 @@
-"""BDD specs for 0247, which carries orientation booking notes into the message thread.
+"""BDD specs for 0248, which carries orientation booking notes into the message thread.
 
 ``member_note`` becomes the member's first message and ``lead_note`` a message with no author;
 then both fields leave the model while their columns stay, with a database default, for the
-release still serving during the deploy. Each spec steps membership back to 0246 with the real
+release still serving during the deploy. Each spec steps membership back to 0247 with the real
 migration executor and forward again, so the functions run against the schema they were written for.
 """
 
@@ -21,12 +21,12 @@ from django.utils import timezone
 from membership.models import OrientationBooking
 from tests.membership.factories import MembershipPlanFactory, OrientationBookingFactory
 
-BEFORE = ("membership", "0246_orientation_booking_messages")
-AFTER = ("membership", "0247_orientation_notes_to_messages")
+BEFORE = ("membership", "0247_orientation_booking_messages")
+AFTER = ("membership", "0248_orientation_notes_to_messages")
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
-migration = importlib.import_module("membership.migrations.0247_orientation_notes_to_messages")
+migration = importlib.import_module("membership.migrations.0248_orientation_notes_to_messages")
 
 
 def _migrate(target: tuple[str, str]) -> Any:
@@ -38,10 +38,10 @@ def _migrate(target: tuple[str, str]) -> Any:
 
 @pytest.fixture
 def step_back() -> Iterator[Any]:
-    """Steps membership back to 0246 (both notes still fields) when called; forward again after.
+    """Steps membership back to 0247 (both notes still fields) when called; forward again after.
 
     Called after a spec makes its bookings, since the current model's inserts leave the note
-    columns to their database default, which 0246's schema does not have.
+    columns to their database default, which 0247's schema does not have.
     """
     try:
         yield lambda: _migrate(BEFORE)

@@ -8,7 +8,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0245_guildneedsattention"),
+        ("membership", "0246_alter_guildstaffmembership_role_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
