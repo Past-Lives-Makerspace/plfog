@@ -59,7 +59,9 @@ def has_earning(member: Member) -> bool:
     from membership.models import OrientationBooking
 
     return (
-        Registration.objects.filter(class_offering__instructor=member, amount_paid_cents__gt=0).exists()
+        Registration.objects.without_demo_money()
+        .filter(class_offering__instructor=member, amount_paid_cents__gt=0)
+        .exists()
         or OrientationBooking.objects.filter(oriented_by=member, amount_paid_cents__gt=0).exists()
         or _reservations().filter(_reservation_payee_is(member)).exists()
     )
@@ -208,7 +210,7 @@ def _registrations() -> QuerySet[Any]:
     from classes.models import Registration
 
     return (
-        Registration.objects.not_demo()
+        Registration.objects.without_demo_money()
         .filter(amount_paid_cents__gt=0, confirmed_at__isnull=False, class_offering__instructor__isnull=False)
         .annotate(first_session_at=Min("class_offering__sessions__starts_at"))
         .filter(first_session_at__isnull=False)
@@ -364,6 +366,7 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
     Even while off, a PENDING share more than ``PAYOUT_SEND_WINDOW`` past due is given up and
     owed by hand, so nothing waits unsent with nobody told.
     """
+    from classes.models import Registration
     from membership.models import EquipmentReservation
 
     now = now or timezone.now()
@@ -399,7 +402,10 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
             continue
         if _record(earning, accounts.get(earning.payee.pk), since):
             run.created += 1
-    for pk in list(Payout.objects.to_send(now).in_current_mode().values_list("pk", flat=True)):
+    # A demo class's share is never sent (#983); real money on a demo- slug still is.
+    demo_money = Registration.objects.demo_money()
+    sendable = Payout.objects.to_send(now).in_current_mode().exclude(registration__in=demo_money)
+    for pk in list(sendable.values_list("pk", flat=True)):
         _send_one(pk, now, snapshots, run)
     return run
 

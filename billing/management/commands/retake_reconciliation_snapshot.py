@@ -20,16 +20,18 @@ from django.core.management.base import BaseCommand, CommandError
 from billing.management.commands.take_reconciliation_snapshot import month_bounds
 
 
-def _voting_by_guild(results: dict[str, Any]) -> dict[str, int]:
-    """Guild label to frozen voting cents, from a snapshot's results JSON."""
+def _voting_by_guild(results: dict[str, Any]) -> tuple[dict[str, int], set[str]]:
+    """Guild label to frozen voting cents from a snapshot's results JSON, and the guilds with no figure.
+
+    A row from before voting was frozen has no ``voting_cents``; it reads 0, exactly as
+    ``resolve_voting_allocation`` reads it, and its label is returned so the printout says so.
+    """
     from billing.reconciliation import RecipientKind
 
-    return {
-        row["label"]: int(row["voting_cents"])
-        for group in results["groups"]
-        if group["kind"] == RecipientKind.GUILD.value
-        for row in group["rows"]
-    }
+    rows = [row for group in results["groups"] if group["kind"] == RecipientKind.GUILD.value for row in group["rows"]]
+    missing = {row["label"] for row in rows if "voting_cents" not in row}
+    cents = {row["label"]: 0 if row["label"] in missing else int(row["voting_cents"]) for row in rows}
+    return cents, missing
 
 
 class Command(BaseCommand):
@@ -72,11 +74,12 @@ class Command(BaseCommand):
         self._write_voting(old.results, new.results)
 
     def _write_voting(self, before: dict[str, Any], after: dict[str, Any]) -> None:
-        old_voting = _voting_by_guild(before)
-        new_voting = _voting_by_guild(after)
+        old_voting, old_missing = _voting_by_guild(before)
+        new_voting, _new_missing = _voting_by_guild(after)
         self.stdout.write("Guild voting (old -> new):")
         for label in sorted(old_voting.keys() | new_voting.keys()):
             was = old_voting.get(label, 0)
             now = new_voting.get(label, 0)
             flag = "" if was == now else "  CHANGED"
-            self.stdout.write(f"  {label}: ${was / 100:,.2f} -> ${now / 100:,.2f}{flag}")
+            note = "  (old snapshot has no voting figure; read as $0.00)" if label in old_missing else ""
+            self.stdout.write(f"  {label}: ${was / 100:,.2f} -> ${now / 100:,.2f}{flag}{note}")

@@ -111,6 +111,13 @@ def _collect() -> tuple[DemoScrubPlan, NestedObjects]:
             f"billing.Payout {payout.pk} on registration {payout.registration_id} has a Stripe transfer"
             " (sent or attempted); settle it by hand first."
         )
+    # A demo- slug alone proves nothing: a real "Demo Day" class is demo-day-<date>. Real money
+    # (a Stripe payment not fully refunded) on any class the scrub would delete stops it.
+    for reg in registrations.without_demo_money().select_related("class_offering").order_by("pk"):
+        blockers.append(
+            f"classes.Registration {reg.pk} on '{reg.class_offering.slug}' has a Stripe payment that is"
+            " not fully refunded; that is real money, not demo data."
+        )
     strays = (
         Registration.objects.filter(email__iendswith=DEMO_EMAIL_SUFFIX)
         .exclude(class_offering__in=offerings)

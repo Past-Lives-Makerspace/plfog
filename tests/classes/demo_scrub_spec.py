@@ -97,6 +97,21 @@ def describe_plan_demo_scrub():
 
         assert "has a Stripe transfer" in plan_demo_scrub().blockers[0]
 
+    def it_refuses_a_real_demo_day_class_with_a_paid_registration():  # slugify("Demo Day") + date
+        offering = _demo_class(slug="demo-day-2026-11-02")
+        reg = _paid(offering, stripe_payment_id="pi_real")
+
+        assert plan_demo_scrub().blockers == [
+            f"classes.Registration {reg.pk} on 'demo-day-2026-11-02' has a Stripe payment that is"
+            " not fully refunded; that is real money, not demo data."
+        ]
+
+    def it_refuses_a_partly_refunded_stripe_payment():
+        reg = _paid(_demo_class(), stripe_payment_id="pi_real")
+        PaymentRefundFactory(registration=reg, amount_cents=1000, status=PaymentRefund.Status.SUCCEEDED)
+
+        assert "not fully refunded" in plan_demo_scrub().blockers[0]
+
     def it_refuses_a_demo_registrant_on_a_real_class():
         stray = _paid(ClassOfferingFactory(slug="real-glass"), email="current1@pastlives.demo")
 
@@ -147,6 +162,16 @@ def describe_scrub_demo_data():
         assert not PaymentRefund.objects.exists()
         assert Registration.objects.filter(pk=real.pk).exists()
         assert Member.objects.filter(pk=instructor_pk).exists()
+
+    def it_deletes_nothing_when_a_real_demo_day_class_holds_real_money():
+        offering = _demo_class(slug="demo-day-2026-11-02")
+        reg = _paid(offering, stripe_payment_id="pi_real")
+
+        with pytest.raises(DemoScrubRefusedError, match="not fully refunded"):
+            scrub_demo_data()
+
+        assert Registration.objects.filter(pk=reg.pk).exists()
+        assert ClassOffering.objects.filter(pk=offering.pk).exists()
 
     def it_removes_nothing_on_a_second_run():
         _paid(_demo_class())

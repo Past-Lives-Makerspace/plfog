@@ -24,14 +24,25 @@ def _window():
     return parse_window("", "")
 
 
-def _paid_registration(*, cents, slug, instructor=None, guild=None, member=None):
+def _paid_registration(*, cents, slug, instructor=None, guild=None, member=None, pi=""):
     from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory, RegistrationFactory
 
     offering = ClassOfferingFactory(slug=slug, category=CategoryFactory(guild=guild), instructor=instructor)
     ClassSessionFactory(class_offering=offering, starts_at=timezone.now())
     return RegistrationFactory(
-        class_offering=offering, amount_paid_cents=cents, member=member, confirmed_at=timezone.now()
+        class_offering=offering,
+        amount_paid_cents=cents,
+        member=member,
+        confirmed_at=timezone.now(),
+        stripe_payment_id=pi,
     )
+
+
+def _refund(reg, cents):
+    from billing.models import PaymentRefund
+    from tests.billing.factories import PaymentRefundFactory
+
+    PaymentRefundFactory(registration=reg, amount_cents=cents, status=PaymentRefund.Status.SUCCEEDED)
 
 
 def _deleted(name: str):
@@ -78,6 +89,66 @@ def describe_demo_classes():
 
         assert Payout.objects.filter(registration=real).exists()
         assert not Payout.objects.filter(registration=demo).exists()
+
+
+def describe_real_money_on_a_demo_slug():
+    """A real class titled "Demo Day" is slugged demo-day-<date>: its Stripe money always counts."""
+
+    def it_counts_a_real_demo_day_class_in_reconciliation_and_the_panel():
+        reg = _paid_registration(cents=10000, slug="demo-day-2026-11-02", guild=GuildFactory(), pi="pi_real")
+        window = _window()
+
+        result = build_reconciliation(window=window, adjustments={})
+        ledger = build_payments_ledger(window=window, source="class")
+
+        assert [line.source_pk for line in result.lines] == [reg.pk]
+        assert [row.source_pk for row in ledger.rows] == [reg.pk]
+
+    def it_counts_a_partly_refunded_stripe_payment_on_a_demo_slug():
+        reg = _paid_registration(cents=10000, slug="demo-day-2026-11-02", guild=GuildFactory(), pi="pi_real")
+        _refund(reg, 4000)
+
+        result = build_reconciliation(window=_window(), adjustments={})
+
+        assert result.grand_total_cents == 6000
+
+    def it_leaves_out_a_fully_refunded_stripe_test_charge_on_a_demo_class():
+        reg = _paid_registration(cents=500, slug="demo-cart-test", guild=GuildFactory(), pi="pi_test_charge")
+        _refund(reg, 500)
+
+        result = build_reconciliation(window=_window(), adjustments={})
+
+        assert result.lines == []
+
+    def it_freezes_a_payout_for_a_real_demo_day_class():
+        reg = _paid_registration(
+            cents=10000, slug="demo-day-2026-11-02", instructor=MemberFactory(), guild=GuildFactory(), pi="pi_real"
+        )
+        window = _window()
+
+        ReconciliationSnapshot.take(period_start=window.start, period_end=window.end)
+
+        assert Payout.objects.filter(registration=reg).exists()
+
+
+def describe_has_earning():
+    def it_ignores_a_demo_class():
+        from billing.payouts import has_earning
+
+        instructor = MemberFactory()
+        _paid_registration(cents=40000, slug="demo-cart-wood", instructor=instructor, guild=GuildFactory())
+
+        assert has_earning(instructor) is False
+
+    def it_counts_real_money_on_a_demo_slug():
+        from billing.payouts import has_earning
+
+        instructor = MemberFactory()
+        _paid_registration(
+            cents=10000, slug="demo-day-2026-11-02", instructor=instructor, guild=GuildFactory(), pi="pi_real"
+        )
+
+        assert has_earning(instructor) is True
 
 
 def describe_deleted_member_names():

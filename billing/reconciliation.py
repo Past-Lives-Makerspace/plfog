@@ -385,7 +385,7 @@ def _class_lines(
     from classes.models import Registration
 
     registrations = (
-        Registration.objects.not_demo()
+        Registration.objects.without_demo_money()
         .filter(amount_paid_cents__gt=0)
         .filter(confirmed_at__gte=window.start_dt, confirmed_at__lt=window.end_dt)
         .select_related("class_offering__instructor", "class_offering__category__guild", "member")

@@ -126,6 +126,17 @@ def describe_retake_command():
 
         assert "Wood: $1.00 -> $0.00  CHANGED" in command.stdout.getvalue()
 
+    def it_reads_an_old_row_without_a_voting_figure_as_zero_and_says_so():
+        from django.core.management import load_command_class
+
+        command = load_command_class("billing", "retake_reconciliation_snapshot")
+        command.stdout = StringIO()
+        old_row = {"kind": RecipientKind.GUILD.value, "rows": [{"label": "Wood"}]}
+        new_row = {"kind": RecipientKind.GUILD.value, "rows": [{"label": "Wood", "voting_cents": 0}]}
+        command._write_voting({"groups": [old_row]}, {"groups": [new_row]})
+
+        assert "Wood: $0.00 -> $0.00  (old snapshot has no voting figure; read as $0.00)" in command.stdout.getvalue()
+
     def it_rejects_a_bad_month():
         with pytest.raises(CommandError, match="YYYY-MM"):
             call_command("retake_reconciliation_snapshot", "--month", "August", stdout=StringIO())
