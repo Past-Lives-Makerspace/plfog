@@ -6,6 +6,7 @@ import logging
 from unittest.mock import patch
 
 import pytest
+import respx
 from django.core.management import call_command
 
 from airtable_sync.management.commands.airtable_pull import Command
@@ -142,3 +143,56 @@ def describe_pull_turning_a_member_former():
 
         removal = DiscordRemoval.objects.get()
         assert (removal.member, removal.warn_on) == (existing, date(2026, 10, 21))
+
+
+@pytest.mark.django_db
+def describe_healthchecks_reporting():
+    """Each run reports to its Healthchecks check: counts on success, the traceback on failure."""
+
+    ping_url = "https://hc.example.test/ping/00000000-0000-0000-0000-000000000000"
+
+    @pytest.fixture()
+    def hc(settings):
+        settings.HEALTHCHECKS_PING_URL = ping_url
+        with respx.mock(assert_all_called=False) as router:
+            router.post(ping_url).respond(200)
+            router.post(f"{ping_url}/start").respond(200)
+            router.post(f"{ping_url}/fail").respond(200)
+            yield router
+
+    def _last_ping(router: respx.MockRouter) -> tuple[str, str]:
+        request = router.calls.last.request
+        return str(request.url), request.content.decode()
+
+    def it_pings_success_with_each_tables_counts(hc):
+        with patch("airtable_sync.management.commands.airtable_pull.get_table") as get_table:
+            get_table.return_value.all.return_value = []
+            call_command("airtable_pull")
+        assert _last_ping(hc) == (
+            ping_url,
+            "members: created=0, updated=0, skipped=0\nspaces: created=0, updated=0, skipped=0",
+        )
+        assert str(hc.calls[0].request.url) == f"{ping_url}/start"
+
+    def it_marks_a_dry_run_in_the_log(hc):
+        with patch("airtable_sync.management.commands.airtable_pull.get_table") as get_table:
+            get_table.return_value.all.return_value = []
+            call_command("airtable_pull", "--model=space", "--dry-run")
+        assert _last_ping(hc) == (ping_url, "spaces (dry run): created=0, updated=0, skipped=0")
+
+    def it_pings_fail_with_the_traceback_when_a_table_errors(hc):
+        with (
+            patch("airtable_sync.management.commands.airtable_pull.get_table") as get_table,
+            pytest.raises(RuntimeError, match="airtable down"),
+        ):
+            get_table.return_value.all.side_effect = RuntimeError("airtable down")
+            call_command("airtable_pull")
+        url, body = _last_ping(hc)
+        assert url == f"{ping_url}/fail"
+        assert body.rstrip().endswith("RuntimeError: airtable down")
+        assert ScheduledTaskRun.objects.get(task_key="airtable_pull").failed
+
+    def it_pings_success_saying_it_was_paused(hc):
+        ScheduledJobStateFactory(task_key="airtable_pull", enabled=False)
+        call_command("airtable_pull")
+        assert _last_ping(hc) == (ping_url, "airtable_pull is paused; skipped.")

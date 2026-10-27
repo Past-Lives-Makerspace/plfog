@@ -775,3 +775,29 @@ def describe_public_surface_defaults():
             assert settings_module.PUBLIC_REDIRECT_HOSTS == ["old.example", "other.example"]
             assert settings_module.ALLOWED_HOSTS.count("old.example") == 1
             assert "other.example" in settings_module.ALLOWED_HOSTS
+
+
+def describe_healthchecks_ping_url():
+    # Not a real check: the repository is public.
+    url = "https://hc.example.test/ping/00000000-0000-0000-0000-000000000000"
+
+    def it_is_blank_when_unset(monkeypatch):
+        with patch("sentry_sdk.init"):
+            settings_module = _reload_settings(
+                monkeypatch, {"HEALTHCHECKS_PING_URL": None, "ENVIRONMENT": None, "SENTRY_DSN": None}
+            )
+        assert settings_module.HEALTHCHECKS_PING_URL == ""
+
+    def it_reads_the_env_and_strips_it(monkeypatch):
+        with patch("sentry_sdk.init"):
+            settings_module = _reload_settings(
+                monkeypatch, {"HEALTHCHECKS_PING_URL": f" {url} ", "ENVIRONMENT": None, "SENTRY_DSN": None}
+            )
+        assert settings_module.HEALTHCHECKS_PING_URL == url
+
+    def it_is_blank_on_staging_even_when_set(monkeypatch):
+        with patch("sentry_sdk.init"):
+            settings_module = _reload_settings(
+                monkeypatch, {"HEALTHCHECKS_PING_URL": url, "ENVIRONMENT": "staging", "SENTRY_DSN": None}
+            )
+        assert settings_module.HEALTHCHECKS_PING_URL == ""

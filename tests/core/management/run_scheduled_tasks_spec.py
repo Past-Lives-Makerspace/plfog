@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
+import respx
 from django.core.management import call_command
 
 from core.factories import ScheduledJobStateFactory, ScheduledTaskRunFactory
@@ -270,3 +271,37 @@ def describe_admin_chosen_frequency():
     def it_ignores_a_pick_the_job_does_not_offer():
         ScheduledJobStateFactory(task_key="process_discord_removals", enabled=True, cadence="always")
         assert "process_discord_removals" not in _tasks_called(hour=9, day=1)
+
+
+def describe_healthchecks_reporting():
+    """Each tick reports to its Healthchecks check; a caught job failure still reports as failed."""
+
+    ping_url = "https://hc.example.test/ping/00000000-0000-0000-0000-000000000000"
+
+    @pytest.fixture()
+    def hc(settings):
+        settings.HEALTHCHECKS_PING_URL = ping_url
+        with respx.mock(assert_all_called=False) as router:
+            router.post(ping_url).respond(200)
+            router.post(f"{ping_url}/start").respond(200)
+            router.post(f"{ping_url}/fail").respond(200)
+            yield router
+
+    def _last_ping(router: respx.MockRouter) -> tuple[str, str]:
+        request = router.calls.last.request
+        return str(request.url), request.content.decode()
+
+    def it_pings_success_naming_the_jobs_that_ran(hc):
+        _tasks_called(hour=9)
+        url, body = _last_ping(hc)
+        assert url == ping_url
+        assert "ok send_voting_reminders" in body.splitlines()
+        assert str(hc.calls[0].request.url) == f"{ping_url}/start"
+
+    def it_pings_fail_when_a_job_raised_although_the_command_returns(hc):
+        _tasks_called(hour=9, side_effect=_boom_on_voting)
+        url, body = _last_ping(hc)
+        assert url == f"{ping_url}/fail"
+        assert "FAILED: send_voting_reminders" in body
+        assert "RuntimeError: kaboom" in body
+        assert "ok send_lease_expiry_reminders" in body.splitlines()
