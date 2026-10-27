@@ -939,13 +939,23 @@ Reviewers see your class exactly as a student would, in a full preview of the pu
 
 **Ask for changes** and **Decline** send the class back to Draft with the reviewer's notes. Fix it up and submit again; a fresh submission restarts the review from the first gate.
 
+### Message Your Reviewers {#teach-class-messages}
+
+Every class has its own **Messages**, between you (and any other instructor of the class) and its reviewers: the guild lead and the guild's Class Reviewers, or the CMS Administrators when no guild lead reviews it. Admins can read and write there too.
+
+1. Open your class in the teaching portal. **Messages** sits under **Where Your Class Is** on the edit form, and on the class page.
+2. Write your message. Add photos if they help.
+3. Click **Send**. The reviewers get a notification.
+
+You can write any time, even while changes are requested, without resubmitting. Use it to ask what a note means, or to say why you would rather keep something as it is. Every note a reviewer leaves with a decision shows there too, and none of it is lost when you resubmit. When a reviewer writes, you get a notification with a link straight back to the messages.
+
 ### What the Statuses Mean
 
 - **Draft**: private. Edit freely, submit when ready.
 - **Pending**: submitted, waiting on review. You can still edit it.
 - **Published**: live in the catalog and open for sign-ups.
 
-Once a class is published, the words stay yours: the description, prep notes, materials, safety notes, the guardian note, the flexible scheduling note, the video and the photos (banner and gallery) are all still editable from the manage page, and so is putting the class on sale. The title, class type, dates, price, capacity and scheduling model are locked once people can book on them; use **Request a change** on the manage page and an admin makes that edit. Archived classes are read only.""",
+Once a class is published, the words stay yours: the description, prep notes, materials, safety notes, the guardian note, the flexible scheduling note, the video and the photos (banner and gallery) are all still editable from the manage page, and so is putting the class on sale. The title, class type, dates, price, capacity and scheduling model are locked once people can book on them; use **Request a change** on the manage page and an admin makes that edit. Your request also shows in the class's Messages. Archived classes are read only.""",
         "screenshots": [
             {
                 "file": "01-teaching-portal.png",
@@ -991,7 +1001,7 @@ You never self-publish — every class is reviewed before it appears in the cata
 3. If your class's category belongs to a guild with a lead, that **guild lead** reviews it first.
 4. An **admin** gives the final yes. Only then does it publish.
 
-Reviewers can approve, request changes, or decline — and they have to leave a note when sending something back, so you always know what to fix. You get an email as each decision lands.
+Reviewers can approve, request changes, or decline — and they have to leave a note when sending something back, so you always know what to fix. You get an email as each decision lands. Every class also has **Messages** between you and its reviewers: ask a question or answer a note there any time, without resubmitting.
 
 ## The Quality Bar {#the-quality-bar}
 
@@ -1162,6 +1172,8 @@ The Overview's **Needs Attention** card lists everything waiting on you, under *
 
 - **Approve** records your admin approval on the spot.
 - **Review** opens the full review page: the class details, upcoming sessions, a student-eye preview of the public page, and a response form with **Approve**, **Ask for changes**, and **Decline**. Notes are optional on approve and required on the other two, so the instructor always knows what to fix. **Submit** records it and emails the instructor.
+
+The review page and the class page both carry the class's **Messages**: every note left with a decision, the instructor's change requests, and anything either side wrote. Write there to ask the instructor something without sending the class back; they get a notification, and they can answer without resubmitting. When they write, the class's reviewers are notified (the guild lead and Class Reviewers, or the CMS Administrators when no guild lead reviews it). You can read and write on every class's messages as an admin.
 
 When the class's category belongs to a guild that has a lead, the guild lead reviews first, through a tokenized link emailed to them (no admin access needed). A guild lead approval hands the class to admins for the final sign off. Your admin approval is final: the moment you approve, the class publishes and opens for sign-ups, even if the guild lead has not weighed in yet (any still-open guild lead review is closed automatically). **Ask for changes** and **Decline** send it back to the instructor as a draft, with your notes.
 
@@ -1918,7 +1930,11 @@ You do not need teaching access for any of this. Two caveats: only the guild's l
 
 ![The Needs Attention section, with Waiting on Your Review and a Review button per class.](/static/help/approving-classes/02-review-queue-panel.png)
 
-The review page shows everything the class will publish with: description, sessions, price, capacity, and photos, plus the history of past review rounds.
+The review page shows everything the class will publish with: description, sessions, price, capacity, and photos, plus the class's **Messages**.
+
+### Talk It Over in Messages {#guild-class-messages}
+
+**Messages** on the review page is a conversation between you and the class's instructors. Every note left with a decision is there, from every round, along with anything the instructor wrote. To ask something without deciding yet, write it there and click **Send**: the instructors get a notification. When an instructor writes, you and the guild's other Class Reviewers get one, with a link back to the class. The instructor can answer you any time without resubmitting.
 
 ### Make the Call
 

@@ -48,6 +48,7 @@ an admin reading a queue wants the glance.{% endcomment %}
 </div>
 {% endif %}
 {% endif %}
+{% if class_thread %}{% include "classes/_components/class_messages.html" %}{% endif %}
 {% if offering.status == 'cancelled' %}
   <p style="margin:0 0 1rem;color:var(--hub-text-muted);">Cancelled {{ offering.cancelled_at|date:"M j, Y" }}{% if offering.cancelled_by %} by {{ offering.cancelled_by.display_name }}{% endif %}. Reason: {{ offering.cancellation_reason }}</p>
 {% endif %}

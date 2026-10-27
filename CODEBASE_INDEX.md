@@ -70,6 +70,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 - `ClassOffering` (+ `ClassOfferingQuerySet`) — a class; status DRAFT/PENDING/PUBLISHED/ARCHIVED; `public()` / `bookable()`; sequential approval state machine; instructor welcome-email fields
 - `ClassSession` — individual dated session (`starts_at` / `ends_at`); a series offering has many
 - `ClassApproval` (+ QuerySet) — sequential guild-lead→admin approval rows with tokenized review links
+- `ClassMessage` / `ClassMessagePhoto` — a class's messages between its instructors and its reviewers (the shared thread, `core/threads.py`, #975). `ClassOffering.post_message` always tells the other side minus the author (`class.message_to_reviewers` to the first gate's audience, never all admins; `class.message_to_instructors` to every instructor); `write_message` tells nobody: a decision's note (`ClassApproval.decide`, the note stays on the row too) and a live class's change request ride on their own notice. `message_side(user)` decides who reads and writes (instructors; the guild's lead and Class Reviewers, CMS Administrators, admins). The thread hangs off the class, so a resubmit that deletes a bounced row keeps it; `0096` carried every earlier note in
 - `Registration` — a signup; status PENDING/CONFIRMED/WAITLISTED/CANCELLED/REFUNDED; `self_serve_token`
 - `RegistrationQuestion` / `RegistrationAnswer` — custom per-class signup questions
 - `RegistrationReminder` — dedupe audit for scheduled reminder emails
@@ -114,6 +115,8 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 /classes/instructor/<slug>/     Public instructor page
 /classes/my/<token>/            Registrant self-serve (manage / cancel)
 /classes/review/<token>/        Tokenized class review (guild lead / admin)
+/classes/review/<token>/messages/  Post a class message from a review link (the token is the credential)
+/classes/teach/classes/<pk>/messages/  A class's messages: GET lands each reader on their page, POST posts one
 /classes/teach/                 Instructor dashboard + class management
 /classes/teach/classes/<pk>/    The ONE per-class screen (Overview / Registrations / Waitlist /
                                 Discount Codes / Emails). Admin, CLASS_APPROVER reviewer,

@@ -114,6 +114,7 @@ Do not merge them.
     {% endif %}
 </section>
 {% endif %}
+{% if class_thread %}{% include "classes/_components/class_messages.html" %}{% endif %}
 
 <div class="hub-card pl-composer"
      data-composer-draft-key="{{ composer_draft_key }}" data-composer-draft-legacy-keys="{{ composer_draft_legacy_keys }}"{% if composer_draft_saved %} data-composer-draft-saved="1"{% endif %}{% if composer_draft_unsaved %} data-composer-draft-unsaved="1" data-composer-draft-baseline="{{ composer_draft_baseline }}"{% endif %}
