@@ -21,7 +21,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.views import redirect_to_login
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Min, Prefetch, Q, QuerySet
-from django.forms import BaseInlineFormSet, BaseModelFormSet
+from django.forms import BaseForm, BaseInlineFormSet, BaseModelFormSet
 from django.http import (
     Http404,
     HttpRequest,
@@ -58,6 +58,7 @@ from hub.forms import (
     EventMemberRSVPForm,
     GuildEditForm,
     GuildRoleFormSet,
+    GuildStaffTitleForm,
     ManageCmsForm,
     ManageFeaturesForm,
     MeetingItemProposalForm,
@@ -65,6 +66,8 @@ from hub.forms import (
     MemberAgreementSettingsForm,
     MemberBadgesForm,
     MemberCapabilitiesForm,
+    MemberGuildLeadForm,
+    MemberGuildStaffForm,
     MemberContactForm,
     MemberContactFormSet,
     MemberSkillForm,
@@ -99,6 +102,7 @@ from membership.models import (
     Equipment,
     FundingSnapshot,
     Guild,
+    GuildStaffMembership,
     HelpCategory,
     LeadershipBadge,
     LeadershipListing,
@@ -1493,7 +1497,10 @@ def _guild_edit_context(
         "class_reviewer_ids": guild.class_reviewer_ids(),
         "can_set_class_reviewers": can_set_class_reviewers(request, guild),
         "staff_add_form": GuildStaffAddForm(
-            member_queryset=_staff_candidates(guild), guild=guild, allow_co_lead=_viewing_as_admin(request)
+            member_queryset=_staff_candidates(guild),
+            guild=guild,
+            allow_co_lead=_viewing_as_admin(request),
+            allow_class_reviewer=can_set_class_reviewers(request, guild),
         ),
         # Admin-only: the Guild Lead card on the Staff tab. None for everyone else, so the
         # template's {% if lead_form %} gate and the endpoint's _require_admin stay aligned.
@@ -2044,9 +2051,14 @@ def _lead_candidates(guild: Guild) -> Any:
 @login_required
 @require_POST
 def guild_staff_add(request: HttpRequest, pk: int) -> HttpResponse:
-    """POST-only — a lead/admin/staff member assigns another member a guild staff role."""
+    """POST-only — a lead/admin/staff member assigns another member a guild staff role.
+
+    The Class Reviewer switch on the form (#968) is honoured only for the lead or an admin
+    (:func:`membership.permissions.can_set_class_reviewers`); for anyone else the form has no
+    such field, so a forged value is dropped.
+    """
     from hub.forms import GuildStaffAddForm
-    from membership.models import GuildStaffMembership
+    from membership.permissions import can_set_class_reviewers
 
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
@@ -2058,15 +2070,17 @@ def guild_staff_add(request: HttpRequest, pk: int) -> HttpResponse:
         member_queryset=_staff_candidates(guild),
         guild=guild,
         allow_co_lead=_viewing_as_admin(request),
+        allow_class_reviewer=can_set_class_reviewers(request, guild),
     )
     if form.is_valid():
-        staff = GuildStaffMembership.objects.create(
-            guild=guild,
-            member=form.cleaned_data["member"],
+        member = form.cleaned_data["member"]
+        staff = guild.add_staff(
+            member,
             role=form.cleaned_data["role"] or "",
             custom_title=form.cleaned_data["custom_title"],
+            class_reviewer=form.cleaned_data["class_reviewer"],
         )
-        messages.success(request, f"{staff.member.display_name} is now {staff.display_title} of {guild.name}.")
+        messages.success(request, _staff_added_message(member, guild, staff))
     else:
         error_list = form.non_field_errors() or next(iter(form.errors.values()))
         messages.error(request, str(error_list[0]))
@@ -2085,25 +2099,37 @@ def guild_staff_remove(request: HttpRequest, pk: int, staff_pk: int) -> HttpResp
         return forbidden
 
     staff = get_object_or_404(GuildStaffMembership, pk=staff_pk, guild=guild)
-    removed_member = staff.member
-    member_name = removed_member.display_name
-    title_label = staff.display_title
-    staff.delete()
-    message = f"{member_name} is no longer {title_label} of {guild.name}."
-    # Retire their personal hours ONLY when this was their last leadership row — staff can
-    # hold multiple roles (Treasurer + Orientor), and dropping one must not nuke their hours.
-    if removed_member.pk not in {m.pk for m in guild.leadership_members()}:
-        from membership import orientations
-
-        _removed, booked_remaining = orientations.retire_orienter(guild, removed_member)
-        if booked_remaining:
-            message += (
-                f" They still have {booked_remaining} upcoming booked "
-                f"orientation{'' if booked_remaining == 1 else 's'}. Cancel them from the "
-                "Upcoming Times card on the Orientations tab if they won't be run."
-            )
-    messages.success(request, message)
+    messages.success(request, _remove_staff(guild, staff))
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=staff")
+
+
+def _staff_added_message(member: Member, guild: Guild, staff: GuildStaffMembership | None) -> str:
+    """The flash for :meth:`Guild.add_staff`, on the Staff tab and the member edit page alike (#968)."""
+    if staff is None:
+        return f"{member.display_name} now reviews {guild.name} classes."
+    message = f"{member.display_name} is now {staff.display_title} of {guild.name}."
+    if staff.can_review_classes and staff.custom_title != staff.CLASS_REVIEWER_TITLE:
+        message += " Class Reviewer is on."
+    return message
+
+
+def _remove_staff(guild: Guild, staff: GuildStaffMembership) -> str:
+    """Remove one staff row through :meth:`Guild.remove_staff` and return the flash for it.
+
+    Their personal orienter hours retire only when this was their last leadership row here;
+    booked times they still hold are named so someone cancels or runs them.
+    """
+    member_name = staff.member.display_name
+    title_label = staff.display_title
+    booked_remaining = guild.remove_staff(staff)
+    message = f"{member_name} is no longer {title_label} of {guild.name}."
+    if booked_remaining:
+        message += (
+            f" They still have {booked_remaining} upcoming booked "
+            f"orientation{'' if booked_remaining == 1 else 's'}. Cancel them from the "
+            "Upcoming Times card on the Orientations tab if they won't be run."
+        )
+    return message
 
 
 @login_required
@@ -8782,6 +8808,7 @@ def _render_member_edit(request: HttpRequest, member: Member, form: MemberAdminE
         notif_channel_labels = {channel.value: label for channel, label in notif_channels}
 
     agreement = member.agreement_acceptance
+    guild_roles = member.guild_roles()
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -8798,6 +8825,12 @@ def _render_member_edit(request: HttpRequest, member: Member, form: MemberAdminE
             "badge_toggles": MemberBadgesForm(member).toggles(),
             "capabilities_form": cap_form,
             "instructor_description": Member.INSTRUCTOR_PERMISSION_DESCRIPTION,
+            # Guild Roles (#968): every guild they lead or staff, each staff row's rename form, and the
+            # Add to a Guild and Make Guild Lead pickers. The switches post to the Staff tab's own endpoint.
+            "guild_roles": guild_roles,
+            "staff_title_forms": [GuildStaffTitleForm(row) for roles in guild_roles for row in roles.staff],
+            "guild_staff_form": MemberGuildStaffForm(member),
+            "guild_lead_form": MemberGuildLeadForm(member),
             "notif_matrix": notif_matrix,
             "notif_page_channels": notif_page_channels,
             "notif_channels": notif_channels,
@@ -8885,6 +8918,105 @@ def admin_member_teaching_set(request: HttpRequest, pk: int) -> HttpResponse:
         member.revoke_instructor(revoked_by=admin_member)
         messages.success(request, f"Removed instructor access for {display}.")
     return redirect(f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions")
+
+
+def _member_permissions_url(member: Member) -> str:
+    return f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions#guild-roles"
+
+
+def _flash_form_errors(request: HttpRequest, form: BaseForm) -> None:
+    """Each distinct error of a refused form as one message, for the full page POSTs that redirect back."""
+    for error in dict.fromkeys(str(message) for field_errors in form.errors.values() for message in field_errors):
+        messages.error(request, error)
+
+
+@fog_admin_required
+@require_POST
+def admin_member_guild_staff_add(request: HttpRequest, pk: int) -> HttpResponse:
+    """Add the member to any active guild's staff from their Permissions tab (#968).
+
+    The same :meth:`Guild.add_staff` the Staff tab runs, so both pages show the same rows. With
+    only Class Reviewer on, it turns that on for an existing staff member or adds them titled
+    "Class Reviewer". Silent: nothing is sent.
+    """
+    member = get_object_or_404(Member, pk=pk)
+    form = MemberGuildStaffForm(member, request.POST)
+    if not form.is_valid():
+        _flash_form_errors(request, form)
+        return redirect(_member_permissions_url(member))
+    guild = form.cleaned_data["guild"]
+    staff = guild.add_staff(
+        member,
+        role=form.cleaned_data["role"] or "",
+        custom_title=form.cleaned_data["custom_title"],
+        class_reviewer=form.cleaned_data["class_reviewer"],
+    )
+    messages.success(request, _staff_added_message(member, guild, staff))
+    return redirect(_member_permissions_url(member))
+
+
+@fog_admin_required
+@require_POST
+def admin_member_guild_staff_edit(request: HttpRequest, pk: int, staff_pk: int) -> HttpResponse:
+    """Change one of the member's staff rows to another role or custom title (#968)."""
+    member = get_object_or_404(Member, pk=pk)
+    staff = get_object_or_404(GuildStaffMembership.objects.select_related("guild"), pk=staff_pk, member=member)
+    old_title = staff.display_title
+    form = GuildStaffTitleForm(staff, request.POST)
+    if not form.is_valid():
+        _flash_form_errors(request, form)
+        return redirect(_member_permissions_url(member))
+    staff.retitle(form.cleaned_data["role"] or "", form.cleaned_data["custom_title"])
+    messages.success(
+        request, f"{member.display_name} is now {staff.display_title} of {staff.guild.name} (was {old_title})."
+    )
+    return redirect(_member_permissions_url(member))
+
+
+@fog_admin_required
+@require_POST
+def admin_member_guild_staff_remove(request: HttpRequest, pk: int, staff_pk: int) -> HttpResponse:
+    """Remove one of the member's staff rows, exactly as the guild Staff tab's Remove does (#968)."""
+    member = get_object_or_404(Member, pk=pk)
+    staff = get_object_or_404(GuildStaffMembership.objects.select_related("guild"), pk=staff_pk, member=member)
+    messages.success(request, _remove_staff(staff.guild, staff))
+    return redirect(_member_permissions_url(member))
+
+
+@fog_admin_required
+@require_POST
+def admin_member_guild_lead_set(request: HttpRequest, pk: int) -> HttpResponse:
+    """Make the member a guild's lead from their Permissions tab (#968).
+
+    Runs :meth:`Guild.assign_lead`, replacing any lead (the picker names them) and flashing its
+    warnings, as the Staff tab's Replace lead does.
+    """
+    member = get_object_or_404(Member, pk=pk)
+    form = MemberGuildLeadForm(member, request.POST)
+    if not form.is_valid():
+        _flash_form_errors(request, form)
+        return redirect(_member_permissions_url(member))
+    guild = form.cleaned_data["guild"]
+    previous = guild.guild_lead
+    warnings = guild.assign_lead(member)
+    message = f"{member.display_name} is now the lead of {guild.name}."
+    if previous is not None:
+        message += f" {previous.display_name} is no longer its lead."
+    messages.success(request, message)
+    for warning in warnings:
+        messages.warning(request, warning)
+    return redirect(_member_permissions_url(member))
+
+
+@fog_admin_required
+@require_POST
+def admin_member_guild_lead_clear(request: HttpRequest, pk: int, guild_pk: int) -> HttpResponse:
+    """Remove the member as lead of a guild they lead (#968); a guild they do not lead is a 404."""
+    member = get_object_or_404(Member, pk=pk)
+    guild = get_object_or_404(Guild, pk=guild_pk, guild_lead=member)
+    guild.clear_lead()
+    messages.success(request, f"{member.display_name} is no longer the lead of {guild.name}.")
+    return redirect(_member_permissions_url(member))
 
 
 @fog_admin_required

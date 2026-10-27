@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from django.http import HttpRequest, QueryDict
 
     from classes.models import ClassOffering
-    from membership.models import AnnouncementDraft, OrientationBooking
+    from membership.models import AnnouncementDraft, GuildStaffMembership, OrientationBooking
 
 from core.html_sanitize import clean_rich_body, clean_rich_html, limit_rich_text
 from core.validators import ALLOWED_WIKI_IMAGE_EXTENSIONS, validate_image_size, validate_wiki_upload
@@ -4964,6 +4964,9 @@ class GuildStaffAddForm(forms.Form):
 
     Each entry is *either* one preset role (co-lead/secretary/treasurer/orientor) *or* one custom title
     (e.g. "Studio Technician"), never both. Titles are cosmetic — every staff entry grants the same authority.
+    The Class Reviewer switch (#968) is offered only to whoever may set it (``allow_class_reviewer``,
+    the lead or an admin); with it on, a role and a title may both be left blank. The rules live in
+    :meth:`membership.models.GuildStaffMembership.title_problem`, shared with the member edit page.
     """
 
     member = forms.ModelChoiceField(queryset=Member.objects.none(), label="Member")
@@ -4974,26 +4977,29 @@ class GuildStaffAddForm(forms.Form):
         label="…or type a custom title",
         widget=forms.TextInput(attrs={"maxlength": 60, "placeholder": "e.g. Studio Technician"}),
     )
+    class_reviewer = forms.BooleanField(
+        required=False,
+        label="Class Reviewer",
+        help_text="Gets this guild's class review requests and can approve its classes.",
+    )
 
     def __init__(
-        self, *args: Any, member_queryset: Any = None, guild: Any = None, allow_co_lead: bool = False, **kwargs: Any
+        self,
+        *args: Any,
+        guild: Guild,
+        member_queryset: Any = None,
+        allow_co_lead: bool = False,
+        allow_class_reviewer: bool = False,
+        **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        from membership.models import GuildStaffMembership
-
         self._guild = guild
         self._allow_co_lead = allow_co_lead
-        # Only admins may mint Co-Leads (they carry lead-equivalent authority). Restricting the
-        # field's choices both hides the option in the dropdown AND rejects a forged POST —
-        # the gate lives here at the form level, not just in the template.
-        role_choices = [
-            (value, label)
-            for value, label in GuildStaffMembership.Role.choices
-            if allow_co_lead or value != GuildStaffMembership.Role.CO_LEAD
-        ]
-        cast(forms.ChoiceField, self.fields["role"]).choices = [("", "Choose a role…"), *role_choices]
+        cast(forms.ChoiceField, self.fields["role"]).choices = staff_role_choices(allow_co_lead=allow_co_lead)
         if member_queryset is not None:
             cast(forms.ModelChoiceField, self.fields["member"]).queryset = member_queryset
+        if not allow_class_reviewer:
+            del self.fields["class_reviewer"]
 
     def clean(self) -> dict[str, Any]:
         from membership.models import GuildStaffMembership
@@ -5003,28 +5009,151 @@ class GuildStaffAddForm(forms.Form):
             # The submitted value already failed the restricted ChoiceField; replace the generic
             # "not one of the available choices" noise with the actual policy.
             raise forms.ValidationError("Only an admin can add a Co-Lead.")
-        role = cleaned.get("role") or ""
-        custom_title = (cleaned.get("custom_title") or "").strip()
-        cleaned["custom_title"] = custom_title
-
-        if role and custom_title:
-            raise forms.ValidationError("Pick a preset role or type a custom title — not both.")
-        if not role and not custom_title:
-            raise forms.ValidationError("Pick a role or type a custom title.")
-
-        preset_labels = {label.casefold() for _, label in GuildStaffMembership.Role.choices}
-        if custom_title and custom_title.casefold() in preset_labels:
-            raise forms.ValidationError("That title is already a preset role — pick it from the dropdown instead.")
-
+        cleaned["custom_title"] = (cleaned.get("custom_title") or "").strip()
+        cleaned["class_reviewer"] = bool(cleaned.get("class_reviewer"))
         member = cleaned.get("member")
-        if self._guild is not None and member is not None:
-            held = self._guild.staff_memberships.filter(member=member)
-            if role and held.filter(role=role).exists():
-                label = GuildStaffMembership.Role(role).label
-                raise forms.ValidationError(f"{member.display_name} is already {label} of this guild.")
-            if custom_title and held.filter(custom_title__iexact=custom_title).exists():
-                raise forms.ValidationError(f"{member.display_name} already holds the title “{custom_title}”.")
+        if member is not None:
+            problem = GuildStaffMembership.title_problem(
+                self._guild,
+                member,
+                cleaned.get("role") or "",
+                cleaned["custom_title"],
+                class_reviewer=cleaned["class_reviewer"],
+            )
+            if problem:
+                raise forms.ValidationError(problem)
         return cleaned
+
+
+def staff_role_choices(*, allow_co_lead: bool) -> list[tuple[str, str]]:
+    """The Role dropdown for a staff form: a blank first, then the presets; Co-Lead only for admins.
+
+    Restricting the choices both hides the option and rejects a forged POST, so the Co-Lead gate
+    lives at the form level, not only in the template.
+    """
+    from membership.models import GuildStaffMembership
+
+    return [
+        ("", "Choose a role…"),
+        *(
+            (value, label)
+            for value, label in GuildStaffMembership.Role.choices
+            if allow_co_lead or value != GuildStaffMembership.Role.CO_LEAD
+        ),
+    ]
+
+
+class MemberGuildStaffForm(forms.Form):
+    """The member edit page's Add to a Guild form (#968): one person, any active guild.
+
+    Admin only, so Co-Lead is offered. A guild the person leads is left out (the lead already holds
+    every staff power). With only Class Reviewer on, :meth:`membership.models.Guild.add_staff` turns it
+    on for a member already on that guild's staff, or adds them titled "Class Reviewer".
+    """
+
+    guild = forms.ModelChoiceField(queryset=Guild.objects.none(), label="Guild", empty_label="Choose a guild…")
+    role = forms.ChoiceField(choices=[], label="Role", required=False)
+    custom_title = forms.CharField(
+        max_length=60,
+        required=False,
+        label="…or type a custom title",
+        widget=forms.TextInput(attrs={"maxlength": 60, "placeholder": "e.g. Studio Technician"}),
+    )
+    class_reviewer = forms.BooleanField(
+        required=False,
+        label="Class Reviewer",
+        help_text="Gets the guild's class review requests and can approve its classes.",
+    )
+
+    def __init__(self, member: Member, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.member = member
+        cast(forms.ModelChoiceField, self.fields["guild"]).queryset = (
+            Guild.objects.filter(is_active=True).exclude(guild_lead=member).order_by("name")
+        )
+        cast(forms.ChoiceField, self.fields["role"]).choices = staff_role_choices(allow_co_lead=True)
+
+    def clean(self) -> dict[str, Any]:
+        from membership.models import GuildStaffMembership
+
+        cleaned: dict[str, Any] = super().clean() or {}
+        cleaned["custom_title"] = (cleaned.get("custom_title") or "").strip()
+        cleaned["class_reviewer"] = bool(cleaned.get("class_reviewer"))
+        guild = cleaned.get("guild")
+        if guild is not None:
+            problem = GuildStaffMembership.title_problem(
+                guild,
+                self.member,
+                cleaned.get("role") or "",
+                cleaned["custom_title"],
+                class_reviewer=cleaned["class_reviewer"],
+            )
+            if problem:
+                raise forms.ValidationError(problem)
+        return cleaned
+
+
+class GuildStaffTitleForm(forms.Form):
+    """Change one staff row's preset role or custom title, from the member edit page (#968). Admin only."""
+
+    role = forms.ChoiceField(choices=[], label="Role", required=False)
+    custom_title = forms.CharField(
+        max_length=60,
+        required=False,
+        label="…or type a custom title",
+        widget=forms.TextInput(attrs={"maxlength": 60}),
+    )
+
+    def __init__(self, staff: GuildStaffMembership, *args: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("initial", {"role": staff.role, "custom_title": staff.custom_title})
+        kwargs.setdefault("prefix", f"staff-{staff.pk}")
+        super().__init__(*args, **kwargs)
+        self.staff = staff
+        cast(forms.ChoiceField, self.fields["role"]).choices = staff_role_choices(allow_co_lead=True)
+
+    def clean(self) -> dict[str, Any]:
+        from membership.models import GuildStaffMembership
+
+        cleaned: dict[str, Any] = super().clean() or {}
+        cleaned["custom_title"] = (cleaned.get("custom_title") or "").strip()
+        problem = GuildStaffMembership.title_problem(
+            self.staff.guild,
+            self.staff.member,
+            cleaned.get("role") or "",
+            cleaned["custom_title"],
+            exclude_pk=self.staff.pk,
+        )
+        if problem:
+            raise forms.ValidationError(problem)
+        return cleaned
+
+
+class _GuildWithLeadChoiceField(forms.ModelChoiceField):
+    """A guild picker whose options name the current lead, so replacing one is never a surprise."""
+
+    def label_from_instance(self, obj: Any) -> str:
+        if obj.guild_lead is None:
+            return f"{obj.name} (no lead)"
+        return f"{obj.name} (lead now: {obj.guild_lead.display_name})"
+
+
+class MemberGuildLeadForm(forms.Form):
+    """The member edit page's Make Guild Lead picker (#968): any active guild this person does not lead.
+
+    Picking one with a lead replaces that lead, as the Staff tab's Replace lead does
+    (:meth:`membership.models.Guild.assign_lead`); each option names the lead it would replace.
+    """
+
+    guild = _GuildWithLeadChoiceField(queryset=Guild.objects.none(), label="Guild", empty_label="Choose a guild…")
+
+    def __init__(self, member: Member, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        cast(forms.ModelChoiceField, self.fields["guild"]).queryset = (
+            Guild.objects.filter(is_active=True)
+            .exclude(guild_lead=member)
+            .select_related("guild_lead")
+            .order_by("name")
+        )
 
 
 class ChannelRadioSelect(forms.RadioSelect):

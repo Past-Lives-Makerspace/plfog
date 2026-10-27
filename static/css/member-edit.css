@@ -374,3 +374,83 @@
 /* Light-theme contrast for the Booked / Recorded pills, like the email pills above. */
 [data-theme="light"] .pl-member-orient-list .hub-pill--ok { color: #1f7a52; }
 [data-theme="light"] .pl-member-orient-list .hub-pill--neutral { color: #5b6675; }
+
+/* ── Permissions tab: Guild Roles (#968) ──────────────────────────────
+   Every guild the member leads or staffs, one bordered row each: the guild name and its
+   Class Reviewer switch (or the lead's read only line) on top, the titles below. Then the
+   Add to a Guild and Make Guild Lead forms. Nothing touches (FRONTEND.md Rule 26); the
+   pickers stop at a readable width (Rule 28). */
+.pl-guild-roles {
+    max-width: 760px;
+    margin-bottom: 2rem;
+}
+.pl-guild-roles__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.pl-guild-role {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+}
+.pl-guild-role__head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+}
+.pl-guild-role__name {
+    font-weight: 600;
+    color: var(--hub-text);
+}
+.pl-guild-role__note {
+    margin-left: auto;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+.pl-guild-role__titles {
+    margin-top: 0.75rem;
+}
+.pl-guild-roles__empty {
+    font-size: 0.875rem;
+}
+.pl-guild-roles__form {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-guild-roles__form-title {
+    margin-bottom: 0.75rem;
+}
+.pl-guild-roles__fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 1rem;
+}
+.pl-guild-roles__field {
+    flex: 1 1 200px;
+    max-width: 240px;
+}
+.pl-guild-roles__field--wide {
+    max-width: 420px;
+}
+.pl-guild-roles__toggle {
+    margin-top: 0.75rem;
+    max-width: 520px;
+}
+.pl-guild-roles__modal-lead {
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+}
+.pl-guild-roles__modal-actions {
+    margin-top: 1.5rem;
+}
+@media (max-width: 640px) {
+    .pl-guild-roles__field,
+    .pl-guild-roles__field--wide {
+        max-width: none;
+        flex-basis: 100%;
+    }
+}
