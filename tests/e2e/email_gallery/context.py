@@ -1018,6 +1018,20 @@ def tour_guide_booked_context(data: SampleData) -> dict[str, Any]:
     return {"subject": f"New tour booked: {short_when(booking.starts_at)}", "template_context": guide_context(booking)}
 
 
+def tour_guide_calendar_broken_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``tours.calendar_sync.tell_guide_broken`` (#951)."""
+    from tours.calendar_sync import broken_context
+    from tours.models import TourCalendarConnection
+
+    connection = TourCalendarConnection.objects.create(
+        guide=data.lead,
+        google_email="gina.guide@gmail.com",
+        status=TourCalendarConnection.Status.BROKEN,
+        broken_at=timezone.now(),
+    )
+    return {"subject": "Reconnect your Google Calendar for tours", "template_context": broken_context(connection)}
+
+
 def tour_guide_changed_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``tours.notify.tell_guide_changed`` for a move within one guide's tours."""
     from tours.notify import guide_context, short_when, when_label

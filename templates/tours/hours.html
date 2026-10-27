@@ -8,7 +8,8 @@
 {% comment %}
 The Tours page's My Hours tab (#947, tours.views.tour_hours), for Tour Guides and admins: a guide's
 weekly tour hours (rows of day, from, until, tour length and seats, each cut into back to back
-tours) and their days off. An admin picks whose hours to edit with the guide picker. The page opens
+tours), their days off, and their Google Calendar (#951, tours/partials/_google_calendar.html). An
+admin picks whose hours to edit with the guide picker, which names each guide's calendar state. The page opens
 on Upcoming (tours/bookings.html, #949); admins also get the Settings tab (tours/settings.html).
 {% endcomment %}
 {% include "tours/partials/_page_top.html" with tab="hours" %}
@@ -21,7 +22,7 @@ on Upcoming (tours/bookings.html, #949); admins also get the Settings tab (tours
       <select id="tour-guide-picker" name="guide" class="pl-tours-input--text" onchange="this.form.requestSubmit()">
         <option value=""{% if is_self %} selected{% endif %}>My hours</option>
         {% for guide in picker_guides %}
-        <option value="{{ guide.pk }}"{% if guide.pk == target.pk %} selected{% endif %}>{{ guide.display_name }}</option>
+        <option value="{{ guide.pk }}"{% if guide.pk == target.pk %} selected{% endif %}{% if guide.calendar %} data-tour-guide-calendar="{{ guide.calendar }}"{% endif %}>{{ guide.name }}{% if guide.calendar %} · {{ guide.calendar }}{% endif %}</option>
         {% endfor %}
       </select>
     </div>
@@ -139,6 +140,8 @@ on Upcoming (tours/bookings.html, #949); admins also get the Settings tab (tours
   {% endif %}
   <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-panel__add" @click="$dispatch('open-modal', 'tour-day-off-modal')" data-tour-day-off-add>Add Day Off</button>
 </div>
+
+{% include "tours/partials/_google_calendar.html" %}
 
 {% include "components/modal.html" with modal_id="tour-day-off-modal" modal_title="Add Day Off" modal_size="md" modal_body_include="tours/partials/_day_off_form.html" %}
 {% if open_day_off %}

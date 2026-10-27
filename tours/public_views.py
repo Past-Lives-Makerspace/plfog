@@ -75,7 +75,11 @@ def tours_surface_only(view: View) -> View:
 
 
 def all_open_tours() -> list[OpenTour]:
-    """Every tour visitors can book now (``open_tours`` clamps the range to the horizon and notice)."""
+    """Every tour visitors can book now (``open_tours`` clamps the range to the horizon and notice).
+
+    A guide's Google Calendar busy times (#951) come from the cache the ``sync_tour_calendars`` job
+    keeps: no visitor page or kiosk screen ever waits on Google.
+    """
     today = timezone.localdate()
     return open_tours(today, today + timedelta(days=MAX_HORIZON_DAYS))
 

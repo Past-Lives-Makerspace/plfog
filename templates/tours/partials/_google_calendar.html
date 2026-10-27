@@ -1,0 +1,54 @@
+{% comment %}
+The My Hours tab's Google Calendar card (#951, tours.views): a Tour Guide connects their own Google
+Calendar, so each tour booked in their hours is added to it and the times it shows them busy are not
+offered to visitors. Connected shows the account, Disconnect (confirm_modal) and the calendar picker
+with Save last; broken shows why and Reconnect. An admin looking at someone else's hours reads their
+state only: Google signs in whoever presses Connect, so nobody connects a calendar for someone else.
+
+Context: gcal_configured (the OAuth client is set and this is not staging), gcal (the target's
+TourCalendarConnection or None), gcal_form (the picker, for the viewer's own healthy connection),
+is_self, target.
+{% endcomment %}
+<div class="hub-card pl-tours-panel pl-tours-gcal" data-tour-gcal="{% if not gcal_configured %}dormant{% elif not gcal %}none{% elif gcal.is_broken %}broken{% else %}connected{% endif %}">
+  <h2 class="hub-detail-label pl-tours-panel__title">Google Calendar</h2>
+  {% if not gcal_configured %}
+  <p class="hub-text-muted pl-tours-gcal__last" data-tour-gcal-dormant>Connecting a Google Calendar is not set up yet. Once an admin adds Google's sign in keys, you can connect yours here.</p>
+  {% elif not is_self %}
+    {% if not gcal %}
+  <p class="hub-text-muted pl-tours-gcal__last">{{ target.display_name }} has not connected a Google Calendar. Only they can connect their own, from their My Hours tab.</p>
+    {% elif gcal.is_broken %}
+  <p class="pl-tours-gcal__status pl-tours-gcal__status--broken">Needs reconnecting since {{ gcal.broken_at|date:"M j, g:i A" }}.</p>
+  <p class="hub-text-muted pl-tours-gcal__last">Google stopped accepting {{ gcal.google_email|default:"their calendar" }}, so {{ target.display_name }}'s hours are offered as if no calendar were connected until they reconnect it.</p>
+    {% else %}
+  <p class="pl-tours-gcal__status">Connected as <strong>{{ gcal.google_email }}</strong>. Tours are written to {{ gcal.calendar_label }}.</p>
+  <p class="hub-text-muted pl-tours-gcal__last">{% if gcal.busy_checked_at %}Busy times last read {{ gcal.busy_checked_at|date:"M j, g:i A" }}.{% else %}Busy times not read yet.{% endif %}</p>
+    {% endif %}
+  {% elif not gcal %}
+  <p class="hub-text-muted pl-tours-panel__intro">Connect your Google Calendar and each tour booked in your hours is added to it. Times it shows you busy are not offered to visitors, and tours already booked always stay booked.</p>
+  <a href="{% url 'tours:google_connect' %}" class="pl-btn pl-btn--primary pl-btn--sm pl-tours-gcal__connect" hx-boost="false" data-tour-gcal-connect>Connect Google Calendar</a>
+  {% elif gcal.is_broken %}
+  <div class="pl-tours-refused pl-tours-gcal__broken" role="alert" data-tour-gcal-broken>
+    <p class="pl-tours-refused__title">Your Google Calendar needs reconnecting.</p>
+    <p class="pl-tours-refused__text">Google stopped accepting {{ gcal.google_email|default:"the calendar you connected" }}. Until you reconnect it, new tours are not added to it and your hours are offered as if no calendar were connected.</p>
+  </div>
+  <div class="pl-tours-gcal__actions">
+    <a href="{% url 'tours:google_connect' %}" class="pl-btn pl-btn--primary pl-btn--sm" hx-boost="false" data-tour-gcal-reconnect>Reconnect Google Calendar</a>
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'tour-gcal-disconnect')" data-tour-gcal-disconnect>Disconnect</button>
+  </div>
+  {% else %}
+  <div class="pl-tours-gcal__account">
+    <p class="pl-tours-gcal__status" data-tour-gcal-account>Connected as <strong>{{ gcal.google_email }}</strong></p>
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'tour-gcal-disconnect')" data-tour-gcal-disconnect>Disconnect</button>
+  </div>
+  <p class="hub-text-muted pl-tours-gcal__checked">{% if gcal.busy_checked_at %}Busy times last read {{ gcal.busy_checked_at|date:"M j, g:i A" }}.{% else %}Busy times are read within 15 minutes.{% endif %}</p>
+  <form method="post" action="{% url 'tours:google_calendar' %}" class="hub-form pl-tours-gcal__form" data-tour-gcal-form>
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=gcal_form.calendar %}
+    <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-btn--spaced" data-tour-gcal-save>Save</button>
+  </form>
+  {% endif %}
+  {% if is_self and gcal and gcal_configured %}
+  {% url 'tours:google_disconnect' as gcal_disconnect_url %}
+  {% include "components/confirm_modal.html" with confirm_id="tour-gcal-disconnect" confirm_title="Disconnect Google Calendar?" confirm_message="New tours stop being added to your calendar, and the times it shows you busy stop hiding tour times. Tours already on it stay there." confirm_action_url=gcal_disconnect_url confirm_button_text="Disconnect" %}
+  {% endif %}
+</div>

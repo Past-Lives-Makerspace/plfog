@@ -195,6 +195,18 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="sync_tour_calendars",
+        name="Tour guide Google Calendars",
+        description=(
+            "Adds booked facility tours to each Tour Guide's connected Google Calendar, moves and removes "
+            "them as tours change, and reads the times the calendar shows them busy so those tour times "
+            "are not offered. A write that fails is tried again on a later run."
+        ),
+        command="sync_tour_calendars",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="send_payouts",
         name="Send instructor and orientor payouts",
         description=(

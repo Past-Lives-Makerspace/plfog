@@ -796,6 +796,21 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         html_template="tours/emails/guide_changed.html",
         context_builder="tour_guide_changed_context",
     ),
+    GalleryEmail(
+        key="tour_guide_calendar_broken",
+        name="Reconnect your Google Calendar (guide)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent once, with a bell, when Google stops accepting the calendar a Tour Guide connected on My Hours (revoked or expired). Their hours are offered as if no calendar were connected until they reconnect."
+        ),
+        edit_pointer=_tpl("tours/emails", "guide_calendar_broken"),
+        audience="The Tour Guide whose calendar it is.",
+        event_keys=frozenset({"tour.calendar_broken"}),
+        text_template="tours/emails/guide_calendar_broken.txt",
+        html_template="tours/emails/guide_calendar_broken.html",
+        context_builder="tour_guide_calendar_broken_context",
+    ),
     # --- Billing ---------------------------------------------------------------
     GalleryEmail(
         key="receipt",

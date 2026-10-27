@@ -22,7 +22,7 @@ from hub.forms import (
     half_hour_time_choices,
 )
 from membership.models import Member
-from tours.models import MAX_SEATS, FacilityTourSettings, TourDayOff, TourHours
+from tours.models import MAX_SEATS, FacilityTourSettings, TourCalendarConnection, TourDayOff, TourHours
 
 #: The longest run of days one day off may cover.
 MAX_DAY_OFF_DAYS = 366
@@ -342,3 +342,24 @@ class StaffRescheduleForm(StaffTourMessageForm):
     """The staff reschedule's confirm (#949): the tour picked (an ``OpenTour.key``) and the optional note."""
 
     tour = forms.CharField(widget=forms.HiddenInput)
+
+
+class TourCalendarChoiceForm(forms.Form):
+    """Which of the guide's own Google calendars tours are written to (#951): the My Hours tab's picker.
+
+    The choices are the calendars the guide owns, as the sync job last read them, main one first
+    (its value is ``primary``). A value Google never listed is refused.
+    """
+
+    calendar = forms.ChoiceField(label="Write tours to", widget=forms.Select(attrs={"class": _TEXT}))
+
+    def __init__(self, *args: Any, connection: TourCalendarConnection, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        choices = [
+            (value, f"{label} (main calendar)" if value == "primary" else label)
+            for value, label in connection.calendar_choices()
+        ] or [("primary", "Your main calendar")]
+        field = cast("forms.ChoiceField", self.fields["calendar"])
+        field.choices = choices
+        field.initial = connection.calendar_id
+        field.help_text = "Times this calendar or your main one shows you busy are not offered to visitors."
