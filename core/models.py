@@ -21,6 +21,7 @@ from django.utils import timezone
 from core.features import DEFAULT_SOON_MESSAGE, FEATURES, FeatureState, FeatureView
 from core.files import delete_orphan_on_replace
 from core.scheduled_jobs import Trigger
+from core.threads import ThreadMessage, ThreadOpening, ThreadPhoto
 from core.validators import validate_hex_color, validate_image_size
 
 if TYPE_CHECKING:
@@ -3409,25 +3410,25 @@ class FeedbackRequest(models.Model):
             The saved comment; its ``notified`` says whether anyone was told
             (:meth:`FeedbackComment.notify_other_side`).
         """
-        with transaction.atomic():
-            comment = self._create_comment(author=author, body=body, photos=photos)
-            comment.notify_other_side()
-        return comment
+        return FeedbackComment.post(author=author, body=body, photos=photos, request=self)
 
     def _create_comment(self, *, author: User, body: str, photos: list[UploadedFile]) -> FeedbackComment:
-        """Save a comment and its photos; tell nobody. A staff comment marks the request seen.
+        """Save a comment and its photos; tell nobody. A staff comment marks the request seen."""
+        return FeedbackComment.write(author=author, body=body, photos=photos, request=self)
 
-        A sender's comment stamps ``member_replied_at`` once it commits, in
-        :meth:`FeedbackComment.notify_other_side`.
+    def thread(self) -> list[ThreadOpening | FeedbackComment]:
+        """The whole conversation for ``components/thread.html``: the request itself, then every comment.
+
+        Reads a ``with_thread()`` prefetch.
         """
-        comment = FeedbackComment.objects.create(request=self, author=author, body=body.strip())
-        for photo in photos:
-            photo.seek(0)
-            FeedbackCommentPhoto.objects.create(comment=comment, image=photo)
-        if comment.is_from_staff:
-            self.staff_seen_at = comment.created_at
-            type(self).objects.filter(pk=self.pk).update(staff_seen_at=comment.created_at)
-        return comment
+        opening = ThreadOpening(
+            author_id=self.user_id,
+            name=lambda: self.sender_label,
+            body=self.message,
+            created_at=self.created_at,
+            photos=list(self.photos.all()),
+        )
+        return [opening, *self.comments.all()]
 
     def mark_seen_by_staff(self) -> None:
         """Record that an admin opened this request, which clears its Member replied pill."""
@@ -3639,18 +3640,13 @@ class FeedbackRequestPhoto(models.Model):
         return f"Photo {self.pk} on request #{self.request_id}"
 
 
-class FeedbackComment(models.Model):
+class FeedbackComment(ThreadMessage):
     """One message on a :class:`FeedbackRequest`'s thread, from the sender or from Past Lives.
 
-    Who it is from is derived, never stored: a comment by anyone but the request's sender is
-    from staff, and so is one with no author (a note written before comments existed).
+    Built on the shared thread (:class:`core.threads.ThreadMessage`): the member side is the
+    request's sender, the staff side is Past Lives (an admin, or no author for a note written
+    before comments existed, signed "Past Lives").
     """
-
-    # What a comment with no author, or an admin with no name, signs as.
-    STAFF_SIGNATURE = "Past Lives"
-
-    # Set by notify_other_side: whether posting it told anyone. Not a column.
-    notified: bool = False
 
     request = models.ForeignKey(
         FeedbackRequest,
@@ -3658,6 +3654,7 @@ class FeedbackComment(models.Model):
         related_name="comments",
         help_text="The request this comment is on.",
     )
+    # Declared again only to keep the reverse name and help text the table was made with.
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -3666,35 +3663,32 @@ class FeedbackComment(models.Model):
         related_name="feedback_comments",
         help_text="Who wrote it: the sender or an admin. Blank for a note carried over from before comments.",
     )
-    body = models.TextField(help_text="What they wrote.")
-    created_at = models.DateTimeField(default=timezone.now, help_text="When it was posted.")
 
-    class Meta:
-        ordering = ["created_at", "pk"]
+    class Meta(ThreadMessage.Meta):
+        pass
 
     def __str__(self) -> str:
         return f"Comment {self.pk} on request #{self.request_id}"
 
     @property
-    def is_from_staff(self) -> bool:
-        """Written by anyone but the request's sender, or carried over with no author."""
-        return self.author_id is None or self.author_id != self.request.user_id
+    def member_user_ids(self) -> set[int]:
+        return {self.request.user_id}
 
     @property
-    def author_name(self) -> str:
-        """The name the thread shows: the sender's label, an admin's name, else Past Lives."""
-        if not self.is_from_staff:
-            return self.request.sender_label
-        from membership.names import user_display_name
+    def member_side_name(self) -> str:
+        return self.request.sender_label
 
-        return (user_display_name(self.author) if self.author is not None else "") or self.STAFF_SIGNATURE
+    def after_write(self) -> None:
+        """A staff comment marks the request seen, which clears its Member replied pill.
 
-    @property
-    def shows_staff_tag(self) -> bool:
-        """An admin's comment signed with their own name carries a Past Lives tag; Past Lives alone does not."""
-        return self.is_from_staff and self.author_name != self.STAFF_SIGNATURE
+        A sender's comment stamps ``member_replied_at`` once it commits, in :meth:`_tell_staff_side`.
+        """
+        if self.is_from_staff:
+            request = self.request
+            request.staff_seen_at = self.created_at
+            FeedbackRequest.objects.filter(pk=request.pk).update(staff_seen_at=self.created_at)
 
-    def _notify_sender(self) -> None:
+    def _tell_member_side(self) -> bool:
         """Tell the request's sender that Past Lives wrote this comment."""
         from core.events.emit import emit
         from core.events.registry import FEEDBACK_COMMENT_ADDED
@@ -3713,28 +3707,20 @@ class FeedbackComment(models.Model):
             url=request.member_url,
             period=f"feedback-comment-{self.pk}",
         )
+        return True
 
-    def notify_other_side(self) -> bool:
-        """Tell whoever is on the other side of this comment; the one rule for both posting paths.
+    def _tell_staff_side(self) -> bool:
+        """The sender wrote (an admin on their own request too): tell the Webmasters minus the author.
 
-        A staff comment tells the sender. A sender's comment (an admin's on their own request
-        too) tells the Webmasters minus the author, and stamps ``member_replied_at``; both run
-        once the comment commits, so the stamp is never older than the moment an admin could
-        first see the comment, and an admin opening the page in between cannot clear it.
-
-        Returns:
-            Whether anyone was told; also kept on :attr:`notified`.
+        Runs once the comment commits, with the ``member_replied_at`` stamp, so the stamp is never
+        older than the moment an admin could first see the comment, and an admin opening the page
+        in between cannot clear it.
         """
-        if self.is_from_staff:
-            self._notify_sender()
-            self.notified = True
-            return True
         from core.events.resolvers import webmasters
 
         recipient_ids = {user.pk for user, _reason in webmasters({}) if user.pk != self.author_id}
         transaction.on_commit(lambda: self._replied(recipient_ids))
-        self.notified = bool(recipient_ids)
-        return self.notified
+        return bool(recipient_ids)
 
     def _replied(self, recipient_ids: set[int]) -> None:
         """After commit: put the request under Member replied, and tell ``recipient_ids``."""
@@ -3762,8 +3748,16 @@ class FeedbackComment(models.Model):
             recipient_user_ids=recipient_ids,
         )
 
+    def told_sentence(self) -> str:
+        """The sender, unless they wrote it: then the other Webmasters."""
+        if not self.notified:
+            return ""
+        if not self.is_from_staff:
+            return " The Webmasters were notified."
+        return f" {self.request.sender_label} was notified."
 
-class FeedbackCommentPhoto(models.Model):
+
+class FeedbackCommentPhoto(ThreadPhoto):
     """One photo or screenshot posted with a :class:`FeedbackComment`."""
 
     comment = models.ForeignKey(
@@ -3773,10 +3767,9 @@ class FeedbackCommentPhoto(models.Model):
         help_text="The comment this photo was posted with.",
     )
     image = models.ImageField(upload_to="feedback/%Y/%m/", help_text="The uploaded photo, on the default storage.")
-    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was uploaded.")
 
-    class Meta:
-        ordering = ["pk"]
+    class Meta(ThreadPhoto.Meta):
+        pass
 
     def __str__(self) -> str:
         return f"Photo {self.pk} on comment {self.comment_id}"

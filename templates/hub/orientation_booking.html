@@ -1,0 +1,41 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Your Orientation · {{ booking.orientation_type.owner_name }}{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/orientation-booking.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+The member's page for one of their orientation bookings (hub.views.orientation_booking): where it
+stands, then its messages with the Orientors (components/thread.html) and a box to write to them. A
+message to the member links here, and a booking the cards no longer show (declined, cancelled)
+keeps its conversation here. Cancelling and answering a new time stay on the owner page.
+{% endcomment %}
+<div class="pl-orient-booking">
+  <p class="pl-orient-booking__back"><a href="{{ booking.orientation_type.orientation_anchor_path }}" class="hub-btn hub-btn--sm hub-btn--ghost">&larr; Back to {{ booking.orientation_type.owner_name }}</a></p>
+  <h1 class="hub-page-title pl-orient-booking__heading">Your Orientation</h1>
+
+  <div class="hub-card pl-orient-booking__card" data-orientation-booking="{{ booking.pk }}">
+    <p class="pl-orient-booking__title"><strong>{{ booking.orientation_type.name }}</strong> · {{ booking.orientation_type.owner_name }}</p>
+    <p class="pl-orient-booking__when">{{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}{% if booking.slot.location %} · {{ booking.slot.location }}{% endif %}</p>
+    <p class="pl-orient-booking__status">
+      <span class="hub-pill {% if booking.status == 'confirmed' %}hub-pill--ok{% elif booking.status == 'requested' or booking.status == 'pending_payment' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-booking-status="{{ booking.status }}">{{ booking.get_status_display }}</span>
+      {% if booking.is_completed %}<span class="hub-pill hub-pill--ok">Oriented</span>{% endif %}
+    </p>
+    {% if booking.status == "requested" or booking.status == "confirmed" %}
+    <p class="pl-orient-booking__manage">To cancel{% if booking.has_open_proposal %} or answer the new time{% endif %}, go to the <a href="{{ booking.orientation_type.orientation_anchor_path }}">{% if booking.orientation_type.is_equipment_owned %}equipment page{% else %}guild page{% endif %}</a>.</p>
+    {% endif %}
+  </div>
+
+  <div class="hub-card pl-orient-booking__card" id="messages" data-thread-open="{{ booking.pk }}">
+    <h2 class="hub-detail-label">Messages</h2>
+    {% with pk_str=booking.pk|stringformat:"s" %}
+    {% include "components/thread.html" with thread_messages=thread_messages viewer_is_staff=False thread_key="booking-"|add:pk_str thread_empty="No messages yet. Ask the Orientors anything about this orientation." %}
+    {% endwith %}
+    {% url 'hub_orientation_message' booking.pk as message_url %}
+    {% include "components/thread_composer.html" with thread_form=message_form thread_action=message_url thread_next="" thread_body_label="Write to the Orientors" thread_note=orientors_hear|yesno:"The Orientors get a notification.," thread_button="Send" %}
+  </div>
+</div>
+{% include "components/thread_script.html" %}
+{% include "components/busy_submit.html" %}
+{% endblock %}

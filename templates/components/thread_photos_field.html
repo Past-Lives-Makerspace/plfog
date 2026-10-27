@@ -1,8 +1,8 @@
 {% comment %}
-The photos field of the Feedback form and of every comment box (FRONTEND rule 16): the shared
-.cls-image-upload-zone drop zone (components.css) around the real multi-file input, never a bare
-file input, with the caps in a ? bubble. hub/partials/_feedback_photos_script.html, included once
-per page, makes each zone take dropped files and name what was chosen. Expects field.
+The photos field of a thread's composer (FRONTEND rule 16): the shared .cls-image-upload-zone drop
+zone (components.css) around the real multi-file input, never a bare file input, with the caps in a ?
+bubble. components/thread_script.html, included once per page, makes each zone take dropped files
+and name what was chosen. Expects field.
 {% endcomment %}
 <div class="pl-form-group">
   <div class="pl-form-label-row">
@@ -12,8 +12,8 @@ per page, makes each zone take dropped files and name what was chosen. Expects f
       <span class="pl-help__bubble">{{ field.help_text }}</span>
     </span>
   </div>
-  <label class="cls-image-upload-zone" for="{{ field.id_for_label }}" data-feedback-photos>
-    <span class="cls-image-upload-label" data-feedback-photos-label>Choose photos or drag them here</span>
+  <label class="cls-image-upload-zone" for="{{ field.id_for_label }}" data-thread-photos>
+    <span class="cls-image-upload-label" data-thread-photos-label>Choose photos or drag them here</span>
     <span class="cls-image-upload-hint">Photos or screenshots. JPG, PNG, WEBP or HEIC.</span>
     {{ field }}
   </label>

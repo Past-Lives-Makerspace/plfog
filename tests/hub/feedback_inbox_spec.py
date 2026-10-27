@@ -386,9 +386,9 @@ def describe_conversation():
 
         assert body.index("Zzthe original") < body.index("Zzfrom the sender") < body.index("Zzcarried over note")
         assert body.index("Zzcarried over note") < body.index("Zzfrom an admin")
-        assert "data-feedback-original" in body
+        assert "data-thread-opening" in body
         assert body.count('data-from="staff"') == 2
-        assert 'data-from="sender"' in body
+        assert 'data-from="member"' in body
         assert "<strong>Past Lives</strong>" in body
 
     def it_names_who_hears_the_comment_on_its_button(client: Client):
@@ -397,9 +397,9 @@ def describe_conversation():
 
         body = client.get(_page(request.pk)).content.decode()
 
-        assert "data-feedback-send data-pl-busy>Send to Robin Vale<" in body
-        assert "data-feedback-comment-form data-pl-busy-submit" in body
-        assert "data-feedback-photos>" in body
+        assert "data-thread-send data-pl-busy>Send to Robin Vale<" in body
+        assert "data-thread-reply data-pl-busy-submit" in body
+        assert "data-thread-photos>" in body
         assert 'class="pl-feedback-admin__status"' in body
         assert 'class="pl-feedback-admin__link"' in body
         assert 'enctype="multipart/form-data"' in body

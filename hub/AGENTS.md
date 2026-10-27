@@ -15,7 +15,7 @@ Member-facing views. All views are `@login_required`. No models — reads from `
 | `member_directory` | `hub_member_directory` | `/members/` |
 | `profile_settings` | `hub_profile_settings` | `/settings/profile/` |
 | `email_preferences` | `hub_email_preferences` | `/settings/emails/` |
-| `beta_feedback` | `hub_beta_feedback` | `/feedback/` (the form, then "Your requests": the viewer's own `FeedbackRequest` rows, #693, each with its thread (`partials/_feedback_thread.html`) and a reply box with photos posting to `feedback_comment` (`hub_feedback_comment`, `/feedback/<pk>/comment/`, the sender only, anyone else gets a 404); `?sent=<pk>` and `#request-<pk>` open a row; `?category=feature` or `bug` preselects the category, #709) |
+| `beta_feedback` | `hub_beta_feedback` | `/feedback/` (the form, then "Your requests": the viewer's own `FeedbackRequest` rows, #693, each with its thread (the shared `components/thread.html`, the request's own message first) and a reply box with photos (`components/thread_composer.html`) posting to `feedback_comment` (`hub_feedback_comment`, `/feedback/<pk>/comment/`, the sender only, anyone else gets a 404); `?sent=<pk>` and `#request-<pk>` open a row; `?category=feature` or `bug` preselects the category, #709) |
 | `tab_detail` | `hub_tab_detail` | `/tab/` |
 | `tab_history` | `hub_tab_history` | `/tab/history/` |
 | `announcements_overview` | `hub_announcements` | `/announcements/` (Email Members, #920, called Announcements until then; the path kept its name so sent links land: Drafts and Sent tabs, `?tab=drafts\|sent`, and for admins the Release Update card) |
@@ -50,6 +50,13 @@ Member-facing views. All views are `@login_required`. No models — reads from `
 | `orientations_dashboard` | `hub_orientations_dashboard` | `/orientations/manage/` (302 to `/manage/bookings/`, the old dashboard's filters dropped; export, add member and the oriented toggle keep their paths under it) |
 | `equipment_views.hub_equipment_calendar_events` | `hub_equipment_calendar_events` | `/equipment/calendar/events/` (the Reservations page's Calendar view, the same way) |
 | `equipment_views.hub_equipment_bookings` | `hub_equipment_bookings` | `/equipment/bookings/` (the Reservations page's Bookings tab alone, for its lazy open and the late fee refund refresh; built by `hub/reservation_bookings.py`, #627) |
+
+## Conversation threads (the shared thread)
+
+Every two sided conversation uses one look and one rule (`core/AGENTS.md`, Shared thread): `components/thread.html` draws the messages (the viewer's side on the right, a member sees their own as "You"), `components/thread_composer.html` is the box under it (body, photos through `components/thread_photos_field.html`, the busy submit guard, a note saying who hears it), and `components/thread_script.html`, once per page with `components/busy_submit.html`, binds the photo drop zones and, on `?messages=<key>`, opens and scrolls to `[data-thread-open="<key>"]` (a boosted redirect drops a `#fragment`). Styles are `static/css/thread.css`, loaded by `hub/base.html`. Threads so far:
+
+- **Feedback requests** (#693): the Feedback page and the admin request page, the request's own message first (`FeedbackRequest.thread()`).
+- **Orientation bookings**: the member's booking page `hub_orientation_booking` (`/orientation/bookings/<pk>/`, the booking's member only; someone who runs it is sent to the request page's Messages, anyone else gets a 404), a Messages fold under the live booking on the member's card (`partials/_orientation_type_state.html`, on the guild, equipment and Orientations pages), the Messages card on the request page (`orientation_respond.html`, `id="messages"`), and a Messages item in each Bookings tab row menu. A checkout hold has none of these, and its booking page and message POST are 404s. The note beside Send shows only when someone would be told. Everyone posts to `hub_orientation_message` (`/orientation/bookings/<pk>/messages/`, POST): the booking's member as the member, anyone `_require_can_manage_booking` admits as the guild, anyone else a 404. A refused message renders the poster's page again with what they typed; a sent one lands on `next` (or the poster's page) with `?messages=<pk>` and the toast "Sent." plus `told_sentence()`. Move to Another Time's modal carries an optional message (`OrientationMoveForm.message`), and a decline's note is posted too; both ride in their own email.
 
 ## Home
 
@@ -105,7 +112,8 @@ All views call `_get_hub_context(request)` for sidebar data (guild list, user in
 - `ProfileSettingsForm` — edits Member fields (pronouns, about_me, discord_handle, etc.)
 - `EmailPreferencesForm` — email notification toggles
 - `BetaFeedbackForm` — bug/feature/general feedback; `form.submit(user=user)` saves a `core.models.FeedbackRequest`, then emails the Webmasters with a link to it
-- `FeedbackCommentForm` — one comment on a request's thread, with the Feedback form's photo field and caps (`clean_feedback_photos`)
+- `ThreadMessageForm` — one message on any shared thread (`core.threads`): a body and photos with the Feedback form's photo field and caps (`clean_feedback_photos`); `error_summary()` for a redirect
+- `FeedbackCommentForm` — `ThreadMessageForm` labelled Comment, for a feedback request's thread
 - `FeedbackRequestAdminForm` — the inbox's status, optional comment and GitHub link (a plain Form, so the instance keeps its saved values until `apply_admin_update`)
 - `SiteSettingsForm`, `MemberAgreementSettingsForm`, `ManageFeaturesForm`, `ManageCmsForm`, `AutomationsForm` — one page's columns of `SiteConfiguration` each (#922); a field belongs to exactly one, because a checkbox a page does not render reads as off on its save. The four slices save with `update_fields`, so one page never puts back what another page just changed
 - Self-service tab-entry form: `billing.forms.TabItemForm` with `context="member_tab_page"` (replaces the old `AddTabEntryForm` removed in v1.5.0)

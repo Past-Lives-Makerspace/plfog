@@ -88,6 +88,8 @@ _BRAND_NEW_KEYS = {
     "feedback.request_live",
     "feedback.comment_added",
     "feedback.member_replied",
+    "orientation.message_to_member",
+    "orientation.message_to_orientors",
     "kiln.crew_replied",
     "kiln.maker_replied",
     "kiln.ready_for_pickup",

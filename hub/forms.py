@@ -959,14 +959,14 @@ class BetaFeedbackForm(forms.Form):
         )
 
 
-class FeedbackCommentForm(forms.Form):
-    """One comment on a feedback request's thread, with photos, from the sender or an admin.
+class ThreadMessageForm(forms.Form):
+    """One message on a shared thread (``core.threads``), with photos, from either side.
 
-    The photos take the Feedback form's field and caps. Rendered once per request on the
-    Feedback page, so the caller passes an ``auto_id`` that keeps each row's ids apart.
+    The photos take the Feedback form's field and caps. A page that shows several threads
+    passes an ``auto_id`` per thread so each composer's ids stay apart.
     """
 
-    body = forms.CharField(label="Comment", widget=forms.Textarea(attrs={"rows": 3}))
+    body = forms.CharField(label="Message", widget=forms.Textarea(attrs={"rows": 3}))
     photos = MultiplePhotoField(
         required=False,
         label="Photos (optional)",
@@ -980,6 +980,20 @@ class FeedbackCommentForm(forms.Form):
     def clean_photos(self) -> list[UploadedFile]:
         """Enforce the photo count and combined-size caps with plain messages."""
         return clean_feedback_photos(self.cleaned_data["photos"])
+
+    def error_summary(self) -> str:
+        """Every error as one sentence run, for a page that redirects with a message."""
+        return " ".join(str(message) for messages in self.errors.values() for message in messages)
+
+
+class FeedbackCommentForm(ThreadMessageForm):
+    """One comment on a feedback request's thread: the shared thread's form, labelled Comment.
+
+    Rendered once per request on the Feedback page, so the caller passes an ``auto_id`` that
+    keeps each row's ids apart.
+    """
+
+    body = forms.CharField(label="Comment", widget=forms.Textarea(attrs={"rows": 3}))
 
 
 class FeedbackRequestAdminForm(forms.Form):
@@ -4613,7 +4627,7 @@ class OrientationCustomRequestForm(forms.Form):
 
 
 class OrientationMoveForm(forms.Form):
-    """Move a booking to another time (#853): a date, a half hour start, and how it moves.
+    """Move a booking to another time (#853): a date, a half hour start, how it moves, and a message.
 
     The start is a half hour ``<select>`` (Rule 20) beside a date input; ``clean`` joins them
     in the site timezone as ``cleaned_data["starts_at"]`` and refuses a time already past.
@@ -4647,6 +4661,13 @@ class OrientationMoveForm(forms.Form):
             "required": "Pick Move it now or Ask the member first.",
             "invalid_choice": "Pick Move it now or Ask the member first.",
         },
+    )
+
+    message = forms.CharField(
+        required=False,
+        label="Message to the member (optional)",
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Posted to the booking's messages and included in the email about the new time.",
     )
 
     def __init__(self, *args: Any, booking: OrientationBooking | None = None, **kwargs: Any) -> None:

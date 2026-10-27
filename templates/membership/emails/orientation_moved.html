@@ -5,6 +5,7 @@
 <p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">Your <strong><a href="{{ owner_url }}" style="color: #0d4876; text-decoration: none;">{{ owner_name }}</a></strong> orientation moved, and the new time is confirmed.</p>
 <p style="margin: 0 0 4px; font-size: 13px; color: #55697a;">Was {{ old_starts_at|date:"l, F j" }} at {{ old_starts_at|time:"g:i A" }}</p>
 {% include "membership/emails/_slot.html" %}
+{% if move_message %}{% include "membership/emails/_booking_message.html" with message=move_message %}{% endif %}
 {% if booking.amount_paid_cents %}<p style="margin: 0 0 8px; font-size: 13px; color: #55697a; line-height: 1.6;">Your payment stays with this booking. Nothing was refunded or charged.</p>{% endif %}
 <p style="margin: 0 0 16px; font-size: 13px; color: #55697a; line-height: 1.6;">We've attached an updated calendar invite. See you there!</p>
 <div style="text-align: center; margin: 24px 0 0;">

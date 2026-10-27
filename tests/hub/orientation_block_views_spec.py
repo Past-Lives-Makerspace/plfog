@@ -109,7 +109,7 @@ def describe_orientation_block_book():
         booking = OrientationBooking.objects.get(member=user.member)
         assert booking.status == OrientationBooking.Status.REQUESTED
         assert booking.slot.block_id == block.pk
-        assert booking.member_note == "hi"
+        assert [m.body for m in booking.thread()] == ["hi"]
 
     def it_errors_when_the_time_was_just_taken(client: Client):
         _user_with_role("bb2")
