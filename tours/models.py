@@ -802,6 +802,11 @@ class TourCalendarCleanup(models.Model):
         null=True, blank=True, help_text="After a failure: the earliest the job tries again."
     )
     last_error = models.CharField(max_length=300, blank=True, default="", help_text="Why the last try failed.")
+    claimed_until = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="A run is deleting this event until then; another run leaves it alone.",
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the delete was queued.")
 
     class Meta:

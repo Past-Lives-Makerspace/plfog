@@ -1448,3 +1448,70 @@ def describe_a_big_calendar_and_the_breaker():
             TourCalendarSync.objects.create(booking=booking)
             calendar_sync.sync_due_bookings(timezone.now(), guard)
         assert guard.failures == 1
+
+
+def describe_two_runs_and_one_queued_delete():
+    @pytest.fixture
+    def queued(connection: TourCalendarConnection) -> TourCalendarCleanup:
+        return TourCalendarCleanup.objects.create(connection=connection, calendar_id="primary", event_id="ev1")
+
+    @respx.mock
+    def it_puts_the_event_back_when_a_write_lands_while_the_delete_is_in_flight(
+        connection: TourCalendarConnection, booking: TourBooking, queued: TourCalendarCleanup
+    ):
+        row = TourCalendarSync.objects.create(booking=booking, due=False)
+        generation = row.generation
+
+        def other_run_writes_it_meanwhile(request: httpx.Request) -> httpx.Response:
+            # Run A passed its check under the claim; run B's write lands before A's DELETE does.
+            calendar_sync._place(row, connection, "primary", "ev1")
+            return httpx.Response(204)
+
+        deleted = respx.delete(f"{PRIMARY}/ev1").mock(side_effect=other_run_writes_it_meanwhile)
+        assert calendar_sync.run_cleanups(timezone.now()).done == 1
+        assert deleted.called
+        row.refresh_from_db()
+        assert row.due and row.generation == generation + 1 and row.event_id == "ev1"
+        assert not TourCalendarCleanup.objects.exists()
+        put = respx.put(f"{PRIMARY}/ev1").mock(return_value=httpx.Response(200, json={"id": "ev1"}))
+        _sync()
+        assert _sent(put)["status"] == "confirmed"
+        assert not TourCalendarSync.objects.get(pk=row.pk).due
+
+    def it_drops_an_unclaimed_delete_when_the_write_lands_first(
+        connection: TourCalendarConnection, booking: TourBooking, queued: TourCalendarCleanup
+    ):
+        row = TourCalendarSync.objects.create(booking=booking, due=False)
+        calendar_sync._place(row, connection, "primary", "ev1")
+        assert not TourCalendarCleanup.objects.exists()
+        assert not TourCalendarSync.objects.get(pk=row.pk).due
+
+    def it_leaves_a_delete_another_run_holds(queued: TourCalendarCleanup):
+        assert calendar_sync._claim_cleanup(queued.pk)
+        assert not calendar_sync._claim_cleanup(queued.pk)
+        with respx.mock(assert_all_called=False) as mock:
+            counts = calendar_sync.run_cleanups(timezone.now())
+        assert not mock.calls and counts.done == 0
+        TourCalendarCleanup.objects.filter(pk=queued.pk).update(claimed_until=timezone.now() - timedelta(seconds=1))
+        assert calendar_sync._claim_cleanup(queued.pk)
+
+    def it_skips_a_delete_claimed_between_the_list_and_the_claim(queued: TourCalendarCleanup):
+        with (
+            patch("tours.calendar_sync._claim_cleanup", return_value=False),
+            respx.mock(assert_all_called=False) as mock,
+        ):
+            assert calendar_sync.run_cleanups(timezone.now()).done == 0
+        assert not mock.calls
+
+    @respx.mock
+    def it_lets_go_of_the_claim_whatever_happened(queued: TourCalendarCleanup):
+        respx.delete(f"{PRIMARY}/ev1").mock(return_value=httpx.Response(503, json={}))
+        calendar_sync.run_cleanups(timezone.now())
+        queued.refresh_from_db()
+        assert queued.claimed_until is None and queued.attempts == 1
+        guard = calendar_sync.RunGuard()
+        guard.failures = calendar_sync.BREAKER_FAILURES
+        TourCalendarCleanup.objects.filter(pk=queued.pk).update(next_attempt_at=None)
+        calendar_sync.run_cleanups(timezone.now(), guard)
+        queued.refresh_from_db()
+        assert queued.claimed_until is None

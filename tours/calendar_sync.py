@@ -538,7 +538,12 @@ def _place(row: TourCalendarSync, connection: TourCalendarConnection | None, cal
         queue_cleanup(connection, calendar_id, event_id)
     elif connection is not None and event_id:
         # A tour back on a calendar it left (a reassignment there and back): its old delete must not run.
-        TourCalendarCleanup.objects.filter(connection=connection, calendar_id=calendar_id, event_id=event_id).delete()
+        # One a run is deleting right now may still land after this write, so the booking is queued
+        # again and the next run puts the event back.
+        stale = TourCalendarCleanup.objects.filter(connection=connection, calendar_id=calendar_id, event_id=event_id)
+        if stale.filter(claimed_until__gte=timezone.now()).exists():
+            mark_due(row.booking_id)
+        stale.filter(Q(claimed_until__isnull=True) | Q(claimed_until__lt=timezone.now())).delete()
 
 
 def _remove_old_event(row: TourCalendarSync, connection: TourCalendarConnection | None, deadline: Deadline) -> None:
@@ -736,40 +741,64 @@ def run_cleanups(now: datetime, guard: RunGuard | None = None) -> CleanupCounts:
     pending = list(
         TourCalendarCleanup.objects.filter(connection__status=TourCalendarConnection.Status.CONNECTED)
         .filter(Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lte=now))
+        .filter(Q(claimed_until__isnull=True) | Q(claimed_until__lt=timezone.now()))
         .select_related("connection")
         .order_by("pk")[:SYNC_BATCH]
     )
     for index, cleanup in enumerate(pending):
-        live = TourCalendarSync.objects.filter(
-            connection=cleanup.connection_id, calendar_id=cleanup.calendar_id, event_id=cleanup.event_id
-        )
-        if live.exists():
-            # A booking holds this event again: it is live, not stale.
-            TourCalendarCleanup.objects.filter(pk=cleanup.pk).delete()
+        if not _claim_cleanup(cleanup.pk):
             continue
-        deadline = Deadline(WRITE_DEADLINE_SECONDS, guard)
-        calendar_id, event_id = cleanup.calendar_id, cleanup.event_id
         try:
-            _with_token(
-                cleanup.connection,
-                lambda token, timeout: google.delete_event(token, calendar_id, event_id, timeout=timeout()),
-                deadline,
-            )
+            _run_cleanup(cleanup, now, counts, guard)
         except _Paused:
             counts.deferred += len(pending) - index
             break
-        except google.GoogleAuthError as exc:
-            mark_broken(cleanup.connection, str(exc))
-        except google.GoogleError as exc:
-            cleanup.attempts += 1
-            cleanup.last_error = (str(exc) or type(exc).__name__)[:300]
-            cleanup.next_attempt_at = now + min(RETRY_BASE * 2 ** (cleanup.attempts - 1), RETRY_CAP)
-            cleanup.save(update_fields=["attempts", "last_error", "next_attempt_at"])
-            counts.failed += 1
-        else:
-            TourCalendarCleanup.objects.filter(pk=cleanup.pk).delete()
-            counts.done += 1
+        finally:
+            TourCalendarCleanup.objects.filter(pk=cleanup.pk).update(claimed_until=None)
     return counts
+
+
+def _claim_cleanup(pk: int) -> bool:
+    """Take the queued delete for this run, on the real clock; False when another run holds it."""
+    now = timezone.now()
+    free = Q(claimed_until__isnull=True) | Q(claimed_until__lt=now)
+    return bool(TourCalendarCleanup.objects.filter(free, pk=pk).update(claimed_until=now + CLAIM_FOR))
+
+
+def _run_cleanup(cleanup: TourCalendarCleanup, now: datetime, counts: CleanupCounts, guard: RunGuard) -> None:
+    """Delete one claimed event, unless a booking points at it again (then the delete is dropped).
+
+    The check runs under the claim, just before Google is called. A write that lands after it sees the
+    claim and queues its booking again (:func:`_place`), so if this delete lands the event comes back.
+
+    Raises:
+        _Paused: the run stops here; the delete stays queued as it was.
+    """
+    calendar_id, event_id = cleanup.calendar_id, cleanup.event_id
+    live = TourCalendarSync.objects.filter(connection=cleanup.connection_id, calendar_id=calendar_id, event_id=event_id)
+    if live.exists():
+        TourCalendarCleanup.objects.filter(pk=cleanup.pk).delete()
+        return
+    deadline = Deadline(WRITE_DEADLINE_SECONDS, guard)
+    try:
+        _with_token(
+            cleanup.connection,
+            lambda token, timeout: google.delete_event(token, calendar_id, event_id, timeout=timeout()),
+            deadline,
+        )
+    except google.GoogleAuthError as exc:
+        mark_broken(cleanup.connection, str(exc))
+    except google.GoogleError as exc:
+        attempts = cleanup.attempts + 1
+        TourCalendarCleanup.objects.filter(pk=cleanup.pk).update(
+            attempts=attempts,
+            last_error=(str(exc) or type(exc).__name__)[:300],
+            next_attempt_at=now + min(RETRY_BASE * 2 ** (attempts - 1), RETRY_CAP),
+        )
+        counts.failed += 1
+    else:
+        TourCalendarCleanup.objects.filter(pk=cleanup.pk).delete()
+        counts.done += 1
 
 
 # --- Reading busy times -----------------------------------------------------------------------------
