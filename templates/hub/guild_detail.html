@@ -7,6 +7,7 @@
 {% block extra_head %}{{ block.super }}
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
 <link rel="stylesheet" href="{% static 'css/locations.css' %}">
+<link rel="stylesheet" href="{% static 'css/guild-announcements.css' %}">
 {% if kiln_home %}<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">{% endif %}
 {% if show_polls_tab %}<link rel="stylesheet" href="{% static 'css/polls.css' %}">{% endif %}
 {% if is_guilds_surface %}{# ── OG / SEO — only where the guild link is shared publicly ── #}
@@ -162,7 +163,7 @@
         </section>
         {% endif %}
 
-        {% if announcements or user.is_authenticated %}
+        {% if announcement or has_past_announcements or user.is_authenticated %}
         <section class="pl-guild-section">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
                 <h2 class="pl-guild-section__h2" style="margin:0;">Announcements</h2>
@@ -172,16 +173,10 @@
                 <a href="{% url 'hub_guild_announcement_propose' %}?guild={{ guild.pk }}" class="hub-btn hub-btn--sm">+ Suggest an announcement</a>
                 {% endif %}
             </div>
-            {% if announcements %}
-            <div style="display:flex; flex-direction:column; gap:0.75rem; margin-top:0.75rem;">
-                {% for a in announcements %}
-                <div class="hub-card" style="border-left:3px solid var(--color-tuscan-yellow,#EEB44B);">
-                    <strong>{{ a.title }}</strong>
-                    <div class="hub-text-muted" style="font-size:0.8125rem;">{{ a.published_at|date:"M j, Y" }}</div>
-                    <p>{{ a.body|urlize|linebreaksbr }}</p>
-                </div>
-                {% endfor %}
-            </div>
+            {% if announcement %}
+            {% include "hub/partials/_guild_announcement_card.html" with announcement=announcement %}
+            {% elif has_published_announcements %}
+            <p class="hub-text-muted pl-guild-announcement__none" data-no-current-announcements>No current announcements.</p>
             {% elif can_edit_this_guild %}
             <p class="hub-text-muted" style="margin-top:0.5rem;">No announcements yet. Use Email Members to post one.</p>
             {% elif guild.allow_member_announcement_suggestions %}
@@ -189,6 +184,7 @@
             {% else %}
             <p class="hub-text-muted" style="margin-top:0.5rem;">No announcements yet.</p>
             {% endif %}
+            {% if has_past_announcements %}<a href="{% url 'hub_guild_announcements' guild.slug %}" class="pl-guild-announcement__past" data-past-announcements>Past Announcements →</a>{% endif %}
         </section>
         {% endif %}
 

@@ -98,6 +98,7 @@ urlpatterns = [
     # Old numeric guild URLs (already shared in Discord/emails) 301 → the slug URL.
     path("guilds/<int:pk>/", views.guild_detail_redirect, name="hub_guild_detail_by_id"),
     path("guilds/<slug:slug>/", views.guild_detail, name="hub_guild_detail"),
+    path("guilds/<slug:slug>/announcements/", views.guild_announcements, name="hub_guild_announcements"),
     path("guilds/<int:pk>/edit/", views.guild_edit, name="hub_guild_edit"),
     path("guilds/<int:pk>/orientations/", views.guild_orientations, name="hub_guild_orientations"),
     path("guilds/<int:pk>/qr.<str:fmt>/", views.guild_qr_download, name="hub_guild_qr"),

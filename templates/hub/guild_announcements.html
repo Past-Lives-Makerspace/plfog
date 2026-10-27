@@ -1,0 +1,28 @@
+{% extends guilds_page_base %}
+{% load static %}
+{% block title %}{{ guild.name }} Announcements{% endblock %}
+{% block extra_head %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/guild-announcements.css' %}">
+{% endblock %}
+{% block content %}
+{# Every published announcement of one guild, newest first, expired ones too, ten a page (#952). #}
+<div class="pl-guild-announcements">
+    <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost" data-back-to-guild>← Back to {{ guild.name }}</a>
+    <h1 class="hub-page-title pl-guild-announcements__title">{{ guild.name }} Announcements</h1>
+    <p class="hub-text-muted pl-guild-announcements__lead">Everything this guild has announced, newest first.</p>
+    {% if page.object_list %}
+    <div class="pl-guild-announcements__list" data-announcement-list>
+        {% for announcement in page.object_list %}{% include "hub/partials/_guild_announcement_card.html" with announcement=announcement %}{% endfor %}
+    </div>
+    {% if page.has_other_pages %}
+    <nav class="pl-guild-announcements__pages" aria-label="Announcement pages" data-announcement-pages>
+        {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}" class="pl-btn pl-btn--ghost pl-btn--sm">Newer</a>{% endif %}
+        <span class="hub-text-muted">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+        {% if page.has_next %}<a href="?page={{ page.next_page_number }}" class="pl-btn pl-btn--ghost pl-btn--sm">Older</a>{% endif %}
+    </nav>
+    {% endif %}
+    {% else %}
+    <div class="hub-card pl-guild-announcements__empty"><p class="hub-text-muted" data-announcements-empty>No announcements yet.</p></div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,111 @@
+/* Guild announcements (#952): the one card on a guild page and the guild's Past Announcements page.
+   Every block carries its own top margin (FRONTEND rule 26); colors come from theme tokens only. */
+
+.pl-guild-announcement {
+    margin-top: 0.75rem;
+    padding: 1rem 1.25rem;
+    border-left: 3px solid var(--color-tuscan-yellow, #EEB44B);
+}
+
+.pl-guild-announcement__title {
+    margin: 0;
+    font-family: Lato, sans-serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.pl-guild-announcement__date {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted, inherit);
+}
+
+/* Smaller than the page's body text, so a long post reads as a note, not the page. */
+.pl-guild-announcement__body {
+    margin-top: 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+}
+
+.pl-guild-announcement__body > * + * { margin-top: 0.625rem; }
+.pl-guild-announcement__body ul,
+.pl-guild-announcement__body ol { padding-left: 1.25rem; }
+.pl-guild-announcement__body ul { list-style: disc; }
+.pl-guild-announcement__body ol { list-style: decimal; }
+.pl-guild-announcement__body li + li { margin-top: 0.25rem; }
+.pl-guild-announcement__body a { color: var(--hub-blue, #3d8bd4); }
+
+/* The fold: about seven lines, fading out so the cut reads as "more below" in either theme. */
+.pl-guild-announcement__body--clamp {
+    max-height: 10.5rem;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent);
+    mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}
+
+.pl-guild-announcement__body--open,
+.pl-guild-announcement__body--fits {
+    max-height: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+}
+
+.pl-guild-announcement__more {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin-top: 0.25rem;
+    padding: 0;
+    background: none;
+    border: 0;
+    color: var(--hub-blue, #3d8bd4);
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.pl-guild-announcement__more:hover,
+.pl-guild-announcement__more:focus-visible { text-decoration: underline; }
+
+/* Every published post has expired: one muted line where the card would be. */
+.pl-guild-announcement__none { margin-top: 0.5rem; }
+
+.pl-guild-announcement__past {
+    display: inline-block;
+    margin-top: 1rem;
+    color: var(--hub-blue, #3d8bd4);
+    font-size: 0.9375rem;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.pl-guild-announcement__past:hover,
+.pl-guild-announcement__past:focus-visible { text-decoration: underline; }
+
+/* Past Announcements page */
+.pl-guild-announcements { max-width: 760px; }
+.pl-guild-announcements__title { margin-top: 1.5rem; }
+.pl-guild-announcements__lead { margin-top: 0.5rem; max-width: 65ch; }
+
+.pl-guild-announcements__list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.pl-guild-announcements__list > .pl-guild-announcement { margin-top: 0; }
+.pl-guild-announcements__empty { margin-top: 1.5rem; }
+
+.pl-guild-announcements__pages {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
