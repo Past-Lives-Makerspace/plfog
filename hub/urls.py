@@ -3,6 +3,7 @@ from django.views.generic import RedirectView
 
 from . import (
     announcement_admin_views,
+    cubby_views,
     day_off_views,
     discord_views,
     door_code_views,
@@ -100,6 +101,24 @@ urlpatterns = [
     path("guilds/<slug:slug>/", views.guild_detail, name="hub_guild_detail"),
     path("guilds/<slug:slug>/announcements/", views.guild_announcements, name="hub_guild_announcements"),
     path("guilds/<int:pk>/edit/", views.guild_edit, name="hub_guild_edit"),
+    # --- Guild cubbies (#977): the staff manager; unit and cubby URLs carry no guild, it is read from the record ---
+    path("cubbies/", cubby_views.hub_cubbies_home, name="hub_cubbies_home"),
+    path("guilds/<int:pk>/cubbies/", cubby_views.hub_guild_cubbies, name="hub_guild_cubbies"),
+    path("guilds/<int:pk>/cubbies/pricing/", cubby_views.hub_guild_cubbies_pricing, name="hub_guild_cubbies_pricing"),
+    path(
+        "guilds/<int:pk>/cubbies/settings/save/",
+        cubby_views.hub_guild_cubbies_settings_save,
+        name="hub_guild_cubbies_settings_save",
+    ),
+    path("guilds/<int:pk>/cubbies/units/add/", cubby_views.hub_shelf_unit_add, name="hub_shelf_unit_add"),
+    path("cubbies/units/<int:unit_pk>/save/", cubby_views.hub_shelf_unit_save, name="hub_shelf_unit_save"),
+    path("cubbies/units/<int:unit_pk>/archive/", cubby_views.hub_shelf_unit_archive, name="hub_shelf_unit_archive"),
+    path("cubbies/units/<int:unit_pk>/restore/", cubby_views.hub_shelf_unit_restore, name="hub_shelf_unit_restore"),
+    path("cubbies/units/<int:unit_pk>/add/", cubby_views.hub_cubby_add, name="hub_cubby_add"),
+    path("cubbies/<int:cubby_pk>/", cubby_views.hub_cubby_edit, name="hub_cubby_edit"),
+    path("cubbies/<int:cubby_pk>/archive/", cubby_views.hub_cubby_archive, name="hub_cubby_archive"),
+    path("cubbies/<int:cubby_pk>/restore/", cubby_views.hub_cubby_restore, name="hub_cubby_restore"),
+    path("cubbies/<int:cubby_pk>/photo/delete/", cubby_views.hub_cubby_photo_delete, name="hub_cubby_photo_delete"),
     path("guilds/<int:pk>/orientations/", views.guild_orientations, name="hub_guild_orientations"),
     path("guilds/<int:pk>/qr.<str:fmt>/", views.guild_qr_download, name="hub_guild_qr"),
     path("guilds/<int:pk>/flyer/", views.guild_flyer, name="hub_guild_flyer"),

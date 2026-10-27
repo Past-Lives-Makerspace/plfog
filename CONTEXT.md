@@ -92,6 +92,14 @@ _Avoid_: calling the tool that makes them "Announcements".
 A visit to the building for someone curious about Past Lives, given by a **Tour Guide** at a time from their weekly tour hours and booked on tours.pastlives.space (`tours` app, #947, replacing the outside booking service used before). A Tour Guide is a member holding the Tour Guide permission (`AdminCapability.Capability.TOUR_GUIDE`); admins always have it. In code and URLs it is a tour or a facility tour (`/facility-tours/`). A visitor **checks in** at the front desk kiosk (cairn) when they arrive (#950), which is not the same as the guide marking the tour **attended**.
 _Avoid_: guided tour, Show me around, member tour (those are the in-app walkthroughs in `core/tours.py`), appointment.
 
+**Shelf Unit**:
+One set of shelves a guild rents cubbies on, drawn in the portal as a grid of rows and squares across (`membership.ShelfUnit`, #977), with a name such as Glaze Wall. Archived, never deleted.
+_Avoid_: rack, bookcase, shelf (alone) in code; members read the mockup's "shelf", which is fine in copy.
+
+**Cubby**:
+One rentable spot on a guild's Shelf Unit (`membership.Cubby`, #977), placed by its top left square and the squares it takes up (1 Spot, Wide, Tall, Big), with a label unique in the guild, a size, a photo, a note and a monthly price: its own minimum and suggested amount, or the guild's. Open or Out of Service until renting arrives (#978). Not the 27 Past Lives house cubbies, which are Airtable spaces requested through the space map.
+_Avoid_: locker, slot, storage space; never call a house cubby a guild cubby.
+
 **Kiln ticket**:
 One piece, or a set of identical pieces, a maker puts on the Ceramics Guild's shelf to be fired (`kiln.KilnTicket`, #691): photos with one cover, the guild's questions, and its status (Draft, In the queue, In the kiln, Ready for pickup). The **kiln crew** is the Ceramics Guild's lead and staff; a **flag** asks the crew to double check a ticket and never blocks it.
 _Avoid_: slip (the paper form it replaces), order, job.

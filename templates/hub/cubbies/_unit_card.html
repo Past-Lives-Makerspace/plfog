@@ -1,0 +1,60 @@
+{% comment %}
+One shelf unit on the Layout tab (#977): its name and size (the steppers post one row or column more or
+less, and a size that cuts off a cubby is refused under them), then its grid: a placed cubby opens its page,
+an empty square adds one there. Expects card ({view, form}), guild, and optionally selected_pk, editing, saved.
+htmx swaps the whole card back from hub_shelf_unit_save.
+{% endcomment %}
+{% with view=card.view form=card.form unit=card.view.unit %}
+<section class="hub-card pl-cubby-editunit" id="cubby-unit-{{ unit.pk }}" aria-label="{{ unit.name }} shelf" data-cubby-unit="{{ unit.pk }}">
+  <div class="pl-cubby-editunit__body">
+    <div class="pl-cubby-editunit__controls">
+      <form method="post" action="{% url 'hub_shelf_unit_save' unit.pk %}" class="pl-cubby-unitform hub-form-group" data-cubby-unit-form
+            hx-post="{% url 'hub_shelf_unit_save' unit.pk %}" hx-trigger="submit, change" hx-target="#cubby-unit-{{ unit.pk }}" hx-swap="outerHTML">
+        {% csrf_token %}
+        {% if selected_pk %}<input type="hidden" name="selected" value="{{ selected_pk }}">{% endif %}
+        <input type="hidden" name="{{ form.rows.html_name }}" value="{{ unit.rows }}">
+        <input type="hidden" name="{{ form.columns.html_name }}" value="{{ unit.columns }}">
+        {% include "components/form_field.html" with field=form.name %}
+        <div>
+          <div class="pl-cubby-steppers">
+            <div><span class="pl-cubby-stepper__label" id="cubby-unit-{{ unit.pk }}-rows">Rows</span><span class="pl-cubby-stepper__box" role="group" aria-labelledby="cubby-unit-{{ unit.pk }}-rows"><button type="submit" name="step" value="rows:-1" aria-label="One less row"{% if unit.rows <= 1 %} disabled{% endif %}><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-minus"/></svg></button><output data-cubby-rows>{{ unit.rows }}</output><button type="submit" name="step" value="rows:1" aria-label="One more row"{% if not view.can_add_row %} disabled{% endif %}><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-plus"/></svg></button></span></div>
+            <div><span class="pl-cubby-stepper__label" id="cubby-unit-{{ unit.pk }}-cols">Across</span><span class="pl-cubby-stepper__box" role="group" aria-labelledby="cubby-unit-{{ unit.pk }}-cols"><button type="submit" name="step" value="columns:-1" aria-label="One less across"{% if unit.columns <= 1 %} disabled{% endif %}><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-minus"/></svg></button><output data-cubby-columns>{{ unit.columns }}</output><button type="submit" name="step" value="columns:1" aria-label="One more across"{% if not view.can_add_column %} disabled{% endif %}><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-plus"/></svg></button></span></div>
+          </div>
+          {% if form.rows.errors or form.columns.errors %}
+          <ul class="pl-field-errors" role="alert" data-cubby-unit-error>{% for error in form.rows.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}{% for error in form.columns.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>
+          {% endif %}
+        </div>
+        {% if not editing %}
+        <p class="pl-cubby-editunit__meta">{% if view.cubbies %}<strong>{{ view.cubbies|length }} cubb{{ view.cubbies|length|pluralize:"y,ies" }}</strong>, {{ view.open_count }} open. Up to 6 across, so cubbies stay tappable on a phone.{% else %}<strong>No cubbies yet.</strong> Members won't see this shelf until it has at least one.{% endif %}</p>
+        {% if saved %}<div><span class="pl-cubby-saved" data-cubby-saved><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-check"/></svg>Saved</span></div>{% endif %}
+        {% endif %}
+        <noscript><button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Save</button></noscript>
+      </form>
+      {% if not editing %}
+      <div class="pl-cubby-editunit__archive">
+        <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" @click="$dispatch('open-confirm', '{{ view.archive_confirm_id }}')" data-cubby-archive-unit><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-archive"/></svg>Archive Shelf</button>
+        {% url 'hub_shelf_unit_archive' unit.pk as archive_url %}
+        {% include "components/confirm_modal.html" with confirm_id=view.archive_confirm_id confirm_title="Archive This Shelf?" confirm_message="It and its cubbies leave the guild page. You can restore it from Show Archived." confirm_action_url=archive_url confirm_button_text="Archive Shelf" %}
+      </div>
+      {% endif %}
+    </div>
+    <div>
+      <div class="pl-cubby-unit__frame">
+        <span class="pl-cubby-unit__plate">{{ unit.name }}</span>
+        <ul class="pl-cubby-grid {{ view.grid_class }}">
+          {% for cell in view.cells %}
+          {% if cell.cubby %}
+          {% with cubby=cell.cubby %}
+          <li class="{{ cell.span_class }}"><a href="{% url 'hub_cubby_edit' cubby.pk %}" class="pl-cubby pl-cubby--edit {% if cubby.state == 'open' %}pl-cubby--open{% else %}pl-cubby--out{% endif %}{% if cubby.pk == selected_pk %} pl-cubby--selected{% endif %}" aria-label="{% if cubby.pk == selected_pk %}Editing{% else %}Edit{% endif %} {{ cubby.label }}, {{ cubby.state_label|lower }}" data-cubby="{{ cubby.label }}"{% if cubby.pk == selected_pk %} aria-current="page"{% endif %}><svg class="pl-cubby-ico pl-cubby__pencil" aria-hidden="true"><use href="#i-pencil"/></svg><span class="pl-cubby__label">{{ cubby.label }}</span>{% if cubby.state == "open" %}<span class="pl-cubby__state"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-plus-circle"/></svg><span class="pl-cubby__long">Open</span><span class="pl-cubby__short">Open</span></span><span class="pl-cubby__price">{{ cubby.floor_display }}/mo</span>{% else %}<span class="pl-cubby__state"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-wrench"/></svg><span class="pl-cubby__long">Out of Service</span><span class="pl-cubby__short">Closed</span></span>{% endif %}</a></li>
+          {% endwith %}
+          {% else %}
+          <li><a href="{% url 'hub_cubby_add' unit.pk %}?row={{ cell.row }}&amp;column={{ cell.column }}" class="pl-cubby-slot" aria-label="Add a cubby, row {{ cell.row }}, spot {{ cell.column }}" data-cubby-slot="{{ cell.row }}-{{ cell.column }}"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-plus"/></svg>Add</a></li>
+          {% endif %}
+          {% endfor %}
+        </ul>
+      </div>
+      <p class="pl-cubby-editunit__hint">{% if editing and selected_pk %}Editing a cubby. Its fields are in the Cubby card.{% elif editing %}Adding a cubby. Fill it in on the New Cubby card.{% elif view.cubbies %}Click a cubby to change it, or an empty spot to add one.{% else %}Click an empty spot to add a cubby there.{% endif %}</p>
+    </div>
+  </div>
+</section>
+{% endwith %}

@@ -1,0 +1,85 @@
+{% comment %}
+The guild page's Cubbies tab (#977), from mockups/guild-cubbies.html (tab-desktop, tab-phone, tab-list).
+Expects cubby_tab (membership.cubbies.CubbyTab), guild and can_edit_this_guild. Grid draws each shelf
+unit as a shelf; List is the same cubbies one row each, and phones open on it. Tapping an open cubby
+opens the cubby-detail sheet, filled from the tapped button's data attributes. Renting is part 2 (#978).
+{% endcomment %}
+{% include "hub/cubbies/_icons.html" %}
+<section class="pl-cubbies" data-guild-cubbies aria-labelledby="cubbies-title"
+         x-data="{ view: window.matchMedia('(max-width: 639.98px)').matches ? 'list' : 'grid', picked: { label: '', where: '', size: '', note: '', price: '', suggested: '', photo: '' } }">
+  {% if cubby_tab.units %}
+  <div class="pl-cubby-head">
+    <div>
+      <h2 class="pl-cubby-head__title" id="cubbies-title">Rent a Cubby</h2>
+      <p class="pl-cubby-head__lead">A shelf spot of your own in the studio. Keep your tools, supplies and works in progress here between sessions.</p>
+      <p class="pl-cubby-summary" data-cubby-summary><span class="pl-cubby-summary__big">{{ cubby_tab.open_count }}</span><span class="pl-cubby-summary__of">of {{ cubby_tab.total }} open</span><span class="pl-cubby-summary__price">from {{ cubby_tab.from_price }} a month</span></p>
+    </div>
+    <div class="pl-cubby-seg" role="group" aria-label="Show cubbies as">
+      <button type="button" aria-pressed="true" :aria-pressed="view === 'grid' ? 'true' : 'false'" @click="view = 'grid'" data-cubby-view="grid"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-grid"/></svg>Grid</button>
+      <button type="button" aria-pressed="false" :aria-pressed="view === 'list' ? 'true' : 'false'" @click="view = 'list'" data-cubby-view="list"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-list"/></svg>List</button>
+    </div>
+  </div>
+
+  <ul class="pl-cubby-legend" aria-label="What the cubbies mean" x-show="view === 'grid'">
+    <li><span class="pl-cubby pl-cubby--open pl-cubby-swatch" aria-hidden="true"><svg class="pl-cubby-ico"><use href="#i-plus-circle"/></svg></span>Open, tap for details</li>
+    <li><span class="pl-cubby pl-cubby--rented pl-cubby-swatch" aria-hidden="true"><svg class="pl-cubby-ico"><use href="#i-lock"/></svg></span>Rented</li>
+    <li><span class="pl-cubby pl-cubby--out pl-cubby-swatch" aria-hidden="true"><svg class="pl-cubby-ico"><use href="#i-wrench"/></svg></span>Out of Service</li>
+  </ul>
+
+  <div class="pl-cubby-wall" x-show="view === 'grid'" data-cubby-wall>
+    {% for unit_view in cubby_tab.units %}
+    <section class="pl-cubby-unit" aria-labelledby="cubby-unit-{{ unit_view.unit.pk }}">
+      <div class="pl-cubby-unit__frame">
+        <h3 class="pl-cubby-unit__plate" id="cubby-unit-{{ unit_view.unit.pk }}">{{ unit_view.unit.name }}</h3>
+        <ul class="pl-cubby-grid {{ unit_view.grid_class }}">
+          {% for cell in unit_view.cells %}
+          {% with cubby=cell.cubby %}
+          {% if cubby is None %}
+          <li aria-hidden="true"></li>
+          {% elif cubby.state == "open" %}
+          <li class="{{ cell.span_class }}"><button type="button" class="pl-cubby pl-cubby--open" data-cubby="{{ cubby.label }}"
+              aria-label="{{ cubby.label }}, open, from {{ cubby.floor_display }} a month. Details."
+              data-label="{{ cubby.label }}" data-where="{{ unit_view.unit.name }}, {{ cubby.position_text|lower }}" data-size="{{ cubby.size }}" data-note="{{ cubby.note }}" data-price="{{ cubby.floor_display }}" data-suggested="{{ cubby.suggested_display }}" data-photo="{% if cubby.photo %}{{ cubby.photo.url }}{% endif %}"
+              @click="picked = { ...$el.dataset }; $dispatch('open-modal', 'cubby-detail')"><span class="pl-cubby__label">{{ cubby.label }}</span><span class="pl-cubby__state"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-plus-circle"/></svg><span class="pl-cubby__long">Open</span><span class="pl-cubby__short">Open</span></span><span class="pl-cubby__price"><span class="pl-cubby__long">from {{ cubby.floor_display }}/mo</span><span class="pl-cubby__short">{{ cubby.floor_display }}+</span></span></button></li>
+          {% else %}
+          <li class="{{ cell.span_class }}"><div class="pl-cubby pl-cubby--out" role="img" aria-label="{{ cubby.label }}, out of service" data-cubby="{{ cubby.label }}"><span class="pl-cubby__label">{{ cubby.label }}</span><span class="pl-cubby__state"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-wrench"/></svg><span class="pl-cubby__long">Out of Service</span><span class="pl-cubby__short">Closed</span></span></div></li>
+          {% endif %}
+          {% endwith %}
+          {% endfor %}
+        </ul>
+      </div>
+      <p class="pl-cubby-unit__foot">{% if unit_view.open_count %}<strong>{{ unit_view.open_count }} open</strong>{% else %}<strong>None open</strong>{% endif %} of {{ unit_view.cubbies|length }}</p>
+    </section>
+    {% endfor %}
+  </div>
+
+  <div class="pl-cubby-list" x-show="view === 'list'" x-cloak data-cubby-list>
+    {% for unit_view in cubby_tab.units %}
+    <section class="hub-card pl-cubby-list__unit" aria-labelledby="cubby-list-{{ unit_view.unit.pk }}">
+      <h3 class="pl-cubby-list__title" id="cubby-list-{{ unit_view.unit.pk }}">{{ unit_view.unit.name }} <span>{{ unit_view.open_count }} open of {{ unit_view.cubbies|length }}</span></h3>
+      <ul class="pl-cubby-rows">
+        {% for cubby in unit_view.cubbies %}
+        <li class="pl-cubby-row"><span class="pl-cubby-row__tag">{{ cubby.label }}</span><span class="pl-cubby-row__main"><strong>{{ cubby.position_text }}</strong>{% if cubby.out_of_service and cubby.note %}{{ cubby.note }}{% else %}{{ cubby.size }}{% endif %}</span>
+          {% if cubby.state == "open" %}
+          <span class="pl-cubby-chip pl-cubby-chip--open"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-plus-circle"/></svg>Open</span><span class="pl-cubby-row__end"><span class="pl-cubby-row__price">from {{ cubby.floor_display }}/mo</span><button type="button" class="pl-btn pl-btn--primary pl-btn--sm"
+              data-label="{{ cubby.label }}" data-where="{{ unit_view.unit.name }}, {{ cubby.position_text|lower }}" data-size="{{ cubby.size }}" data-note="{{ cubby.note }}" data-price="{{ cubby.floor_display }}" data-suggested="{{ cubby.suggested_display }}" data-photo="{% if cubby.photo %}{{ cubby.photo.url }}{% endif %}"
+              @click="picked = { ...$el.dataset }; $dispatch('open-modal', 'cubby-detail')" aria-label="Details for {{ cubby.label }}">Details</button></span>
+          {% else %}
+          <span class="pl-cubby-chip pl-cubby-chip--out"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-wrench"/></svg>Out of Service</span><span class="pl-cubby-row__end"></span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endfor %}
+  </div>
+
+  {% include "components/modal.html" with modal_id="cubby-detail" modal_title="About This Cubby" modal_size="md" modal_class="pl-cubby-sheet" modal_body_include="hub/partials/_guild_cubby_detail.html" %}
+  {% else %}
+  <h2 class="pl-cubby-head__title" id="cubbies-title">Rent a Cubby</h2>
+  <div class="hub-card pl-cubby-none" data-cubbies-empty>
+    <p>No cubbies yet.</p>
+    {% if can_edit_this_guild %}<a href="{% url 'hub_guild_cubbies' guild.pk %}">Set Up Cubbies →</a>{% endif %}
+  </div>
+  {% endif %}
+</section>
