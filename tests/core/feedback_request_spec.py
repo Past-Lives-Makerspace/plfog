@@ -128,6 +128,8 @@ def describe_labels():
             (Category.BUG, Status.LIVE, "Fixed", "fixed", "ok"),
             (Category.FEEDBACK, Status.LIVE, "Live", "live", "ok"),
             (Category.BUG, Status.NOT_PLANNED, "Not planned", "not planned", "neutral"),
+            (Category.BUG, Status.NOT_A_BUG, "Not a bug", "closed as not a bug", "neutral"),
+            (Category.FEEDBACK, Status.CLOSED, "Closed", "closed", "neutral"),
         ],
     )
     def it_words_each_status_for_the_member(category: str, status: str, label: str, phrase: str, tone: str):
@@ -459,7 +461,7 @@ def describe_general_feedback():
     def it_refuses_any_status_but_received(admin: User, status: str):
         request = FeedbackRequestFactory(category=Category.FEEDBACK)
 
-        with pytest.raises(FeedbackRequestError, match="stays Received"):
+        with pytest.raises(FeedbackRequestError, match="Received or Closed"):
             _update(request, admin, status=status, note="A reason.")
 
         request.refresh_from_db()
@@ -726,39 +728,125 @@ def describe_an_admin_who_sent_the_request():
         assert FeedbackRequest.objects.get(pk=own.pk).member_replied_at is not None
 
 
-def describe_the_note_migration_reverse():
-    def it_puts_back_only_the_oldest_comment_with_no_author_on_each_request(admin: User):
-        import importlib
+def describe_closing():
+    @pytest.mark.parametrize(
+        ("status", "closed"),
+        [
+            (Status.RECEIVED, False),
+            (Status.PLANNED, False),
+            (Status.BUILDING, False),
+            (Status.LIVE, True),
+            (Status.NOT_PLANNED, True),
+            (Status.NOT_A_BUG, True),
+            (Status.CLOSED, True),
+        ],
+    )
+    def it_says_which_statuses_are_closed(status: str, closed: bool):
+        assert FeedbackRequestFactory.build(status=status).is_closed is closed
 
-        from django.apps import apps
+    def describe_not_a_bug():
+        def it_closes_a_bug_report_with_its_comment_in_one_notice(admin: User):
+            request = FeedbackRequestFactory(category=Category.BUG)
 
-        migration = importlib.import_module("core.migrations.0129_feedback_notes_to_comments")
-        request = FeedbackRequestFactory()
-        carried = FeedbackComment.objects.create(request=request, author=None, body="Zzcarried note")
-        later = FeedbackComment.objects.create(request=request, author=None, body="Zzlater no author")
-        staff = request.add_comment(author=admin, body="Zzstaff", photos=[])
-        untouched = FeedbackRequestFactory()
+            assert request.mark_not_a_bug(actor=admin, comment="  Use the Book button on the equipment page.  ") is True
 
-        migration.comments_to_notes(apps, None)
+            assert request.status == Status.NOT_A_BUG
+            assert _staff_comments(request) == ["Use the Book button on the equipment page."]
+            [message] = mail.outbox
+            assert message.subject == f"Your request: {request.subject} is closed as not a bug"
+            assert "Use the Book button on the equipment page." in message.body
+            assert len(_bells(request)) == 1
+            assert not Notification.objects.filter(trigger=FEEDBACK_COMMENT_ADDED).exists()
 
-        request.refresh_from_db()
-        assert request.staff_note == "Zzcarried note"
-        assert set(request.comments.values_list("pk", flat=True)) == {later.pk, staff.pk}
-        assert not FeedbackComment.objects.filter(pk=carried.pk).exists()
-        untouched.refresh_from_db()
-        assert untouched.staff_note == ""
+        def it_refuses_without_a_comment(admin: User):
+            request = FeedbackRequestFactory(category=Category.BUG)
 
-    def it_copies_each_note_forward_as_an_authorless_comment():
-        import importlib
+            with pytest.raises(FeedbackRequestError, match="right way"):
+                request.mark_not_a_bug(actor=admin, comment="   ")
 
-        from django.apps import apps
+            request.refresh_from_db()
+            assert request.status == Status.RECEIVED
+            assert mail.outbox == []
 
-        migration = importlib.import_module("core.migrations.0129_feedback_notes_to_comments")
-        noted = FeedbackRequestFactory(staff_note="  Zzold note  ")
-        FeedbackRequestFactory(staff_note="   ")
+        @pytest.mark.parametrize("category", [Category.FEATURE, Category.FEEDBACK])
+        def it_refuses_anything_but_a_bug_report(admin: User, category: str):
+            request = FeedbackRequestFactory(category=category)
 
-        migration.notes_to_comments(apps, None)
+            with pytest.raises(FeedbackRequestError):
+                request.mark_not_a_bug(actor=admin, comment="How to do it.")
 
-        [comment] = FeedbackComment.objects.all()
-        assert (comment.request, comment.author, comment.body) == (noted, None, "Zzold note")
-        assert comment.created_at == noted.status_changed_at
+            assert request.status == Status.RECEIVED
+
+        def it_offers_the_opener_the_admin_finishes():
+            assert FeedbackRequest.NOT_A_BUG_OPENER.startswith("Thanks for reporting this.")
+
+        def it_saves_again_on_not_a_bug_without_a_new_comment(admin: User):
+            request = FeedbackRequestFactory(category=Category.BUG)
+            request.mark_not_a_bug(actor=admin, comment="How.")
+
+            assert _update(request, admin, status=Status.NOT_A_BUG, github="https://github.com/o/r/issues/9") is False
+
+    def describe_close():
+        @pytest.mark.parametrize("category", [Category.BUG, Category.FEATURE, Category.FEEDBACK])
+        def it_closes_any_request_with_no_comment_and_tells_the_sender(admin: User, category: str):
+            request = FeedbackRequestFactory(category=category)
+
+            assert request.close(actor=admin, comment="") is True
+
+            assert request.status == Status.CLOSED
+            assert request.comments.count() == 0
+            [message] = mail.outbox
+            assert message.subject == f"Your request: {request.subject} is closed"
+
+        def it_carries_an_optional_comment_in_the_same_notice(admin: User):
+            request = FeedbackRequestFactory(category=Category.FEEDBACK)
+
+            request.close(actor=admin, comment="Thanks, passed it to the council.")
+
+            [message] = mail.outbox
+            assert "Thanks, passed it to the council." in message.body
+            assert len(_bells(request)) == 1
+
+        def it_lets_general_feedback_move_back_to_received_keeping_the_thread(admin: User):
+            request = FeedbackRequestFactory(category=Category.FEEDBACK)
+            request.close(actor=admin, comment="Done.")
+
+            assert _update(request, admin, status=Status.RECEIVED) is False
+
+            assert request.status == Status.RECEIVED
+            assert _staff_comments(request) == ["Done."]
+
+    def describe_a_sender_reply_on_a_closed_request():
+        def it_stays_closed_but_shows_under_member_replied_and_in_the_open_view(
+            admin: User, django_capture_on_commit_callbacks
+        ):
+            request = FeedbackRequestFactory(category=Category.BUG)
+            request.mark_not_a_bug(actor=admin, comment="How to.")
+            assert list(FeedbackRequest.objects.open()) == []
+
+            with django_capture_on_commit_callbacks(execute=True):
+                request.add_comment(author=request.user, body="That did not work for me.", photos=[])
+
+            request.refresh_from_db()
+            assert request.status == Status.NOT_A_BUG
+            assert request.has_member_reply is True
+            assert list(FeedbackRequest.objects.open()) == [request]
+            assert list(FeedbackRequest.objects.closed()) == [request]
+
+    def describe_open_and_closed_views():
+        def it_splits_requests_by_the_closed_statuses():
+            waiting = FeedbackRequestFactory()
+            building = FeedbackRequestFactory(status=Status.BUILDING)
+            done = [FeedbackRequestFactory(status=status) for status in FeedbackRequest.CLOSED_STATUSES]
+
+            assert set(FeedbackRequest.objects.open()) == {waiting, building}
+            assert set(FeedbackRequest.objects.closed()) == set(done)
+
+    def describe_the_release_job():
+        @pytest.mark.parametrize(
+            ("status", "why"), [(Status.NOT_A_BUG, "is closed as Not a bug"), (Status.CLOSED, "is Closed")]
+        )
+        def it_skips_a_closed_request_rather_than_flipping_it_live(status: str, why: str):
+            request = FeedbackRequestFactory(category=Category.BUG, status=status)
+
+            assert request.live_announcement_skip() == why

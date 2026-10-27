@@ -63,7 +63,7 @@ def _post(client: Client, request: FeedbackRequest, *, status: str, note: str = 
 
 
 def describe_permissions():
-    @pytest.mark.parametrize("view", ["inbox", "page", "mark_live", "comment"])
+    @pytest.mark.parametrize("view", ["inbox", "page", "mark_live", "comment", "not_a_bug", "close"])
     def it_refuses_a_non_admin(client: Client, view: str):
         _member(client)
         request = FeedbackRequestFactory()
@@ -72,9 +72,12 @@ def describe_permissions():
             "page": _page(request.pk),
             "mark_live": reverse("hub_admin_feedback_mark_live", args=[request.pk]),
             "comment": _comment_url(request.pk),
+            "not_a_bug": reverse("hub_admin_feedback_not_a_bug", args=[request.pk]),
+            "close": reverse("hub_admin_feedback_close", args=[request.pk]),
         }[view]
 
-        response = client.post(url, {"body": "Zzsneaky"}) if view in {"mark_live", "comment"} else client.get(url)
+        posts = {"mark_live", "comment", "not_a_bug", "close"}
+        response = client.post(url, {"body": "Zzsneaky", "comment": "Zzsneaky"}) if view in posts else client.get(url)
 
         assert response.status_code == 403
         request.refresh_from_db()
@@ -148,7 +151,7 @@ def describe_inbox():
 
         body = client.get(INBOX).content.decode()
 
-        assert "data-feedback-inbox-empty>No feedback yet.<" in body
+        assert "data-feedback-inbox-empty>Nothing open right now. Pick All statuses to see closed requests.<" in body
 
     def it_filters_by_category_and_status(client: Client):
         _admin(client)
@@ -324,14 +327,14 @@ def describe_mark_live():
 
 
 def describe_general_feedback_page():
-    def it_offers_only_received_as_the_status(client: Client):
+    def it_offers_only_received_and_closed_as_the_status(client: Client):
         _admin(client)
         request = FeedbackRequestFactory(category="feedback")
 
         response = client.get(_page(request.pk))
 
-        assert response.context["form"].fields["status"].choices == [("received", "Received")]
-        assert "General feedback stays Received." in response.content.decode()
+        assert response.context["form"].fields["status"].choices == [("received", "Received"), ("closed", "Closed")]
+        assert "General feedback is Received or Closed." in response.content.decode()
 
     def it_hides_mark_live(client: Client):
         _admin(client)
@@ -563,3 +566,168 @@ def describe_an_admin_who_sent_the_request():
 
         follow = client.get(response["Location"])
         assert [str(m) for m in follow.context["messages"]] == ["Saved. The Webmasters were notified."]
+
+
+def describe_resolving():
+    def _not_a_bug(pk: int) -> str:
+        return reverse("hub_admin_feedback_not_a_bug", args=[pk])
+
+    def _close(pk: int) -> str:
+        return reverse("hub_admin_feedback_close", args=[pk])
+
+    def it_marks_a_bug_not_a_bug_with_its_comment_and_says_who_heard(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory(category="bug", user__first_name="Robin", user__last_name="Vale")
+
+        response = client.post(_not_a_bug(request.pk) + "?status=all", {"comment": "Zzuse the Book button"})
+
+        assert response["Location"] == f"{_page(request.pk)}?status=all"
+        request.refresh_from_db()
+        assert request.status == Status.NOT_A_BUG
+        assert [comment.body for comment in request.comments.all()] == ["Zzuse the Book button"]
+        follow = client.get(response["Location"])
+        assert [str(m) for m in follow.context["messages"]] == ["Saved. Robin Vale was notified."]
+
+    def it_refuses_not_a_bug_without_a_comment_in_the_models_words(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory(category="bug")
+
+        response = client.post(_not_a_bug(request.pk), {"comment": "  "})
+
+        follow = client.get(response["Location"])
+        assert [str(m) for m in follow.context["messages"]] == [FeedbackRequest.NOT_A_BUG_NEEDS_HOW]
+        request.refresh_from_db()
+        assert request.status == Status.RECEIVED
+        assert mail.outbox == []
+
+    def it_closes_general_feedback_with_no_comment(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory(category="feedback")
+
+        client.post(_close(request.pk))
+
+        request.refresh_from_db()
+        assert request.status == Status.CLOSED
+        assert len(mail.outbox) == 1
+
+    @pytest.mark.parametrize("view", ["not_a_bug", "close"])
+    def it_only_posts_and_answers_404_for_an_unknown_request(client: Client, view: str):
+        _admin(client)
+        url = _not_a_bug if view == "not_a_bug" else _close
+        request = FeedbackRequestFactory(category="bug")
+
+        assert client.get(url(request.pk)).status_code == 405
+        assert client.post(url(999999)).status_code == 404
+
+    def describe_the_resolve_card():
+        def it_offers_mark_fixed_not_a_bug_and_close_on_an_open_bug_report(client: Client):
+            _admin(client)
+            request = FeedbackRequestFactory(category="bug")
+
+            body = client.get(_page(request.pk)).content.decode()
+
+            assert "data-feedback-mark-live" in body
+            assert "data-feedback-not-a-bug" in body
+            assert "data-feedback-close" in body
+            assert f'action="{_not_a_bug(request.pk)}"' in body
+            assert f'action="{_close(request.pk)}"' in body
+            assert "Thanks for reporting this. It is working as intended. Here is how to do it: </textarea>" in body
+            assert 'rows="5" required id="id_not_a_bug_comment"' in body
+            assert 'data-feedback-resolve-form="close" data-pl-busy-submit' in body
+
+        def it_offers_no_not_a_bug_on_a_feature_request(client: Client):
+            _admin(client)
+            request = FeedbackRequestFactory(category="feature")
+
+            body = client.get(_page(request.pk)).content.decode()
+
+            assert "data-feedback-not-a-bug" not in body
+            assert "data-feedback-close" in body
+            assert ("not_a_bug", "Not a bug") not in client.get(_page(request.pk)).context["form"].fields[
+                "status"
+            ].choices
+
+        def it_offers_only_close_on_general_feedback(client: Client):
+            _admin(client)
+            request = FeedbackRequestFactory(category="feedback")
+
+            body = client.get(_page(request.pk)).content.decode()
+
+            assert "data-feedback-close" in body
+            assert "data-feedback-mark-live" not in body
+            assert "data-feedback-not-a-bug" not in body
+
+        def it_hides_the_card_on_closed_general_feedback(client: Client):
+            _admin(client)
+            request = FeedbackRequestFactory(category="feedback", status=Status.CLOSED)
+
+            assert "data-feedback-resolve" not in client.get(_page(request.pk)).content.decode()
+
+        def it_keeps_mark_fixed_and_not_a_bug_on_a_closed_bug_report(client: Client):
+            _admin(client)
+            request = FeedbackRequestFactory(category="bug", status=Status.CLOSED)
+
+            body = client.get(_page(request.pk)).content.decode()
+
+            assert "data-feedback-mark-live" in body
+            assert "data-feedback-not-a-bug" in body
+            assert "data-feedback-close" not in body
+
+        def it_hides_not_a_bug_once_it_is_not_a_bug(client: Client):
+            _admin(client)
+            request = FeedbackRequestFactory(category="bug", status=Status.NOT_A_BUG)
+
+            body = client.get(_page(request.pk)).content.decode()
+
+            assert "data-feedback-not-a-bug" not in body
+            assert "data-feedback-close" in body
+
+
+def describe_open_closed_all():
+    def it_opens_on_open_requests_and_a_closed_one_the_sender_replied_to(
+        client: Client, django_capture_on_commit_callbacks
+    ):
+        _admin(client)
+        waiting = FeedbackRequestFactory()
+        FeedbackRequestFactory(status=Status.CLOSED)
+        replied = FeedbackRequestFactory(status=Status.NOT_A_BUG, category="bug")
+        with django_capture_on_commit_callbacks(execute=True):
+            replied.add_comment(author=replied.user, body="Still stuck", photos=[])
+
+        response = client.get(INBOX)
+
+        assert set(response.context["page"].object_list) == {waiting, replied}
+        assert response.context["is_filtered"] is False
+        assert '<option value="" selected>Open</option>' in response.content.decode()
+
+    def it_shows_every_closed_request_under_all_closed(client: Client):
+        _admin(client)
+        FeedbackRequestFactory()
+        closed = {FeedbackRequestFactory(status=status) for status in FeedbackRequest.CLOSED_STATUSES}
+
+        response = client.get(INBOX, {"status": "closed_all"})
+
+        assert set(response.context["page"].object_list) == closed
+
+    def it_shows_everything_under_all_statuses(client: Client):
+        _admin(client)
+        rows = {FeedbackRequestFactory(), FeedbackRequestFactory(status=Status.CLOSED)}
+
+        assert set(client.get(INBOX, {"status": "all"}).context["page"].object_list) == rows
+
+    def it_filters_to_one_closed_status(client: Client):
+        _admin(client)
+        closed = FeedbackRequestFactory(status=Status.CLOSED)
+        FeedbackRequestFactory(status=Status.NOT_A_BUG, category="bug")
+
+        assert list(client.get(INBOX, {"status": "closed"}).context["page"].object_list) == [closed]
+
+    def it_falls_back_to_open_for_an_unknown_value(client: Client):
+        _admin(client)
+        waiting = FeedbackRequestFactory()
+        FeedbackRequestFactory(status=Status.LIVE)
+
+        response = client.get(INBOX, {"status": "nope"})
+
+        assert list(response.context["page"].object_list) == [waiting]
+        assert response.context["filters"]["status"] == ""

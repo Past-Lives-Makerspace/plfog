@@ -1012,9 +1012,17 @@ class FeedbackRequestAdminForm(forms.Form):
         )
         self.category = feedback_request.category
         self.current_status = feedback_request.status
+        cast(forms.ChoiceField, self.fields["status"]).choices = self.status_choices(feedback_request)
+
+    @staticmethod
+    def status_choices(feedback_request: FeedbackRequest) -> list[tuple[str, str]]:
+        """The statuses this request can take: general feedback Received or Closed; Not a bug only on a bug."""
+        statuses = FeedbackRequest.Status
         if feedback_request.stays_received:
-            received = FeedbackRequest.Status.RECEIVED
-            cast(forms.ChoiceField, self.fields["status"]).choices = [(received.value, received.label)]
+            return [(value, label) for value, label in statuses.choices if value in FeedbackRequest.FEEDBACK_STATUSES]
+        if feedback_request.category != FeedbackRequest.Category.BUG:
+            return [(value, label) for value, label in statuses.choices if value != statuses.NOT_A_BUG]
+        return list(statuses.choices)
 
     def clean(self) -> dict[str, Any]:
         """Refuse what the model refuses (Not planned without a comment), in its words."""
@@ -1028,6 +1036,28 @@ class FeedbackRequestAdminForm(forms.Form):
         if refusal is not None:
             self.add_error("comment", refusal)
         return cleaned
+
+
+class FeedbackResolveForm(forms.Form):
+    """The comment posted with Not a bug or Close from a request's admin page.
+
+    Blank is allowed here; :meth:`core.models.FeedbackRequest.update_refusal` decides when a
+    comment is required (Not a bug) and refuses in its own words.
+    """
+
+    comment = forms.CharField(required=False, label="Comment", widget=forms.Textarea(attrs={"rows": 5}))
+
+    @classmethod
+    def for_not_a_bug(cls) -> FeedbackResolveForm:
+        """The Not a Bug modal's form: the opener already typed, and the box required in the browser too."""
+        form = cls(initial={"comment": FeedbackRequest.NOT_A_BUG_OPENER}, auto_id="id_not_a_bug_%s")
+        form.fields["comment"].widget.attrs["required"] = True
+        return form
+
+    @classmethod
+    def for_close(cls) -> FeedbackResolveForm:
+        """The Close modal's form: an optional, empty comment."""
+        return cls(auto_id="id_close_%s")
 
 
 class MemberAdminEditForm(forms.ModelForm):

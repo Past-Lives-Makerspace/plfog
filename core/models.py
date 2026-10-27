@@ -3128,6 +3128,13 @@ class FeedbackRequestError(Exception):
     """A feedback request update an admin may not make; carries the copy to show them."""
 
 
+def _member_replied_q() -> models.Q:
+    """The sender wrote after an admin last opened the request (or none ever has)."""
+    return models.Q(member_replied_at__isnull=False) & (
+        models.Q(staff_seen_at__isnull=True) | models.Q(member_replied_at__gt=models.F("staff_seen_at"))
+    )
+
+
 class FeedbackRequestQuerySet(models.QuerySet["FeedbackRequest"]):
     """Query helpers for the Feedback page and the admin Feedback inbox (#693)."""
 
@@ -3143,11 +3150,17 @@ class FeedbackRequestQuerySet(models.QuerySet["FeedbackRequest"]):
         """Requests nobody has moved past Received yet: the inbox's to-do pile."""
         return self.filter(status=FeedbackRequest.Status.RECEIVED)
 
+    def open(self) -> FeedbackRequestQuerySet:
+        """The inbox's default view: not closed, or closed but the sender has written since."""
+        return self.filter(~models.Q(status__in=FeedbackRequest.CLOSED_STATUSES) | _member_replied_q())
+
+    def closed(self) -> FeedbackRequestQuerySet:
+        """Requests in a closed status (:attr:`FeedbackRequest.CLOSED_STATUSES`)."""
+        return self.filter(status__in=FeedbackRequest.CLOSED_STATUSES)
+
     def member_replied(self) -> FeedbackRequestQuerySet:
         """Requests whose sender wrote after an admin last opened them: the Member replied pile."""
-        return self.filter(member_replied_at__isnull=False).filter(
-            models.Q(staff_seen_at__isnull=True) | models.Q(member_replied_at__gt=models.F("staff_seen_at"))
-        )
+        return self.filter(_member_replied_q())
 
 
 class FeedbackRequest(models.Model):
@@ -3171,9 +3184,23 @@ class FeedbackRequest(models.Model):
         BUILDING = "building", "Building"
         LIVE = "live", "Live"
         NOT_PLANNED = "not_planned", "Not planned"
+        NOT_A_BUG = "not_a_bug", "Not a bug"
+        CLOSED = "closed", "Closed"
 
     # A move to one of these tells the sender; a move back to Received does not.
-    NOTIFYING_STATUSES: frozenset[str] = frozenset({Status.PLANNED, Status.BUILDING, Status.LIVE, Status.NOT_PLANNED})
+    NOTIFYING_STATUSES: frozenset[str] = frozenset(
+        {Status.PLANNED, Status.BUILDING, Status.LIVE, Status.NOT_PLANNED, Status.NOT_A_BUG, Status.CLOSED}
+    )
+
+    # The one place that says which statuses close a request. The inbox's Open view leaves them
+    # out unless the sender has written since; the sender can still reply on a closed request.
+    CLOSED_STATUSES: frozenset[str] = frozenset({Status.LIVE, Status.NOT_PLANNED, Status.NOT_A_BUG, Status.CLOSED})
+
+    # General feedback has no Planned or Live: it is answered with a comment, then maybe closed.
+    FEEDBACK_STATUSES: frozenset[str] = frozenset({Status.RECEIVED, Status.CLOSED})
+
+    # What the Not a bug comment box starts with; the admin finishes it every time.
+    NOT_A_BUG_OPENER = "Thanks for reporting this. It is working as intended. Here is how to do it: "
 
     # How a status reads in a sentence: "Your request: <subject> is <phrase>".
     _STATUS_PHRASES: dict[str, str] = {
@@ -3182,6 +3209,8 @@ class FeedbackRequest(models.Model):
         Status.BUILDING: "being built",
         Status.LIVE: "live",
         Status.NOT_PLANNED: "not planned",
+        Status.NOT_A_BUG: "closed as not a bug",
+        Status.CLOSED: "closed",
     }
 
     # The existing hub-pill tone for each status.
@@ -3191,10 +3220,14 @@ class FeedbackRequest(models.Model):
         Status.BUILDING: "primary",
         Status.LIVE: "ok",
         Status.NOT_PLANNED: "neutral",
+        Status.NOT_A_BUG: "neutral",
+        Status.CLOSED: "neutral",
     }
 
     NOT_PLANNED_NEEDS_REASON = "Write a comment that tells the member why. They see it with Not planned."
-    FEEDBACK_STAYS_RECEIVED = "General feedback stays Received. Answer it with a comment instead."
+    NOT_A_BUG_NEEDS_HOW = "Write a comment that tells the member the right way to do it. They see it with Not a bug."
+    NOT_A_BUG_BUGS_ONLY = "Only a bug report can be Not a bug. Close it instead."
+    FEEDBACK_STAYS_RECEIVED = "General feedback is Received or Closed. Answer it with a comment, then close it."
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -3214,14 +3247,6 @@ class FeedbackRequest(models.Model):
         choices=Status.choices,
         default=Status.RECEIVED,
         help_text="Where the request stands. The sender sees it on the Feedback page.",
-    )
-    # Retired: every note became a FeedbackComment (migration feedback_notes_to_comments). Nothing reads or writes it; it stays
-    # declared only so this release works with the code still serving during the deploy, and
-    # part 2 drops the column.
-    staff_note = models.TextField(
-        blank=True,
-        default="",
-        help_text="Retired. Notes now live in the comment thread; part 2 drops this column.",
     )
     github_issue_url = models.URLField(
         blank=True,
@@ -3282,8 +3307,13 @@ class FeedbackRequest(models.Model):
 
     @property
     def stays_received(self) -> bool:
-        """General feedback has no Planned or Live: an admin answers it with a comment."""
+        """General feedback has no Planned or Live: an admin answers it with a comment, then may close it."""
         return self.category == self.Category.FEEDBACK
+
+    @property
+    def is_closed(self) -> bool:
+        """Live (Fixed), Not planned, Not a bug or Closed: see :attr:`CLOSED_STATUSES`."""
+        return self.status in self.CLOSED_STATUSES
 
     @property
     def has_member_reply(self) -> bool:
@@ -3348,13 +3378,19 @@ class FeedbackRequest(models.Model):
     def update_refusal(cls, *, category: str, current_status: str, status: str, comment: str) -> str | None:
         """Why an admin may not save this status and comment, or ``None`` when they may.
 
-        General feedback stays Received (an admin answers it with a comment), and a move to Not
-        planned needs a comment in the same save, so the sender reads why.
+        General feedback is only Received or Closed, and only a bug report can be Not a bug. A move
+        to Not planned or Not a bug needs a comment in the same save, so the sender reads why, or
+        the right way to do the thing.
         """
-        if category == cls.Category.FEEDBACK and status != cls.Status.RECEIVED:
+        if category == cls.Category.FEEDBACK and status not in cls.FEEDBACK_STATUSES:
             return cls.FEEDBACK_STAYS_RECEIVED
-        if status == cls.Status.NOT_PLANNED and current_status != status and not comment.strip():
+        if status == cls.Status.NOT_A_BUG and category != cls.Category.BUG:
+            return cls.NOT_A_BUG_BUGS_ONLY
+        moving = current_status != status
+        if moving and status == cls.Status.NOT_PLANNED and not comment.strip():
             return cls.NOT_PLANNED_NEEDS_REASON
+        if moving and status == cls.Status.NOT_A_BUG and not comment.strip():
+            return cls.NOT_A_BUG_NEEDS_HOW
         return None
 
     def add_comment(self, *, author: User, body: str, photos: list[UploadedFile]) -> FeedbackComment:
@@ -3426,6 +3462,20 @@ class FeedbackRequest(models.Model):
         """
         return self._apply(status=status, comment=comment.strip(), github_issue_url=github_issue_url, actor=actor)
 
+    def mark_not_a_bug(self, *, actor: User, comment: str) -> bool:
+        """Close a bug report as Not a bug, with the comment that tells the sender the right way.
+
+        One save and one notice, as :meth:`apply_admin_update`, keeping the GitHub link.
+
+        Raises:
+            FeedbackRequestError: Not a bug report, or no comment.
+        """
+        return self._apply(status=self.Status.NOT_A_BUG, comment=comment.strip(), github_issue_url=None, actor=actor)
+
+    def close(self, *, actor: User, comment: str) -> bool:
+        """Close any request, general feedback included, with an optional comment, in one notice."""
+        return self._apply(status=self.Status.CLOSED, comment=comment.strip(), github_issue_url=None, actor=actor)
+
     def mark_live(self, *, actor: User) -> bool:
         """Move the request to Live (Fixed for a bug), keeping its GitHub link.
 
@@ -3482,6 +3532,10 @@ class FeedbackRequest(models.Model):
         """
         if self.stays_received:
             return "is general feedback, which stays Received"
+        if self.status == self.Status.NOT_A_BUG:
+            return "is closed as Not a bug"
+        if self.status == self.Status.CLOSED:
+            return "is Closed"
         if self.status == self.Status.LIVE:
             return "is already Live"
         if self.live_notified_at is not None:
