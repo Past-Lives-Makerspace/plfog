@@ -158,8 +158,22 @@ def describe_a_feedback_conversation():
         page.wait_for_url(lambda url: f"/manage/feedback/{request.pk}/" in url)
         expect(page.locator("[data-thread-reply] [data-thread-send]")).to_have_text("Send to Sam Sender")
         expect(page.locator('[data-thread-message][data-from="member"]')).to_contain_text("Zzit is a Pixel 8")
-        page.goto(f"{live_server.url}{reverse('hub_admin_feedback_inbox')}?replied=1")
-        expect(page.locator(f'[data-feedback-row="{request.pk}"]')).to_have_count(0)
+        # A reply commits, then its on_commit stamps member_replied_at; an admin GET landing in
+        # between shows the reply but marks the request seen just before the stamp, so the pill
+        # stays (the accepted race from #966's review: a false positive, never a lost reply).
+        # Open the request again until the filtered inbox drops it, for up to about 5 seconds.
+        inbox = f"{live_server.url}{reverse('hub_admin_feedback_inbox')}?replied=1"
+        request_page = f"{live_server.url}{reverse('hub_admin_feedback_request', args=[request.pk])}"
+        listed = page.locator(f'[data-feedback-row="{request.pk}"]')
+        for _attempt in range(10):
+            page.goto(inbox)
+            expect(page.locator("[data-feedback-inbox], [data-feedback-inbox-empty]")).to_be_visible()
+            if listed.count() == 0:
+                break
+            page.goto(request_page)
+            expect(page.locator("[data-thread-reply] [data-thread-send]")).to_have_text("Send to Sam Sender")
+            page.wait_for_timeout(500)
+        expect(listed).to_have_count(0)
         assert not FeedbackRequest.objects.member_replied().exists()
         assert request.comments.filter(author=sender).count() == 1
 
