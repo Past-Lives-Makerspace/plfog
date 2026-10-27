@@ -1515,3 +1515,88 @@ def describe_two_runs_and_one_queued_delete():
         calendar_sync.run_cleanups(timezone.now(), guard)
         queued.refresh_from_db()
         assert queued.claimed_until is None
+
+
+def describe_a_write_meeting_a_delete_of_its_own_event():
+    @pytest.fixture
+    def ours(booking: TourBooking) -> str:
+        return calendar_sync.event_id_for(booking)
+
+    @respx.mock
+    def it_waits_while_another_run_is_deleting_that_event(
+        connection: TourCalendarConnection, booking: TourBooking, ours: str
+    ):
+        cleanup = TourCalendarCleanup.objects.create(connection=connection, calendar_id="primary", event_id=ours)
+        assert calendar_sync._claim_cleanup(cleanup.pk)  # run X holds the delete and passed its check
+        row = TourCalendarSync.objects.create(booking=booking)
+        written = respx.post(PRIMARY).mock(return_value=httpx.Response(200, json={"id": ours}))
+        now = timezone.now()
+        counts = calendar_sync.sync_due_bookings(now)
+        assert not written.called and counts.deferred == 1
+        row.refresh_from_db()
+        assert row.due and row.next_attempt_at == now + calendar_sync.IN_FLIGHT_RETRY and row.attempts == 0
+        # X's DELETE lands and X removes its cleanup; the next run writes the event for good.
+        TourCalendarCleanup.objects.filter(pk=cleanup.pk).delete()
+        calendar_sync.sync_due_bookings(now + timedelta(minutes=2))
+        assert written.called
+        row.refresh_from_db()
+        assert (row.due, row.event_id) == (False, ours)
+
+    @respx.mock
+    def it_takes_an_unclaimed_delete_away_before_writing(
+        connection: TourCalendarConnection, booking: TourBooking, ours: str
+    ):
+        cleanup = TourCalendarCleanup.objects.create(connection=connection, calendar_id="primary", event_id=ours)
+        TourCalendarSync.objects.create(booking=booking)
+        claims: list[bool] = []
+
+        def write(request: httpx.Request) -> httpx.Response:
+            # Run X tries to claim the delete while this write is at Google: it is already gone.
+            claims.append(calendar_sync._claim_cleanup(cleanup.pk))
+            return httpx.Response(200, json={"id": ours})
+
+        respx.post(PRIMARY).mock(side_effect=write)
+        assert _sync().done == 1
+        assert claims == [False]
+        assert not TourCalendarCleanup.objects.exists()
+
+    def it_leaves_a_queued_delete_of_another_event_alone(connection: TourCalendarConnection, ours: str):
+        TourCalendarCleanup.objects.create(connection=connection, calendar_id="primary", event_id="someone-else")
+        calendar_sync._clear_queued_delete(connection, ours)
+        assert TourCalendarCleanup.objects.count() == 1
+
+
+def describe_a_queued_delete_that_breaks_unexpectedly():
+    def it_records_it_and_carries_on_with_the_rest_of_the_run(connection: TourCalendarConnection):
+        bad = TourCalendarCleanup.objects.create(connection=connection, calendar_id="primary", event_id="bad")
+        TourCalendarCleanup.objects.create(connection=connection, calendar_id="primary", event_id="good")
+        real = calendar_sync._run_cleanup
+
+        def run_one(cleanup: TourCalendarCleanup, *args: Any) -> None:
+            if cleanup.event_id == "bad":
+                raise RuntimeError("")
+            real(cleanup, *args)
+
+        now = timezone.now()
+        with (
+            patch("tours.calendar_sync._run_cleanup", side_effect=run_one),
+            respx.mock(assert_all_called=False) as mock,
+        ):
+            mock.delete(f"{PRIMARY}/good").mock(return_value=httpx.Response(204))
+            counts = calendar_sync.run_cleanups(now)
+        assert (counts.failed, counts.done) == (1, 1)
+        bad.refresh_from_db()
+        assert (bad.attempts, bad.last_error, bad.claimed_until) == (1, "RuntimeError", None)
+        assert bad.next_attempt_at == now + calendar_sync.RETRY_BASE
+
+    def it_still_bells_unread_guides_and_checks_what_is_stuck(connection: TourCalendarConnection):
+        TourCalendarCleanup.objects.create(connection=connection, calendar_id="primary", event_id="bad")
+        connection.connected_at = timezone.now() - timedelta(hours=3)
+        connection.busy_checked_at = timezone.now() - timedelta(hours=2)
+        connection.save()
+        with (
+            patch("tours.calendar_sync._run_cleanup", side_effect=RuntimeError("boom")),
+            patch("tours.calendar_sync.refresh_busy", return_value=False),
+        ):
+            report = calendar_sync.run(budget=600)
+        assert report.cleanups.failed == 1 and report.unread_told == 1 and report.stuck

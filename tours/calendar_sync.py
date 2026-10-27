@@ -78,6 +78,8 @@ BREAKER_FAILURES = 3
 REVOKE_TIMEOUT = 5.0
 #: How long a run holds a row it is writing; a run that died lets go after this.
 CLAIM_FOR = timedelta(minutes=10)
+#: A write that met a delete of its own event in flight tries again after this (the next tick).
+IN_FLIGHT_RETRY = timedelta(minutes=1)
 #: A row waiting on a broken calendar is looked at again after this (a reconnect queues it at once).
 WAIT_RECHECK = timedelta(hours=1)
 #: An access token this close to expiring is refreshed first.
@@ -111,6 +113,10 @@ class _Waiting(Exception):
 class _DeadlineSpent(google.GoogleError):
     """One guide's read or one booking's write ran out of its own time: a failure for it, never for the
     run's breaker (a calendar that is merely big is not Google failing)."""
+
+
+class _DeleteInFlight(Exception):
+    """A run is deleting the very event this row is about to write: write it on a later run instead."""
 
 
 class _Paused(Exception):
@@ -579,6 +585,23 @@ def _remove_old_event(row: TourCalendarSync, connection: TourCalendarConnection 
     _place(row, None, "", "")
 
 
+def _clear_queued_delete(connection: TourCalendarConnection, event_id: str) -> None:
+    """Before writing an event, drop a queued delete of it; refuse while a run is running that delete.
+
+    The unclaimed ones go first, in one conditional DELETE, so a run that claims afterwards finds
+    nothing to claim. Any left are claimed: their delete may land after this write, so the write waits.
+
+    Raises:
+        _DeleteInFlight: a run holds a delete of this event right now.
+    """
+    pending = TourCalendarCleanup.objects.filter(
+        connection=connection, calendar_id=connection.calendar_id, event_id=event_id
+    )
+    pending.filter(Q(claimed_until__isnull=True) | Q(claimed_until__lt=timezone.now())).delete()
+    if pending.exists():
+        raise _DeleteInFlight
+
+
 def sync_booking(row: TourCalendarSync, *, now: datetime, guard: RunGuard | None = None) -> None:
     """Bring one booking's Google event to what the booking says now (``row.booking`` read fresh).
 
@@ -586,6 +609,7 @@ def sync_booking(row: TourCalendarSync, *, now: datetime, guard: RunGuard | None
 
     Raises:
         _Waiting: the guide's own calendar is broken (marked so here when Google just refused it).
+        _DeleteInFlight: a run is deleting this event right now; nothing was written.
         _Paused: the run's budget is spent or its breaker is open.
         google.GoogleError: Google failed; the caller records it and tries again later.
     """
@@ -602,6 +626,7 @@ def sync_booking(row: TourCalendarSync, *, now: datetime, guard: RunGuard | None
         return
     if connection.is_broken:
         raise _Waiting
+    _clear_queued_delete(connection, row.event_id or event_id_for(booking))
     try:
         event_id = _write_event(connection, row.event_id, booking, deadline)
     except google.GoogleAuthError as exc:
@@ -666,6 +691,9 @@ def _sync_one(row: TourCalendarSync, now: datetime, counts: SyncCounts, guard: R
         sync_booking(row, now=now, guard=guard)
     except _Paused:
         raise
+    except _DeleteInFlight:
+        _settle(row, generation, next_attempt_at=now + IN_FLIGHT_RETRY)
+        counts.deferred += 1
     except _Waiting:
         _settle(
             row,
@@ -753,9 +781,24 @@ def run_cleanups(now: datetime, guard: RunGuard | None = None) -> CleanupCounts:
         except _Paused:
             counts.deferred += len(pending) - index
             break
+        except Exception as exc:
+            # One bad row must not stop the rest, nor the unread bells and stuck check after it.
+            logger.exception("Deleting old tour event %s from Google Calendar failed", cleanup.event_id)
+            _record_cleanup_failure(cleanup, exc, now)
+            counts.failed += 1
         finally:
             TourCalendarCleanup.objects.filter(pk=cleanup.pk).update(claimed_until=None)
     return counts
+
+
+def _record_cleanup_failure(cleanup: TourCalendarCleanup, exc: Exception, now: datetime) -> None:
+    """A failed delete waits like a failed write: 15 minutes, doubling to 6 hours."""
+    attempts = cleanup.attempts + 1
+    TourCalendarCleanup.objects.filter(pk=cleanup.pk).update(
+        attempts=attempts,
+        last_error=(str(exc) or type(exc).__name__)[:300],
+        next_attempt_at=now + min(RETRY_BASE * 2 ** (attempts - 1), RETRY_CAP),
+    )
 
 
 def _claim_cleanup(pk: int) -> bool:
@@ -789,12 +832,7 @@ def _run_cleanup(cleanup: TourCalendarCleanup, now: datetime, counts: CleanupCou
     except google.GoogleAuthError as exc:
         mark_broken(cleanup.connection, str(exc))
     except google.GoogleError as exc:
-        attempts = cleanup.attempts + 1
-        TourCalendarCleanup.objects.filter(pk=cleanup.pk).update(
-            attempts=attempts,
-            last_error=(str(exc) or type(exc).__name__)[:300],
-            next_attempt_at=now + min(RETRY_BASE * 2 ** (attempts - 1), RETRY_CAP),
-        )
+        _record_cleanup_failure(cleanup, exc, now)
         counts.failed += 1
     else:
         TourCalendarCleanup.objects.filter(pk=cleanup.pk).delete()
