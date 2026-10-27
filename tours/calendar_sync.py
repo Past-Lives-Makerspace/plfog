@@ -108,6 +108,11 @@ class _Waiting(Exception):
     """The row needs a connection that is broken: it stays due until the guide reconnects."""
 
 
+class _DeadlineSpent(google.GoogleError):
+    """One guide's read or one booking's write ran out of its own time: a failure for it, never for the
+    run's breaker (a calendar that is merely big is not Google failing)."""
+
+
 class _Paused(Exception):
     """The run's budget is spent or its breaker is open: what is left waits for the next tick, uncounted."""
 
@@ -213,7 +218,7 @@ def queue_cleanup(connection: TourCalendarConnection | None, calendar_id: str, e
     """Queue the delete of an event no booking points at any more (:class:`~tours.models.TourCalendarCleanup`)."""
     if connection is None or not event_id:
         return
-    TourCalendarCleanup.objects.create(connection=connection, calendar_id=calendar_id, event_id=event_id)
+    TourCalendarCleanup.objects.get_or_create(connection=connection, calendar_id=calendar_id, event_id=event_id)
 
 
 def forget_deleted_booking(sender: Any, *, instance: TourBooking, **kwargs: Any) -> None:
@@ -311,7 +316,7 @@ class Deadline:
             raise _Paused(self.guard.why_stopped)
         left = min(self.ends, self.guard.ends) - clock.monotonic()
         if left <= 0:
-            raise google.GoogleError("Google took too long to answer.")
+            raise _DeadlineSpent("Google took too long to answer.")
         return min(google.DEFAULT_TIMEOUT, left)
 
 
@@ -332,7 +337,7 @@ def _with_token(
         except google.GoogleUnauthorizedError:
             token = access_token(connection, timeout=deadline.timeout(), fresh=True)
             result = call(token, deadline.timeout)
-    except google.GoogleAuthError:
+    except (google.GoogleAuthError, _DeadlineSpent):
         raise
     except (google.GoogleNotFoundError, google.GoogleConflictError):
         guard.answered()
@@ -531,6 +536,9 @@ def _place(row: TourCalendarSync, connection: TourCalendarConnection | None, cal
     )
     if not placed:
         queue_cleanup(connection, calendar_id, event_id)
+    elif connection is not None and event_id:
+        # A tour back on a calendar it left (a reassignment there and back): its old delete must not run.
+        TourCalendarCleanup.objects.filter(connection=connection, calendar_id=calendar_id, event_id=event_id).delete()
 
 
 def _remove_old_event(row: TourCalendarSync, connection: TourCalendarConnection | None, deadline: Deadline) -> None:
@@ -720,6 +728,7 @@ def run_cleanups(now: datetime, guard: RunGuard | None = None) -> CleanupCounts:
     """Delete the queued events (:class:`~tours.models.TourCalendarCleanup`) whose calendar works now.
 
     One on a broken calendar waits, untried, for the guide to reconnect (or goes with a disconnect).
+    One a booking points at again (a tour back on the calendar it left) is dropped, never run.
     A failure waits like a write's; a refusal breaks the connection, and the delete waits again.
     """
     guard = guard or RunGuard()
@@ -731,6 +740,13 @@ def run_cleanups(now: datetime, guard: RunGuard | None = None) -> CleanupCounts:
         .order_by("pk")[:SYNC_BATCH]
     )
     for index, cleanup in enumerate(pending):
+        live = TourCalendarSync.objects.filter(
+            connection=cleanup.connection_id, calendar_id=cleanup.calendar_id, event_id=cleanup.event_id
+        )
+        if live.exists():
+            # A booking holds this event again: it is live, not stale.
+            TourCalendarCleanup.objects.filter(pk=cleanup.pk).delete()
+            continue
         deadline = Deadline(WRITE_DEADLINE_SECONDS, guard)
         calendar_id, event_id = cleanup.calendar_id, cleanup.event_id
         try:

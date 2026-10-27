@@ -807,6 +807,9 @@ class TourCalendarCleanup(models.Model):
     class Meta:
         verbose_name = "tour Google Calendar event to delete"
         verbose_name_plural = "tour Google Calendar events to delete"
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["connection", "calendar_id", "event_id"], name="uq_tourcalcleanup_event"),
+        ]
 
     def __str__(self) -> str:
         return f"Delete {self.event_id} from {self.calendar_id}"

@@ -1338,3 +1338,113 @@ def describe_events_no_booking_points_at():
         guard.failures = calendar_sync.BREAKER_FAILURES
         assert calendar_sync.run_cleanups(timezone.now(), guard).deferred == 2
         assert TourCalendarCleanup.objects.count() == 2
+
+
+def describe_a_tour_back_on_the_calendar_it_left():
+    def _break(connection: TourCalendarConnection) -> None:
+        TourCalendarConnection.objects.filter(pk=connection.pk).update(
+            status=TourCalendarConnection.Status.BROKEN, refresh_token="", access_token=""
+        )
+
+    def _reconnect(connection: TourCalendarConnection) -> None:
+        TourCalendarConnection.objects.filter(pk=connection.pk).update(
+            status=TourCalendarConnection.Status.CONNECTED,
+            refresh_token="r",
+            access_token="access-1",
+            access_token_expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+    def _there_and_back(guide: Member, booking: TourBooking) -> None:
+        other = make_guide(full_legal_name="Nia New")  # no calendar
+        booking.guide = other
+        booking.save()
+        calendar_sync.queue_booking_sync(None, booking=booking)
+        _sync()
+        booking.guide = guide
+        booking.save()
+        calendar_sync.queue_booking_sync(None, booking=booking)
+
+    @respx.mock
+    def it_keeps_the_event_live_when_a_broken_guide_gets_the_tour_back(
+        connection: TourCalendarConnection, guide: Member, booking: TourBooking
+    ):
+        ours = calendar_sync.event_id_for(booking)
+        TourCalendarSync.objects.create(
+            booking=booking, connection=connection, calendar_id="primary", event_id=ours, due=False
+        )
+        _break(connection)
+        _there_and_back(guide, booking)
+        assert TourCalendarCleanup.objects.filter(connection=connection, event_id=ours).exists()
+        _reconnect(connection)
+        calendar_sync.queue_upcoming(guide, now=timezone.now())
+        respx.post(PRIMARY).mock(return_value=httpx.Response(409, json={}))
+        put = respx.put(f"{PRIMARY}/{ours}").mock(return_value=httpx.Response(200, json={"id": ours}))
+        deleted = respx.delete(f"{PRIMARY}/{ours}").mock(return_value=httpx.Response(204))
+        respx.get(CALENDAR_LIST).mock(return_value=_calendar_list())
+        respx.get(PRIMARY).mock(return_value=httpx.Response(200, json={"items": []}))
+        calendar_sync.run(budget=600)
+        assert put.called and TourCalendarSync.objects.get(booking=booking).event_id == ours
+        assert not deleted.called
+        assert not TourCalendarCleanup.objects.exists()
+
+    @respx.mock
+    def it_keeps_it_live_after_a_refused_delete_too(
+        connection: TourCalendarConnection, guide: Member, booking: TourBooking
+    ):
+        ours = calendar_sync.event_id_for(booking)
+        TourCalendarSync.objects.create(
+            booking=booking, connection=connection, calendar_id="primary", event_id=ours, due=False
+        )
+        respx.delete(f"{PRIMARY}/{ours}").mock(
+            return_value=httpx.Response(403, json={"error": {"errors": [{"reason": "forbidden"}]}})
+        )
+        _there_and_back(guide, booking)
+        connection.refresh_from_db()
+        assert connection.is_broken
+        assert TourCalendarCleanup.objects.filter(connection=connection, event_id=ours).exists()
+        _reconnect(connection)
+        respx.post(PRIMARY).mock(return_value=httpx.Response(200, json={"id": ours}))
+        _sync()
+        assert not TourCalendarCleanup.objects.exists()
+
+    def it_drops_a_queued_delete_a_booking_points_at_again(connection: TourCalendarConnection, booking: TourBooking):
+        TourCalendarSync.objects.create(
+            booking=booking, connection=connection, calendar_id="primary", event_id="ev1", due=False
+        )
+        TourCalendarCleanup.objects.create(connection=connection, calendar_id="primary", event_id="ev1")
+        with respx.mock(assert_all_called=False) as mock:
+            counts = calendar_sync.run_cleanups(timezone.now())
+        assert not mock.calls and counts.done == 0
+        assert not TourCalendarCleanup.objects.exists()
+
+    def it_queues_one_delete_per_event(connection: TourCalendarConnection):
+        calendar_sync.queue_cleanup(connection, "primary", "ev1")
+        calendar_sync.queue_cleanup(connection, "primary", "ev1")
+        calendar_sync.queue_cleanup(connection, TOURS_CAL, "ev1")
+        assert TourCalendarCleanup.objects.count() == 2
+
+
+def describe_a_big_calendar_and_the_breaker():
+    def it_does_not_count_a_guides_own_deadline_against_the_run(monkeypatch):
+        fake = {"t": 1000.0}
+        monkeypatch.setattr(calendar_sync.clock, "monotonic", lambda: fake["t"])
+        for n in range(4):
+            TourCalendarConnectionFactory(guide=make_guide(full_legal_name=f"Big {n}"))
+
+        def page(request: httpx.Request) -> httpx.Response:
+            fake["t"] += 9.0
+            return httpx.Response(200, json={"items": [], "nextPageToken": "more"})
+
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(CALENDAR_LIST).mock(return_value=_calendar_list())
+            mock.get(PRIMARY).mock(side_effect=page)
+            report = calendar_sync.run(budget=10_000)
+        assert (report.read_failed, report.reads_deferred, report.stopped) == (4, 0, "")
+
+    def it_still_counts_a_real_timeout(connection: TourCalendarConnection, booking: TourBooking):
+        guard = calendar_sync.RunGuard()
+        with respx.mock(assert_all_called=False) as mock:
+            mock.post(PRIMARY).mock(side_effect=httpx.ReadTimeout("slow"))
+            TourCalendarSync.objects.create(booking=booking)
+            calendar_sync.sync_due_bookings(timezone.now(), guard)
+        assert guard.failures == 1
