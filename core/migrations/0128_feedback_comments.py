@@ -12,7 +12,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("core", "0126_queueddiscordmessage"),
+        ("core", "0127_retire_tour_booking_service"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

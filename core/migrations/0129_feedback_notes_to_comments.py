@@ -33,7 +33,7 @@ def comments_to_notes(apps: Any, schema_editor: Any) -> None:
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("core", "0127_feedback_comments"),
+        ("core", "0128_feedback_comments"),
     ]
 
     operations = [

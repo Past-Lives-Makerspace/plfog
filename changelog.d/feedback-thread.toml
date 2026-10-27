@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-27"
+title = "Talk back and forth on your feedback requests"
+changes = [
+  "Each request on the Feedback page now has a conversation. When the team replies, you get a notice, and you can reply back.",
+  "You can add more photos or screenshots with any reply.",
+  "Every earlier note from the team shows as the first message in its conversation.",
+]
