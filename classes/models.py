@@ -919,7 +919,8 @@ class ClassNotReadyError(ValidationError):
 class PipelineStep:
     """One step of the review pipeline strip (Submitted, Guild lead, Admin, Live).
 
-    ``state`` is one of ``done`` / ``current`` / ``ahead`` / ``changes_requested``;
+    ``state`` is one of ``done`` / ``current`` / ``ahead`` / ``changes_requested``, or
+    ``draft`` on the first step of a class never submitted (labelled "In draft", neutral);
     ``detail`` is the tooltip line ("Approved by Sam, Sep 3") and ``note`` carries the
     reviewer's notes when the step is the bouncing one.
     """
@@ -933,7 +934,7 @@ class PipelineStep:
     @property
     def marker(self) -> str:
         """The plain-text marker for this step, shared by the text email and the page."""
-        return {"done": "✓", "current": "●", "changes_requested": "↩"}.get(self.state, " ")
+        return {"done": "✓", "current": "●", "draft": "●", "changes_requested": "↩"}.get(self.state, " ")
 
 
 @dataclass(frozen=True)
@@ -3636,8 +3637,14 @@ class ClassOffering(HeroCropMixin, models.Model):
         admin_row = latest_by_role.get(ClassApproval.Role.ADMIN)
         guild_required = ClassApproval.Role.GUILD_LEAD in self.required_review_roles or guild_row is not None
 
-        submitted_state = "done" if (is_pending or was_live or bounce is not None or rows) else "current"
-        steps = [PipelineStep("submitted", "Submitted", submitted_state)]
+        if is_pending or was_live or bounce is not None or rows:
+            first_step = PipelineStep("submitted", "Submitted", "done")
+        elif is_draft:
+            # Never submitted: a gold "Submitted" dot here read as "this was submitted".
+            first_step = PipelineStep("submitted", "In draft", "draft")
+        else:
+            first_step = PipelineStep("submitted", "Submitted", "ahead")
+        steps = [first_step]
 
         guild_open = guild_row is not None and not guild_row.decision
         if guild_required:
@@ -3701,7 +3708,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             verb = "Changes requested" if bounce.decision == ClassApproval.Decision.CHANGES_REQUESTED else "Declined"
             return f"{verb} by {who}"
         current = next((step for step in steps if step.state == "current"), None)
-        if current is None or current.key == "submitted":
+        if current is None:
             return "Not submitted yet"
         if current.key == "guild_lead":
             return (

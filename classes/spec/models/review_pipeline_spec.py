@@ -53,14 +53,24 @@ def describe_review_pipeline():
         offering = ClassOfferingFactory(status=Status.DRAFT, category=_guilded_category())
         assert [s.key for s in offering.review_pipeline().steps] == ["submitted", "guild_lead", "admin", "live"]
 
-    def it_marks_submitted_current_on_a_plain_draft(db):
+    def it_says_in_draft_not_submitted_on_a_plain_draft(db):
+        # An admin read a gold dot beside "Submitted" on a draft as "this was submitted".
         offering = ClassOfferingFactory(status=Status.DRAFT, category=_guilded_category())
+        pipeline = offering.review_pipeline()
         assert _states(offering) == [
-            ("submitted", "current"),
+            ("submitted", "draft"),
             ("guild_lead", "ahead"),
             ("admin", "ahead"),
             ("live", "ahead"),
         ]
+        assert pipeline.steps[0].label == "In draft"
+        assert pipeline.text_line == "[●] In draft  [ ] Guild lead  [ ] Admin  [ ] Live"
+        assert pipeline.headline == "Not submitted yet"
+        assert pipeline.fill_percent == 0
+
+    def it_says_submitted_once_the_class_is_pending(db):
+        offering = ClassOfferingFactory(status=Status.PENDING)
+        assert offering.review_pipeline().steps[0].label == "Submitted"
 
     def it_marks_the_guild_lead_current_while_their_row_is_open(db):
         offering = ClassOfferingFactory(status=Status.PENDING, category=_guilded_category())
@@ -230,7 +240,8 @@ def describe_review_pipeline():
         pipeline = offering.review_pipeline()
         assert pipeline.muted is True
         assert pipeline.headline == "Archived"
-        assert _states(offering) == [("submitted", "current"), ("admin", "ahead"), ("live", "ahead")]
+        assert _states(offering) == [("submitted", "ahead"), ("admin", "ahead"), ("live", "ahead")]
+        assert pipeline.steps[0].label == "Submitted"
 
     def it_renders_an_archived_pending_class_with_its_open_gate(db):
         offering = ClassOfferingFactory(status=Status.ARCHIVED, category=_guilded_category())
@@ -318,6 +329,20 @@ def describe_pipeline_components():
         html = render_to_string("classes/emails/_review_pipeline.html", {"pipeline": offering.review_pipeline()})
         assert "Add the price." in html
         assert "&#8617;" in html
+
+    def it_renders_a_draft_as_in_draft_with_no_gold_step_on_the_page(db):
+        offering = ClassOfferingFactory(status=Status.DRAFT)
+        html = render_to_string("classes/_components/review_pipeline.html", {"pipeline": offering.review_pipeline()})
+        assert "pl-pipeline__step--draft" in html
+        assert "pl-pipeline__step--current" not in html
+        assert '<span class="pl-pipeline__label">In draft</span>' in html
+        assert '<span class="pl-pipeline__label">Submitted</span>' not in html
+
+    def it_renders_a_draft_as_in_draft_with_no_gold_step_in_the_email(db):
+        offering = ClassOfferingFactory(status=Status.DRAFT)
+        html = render_to_string("classes/emails/_review_pipeline.html", {"pipeline": offering.review_pipeline()})
+        assert ">In draft</div>" in html
+        assert "#EEB44B" not in html
 
     def it_renders_the_page_strip_muted_for_an_archived_class(db):
         offering = ClassOfferingFactory(status=Status.ARCHIVED)
