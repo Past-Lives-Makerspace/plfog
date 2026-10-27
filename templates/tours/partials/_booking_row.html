@@ -17,7 +17,7 @@ Context: booking, tab ("upcoming" or "past"), is_admin.
   <p class="pl-tours-booking__contact">
     <a href="mailto:{{ booking.visitor_email }}" data-tour-booking-email>{{ booking.visitor_email }}</a>{% if booking.visitor_phone %}<span class="pl-tours-booking__sep" aria-hidden="true">·</span><a href="tel:{{ booking.visitor_phone_href }}" data-tour-booking-phone>{{ booking.visitor_phone }}</a>{% endif %}
   </p>
-  <p class="hub-text-muted pl-tours-booking__meta">{% if booking.guide %}Guide: {{ booking.guide.display_name }}{% else %}No guide assigned{% endif %} · Booked on the {{ booking.get_source_display|lower }}</p>
+  <p class="hub-text-muted pl-tours-booking__meta">{% if booking.guide %}Guide: {{ booking.guide.display_name }}{% else %}No guide assigned{% endif %} · Booked on the {{ booking.get_source_display|lower }}{% if booking.checked_in_at %} · <span data-tour-booking-checked-in>Checked in at {{ booking.checked_in_at|time:"g:i A" }}</span>{% endif %}</p>
   {% if tab == "upcoming" %}
   <div class="pl-tours-booking__actions">
     <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"

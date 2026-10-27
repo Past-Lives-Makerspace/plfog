@@ -22,4 +22,5 @@ urlpatterns = [
     path("days-off/save/", views.tour_day_off_save, name="day_off_save"),
     path("days-off/<int:pk>/delete/", views.tour_day_off_delete, name="day_off_delete"),
     path("settings/", views.tour_settings, name="settings"),
+    path("settings/kiosk-key/", views.tour_kiosk_key, name="kiosk_key"),
 ]

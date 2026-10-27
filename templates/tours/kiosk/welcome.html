@@ -1,0 +1,13 @@
+{% extends "tours/kiosk/base.html" %}
+{% comment %}
+Checked in (#950): the welcome, then home after done_seconds. The guide has been pinged.
+Context: booking, guide_name (empty for a tour with no guide).
+{% endcomment %}
+{% block kiosk_content %}
+<section class="pl-kiosk__screen pl-kiosk__screen--center" role="status" data-kiosk-screen="welcome">
+  <h1 class="pl-kiosk__title pl-kiosk__title--big" data-kiosk-welcome>Welcome, {{ booking.visitor_first_name }}!</h1>
+  <p class="pl-kiosk__lead" data-kiosk-guide>{% if guide_name %}{{ guide_name }} will be right with you.{% else %}Someone will be right with you.{% endif %}</p>
+  <p class="pl-kiosk__fine">Your tour starts at {{ booking.starts_at|time:"g:i A" }}. Make yourself at home.</p>
+  <a href="{% url 'tours_kiosk:home' %}" class="btn-reg pl-kiosk__done" autofocus data-kiosk-done-button>Done</a>
+</section>
+{% endblock %}

@@ -9,6 +9,8 @@ in ``templates/tours/emails/`` (:func:`core.events.senders.emit_with_email_shell
 - ``tour.booked``: the guide's "New tour booked" (email, bell and push).
 - ``tour.visitor_changed``: the guide hears every move and cancel a visitor makes, and every one a
   staff member other than themselves makes (#949).
+- ``tour.checked_in``: the visitor checked in at the front desk kiosk (#950), bell and push only
+  ("Your 4:00 tour is here").
 
 A staff move or cancel (#949) passes ``actor`` (the User who acted) and ``staff_message``: the
 visitor's email carries the message, and only the guides who are not ``actor`` are told, with
@@ -30,6 +32,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.events.channels import Message
+from core.events.emit import emit
 from core.events.registry import Channel
 from core.events.scheduler import ScheduledOccurrence
 from core.events.scheduling import DEFAULT_WINDOW
@@ -45,6 +48,7 @@ if TYPE_CHECKING:
 VISITOR_EVENT = "tour.visitor_update"
 GUIDE_BOOKED_EVENT = "tour.booked"
 GUIDE_CHANGED_EVENT = "tour.visitor_changed"
+GUIDE_CHECKED_IN_EVENT = "tour.checked_in"
 #: How long before a tour its reminder goes out.
 REMINDER_BEFORE = timedelta(hours=24)
 
@@ -370,6 +374,24 @@ def _tell_guides_staff_changed(
     reassigned = previous_guide is None or booking.guide_id != previous_guide.pk
     if reassigned and someone_else(booking.guide):
         tell_guide_booked(booking, booking.guide, actor_name=name)
+
+
+def tell_guide_checked_in(booking: TourBooking) -> None:
+    """Ping the tour's guide (or the admins when it has none) that the visitor is at the front desk (#950).
+
+    Bell and push only, "Your 4:00 tour is here". The period is the booking, so a second check in
+    never pings twice.
+    """
+    local = timezone.localtime(booking.starts_at)
+    emit(
+        GUIDE_CHECKED_IN_EVENT,
+        target=booking,
+        context={"guide": booking.guide},
+        title=f"Your {local:%-I:%M} tour is here",
+        body=f"{booking.visitor_name}, {_people(booking)}, checked in at the front desk.",
+        url=reverse("tours:upcoming"),
+        period=f"tour:{booking.pk}:checked_in",
+    )
 
 
 def build_reminder_occurrence(booking: TourBooking) -> ScheduledOccurrence:

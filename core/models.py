@@ -506,6 +506,11 @@ SPOTLIGHT_CRAWL_SPEED_STEP = 5
 SPOTLIGHT_CRAWL_SPEED_DEFAULT = 25
 
 
+def default_signage_tour_url() -> str:
+    """The Book a Tour slide's link for a new Site Settings row: the tours site (#950)."""
+    return str(settings.TOURS_BASE_URL)
+
+
 class SiteConfiguration(models.Model):
     """Singleton model for site-wide settings like registration mode."""
 
@@ -1010,7 +1015,7 @@ class SiteConfiguration(models.Model):
     )
     signage_tour_url = models.URLField(
         blank=True,
-        default="https://www.pastlives.space/tours",
+        default=default_signage_tour_url,
         verbose_name="Tour booking link",
         help_text="Where the Book a Tour QR sends people. Blank leaves the tour slide off the screens.",
     )
@@ -1898,12 +1903,12 @@ class UserProfile(models.Model):
     completed_tour_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Cached from Simplybook; refreshed by the tour-status sync.",
+        help_text="When this person took a facility tour: stamped when a guide marks their tour attended (#949).",
     )
     tour_status_checked_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Last time Simplybook was polled for this user's tour status.",
+        help_text="Unused since the old tour booking service was retired (#950); kept until a later release drops it.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

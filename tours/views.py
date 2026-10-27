@@ -20,6 +20,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlencode, urlsplit
 
+from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
@@ -222,14 +223,36 @@ def tour_day_off_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 @fog_admin_required
 def tour_settings(request: HttpRequest) -> HttpResponse:
-    """The Tours page's Settings tab (admins only): horizon, notice, cutoff, defaults and the bookings switch."""
+    """The Tours page's Settings tab (admins only): the front desk kiosk link (#950), then horizon,
+    notice, cutoff, defaults and the bookings switch."""
     instance = FacilityTourSettings.load()
     form = FacilityTourSettingsForm(request.POST or None, instance=instance)
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Tour Settings saved.")
         return redirect("tours:settings")
-    return render(request, "tours/settings.html", {"form": form})
+    return render(request, "tours/settings.html", {"form": form, "kiosk_url": _kiosk_url(instance)})
+
+
+def _kiosk_url(house_rules: FacilityTourSettings) -> str:
+    """The link the lobby screen opens once to become the kiosk (#950), or "" before one is made."""
+    if not house_rules.kiosk_key:
+        return ""
+    return f"{settings.TOURS_BASE_URL}{reverse('tours_kiosk:home')}?{urlencode({'key': house_rules.kiosk_key})}"
+
+
+@fog_admin_required
+@require_POST
+def tour_kiosk_key(request: HttpRequest) -> HttpResponse:
+    """Create the kiosk key, or rotate it (#950): a screen holding the old one shows the public booking page."""
+    house_rules = FacilityTourSettings.load()
+    rotating = bool(house_rules.kiosk_key)
+    house_rules.rotate_kiosk_key()
+    if rotating:
+        messages.success(request, "Kiosk key rotated. Open the new link on the lobby screen.")
+    else:
+        messages.success(request, "Kiosk link created. Open it once on the lobby screen.")
+    return redirect("tours:settings")
 
 
 # --- Upcoming and Past (#949) ------------------------------------------------------------------

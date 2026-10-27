@@ -61,7 +61,7 @@ All confirmed in the codebase — the build is assembly. The new model + its CRU
 | Curated copy structure (`EventCopy` → `placeholders` + `sample_context` + per-`Channel` copy) | `_CURATED` | `core/events/copy.py:117` |
 | Discord delivery today (single webhook resolution) | `webhook_for_event` (54), `post_embed` (126), `global_webhook` (48); `DiscordWebhookRoute` DB override (`core/models.py:1060`) | `core/events/discord.py` |
 | Absolute-URL base for notifications | `MEMBER_BASE_URL` (no trailing slash) | `plfog/settings.py:64` |
-| Deferred-Google client pattern (`from_site_config()`/`from_settings()`, `enabled` property, blank = disabled, never raises) | `MailchimpClient` (from_site_config 53, enabled 71), `SimplybookClient` (from_settings 57, enabled 66) | `core/integrations/mailchimp.py`, `core/integrations/simplybook.py` |
+| Deferred-Google client pattern (`from_site_config()`/`from_settings()`, `enabled` property, blank = disabled, never raises) | `MailchimpClient` (from_site_config 53, enabled 71) | `core/integrations/mailchimp.py` |
 | Factories to mirror | `GuildFactory` (80), `GuildAnnouncementFactory` (107), `GuildStaffMembershipFactory` (155), `MemberFactory`, `MembershipPlanFactory` | `tests/membership/factories.py` |
 | Themed form-control scope (date/select inheriting tokens + `color-scheme` for the picker icon) | `.pl-form-group select` (components.css 340/361), `color-scheme: dark` (378) + `[data-theme="light"]` override (825/835) | `static/css/components.css` |
 
@@ -604,7 +604,7 @@ Each phase lands green (full suite + `ruff format`/`ruff check` + `mypy`), run i
 
 ### Deferred — Google Calendar two-way write-back (Phase 2, NOT built now)
 The clean future shape, mirroring the existing integration clients:
-- A `core/integrations/google_calendar.py` `GoogleCalendarClient.from_site_config()` mirroring `MailchimpClient`/`SimplybookClient` — an `enabled` property, **blank config = disabled**, and **never raises** (best-effort, like `post_embed`).
+- A `core/integrations/google_calendar.py` `GoogleCalendarClient.from_site_config()` mirroring `MailchimpClient` — an `enabled` property, **blank config = disabled**, and **never raises** (best-effort, like `post_embed`).
 - On `CommunityEvent` save/delete (for events whose guild/site maps to a Google calendar), push create/update/delete to Google and store the returned id in the **already-present** `google_event_id`.
 - **Reconciliation (the duplicate problem):** today's one-way iCal pull re-imports Google events into the read-only `CalendarEvent` cache. A FOG-created event pushed to Google would come **back** through that pull as a *second* row. Dedup on the Google event id — the iCal sync skips any cached event whose source id matches a `CommunityEvent.google_event_id` (the FOG row is the canonical one; the cached copy is suppressed). Keep today's one-way pull for **Google-made** events untouched.
 - All of this is **out of scope now**; only the `google_event_id` placeholder column is added (unused).

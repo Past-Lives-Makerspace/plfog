@@ -14,8 +14,8 @@ owns two concerns kept deliberately separate:
    message and POSTs it to a webhook. Best-effort: it logs and returns ``False`` on
    any failure and never raises (the spine must keep fanning out).
 
-Per the project's "disabled when blank" idiom (see ``MailchimpClient`` /
-``SimplybookClient``), a blank global webhook makes the whole channel a no-op.
+Per the project's "disabled when blank" idiom (see ``MailchimpClient``), a blank
+global webhook makes the whole channel a no-op.
 
 On staging (``settings.IS_STAGING``) every resolver here answers blank and
 :func:`post_embed` refuses even a URL it is handed, because staging carries a copy of

@@ -23,7 +23,7 @@
 - The `/classes/*` catalog pages themselves are not redesigned (brief is explicit).
 - The member dashboard at `members.pastlives.space` is not touched.
 - Discord release-notification workflow is already in place — Phase 9 only bumps `plfog/version.py`.
-- No new third-party integrations. (The cover-slide mention of "Mailchimp" and "SimplyBook" refers to integrations that already exist in the codebase — `classes/tasks.py` for Mailchimp, plus existing SimplyBook bridge. Do not add new code there.)
+- No new third-party integrations. (The cover-slide mention of "Mailchimp" and the old tour booking service refers to integrations that already existed in the codebase — `classes/tasks.py` for Mailchimp, plus the tour booking bridge retired in #950. Do not add new code there.)
 
 ## Sequencing & commit cadence
 

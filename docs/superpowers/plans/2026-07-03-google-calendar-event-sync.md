@@ -6,7 +6,7 @@
 **Related:**
 - **Builds directly on** `docs/superpowers/plans/2026-06-25-community-events-and-meetings.md` — the spec that produced `CommunityEvent`, its CRUD, `announce()`, `occurrences_in`/`ical_rrule`, and the calendar-render wiring. This spec **extends** that model and those views; it does **not** introduce a new event model. (Note: the shipped `CommunityEvent` has drifted *richer* than that spec — 7-option `Recurrence`, `ical_rrule()`, `for_member()`, and a live `_require_admin` helper — this plan reflects the **shipped** code, verified below.)
 - Mirrors (a lighter, single-stage version of) the class-offering **approval** workflow: `classes/models.py` `ClassOffering.Status` / `submit_for_review` / `on_review_decision_recorded` / `ClassApproval`.
-- Reuses the notification spine (`emit()`, resolvers, `core/events/copy.py`) and the deferred-integration-client pattern (`core/integrations/mailchimp.py`, `simplybook.py`).
+- Reuses the notification spine (`emit()`, resolvers, `core/events/copy.py`) and the deferred-integration-client pattern (`core/integrations/mailchimp.py`).
 
 ---
 
@@ -63,7 +63,7 @@ All confirmed in the shipped code (line numbers verified 2026-07-03 — re-verif
 | Calendar synthetic-entry adapter (source of the FOG-native rows) | `community_event_entries()`, `CalendarEntry`, `EVENT_PK_OFFSET=3e9`/`_OCC_STRIDE=100` | `hub/calendar_entries.py:108-141, 31-55, 25-28` |
 | Per-guild read-only iCal field to sit `google_calendar_id` **beside** | `Guild.calendar_url` | `membership/models.py:954-969` |
 | Site config singleton to add `MemberEventPolicy` + `general_google_calendar_id` + flag to | `SiteConfiguration.load()` | `core/models.py:100-221` |
-| Deferred-integration client pattern to mirror (`from_settings`/`enabled`/blank=disabled/never-raises) | `MailchimpClient`, `SimplybookClient` | `core/integrations/mailchimp.py`, `simplybook.py` |
+| Deferred-integration client pattern to mirror (`from_settings`/`enabled`/blank=disabled/never-raises) | `MailchimpClient` | `core/integrations/mailchimp.py` |
 | Cron entry point (every 15 min) to wire the retry command into | `run_scheduled_tasks` | `render.yaml`; `core/management/commands/` *(exact lines in §3/§5, pending scout)* |
 | The existing "+ Add event" UI to keep (now also pushing) | community-calendar Events tab; guild-edit Events section | `templates/hub/community_calendar.html:231-270`; `templates/hub/guild_edit.html:195-231` |
 | The shared add/edit page to extend (member "propose" variant + sync badge) | `templates/hub/community_event_edit.html` | whole file |
@@ -142,7 +142,7 @@ tests/                          NEW  spec files listed in §9
 plfog/version.py                ~    VERSION bump + member-friendly CHANGELOG (final phase, at build time)
 ```
 
-> **Why the Google code lives in `core/integrations/`, not `hub/`** (the choice the template asks me to justify): the read-sync (`hub/calendar_service.py`) is a *hub* concern because it feeds the hub calendar display and is driven by a command. The **write** trigger, by contrast, lives on the `CommunityEvent` **model** (`membership`), which must not import `hub` (that inverts the dependency layering — `hub` depends on `membership`, never the reverse). `core` is the lowest layer, `membership` already imports from it (`from core.events.emit import emit`), and the existing best-effort integration clients (`MailchimpClient`, `SimplybookClient`) already live in `core/integrations/`. So the push client sits there as a sibling — same `from_settings`/`enabled`/never-raises shape — and the model calls it via a lazy import, exactly as `announce()` lazily imports `emit`.
+> **Why the Google code lives in `core/integrations/`, not `hub/`** (the choice the template asks me to justify): the read-sync (`hub/calendar_service.py`) is a *hub* concern because it feeds the hub calendar display and is driven by a command. The **write** trigger, by contrast, lives on the `CommunityEvent` **model** (`membership`), which must not import `hub` (that inverts the dependency layering — `hub` depends on `membership`, never the reverse). `core` is the lowest layer, `membership` already imports from it (`from core.events.emit import emit`), and the existing best-effort integration clients (`MailchimpClient`) already live in `core/integrations/`. So the push client sits there as a sibling — same `from_settings`/`enabled`/never-raises shape — and the model calls it via a lazy import, exactly as `announce()` lazily imports `emit`.
 
 ---
 
@@ -301,7 +301,7 @@ def publish(self, *, actor: User | None = None) -> None:
 
 ### 5.2 The push service (`core/integrations/google_calendar.py`, NEW)
 
-Mirrors `MailchimpClient`/`SimplybookClient`: `from_settings()`, an `enabled` property, blank/absent config = disabled, and **never raises to the caller**.
+Mirrors `MailchimpClient`: `from_settings()`, an `enabled` property, blank/absent config = disabled, and **never raises to the caller**.
 
 ```python
 class GoogleCalendarError(Exception):

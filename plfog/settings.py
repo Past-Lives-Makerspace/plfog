@@ -263,6 +263,12 @@ TOURS_ALLOWED_VIEW_NAMES: frozenset[str] = frozenset(
         "tours_public:manage",
         "tours_public:reschedule",
         "tours_public:cancel",
+        # The front desk kiosk (#950): each view also needs the kiosk cookie.
+        "tours_kiosk:home",
+        "tours_kiosk:check_in",
+        "tours_kiosk:check_in_result",
+        "tours_kiosk:book",
+        "tours_kiosk:booked",
     }
 )
 
@@ -468,9 +474,6 @@ IMAGE_MAX_LONG_EDGE_PROFILE = int(os.environ.get("IMAGE_MAX_LONG_EDGE_PROFILE", 
 MAILCHIMP_API_KEY = os.environ.get("MAILCHIMP_API_KEY", "")
 MAILCHIMP_LIST_ID = os.environ.get("MAILCHIMP_LIST_ID", "")
 
-# Simplybook (https://simplybook.me) — tour status lookups. Disabled when blank.
-SIMPLYBOOK_API_KEY = os.environ.get("SIMPLYBOOK_API_KEY", "")
-SIMPLYBOOK_COMPANY_LOGIN = os.environ.get("SIMPLYBOOK_COMPANY_LOGIN", "")
 
 # Google Calendar push (FOG → Google). The service-account JSON key (raw JSON or its
 # base64 encoding) is the credential; the flag is the infrastructure master switch that

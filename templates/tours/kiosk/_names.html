@@ -1,0 +1,17 @@
+{% comment %}
+Today's tours as buttons, first name and last initial with the time (#950): tapping one checks in
+that booking. The check in screen's list and the pick list. Context: bookings.
+{% endcomment %}
+<form method="post" action="{% url 'tours_kiosk:check_in' %}" autocomplete="off" data-kiosk-names-form>
+  {% csrf_token %}
+  <ul class="pl-kiosk__names">
+    {% for booking in bookings %}
+    <li>
+      <button type="submit" name="booking" value="{{ booking.pk }}" class="pl-kiosk__name" data-kiosk-name="{{ booking.pk }}">
+        <span class="pl-kiosk__name-who">{{ booking.kiosk_name }}</span>
+        <span class="pl-kiosk__name-at">{{ booking.starts_at|time:"g:i A" }}</span>
+      </button>
+    </li>
+    {% endfor %}
+  </ul>
+</form>

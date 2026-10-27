@@ -1,0 +1,376 @@
+/* The front desk kiosk on tours.pastlives.space (#950): cairn's lobby screen at 1920 by 1080,
+   driven by a mouse and a keyboard (large enough for touch later). Loaded by
+   tours/kiosk/base.html after tours-public.css, so the shared date strip, times and booking form
+   keep their look and are only made larger here. Tokens come from cms-public.css (.cp-page). */
+
+/* The brand bar in place of the site navigation: the public topbar's navy in both themes. */
+.pl-kiosk-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 2rem;
+    background: var(--color-navy);
+    color: var(--color-cream);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pl-kiosk-bar__brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--color-cream);
+    text-decoration: none;
+}
+
+.pl-kiosk-bar__brand:hover,
+.pl-kiosk-bar__brand:focus-visible {
+    color: var(--color-cream);
+    text-decoration: none;
+}
+
+.pl-kiosk-bar__name {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 22px;
+    font-weight: 800;
+}
+
+.pl-kiosk-bar__label {
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--color-tuscan-yellow);
+}
+
+.cp-page .pl-kiosk {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+    font-size: 18px;
+}
+
+.cp-page .pl-kiosk__screen {
+    padding: 1rem 0 2rem;
+}
+
+.cp-page .pl-kiosk__screen--center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding-top: 4rem;
+}
+
+.cp-page .pl-kiosk__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+}
+
+.cp-page .pl-kiosk__title {
+    font-family: var(--heading);
+    font-size: 40px;
+    font-weight: 800;
+    line-height: 1.15;
+    color: var(--text);
+}
+
+.cp-page .pl-kiosk__title--big {
+    font-size: 64px;
+}
+
+.cp-page .pl-kiosk__lead {
+    margin-top: 1rem;
+    font-size: 24px;
+    line-height: 1.5;
+    color: var(--text);
+}
+
+.cp-page .pl-kiosk__fine {
+    margin-top: 1rem;
+    font-size: 18px;
+    line-height: 1.6;
+    color: var(--text2);
+}
+
+/* Start Over: a real button sized for a pointer, never a small text link. */
+.cp-page .pl-kiosk__back {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.75rem 1.5rem;
+    border: 1px solid var(--border2);
+    border-radius: var(--r);
+    background: var(--bg3);
+    color: var(--text);
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.cp-page .pl-kiosk__back:hover,
+.cp-page .pl-kiosk__back:focus-visible {
+    border-color: var(--gold-text);
+    background: var(--gold-glow);
+    color: var(--text);
+    text-decoration: none;
+}
+
+/* Every control shows where the keyboard is: cairn has no touchscreen. */
+.cp-page .pl-kiosk a:focus-visible,
+.cp-page .pl-kiosk button:focus-visible,
+.cp-page .pl-kiosk input:focus-visible,
+.cp-page .pl-kiosk select:focus-visible {
+    outline: 3px solid var(--hub-blue);
+    outline-offset: 3px;
+}
+
+.cp-page .pl-kiosk__choices {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2rem;
+    width: 100%;
+    max-width: 1100px;
+    margin-top: 3rem;
+}
+
+.cp-page .pl-kiosk__choices--buttons {
+    max-width: 800px;
+}
+
+.cp-page .pl-kiosk__choice {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    min-height: 14rem;
+    padding: 2rem;
+    border: 2px solid var(--border2);
+    border-radius: var(--r2);
+    background: var(--bg2);
+    color: var(--text);
+    text-align: center;
+    box-shadow: 0 1px 3px rgba(9, 46, 76, 0.06), 0 16px 40px rgba(9, 46, 76, 0.1);
+}
+
+.cp-page .pl-kiosk__choices--buttons .pl-kiosk__choice {
+    min-height: 6rem;
+}
+
+.cp-page .pl-kiosk__choice:hover,
+.cp-page .pl-kiosk__choice:focus-visible {
+    border-color: var(--gold-text);
+    background: var(--gold-glow);
+    color: var(--text);
+    text-decoration: none;
+}
+
+.cp-page .pl-kiosk__choice--primary,
+.cp-page .pl-kiosk__choice--primary:hover,
+.cp-page .pl-kiosk__choice--primary:focus-visible {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: var(--navy-dark);
+}
+
+.cp-page .pl-kiosk__choice--primary:hover {
+    background: var(--gold-light);
+}
+
+.cp-page .pl-kiosk__choice-title {
+    font-family: var(--heading);
+    font-size: 36px;
+    font-weight: 800;
+}
+
+.cp-page .pl-kiosk__choice-hint {
+    font-size: 20px;
+    line-height: 1.4;
+}
+
+/* Check in: the typed ways on the left, today's names on the right, all at once. */
+.cp-page .pl-kiosk__ways {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 2rem;
+    align-items: start;
+}
+
+.cp-page .pl-kiosk__typed {
+    display: grid;
+    gap: 2rem;
+}
+
+.cp-page .pl-kiosk__card {
+    padding: 2rem;
+    border: 1px solid var(--border);
+    border-radius: var(--r2);
+    background: var(--bg2);
+    box-shadow: 0 1px 3px rgba(9, 46, 76, 0.06), 0 16px 40px rgba(9, 46, 76, 0.1);
+}
+
+.cp-page .pl-kiosk__label,
+.cp-page .pl-kiosk__field label.pl-kiosk__label {
+    display: block;
+    margin: 0 0 1rem;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--text);
+}
+
+.cp-page .pl-kiosk__field input[type=email],
+.cp-page .pl-kiosk__field input[type=text] {
+    font-size: 24px;
+    padding: 1rem 1.25rem;
+    max-width: 640px;
+}
+
+.cp-page .pl-kiosk__submit {
+    margin-top: 1.5rem;
+    max-width: 640px;
+    font-size: 20px;
+    padding: 1.25rem;
+}
+
+.cp-page .pl-kiosk__names {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.cp-page .pl-kiosk__list--pick .pl-kiosk__names {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.cp-page .pl-kiosk__name {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    width: 100%;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--border2);
+    border-radius: var(--r);
+    background: var(--bg3);
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.cp-page .pl-kiosk__name:hover,
+.cp-page .pl-kiosk__name:focus-visible {
+    border-color: var(--gold-text);
+    background: var(--gold-glow);
+}
+
+.cp-page .pl-kiosk__name-who {
+    font-size: 24px;
+    font-weight: 700;
+}
+
+.cp-page .pl-kiosk__name-at {
+    font-size: 18px;
+    color: var(--text2);
+}
+
+.cp-page .pl-kiosk__empty {
+    font-size: 20px;
+    line-height: 1.5;
+    color: var(--text2);
+}
+
+.cp-page .pl-kiosk__done {
+    margin-top: 3rem;
+    max-width: 360px;
+    font-size: 22px;
+    padding: 1.25rem;
+}
+
+/* Schedule a tour: the website's date strip, times and form, larger. */
+.cp-page .pl-kiosk .pl-tourpub__heading {
+    font-size: 16px;
+}
+
+.cp-page .pl-kiosk .pl-tourpub__day {
+    min-width: 6rem;
+    padding: 1rem;
+}
+
+.cp-page .pl-kiosk .pl-tourpub__day-name,
+.cp-page .pl-kiosk .pl-tourpub__day-month {
+    font-size: 14px;
+}
+
+.cp-page .pl-kiosk .pl-tourpub__day-num {
+    font-size: 32px;
+}
+
+.cp-page .pl-kiosk .pl-tourpub__time {
+    min-width: 13rem;
+    padding: 1.25rem 1.5rem;
+}
+
+.cp-page .pl-kiosk .pl-tourpub__time-at {
+    font-size: 24px;
+}
+
+.cp-page .pl-kiosk .pl-tourpub__time-seats {
+    font-size: 16px;
+}
+
+.cp-page .pl-kiosk .pl-tourpub__chosen-when {
+    font-size: 30px;
+}
+
+.cp-page .pl-kiosk .pl-tourpub__chosen-meta,
+.cp-page .pl-kiosk .pl-tourpub__lead,
+.cp-page .pl-kiosk .pl-tourpub__empty {
+    font-size: 18px;
+}
+
+.cp-page .pl-kiosk .pl-tourpub__form {
+    max-width: 960px;
+}
+
+.cp-page .pl-kiosk .reg-field label {
+    font-size: 16px;
+}
+
+.cp-page .pl-kiosk .reg-field input,
+.cp-page .pl-kiosk .reg-field select {
+    font-size: 20px;
+    padding: 0.875rem 1rem;
+}
+
+.cp-page .pl-kiosk .pl-tourpub__submit {
+    max-width: 480px;
+    font-size: 20px;
+    padding: 1.25rem;
+}
+
+/* Narrower than cairn (a laptop opening the kiosk link): one column, nothing sideways. */
+@media (max-width: 900px) {
+    .cp-page .pl-kiosk {
+        padding: 1rem;
+    }
+
+    .cp-page .pl-kiosk__choices,
+    .cp-page .pl-kiosk__ways,
+    .cp-page .pl-kiosk__names,
+    .cp-page .pl-kiosk__list--pick .pl-kiosk__names {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .cp-page .pl-kiosk__title--big {
+        font-size: 40px;
+    }
+}

@@ -6,12 +6,36 @@
 {% endblock %}
 {% block content %}
 {% comment %}
-The Tours page's Settings tab (#947), admins only (tours.views.tour_settings): the house rules every
-guide's tour hours follow. The bookings switch comes first with its closed message, which only
-shows while bookings are off; the one Save sits at the bottom (FRONTEND rule 21).
+The Tours page's Settings tab (#947), admins only (tours.views.tour_settings): the front desk kiosk
+link with Create or Rotate (#950, each acts at once), then the house rules every guide's tour hours
+follow. The bookings switch comes first with its closed message, which only shows while bookings
+are off; the one Save sits at the bottom (FRONTEND rule 21).
 {% endcomment %}
 {% include "tours/partials/_page_top.html" with tab="settings" is_admin=True %}
 <p class="hub-text-muted pl-tours-settings__lead">The rules for facility tours: how far ahead and how late visitors can book, when they can still change a booking, and what new tour hours start with.</p>
+
+{# The kiosk link acts at once, so it comes before the form whose Save sits last (FRONTEND rule 21). #}
+<div class="hub-card pl-tours-panel" data-tour-settings-kiosk>
+  <h2 class="hub-detail-label pl-tours-panel__title">Front Desk Kiosk</h2>
+  <p class="hub-text-muted pl-tours-panel__intro">The lobby screen opens this link once to become the kiosk, where visitors check in for a tour or book one. It shows today's visitors by first name, so keep the link private.</p>
+  {% if kiosk_url %}
+  <div class="hub-form-group pl-tours-kiosk" x-data="{ copied: false }">
+    <label for="tour-kiosk-url">Kiosk link</label>
+    <div class="pl-tours-kiosk__link">
+      <input id="tour-kiosk-url" x-ref="url" type="text" readonly value="{{ kiosk_url }}" onclick="this.select()" data-tour-kiosk-url>
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="$refs.url.select(); window.isSecureContext && navigator.clipboard ? navigator.clipboard.writeText($refs.url.value) : document.execCommand('copy'); copied = true" x-text="copied ? 'Copied!' : 'Copy'">Copy</button>
+    </div>
+  </div>
+  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" @click="$dispatch('open-confirm', 'tour-kiosk-rotate')" data-tour-kiosk-rotate>Rotate Key</button>
+  {% url 'tours:kiosk_key' as kiosk_key_url %}
+  {% include "components/confirm_modal.html" with confirm_id="tour-kiosk-rotate" confirm_title="Rotate the Kiosk Key?" confirm_message="The lobby screen shows the public booking page until it opens the new link. Rotate when the link may have got out." confirm_action_url=kiosk_key_url confirm_button_text="Rotate Key" confirm_cancel_text="Keep It" %}
+  {% else %}
+  <form method="post" action="{% url 'tours:kiosk_key' %}" data-tour-kiosk-create-form>
+    {% csrf_token %}
+    <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm" data-tour-kiosk-create>Create Kiosk Link</button>
+  </form>
+  {% endif %}
+</div>
 
 <form method="post" action="{% url 'tours:settings' %}" class="hub-form" data-tour-settings-form>
   {% csrf_token %}

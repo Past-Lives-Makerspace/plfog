@@ -11,6 +11,7 @@ very next read, with no nightly job.
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 from datetime import UTC, date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -106,6 +107,16 @@ class FacilityTourSettings(models.Model):
         ],
         help_text="The seats a new row of tour hours starts with.",
     )
+    kiosk_key = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "The front desk kiosk's secret (#950): the lobby screen opens the kiosk link carrying it "
+            "once, which keeps a cookie. Blank until an admin creates the link; rotating it locks out "
+            "every screen holding the old one."
+        ),
+    )
     updated_at = models.DateTimeField(auto_now=True, help_text="When the settings were last saved.")
 
     class Meta:
@@ -127,6 +138,26 @@ class FacilityTourSettings(models.Model):
         """The one settings row, made with its defaults on first use."""
         obj, _created = cls.objects.get_or_create(pk=1)
         return obj
+
+    def rotate_kiosk_key(self) -> str:
+        """Make a new kiosk key and save it (#950): every screen holding the old one is locked out.
+
+        Returns:
+            The new key, for the kiosk link.
+        """
+        self.kiosk_key = secrets.token_urlsafe(32)
+        self.save(update_fields=["kiosk_key", "updated_at"])
+        return self.kiosk_key
+
+    @property
+    def kiosk_fingerprint(self) -> str:
+        """What the kiosk's cookie carries (signed): a digest of the key, never the key itself.
+
+        Empty while no key is set, which no cookie can match.
+        """
+        if not self.kiosk_key:
+            return ""
+        return hashlib.sha256(self.kiosk_key.encode()).hexdigest()
 
 
 class TourHoursQuerySet(models.QuerySet["TourHours"]):
@@ -352,6 +383,17 @@ class TourBookingQuerySet(models.QuerySet["TourBooking"]):
         """The Tours page's Upcoming tab (#949): booked tours that have not started, soonest first."""
         return self.filter(status=TourBooking.Status.BOOKED, starts_at__gt=now).order_by("starts_at", "pk")
 
+    def booked_on_day(self, day: date) -> TourBookingQuerySet:
+        """The kiosk's list (#950): tours still booked that start on the local ``day``, by time then name.
+
+        Cancelled, attended and no show tours never appear, nor any other day's.
+        """
+        first = timezone.make_aware(datetime.combine(day, time.min))
+        after = timezone.make_aware(datetime.combine(day + timedelta(days=1), time.min))
+        return self.filter(status=TourBooking.Status.BOOKED, starts_at__gte=first, starts_at__lt=after).order_by(
+            "starts_at", "visitor_name", "pk"
+        )
+
     def past(self, now: datetime) -> TourBookingQuerySet:
         """The Tours page's Past tab (#949): tours that have started and were not cancelled, newest first.
 
@@ -444,6 +486,14 @@ class TourBooking(models.Model):
         default=Source.WEBSITE,
         help_text="How it was booked: on the tours website, or at the front desk kiosk (#950).",
     )
+    checked_in_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the visitor checked in at the front desk kiosk (#950). Apart from attended: only "
+            "the guide marks that."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When it was booked.")
 
     objects = TourBookingQuerySet.as_manager()
@@ -481,6 +531,14 @@ class TourBooking(models.Model):
     def visitor_first_name(self) -> str:
         """The first word of the name the visitor booked under, for a greeting."""
         return self.visitor_name.split()[0] if self.visitor_name.strip() else self.visitor_name
+
+    @property
+    def kiosk_name(self) -> str:
+        """The name the kiosk lists (#950): first name and last initial, ``Sam R.``, or the one word given."""
+        words = self.visitor_name.split()
+        if len(words) < 2:
+            return self.visitor_name.strip()
+        return f"{words[0]} {words[-1][0].upper()}."
 
     @property
     def party_label(self) -> str:

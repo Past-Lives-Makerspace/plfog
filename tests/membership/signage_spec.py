@@ -739,6 +739,11 @@ def describe_teach_slide():
 
 
 def describe_tour_slide():
+    def it_points_a_new_site_settings_row_at_the_tours_site(settings):
+        # #950: the tour slide's QR opens the tours host by default, not the old booking page.
+        settings.TOURS_BASE_URL = "https://tours.example.test"
+        assert SiteConfiguration().signage_tour_url == "https://tours.example.test"
+
     def it_renders_with_a_qr_to_the_booking_link():
         _config(signage_show_tour=True, signage_tour_url="https://www.pastlives.space/tours")
         zone = SlideshowZoneFactory()

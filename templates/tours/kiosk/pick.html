@@ -1,0 +1,13 @@
+{% extends "tours/kiosk/base.html" %}
+{% comment %}
+More than one of today's tours matched what the visitor typed (#950): pick yours. Context: bookings.
+{% endcomment %}
+{% block kiosk_content %}
+<section class="pl-kiosk__screen" data-kiosk-screen="pick">
+  {% include "tours/kiosk/_head.html" with title="Which Tour Is Yours?" %}
+  <p class="pl-kiosk__lead">We found more than one tour today under that name.</p>
+  <div class="pl-kiosk__card pl-kiosk__list pl-kiosk__list--pick" data-kiosk-pick>
+    {% include "tours/kiosk/_names.html" %}
+  </div>
+</section>
+{% endblock %}
