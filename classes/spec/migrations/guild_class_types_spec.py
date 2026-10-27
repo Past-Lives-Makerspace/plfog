@@ -13,6 +13,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import MigrationLoader
 from django.utils import timezone
 
+from classes.factories import ClassOfferingFactory
 from classes.models import Category
 from membership.models import Guild
 
@@ -70,13 +71,20 @@ def describe_migration_0094_guild_class_types():
         finally:
             _migrate(_HEAD)
 
-    def it_reverses_without_deleting_anything():
+    def it_reverses_by_deleting_only_the_empty_class_types_it_made():
         try:
             _migrate(_BEFORE)
-            guild = _guild("Printmaking Guild", "printmaking-guild")
+            weaving = _guild("Weaving Guild", "weaving-guild")
+            kept = Category.objects.create(name="Weaving", slug="weaving", guild=weaving, icon_svg="<svg></svg>")
+            empty = _guild("Printmaking Guild", "printmaking-guild")
+            used = _guild("Prison Outreach Guild", "prison-outreach-guild")
             _migrate(_AFTER)
+            ClassOfferingFactory(category=Category.objects.get(guild=used))
+
             _migrate(_BEFORE)
 
-            assert Category.objects.filter(guild=guild).exists()
+            assert not Category.objects.filter(guild=empty).exists()
+            assert Category.objects.filter(guild=used).exists()
+            assert Category.objects.filter(pk=kept.pk).exists()
         finally:
             _migrate(_HEAD)

@@ -8,8 +8,10 @@ with a linked Class Type is left alone; otherwise an unlinked Class Type with th
 or slug is linked to it, or a new one is created, named for the guild without a trailing
 "Guild". A name another guild already owns is skipped.
 
-Reverse leaves every Class Type in place: one created here may already have classes filed
-under it, and an unused one is harmless.
+Reverse deletes the bare Class Types this rule makes: linked to a guild, named for it, with no
+hero image, no icon and no classes filed under them. Running forward again recreates exactly
+those, so nothing is lost. A Class Type with a picture, an icon or a class stays, and one it
+linked rather than created stays linked: that link is harmless.
 """
 
 from __future__ import annotations
@@ -43,6 +45,14 @@ def create_guild_class_types(apps: Any, schema_editor: Any) -> None:
             match.save(update_fields=["guild"])
 
 
+def delete_guild_class_types(apps: Any, schema_editor: Any) -> None:
+    Category = apps.get_model("classes", "Category")
+    bare = Category.objects.filter(guild__isnull=False, classes__isnull=True, hero_image="", icon_svg="")
+    for category in bare.select_related("guild"):
+        if category.name == class_type_name(category.guild.name):
+            category.delete()
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("classes", "0093_split_multi_date_single_classes"),
@@ -50,5 +60,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(create_guild_class_types, migrations.RunPython.noop),
+        migrations.RunPython(create_guild_class_types, delete_guild_class_types),
     ]
