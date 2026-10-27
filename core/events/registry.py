@@ -558,6 +558,10 @@ TOUR_BOOKED = "tour.booked"  # a visitor booked one of your facility tours (#948
 TOUR_VISITOR_CHANGED = "tour.visitor_changed"  # a visitor moved or cancelled your tour from their email (#948)
 TOUR_VISITOR_UPDATE = "tour.visitor_update"  # the visitor's own tour emails, by address only (#948)
 TOUR_CHECKED_IN = "tour.checked_in"  # your visitor checked in at the front desk kiosk (#950)
+CUBBIES_RENTED = "cubbies.rented"  # your cubby rental is active (#978)
+CUBBIES_PAYMENT_FAILED = "cubbies.payment_failed"  # a monthly cubby charge failed, once per invoice (#978)
+CUBBIES_RENTAL_ENDED = "cubbies.rental_ended"  # your cubby rental ended and the cubby is free (#978)
+CUBBIES_RENTAL_REFUNDED = "cubbies.rental_refunded"  # someone got the cubby first; your payment came back (#978)
 TOUR_CALENDAR_BUSY = "tour.calendar_busy"  # your Google Calendar now shows you busy during a booked tour (#951)
 TOUR_CALENDAR_BROKEN = "tour.calendar_broken"  # Google stopped accepting your calendar connection (#951)
 TOUR_CALENDAR_GONE = "tour.calendar_gone"  # the calendar you picked for tours is gone; the main one took over (#951)
@@ -1705,6 +1709,44 @@ _NEW_EVENTS: list[EventType] = [
         category="Guilds",
         recipient=Recipients.GUILD_LEADERSHIP,
         channels=(_IN_APP_ON,),
+        activity_kind=None,
+    ),  # Cubby rentals (#978): the renter's own news about their monthly subscription. Bell on,
+    # email forced (it is about their money). Sent from membership.cubby_rentals with the
+    # membership/emails/cubby_*.{txt,html} bodies, each once through its period.
+    EventType(
+        key=CUBBIES_RENTED,
+        label="Your cubby is rented",
+        description="You rented a guild cubby and your monthly payment started.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    EventType(
+        key=CUBBIES_PAYMENT_FAILED,
+        label="Cubby payment didn't go through",
+        description="A monthly charge for your cubby failed. Update your card to keep it.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    EventType(
+        key=CUBBIES_RENTAL_ENDED,
+        label="Your cubby rental ended",
+        description="Your cubby rental ended and you won't be charged again.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    EventType(
+        key=CUBBIES_RENTAL_REFUNDED,
+        label="Cubby payment refunded",
+        description="The cubby wasn't free by the time your payment went through, so it was refunded.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
         activity_kind=None,
     ),
 ]

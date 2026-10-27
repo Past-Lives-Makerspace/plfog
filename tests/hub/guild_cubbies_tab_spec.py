@@ -75,16 +75,16 @@ def describe_the_guild_page_tab():
         _shelf(guild)
         content = _page(client, guild)
         assert "data-cubby-wall" in content and "data-cubby-list" in content
-        assert 'aria-label="A1, open, from $25 a month. Details."' in content
+        assert 'aria-label="A1, open, from $25 a month. Rent it."' in content
         assert 'aria-label="A2, out of service"' in content
         assert "<strong>Top row, far left</strong>12 x 12 x 16 in" in content
         assert "<strong>Top row, second from the left</strong>Shelf is being repaired" in content
-        assert 'data-where="Glaze Wall, top row, far left"' in content
+        assert reverse("hub_cubby_rent_sheet", args=[guild.shelf_units.get().cubbies.get(label="A1").pk]) in content
         assert (
             '<span class="pl-cubby-summary__big">1</span><span class="pl-cubby-summary__of">of 2 open</span>' in content
         )
         assert "window.matchMedia('(max-width: 639.98px)').matches ? 'list' : 'grid'" in content
-        assert 'id="cubby-detail-title">About This Cubby' in content
+        assert 'id="cubby-detail-title">Rent This Cubby' in content
         assert "pl-modal pl-modal--md pl-cubby-sheet" in content
 
     def it_says_no_cubbies_yet_and_offers_staff_the_manager(client: Client):
@@ -131,11 +131,15 @@ def _cubby_queries(client: Client, guild) -> list[str]:
 
 
 def describe_the_guild_page_queries():
-    def it_runs_no_cubby_query_while_the_switch_is_off(client: Client):
+    def it_runs_only_the_viewers_rentals_query_while_the_switch_is_off(client: Client):
+        # #978: with the switch off the tab still shows a renter their Your Cubby cards, so the page
+        # asks once for the viewer's rentals here, and reads no shelf.
         _login(client, "queries_off")
         guild = GuildFactory()
         _shelf(guild)
-        assert _cubby_queries(client, guild) == []
+        queries = _cubby_queries(client, guild)
+        assert len(queries) == 1
+        assert queries[0].startswith('SELECT "membership_cubbyrental"')
 
     def it_runs_the_same_queries_for_one_cubby_or_many(client: Client):
         _login(client, "queries_on")
@@ -150,7 +154,8 @@ def describe_the_guild_page_queries():
         _page(client, one)  # warm per-request caches that are not the tab's
         one_queries = _cubby_queries(client, one)
         many_queries = _cubby_queries(client, many)
-        assert len(one_queries) == len(many_queries) == 2
+        # The viewer's rentals (#978), the units, and the cubbies with their renters.
+        assert len(one_queries) == len(many_queries) == 3
 
 
 def describe_guild_settings():

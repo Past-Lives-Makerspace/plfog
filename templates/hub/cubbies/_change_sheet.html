@@ -1,0 +1,16 @@
+{% comment %}
+The Change Your Amount sheet (#978), loaded into a Your Cubby card's modal; mockup view mine-change.
+Expects rental, cubby, form (CubbyAmountForm with current_cents) and floor_message. Save posts here
+again: a refusal comes back as this sheet, a save lands on the tab with "New amount starts ...".
+{% endcomment %}
+<form class="pl-cubby-rent" hx-post="{% url 'hub_cubby_rental_amount' rental.pk %}" hx-target="#{{ rental.change_modal_id }}-body" hx-swap="innerHTML" x-data="{% include 'hub/cubbies/_amount_state.html' %}" data-cubby-change-form>
+  {% csrf_token %}
+  <p class="pl-cubby-rent__hint">You pay {{ rental.amount_display }} a month for {{ cubby.label }} now. The guild asks at least {{ cubby.floor_display }}.</p>
+  {% include "hub/cubbies/_amount_chips.html" %}
+  <p class="pl-field-error pl-cubby-error" role="alert" x-show="error" x-text="error" data-cubby-error{% if not form.error_text %} x-cloak{% endif %}>{{ form.error_text }}</p>
+  <p class="pl-cubby-total" x-show="!error"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-cal"/></svg><span>Starting <strong>{{ rental.current_period_end|date:"D, M j" }}</strong>, you'll pay <strong x-text="money(amount) + ' a month'"></strong>. Nothing changes before then.</span></p>
+  <div class="pl-modal__actions pl-cubby-sheet__actions">
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', '{{ rental.change_modal_id }}')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary" data-cubby-change-save>Save</button>
+  </div>
+</form>

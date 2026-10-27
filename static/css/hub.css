@@ -4647,6 +4647,10 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 
 /* --- Your guilds (chips) --- */
 .pl-guild-chips { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+/* Home's Your Guilds card: one line per cubby the member rents (#978). */
+.pl-home-cubbies { display: grid; gap: 0.5rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+.pl-home-cubbies a { font-weight: 600; color: var(--hub-link); text-decoration: none; }
+.pl-home-cubbies a:hover { text-decoration: underline; }
 .pl-guild-chip {
     display: inline-flex;
     align-items: center;

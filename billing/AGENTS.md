@@ -61,6 +61,8 @@ Thin wrapper around stripe SDK. All functions use the single platform Stripe cli
 - `create_payment_intent()` — standard off-session PaymentIntent (the only charge path)
 - `create_setup_intent()` — for collecting payment method without charging
 - `construct_webhook_event()` — verify incoming Stripe webhook
+- Cubby rentals (#978): `create_subscription_checkout_session()`, `retrieve_subscription()` (a plain dict; the period end is the item's), `move_subscription_card_to_customer()`, `update_subscription_amount()`, `set_subscription_cancel_at_period_end()`, `cancel_subscription()`, `create_payment_method_portal_session()` (Billing Portal on Update Payment Method) and `invoice_payment_intent()` (an invoice's payment intent is in its payments list, not on the invoice). `membership/cubby_rentals.py` is the caller.
+- `create_setup_intent()` tags `metadata.kind = "tab_payment_method"`, and `setup_intent.succeeded` saves a card onto the Tab only for those: the Billing Portal collects a cubby rental's card with a SetupIntent on the same customer, and it must not replace the My Tab card
 - `verify_platform_credentials()` — test a pasted platform secret key from the Settings tab
 
 ### Encryption key
@@ -79,7 +81,7 @@ Set on local, Hetzner, and Render. **Losing this key bricks the stored Stripe cr
 - `api/setup-intent/` → AJAX endpoint returns client_secret
 - `payment-method/confirm/` → saves PM to Tab
 - `payment-method/remove/` → detaches PM
-- `webhooks/stripe/` → handles payment_intent.succeeded/.payment_failed
+- `webhooks/stripe/` → handles payment_intent.succeeded/.payment_failed, the Checkout fan-in, and the cubby subscription events (`invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated` / `.deleted`, #978)
 - `admin/dashboard/` → multi-tab admin payments page
 - `admin/add-entry/` → admin add-charge-to-tab
 - `admin/connect-platform/test/` → AJAX verify pasted platform secret

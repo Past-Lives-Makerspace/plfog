@@ -11,7 +11,8 @@ The lantern PNG's baked-in background is the same navy as the hero (#092E4C), so
 sits flush. The copy fragment arrives pre-styled for a white card (slate text, navy
 links) by core.events.templates._style_copy_fragment; the wrapper div carries the
 slate text color the fragment inherits.
-Context: body_html (safe fragment).
+Context: body_html (safe fragment). A structural email that wants this same shell extends it
+and fills the content block instead (the cubby emails, #978).
 {% endcomment %}{% load static site_urls %}<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -41,7 +42,7 @@ Context: body_html (safe fragment).
     <!-- White content card -->
     <tr>
     <td style="background-color: #FFFFFF; border-left: 1px solid #e3e7ec; border-right: 1px solid #e3e7ec; border-bottom: 1px solid #e3e7ec; border-radius: 0 0 14px 14px; padding: 38px 34px 30px;">
-        <div style="color: #33424F; font-size: 15px; line-height: 1.6;">{{ body_html|safe }}</div>
+        <div style="color: #33424F; font-size: 15px; line-height: 1.6;">{% block content %}{{ body_html|safe }}{% endblock %}</div>
     </td>
     </tr>
     <!-- Footer -->

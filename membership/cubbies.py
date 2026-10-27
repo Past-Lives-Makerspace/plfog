@@ -12,13 +12,14 @@ of its own (``.pl-cubby-grid`` in ``static/css/cubbies.css``).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from membership.models import Cubby, Guild, ShelfUnit, cubby_dollars
+from membership.models import Cubby, CubbyRental, Guild, Member, ShelfUnit, cubby_dollars
 
 #: The span class each shape's cell carries on the shelf.
 _SPAN_CLASSES: dict[str, str] = {
@@ -47,18 +48,43 @@ def _fresh_unit(cubby: Cubby) -> None:
     cubby.unit.refresh_from_db(fields=["name", "rows", "columns", "archived_at"])
 
 
+#: The refusals for closing a cubby or a shelf someone rents (#978): staff end a rental in Part 3 (#979).
+RENTED_CUBBY_STAYS_OPEN = "Someone rents this cubby, so it stays in service until their rental ends."
+RENTED_CUBBY_STAYS = "Someone rents cubby {label}, so it stays until their rental ends."
+RENTED_SHELF_STAYS = "Someone rents cubby {label} on this shelf, so the shelf stays until their rental ends."
+
+
+def _rented_label(cubbies: Iterable[Cubby]) -> str:
+    """The label of the first of ``cubbies`` a live rental (or a hold awaiting payment) holds, or ""."""
+    pks = [cubby.pk for cubby in cubbies]
+    rented = (
+        CubbyRental.objects.live()
+        .filter(cubby_id__in=pks)
+        .select_related("cubby")
+        .order_by("cubby__row", "cubby__column", "cubby__pk")
+        .first()
+    )
+    return rented.cubby.label if rented is not None else ""
+
+
 def save_cubby(cubby: Cubby) -> None:
     """Place or update ``cubby`` after checking its spot and label again under the guild lock.
 
+    A rented cubby (or one held while someone pays) cannot be put out of service (#978).
+
     Raises:
         ValidationError: keyed by field, when the spot or the label was taken meanwhile or the
-            unit shrank; on the whole form when the unit was archived meanwhile.
+            unit shrank; on the whole form when the unit was archived meanwhile or a rented cubby
+            would go out of service.
     """
     with transaction.atomic():
         _lock_guild(cubby.unit.guild_id)
         _fresh_unit(cubby)
         if cubby.unit.is_archived:
             raise ValidationError(RESTORE_SHELF_FIRST)
+        if cubby.pk is not None and cubby.out_of_service and _rented_label([cubby]):
+            # On the whole form: the Out of Service switch draws no error of its own.
+            raise ValidationError(RENTED_CUBBY_STAYS_OPEN)
         problems = cubby.placement_problems()
         if problems:
             raise ValidationError(problems)
@@ -84,9 +110,18 @@ def resize_unit(unit: ShelfUnit, *, name: str, rows: int, columns: int) -> None:
 
 
 def archive_unit(unit: ShelfUnit) -> None:
-    """Take the unit and its cubbies off the guild page."""
-    unit.archived_at = timezone.now()
-    unit.save(update_fields=["archived_at"])
+    """Take the unit and its cubbies off the guild page, unless someone rents one of them (#978).
+
+    Raises:
+        ValidationError: naming the first rented (or held) cubby on the unit.
+    """
+    with transaction.atomic():
+        _lock_guild(unit.guild_id)
+        label = _rented_label(unit.cubbies.filter(archived_at__isnull=True))
+        if label:
+            raise ValidationError(RENTED_SHELF_STAYS.format(label=label))
+        unit.archived_at = timezone.now()
+        unit.save(update_fields=["archived_at"])
 
 
 def restore_unit(unit: ShelfUnit) -> None:
@@ -105,9 +140,17 @@ def restore_unit(unit: ShelfUnit) -> None:
 
 
 def archive_cubby(cubby: Cubby) -> None:
-    """Take one cubby off the shelf; its square opens for a new one."""
-    cubby.archived_at = timezone.now()
-    cubby.save(update_fields=["archived_at"])
+    """Take one cubby off the shelf; its square opens for a new one. Not while someone rents it (#978).
+
+    Raises:
+        ValidationError: the cubby is rented, or held while someone pays.
+    """
+    with transaction.atomic():
+        _lock_guild(cubby.unit.guild_id)
+        if _rented_label([cubby]):
+            raise ValidationError(RENTED_CUBBY_STAYS.format(label=cubby.label))
+        cubby.archived_at = timezone.now()
+        cubby.save(update_fields=["archived_at"])
 
 
 def restore_cubby(cubby: Cubby) -> None:
@@ -207,20 +250,65 @@ def _unit_views(units: list[ShelfUnit], cubbies: list[Cubby]) -> list[UnitView]:
 
 @dataclass
 class CubbyTab:
-    """The guild page's Cubbies tab (#977): the units members see and the summary line."""
+    """The guild page's Cubbies tab (#977): the units members see, the summary line, and the
+    viewer's own live rentals (#978), drawn as Your Cubby cards above the shelves.
+
+    ``shelves`` is False when the guild's switch is off but the viewer still rents here: the
+    tab then shows only their Your Cubby cards, so they can always cancel or fix their card.
+    """
 
     guild: Guild
     units: list[UnitView]
+    rentals: list[CubbyRental] = field(default_factory=list)
+    viewer_pk: int | None = None
+    shelves: bool = True
 
     @classmethod
-    def load(cls, guild: Guild) -> CubbyTab:
-        """Active units that hold at least one active cubby, in two queries."""
+    def load(cls, guild: Guild, member: Member | None = None) -> CubbyTab:
+        """The whole tab: the viewer's live rentals here, then active units with their active cubbies and renters.
+
+        Three queries with a member, two without.
+        """
+        rentals = cls._rentals(guild, member)
         units = list(guild.shelf_units.active())
         cubbies = list(
-            Cubby.objects.active().filter(unit__guild=guild).select_related("unit__guild").order_by("row", "column")
+            Cubby.objects.active()
+            .with_renter()
+            .filter(unit__guild=guild)
+            .select_related("unit__guild")
+            .order_by("row", "column")
         )
         views = [view for view in _unit_views(units, cubbies) if view.cubbies]
-        return cls(guild=guild, units=views)
+        return cls(guild=guild, units=views, rentals=rentals, viewer_pk=member.pk if member is not None else None)
+
+    @classmethod
+    def for_page(cls, guild: Guild, member: Member) -> CubbyTab | None:
+        """What the guild page shows ``member``: the whole tab while the switch is on; with it off,
+        only their Your Cubby cards (one query), or None when they rent nothing here."""
+        if guild.show_cubbies_tab:
+            return cls.load(guild, member)
+        rentals = cls._rentals(guild, member)
+        if not rentals:
+            return None
+        return cls(guild=guild, units=[], rentals=rentals, viewer_pk=member.pk, shelves=False)
+
+    @staticmethod
+    def _rentals(guild: Guild, member: Member | None) -> list[CubbyRental]:
+        """The member's rentals holding a cubby in ``guild`` and billing (a hold awaiting payment is not theirs yet)."""
+        if member is None:
+            return []
+        return list(
+            CubbyRental.objects.live()
+            .filter(member=member, cubby__unit__guild=guild)
+            .exclude(status=CubbyRental.Status.PENDING_PAYMENT)
+            .select_related("cubby__unit__guild")
+            .order_by("created_at", "pk")
+        )
+
+    @property
+    def is_full(self) -> bool:
+        """Every cubby on the tab is rented or out of service (the full card, #978)."""
+        return bool(self.units) and self.open_count == 0
 
     @property
     def cubbies(self) -> list[Cubby]:
@@ -259,7 +347,11 @@ class CubbyLayout:
         """Four queries: active units, their cubbies, archived units, archived cubbies on active units."""
         units = list(guild.shelf_units.active())
         cubbies = list(
-            Cubby.objects.active().filter(unit__guild=guild).select_related("unit__guild").order_by("row", "column")
+            Cubby.objects.active()
+            .with_renter()
+            .filter(unit__guild=guild)
+            .select_related("unit__guild")
+            .order_by("row", "column")
         )
         archived_cubbies = list(
             Cubby.objects.filter(unit__guild=guild, unit__archived_at__isnull=True, archived_at__isnull=False)

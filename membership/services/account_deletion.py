@@ -25,6 +25,7 @@ def delete_own_account(member: "Member") -> None:
 
     Idempotent: a second call on an already-deleted member is a silent no-op. Wrapped in
     one atomic transaction so a failure partway through never leaves a half-scrubbed member.
+    Every cubby rental stops first, with no refund (#978): holds released, subscriptions cancelled.
 
     Args:
         member: The member deleting their own account.
@@ -53,6 +54,12 @@ def delete_own_account(member: "Member") -> None:
     from membership.models import Guild, GuildStaffMembership, MemberContact, MemberEmail
 
     placeholder = f"deleted-user-{user.pk}@deleted.pastlives.invalid"
+
+    # Cubby rentals (#978) stop billing first, outside the scrub's transaction: a Stripe failure
+    # stops the deletion rather than leave a card billing an account that no longer exists.
+    from membership import cubby_rentals
+
+    cubby_rentals.end_for_deleted_account(member)
 
     with transaction.atomic():
         # Free every email store so the address can be re-invited later.

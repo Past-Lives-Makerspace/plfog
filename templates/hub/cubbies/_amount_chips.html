@@ -1,0 +1,6 @@
+{# The pay what you want chips (#978) for CubbyAmountForm, ticked through the sheet's Alpine `picked`; mockup views rent and mine-change. #}
+<div class="pl-cubby-amounts" role="radiogroup" aria-label="Monthly amount" data-cubby-amounts>
+  {% for chip in form.chips %}
+  <label class="pl-cubby-amount{% if chip.key == 'suggested' %} pl-cubby-amount--suggested{% endif %}"><input type="radio" name="choice" value="{{ chip.key }}" x-model="picked" @change="touched = true"{% if chip.key == form.picked %} checked{% endif %}><span class="pl-cubby-amount__tick" aria-hidden="true"><svg class="pl-cubby-ico"><use href="#i-check"/></svg></span><span class="pl-cubby-amount__value">{{ chip.value_display }}</span><span class="pl-cubby-amount__sub">{{ chip.sub }}</span></label>
+  {% endfor %}
+</div>

@@ -40,12 +40,14 @@ _CHECKOUT_COMPLETED_HANDLERS = [
     classes_webhook_handlers.handle_checkout_session_completed,
     membership_webhook_handlers.handle_checkout_session_completed,
     membership_webhook_handlers.handle_reservation_checkout_completed,
+    membership_webhook_handlers.handle_cubby_checkout_completed,
     webhook_handlers.handle_late_fee_checkout_completed,
 ]
 _CHECKOUT_EXPIRED_HANDLERS = [
     classes_webhook_handlers.handle_checkout_session_expired,
     membership_webhook_handlers.handle_checkout_session_expired,
     membership_webhook_handlers.handle_reservation_checkout_expired,
+    membership_webhook_handlers.handle_cubby_checkout_expired,
     webhook_handlers.handle_late_fee_checkout_expired,
 ]
 # ``checkout.session.async_payment_failed`` fires for delayed-notification methods (bank
@@ -96,6 +98,11 @@ _WEBHOOK_HANDLERS = {
     "charge.refunded": classes_webhook_handlers.handle_charge_refunded,
     "refund.updated": classes_webhook_handlers.handle_refund_updated,
     "account.updated": webhook_handlers.handle_account_updated,
+    # Cubby rentals (#978): the subscription lifecycle. Each handler ignores what is not a cubby's.
+    "invoice.paid": membership_webhook_handlers.handle_cubby_invoice_paid,
+    "invoice.payment_failed": membership_webhook_handlers.handle_cubby_invoice_payment_failed,
+    "customer.subscription.updated": membership_webhook_handlers.handle_cubby_subscription_changed,
+    "customer.subscription.deleted": membership_webhook_handlers.handle_cubby_subscription_changed,
 }
 
 

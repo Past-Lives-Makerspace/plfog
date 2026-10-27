@@ -929,10 +929,11 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     )
 
     # The Cubbies tab (#977): while the guild has it on, on the members surface, for a linked Member
-    # (the Reservations tab's two gates). None, and no query, otherwise.
+    # (the Reservations tab's two gates). With the switch off it still shows the viewer's own Your
+    # Cubby cards while they rent here (#978), so they can always cancel or fix their card.
     from membership.cubbies import CubbyTab
 
-    cubby_tab = CubbyTab.load(guild) if guild.show_cubbies_tab and member is not None and not guilds_surface else None
+    cubby_tab = CubbyTab.for_page(guild, member) if member is not None and not guilds_surface else None
 
     # The Kiln Tickets tab (#691): the kiln guild's page only; None (no query) on every other guild.
     from kiln.services import guild_kiln_home

@@ -137,7 +137,7 @@ def build_home_context(member: Member) -> dict[str, Any]:
 
     Returns the home blocks — ``upcoming`` (capped, soonest-first), ``announcements``
     (active guild announcements from joined guilds), ``my_guilds`` (joined, lead/staff
-    flagged), and the ``onboarding`` "Get started" checklist with its ``show_onboarding``
+    flagged), ``my_cubbies`` (the cubbies they rent, #978), and the ``onboarding`` "Get started" checklist with its ``show_onboarding``
     gate (built ONCE here, not re-derived per property in the template), and ``home_poll``,
     the open poll's card (#925), None while no poll is open. All business logic lives on
     ``membership`` and ``polls`` managers/props; this only fetches, normalizes, sorts, and caps.
@@ -146,6 +146,7 @@ def build_home_context(member: Member) -> dict[str, Any]:
         "upcoming": _upcoming_items(member),
         "announcements": _announcements(member),
         "my_guilds": _my_guilds(member),
+        "my_cubbies": _my_cubbies(member),
         "onboarding": member.onboarding,
         "show_onboarding": member.show_onboarding,
         "teaching": _teaching(member),
@@ -379,6 +380,19 @@ def _announcements(member: Member) -> list[GuildAnnouncement]:
     """Active guild announcements from the member's joined guilds, newest first, capped."""
     return list(
         GuildAnnouncement.objects.published().active().for_member(member).select_related("guild")[:ANNOUNCEMENTS_CAP]
+    )
+
+
+def _my_cubbies(member: Member) -> list[Any]:
+    """The cubbies the member rents (#978), one Home line each: "Your Cubby: A3, Glaze Wall →"."""
+    from membership.models import CubbyRental
+
+    return list(
+        CubbyRental.objects.live()
+        .filter(member=member)
+        .exclude(status=CubbyRental.Status.PENDING_PAYMENT)
+        .select_related("cubby__unit__guild")
+        .order_by("created_at", "pk")
     )
 
 

@@ -23061,6 +23061,11 @@ class CubbyQuerySet(models.QuerySet["Cubby"]):
         """Cubbies not archived, on a unit not archived: the ones members can see."""
         return self.filter(archived_at__isnull=True, unit__archived_at__isnull=True)
 
+    def with_renter(self) -> CubbyQuerySet:
+        """Annotate ``live_renter_pk``, the member holding each cubby, so ``Cubby.state`` asks nothing more (#978)."""
+        live = CubbyRental.objects.live().filter(cubby_id=OuterRef("pk")).values("member_id")[:1]
+        return self.annotate(live_renter_pk=Subquery(live))
+
 
 class Cubby(models.Model):
     """One rentable cubby on a guild's shelf unit (#977).
@@ -23086,6 +23091,7 @@ class Cubby(models.Model):
 
     class State(models.TextChoices):
         OPEN = "open", "Open"
+        RENTED = "rented", "Rented"
         OUT_OF_SERVICE = "out", "Out of Service"
 
     unit = models.ForeignKey(
@@ -23186,9 +23192,30 @@ class Cubby(models.Model):
         return self.unit.guild.cubby_suggested_cents
 
     @property
+    def renter_id(self) -> int | None:
+        """The member pk of its live rental (#978), or None while nobody holds it.
+
+        Reads the ``live_renter_pk`` annotation :meth:`CubbyQuerySet.with_renter` adds, so a page
+        drawing many cubbies asks once; a cubby loaded without it asks for itself.
+        """
+        if "live_renter_pk" in self.__dict__:
+            return cast("int | None", self.__dict__["live_renter_pk"])
+        return CubbyRental.objects.live().filter(cubby_id=self.pk).values_list("member_id", flat=True).first()
+
+    @property
     def state(self) -> str:
-        """Open, or Out of Service. Part 2 (#978) adds Rented."""
+        """Rented while a live rental holds it (#978), else Out of Service or Open."""
+        if self.renter_id is not None:
+            return self.State.RENTED
         return self.State.OUT_OF_SERVICE if self.out_of_service else self.State.OPEN
+
+    #: The shapes a rented cubby's drawing cycles through, so a full shelf does not look stamped (#978).
+    _STUFF: ClassVar[tuple[str, ...]] = ("s-jars", "s-box", "s-bin", "s-tools")
+
+    @property
+    def stuff_icon(self) -> str:
+        """The sprite id of the drawing inside a rented cubby, fixed per cubby."""
+        return self._STUFF[self.pk % len(self._STUFF)]
 
     @property
     def state_label(self) -> str:
@@ -23285,3 +23312,209 @@ class Cubby(models.Model):
         if label_taken:
             problems["label"] = f"Another cubby in the guild is already called {self.label}."
         return problems
+
+
+# ---------------------------------------------------------------------------
+# Cubby rentals (#976 part 2, #978): a monthly Stripe subscription per rented cubby
+# ---------------------------------------------------------------------------
+
+
+class CubbyRentalQuerySet(models.QuerySet["CubbyRental"]):
+    """Rental reads."""
+
+    def live(self) -> CubbyRentalQuerySet:
+        """Rentals holding their cubby: awaiting payment, active or past due."""
+        return self.filter(status__in=CubbyRental.LIVE_STATUSES)
+
+    def for_actor(self, member: Member, *, is_admin: bool) -> CubbyRentalQuerySet:
+        """The rentals ``member`` may change, cancel or pay for: their own, or every one for an admin."""
+        return self if is_admin else self.filter(member=member)
+
+
+class CubbyRental(models.Model):
+    """One member's rental of one cubby, paid by its own monthly Stripe subscription (#978).
+
+    Every change of status goes through ``membership/cubby_rentals.py``, which mirrors the
+    subscription Stripe holds. A rental awaiting payment holds the cubby for an hour while its
+    Checkout is open and is deleted, never ended, when that Checkout dies unpaid. Ended is final.
+    The constraint ``uq_cubbyrental_live_cubby`` is the database's guarantee that one cubby has at
+    most one live rental, whatever two checkouts race.
+    """
+
+    class Status(models.TextChoices):
+        PENDING_PAYMENT = "pending_payment", "Awaiting Payment"
+        ACTIVE = "active", "Active"
+        PAST_DUE = "past_due", "Past Due"
+        ENDED = "ended", "Ended"
+
+    LIVE_STATUSES: ClassVar[tuple[str, ...]] = (Status.PENDING_PAYMENT, Status.ACTIVE, Status.PAST_DUE)
+    #: An unpaid hold older than this is checked with Stripe by the ``release_cubby_payment_holds`` sweep.
+    HOLD_SWEEP_AGE: ClassVar[timedelta] = timedelta(hours=2)
+
+    cubby = models.ForeignKey(
+        Cubby, on_delete=models.PROTECT, related_name="rentals", help_text="The cubby this rental holds."
+    )
+    member = models.ForeignKey(
+        "Member", on_delete=models.PROTECT, related_name="cubby_rentals", help_text="Who rents it and pays for it."
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING_PAYMENT,
+        help_text="Awaiting Payment while Checkout is open; Active or Past Due while billed; Ended for good.",
+    )
+    amount_cents = models.PositiveIntegerField(help_text="What the member pays each month, in cents.")
+    start_date = models.DateField(null=True, blank=True, help_text="The day the rental became active.")
+    end_date = models.DateField(null=True, blank=True, help_text="The day it ended.")
+    cancel_at_period_end = models.BooleanField(
+        default=False, help_text="The member cancelled: it stays theirs until the paid month ends."
+    )
+    current_period_end = models.DateTimeField(
+        null=True, blank=True, help_text="When the paid month ends: the next charge, or the last day when cancelling."
+    )
+    payment_failed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the last monthly charge was declined; cleared once a charge goes through.",
+    )
+    next_payment_attempt = models.DateTimeField(
+        null=True, blank=True, help_text="When Stripe tries the card again after a declined charge, if it will."
+    )
+    stripe_checkout_session_id = models.CharField(
+        max_length=255, null=True, blank=True, unique=True, help_text="The Checkout Session that started it."
+    )
+    stripe_customer_id = models.CharField(max_length=255, blank=True, default="", help_text="The member's customer.")
+    stripe_subscription_id = models.CharField(
+        max_length=255, null=True, blank=True, unique=True, help_text="The monthly subscription that bills it."
+    )
+    stripe_subscription_item_id = models.CharField(
+        max_length=255, blank=True, default="", help_text="The subscription's one item, which Change Amount reprices."
+    )
+    stripe_product_id = models.CharField(
+        max_length=255, blank=True, default="", help_text="The Stripe product its price belongs to."
+    )
+    airtable_record_id = models.CharField(
+        max_length=20, blank=True, null=True, unique=True, help_text="Airtable record ID, for a later sync."
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the member started renting it.")
+
+    objects = CubbyRentalQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["cubby"],
+                condition=Q(status__in=["pending_payment", "active", "past_due"]),
+                name="uq_cubbyrental_live_cubby",
+            ),
+            models.CheckConstraint(
+                name="ck_cubbyrental_amount", condition=Q(amount_cents__gte=100, amount_cents__lte=50000)
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["created_at"], name="ix_cubbyrental_pending", condition=Q(status="pending_payment")),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.cubby.label} rented by {self.member.display_name} ({self.get_status_display()})"
+
+    @property
+    def is_live(self) -> bool:
+        """Whether it still holds its cubby."""
+        return self.status in self.LIVE_STATUSES
+
+    @property
+    def is_past_due(self) -> bool:
+        """Whether its last charge failed."""
+        return self.status == self.Status.PAST_DUE
+
+    @property
+    def is_cancelling(self) -> bool:
+        """Whether it ends at the end of the paid month."""
+        return self.cancel_at_period_end
+
+    @property
+    def amount_display(self) -> str:
+        """The monthly amount as "$22"."""
+        return cubby_dollars(self.amount_cents)
+
+    @property
+    def over_floor_cents(self) -> int:
+        """How much the member pays above the cubby's minimum today; 0 at or below it."""
+        return max(0, self.amount_cents - self.cubby.floor)
+
+    @property
+    def over_floor_display(self) -> str:
+        """The amount over the minimum as "$7"."""
+        return cubby_dollars(self.over_floor_cents)
+
+    @property
+    def change_modal_id(self) -> str:
+        """The DOM id of its Change Amount modal on the Cubbies tab."""
+        return f"cubby-change-{self.pk}"
+
+    @property
+    def cancel_confirm_id(self) -> str:
+        """The DOM id of its Cancel Rental confirm."""
+        return f"cubby-cancel-{self.pk}"
+
+    @property
+    def cancel_url(self) -> str:
+        """Where Cancel Rental posts."""
+        return reverse("hub_cubby_rental_cancel", args=[self.pk])
+
+    @property
+    def cancel_message(self) -> str:
+        """The Cancel Rental confirm's sentence, with the last day of the paid month."""
+        until = ""
+        if self.current_period_end is not None:
+            day = timezone.localtime(self.current_period_end)
+            until = f" until {day:%a, %b} {day.day}"
+        return (
+            f"{self.cubby.label} stays yours{until}, the end of the month you've paid for. You won't be charged "
+            "again. Please clear it out by then so the next member can move in."
+        )
+
+
+class CubbyPayment(models.Model):
+    """One paid invoice of a cubby rental (#978): the money, its month, and who is owed the guild's share.
+
+    One row per Stripe invoice (``uq_cubbypayment_invoice``), so a re-delivered ``invoice.paid``
+    records nothing twice. ``payee`` is the guild's cubby payee frozen when the payment landed;
+    paying it out is Part 3 (#979), and an empty payee leaves the whole payment with Past Lives.
+    """
+
+    rental = models.ForeignKey(
+        CubbyRental, on_delete=models.PROTECT, related_name="payments", help_text="The rental this paid for."
+    )
+    stripe_invoice_id = models.CharField(max_length=255, help_text="The Stripe invoice that was paid.")
+    stripe_payment_intent_id = models.CharField(
+        max_length=255, blank=True, default="", help_text="The PaymentIntent that paid it."
+    )
+    stripe_refund_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="The refund, when the member paid for a cubby someone else got first. Its share is owed to nobody.",
+    )
+    amount_cents = models.PositiveIntegerField(help_text="What was paid, in cents.")
+    paid_at = models.DateTimeField(help_text="When Stripe took the payment.")
+    period_start = models.DateTimeField(null=True, blank=True, help_text="The start of the month it paid for.")
+    period_end = models.DateTimeField(null=True, blank=True, help_text="The end of the month it paid for.")
+    payee = models.ForeignKey(
+        "Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="owed_cubby_payments",
+        help_text="Who gets the guild's share of this payment, as the guild had it then. Empty keeps it with Past Lives.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When plfog recorded it.")
+
+    class Meta:
+        ordering = ["-paid_at", "-pk"]
+        constraints = [models.UniqueConstraint(fields=["stripe_invoice_id"], name="uq_cubbypayment_invoice")]
+
+    def __str__(self) -> str:
+        return f"{cubby_dollars(self.amount_cents)} for {self.rental.cubby.label} ({self.stripe_invoice_id})"

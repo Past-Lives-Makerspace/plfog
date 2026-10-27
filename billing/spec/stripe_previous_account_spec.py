@@ -282,6 +282,8 @@ _CARD_EVENTS = {
         "object": "setup_intent",
         "customer": "cus_moved",
         "payment_method": "pm_other",
+        # Tagged as the My Tab card page's (#978), so only the previous account ignore keeps it out.
+        "metadata": {"kind": "tab_payment_method"},
     },
     "payment_method.detached": {"id": "pm_moved", "object": "payment_method"},
     "payment_method.updated": {

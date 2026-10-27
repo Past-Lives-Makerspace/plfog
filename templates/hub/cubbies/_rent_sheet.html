@@ -1,0 +1,46 @@
+{% comment %}
+The Rent This Cubby sheet (#978), loaded into the Cubbies tab's cubby-detail modal; from
+mockups/guild-cubbies.html views rent and rent-error. Expects cubby, guild, form (CubbyAmountForm),
+unavailable (why it cannot be offered, or ""), pays_guild, charge_day and floor_message. Continue to
+Payment posts here again: an amount refusal comes back as this sheet, a hold goes to Stripe.
+{% endcomment %}
+<div class="pl-cubby-rent" data-cubby-detail data-cubby-rent-sheet="{{ cubby.label }}">
+  <div class="pl-cubby-rent__top{% if not cubby.photo %} pl-cubby-rent__top--plain{% endif %}">
+    {% if cubby.photo %}<div class="pl-cubby-rent__photo"><img src="{{ cubby.photo.url }}" alt="Photo of cubby {{ cubby.label }}"></div>{% endif %}
+    <div>
+      <div class="pl-cubby-rent__label">{{ cubby.label }} {% if unavailable %}<span class="pl-cubby-chip pl-cubby-chip--rented"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-lock"/></svg>Not Available</span>{% else %}<span class="pl-cubby-chip pl-cubby-chip--open"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-plus-circle"/></svg>Open</span>{% endif %}</div>
+      <p class="pl-cubby-rent__where">{{ cubby.unit.name }}, {{ cubby.position_text|lower }}</p>
+      {% if cubby.size %}<p class="pl-cubby-rent__size">{{ cubby.size }}</p>{% endif %}
+      {% if cubby.note %}<p class="pl-cubby-rent__note">{{ cubby.note }}</p>{% endif %}
+    </div>
+  </div>
+  {% if unavailable %}
+  <p class="pl-cubby-sheet__gone" data-cubby-unavailable>{{ unavailable }}</p>
+  <div class="pl-modal__actions pl-cubby-sheet__actions">
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'cubby-detail')">Close</button>
+  </div>
+  {% else %}
+  <form hx-post="{% url 'hub_cubby_rent' cubby.pk %}" hx-target="#cubby-detail-body" hx-swap="innerHTML" x-data="{% include 'hub/cubbies/_amount_state.html' %}" data-cubby-rent-form>
+    {% csrf_token %}
+    <fieldset class="pl-cubby-rent__section">
+      <legend class="sr-only">Pay What You Want</legend>
+      <h3 class="pl-cubby-rent__title" aria-hidden="true">Pay What You Want</h3>
+      <p class="pl-cubby-rent__hint">The guild asks at least {{ cubby.floor_display }} a month. Pick what feels right for you.</p>
+      {% include "hub/cubbies/_amount_chips.html" %}
+      <div class="pl-cubby-other" x-show="picked === 'other'"{% if form.picked != "other" %} x-cloak{% endif %}>
+        <label for="{{ form.other.id_for_label }}">Your amount</label>
+        {{ form.other }}
+        <span class="pl-cubby-other__unit">a month</span>
+      </div>
+      <p class="pl-field-error pl-cubby-error" role="alert" x-show="error" x-text="error" data-cubby-error{% if not form.error_text %} x-cloak{% endif %}>{{ form.error_text }}</p>
+      <p class="pl-cubby-total" x-show="!error"{% if form.error_text %} x-cloak{% endif %}><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-cal"/></svg><span><strong x-text="money(amount) + ' a month'"></strong>, charged today and on the {{ charge_day }} each month. Cancel anytime.</span></p>
+      {% if pays_guild %}<p class="pl-cubby-why"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-heart"/></svg><span>Most of what you pay goes to the {{ guild.name }}. Paying more helps them most.</span></p>{% endif %}
+    </fieldset>
+    <div class="pl-modal__actions pl-cubby-sheet__actions">
+      <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'cubby-detail')">Cancel</button>
+      <button type="submit" class="pl-btn pl-btn--primary" :disabled="!!clientError" data-cubby-rent-submit><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-lock"/></svg>Continue to Payment</button>
+    </div>
+    <p class="pl-cubby-sheet__fine">You'll pay on a secure Stripe page. {{ cubby.label }} is held for you while you pay.</p>
+  </form>
+  {% endif %}
+</div>

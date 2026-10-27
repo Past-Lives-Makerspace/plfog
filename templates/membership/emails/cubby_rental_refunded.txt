@@ -1,0 +1,9 @@
+{% autoescape off %}Hi {{ first_name }},
+
+Cubby {{ cubby.label }} on the {{ cubby.unit.name }} wasn't free by the time your payment went through, so it isn't yours.
+
+We cancelled the monthly payment and refunded your {{ refunded }}. It can take 5 to 10 days to show on your card.
+
+Pick another cubby: {{ tab_url }}
+
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}

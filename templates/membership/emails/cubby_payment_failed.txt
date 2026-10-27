@@ -1,0 +1,12 @@
+{% autoescape off %}Hi {{ first_name }},
+
+We tried to charge your card {{ charged }} for cubby {{ cubby.label }} on the {{ cubby.unit.name }}{% if failed_on %} on {{ failed_on }}{% endif %}, and it was declined.
+
+Update your card to keep {{ cubby.label }}. {% if retry_line %}{{ retry_line }} {% endif %}If it still doesn't go through, your rental ends and {{ cubby.label }} opens up for someone else.
+
+Update your card: {{ manage_url }}
+
+Want to stop renting instead? Cancel from your cubby and clear {{ cubby.label }} out when you can: {{ tab_url }}
+Questions go to the {{ guild.name }} staff: {{ guild_url }}
+
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}

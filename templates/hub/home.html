@@ -191,6 +191,13 @@
         in Settings, or <a href="{% url 'hub_community_calendar' %}">see what's happening</a> first.
     </p>
     {% endif %}
+    {% if my_cubbies %}
+    <ul class="pl-home-cubbies" data-home-cubbies>
+        {% for rental in my_cubbies %}
+        <li><a href="{% url 'hub_guild_detail' rental.cubby.unit.guild.slug %}?tab=cubbies">Your Cubby: {{ rental.cubby.label }}, {{ rental.cubby.unit.name }} →</a></li>
+        {% endfor %}
+    </ul>
+    {% endif %}
 </div>
 
 {# --- Poll (#925), last above Get the app (#936): only while a poll is open; with none, no card, heading or empty state. Hide folds it to one line, kept per poll in this browser (#936); a poll the member has answered starts folded. --- #}
