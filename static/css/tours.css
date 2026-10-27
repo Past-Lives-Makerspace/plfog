@@ -154,6 +154,19 @@
     margin-top: 1.5rem;
 }
 
+/* Tour Settings: the kiosk link (#950), a readonly field and Copy on one row, wrapping on a phone. */
+.pl-tours-kiosk__link {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.pl-tours-kiosk__link input {
+    flex: 1 1 20rem;
+    max-width: 640px;
+    min-width: 0;
+}
+
 /* Tour Settings: the closed message under the bookings switch. */
 .pl-tours-settings__closed {
     margin-top: 1rem;

@@ -1,0 +1,21 @@
+{% extends "tours/kiosk/base.html" %}
+{% comment %}
+The kiosk home (#950, tours.kiosk_views.home): two large choices, check in for a booked tour or
+schedule one. The first is focused, so Enter starts a check in.
+{% endcomment %}
+{% block kiosk_content %}
+<section class="pl-kiosk__screen pl-kiosk__screen--center" data-kiosk-screen="home">
+  <h1 class="pl-kiosk__title pl-kiosk__title--big">Welcome to Past Lives</h1>
+  <p class="pl-kiosk__lead">Here for a tour? Check in, or book one now.</p>
+  <div class="pl-kiosk__choices">
+    <a href="{% url 'tours_kiosk:check_in' %}" class="pl-kiosk__choice pl-kiosk__choice--primary" autofocus data-kiosk-go="check-in">
+      <span class="pl-kiosk__choice-title">I Booked a Tour</span>
+      <span class="pl-kiosk__choice-hint">Check in and we will let your guide know you are here.</span>
+    </a>
+    <a href="{% url 'tours_kiosk:book' %}" class="pl-kiosk__choice" data-kiosk-go="book">
+      <span class="pl-kiosk__choice-title">Schedule a Tour</span>
+      <span class="pl-kiosk__choice-hint">Pick a day and time that work for you.</span>
+    </a>
+  </div>
+</section>
+{% endblock %}

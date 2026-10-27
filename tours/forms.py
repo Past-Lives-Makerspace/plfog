@@ -304,14 +304,15 @@ class TourBookingForm(forms.Form):
         widget=forms.TextInput(attrs={"autocomplete": "off", "tabindex": "-1", "aria-hidden": "true"}),
     )
 
-    def __init__(self, *args: Any, max_party: int, offer_account: bool, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, max_party: int, offer_account: bool, kiosk: bool = False, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         top = max(1, min(max_party, MAX_SEATS))
         party = cast(forms.TypedChoiceField, self.fields["party_size"])
         party.choices = [(str(size), str(size)) for size in range(1, top + 1)]
-        self.fields["name"].widget.attrs.update({"autocomplete": "name"})
-        self.fields["email"].widget.attrs.update({"autocomplete": "email"})
-        self.fields["phone"].widget = forms.TextInput(attrs={"type": "tel", "autocomplete": "tel"})
+        # At the front desk kiosk (#950) the browser must never offer the last visitor's details.
+        self.fields["name"].widget.attrs.update({"autocomplete": "off" if kiosk else "name"})
+        self.fields["email"].widget.attrs.update({"autocomplete": "off" if kiosk else "email"})
+        self.fields["phone"].widget = forms.TextInput(attrs={"type": "tel", "autocomplete": "off" if kiosk else "tel"})
         if not offer_account:
             del self.fields["create_account"]
 

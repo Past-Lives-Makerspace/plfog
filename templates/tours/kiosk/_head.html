@@ -1,0 +1,7 @@
+{% comment %}
+A kiosk screen's heading with its Start Over link home (#950). Context: title.
+{% endcomment %}
+<div class="pl-kiosk__head">
+  <h1 class="pl-kiosk__title">{{ title }}</h1>
+  <a href="{% url 'tours_kiosk:home' %}" class="pl-kiosk__back" data-kiosk-back>Start Over</a>
+</div>

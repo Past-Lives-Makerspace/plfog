@@ -1,0 +1,35 @@
+{% extends "tours/public/base.html" %}
+{% load static %}
+{% comment %}
+The front desk kiosk's chrome (#950, tours.kiosk_views): the tours site's page with its topbar
+swapped for a plain brand bar (no site navigation, no sign in), and large controls a mouse and a
+keyboard can drive at cairn's 1920 by 1080. Every link and form here is a full page load
+(hx-boost off) and static/js/tours-kiosk.js returns home after idle_seconds without input, or
+done_seconds after a finished check in or booking (0 is off). Children fill kiosk_content.
+{% endcomment %}
+{% block title %}Front Desk | Past Lives Makerspace{% endblock %}
+
+{% block public_topbar %}
+{% static 'img/favicon.png' as fallback_logo %}
+<header class="pl-kiosk-bar" role="banner">
+  <a href="{% url 'tours_kiosk:home' %}" class="pl-kiosk-bar__brand" hx-boost="false" data-kiosk-brand>
+    <img src="{% firstof brand_logo_url fallback_logo %}" alt="" class="pl-kiosk-bar__mark" width="32" height="32">
+    <span class="pl-kiosk-bar__name">{{ brand_name }}</span>
+  </a>
+  <span class="pl-kiosk-bar__label">Front Desk</span>
+</header>
+{% endblock public_topbar %}
+
+{% block body_class %}tours-portal tours-kiosk{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/tours-kiosk.css' %}">
+<script src="{% static 'js/tours-kiosk.js' %}" defer></script>
+{% endblock %}
+
+{% block tours_content %}
+<div class="pl-kiosk" hx-boost="false" data-kiosk data-kiosk-home="{% url 'tours_kiosk:home' %}" data-kiosk-idle="{{ idle_seconds }}" data-kiosk-done="{{ done_seconds }}">
+  {% block kiosk_content %}{% endblock %}
+</div>
+{% endblock %}
