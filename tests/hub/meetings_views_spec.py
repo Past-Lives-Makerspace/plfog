@@ -1962,9 +1962,8 @@ def describe_meetings_home():
             assert "(from schedule)" in content
             assert "Start the agenda" not in content
 
-        def it_reads_the_soonest_meeting_past_weekly_studio_hours(client: Client):
-            # Studio hours fill the guild page card, never this row (#953): a guild with weekly
-            # studio hours and a monthly cadence still offers to start the meeting's agenda.
+        def it_shows_studio_hours_and_still_starts_the_meetings_agenda(client: Client):
+            # The row agrees with the guild page card (#953); the agenda follows the meeting.
             guild = _cadence_guild("Hoursmiths")
             start = timezone.now() + timedelta(hours=2)
             CommunityEventFactory(
@@ -1976,22 +1975,37 @@ def describe_meetings_home():
                 ends_at=start + timedelta(hours=3),
             )
             _lead_client(client, guild)
-            occurrence = guild.next_meeting_occurrence(meetings_only=True)
+            meeting = guild.next_meeting_occurrence(meetings_only=True)
             content = client.get(reverse("hub_meetings")).content.decode()
             table = content.split('class="pl-meeting-dash"')[1].split("</table>")[0]
-            assert "Open Hours" not in table
-            assert "(from schedule)" in table
-            assert f'name="date" value="{occurrence.when:%Y-%m-%d}"' in table
-            assert "pl-meeting-attention__row--start" in content
+            assert "Open Hours" in table
+            assert "Start the agenda" in table
+            assert f'name="date" value="{meeting.when:%Y-%m-%d}"' in table
+            strip = content.split("Needs attention")[1].split("Meetings by guild")[0]
+            assert f'name="date" value="{meeting.when:%Y-%m-%d}"' in strip
 
-        def it_leaves_a_guild_with_only_studio_hours_or_google_events_blank(client: Client):
-            from membership.models import CalendarEvent
-
-            guild = GuildFactory(name="Potluckers Guild")
+        def it_shows_studio_hours_alone_with_no_agenda_to_start(client: Client):
+            guild = GuildFactory(name="Kilnwrights")
             start = timezone.now() + timedelta(days=2)
             CommunityEventFactory(
-                studio_hours=True, guild=guild, title="Open Hours", starts_at=start, ends_at=start + timedelta(hours=3)
+                studio_hours=True,
+                guild=guild,
+                title="Open Kiln Hours",
+                starts_at=start,
+                ends_at=start + timedelta(hours=3),
             )
+            _lead_client(client, guild)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            table = content.split('class="pl-meeting-dash"')[1].split("</table>")[0]
+            assert "Open Kiln Hours" in table
+            assert "Start the agenda" not in content
+            assert "pl-meeting-attention__row--start" not in content
+
+        def it_shows_a_google_event_that_names_the_guild(client: Client):
+            from membership.models import CalendarEvent
+
+            GuildFactory(name="Potluckers Guild")
+            start = timezone.now() + timedelta(days=4)
             CalendarEvent.objects.create(
                 uid="potluck@google.com",
                 source=CalendarEvent.Source.GENERAL,
@@ -2000,12 +2014,9 @@ def describe_meetings_home():
                 end_dt=start + timedelta(hours=2),
                 fetched_at=timezone.now(),
             )
-            _lead_client(client, guild)
-            content = client.get(reverse("hub_meetings")).content.decode()
-            table = content.split('class="pl-meeting-dash"')[1].split("</table>")[0]
-            assert "Open Hours" not in table
-            assert "Pot Luck" not in table
-            assert "Start the agenda" not in content
+            _member_client(client)
+            table = client.get(reverse("hub_meetings")).content.decode().split('class="pl-meeting-dash"')[1]
+            assert "Monthly Pot Luck sponsored by Potluckers Guild" in table.split("</table>")[0]
 
         def it_reads_every_guild_row_in_the_same_number_of_queries(client: Client):
             _member_client(client)

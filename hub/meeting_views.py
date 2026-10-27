@@ -1062,13 +1062,15 @@ def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Me
     for meeting in upcoming:  # already soonest-first — the first write wins
         next_up.setdefault(meeting.guild_id, meeting)
     council_next = next_up.get(None)
+    council_cadence = None if council_next else _council_cadence()
     rows: list[dict[str, Any]] = [
         {
             "guild": None,
             "label": "Council",
             "most_recent": latest_past.get(None),
             "next_meeting": council_next,
-            "cadence": None if council_next else _council_cadence(),
+            "cadence": council_cadence,
+            "agenda": council_cadence,
             "can_edit": council_editable,
         }
     ]
@@ -1083,8 +1085,10 @@ def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Me
                 "label": guild.name,
                 "most_recent": latest_past.get(guild.pk),
                 "next_meeting": next_meeting,
-                # The soonest meeting, so studio hours never hide it or get an agenda (#953).
-                "cadence": guild.next_meeting_occurrence(sources, meetings_only=True) if next_meeting is None else None,
+                # The same soonest-of-anything the guild page card shows (#953) ...
+                "cadence": guild.next_meeting_occurrence(sources) if next_meeting is None else None,
+                # ... while "Start the agenda" follows the soonest meeting, so studio hours never get one.
+                "agenda": guild.next_meeting_occurrence(sources, meetings_only=True) if next_meeting is None else None,
                 "can_edit": guild.pk in editable_ids,
             }
         )
@@ -1094,8 +1098,8 @@ def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Me
 def _start_agenda_rows(dash_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Editable scopes with a cadence but nothing upcoming yet — filters the already-
     computed ``dash_rows``, no new query. Feeds the prominent 'Start the agenda' affordance
-    in the Needs-attention strip (§6.2 Part 2a-2)."""
-    return [row for row in dash_rows if row["can_edit"] and row["next_meeting"] is None and row["cadence"] is not None]
+    in the Needs-attention strip (§6.2 Part 2a-2). Reads ``agenda``, the soonest meeting (#953)."""
+    return [row for row in dash_rows if row["can_edit"] and row["next_meeting"] is None and row["agenda"] is not None]
 
 
 def _archive_page(request: HttpRequest) -> dict[str, Any]:
