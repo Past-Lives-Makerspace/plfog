@@ -7,7 +7,6 @@ nothing: no email, push, bell or Discord post. Discarding drops it for good. Onl
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
@@ -19,7 +18,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.factories import QueuedDiscordMessageFactory
-from core.models import Announcement, QueuedDiscordMessage, QueuedMessageHandledError
+from core.models import QUEUED_MESSAGE_HANDLED, Announcement, QueuedDiscordMessage
 from hub.spotlight_views import PING_APPROVED, PING_DISCARDED, PING_SAVED
 from membership.models import GuildAnnouncement
 from tests.membership.factories import GuildFactory, MemberFactory
@@ -62,8 +61,7 @@ def describe_approve():
     def it_puts_the_line_live_for_seven_days_and_on_each_guild_page(client: Client, admin: User):
         ping = _guild_ping()
 
-        with patch.object(GuildAnnouncement, "notify_members") as notify:
-            response = client.post(reverse("hub_admin_ping_approve", args=[ping.pk]))
+        response = client.post(reverse("hub_admin_ping_approve", args=[ping.pk]))
 
         assert response.status_code == 302
         assert _messages(response) == [PING_APPROVED]
@@ -88,7 +86,6 @@ def describe_approve():
         assert ping.state == QueuedDiscordMessage.State.APPROVED
         assert ping.announcement == announcement
         assert set(ping.guild_announcements.all()) == set(posts)
-        notify.assert_not_called()
         assert mail.outbox == []
 
     def it_rings_no_bell_and_queues_no_push(client: Client, admin: User):
@@ -218,11 +215,14 @@ def describe_edit():
 
     def it_refuses_a_save_when_another_admin_handled_it_meanwhile(client: Client, admin: User):
         ping = QueuedDiscordMessageFactory()
+        assert client.get(reverse("hub_admin_ping_edit", args=[ping.pk])).status_code == 200
+        QueuedDiscordMessage.discard(ping.pk)
 
-        with patch.object(QueuedDiscordMessage, "save_line", side_effect=QueuedMessageHandledError("gone")):
-            response = client.post(reverse("hub_admin_ping_edit", args=[ping.pk]), {"body": "<p>New</p>"})
+        response = client.post(reverse("hub_admin_ping_edit", args=[ping.pk]), {"body": "<p>New</p>"})
 
-        assert _messages(response) == ["gone"]
+        assert _messages(response) == [QUEUED_MESSAGE_HANDLED]
+        ping.refresh_from_db()
+        assert ping.line != "<p>New</p>"
 
 
 def describe_permissions():

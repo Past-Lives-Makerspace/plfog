@@ -10,7 +10,7 @@ and meeting were removed in #935, and polls left this page in #890. Admin only
 from __future__ import annotations
 
 from django.contrib import messages
-from django.http import HttpRequest, HttpResponse
+from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -78,7 +78,9 @@ def _queue_url() -> str:
 @fog_admin_required
 def hub_admin_ping_edit(request: HttpRequest, pk: int) -> HttpResponse:
     """Edit a waiting Discord message's line in the Spotlight editor; saving keeps it waiting (#943)."""
-    ping = get_object_or_404(QueuedDiscordMessage, pk=pk, state=QueuedDiscordMessage.State.WAITING)
+    ping = get_object_or_404(QueuedDiscordMessage, pk=pk)
+    if request.method != "POST" and ping.state != QueuedDiscordMessage.State.WAITING:
+        raise Http404
     form = QueuedLineForm(request.POST if request.method == "POST" else None, initial={"body": ping.line})
     if request.method == "POST" and form.is_valid():
         try:

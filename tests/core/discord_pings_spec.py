@@ -9,14 +9,13 @@ from __future__ import annotations
 import logging
 from io import StringIO
 from typing import Any
-from unittest.mock import patch
 
 import httpx
 import pytest
 import respx
 from django.core.management import call_command
 
-from core.discord_pings import queue_discord_pings
+from core.discord_pings import _read_channel, _Server, queue_discord_pings
 from core.events.discord_dm import API_BASE
 from core.html_sanitize import ANNOUNCEMENT_MAX_CHARS, rich_html_to_text
 from core.integrations.discord_channel import MESSAGES_PAGE_LIMIT, channel_messages_after
@@ -365,17 +364,12 @@ def describe_queue_discord_pings():
     def describe_overlapping_runs():
         @respx.mock
         def it_keeps_a_cursor_another_run_recorded_first():
-            _mock_server([_channel(GENERAL, "51")], {GENERAL: [[_message("51", "@everyone Hi")]]})
-            real = DiscordChannelCursor.objects.all
+            channel = _channel(GENERAL, "51")
+            _mock_server([channel], {GENERAL: [[_message("51", "@everyone Hi")]]})
+            server = _Server(SERVER, MEMBER_ROLE, [channel], ROLES)
+            _read_from(GENERAL, "50")  # another run recorded the cursor after this one read none
 
-            def recorded_meanwhile() -> Any:
-                rows = real()
-                list(rows)  # this run saw no cursor...
-                DiscordChannelCursor.objects.create(channel_id=GENERAL, last_message_id="50")  # ...then one landed
-                return rows
-
-            with patch.object(DiscordChannelCursor.objects, "all", side_effect=recorded_meanwhile):
-                assert queue_discord_pings() == 1
+            assert _read_channel(server, channel, None, []) == 1
 
             assert DiscordChannelCursor.objects.get(channel_id=GENERAL).last_message_id == "51"
 
