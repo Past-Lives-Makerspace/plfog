@@ -178,7 +178,7 @@ The left sidebar is the map:
 - **Help** — the guides you're reading now, with search.
 - **Member Directory** — find other members by name or skill.
 - **Guilds** — every guild, listed at the bottom. Jump straight to any guild's page.
-- **Feedback** — at the very bottom. Found a bug or have an idea? Send it here.
+- **Feedback** — at the very bottom. Found a bug or have an idea? Send it here. Your requests are listed under it. Open one to read our replies, write back and add photos.
 
 ![The sidebar: every part of the Member Portal, one click away.](/static/help/welcome-to-fog/02-sidebar-navigation.png)
 
@@ -1947,7 +1947,7 @@ The repository lives at [github.com/Past-Lives-Makerspace/plfog](https://github.
 
 ## Ways to Contribute (No Coding Required)
 
-- **Report a bug or share an idea in the app.** The **Feedback** link at the bottom of the sidebar goes straight to the people who build the Member Portal.
+- **Report a bug or share an idea in the app.** The **Feedback** link at the bottom of the sidebar goes straight to the people who build the Member Portal. Under **Your Requests** you see where each one stands, read what we write back and reply, with photos if they help. You get a notification when we write.
 - **Open a GitHub issue.** If you have a GitHub account, [open an issue](https://github.com/Past-Lives-Makerspace/plfog/issues) describing the bug or idea. Screenshots help a lot.
 - **Improve these guides.** The Help Center articles live in the code too — typo fixes and clearer wording are real contributions.
 

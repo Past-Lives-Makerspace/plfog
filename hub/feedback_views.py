@@ -1,10 +1,11 @@
 """The admin Feedback inbox at /manage/feedback/ (#693).
 
-Every request sent from the Feedback page, filterable by category and status, and a page per
-request where an admin sets its status, writes a note to the sender and keeps the GitHub issue
-link. All admin only (``@fog_admin_required``); saves are plain POSTs that redirect back with a
-message, which the hub shows as a toast. The inbox's query string rides along to the request
-page and back, so Back to inbox keeps the filters.
+Every request sent from the Feedback page, filterable by category, status and Member replied,
+and a page per request where an admin reads and answers its comment thread, sets its status and
+keeps the GitHub issue link. Opening that page marks the request seen, which clears its Member
+replied pill. All admin only (``@fog_admin_required``); saves are plain POSTs that redirect back
+with a message, which the hub shows as a toast. The inbox's query string rides along to the
+request page and back, so Back to inbox keeps the filters.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from django.views.decorators.http import require_POST
 
 from classes.table import prepare_table
 from core.models import FeedbackRequest, FeedbackRequestError
-from hub.forms import FeedbackRequestAdminForm
+from hub.forms import FeedbackCommentForm, FeedbackRequestAdminForm
 from hub.view_as import fog_admin_required
 from hub.views import _get_hub_context
 
@@ -47,11 +48,14 @@ def hub_admin_feedback_inbox(request: HttpRequest) -> HttpResponse:
     """Every feedback request, newest first, filterable by category and status."""
     category = request.GET.get("category", "")
     status = request.GET.get("status", "")
+    replied = request.GET.get("replied", "") == "1"
     rows = FeedbackRequest.objects.select_related("user__member")
     if category in FeedbackRequest.Category.values:
         rows = rows.filter(category=category)
     if status in FeedbackRequest.Status.values:
         rows = rows.filter(status=status)
+    if replied:
+        rows = rows.member_replied()
     table = prepare_table(
         request,
         rows,
@@ -69,32 +73,23 @@ def hub_admin_feedback_inbox(request: HttpRequest) -> HttpResponse:
             "sort": table["sort"],
             "sort_dir": table["sort_dir"],
             "base_params": table["base_params"],
-            "filters": {"category": category, "status": status},
+            "filters": {"category": category, "status": status, "replied": replied},
             "categories": FeedbackRequest.Category.choices,
             "statuses": FeedbackRequest.Status.choices,
-            "is_filtered": bool(category or status),
+            "is_filtered": bool(category or status or replied),
             "inbox_query": request.GET.urlencode(),
         },
     )
 
 
-@fog_admin_required
-def hub_admin_feedback_request(request: HttpRequest, pk: int) -> HttpResponse:
-    """One request: its message, photos and sender, and the admin's status, note and link."""
-    feedback_request = get_object_or_404(
-        FeedbackRequest.objects.select_related("user__member").prefetch_related("photos"), pk=pk
-    )
-    query = request.GET.urlencode()
-    form = FeedbackRequestAdminForm(request.POST or None, feedback_request=feedback_request)
-    if request.method == "POST" and form.is_valid():
-        notified = feedback_request.apply_admin_update(
-            status=form.cleaned_data["status"],
-            staff_note=form.cleaned_data["staff_note"],
-            github_issue_url=form.cleaned_data["github_issue_url"],
-            actor=cast("User", request.user),
-        )
-        messages.success(request, _saved_message(feedback_request, notified))
-        return redirect(_request_url(feedback_request, query))
+def _request_page(
+    request: HttpRequest,
+    feedback_request: FeedbackRequest,
+    *,
+    form: FeedbackRequestAdminForm | None = None,
+    comment_form: FeedbackCommentForm | None = None,
+) -> HttpResponse:
+    """Render a request's admin page, with either form bound when its post was refused."""
     return render(
         request,
         "hub/admin/feedback_request.html",
@@ -102,10 +97,56 @@ def hub_admin_feedback_request(request: HttpRequest, pk: int) -> HttpResponse:
             **_get_hub_context(request),
             "feedback_request": feedback_request,
             "sender_member": getattr(feedback_request.user, "member", None),
-            "form": form,
-            "inbox_query": query,
+            "form": form or FeedbackRequestAdminForm(feedback_request=feedback_request),
+            "comment_form": comment_form or FeedbackCommentForm(),
+            "inbox_query": request.GET.urlencode(),
         },
     )
+
+
+def _get_request(pk: int) -> FeedbackRequest:
+    """The request with its sender and whole thread loaded, or a 404."""
+    return get_object_or_404(FeedbackRequest.objects.select_related("user__member").with_thread(), pk=pk)
+
+
+@fog_admin_required
+def hub_admin_feedback_request(request: HttpRequest, pk: int) -> HttpResponse:
+    """One request: its sender, thread and comment box, and the admin's status, comment and link.
+
+    Opening it marks the request seen by staff, which clears the inbox's Member replied pill.
+    """
+    feedback_request = _get_request(pk)
+    feedback_request.mark_seen_by_staff()
+    if request.method != "POST":
+        return _request_page(request, feedback_request)
+    form = FeedbackRequestAdminForm(request.POST, feedback_request=feedback_request)
+    if not form.is_valid():
+        return _request_page(request, feedback_request, form=form)
+    notified = feedback_request.apply_admin_update(
+        status=form.cleaned_data["status"],
+        comment=form.cleaned_data["comment"],
+        github_issue_url=form.cleaned_data["github_issue_url"],
+        actor=cast("User", request.user),
+    )
+    messages.success(request, _saved_message(feedback_request, notified))
+    return redirect(_request_url(feedback_request, request.GET.urlencode()))
+
+
+@fog_admin_required
+@require_POST
+def hub_admin_feedback_comment(request: HttpRequest, pk: int) -> HttpResponse:
+    """Post an admin's comment, with photos, on a request's thread; the sender is always told."""
+    feedback_request = _get_request(pk)
+    comment_form = FeedbackCommentForm(request.POST, request.FILES)
+    if not comment_form.is_valid():
+        return _request_page(request, feedback_request, comment_form=comment_form)
+    feedback_request.add_comment(
+        author=cast("User", request.user),
+        body=comment_form.cleaned_data["body"],
+        photos=comment_form.cleaned_data["photos"],
+    )
+    messages.success(request, f"Sent. {feedback_request.sender_label} was notified.")
+    return redirect(_request_url(feedback_request, request.GET.urlencode()))
 
 
 @fog_admin_required

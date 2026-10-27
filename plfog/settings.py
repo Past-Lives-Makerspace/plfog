@@ -704,11 +704,6 @@ BOOK_BASE_URL = os.environ.get("BOOK_BASE_URL", "https://classes.pastlives.space
 # Admins to notify on new class registrations (comma-delimited emails). Empty = no admin notifications.
 CLASS_ADMIN_NOTIFY_EMAILS = os.environ.get("CLASS_ADMIN_NOTIFY_EMAILS", "")
 
-# Beta feedback — comma-delimited list of recipient email addresses
-BETA_FEEDBACK_EMAILS: list[str] = [
-    e.strip() for e in os.environ.get("BETA_FEEDBACK_EMAILS", "josh@plaza.codes").split(",") if e.strip()
-]
-
 # Airtable sync — bidirectional sync between Django and Airtable
 AIRTABLE_API_TOKEN = os.environ.get("AIRTABLE_API_TOKEN", "")
 AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID", "")

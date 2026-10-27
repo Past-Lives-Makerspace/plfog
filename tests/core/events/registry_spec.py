@@ -86,6 +86,8 @@ _BRAND_NEW_KEYS = {
     "automation.failed",
     "feedback.request_updated",
     "feedback.request_live",
+    "feedback.comment_added",
+    "feedback.member_replied",
     "kiln.crew_replied",
     "kiln.maker_replied",
     "kiln.ready_for_pickup",

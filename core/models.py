@@ -3127,21 +3127,32 @@ class FeedbackRequestQuerySet(models.QuerySet["FeedbackRequest"]):
     """Query helpers for the Feedback page and the admin Feedback inbox (#693)."""
 
     def sent_by(self, user: User) -> FeedbackRequestQuerySet:
-        """``user``'s own requests, newest first, with their photos loaded in one query."""
-        return self.filter(user=user).prefetch_related("photos").order_by("-created_at")
+        """``user``'s own requests, newest first, with their photos and thread loaded up front."""
+        return self.filter(user=user).with_thread().order_by("-created_at")
+
+    def with_thread(self) -> FeedbackRequestQuerySet:
+        """Load each request's photos and its comments, with their authors and photos."""
+        return self.prefetch_related("photos", "comments__author__member", "comments__photos")
 
     def received(self) -> FeedbackRequestQuerySet:
         """Requests nobody has moved past Received yet: the inbox's to-do pile."""
         return self.filter(status=FeedbackRequest.Status.RECEIVED)
+
+    def member_replied(self) -> FeedbackRequestQuerySet:
+        """Requests whose sender wrote after an admin last opened them: the Member replied pile."""
+        return self.filter(member_replied_at__isnull=False).filter(
+            models.Q(staff_seen_at__isnull=True) | models.Q(member_replied_at__gt=models.F("staff_seen_at"))
+        )
 
 
 class FeedbackRequest(models.Model):
     """One bug report, feature request or piece of feedback sent from the Feedback page (#693).
 
     The sender is a ``User``, not a ``Member``: the Feedback page is open to any signed-in
-    account. An admin moves it through :class:`Status` from the Feedback inbox, and each move
-    to a :attr:`NOTIFYING_STATUSES` status, or a new note, tells the sender through the
-    ``feedback.request_updated`` event (:meth:`apply_admin_update`).
+    account. Every message after the first is a :class:`FeedbackComment` in one thread both
+    sides see; posting one always tells the other side (:meth:`add_comment`). An admin moves
+    the request through :class:`Status` from the Feedback inbox, and a move to a
+    :attr:`NOTIFYING_STATUSES` status tells the sender (:meth:`apply_admin_update`).
     """
 
     class Category(models.TextChoices):
@@ -3177,8 +3188,8 @@ class FeedbackRequest(models.Model):
         Status.NOT_PLANNED: "neutral",
     }
 
-    NOT_PLANNED_NEEDS_REASON = "Write a short reason in the note to the member. They see it with Not planned."
-    FEEDBACK_STAYS_RECEIVED = "General feedback stays Received. Reply with a note to the member instead."
+    NOT_PLANNED_NEEDS_REASON = "Write a comment that tells the member why. They see it with Not planned."
+    FEEDBACK_STAYS_RECEIVED = "General feedback stays Received. Answer it with a comment instead."
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -3199,10 +3210,13 @@ class FeedbackRequest(models.Model):
         default=Status.RECEIVED,
         help_text="Where the request stands. The sender sees it on the Feedback page.",
     )
+    # Retired: every note became a FeedbackComment (migration feedback_notes_to_comments). Nothing reads or writes it; it stays
+    # declared only so this release works with the code still serving during the deploy, and
+    # part 2 drops the column.
     staff_note = models.TextField(
         blank=True,
         default="",
-        help_text="A note to the sender, shown with the request. Required for Not planned.",
+        help_text="Retired. Notes now live in the comment thread; part 2 drops this column.",
     )
     github_issue_url = models.URLField(
         blank=True,
@@ -3217,6 +3231,16 @@ class FeedbackRequest(models.Model):
         null=True,
         blank=True,
         help_text="When the sender was last told this is live, so the automatic live notice never repeats it.",
+    )
+    member_replied_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the sender last wrote a comment on it.",
+    )
+    staff_seen_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When an admin last opened its page in the Feedback inbox.",
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the sender sent it.")
 
@@ -3253,8 +3277,18 @@ class FeedbackRequest(models.Model):
 
     @property
     def stays_received(self) -> bool:
-        """General feedback has no Planned or Live: an admin answers it with a note."""
+        """General feedback has no Planned or Live: an admin answers it with a comment."""
         return self.category == self.Category.FEEDBACK
+
+    @property
+    def has_member_reply(self) -> bool:
+        """The sender wrote after an admin last opened the request: the inbox's Member replied pill.
+
+        The same rule as :meth:`FeedbackRequestQuerySet.member_replied`, read off the row.
+        """
+        if self.member_replied_at is None:
+            return False
+        return self.staff_seen_at is None or self.member_replied_at > self.staff_seen_at
 
     @property
     def sender_label(self) -> str:
@@ -3295,7 +3329,7 @@ class FeedbackRequest(models.Model):
         """Save a request sent from the Feedback page, with its photos, as Received.
 
         Each upload is rewound before it is stored and after, so the caller can still read it
-        (the email to the admins attaches the same files).
+        (the email to the Webmasters attaches the same files).
         """
         with transaction.atomic():
             request = cls.objects.create(user=user, category=category, subject=subject, message=message)
@@ -3306,34 +3340,72 @@ class FeedbackRequest(models.Model):
         return request
 
     @classmethod
-    def update_refusal(cls, *, category: str, status: str, staff_note: str) -> str | None:
-        """Why an admin may not save this status and note, or ``None`` when they may.
+    def update_refusal(cls, *, category: str, current_status: str, status: str, comment: str) -> str | None:
+        """Why an admin may not save this status and comment, or ``None`` when they may.
 
-        General feedback stays Received (an admin answers it with a note), and Not planned
-        needs a reason the sender can read.
+        General feedback stays Received (an admin answers it with a comment), and a move to Not
+        planned needs a comment in the same save, so the sender reads why.
         """
         if category == cls.Category.FEEDBACK and status != cls.Status.RECEIVED:
             return cls.FEEDBACK_STAYS_RECEIVED
-        if status == cls.Status.NOT_PLANNED and not staff_note.strip():
+        if status == cls.Status.NOT_PLANNED and current_status != status and not comment.strip():
             return cls.NOT_PLANNED_NEEDS_REASON
         return None
 
-    def apply_admin_update(self, *, status: str, staff_note: str, github_issue_url: str, actor: User) -> bool:
-        """Save an admin's status, note and GitHub link, and tell the sender when it matters.
+    def add_comment(self, *, author: User, body: str, photos: list[UploadedFile]) -> FeedbackComment:
+        """Post a comment on this request's thread and tell the other side, every time.
 
-        The sender hears about a move to a :attr:`NOTIFYING_STATUSES` status or a changed,
-        non-blank note: once per save, carrying both when both changed. The notice carries the
-        note only when this save changed it, so an old note never rides along on a later move.
-        Leaving Not planned clears its reason unless the admin wrote a new note in the same save.
-        Saving the same values again changes nothing and notifies nobody.
+        The sender writing tells the Webmasters (minus the author) and puts the request under
+        Member replied in the inbox; anyone else writing is Past Lives and tells the sender.
+
+        Args:
+            author: Who wrote it: the sender, or an admin.
+            body: The comment's text.
+            photos: Photos posted with it, already validated by the form.
+
+        Returns:
+            The saved comment.
+        """
+        with transaction.atomic():
+            comment = self._create_comment(author=author, body=body, photos=photos)
+            if comment.is_from_staff:
+                comment._notify_sender()
+            else:
+                comment._notify_webmasters()
+        return comment
+
+    def _create_comment(self, *, author: User, body: str, photos: list[UploadedFile]) -> FeedbackComment:
+        """Save a comment and its photos, and stamp who is waiting on whom; tell nobody."""
+        comment = FeedbackComment.objects.create(request=self, author=author, body=body.strip())
+        for photo in photos:
+            photo.seek(0)
+            FeedbackCommentPhoto.objects.create(comment=comment, image=photo)
+        stamp = "staff_seen_at" if comment.is_from_staff else "member_replied_at"
+        setattr(self, stamp, comment.created_at)
+        type(self).objects.filter(pk=self.pk).update(**{stamp: comment.created_at})
+        return comment
+
+    def mark_seen_by_staff(self) -> None:
+        """Record that an admin opened this request, which clears its Member replied pill."""
+        now = timezone.now()
+        type(self).objects.filter(pk=self.pk).update(staff_seen_at=now)
+        self.staff_seen_at = now
+
+    def apply_admin_update(self, *, status: str, comment: str, github_issue_url: str, actor: User) -> bool:
+        """Save an admin's status and GitHub link, post their comment, and tell the sender when it matters.
+
+        A move to a :attr:`NOTIFYING_STATUSES` status tells the sender, and a comment written
+        in the same save rides in that one notice. A comment with no such move is posted as
+        any comment is, and tells the sender on its own. Saving the same status again with no
+        comment changes nothing and notifies nobody.
 
         The compare and the write run on the row locked with ``select_for_update``, so of two
-        identical saves at once (a double clicked Save) only the first notifies: the second
+        identical moves at once (a double clicked Save) only the first notifies: the second
         reads the status the first wrote.
 
         Args:
             status: A :class:`Status` value.
-            staff_note: The note to the sender; required for Not planned.
+            comment: A comment to the sender, or blank; required for a move to Not planned.
             github_issue_url: The tracking issue, or blank.
             actor: The admin saving it.
 
@@ -3341,55 +3413,55 @@ class FeedbackRequest(models.Model):
             Whether the sender was notified.
 
         Raises:
-            FeedbackRequestError: General feedback moved off Received, or Not planned with a
-                blank note.
+            FeedbackRequestError: General feedback moved off Received, or a move to Not planned
+                with a blank comment.
         """
-        return self._apply(status=status, staff_note=staff_note, github_issue_url=github_issue_url, actor=actor)
+        return self._apply(status=status, comment=comment.strip(), github_issue_url=github_issue_url, actor=actor)
 
     def mark_live(self, *, actor: User) -> bool:
-        """Move the request to Live (Fixed for a bug), keeping its saved note and link.
+        """Move the request to Live (Fixed for a bug), keeping its GitHub link.
 
-        See :meth:`apply_admin_update`; a Not planned reason is cleared on the way.
+        See :meth:`apply_admin_update`.
 
         Raises:
             FeedbackRequestError: The request is general feedback, which stays Received.
         """
-        return self._apply(status=self.Status.LIVE, staff_note=None, github_issue_url=None, actor=actor)
+        return self._apply(status=self.Status.LIVE, comment="", github_issue_url=None, actor=actor)
 
-    def _apply(self, *, status: str, staff_note: str | None, github_issue_url: str | None, actor: User) -> bool:
+    def _apply(self, *, status: str, comment: str, github_issue_url: str | None, actor: User) -> bool:
         """The locked read, compare, write and notify behind both admin updates.
 
-        ``None`` for the note or the link keeps what the locked row holds.
+        ``None`` for the link keeps what the locked row holds.
         """
         with transaction.atomic():
             locked = type(self).objects.select_for_update().get(pk=self.pk)
-            note = locked.staff_note if staff_note is None else staff_note.strip()
-            refusal = self.update_refusal(category=locked.category, status=status, staff_note=note)
+            refusal = self.update_refusal(
+                category=locked.category, current_status=locked.status, status=status, comment=comment
+            )
             if refusal is not None:
                 raise FeedbackRequestError(refusal)
             status_changed = status != locked.status
-            note_changed = note != locked.staff_note
-            if status_changed and locked.status == self.Status.NOT_PLANNED and not note_changed:
-                note = ""  # the old reason no longer explains where the request stands
+            moved = status_changed and status in self.NOTIFYING_STATUSES
             now = timezone.now()
-            notify = (status_changed and status in self.NOTIFYING_STATUSES) or (note_changed and bool(note))
             locked.status = status
-            locked.staff_note = note
             if github_issue_url is not None:
                 locked.github_issue_url = github_issue_url
             if status_changed:
                 locked.status_changed_at = now
-            if notify and status == self.Status.LIVE:
+            if moved and status == self.Status.LIVE:
                 locked.live_notified_at = now
             locked.save()
-            if notify:
+            posted = locked._create_comment(author=actor, body=comment, photos=[]) if comment else None
+            if moved:
                 locked._notify_sender(
                     actor=actor,
-                    note=note if note_changed else "",
+                    note=comment,
                     period=f"feedback:{locked.pk}:{status}:{now:%Y%m%d%H%M%S%f}",
                 )
+            elif posted is not None:
+                posted._notify_sender()
         self.refresh_from_db()
-        return notify
+        return moved or posted is not None
 
     def live_announcement_skip(self) -> str | None:
         """Why a release listing this request must not announce it, or ``None`` when it may.
@@ -3409,8 +3481,7 @@ class FeedbackRequest(models.Model):
         """Mark the request Live because a release listing it shipped, and tell the sender once.
 
         Runs on the row locked with ``select_for_update``, re-checking
-        :meth:`live_announcement_skip` there, so two overlapping job runs announce it once. A Not
-        planned reason is cleared on the way, as :meth:`apply_admin_update` does.
+        :meth:`live_announcement_skip` there, so two overlapping job runs announce it once.
 
         Args:
             release_title: The changelog entry's title, named in the notice.
@@ -3428,8 +3499,6 @@ class FeedbackRequest(models.Model):
             if skip is not None:
                 return skip
             now = timezone.now()
-            if locked.status == self.Status.NOT_PLANNED:
-                locked.staff_note = ""
             locked.status = self.Status.LIVE
             locked.status_changed_at = now
             locked.live_notified_at = now
@@ -3486,7 +3555,7 @@ class FeedbackRequest(models.Model):
 
 
 class FeedbackRequestPhoto(models.Model):
-    """One photo or screenshot attached to a :class:`FeedbackRequest`."""
+    """One photo or screenshot sent with a :class:`FeedbackRequest` itself."""
 
     request = models.ForeignKey(
         FeedbackRequest,
@@ -3502,6 +3571,120 @@ class FeedbackRequestPhoto(models.Model):
 
     def __str__(self) -> str:
         return f"Photo {self.pk} on request #{self.request_id}"
+
+
+class FeedbackComment(models.Model):
+    """One message on a :class:`FeedbackRequest`'s thread, from the sender or from Past Lives.
+
+    Who it is from is derived, never stored: a comment by anyone but the request's sender is
+    from staff, and so is one with no author (a note written before comments existed).
+    """
+
+    # What a comment with no author, or an admin with no name, signs as.
+    STAFF_SIGNATURE = "Past Lives"
+
+    request = models.ForeignKey(
+        FeedbackRequest,
+        on_delete=models.CASCADE,
+        related_name="comments",
+        help_text="The request this comment is on.",
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="feedback_comments",
+        help_text="Who wrote it: the sender or an admin. Blank for a note carried over from before comments.",
+    )
+    body = models.TextField(help_text="What they wrote.")
+    created_at = models.DateTimeField(default=timezone.now, help_text="When it was posted.")
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+
+    def __str__(self) -> str:
+        return f"Comment {self.pk} on request #{self.request_id}"
+
+    @property
+    def is_from_staff(self) -> bool:
+        """Written by anyone but the request's sender, or carried over with no author."""
+        return self.author_id is None or self.author_id != self.request.user_id
+
+    @property
+    def author_name(self) -> str:
+        """The name the thread shows: the sender's label, an admin's name, else Past Lives."""
+        if not self.is_from_staff:
+            return self.request.sender_label
+        from membership.names import user_display_name
+
+        return (user_display_name(self.author) if self.author is not None else "") or self.STAFF_SIGNATURE
+
+    @property
+    def shows_staff_tag(self) -> bool:
+        """An admin's comment signed with their own name carries a Past Lives tag; Past Lives alone does not."""
+        return self.is_from_staff and self.author_name != self.STAFF_SIGNATURE
+
+    def _notify_sender(self) -> None:
+        """Tell the request's sender that Past Lives wrote this comment."""
+        from core.events.emit import emit
+        from core.events.registry import FEEDBACK_COMMENT_ADDED
+
+        request = self.request
+        emit(
+            FEEDBACK_COMMENT_ADDED,
+            actor=self.author,
+            target=request,
+            context={
+                "user": request.user,
+                "request_subject": request.subject,
+                "comment_body": self.body,
+                "request_url": request.member_url,
+            },
+            url=request.member_url,
+            period=f"feedback-comment-{self.pk}",
+        )
+
+    def _notify_webmasters(self) -> None:
+        """Tell the Webmasters, minus the author, that the sender wrote this comment."""
+        from core.events.emit import emit
+        from core.events.registry import FEEDBACK_MEMBER_REPLIED
+        from core.events.resolvers import webmasters
+
+        request = self.request
+        emit(
+            FEEDBACK_MEMBER_REPLIED,
+            actor=self.author,
+            target=request,
+            context={
+                "sender_name": request.sender_label,
+                "request_subject": request.subject,
+                "comment_body": self.body,
+                "inbox_url": request.inbox_url,
+            },
+            url=request.inbox_url,
+            period=f"feedback-comment-{self.pk}",
+            recipient_user_ids={user.pk for user, _reason in webmasters({}) if user.pk != self.author_id},
+        )
+
+
+class FeedbackCommentPhoto(models.Model):
+    """One photo or screenshot posted with a :class:`FeedbackComment`."""
+
+    comment = models.ForeignKey(
+        FeedbackComment,
+        on_delete=models.CASCADE,
+        related_name="photos",
+        help_text="The comment this photo was posted with.",
+    )
+    image = models.ImageField(upload_to="feedback/%Y/%m/", help_text="The uploaded photo, on the default storage.")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was uploaded.")
+
+    class Meta:
+        ordering = ["pk"]
+
+    def __str__(self) -> str:
+        return f"Photo {self.pk} on comment {self.comment_id}"
 
 
 # ── TEMPORARY — remove on/after 2026-08-10 ─────────────────────────────────────

@@ -48,6 +48,7 @@ from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_
 from hub.forms import (
     AutomationsForm,
     BetaFeedbackForm,
+    FeedbackCommentForm,
     CalendarFeedFormSet,
     CommunityEventForm,
     DeleteAccountConfirmForm,
@@ -7438,17 +7439,43 @@ def event_retry_sync(request: HttpRequest, pk: int) -> HttpResponse:
     return _events_tab_or_next(request)
 
 
+def _feedback_page(
+    request: HttpRequest,
+    *,
+    form: BetaFeedbackForm,
+    open_request_pk: int | None,
+    reply_form: FeedbackCommentForm | None = None,
+) -> HttpResponse:
+    """Render the Feedback page: the form, then the viewer's requests, each with its thread and reply box.
+
+    ``reply_form`` is a refused reply, rendered bound on the row ``open_request_pk`` names.
+    """
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    rows = [
+        (
+            item,
+            reply_form
+            if reply_form is not None and item.pk == open_request_pk
+            else FeedbackCommentForm(auto_id=f"id_reply_{item.pk}_%s"),
+        )
+        for item in FeedbackRequest.objects.sent_by(user)
+    ]
+    return render(
+        request,
+        "hub/beta_feedback.html",
+        {**_get_hub_context(request), "form": form, "feedback_rows": rows, "open_request_pk": open_request_pk},
+    )
+
+
 @login_required
 def beta_feedback(request: HttpRequest) -> HttpResponse:
     """Feedback page: send a bug report, feature request or feedback, and follow your requests (#693).
 
-    A valid send saves a :class:`core.models.FeedbackRequest` and emails the admins, then lands
-    back here with ``?sent=<pk>`` so the new request renders open (a boosted redirect drops the
-    ``#request-<pk>`` fragment, so the query string carries it). The "Your requests" section lists
-    only the viewer's own requests.
+    A valid send saves a :class:`core.models.FeedbackRequest` and emails the Webmasters, then
+    lands back here with ``?sent=<pk>`` so the new request renders open (a boosted redirect drops
+    the ``#request-<pk>`` fragment, so the query string carries it). The "Your requests" section
+    lists only the viewer's own requests, each with its comment thread and a reply box.
     """
-    ctx = _get_hub_context(request)
-
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
 
     if request.method == "POST":
@@ -7456,21 +7483,39 @@ def beta_feedback(request: HttpRequest) -> HttpResponse:
         if form.is_valid():
             feedback_request = form.submit(user=user)
             messages.success(request, "Thanks! You can follow it below.")
-            return redirect(f"{reverse('hub_beta_feedback')}?sent={feedback_request.pk}#{feedback_request.anchor}")
+            return redirect(_feedback_request_url(feedback_request))
     else:
         form = BetaFeedbackForm.preselected(request.GET.get("category", ""))
 
     sent = request.GET.get("sent", "")
-    return render(
-        request,
-        "hub/beta_feedback.html",
-        {
-            **ctx,
-            "form": form,
-            "feedback_requests": FeedbackRequest.objects.sent_by(user),
-            "open_request_pk": int(sent) if sent.isdigit() else None,
-        },
+    return _feedback_page(request, form=form, open_request_pk=int(sent) if sent.isdigit() else None)
+
+
+def _feedback_request_url(feedback_request: FeedbackRequest) -> str:
+    """The Feedback page with ``feedback_request``'s row open, by query string and fragment."""
+    return f"{reverse('hub_beta_feedback')}?sent={feedback_request.pk}#{feedback_request.anchor}"
+
+
+@login_required
+@require_POST
+def feedback_comment(request: HttpRequest, pk: int) -> HttpResponse:
+    """Post the sender's reply, with photos, on one of their own requests; the Webmasters are told.
+
+    Only the sender may: any other account's post is a 404, as if the request did not exist.
+    A refused reply renders the Feedback page with that row open and the reply kept.
+    """
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    feedback_request = get_object_or_404(FeedbackRequest, pk=pk, user=user)
+    reply_form = FeedbackCommentForm(request.POST, request.FILES, auto_id=f"id_reply_{pk}_%s")
+    if not reply_form.is_valid():
+        return _feedback_page(
+            request, form=BetaFeedbackForm(), open_request_pk=feedback_request.pk, reply_form=reply_form
+        )
+    feedback_request.add_comment(
+        author=user, body=reply_form.cleaned_data["body"], photos=reply_form.cleaned_data["photos"]
     )
+    messages.success(request, "Sent. Past Lives will see your reply.")
+    return redirect(_feedback_request_url(feedback_request))
 
 
 @login_required

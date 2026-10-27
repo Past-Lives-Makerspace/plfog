@@ -7,9 +7,11 @@
 {% block content %}
 {% comment %}
 One feedback request in the admin Feedback inbox (#693), built by
-hub.feedback_views.hub_admin_feedback_request: the sender, message and photos, then the one form
-for status, note to the member and GitHub link. Mark live posts to its own view. inbox_query is
-the inbox's query string, kept on every link and post so Back to inbox keeps the filters.
+hub.feedback_views.hub_admin_feedback_request: the sender, then the thread (the original message
+first, hub/partials/_feedback_thread.html) and a comment box with photos whose Send always tells
+the sender (hub_admin_feedback_comment), then the one form for status, an optional comment and
+the GitHub link. Mark live posts to its own view. inbox_query is the inbox's query string, kept on
+every link and post so Back to inbox keeps the filters.
 {% endcomment %}
 <div class="pl-feedback-admin">
 <p class="pl-feedback-admin__back"><a href="{% url 'hub_admin_feedback_inbox' %}{% if inbox_query %}?{{ inbox_query }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">&larr; Back to inbox</a></p>
@@ -28,24 +30,23 @@ the inbox's query string, kept on every link and post so Back to inbox keeps the
     <span class="hub-text-muted">{{ feedback_request.user.email }}</span>
     {% if not sender_member %}<span class="hub-pill hub-pill--neutral">No membership</span>{% endif %}
   </p>
-  <h2 class="hub-detail-label">Message</h2>
-  <p class="pl-feedback-admin__message">{{ feedback_request.message|linebreaksbr }}</p>
-  {% with photos=feedback_request.photos.all %}
-  {% if photos %}
-  <h2 class="hub-detail-label">Photos</h2>
-  <div class="pl-feedback-photos">
-    {% for photo in photos %}
-    <a href="{{ photo.image.url }}" target="_blank" rel="noopener" hx-boost="false" class="pl-feedback-photos__item"><img src="{{ photo.image.url }}" alt="Photo {{ forloop.counter }} from the sender" loading="lazy"></a>
-    {% endfor %}
-  </div>
-  {% endif %}
-  {% endwith %}
+</div>
+
+<div class="hub-card pl-feedback-admin__card" data-feedback-conversation>
+  <h2 class="hub-detail-label">Conversation</h2>
+  {% include "hub/partials/_feedback_thread.html" with feedback_request=feedback_request as_staff=True %}
+  <form method="post" action="{% url 'hub_admin_feedback_comment' feedback_request.pk %}{% if inbox_query %}?{{ inbox_query }}{% endif %}" enctype="multipart/form-data" class="pl-feedback-reply" data-feedback-comment-form data-pl-busy-submit data-pl-busy-label="Sending...">
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=comment_form.body field_label="Comment to "|add:feedback_request.sender_label field_hint_off=True %}
+    {% include "hub/partials/_feedback_photos_field.html" with field=comment_form.photos %}
+    <div class="pl-feedback-reply__row"><span class="pl-feedback-reply__note">{{ feedback_request.sender_label }} gets it in the app and by email, per their settings.</span><button type="submit" class="hub-btn hub-btn--primary" data-feedback-send data-pl-busy>Send to {{ feedback_request.sender_label }}</button></div>
+  </form>
 </div>
 
 {% if feedback_request.status != "live" and not feedback_request.stays_received %}
 <div class="hub-card pl-feedback-admin__card" data-feedback-mark-live>
   <h2 class="hub-detail-label">Shipped?</h2>
-  <p class="hub-text-muted">Mark it {% if feedback_request.category == "bug" %}Fixed{% else %}Live{% endif %} and tell {{ feedback_request.sender_label }}{% if feedback_request.status == "not_planned" %}. The Not planned reason is cleared.{% else %}, keeping the note below.{% endif %}</p>
+  <p class="hub-text-muted">Mark it {% if feedback_request.category == "bug" %}Fixed{% else %}Live{% endif %} and tell {{ feedback_request.sender_label }}.</p>
   <form method="post" action="{% url 'hub_admin_feedback_mark_live' feedback_request.pk %}{% if inbox_query %}?{{ inbox_query }}{% endif %}">
     {% csrf_token %}
     <button type="submit" class="hub-btn hub-btn--sm pl-feedback-admin__mark-live">Mark {% if feedback_request.category == "bug" %}Fixed{% else %}Live{% endif %}</button>
@@ -55,18 +56,20 @@ the inbox's query string, kept on every link and post so Back to inbox keeps the
 
 <div class="hub-card pl-feedback-admin__card">
   <h2 class="hub-detail-label">Where It Stands</h2>
-  <form method="post" class="hub-form" data-feedback-admin-form>
+  <form method="post" class="hub-form" data-feedback-admin-form data-pl-busy-submit>
     {% csrf_token %}
     {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
     {% if feedback_request.stays_received %}
-    {% include "components/form_field.html" with field=form.status field_hint="General feedback stays Received. A note to the member notifies them." %}
+    {% include "components/form_field.html" with field=form.status field_hint="General feedback stays Received. Answer it with a comment." %}
     {% else %}
-    {% include "components/form_field.html" with field=form.status field_hint="The member sees this. Planned, Building, Live and Not planned notify them." %}
+    {% include "components/form_field.html" with field=form.status field_hint="Planned, Building, Live and Not planned tell "|add:feedback_request.sender_label|add:". Received tells nobody." %}
     {% endif %}
-    {% include "components/form_field.html" with field=form.staff_note field_hint="The member sees this. Required for Not planned." %}
+    {% include "components/form_field.html" with field=form.comment field_hint="Posted to the conversation and sent to "|add:feedback_request.sender_label|add:" with the status. Required for Not planned." %}
     {% include "components/form_field.html" with field=form.github_issue_url field_hint="Only admins see this." %}
-    <button type="submit" class="hub-btn hub-btn--primary pl-feedback-admin__save">Save</button>
+    <button type="submit" class="hub-btn hub-btn--primary pl-feedback-admin__save" data-pl-busy>Save</button>
   </form>
 </div>
 </div>
+{% include "hub/partials/_feedback_photos_script.html" %}
+{% include "components/busy_submit.html" %}
 {% endblock %}

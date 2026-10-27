@@ -1,0 +1,43 @@
+{% comment %}
+Drag and drop for every feedback photo zone on the page (hub/partials/_feedback_photos_field.html),
+the same handlers the wiki's zones use, delegated on document so one copy serves every row. A body
+script, so it re-runs on each boosted arrival: guarded on window (FRONTEND.md, Scripts under hx-boost).
+{% endcomment %}
+<script>
+(function () {
+  if (window.plFeedbackPhotosBound) return;
+  window.plFeedbackPhotosBound = true;
+  function zoneOf(el) { return el && el.closest ? el.closest('[data-feedback-photos]') : null; }
+  function hasFiles(dt) {
+    if (!dt || !dt.types) return false;
+    for (var i = 0; i < dt.types.length; i++) { if (dt.types[i] === 'Files') return true; }
+    return false;
+  }
+  document.addEventListener('dragover', function (e) {
+    var zone = zoneOf(e.target);
+    if (zone && hasFiles(e.dataTransfer)) { e.preventDefault(); zone.classList.add('drag-hover'); }
+  });
+  document.addEventListener('dragleave', function (e) {
+    var zone = zoneOf(e.target);
+    if (zone) zone.classList.remove('drag-hover');
+  });
+  document.addEventListener('drop', function (e) {
+    var zone = zoneOf(e.target);
+    if (!zone || !hasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    zone.classList.remove('drag-hover');
+    var input = zone.querySelector('input[type="file"]');
+    if (input) { input.files = e.dataTransfer.files; input.dispatchEvent(new Event('change', { bubbles: true })); }
+  });
+  document.addEventListener('change', function (e) {
+    var zone = zoneOf(e.target);
+    if (!zone || !e.target.files) return;
+    var label = zone.querySelector('[data-feedback-photos-label]');
+    var count = e.target.files.length;
+    if (!label) return;
+    if (count === 0) label.textContent = 'Choose photos or drag them here';
+    else if (count === 1) label.textContent = e.target.files[0].name;
+    else label.textContent = count + ' photos chosen';
+  });
+})();
+</script>

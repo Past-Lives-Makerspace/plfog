@@ -1964,7 +1964,7 @@ _CURATED: dict[str, EventCopy] = {
         },
     ),
     # feedback.request_updated — the sender of a Feedback page request hears where it stands
-    # (#693). note_line / note_block are the admin's note, pre-built by
+    # (#693). note_line / note_block are the comment written in the same save, pre-built by
     # FeedbackRequest._notify_sender and empty when there is none: the guarded note without
     # an {% if %}. status_phrase reads after "is" ("being built", "fixed", "not planned").
     "feedback.request_updated": EventCopy(
@@ -2041,6 +2041,77 @@ _CURATED: dict[str, EventCopy] = {
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
                     "See What's New</a></p>"
                     "<p>Thanks for telling us what you need.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # feedback.comment_added / feedback.member_replied — the comment thread on a Feedback page
+    # request. The comment itself is the content, so the email shows it whole (escaped, line
+    # breaks kept). request_url opens the request on the sender's Feedback page; inbox_url opens
+    # it in the admin Feedback inbox.
+    "feedback.comment_added": EventCopy(
+        placeholders=("request_subject", "comment_body", "request_url"),
+        sample_context={
+            "request_subject": "Let me book the laser cutter from my phone",
+            "comment_body": "Thanks for this! Which phone do you use? A screenshot of what you see would help.",
+            "request_url": "https://pastlives.example/feedback/#request-12",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Past Lives wrote on your request",
+                body_text="{{ comment_body }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Past Lives wrote on your request: {{ request_subject }}",
+                body_text=(
+                    'Past Lives wrote on your request "{{ request_subject }}":\n\n'
+                    "{{ comment_body }}\n\n"
+                    "Read it and reply: {{ request_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Past Lives wrote on your request "
+                    '<strong><a href="{{ request_url }}">{{ request_subject }}</a></strong>:</p>'
+                    '<p style="white-space:pre-line;">{{ comment_body }}</p>'
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ request_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read And Reply</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "feedback.member_replied": EventCopy(
+        placeholders=("sender_name", "request_subject", "comment_body", "inbox_url"),
+        sample_context={
+            "sender_name": "Maya Okafor",
+            "request_subject": "Let me book the laser cutter from my phone",
+            "comment_body": "It is a Pixel 8. I attached what the page looks like.",
+            "inbox_url": "https://pastlives.example/manage/feedback/12/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ sender_name }} wrote back on a request",
+                body_text="{{ comment_body }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ sender_name }} wrote back: {{ request_subject }}",
+                body_text=(
+                    '{{ sender_name }} wrote back on their request "{{ request_subject }}":\n\n'
+                    "{{ comment_body }}\n\n"
+                    "Read it and answer: {{ inbox_url }}\n\n"
+                    "You get this as a Webmaster.\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ sender_name }} wrote back on their request "
+                    '<strong><a href="{{ inbox_url }}">{{ request_subject }}</a></strong>:</p>'
+                    '<p style="white-space:pre-line;">{{ comment_body }}</p>'
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ inbox_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read And Answer</a></p>"
+                    "<p>You get this as a Webmaster.</p>"
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
