@@ -99,6 +99,8 @@ urlpatterns = admin_custom_urls + [
     path("facility-tours/", include("tours.urls")),
     # The visitor's tour pages: only on tours.pastlives.space, whose root is the booking page (#948).
     path("tour/", include("tours.public_urls")),
+    # The front desk kiosk on the same host, for a device holding the kiosk key (#950).
+    path("kiosk/", include("tours.kiosk_urls")),
     path("account/", include("classes.account.urls", namespace="account")),
     # Old class pages from the Drupal site that used to live at classes.pastlives.space.
     path("", include("classes.legacy_urls")),

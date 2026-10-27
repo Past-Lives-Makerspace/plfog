@@ -133,9 +133,13 @@ def book_tour(
     visitor: Visitor,
     user: User | None = None,
     create_account: bool = False,
+    source: str = TourBooking.Source.WEBSITE,
     now: datetime | None = None,
 ) -> TourBooking:
     """Book ``visitor`` onto the guide's tour at ``starts_at``.
+
+    ``source`` records how: the tours website, or the front desk kiosk (#950), which books under
+    the same notice and horizon.
 
     The booking links to ``user`` when the visitor is signed in, else to the account the email
     already belongs to (the account itself is left as it is). With neither and
@@ -172,6 +176,7 @@ def book_tour(
             visitor_email=visitor.email.strip(),
             visitor_phone=visitor.phone.strip(),
             user=account,
+            source=source,
         )
         _after_commit(booking, signals.BOOKED)
     if account is None and create_account and not Member.objects.unlinked_with_email(visitor.email.strip()).exists():
@@ -198,6 +203,40 @@ def _is_repeat(guide: Member, starts_at: datetime, visitor: Visitor, now: dateti
         created_at__gte=now - REPEAT_WINDOW,
     ).values_list("visitor_name", flat=True)
     return any(_same_name(name, visitor.name) for name in candidates)
+
+
+def check_in_tour(booking: TourBooking, *, now: datetime | None = None) -> tuple[TourBooking, bool]:
+    """The visitor checked in at the front desk kiosk (#950): stamp ``checked_in_at`` and ping the guide.
+
+    Only a tour still booked for today (local) can be checked in. A second check in changes
+    nothing and pings nobody. Never marks attended: the guide does that once the tour starts,
+    and only that stamps ``completed_tour_at``.
+
+    Returns:
+        The booking and whether this was its first check in.
+
+    Raises:
+        TourLockedError: the booking is cancelled, already marked, or not today's.
+    """
+    moment = now or timezone.now()
+    with transaction.atomic():
+        locked = TourBooking.objects.select_for_update().get(pk=booking.pk)
+        if locked.status != TourBooking.Status.BOOKED:
+            raise TourLockedError("cancelled" if locked.status == TourBooking.Status.CANCELLED else "past")
+        if timezone.localdate(locked.starts_at) != timezone.localdate(moment):
+            raise TourLockedError("not_today")
+        if locked.checked_in_at is not None:
+            return locked, False
+        locked.checked_in_at = moment
+        locked.save(update_fields=["checked_in_at"])
+
+        def ping() -> None:
+            from tours import notify
+
+            notify.tell_guide_checked_in(locked)
+
+        transaction.on_commit(ping, robust=True)
+    return locked, True
 
 
 def _locked_for_change(booking: TourBooking, now: datetime) -> TourBooking:
@@ -392,7 +431,7 @@ def _stamp_completed_tour(user: User, toured_at: datetime) -> None:
 def _unstamp_completed_tour(user: User, toured_at: datetime) -> None:
     """Undo this tour's stamp when attended is corrected away: only a stamp equal to this tour's start.
 
-    A stamp from an earlier tour (or SimplyBook) is a different instant and stays. When it is cleared,
+    A stamp from an earlier tour (or from before this app) is a different instant and stays. When it is cleared,
     the visitor's earliest tour still marked attended stamps it again, so a correction never erases
     a tour they did take.
     """

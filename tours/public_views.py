@@ -54,6 +54,12 @@ BOOKING_SCOPE = "tour_booking"
 BOOKING_HOURLY_LIMIT = 10
 BOOKING_DAILY_LIMIT = 30
 RATE_LIMITED_MESSAGE = "Too many bookings from this connection. Try again in an hour."
+#: The front desk kiosk's own booking limit (#950): cairn shares the makerspace's public address
+#: with every phone on the Wi-Fi, so a kiosk (a request holding the kiosk cookie) never spends the
+#: website's allowance, nor the website the kiosk's. The kiosk check in's caps.
+KIOSK_BOOKING_SCOPE = "tour_kiosk_booking"
+KIOSK_BOOKING_HOURLY_LIMIT = 60
+KIOSK_BOOKING_DAILY_LIMIT = 300
 
 
 def tours_surface_only(view: View) -> View:
@@ -68,7 +74,7 @@ def tours_surface_only(view: View) -> View:
     return wrapped
 
 
-def _all_open_tours() -> list[OpenTour]:
+def all_open_tours() -> list[OpenTour]:
     """Every tour visitors can book now (``open_tours`` clamps the range to the horizon and notice)."""
     today = timezone.localdate()
     return open_tours(today, today + timedelta(days=MAX_HORIZON_DAYS))
@@ -89,14 +95,14 @@ def _prefill(request: HttpRequest) -> dict[str, str]:
     return {"name": name, "email": user.email}
 
 
-def _limit_party(form: TourBookingForm, tour: OpenTour) -> None:
+def limit_party(form: TourBookingForm, tour: OpenTour) -> None:
     """Offer 1 to the tour's seats left again on a re-shown form (a POST offered up to a full tour)."""
     form.fields["party_size"].choices = [  # type: ignore[attr-defined]
         (str(size), str(size)) for size in range(1, max(tour.seats_left, 1) + 1)
     ]
 
 
-def _page(request: HttpRequest, template: str, context: dict[str, Any], *, status: int = 200) -> HttpResponse:
+def render_page(request: HttpRequest, template: str, context: dict[str, Any], *, status: int = 200) -> HttpResponse:
     """Render a tours page with what every one of them shows."""
     return render(
         request,
@@ -107,9 +113,10 @@ def _page(request: HttpRequest, template: str, context: dict[str, Any], *, statu
 
 
 @dataclass
-class _Attempt:
-    """What a booking POST came to: a page to send the visitor to, or what to show again."""
+class Attempt:
+    """What a booking POST came to: the booking made, a page to send the visitor to, or what to show again."""
 
+    booking: TourBooking | None = None
     redirect_to: str = ""
     already: bool = False
     error: str = ""
@@ -117,10 +124,15 @@ class _Attempt:
     chosen: OpenTour | None = None
 
 
-def _try_booking(request: HttpRequest, form: TourBookingForm) -> _Attempt:
-    """Book a valid form's tour: the booking's page on success, else the reason to show."""
+def _try_booking(request: HttpRequest, form: TourBookingForm, *, kiosk: bool) -> Attempt:
+    """Book a valid form's tour: the booking on success, else the reason to show.
+
+    At the kiosk (#950) the booking records ``kiosk`` as its source and never links to whoever
+    might be signed in on the lobby screen.
+    """
     data = form.cleaned_data
     target = guide_and_start(data["tour"])
+    signed_in = request.user if request.user.is_authenticated and not kiosk else None
     try:
         if target is None:
             raise TourBookingError(GONE_MESSAGE)
@@ -128,38 +140,42 @@ def _try_booking(request: HttpRequest, form: TourBookingForm) -> _Attempt:
             guide=target[0],
             starts_at=target[1],
             visitor=Visitor(data["name"], data["email"], data["phone"], data["party_size"]),
-            user=request.user if request.user.is_authenticated else None,
+            user=signed_in,
             create_account=bool(data.get("create_account")),
+            source=TourBooking.Source.KIOSK if kiosk else TourBooking.Source.WEBSITE,
         )
     except TourAlreadyBookedError:
-        return _Attempt(already=True)
+        return Attempt(already=True)
     except TourBookingError as exc:
-        return _Attempt(error=str(exc))
-    return _Attempt(redirect_to=f"{reverse('tours_public:manage', args=[booking.self_serve_token])}?booked=1")
+        return Attempt(error=str(exc))
+    return Attempt(booking=booking)
 
 
-def _post_booking(request: HttpRequest, tours: list[OpenTour], offer_account: bool) -> _Attempt:
+def post_booking(request: HttpRequest, tours: list[OpenTour], offer_account: bool, *, kiosk: bool = False) -> Attempt:
     """A booking POST, cheapest refusal first: the rate limit (one attempt per POST), the honeypot
-    (a filled one is sent back to the page and books nothing), the form, then the booking."""
+    (a filled one is sent back to the page and books nothing), the form, then the booking.
+
+    The kiosk (#950) books through here too, with ``kiosk`` set (only its views pass it, each behind
+    the kiosk cookie), spending its own limit."""
     allowed, reason = record_keyed_attempt(
-        BOOKING_SCOPE,
+        KIOSK_BOOKING_SCOPE if kiosk else BOOKING_SCOPE,
         client_rate_key(request),
-        hourly_limit=BOOKING_HOURLY_LIMIT,
-        daily_limit=BOOKING_DAILY_LIMIT,
+        hourly_limit=KIOSK_BOOKING_HOURLY_LIMIT if kiosk else BOOKING_HOURLY_LIMIT,
+        daily_limit=KIOSK_BOOKING_DAILY_LIMIT if kiosk else BOOKING_DAILY_LIMIT,
     )
     if not allowed:
         logger.warning("Tour booking rate limited (%s)", reason)
-        return _Attempt(error=RATE_LIMITED_MESSAGE)
-    posted = TourBookingForm(request.POST, max_party=MAX_SEATS, offer_account=offer_account)
+        return Attempt(error=RATE_LIMITED_MESSAGE)
+    posted = TourBookingForm(request.POST, max_party=MAX_SEATS, offer_account=offer_account, kiosk=kiosk)
     if posted.honeypot_tripped:
-        return _Attempt(redirect_to=request.path)
+        return Attempt(redirect_to=request.path)
     if posted.is_valid():
-        return _try_booking(request, posted)
+        return _try_booking(request, posted, kiosk=kiosk)
     chosen = find_tour(tours, request.POST.get("tour", ""))
     if chosen is None:
-        return _Attempt(error=GONE_MESSAGE)
-    _limit_party(posted, chosen)
-    return _Attempt(form=posted, chosen=chosen)
+        return Attempt(error=GONE_MESSAGE)
+    limit_party(posted, chosen)
+    return Attempt(form=posted, chosen=chosen)
 
 
 @tours_surface_only
@@ -167,27 +183,29 @@ def book(request: HttpRequest) -> HttpResponse:
     """The booking page (the host's root): the date strip, the day's times, and the form for the picked one.
 
     GET ``?date=YYYY-MM-DD`` picks a day and ``?tour=<key>`` a time, which opens the form. A POST
-    books through :func:`tours.booking.book_tour` (:func:`_post_booking`); a tour that filled up
+    books through :func:`tours.booking.book_tour` (:func:`post_booking`); a tour that filled up
     meanwhile shows the times again with why. While Tour Settings is not accepting bookings the
     page shows the closed message instead.
     """
     tour_settings = FacilityTourSettings.load()
     if not tour_settings.accepting_bookings:
-        return _page(request, "tours/public/closed.html", {"closed_message": tour_settings.closed_message})
-    tours = _all_open_tours()
+        return render_page(request, "tours/public/closed.html", {"closed_message": tour_settings.closed_message})
+    tours = all_open_tours()
     offer_account = _offers_account(request)
     if request.method == "POST":
-        attempt = _post_booking(request, tours, offer_account)
+        attempt = post_booking(request, tours, offer_account)
+        if attempt.booking is not None:
+            return redirect(f"{reverse('tours_public:manage', args=[attempt.booking.self_serve_token])}?booked=1")
         if attempt.redirect_to:
             return redirect(attempt.redirect_to)
         if attempt.already:
             # Token free on purpose: the booking is the visitor's to open from their own email.
-            return _page(request, "tours/public/already.html", {"message": ALREADY_BOOKED_MESSAGE})
+            return render_page(request, "tours/public/already.html", {"message": ALREADY_BOOKED_MESSAGE})
         if attempt.error:
-            tours = _all_open_tours()
+            tours = all_open_tours()
     else:
         chosen = find_tour(tours, request.GET.get("tour", ""))
-        attempt = _Attempt(chosen=chosen)
+        attempt = Attempt(chosen=chosen)
         if chosen is not None:
             attempt.form = TourBookingForm(
                 initial={"tour": chosen.key, "party_size": "1", **_prefill(request)},
@@ -196,7 +214,7 @@ def book(request: HttpRequest) -> HttpResponse:
             )
     chosen = attempt.chosen if attempt.form is not None else None
     raw_day = f"{timezone.localdate(chosen.starts_at):%Y-%m-%d}" if chosen else request.GET.get("date", "")
-    return _page(
+    return render_page(
         request,
         "tours/public/book.html",
         {
@@ -215,7 +233,7 @@ def _booking(token: str) -> TourBooking | None:
 
 
 def _invalid(request: HttpRequest) -> HttpResponse:
-    return _page(request, "tours/public/refused.html", {"reason": "invalid"}, status=404)
+    return render_page(request, "tours/public/refused.html", {"reason": "invalid"}, status=404)
 
 
 def _refusal(booking: TourBooking) -> str:
@@ -226,7 +244,7 @@ def _refusal(booking: TourBooking) -> str:
 
 
 def _refused(request: HttpRequest, booking: TourBooking, reason: str) -> HttpResponse:
-    return _page(request, "tours/public/refused.html", {"reason": reason, **_booking_context(booking)})
+    return render_page(request, "tours/public/refused.html", {"reason": reason, **_booking_context(booking)})
 
 
 def _booking_context(booking: TourBooking) -> dict[str, Any]:
@@ -243,7 +261,7 @@ def manage(request: HttpRequest, token: str) -> HttpResponse:
     booking = _booking(token)
     if booking is None:
         return _invalid(request)
-    return _page(
+    return render_page(
         request,
         "tours/public/manage.html",
         {
@@ -269,7 +287,7 @@ def reschedule(request: HttpRequest, token: str) -> HttpResponse:
         return _refused(request, booking, reason)
     tour_settings = FacilityTourSettings.load()
     if not tour_settings.accepting_bookings:
-        return _page(
+        return render_page(
             request,
             "tours/public/closed.html",
             {"closed_message": tour_settings.closed_message, **_booking_context(booking)},
@@ -289,13 +307,13 @@ def reschedule(request: HttpRequest, token: str) -> HttpResponse:
             return redirect(f"{reverse('tours_public:manage', args=[token])}?moved=1")
     tours = [
         tour
-        for tour in _all_open_tours()
+        for tour in all_open_tours()
         if tour.seats_left >= booking.party_size
         and not (tour.guide.pk == booking.guide_id and tour.starts_at == booking.starts_at)
     ]
     chosen = None if error else find_tour(tours, request.GET.get("tour", ""))
     raw_day = f"{timezone.localdate(chosen.starts_at):%Y-%m-%d}" if chosen else request.GET.get("date", "")
-    return _page(
+    return render_page(
         request,
         "tours/public/reschedule.html",
         {
@@ -324,4 +342,4 @@ def cancel(request: HttpRequest, token: str) -> HttpResponse:
         except TourLockedError as exc:
             return _refused(request, booking, exc.reason)
         return redirect(f"{reverse('tours_public:manage', args=[token])}?cancelled=1")
-    return _page(request, "tours/public/cancel.html", _booking_context(booking))
+    return render_page(request, "tours/public/cancel.html", _booking_context(booking))

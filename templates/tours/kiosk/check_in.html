@@ -1,0 +1,39 @@
+{% extends "tours/kiosk/base.html" %}
+{% comment %}
+Check in (#950, tours.kiosk_views.check_in): all three ways at once (Felix). Type the email you
+booked with, type your name, or pick your name from today's tours. Context: bookings (today's
+tours still booked, by time).
+{% endcomment %}
+{% block kiosk_content %}
+<section class="pl-kiosk__screen" data-kiosk-screen="check-in">
+  {% include "tours/kiosk/_head.html" with title="Check In for Your Tour" %}
+  <div class="pl-kiosk__ways">
+    <div class="pl-kiosk__typed">
+      <form method="post" action="{% url 'tours_kiosk:check_in' %}" class="pl-kiosk__card" autocomplete="off" data-kiosk-email-form data-pl-busy-submit data-pl-busy-label="Checking in...">
+        {% csrf_token %}
+        <div class="reg-field pl-kiosk__field">
+          <label for="kiosk-email" class="pl-kiosk__label">Type the email you booked with</label>
+          <input type="email" id="kiosk-email" name="email" required maxlength="254" autocomplete="off" spellcheck="false" autofocus>
+        </div>
+        <button type="submit" class="btn-reg pl-kiosk__submit" data-pl-busy>Check In</button>
+      </form>
+      <form method="post" action="{% url 'tours_kiosk:check_in' %}" class="pl-kiosk__card" autocomplete="off" data-kiosk-name-form data-pl-busy-submit data-pl-busy-label="Looking...">
+        {% csrf_token %}
+        <div class="reg-field pl-kiosk__field">
+          <label for="kiosk-name" class="pl-kiosk__label">Or type your name</label>
+          <input type="text" id="kiosk-name" name="name" required maxlength="200" autocomplete="off" spellcheck="false">
+        </div>
+        <button type="submit" class="btn-reg pl-kiosk__submit" data-pl-busy>Find My Tour</button>
+      </form>
+    </div>
+    <div class="pl-kiosk__card pl-kiosk__list" data-kiosk-list>
+      <h2 class="pl-kiosk__label">Or Pick Your Name</h2>
+      {% if bookings %}
+      {% include "tours/kiosk/_names.html" %}
+      {% else %}
+      <p class="pl-kiosk__empty" data-kiosk-no-names>No tours are booked for today yet. Type your email or name instead.</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

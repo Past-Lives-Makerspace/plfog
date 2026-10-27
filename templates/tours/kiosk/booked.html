@@ -1,0 +1,19 @@
+{% extends "tours/kiosk/base.html" %}
+{% comment %}
+A kiosk booking's confirmation (#950), shown once, then home after done_seconds. Never the
+visitor's Reschedule or Cancel links: those go to their email. Context: booking (None when the
+same booking was just made, with already_message), when.
+{% endcomment %}
+{% block kiosk_content %}
+<section class="pl-kiosk__screen pl-kiosk__screen--center" role="status" data-kiosk-screen="booked">
+  {% if booking %}
+  <h1 class="pl-kiosk__title pl-kiosk__title--big" data-kiosk-booked>You're Booked, {{ booking.visitor_first_name }}!</h1>
+  <p class="pl-kiosk__lead">{{ when }}, {{ booking.party_label }}.</p>
+  <p class="pl-kiosk__fine">We emailed you a confirmation with a calendar invite and links to reschedule or cancel.</p>
+  {% else %}
+  <h1 class="pl-kiosk__title" data-kiosk-already>Already Booked</h1>
+  <p class="pl-kiosk__lead">{{ already_message }}</p>
+  {% endif %}
+  <a href="{% url 'tours_kiosk:home' %}" class="btn-reg pl-kiosk__done" autofocus data-kiosk-done-button>Done</a>
+</section>
+{% endblock %}

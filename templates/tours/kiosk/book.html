@@ -1,0 +1,23 @@
+{% extends "tours/kiosk/base.html" %}
+{% comment %}
+Schedule a tour at the kiosk (#950, tours.kiosk_views.book): the website's date strip, times and
+booking form (tours/public/_picker.html, tours/public/_book_form.html), or the closed message.
+Context: picker, chosen, form, error, page_url, closed_message, support_email.
+{% endcomment %}
+{% block kiosk_content %}
+<section class="pl-kiosk__screen" data-kiosk-screen="book">
+  {% include "tours/kiosk/_head.html" with title="Schedule a Tour" %}
+  <div class="pl-kiosk__card pl-tourpub" data-tour-page="kiosk-book">
+    {% if closed_message %}
+    <p class="pl-tourpub__lead" data-tour-closed>{{ closed_message }}</p>
+    {% else %}
+    {% if error %}<div class="reg-error-block pl-tourpub__notice" role="alert" data-tour-error>{{ error }}</div>{% endif %}
+    {% if form %}
+    {% include "tours/public/_book_form.html" with kiosk=True %}
+    {% else %}
+    {% include "tours/public/_picker.html" %}
+    {% endif %}
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "tours/kiosk/base.html" %}
+{% comment %}
+No tour today matched (#950), or too many tries from this screen (limited): try again, or
+schedule a tour. Context: limited.
+{% endcomment %}
+{% block kiosk_content %}
+<section class="pl-kiosk__screen pl-kiosk__screen--center" data-kiosk-screen="{% if limited %}limited{% else %}no-match{% endif %}">
+  {% if limited %}
+  <h1 class="pl-kiosk__title">Too Many Tries</h1>
+  <p class="pl-kiosk__lead">This screen needs a short break. Please find someone from Past Lives to check you in.</p>
+  {% else %}
+  <h1 class="pl-kiosk__title">We Could Not Find a Tour Today</h1>
+  <p class="pl-kiosk__lead">Check the spelling, or try the email you booked with.</p>
+  {% endif %}
+  <div class="pl-kiosk__choices pl-kiosk__choices--buttons">
+    <a href="{% url 'tours_kiosk:check_in' %}" class="pl-kiosk__choice pl-kiosk__choice--primary" autofocus data-kiosk-try-again>
+      <span class="pl-kiosk__choice-title">Try Again</span>
+    </a>
+    <a href="{% url 'tours_kiosk:book' %}" class="pl-kiosk__choice" data-kiosk-go="book">
+      <span class="pl-kiosk__choice-title">Schedule a Tour</span>
+    </a>
+  </div>
+</section>
+{% endblock %}

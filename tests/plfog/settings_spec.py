@@ -187,6 +187,7 @@ def describe_csrf_trusted_origins():
                 assert settings_module.CSRF_TRUSTED_ORIGINS == [
                     "https://example.com",
                     "https://other.com",
+                    "https://tours.pastlives.space",
                 ]
 
         def it_handles_single_origin(monkeypatch):
@@ -199,10 +200,10 @@ def describe_csrf_trusted_origins():
                         "SENTRY_DSN": None,
                     },
                 )
-                assert settings_module.CSRF_TRUSTED_ORIGINS == ["https://example.com"]
+                assert settings_module.CSRF_TRUSTED_ORIGINS == ["https://example.com", "https://tours.pastlives.space"]
 
     def describe_when_env_is_unset():
-        def it_returns_empty_list(monkeypatch):
+        def it_holds_only_the_tours_origin(monkeypatch):
             with patch("sentry_sdk.init"):
                 settings_module = _reload_settings(
                     monkeypatch,
@@ -212,7 +213,7 @@ def describe_csrf_trusted_origins():
                         "SENTRY_DSN": None,
                     },
                 )
-                assert settings_module.CSRF_TRUSTED_ORIGINS == []
+                assert settings_module.CSRF_TRUSTED_ORIGINS == ["https://tours.pastlives.space"]
 
 
 def describe_debug_false():
@@ -356,6 +357,7 @@ def describe_allowed_hosts():
                 "api.example.com",
                 "book.pastlives.space",
                 "calendar.pastlives.space",
+                "tours.pastlives.space",
             ]
 
     def it_defaults_to_localhost(monkeypatch):
@@ -374,6 +376,7 @@ def describe_allowed_hosts():
                 "127.0.0.1",
                 "book.pastlives.space",
                 "calendar.pastlives.space",
+                "tours.pastlives.space",
             ]
 
     def describe_render_external_hostname():
@@ -406,6 +409,7 @@ def describe_allowed_hosts():
                     "example.com",
                     "book.pastlives.space",
                     "calendar.pastlives.space",
+                    "tours.pastlives.space",
                 ]
 
         def it_appends_to_default_hosts_when_only_render_hostname_is_set(monkeypatch):
@@ -425,6 +429,7 @@ def describe_allowed_hosts():
                     "plfog.onrender.com",
                     "book.pastlives.space",
                     "calendar.pastlives.space",
+                    "tours.pastlives.space",
                 ]
 
 

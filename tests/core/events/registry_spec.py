@@ -94,6 +94,7 @@ _BRAND_NEW_KEYS = {
     "tour.booked",
     "tour.visitor_changed",
     "tour.visitor_update",
+    "tour.checked_in",
     "guild.needs_attention",
 }
 

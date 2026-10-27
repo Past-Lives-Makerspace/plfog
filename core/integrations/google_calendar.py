@@ -1,7 +1,6 @@
 """Google Calendar API client + push service (FOG → Google, one-way).
 
-Mirrors the deferred-integration pattern of :mod:`core.integrations.mailchimp` /
-:mod:`core.integrations.simplybook`: build via
+Mirrors the deferred-integration pattern of :mod:`core.integrations.mailchimp`: build via
 :meth:`GoogleCalendarClient.from_settings`, check ``.enabled``, and **never raise to
 the caller** — a Google outage records a ``sync_error`` on the event and the FOG save
 proceeds regardless.
