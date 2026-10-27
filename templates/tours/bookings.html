@@ -1,0 +1,61 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Tours: {% if tab == "past" %}Past{% else %}Upcoming{% endif %}{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/tours.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+The Tours page's Upcoming and Past tabs (#949, tours.views.tour_upcoming and tour_past). Both list
+TourBooking rows themselves (never the carved tours): a guide their own, an admin every guide's
+with a guide filter. Upcoming is soonest first with Reschedule (the modal below) and Cancel (a
+confirm with a message to the visitor); Past is newest first with Attended and No Show. Both paged.
+
+Context: tab, is_admin, page, bookings, filter_guides, filter_guide, base_params.
+{% endcomment %}
+{% include "tours/partials/_page_top.html" %}
+
+{% if is_admin %}
+<div class="hub-card pl-tours-panel" data-tours-filter>
+  <form method="get" action="{% if tab == 'past' %}{% url 'tours:past' %}{% else %}{% url 'tours:upcoming' %}{% endif %}" class="pl-tours-picker">
+    <div class="pl-form-group pl-tours-picker__field">
+      <label for="tours-guide-filter" class="pl-form-label">Guide</label>
+      <select id="tours-guide-filter" name="guide" class="pl-tours-input--text" onchange="this.form.requestSubmit()">
+        <option value=""{% if not filter_guide %} selected{% endif %}>All guides</option>
+        {% for guide in filter_guides %}
+        <option value="{{ guide.pk }}"{% if filter_guide and guide.pk == filter_guide.pk %} selected{% endif %}>{{ guide.display_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-picker__go">Show</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="pl-tours-bookings" data-tours-list="{{ tab }}">
+  {% if bookings %}
+  <ul class="pl-tours-bookings__list">
+    {% for booking in bookings %}
+    {% include "tours/partials/_booking_row.html" %}
+    {% endfor %}
+  </ul>
+  <div class="pl-tours-bookings__pages">
+    {% include "components/table_pagination.html" with page=page base_params=base_params %}
+  </div>
+  {% else %}
+  <div class="hub-card pl-tours-panel pl-tours-bookings__empty" data-tours-empty="{{ tab }}">
+    {% if tab == "past" %}
+    <p class="pl-tours-bookings__empty-title">No past tours{% if filter_guide %} for {{ filter_guide.display_name }}{% endif %} yet.</p>
+    <p class="hub-text-muted pl-tours-bookings__empty-text">A tour shows up here once it starts, ready to mark attended or no show.</p>
+    {% else %}
+    <p class="pl-tours-bookings__empty-title">No tours coming up{% if filter_guide %} for {{ filter_guide.display_name }}{% endif %}.</p>
+    <p class="hub-text-muted pl-tours-bookings__empty-text">Visitors book the times in {% if is_admin %}each guide's{% else %}your{% endif %} tour hours on the tours site. <a href="{% url 'tours:hours' %}" data-tours-empty-hours>Set tour hours on My Hours</a>.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% if tab == "upcoming" %}
+{% include "components/modal.html" with modal_id="tour-reschedule" modal_title="Reschedule Tour" modal_size="lg" modal_body="Loading open times..." %}
+{% endif %}
+{% endblock %}

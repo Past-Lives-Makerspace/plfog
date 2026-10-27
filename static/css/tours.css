@@ -208,3 +208,179 @@
     font-size: 0.875rem;
     max-width: 46rem;
 }
+
+/* The Upcoming and Past tabs (#949, tours/bookings.html): one card per booking, its time and status
+   on the first line, the visitor and their contact under it, the actions last. Cards stack the
+   same at every width, so nothing scrolls sideways on a phone. */
+.pl-tours-bookings {
+    margin-top: 1.5rem;
+}
+.pl-tours-bookings__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.pl-tours-bookings__pages {
+    margin-top: 1rem;
+}
+.pl-tours-bookings__empty {
+    margin-top: 0;
+}
+.pl-tours-bookings__empty-title {
+    margin: 0;
+    color: var(--hub-text);
+    font-weight: 600;
+}
+.pl-tours-bookings__empty-text {
+    margin: 0.5rem 0 0;
+    font-size: 0.875rem;
+}
+.pl-tours-booking {
+    padding: 1rem 1.25rem;
+}
+.pl-tours-booking__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.pl-tours-booking__when {
+    color: var(--hub-text);
+    font-family: "Lato", sans-serif;
+    font-weight: 700;
+}
+.pl-tours-booking__visitor {
+    margin: 0.5rem 0 0;
+    color: var(--hub-text);
+    overflow-wrap: anywhere;
+}
+.pl-tours-booking__name {
+    font-weight: 600;
+}
+.pl-tours-booking__contact {
+    margin: 0.25rem 0 0;
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+}
+.pl-tours-booking__sep {
+    margin: 0 0.5rem;
+    color: var(--hub-text-muted);
+}
+.pl-tours-booking__meta {
+    margin: 0.25rem 0 0;
+    font-size: 0.8125rem;
+}
+.pl-tours-booking__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.75rem;
+}
+
+/* The Cancel Tour confirm's sentence, clear of the note field under it. */
+.pl-tours-confirm-text {
+    margin: 0 0 1.25rem;
+}
+
+/* The Reschedule modal: the admin's guide select, the date strip (wrapping, never scrolling
+   sideways), the day's times, and the chosen time over the message and the actions. */
+.pl-tours-move__guide {
+    margin-bottom: 1rem;
+}
+.pl-tours-move__error {
+    margin: 0 0 1rem;
+}
+.pl-tours-move__section + .pl-tours-move__section {
+    margin-top: 1.25rem;
+}
+.pl-tours-move__heading {
+    margin: 0 0 0.5rem;
+}
+.pl-tours-move__days,
+.pl-tours-move__times {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.pl-tours-move__day,
+.pl-tours-move__time {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 8px;
+    background: var(--hub-surface);
+    color: var(--hub-text);
+    font: inherit;
+    cursor: pointer;
+    line-height: 1.2;
+}
+.pl-tours-move__day {
+    align-items: center;
+    min-width: 4rem;
+    padding: 0.5rem;
+}
+.pl-tours-move__time {
+    align-items: flex-start;
+    gap: 0.25rem;
+    min-width: 8.5rem;
+    padding: 0.75rem 1rem;
+}
+.pl-tours-move__day:hover,
+.pl-tours-move__time:hover,
+.pl-tours-move__day:focus-visible,
+.pl-tours-move__time:focus-visible {
+    border-color: var(--color-tuscan-yellow);
+}
+.pl-tours-move__day--on,
+.pl-tours-move__day--on:hover {
+    background: var(--color-tuscan-yellow);
+    border-color: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+}
+.pl-tours-move__day-name,
+.pl-tours-move__day-month {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.pl-tours-move__day-num {
+    font-family: "Lato", sans-serif;
+    font-size: 1.25rem;
+    font-weight: 900;
+}
+.pl-tours-move__time-at {
+    font-weight: 700;
+}
+.pl-tours-move__time-seats {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+.pl-tours-move__empty {
+    margin: 0;
+}
+.pl-tours-move__chosen {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    background: var(--hub-surface);
+}
+.pl-tours-move__chosen-when {
+    margin: 0;
+    color: var(--hub-text);
+    font-weight: 600;
+}
+.pl-tours-move__form {
+    margin-top: 1.25rem;
+}

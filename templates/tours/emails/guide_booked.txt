@@ -1,6 +1,8 @@
-New tour booked
+{% if actor_name %}Tour moved to you
 
-{{ booking.visitor_name }} booked a tour for {{ people }}.
+{{ actor_name }} moved {{ booking.visitor_name }}'s tour for {{ people }} to you. The visitor has been emailed.{% else %}New tour booked
+
+{{ booking.visitor_name }} booked a tour for {{ people }}.{% endif %}
 
   When: {{ when }}
   Visitor: {{ booking.visitor_email }}{% if booking.visitor_phone %}, {{ booking.visitor_phone }}{% endif %}

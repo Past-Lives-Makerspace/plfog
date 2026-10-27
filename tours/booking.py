@@ -1,6 +1,6 @@
-"""Booking, moving and cancelling facility tours (#948).
+"""Booking, moving and cancelling facility tours (#948), and the staff's moves, cancels and marks (#949).
 
-The one place a :class:`~tours.models.TourBooking` is made, moved or cancelled by a visitor.
+The one place a :class:`~tours.models.TourBooking` is made, moved, cancelled or marked.
 Each takes the row lock :func:`tours.availability.open_tour_at` holds for the tour it lands on,
 inside ``transaction.atomic()``, before counting seats, so two visitors racing for the last seat
 cannot both get it: the second one's count includes the first one's booking and is refused.
@@ -8,6 +8,12 @@ cannot both get it: the second one's count includes the first one's booking and 
 What happens next (the visitor's email with its calendar invite, the guide's email, bell and
 push, and :data:`tours.signals.tour_booking_changed` for part 5's Google sync) runs only once
 the transaction has committed (:func:`_after_commit`).
+
+Staff (a Tour Guide or an admin, #949) move and cancel through the same locks with three
+differences: neither the cancel cutoff nor the minimum notice binds them (a tour that has not
+started yet is theirs to change), the visitor's email may carry the staff member's message, and
+the guide hears about it only when someone else acted. Who may act on which booking, and move
+it to whose tour, is the view's check (``tours.views``).
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 from django.db import transaction
 from django.utils import timezone
 
+from core.models import UserProfile
 from core.services.guest_account import ensure_guest_account, find_user_for_email
 from membership.models import Member
 from tours import signals
@@ -79,6 +86,14 @@ class TourLockedError(TourBookingError):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+#: What staff read when a booking changed under them (#949), by ``TourLockedError.reason``.
+STAFF_LOCKED_MESSAGES: dict[str, str] = {
+    "cancelled": "This tour was already cancelled.",
+    "past": "This tour has already started, so it can no longer be moved or cancelled.",
+    "upcoming": "This tour has not started yet. Mark it after it starts.",
+}
 
 
 @dataclass(frozen=True)
@@ -210,20 +225,33 @@ def reschedule_tour(
     moment = now or timezone.now()
     with transaction.atomic():
         locked = _locked_for_change(booking, moment)
-        tour = open_tour_at(guide, starts_at, lock=True, now=moment)
-        if tour is None:
-            raise TourUnavailableError(GONE_MESSAGE)
-        if locked.guide_id == guide.pk and locked.starts_at == tour.starts_at:
-            raise TourUnavailableError(SAME_TIME_MESSAGE)
-        if tour.seats_left < locked.party_size:
-            raise TourFullError(tour.seats_left)
-        previous_guide, previous_starts_at = locked.guide, locked.starts_at
-        locked.guide = guide
-        locked.starts_at = tour.starts_at
-        locked.ends_at = tour.ends_at
-        locked.sequence += 1
-        locked.save(update_fields=["guide", "starts_at", "ends_at", "sequence"])
-        _after_commit(locked, signals.MOVED, previous_guide=previous_guide, previous_starts_at=previous_starts_at)
+        return _move(locked, guide=guide, starts_at=starts_at, now=moment, staff=False)
+
+
+def _move(
+    locked: TourBooking,
+    *,
+    guide: Member,
+    starts_at: datetime,
+    now: datetime,
+    staff: bool,
+    **extra: Any,
+) -> TourBooking:
+    """Move a locked booking onto the guide's tour at ``starts_at``, inside the caller's transaction."""
+    tour = open_tour_at(guide, starts_at, lock=True, now=now, staff=staff)
+    if tour is None:
+        raise TourUnavailableError(GONE_MESSAGE)
+    if locked.guide_id == guide.pk and locked.starts_at == tour.starts_at:
+        raise TourUnavailableError(SAME_TIME_MESSAGE)
+    if tour.seats_left < locked.party_size:
+        raise TourFullError(tour.seats_left)
+    previous_guide, previous_starts_at = locked.guide, locked.starts_at
+    locked.guide = guide
+    locked.starts_at = tour.starts_at
+    locked.ends_at = tour.ends_at
+    locked.sequence += 1
+    locked.save(update_fields=["guide", "starts_at", "ends_at", "sequence"])
+    _after_commit(locked, signals.MOVED, previous_guide=previous_guide, previous_starts_at=previous_starts_at, **extra)
     return locked
 
 
@@ -243,3 +271,114 @@ def cancel_tour_by_visitor(booking: TourBooking, *, now: datetime | None = None)
         locked.save(update_fields=["status", "cancelled_at", "cancelled_by", "sequence"])
         _after_commit(locked, signals.CANCELLED)
     return locked
+
+
+def _locked_for_staff(booking: TourBooking, now: datetime) -> TourBooking:
+    """The booking's row, locked, after checking it is still booked and has not started (#949).
+
+    No cancel cutoff: staff may change a tour right up to its start.
+    """
+    locked = TourBooking.objects.select_for_update().get(pk=booking.pk)
+    if locked.status == TourBooking.Status.CANCELLED:
+        raise TourLockedError("cancelled")
+    if locked.status != TourBooking.Status.BOOKED or locked.starts_at <= now:
+        raise TourLockedError("past")
+    return locked
+
+
+def reschedule_tour_by_staff(
+    booking: TourBooking,
+    *,
+    guide: Member,
+    starts_at: datetime,
+    actor: User,
+    message: str = "",
+    now: datetime | None = None,
+) -> TourBooking:
+    """A Tour Guide or an admin moves the booking to the guide's tour at ``starts_at`` (#949).
+
+    The visitor's locks and seat count (:func:`reschedule_tour`), with neither the cancel cutoff
+    nor the minimum notice: any tour that has not started yet. Another guide's tour is a
+    reassignment, which only an admin may make (the view checks). The visitor gets the moved
+    email with ``message``; each guide who is not ``actor`` hears about it.
+
+    Raises:
+        TourLockedError: the booking is cancelled or has started.
+        TourUnavailableError: no tour then, or it is the booking's own tour.
+        TourFullError: the tour has fewer seats left than the party.
+    """
+    moment = now or timezone.now()
+    with transaction.atomic():
+        locked = _locked_for_staff(booking, moment)
+        return _move(
+            locked,
+            guide=guide,
+            starts_at=starts_at,
+            now=moment,
+            staff=True,
+            actor=actor,
+            staff_message=message.strip(),
+        )
+
+
+def cancel_tour_by_staff(
+    booking: TourBooking, *, actor: User, message: str = "", now: datetime | None = None
+) -> TourBooking:
+    """A Tour Guide or an admin cancels the booking, freeing its seats (#949).
+
+    No cancel cutoff. The visitor gets the cancelled email with ``message``; the guide hears
+    about it when someone else cancelled.
+
+    Raises:
+        TourLockedError: the booking is cancelled or has started.
+    """
+    moment = now or timezone.now()
+    with transaction.atomic():
+        locked = _locked_for_staff(booking, moment)
+        locked.status = TourBooking.Status.CANCELLED
+        locked.cancelled_at = moment
+        locked.cancelled_by = actor
+        locked.sequence += 1
+        locked.save(update_fields=["status", "cancelled_at", "cancelled_by", "sequence"])
+        _after_commit(locked, signals.CANCELLED, actor=actor, staff_message=message.strip())
+    return locked
+
+
+#: What a tour that has started may be marked (#949).
+OUTCOMES: tuple[str, ...] = (TourBooking.Status.ATTENDED, TourBooking.Status.NO_SHOW)
+
+
+def mark_tour_outcome(booking: TourBooking, outcome: str, *, now: datetime | None = None) -> TourBooking:
+    """Mark a tour that has started attended or no show (#949); either can be changed later.
+
+    Attended stamps the visitor's ``UserProfile.completed_tour_at`` (the tour's start) when the
+    booking is linked to an account whose stamp is still empty; an earlier stamp is never
+    overwritten. No show never stamps, and changing attended to no show leaves a stamp as it is.
+    Nobody is emailed.
+
+    Raises:
+        ValueError: ``outcome`` is not attended or no show.
+        TourLockedError: the booking is cancelled, or the tour has not started yet.
+    """
+    if outcome not in OUTCOMES:
+        raise ValueError(f"Unknown tour outcome '{outcome}'")
+    moment = now or timezone.now()
+    with transaction.atomic():
+        locked = TourBooking.objects.select_for_update().get(pk=booking.pk)
+        if locked.status == TourBooking.Status.CANCELLED:
+            raise TourLockedError("cancelled")
+        if locked.starts_at > moment:
+            raise TourLockedError("upcoming")
+        locked.status = outcome
+        locked.save(update_fields=["status"])
+        if outcome == TourBooking.Status.ATTENDED and locked.user is not None:
+            _stamp_completed_tour(locked.user, locked.starts_at)
+    return locked
+
+
+def _stamp_completed_tour(user: User, toured_at: datetime) -> None:
+    """Stamp the visitor's ``completed_tour_at`` with the tour's start, only when it is still empty."""
+    profile, _created = UserProfile.objects.get_or_create(user=user)
+    if profile.completed_tour_at is None:
+        profile.completed_tour_at = toured_at
+        profile.save(update_fields=["completed_tour_at"])

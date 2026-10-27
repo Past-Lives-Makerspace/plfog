@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import timedelta
 from functools import wraps
 from typing import Any
 
@@ -26,7 +26,7 @@ from django.utils import timezone
 
 from core.abuse_limits import client_rate_key, record_keyed_attempt
 from membership.models import Member
-from tours.availability import OpenTour, open_tours, parse_tour_key
+from tours.availability import OpenTour, open_tours
 from tours.booking import (
     ALREADY_BOOKED_MESSAGE,
     TourAlreadyBookedError,
@@ -41,6 +41,7 @@ from tours.booking import (
 from tours.forms import TourBookingForm
 from tours.models import MAX_HORIZON_DAYS, MAX_SEATS, TOUR_ADDRESS, FacilityTourSettings, TourBooking
 from tours.notify import guide_first_name, support_email, when_label
+from tours.picker import build_picker, find_tour, guide_and_start
 
 logger = logging.getLogger(__name__)
 
@@ -67,68 +68,10 @@ def tours_surface_only(view: View) -> View:
     return wrapped
 
 
-@dataclass(frozen=True)
-class DayChoice:
-    """One day in the date strip."""
-
-    day: date
-    selected: bool
-
-
-@dataclass(frozen=True)
-class TimeChoice:
-    """One tour among the picked day's times. ``guide_name`` is set when two guides share the time."""
-
-    tour: OpenTour
-    guide_name: str
-
-
-@dataclass(frozen=True)
-class Picker:
-    """The date strip and the picked day's times."""
-
-    days: list[DayChoice]
-    day: date | None
-    times: list[TimeChoice]
-
-
 def _all_open_tours() -> list[OpenTour]:
     """Every tour visitors can book now (``open_tours`` clamps the range to the horizon and notice)."""
     today = timezone.localdate()
     return open_tours(today, today + timedelta(days=MAX_HORIZON_DAYS))
-
-
-def _picker(tours: list[OpenTour], raw_day: str) -> Picker:
-    """The days that have a tour, ``raw_day`` (``YYYY-MM-DD``) picked when it is one of them, else the first."""
-    by_day: dict[date, list[OpenTour]] = {}
-    for tour in tours:
-        by_day.setdefault(timezone.localdate(tour.starts_at), []).append(tour)
-    try:
-        wanted: date | None = date.fromisoformat(raw_day)
-    except ValueError:
-        wanted = None
-    picked = wanted if wanted in by_day else next(iter(by_day), None)
-    day_tours = by_day.get(picked, []) if picked is not None else []
-    starts = [tour.starts_at for tour in day_tours]
-    times = [
-        TimeChoice(tour=tour, guide_name=guide_first_name(tour.guide) if starts.count(tour.starts_at) > 1 else "")
-        for tour in day_tours
-    ]
-    return Picker(days=[DayChoice(day=day, selected=day == picked) for day in by_day], day=picked, times=times)
-
-
-def _find(tours: list[OpenTour], key: str) -> OpenTour | None:
-    """The tour ``key`` names among ``tours``, or None."""
-    return next((tour for tour in tours if tour.key == key), None)
-
-
-def _guide_for(key: str) -> tuple[Member, datetime] | None:
-    """The guide and UTC start a posted tour key names, or None for a key that names no member."""
-    parsed = parse_tour_key(key)
-    if parsed is None:
-        return None
-    guide = Member.objects.filter(pk=parsed[0]).first()
-    return (guide, parsed[1]) if guide is not None else None
 
 
 def _offers_account(request: HttpRequest) -> bool:
@@ -177,7 +120,7 @@ class _Attempt:
 def _try_booking(request: HttpRequest, form: TourBookingForm) -> _Attempt:
     """Book a valid form's tour: the booking's page on success, else the reason to show."""
     data = form.cleaned_data
-    target = _guide_for(data["tour"])
+    target = guide_and_start(data["tour"])
     try:
         if target is None:
             raise TourBookingError(GONE_MESSAGE)
@@ -212,7 +155,7 @@ def _post_booking(request: HttpRequest, tours: list[OpenTour], offer_account: bo
         return _Attempt(redirect_to=request.path)
     if posted.is_valid():
         return _try_booking(request, posted)
-    chosen = _find(tours, request.POST.get("tour", ""))
+    chosen = find_tour(tours, request.POST.get("tour", ""))
     if chosen is None:
         return _Attempt(error=GONE_MESSAGE)
     _limit_party(posted, chosen)
@@ -243,7 +186,7 @@ def book(request: HttpRequest) -> HttpResponse:
         if attempt.error:
             tours = _all_open_tours()
     else:
-        chosen = _find(tours, request.GET.get("tour", ""))
+        chosen = find_tour(tours, request.GET.get("tour", ""))
         attempt = _Attempt(chosen=chosen)
         if chosen is not None:
             attempt.form = TourBookingForm(
@@ -257,7 +200,7 @@ def book(request: HttpRequest) -> HttpResponse:
         request,
         "tours/public/book.html",
         {
-            "picker": _picker(tours, raw_day),
+            "picker": build_picker(tours, raw_day),
             "chosen": chosen,
             "form": attempt.form,
             "error": attempt.error,
@@ -333,7 +276,7 @@ def reschedule(request: HttpRequest, token: str) -> HttpResponse:
         )
     error = ""
     if request.method == "POST":
-        target = _guide_for(request.POST.get("tour", ""))
+        target = guide_and_start(request.POST.get("tour", ""))
         try:
             if target is None:
                 raise TourBookingError(GONE_MESSAGE)
@@ -350,14 +293,14 @@ def reschedule(request: HttpRequest, token: str) -> HttpResponse:
         if tour.seats_left >= booking.party_size
         and not (tour.guide.pk == booking.guide_id and tour.starts_at == booking.starts_at)
     ]
-    chosen = None if error else _find(tours, request.GET.get("tour", ""))
+    chosen = None if error else find_tour(tours, request.GET.get("tour", ""))
     raw_day = f"{timezone.localdate(chosen.starts_at):%Y-%m-%d}" if chosen else request.GET.get("date", "")
     return _page(
         request,
         "tours/public/reschedule.html",
         {
             **_booking_context(booking),
-            "picker": _picker(tours, raw_day),
+            "picker": build_picker(tours, raw_day),
             "chosen": chosen,
             "chosen_when": when_label(chosen.starts_at) if chosen else "",
             "error": error,

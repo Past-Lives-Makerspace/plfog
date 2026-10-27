@@ -13,7 +13,7 @@
 | `kiln/` | Ceramics Guild kiln tickets (#691), a tab on that guild's page: tickets with photos and flags, loading, unloading with ready for pickup notices, the kiln log, the clay and glaze lists; see `kiln/AGENTS.md` |
 | `polls/` | Polls (#708, back in #925): one site-wide poll on Home while open, one per guild on its page's Polls tab, Past Polls at `/polls/`, Admin Tools > Polls at `/polls/manage/`; never in the Spotlight. See `polls/AGENTS.md` |
 | `hq/` | The Holiday Bizarre HQ (Track C): one hub page per event with a hero band, goal chips and nine door cards an admin opens to the public, to members or to named people; behind the `holiday_bizarre` switch; `manage.py seed_holiday_bizarre --event <pk>` writes Lee's hub, doors, goals and shifts from `hq/holiday_bizarre.py`; see `hq/AGENTS.md` |
-| `tours/` | Facility tours (#947, replacing SimplyBook; not the in-app guided tours in `core/tours.py`): Tour Settings, each Tour Guide's weekly tour hours and days off, bookings, and open tour times computed live (`tours/availability.py`); the visitor booking site on tours.pastlives.space with its emails and reminder (#948, `tours/booking.py`, `tours/notify.py`); see `tours/AGENTS.md` |
+| `tours/` | Facility tours (#947, replacing SimplyBook; not the in-app guided tours in `core/tours.py`): Tour Settings, each Tour Guide's weekly tour hours and days off, bookings, and open tour times computed live (`tours/availability.py`); the visitor booking site on tours.pastlives.space with its emails and reminder (#948, `tours/booking.py`, `tours/notify.py`); the staff's Upcoming and Past tabs with reschedule, cancel and attendance (#949); see `tours/AGENTS.md` |
 | `plfog/` | Django project: settings, urls, wsgi, auto_admin, adapters |
 
 Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
@@ -122,7 +122,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 /classes/admin/registrations/export/  Registrations CSV download (admins only)
 /account/                       Book CMS account area (classes.account)
 /hq/                            The Holiday Bizarre HQ: 302 to the open hub's page (/hq/<slug>/, public); /hq/new/, /hq/<slug>/edit/ and /hq/<slug>/cards/<pk>/edit/ for admins
-/facility-tours/                The Tours page, opened from the Tools page's Tours card (Tour Guides and admins): My Hours (weekly tour hours and days off) and, for admins, Settings at /facility-tours/settings/
+/facility-tours/                The Tours page, opened from the Tools page's Tours card (Tour Guides and admins): Upcoming (here), Past at /facility-tours/past/, My Hours (weekly tour hours and days off) at /facility-tours/hours/ and, for admins, Settings at /facility-tours/settings/
 /tour/                          The visitor's tour pages, ONLY on tours.pastlives.space (TOURS_HOSTS), whose root is the booking page; /tour/b/<token>/ (and reschedule/, cancel/) from the emails
 /kiln/                          Kiln tickets (a guest's home; members land on the Ceramics Guild page's ?tab=kiln; /kiln/load/, /kiln/unload/, /kiln/log/, /kiln/lists/ for the crew and admins)
 /tools/                         Admin Tools for admins, Guild Tools for guild officers, leads and staff (#912, #921; hub/guild_tools.py)

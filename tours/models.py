@@ -348,6 +348,19 @@ class TourBookingQuerySet(models.QuerySet["TourBooking"]):
         # instant read back from the database (PEP 495), so callers key their tours in UTC too.
         return {(row["guide_id"], row["starts_at"].astimezone(UTC)): int(row["total"]) for row in rows}
 
+    def upcoming(self, now: datetime) -> TourBookingQuerySet:
+        """The Tours page's Upcoming tab (#949): booked tours that have not started, soonest first."""
+        return self.filter(status=TourBooking.Status.BOOKED, starts_at__gt=now).order_by("starts_at", "pk")
+
+    def past(self, now: datetime) -> TourBookingQuerySet:
+        """The Tours page's Past tab (#949): tours that have started and were not cancelled, newest first.
+
+        Booked ones are waiting to be marked attended or no show.
+        """
+        return (
+            self.filter(starts_at__lte=now).exclude(status=TourBooking.Status.CANCELLED).order_by("-starts_at", "-pk")
+        )
+
 
 class TourBooking(models.Model):
     """One party booked on one guide's tour.
@@ -364,6 +377,10 @@ class TourBooking(models.Model):
         CANCELLED = "cancelled", "Cancelled"
         ATTENDED = "attended", "Attended"
         NO_SHOW = "no_show", "No show"
+
+    class Source(models.TextChoices):
+        WEBSITE = "website", "Website"
+        KIOSK = "kiosk", "Kiosk"
 
     #: The statuses that take seats on the tour.
     HOLDS_SEATS: ClassVar[tuple[str, ...]] = (Status.BOOKED, Status.ATTENDED)
@@ -421,6 +438,12 @@ class TourBooking(models.Model):
             "calendar replaces the copy it holds (the UID never changes)."
         ),
     )
+    source = models.CharField(
+        max_length=12,
+        choices=Source.choices,
+        default=Source.WEBSITE,
+        help_text="How it was booked: on the tours website, or at the front desk kiosk (#950).",
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When it was booked.")
 
     objects = TourBookingQuerySet.as_manager()
@@ -458,6 +481,28 @@ class TourBooking(models.Model):
     def visitor_first_name(self) -> str:
         """The first word of the name the visitor booked under, for a greeting."""
         return self.visitor_name.split()[0] if self.visitor_name.strip() else self.visitor_name
+
+    @property
+    def party_label(self) -> str:
+        """``1 person`` or ``3 people``."""
+        return "1 person" if self.party_size == 1 else f"{self.party_size} people"
+
+    @property
+    def visitor_phone_href(self) -> str:
+        """The phone number as a ``tel:`` link wants it: digits, and a leading plus when typed."""
+        digits = "".join(char for char in self.visitor_phone if char.isdigit())
+        return f"+{digits}" if self.visitor_phone.strip().startswith("+") else digits
+
+    @property
+    def status_badge(self) -> str:
+        """The ``pl-status-badge`` tone for this status on the Tours page (#949)."""
+        tones = {
+            self.Status.BOOKED: "muted",
+            self.Status.ATTENDED: "ok",
+            self.Status.NO_SHOW: "fail",
+            self.Status.CANCELLED: "muted",
+        }
+        return tones[self.Status(self.status)]
 
     def self_serve_refusal(self, *, now: datetime, cancel_cutoff_hours: int) -> str:
         """Why the visitor may not move or cancel this tour from the email links, or "" when they may.

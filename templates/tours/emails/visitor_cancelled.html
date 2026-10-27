@@ -2,7 +2,8 @@
 {% block content %}
 <p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
 <p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">Your tour is cancelled</p>
-<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">We cancelled this tour and let your guide know.</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">{% if by_staff %}We are sorry, we had to cancel this tour.{% else %}We cancelled this tour and let your guide know.{% endif %}</p>
+{% include "tours/emails/_staff_message.html" %}
 {% include "tours/emails/_tour.html" %}
 <p style="margin: 0 0 16px; font-size: 13px; color: #55697a; line-height: 1.6;">The attached calendar update takes it off your calendar.</p>
 <div style="text-align: center; margin: 24px 0 0;">

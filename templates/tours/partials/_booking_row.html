@@ -1,0 +1,40 @@
+{% comment %}
+One booking on the Tours page's Upcoming or Past tab (#949): when, status, the visitor with their
+party, email and phone (tap to mail or call), the guide and how it was booked, then the row's
+actions. Upcoming: Reschedule (loads the modal's body) and Cancel Tour (a confirm with an optional
+message to the visitor). Past: Attended and No Show, either changeable, posted over htmx so the
+row comes back in its new state (tours.views.tour_booking_mark).
+
+Context: booking, tab ("upcoming" or "past"), is_admin.
+{% endcomment %}
+{% with pks=booking.pk|stringformat:"s" %}
+<li class="hub-card pl-tours-booking" data-tour-booking="{{ booking.pk }}">
+  <div class="pl-tours-booking__head">
+    <span class="pl-tours-booking__when" data-tour-booking-when>{{ booking.starts_at|date:"D, M j" }} · {{ booking.starts_at|time:"g:i A" }} to {{ booking.ends_at|time:"g:i A" }}</span>
+    <span class="pl-status-badge pl-status-badge--{{ booking.status_badge }}" data-tour-booking-status="{{ booking.status }}">{% if tab == "past" and booking.status == "booked" %}Not Marked{% else %}{{ booking.get_status_display }}{% endif %}</span>
+  </div>
+  <p class="pl-tours-booking__visitor"><span class="pl-tours-booking__name">{{ booking.visitor_name }}</span> · {{ booking.party_label }}</p>
+  <p class="pl-tours-booking__contact">
+    <a href="mailto:{{ booking.visitor_email }}" data-tour-booking-email>{{ booking.visitor_email }}</a>{% if booking.visitor_phone %}<span class="pl-tours-booking__sep" aria-hidden="true">·</span><a href="tel:{{ booking.visitor_phone_href }}" data-tour-booking-phone>{{ booking.visitor_phone }}</a>{% endif %}
+  </p>
+  <p class="hub-text-muted pl-tours-booking__meta">{% if booking.guide %}Guide: {{ booking.guide.display_name }}{% else %}No guide assigned{% endif %} · Booked on the {{ booking.get_source_display|lower }}</p>
+  {% if tab == "upcoming" %}
+  <div class="pl-tours-booking__actions">
+    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+            hx-get="{% url 'tours:booking_reschedule' booking.pk %}" hx-target="#tour-reschedule-body" hx-swap="innerHTML"
+            @click="$dispatch('open-modal', 'tour-reschedule')" data-tour-reschedule="{{ booking.pk }}">Reschedule</button>
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'tour-cancel-{{ pks }}')" data-tour-cancel="{{ booking.pk }}">Cancel Tour</button>
+  </div>
+  {% url 'tours:booking_cancel' booking.pk as cancel_url %}
+  {% include "components/confirm_modal.html" with confirm_id="tour-cancel-"|add:pks confirm_title="Cancel This Tour?" confirm_body_include="tours/partials/_cancel_confirm_body.html" confirm_hx_post=cancel_url confirm_note_name="message" confirm_note_label="Message to the visitor (optional)" confirm_note_hint="Added to the cancellation email we send them." confirm_button_text="Cancel Tour" confirm_cancel_text="Keep It" %}
+  {% else %}
+  <form class="pl-tours-booking__actions" method="post" action="{% url 'tours:booking_mark' booking.pk %}"
+        hx-post="{% url 'tours:booking_mark' booking.pk %}" hx-target="closest [data-tour-booking]" hx-swap="outerHTML"
+        aria-label="Mark {{ booking.visitor_name }}'s tour" data-tour-mark-form>
+    {% csrf_token %}
+    <button type="submit" name="outcome" value="attended" class="pl-btn pl-btn--sm {% if booking.status == 'attended' %}pl-btn--primary{% else %}pl-btn--secondary{% endif %}" aria-pressed="{% if booking.status == 'attended' %}true{% else %}false{% endif %}" data-tour-mark="attended">Attended</button>
+    <button type="submit" name="outcome" value="no_show" class="pl-btn pl-btn--sm {% if booking.status == 'no_show' %}pl-btn--primary{% else %}pl-btn--secondary{% endif %}" aria-pressed="{% if booking.status == 'no_show' %}true{% else %}false{% endif %}" data-tour-mark="no_show">No Show</button>
+  </form>
+  {% endif %}
+</li>
+{% endwith %}

@@ -976,8 +976,12 @@ def _tour_visitor(data: SampleData, subject: str, **fields: Any) -> dict[str, An
     from tours.notify import short_when, visitor_context
 
     previous = fields.pop("previous_starts_at", None)
+    staff = fields.pop("staff", None)
     booking = _tour_booking(data, **fields)
-    extra = {"previous_when": "Tuesday, November 3 at 4:00 PM"} if previous else {}
+    extra: dict[str, Any] = {"previous_when": "Tuesday, November 3 at 4:00 PM"} if previous else {}
+    if staff:
+        # A staff move (#949): the guide's note to the visitor.
+        extra.update(by_staff=True, sender_name="Gina", staff_message="Our 4:00 slot ran long, so I moved you to 5:00.")
     return {
         "subject": subject.format(when=short_when(booking.starts_at)),
         "template_context": visitor_context(booking, **extra),
@@ -989,7 +993,7 @@ def tour_visitor_confirmed_context(data: SampleData) -> dict[str, Any]:
 
 
 def tour_visitor_moved_context(data: SampleData) -> dict[str, Any]:
-    return _tour_visitor(data, "Your Past Lives tour moved to {when}", sequence=1, previous_starts_at=True)
+    return _tour_visitor(data, "Your Past Lives tour moved to {when}", sequence=1, previous_starts_at=True, staff=True)
 
 
 def tour_visitor_cancelled_context(data: SampleData) -> dict[str, Any]:

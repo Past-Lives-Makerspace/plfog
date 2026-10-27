@@ -1,0 +1,4 @@
+{% if staff_message %}{% if sender_name %}A note from {{ sender_name }}{% else %}Their note to the visitor{% endif %}:
+{{ staff_message }}
+
+{% endif %}

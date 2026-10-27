@@ -319,3 +319,25 @@ class TourBookingForm(forms.Form):
     def honeypot_tripped(self) -> bool:
         """Whether the hidden field came back filled: a bot, answered as if nothing went wrong."""
         return bool(str(self.data.get("website", "")).strip())
+
+
+#: The longest note staff can add to a visitor's moved or cancelled email (#949).
+MAX_STAFF_MESSAGE = 1000
+
+
+class StaffTourMessageForm(forms.Form):
+    """The optional note to the visitor on a staff cancel (#949), from the confirm modal's input."""
+
+    message = forms.CharField(
+        required=False,
+        max_length=MAX_STAFF_MESSAGE,
+        label="Message to the visitor (optional)",
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Added to the email we send them.",
+    )
+
+
+class StaffRescheduleForm(StaffTourMessageForm):
+    """The staff reschedule's confirm (#949): the tour picked (an ``OpenTour.key``) and the optional note."""
+
+    tour = forms.CharField(widget=forms.HiddenInput)
