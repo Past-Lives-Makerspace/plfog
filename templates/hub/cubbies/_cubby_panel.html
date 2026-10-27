@@ -1,0 +1,47 @@
+{% comment %}
+A cubby's page panel (#977, mockup view cubby-edit): every field through form_field, errors on the field,
+"Set Its Own Price" revealing Minimum and Suggested (6rem boxes), Archive asking first, Save last.
+Expects panel ({form, unit, cubby}), where cubby is None while adding one on an empty square.
+{% endcomment %}
+{% with form=panel.form cubby=panel.cubby unit=panel.unit %}
+<form method="post" enctype="multipart/form-data" class="hub-card pl-cubby-panel hub-form-group" aria-labelledby="cubby-panel-title" data-cubby-panel
+      action="{% if cubby %}{% url 'hub_cubby_edit' cubby.pk %}{% else %}{% url 'hub_cubby_add' unit.pk %}{% endif %}"
+      x-data="{ ownPrice: {{ form.own_price_on|yesno:'true,false' }} }">
+  {% csrf_token %}
+  <div class="pl-cubby-panel__head">
+    <h2 class="pl-cubby-panel__title" id="cubby-panel-title">{% if cubby %}Cubby {{ cubby.label }}{% else %}New Cubby on {{ unit.name }}{% endif %}</h2>
+    {% if cubby %}{% if cubby.state == "open" %}<span class="pl-cubby-chip pl-cubby-chip--open"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-plus-circle"/></svg>Open</span>{% else %}<span class="pl-cubby-chip pl-cubby-chip--out"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-wrench"/></svg>Out of Service</span>{% endif %}{% endif %}
+  </div>
+  {% if form.non_field_errors %}<ul class="pl-field-errors" role="alert">{% for error in form.non_field_errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>{% endif %}
+  {% include "components/form_field.html" with field=form.label %}
+  <div class="pl-cubby-pair">
+    {% include "components/form_field.html" with field=form.row %}
+    {% include "components/form_field.html" with field=form.column %}
+  </div>
+  {% include "components/form_field.html" with field=form.size %}
+  {% include "components/form_field.html" with field=form.shape %}
+  {% if cubby %}{% url 'hub_cubby_photo_delete' cubby.pk as photo_delete_url %}{% endif %}
+  {% include "components/image_field.html" with field=form.photo current_image=cubby.photo delete_url=photo_delete_url modal_id="cubby-photo-delete" shape="rect" thumbnail_width="180px" thumbnail_height="180px" tooltip_html="Square, 1200 x 1200, JPG or PNG." delete_button_text="Delete photo" confirm_title="Delete This Photo?" confirm_message="The photo leaves the cubby and our storage. This can't be undone." %}
+  {% include "components/form_field.html" with field=form.note %}
+  {% include "components/form_field.html" with field=form.set_own_price %}
+  <div class="pl-cubby-reveal" x-show="ownPrice"{% if not form.own_price_on %} x-cloak{% endif %} data-cubby-own-price>
+    {% include "components/form_field.html" with field=form.floor %}
+    {% include "components/form_field.html" with field=form.suggested %}
+  </div>
+  {% include "components/form_field.html" with field=form.out_of_service %}
+  {% if cubby %}
+  <div class="pl-cubby-panel__danger">
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'cubby-archive')" data-cubby-archive>Archive Cubby</button>
+    <p>Asks first. An archived cubby leaves the shelf, and Show Archived can put it back.</p>
+  </div>
+  {% endif %}
+  <div class="pl-cubby-panel__save">
+    <a href="{% url 'hub_guild_cubbies' unit.guild_id %}#cubby-unit-{{ unit.pk }}" class="pl-btn pl-btn--secondary">Close</a>
+    <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+  </div>
+</form>
+{% if cubby %}
+{% url 'hub_cubby_archive' cubby.pk as cubby_archive_url %}
+{% include "components/confirm_modal.html" with confirm_id="cubby-archive" confirm_title="Archive This Cubby?" confirm_message="It leaves the shelf and its square opens for a new cubby. You can restore it from Show Archived." confirm_action_url=cubby_archive_url confirm_button_text="Archive Cubby" %}
+{% endif %}
+{% endwith %}

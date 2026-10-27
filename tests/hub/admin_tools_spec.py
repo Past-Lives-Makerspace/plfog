@@ -280,7 +280,14 @@ _ADMIN_SECTIONS = [
     (
         "manage",
         "Manage",
-        ["Manage All Classes", "Manage Events", "Manage Members", "Member Agreement", "Manage Mailing Lists"],
+        [
+            "Manage All Classes",
+            "Manage Events",
+            "Manage Members",
+            "Member Agreement",
+            "Manage Mailing Lists",
+            "Cubbies",
+        ],
     ),
     (
         "tools",
@@ -329,7 +336,7 @@ def describe_admin_tools_sections():
         _login_superuser(client, "sections_once")
         GuildFactory()
         titles = _card_titles(client)
-        assert len(titles) == len(set(titles)) == 26
+        assert len(titles) == len(set(titles)) == 27
 
     def it_keeps_the_help_key_on_the_wrapper_the_admin_tour_targets(client: Client):
         _login_superuser(client, "sections_help_key")
@@ -341,7 +348,7 @@ def describe_admin_tools_sections():
         user = _login_guild_lead(client, "sections_lead")
         guild_name = user.member.led_guilds.get().name  # type: ignore[attr-defined]
         assert _sections(client) == [
-            ("guild", guild_name, ["Guild Settings", "Orientations", "Reservations", "Events"]),
+            ("guild", guild_name, ["Guild Settings", "Orientations", "Reservations", "Cubbies", "Events"]),
             ("manage", "Manage", ["Manage Mailing Lists"]),
             ("tools", "Tools", ["Email Members"]),
             ("reports", "Reports", ["Orientation Bookings"]),

@@ -74,7 +74,13 @@ def _page_title(body: str) -> str:
 def _guild_cards(guild: Guild) -> list[str]:
     """The four guild section card targets for ``guild``, in page order."""
     edit = reverse("hub_guild_edit", args=[guild.pk])
-    return [edit, reverse("hub_guild_orientations", args=[guild.pk]), f"{edit}?tab=reservations", f"{edit}?tab=events"]
+    return [
+        edit,
+        reverse("hub_guild_orientations", args=[guild.pk]),
+        f"{edit}?tab=reservations",
+        reverse("hub_guild_cubbies", args=[guild.pk]),
+        f"{edit}?tab=events",
+    ]
 
 
 def _guild_section_hrefs(client: Client, query: str = "") -> list[str]:
@@ -84,7 +90,7 @@ def _guild_section_hrefs(client: Client, query: str = "") -> list[str]:
     return re.findall(r'class="hub-card pl-tool-card" href="([^"]+)"', section.group(0))
 
 
-_GUILD_CARDS = ["Guild Settings", "Orientations", "Reservations", "Events"]
+_GUILD_CARDS = ["Guild Settings", "Orientations", "Reservations", "Cubbies", "Events"]
 
 
 def describe_guild_tools():

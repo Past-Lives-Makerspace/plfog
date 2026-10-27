@@ -42,6 +42,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 - `Space` — physical space (studio/storage/parking/desk); linked to Airtable
 - `Location` — a named area of the building, optionally a guild's (#616); classes, events, orientation types and equipment point at it through a nullable `area` FK, and `membership/services/location_status.py` lights it on the guild page
 - `Lease` — tenant→space via GenericForeignKey (tenant = Member or Guild)
+- `ShelfUnit` / `Cubby` — a guild's own rentable cubbies on shelf units drawn as grids (#977); rules and read models in `membership/cubbies.py`, the staff manager in `hub/cubby_views.py` and `hub/cubby_forms.py`. Not the Past Lives house cubbies, which are Airtable `Space` rows
 - `MemberEmail` — additional email aliases per member
 
 ### billing
@@ -128,6 +129,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 /facility-tours/                The Tours page, opened from the Tools page's Tours card (Tour Guides and admins): Upcoming (here), Past at /facility-tours/past/, My Hours (weekly tour hours, days off and the guide's Google Calendar, whose sign in returns to /facility-tours/google/callback/) at /facility-tours/hours/ and, for admins, Settings at /facility-tours/settings/
 /tour/                          The visitor's tour pages, ONLY on tours.pastlives.space (TOURS_HOSTS), whose root is the booking page; /tour/b/<token>/ (and reschedule/, cancel/) from the emails
 /kiln/                          Kiln tickets (a guest's home; members land on the Ceramics Guild page's ?tab=kiln; /kiln/load/, /kiln/unload/, /kiln/log/, /kiln/lists/ for the crew and admins)
+/guilds/<pk>/cubbies/           A guild's Cubbies manager (#977): Layout, a cubby's page at /cubbies/<pk>/, Pricing at /guilds/<pk>/cubbies/pricing/; /cubbies/ opens the first guild the viewer runs
 /tools/                         Admin Tools for admins, Guild Tools for guild officers, leads and staff (#912, #921; hub/guild_tools.py)
 /manage/spotlight/              Admin Tools > Spotlight (#708): the Spotlight messages that crawl across the top of Home (#935)
 /manage/site-settings/          Site Settings: Brand, General, Calendar, Emails, Discord

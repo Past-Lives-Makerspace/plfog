@@ -1,0 +1,45 @@
+{% comment %}
+The Pricing tab (#977, mockup view manage-pricing): the guild's monthly minimum and suggestion with a live
+preview of the amounts members will be offered, then Who gets paid (the guild lead or staff, "No one yet"
+first). The split bar waits for part 3 (#979), which adds the admin's cubby split.
+{% endcomment %}
+{% with form=pricing_form %}
+<form method="post" action="{% url 'hub_guild_cubbies_pricing' guild.pk %}" class="hub-card pl-cubby-pricing hub-form-group" data-cubby-pricing
+      x-data="{ floor: '{{ form.floor.value|default_if_none:''|escapejs }}', suggested: '{{ form.suggested.value|default_if_none:''|escapejs }}', payee: '{{ form.cubby_payee.value|default_if_none:''|escapejs }}', money(value) { const n = parseFloat(value); return isNaN(n) ? '' : '$' + (n % 1 === 0 ? n : n.toFixed(2)); } }">
+  {% csrf_token %}
+  <section class="pl-cubby-pricing__section" aria-labelledby="cubby-price-title">
+    <h2 class="hub-detail-label" id="cubby-price-title">Guild Price</h2>
+    <p class="pl-cubby-pricing__lead">What a cubby costs each month, unless the cubby sets its own. Members pay at least the minimum and can choose to pay more.</p>
+    <div class="pl-cubby-pair">
+      {% include "components/form_field.html" with field=form.floor %}
+      {% include "components/form_field.html" with field=form.suggested %}
+    </div>
+    <div class="pl-cubby-preview" aria-hidden="true" data-cubby-preview>
+      <span class="pl-cubby-preview__label">What Members See</span>
+      <div class="pl-cubby-amounts">
+        <span class="pl-cubby-amount"><span class="pl-cubby-amount__value" x-text="money(floor)"></span><span class="pl-cubby-amount__sub">Minimum</span></span>
+        <span class="pl-cubby-amount pl-cubby-amount--suggested"><span class="pl-cubby-amount__value" x-text="money(suggested)"></span><span class="pl-cubby-amount__sub">Suggested</span></span>
+        <span class="pl-cubby-amount"><span class="pl-cubby-amount__value" x-text="money(parseFloat(suggested) + 5)"></span><span class="pl-cubby-amount__sub">&nbsp;</span></span>
+        <span class="pl-cubby-amount"><span class="pl-cubby-amount__value">Other</span><span class="pl-cubby-amount__sub">&nbsp;</span></span>
+      </div>
+    </div>
+  </section>
+  <section class="pl-cubby-pricing__section pl-cubby-payee" aria-labelledby="cubby-payee-title">
+    <h2 class="hub-detail-label" id="cubby-payee-title">Who Gets Paid</h2>
+    <p class="pl-cubby-pricing__lead">The guild's share of every cubby payment goes to one person on guild staff, paid out with the rest of their Past Lives payouts.</p>
+    {% include "components/form_field.html" with field=form.cubby_payee field_tooltip="No one yet keeps the whole payment with Past Lives." %}
+    {% if payee_status %}
+    <p class="pl-cubby-payee__status" x-show="payee === '{{ payee_status.payee_pk }}'" data-payee-status="{{ payee_status.state }}">
+      {% if payee_status.state == "on" %}
+      <span class="pl-status-badge pl-status-badge--ok">Payouts on</span><span>{{ payee_status.first_name }} has payouts set up.</span>
+      {% elif payee_status.state == "self_not_set_up" %}
+      <span class="pl-status-badge pl-status-badge--muted">Payouts not set up</span><span>Your share is paid by hand until you <a href="{% url 'hub_user_settings' %}?tab=payouts">set up payouts</a>.</span>
+      {% else %}
+      <span class="pl-status-badge pl-status-badge--muted">Payouts not set up</span><span>{{ payee_status.first_name }} hasn't set up payouts yet, so their share is paid by hand.</span>
+      {% endif %}
+    </p>
+    {% endif %}
+  </section>
+  <div class="pl-cubby-save-row"><button type="submit" class="pl-btn pl-btn--primary">Save</button></div>
+</form>
+{% endwith %}

@@ -6,7 +6,7 @@ import logging
 import os
 import re
 import secrets
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date as date_type
@@ -69,6 +69,7 @@ from membership.managers import MemberEmailManager
 from membership.names import user_display_name, user_name_or_email
 
 if TYPE_CHECKING:
+    from membership.orientations import AudienceCache
     from django import forms
     from django.contrib.auth.models import User
     from django.core.files.uploadedfile import UploadedFile
@@ -237,6 +238,15 @@ class NextMeetingSources:
         """The soonest loaded Google row whose title has ``guild``'s name in it, any case."""
         name = guild.name.lower()
         return next((event for event in self.calendar_events if name in event.title.lower()), None)
+
+
+class GuildRoles(NamedTuple):
+    """One guild's line on the member edit page's Guild Roles section (#968): what this person holds there."""
+
+    guild: Guild
+    is_lead: bool
+    staff: list[GuildStaffMembership]
+    reviews_classes: bool
 
 
 class FlyerWhen(NamedTuple):
@@ -1872,6 +1882,29 @@ class Member(StaffRequestMixin, models.Model):
             | models.Q(staff_memberships__member=self, staff_memberships__can_review_classes=True)
         ).distinct()
 
+    def guild_roles(self) -> list[GuildRoles]:
+        """Every guild this member leads or is on the staff of, name ordered, with what they hold there (#968).
+
+        Two queries. ``reviews_classes`` is true for the lead and for staff with Class Reviewer on
+        any row, matching :meth:`Guild.reviews_classes`; staff titles read in
+        :meth:`Guild.staff_by_member` order.
+        """
+        guilds: dict[int, Guild] = {guild.pk: guild for guild in Guild.objects.filter(guild_lead=self)}
+        led = set(guilds)
+        staff_by_guild: dict[int, list[GuildStaffMembership]] = defaultdict(list)
+        for row in self.guild_staff_roles.select_related("guild"):
+            staff_by_guild[row.guild_id].append(row)
+            guilds.setdefault(row.guild_id, row.guild)
+        return [
+            GuildRoles(
+                guild=guild,
+                is_lead=pk in led,
+                staff=sorted(staff_by_guild[pk], key=Guild._staff_title_sort_key),
+                reviews_classes=pk in led or any(row.can_review_classes for row in staff_by_guild[pk]),
+            )
+            for pk, guild in sorted(guilds.items(), key=lambda item: item[1].name.lower())
+        ]
+
     @property
     def joined_guilds(self) -> models.QuerySet[Guild]:
         """Guilds this member has explicitly joined (via :class:`GuildMembership`), name-ordered."""
@@ -3213,6 +3246,32 @@ class Guild(HeroCropMixin, models.Model):
         db_default=False,
         help_text="Show a Reservations tab on the guild page listing this guild's reservable rooms, spaces and tools.",
     )
+    show_cubbies_tab = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Show a Cubbies tab on the guild page with this guild's shelf units and cubbies (#977).",
+    )
+    cubby_floor_cents = models.PositiveIntegerField(
+        default=1500,
+        db_default=1500,
+        help_text="The guild's lowest monthly cubby rent, in cents, used by every cubby without its own price.",
+    )
+    cubby_suggested_cents = models.PositiveIntegerField(
+        default=2000,
+        db_default=2000,
+        help_text="The guild's suggested monthly cubby rent, in cents; at least the floor.",
+    )
+    cubby_payee = models.ForeignKey(
+        "Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="paid_cubby_guilds",
+        help_text=(
+            "Who gets paid for cubbies (#977): the guild's lead or one of its staff. Empty keeps the "
+            "whole payment with Past Lives; removing that person from the guild's staff clears it."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     deleted_at = models.DateTimeField(
         null=True,
@@ -3590,8 +3649,11 @@ class Guild(HeroCropMixin, models.Model):
         """
         if member is None:
             raise ValueError("A member is required to assign a guild lead.")
+        previous = self.guild_lead
         self.guild_lead = member
         self.save(update_fields=["guild_lead"])
+        if previous is not None:
+            self.drop_cubby_payee_unless_leader(previous)
         warnings: list[str] = []
         if member.user_id is None:
             warnings.append(
@@ -3660,6 +3722,106 @@ class Guild(HeroCropMixin, models.Model):
         holds here, so a caller can refuse a member who is not on this guild's staff.
         """
         return self.staff_memberships.filter(member=member).update(can_review_classes=on)
+
+    def add_staff(
+        self, member: Member, *, role: str = "", custom_title: str = "", class_reviewer: bool = False
+    ) -> GuildStaffMembership | None:
+        """Add ``member`` to this guild's staff, the one path the Staff tab and the member edit page share (#968).
+
+        A preset ``role`` or a ``custom_title`` adds that row. With neither, ``class_reviewer``
+        makes them a Class Reviewer in one step: a member already on the staff has the switch
+        turned on, and anyone else gets a row titled "Class Reviewer". ``class_reviewer`` sets
+        every row they hold here (:meth:`set_class_reviewer`), so the switch reads one state
+        per person. Sends nothing.
+
+        Args:
+            member: Who joins the staff.
+            role: A :class:`GuildStaffMembership.Role` value, or "".
+            custom_title: A free text title, or "".
+            class_reviewer: Turn Class Reviewer on for them here.
+
+        Returns:
+            The row added, or None when an existing member of the staff was only switched on.
+
+        Raises:
+            ValueError: The member leads this guild, or the title is refused
+                (:meth:`GuildStaffMembership.title_problem`).
+        """
+        if self.guild_lead_id == member.pk:
+            raise ValueError(f"{member.display_name} leads {self.name} and already has every staff power.")
+        problem = GuildStaffMembership.title_problem(self, member, role, custom_title, class_reviewer=class_reviewer)
+        if problem:
+            raise ValueError(problem)
+        with transaction.atomic():
+            if not role and not custom_title:
+                if self.set_class_reviewer(member, True):
+                    return None
+                custom_title = GuildStaffMembership.CLASS_REVIEWER_TITLE
+            reviews = class_reviewer or self.reviews_classes(member)
+            staff = GuildStaffMembership.objects.create(
+                guild=self, member=member, role=role, custom_title=custom_title, can_review_classes=reviews
+            )
+            if class_reviewer:
+                self.set_class_reviewer(member, True)
+        return staff
+
+    def remove_staff(self, staff: GuildStaffMembership) -> int:
+        """Delete one staff row, retiring the member's orienter hours if it was their last role here.
+
+        Shared by the Staff tab and the member edit page (#968). A member can hold several rows
+        (Treasurer and Orientor); dropping one keeps their hours.
+
+        Returns:
+            How many upcoming booked orientation slots they still hold here (0 when they stay on).
+
+        Raises:
+            ValueError: ``staff`` belongs to another guild.
+        """
+        if staff.guild_id != self.pk:
+            raise ValueError(f"That staff row is not on {self.name}.")
+        member = staff.member
+        staff.delete()
+        self.drop_cubby_payee_unless_leader(member)
+        if member.pk in {leader.pk for leader in self.leadership_members()}:
+            return 0
+        from membership import orientations
+
+        _removed, booked_remaining = orientations.retire_orienter(self, member)
+        return booked_remaining
+
+    def clear_lead(self) -> Member | None:
+        """Remove this guild's lead (``guild_lead`` to None) and return who it was.
+
+        The web counterpart of ``set_guild_lead --clear``: the FK goes and nothing else changes,
+        so staff rows and orienter hours stay as they are.
+        """
+        previous = self.guild_lead
+        self.guild_lead = None
+        self.save(update_fields=["guild_lead"])
+        if previous is not None:
+            self.drop_cubby_payee_unless_leader(previous)
+        return previous
+
+    def drop_cubby_payee_unless_leader(self, member: Member) -> None:
+        """Clear Who gets paid for cubbies when it is ``member`` and they no longer lead or staff this guild (#977).
+
+        Only the lead and staff can be picked, so someone who leaves stops being paid from here on and
+        the guild's share stays with Past Lives until someone else is picked.
+        """
+        if self.cubby_payee_id != member.pk:
+            return
+        if member.pk in {leader.pk for leader in self.leadership_members()}:
+            return
+        self.cubby_payee = None
+        self.save(update_fields=["cubby_payee"])
+
+    def cubby_payee_choices(self) -> models.QuerySet[Member]:
+        """Who may be picked as Who gets paid for cubbies: this guild's lead and staff, by name."""
+        return (
+            Member.objects.filter(Q(pk=self.guild_lead_id) | Q(guild_staff_roles__guild=self))
+            .distinct()
+            .order_by("full_legal_name", "pk")
+        )
 
     @property
     def co_leads(self) -> list[Member]:
@@ -3980,6 +4142,54 @@ class GuildStaffMembership(models.Model):
     def display_title(self) -> str:
         """The label to show for this staff entry — the custom title if set, else the preset role's label."""
         return self.custom_title or self.get_role_display()
+
+    CLASS_REVIEWER_TITLE: ClassVar[str] = "Class Reviewer"
+
+    @classmethod
+    def title_problem(
+        cls,
+        guild: Guild,
+        member: Member,
+        role: str,
+        custom_title: str,
+        *,
+        class_reviewer: bool = False,
+        exclude_pk: int | None = None,
+    ) -> str:
+        """Why this role or title cannot be given to ``member`` on ``guild``, or "" when it can.
+
+        One preset role or one custom title, never both. Neither is allowed only when the action
+        is just turning on Class Reviewer (:meth:`Guild.add_staff`). A custom title may not
+        repeat a preset's label, and the member may not hold the same role or title twice.
+        ``exclude_pk`` skips the row being renamed.
+        """
+        if role and custom_title:
+            return "Pick a preset role or type a custom title — not both."
+        if not role and not custom_title:
+            return "" if class_reviewer else "Pick a role or type a custom title."
+        if custom_title and custom_title.casefold() in {label.casefold() for label in cls.Role.labels}:
+            return "That title is already a preset role — pick it from the dropdown instead."
+        held = guild.staff_memberships.filter(member=member)
+        if exclude_pk is not None:
+            held = held.exclude(pk=exclude_pk)
+        if role and held.filter(role=role).exists():
+            return f"{member.display_name} is already {cls.Role(role).label} of this guild."
+        if custom_title and held.filter(custom_title__iexact=custom_title).exists():
+            return f"{member.display_name} already holds the title “{custom_title}”."
+        return ""
+
+    def retitle(self, role: str, custom_title: str) -> None:
+        """Change this row to another preset role or custom title, keeping its Class Reviewer flag.
+
+        Raises:
+            ValueError: The new title is refused (:meth:`title_problem`).
+        """
+        problem = self.title_problem(self.guild, self.member, role, custom_title, exclude_pk=self.pk)
+        if problem:
+            raise ValueError(problem)
+        self.role = role
+        self.custom_title = custom_title
+        self.save(update_fields=["role", "custom_title"])
 
     def __str__(self) -> str:
         return f"{self.member.display_name} — {self.display_title} of {self.guild.name}"
@@ -16318,9 +16528,39 @@ class OrientationBooking(models.Model):
             return bool(member.manageable_equipment_ids([orientation_type.equipment]))
         return member.can_manage_orientations(cast(Guild, orientation_type.guild))
 
-    def orientors_hear_the_member(self) -> bool:
-        """Whether a message from this booking's member would reach anyone: the composer's notice line."""
-        return bool(OrientationBookingMessage(booking=self, author_id=self.member.user_id).orientor_user_ids())
+    def orientors_hear_the_member(self, audience_cache: AudienceCache | None = None) -> bool:
+        """Whether a message from this booking's member would reach anyone: the composer's notice line.
+
+        Reads the thread from a ``with_thread()`` prefetch. ``audience_cache`` is the page's memo
+        of request audiences (:func:`membership.orientations.orientor_audience`), so a page of
+        bookings looks each owner's audience up once; past staff writers are checked only when
+        that audience alone reaches nobody.
+        """
+        from membership.orientations import orientor_audience
+
+        member_user_id = self.member.user_id
+        if orientor_audience(self, audience_cache) - {member_user_id}:
+            return True
+        return bool(self._running_staff_writers(set(), exclude_user_id=member_user_id))
+
+    def _running_staff_writers(self, known: set[int], *, exclude_user_id: int | None) -> set[int]:
+        """Staff side authors on this thread, outside ``known``, who still run the booking.
+
+        Reads the thread in Python (a ``with_thread()`` prefetch costs nothing more), then one
+        query for the writers' members, only when there is a writer to check.
+        """
+        writer_ids = (
+            {message.author_id for message in self.thread() if message.author_id is not None and message.is_from_staff}
+            - known
+            - {exclude_user_id}
+        )
+        if not writer_ids:
+            return set()
+        return {
+            cast(int, member.user_id)
+            for member in Member.objects.filter(user_id__in=writer_ids).select_related("user")
+            if self.may_be_run_by(member)
+        }
 
     @property
     def takes_messages(self) -> bool:
@@ -16409,23 +16649,11 @@ class OrientationBookingMessage(ThreadMessage):
         (:meth:`OrientationBooking.may_be_run_by`): a demoted admin or an orientor taken off staff
         hears nothing more.
         """
-        from core.events.resolvers import guild_orienters_or_equipment_managers
-        from membership.orientations import request_resolver_context
+        from membership.orientations import orientor_audience
 
         booking = self.booking
-        audience = {
-            user.pk for user, _reason in guild_orienters_or_equipment_managers(request_resolver_context(booking))
-        }
-        writer_ids = {
-            message.author_id
-            for message in booking.messages.exclude(pk=self.pk)
-            if message.author_id is not None and message.is_from_staff
-        } - audience
-        writers = {
-            cast(int, member.user_id)
-            for member in Member.objects.filter(user_id__in=writer_ids).select_related("user")
-            if booking.may_be_run_by(member)
-        }
+        audience = set(orientor_audience(booking))
+        writers = booking._running_staff_writers(audience, exclude_user_id=self.author_id)
         return (audience | writers) - {self.author_id}
 
     def _tell_member_side(self) -> bool:
@@ -23182,3 +23410,365 @@ class MemberAgreementAcceptance(models.Model):
     def __str__(self) -> str:
         version = f" v{self.document_version}" if self.document_version else ""
         return f"{self.member.display_name} accepted{version} at {self.accepted_at.date()}"
+
+
+# ---------------------------------------------------------------------------
+# Guild cubbies (#976 part 1, #977): shelf units and the cubbies on them
+# ---------------------------------------------------------------------------
+
+#: The lowest a cubby's monthly floor may be: $1, the orientation donation floor's rule.
+CUBBY_PRICE_MIN_CENTS = 100
+#: The highest monthly floor or suggestion a guild or a cubby may set: $500.
+CUBBY_PRICE_MAX_CENTS = 50000
+
+
+def cubby_dollars(cents: int) -> str:
+    """Cents as the short price a cubby shows: "$15" for whole dollars, "$15.50" otherwise."""
+    if cents % 100 == 0:
+        return f"${cents // 100:,}"
+    return money_display(cents)
+
+
+def cubby_price_problems(floor_cents: int, suggested_cents: int) -> dict[str, str]:
+    """Why a floor and suggested monthly price cannot be saved, keyed by field, or {} (#977).
+
+    The floor is at least $1 and at most $500; the suggestion is at least the floor and at most
+    $500. Shared by the guild's Pricing tab and a cubby's own price, so both refuse alike.
+    """
+    problems: dict[str, str] = {}
+    if floor_cents < CUBBY_PRICE_MIN_CENTS:
+        problems["floor"] = f"The minimum has to be at least {cubby_dollars(CUBBY_PRICE_MIN_CENTS)} a month."
+    elif floor_cents > CUBBY_PRICE_MAX_CENTS:
+        problems["floor"] = f"The minimum can be at most {cubby_dollars(CUBBY_PRICE_MAX_CENTS)} a month."
+    if suggested_cents > CUBBY_PRICE_MAX_CENTS:
+        problems["suggested"] = f"The suggested amount can be at most {cubby_dollars(CUBBY_PRICE_MAX_CENTS)} a month."
+    elif "floor" not in problems and suggested_cents < floor_cents:
+        problems["suggested"] = f"The suggested amount has to be at least the minimum, {cubby_dollars(floor_cents)}."
+    return problems
+
+
+class ShelfUnitQuerySet(models.QuerySet["ShelfUnit"]):
+    """Shelf unit reads: the live ones and the archived ones."""
+
+    def active(self) -> ShelfUnitQuerySet:
+        """Units not archived."""
+        return self.filter(archived_at__isnull=True)
+
+    def archived(self) -> ShelfUnitQuerySet:
+        """Units archived, newest archive first."""
+        return self.filter(archived_at__isnull=False).order_by("-archived_at", "-pk")
+
+
+class ShelfUnit(models.Model):
+    """One set of shelves a guild rents cubbies on, drawn as a grid of rows and columns (#977).
+
+    Archived, never deleted: a cubby's rentals (#978) hold on to it. Archiving a unit takes every
+    cubby on it off the guild page; restoring brings them back unless a label now clashes.
+    """
+
+    MAX_ROWS: ClassVar[int] = 10
+    #: Six across keeps every cubby tappable on a phone.
+    MAX_COLUMNS: ClassVar[int] = 6
+
+    guild = models.ForeignKey(
+        Guild,
+        on_delete=models.CASCADE,
+        related_name="shelf_units",
+        help_text="The guild whose cubbies these shelves hold.",
+    )
+    name = models.CharField(max_length=60, help_text="What members call this shelf unit, e.g. Glaze Wall.")
+    rows = models.PositiveSmallIntegerField(
+        default=3,
+        validators=[MinValueValidator(1), MaxValueValidator(MAX_ROWS)],
+        help_text="How many rows of cubbies, top to bottom (1 to 10).",
+    )
+    columns = models.PositiveSmallIntegerField(
+        default=4,
+        validators=[MinValueValidator(1), MaxValueValidator(MAX_COLUMNS)],
+        help_text="How many cubbies across, left to right (1 to 6).",
+    )
+    archived_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When staff archived it; archived units and their cubbies leave the guild page.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was added.")
+
+    objects = ShelfUnitQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+        constraints = [
+            models.CheckConstraint(name="ck_shelfunit_rows", condition=Q(rows__gte=1, rows__lte=10)),
+            models.CheckConstraint(name="ck_shelfunit_columns", condition=Q(columns__gte=1, columns__lte=6)),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.guild.name})"
+
+    @property
+    def is_archived(self) -> bool:
+        """Whether staff archived this unit."""
+        return self.archived_at is not None
+
+    def resize_problem(self, rows: int, columns: int) -> tuple[str, str] | None:
+        """Why the unit cannot shrink to ``rows`` by ``columns``: the field and a message naming the cubby.
+
+        None when it fits. Only active cubbies count: an archived one is checked again when it
+        is restored.
+        """
+        for cubby in self.cubbies.filter(archived_at__isnull=True).order_by("row", "column", "pk"):
+            if cubby.bottom_row > rows:
+                return (
+                    "rows",
+                    f"Cubby {cubby.label} sits in row {cubby.bottom_row}, so keep at least {cubby.bottom_row} rows.",
+                )
+            if cubby.right_column > columns:
+                return (
+                    "columns",
+                    f"Cubby {cubby.label} reaches spot {cubby.right_column} across, "
+                    f"so keep at least {cubby.right_column} across.",
+                )
+        return None
+
+    def restore_problem(self) -> str:
+        """Why the unit cannot come back, or "": one of its cubbies' labels is now taken in the guild."""
+        taken = Cubby.objects.active().filter(unit__guild_id=self.guild_id).exclude(unit=self)
+        labels = {label.casefold() for label in taken.values_list("label", flat=True)}
+        for cubby in self.cubbies.filter(archived_at__isnull=True).order_by("row", "column", "pk"):
+            if cubby.label.casefold() in labels:
+                return f"Another cubby in the guild is already called {cubby.label}. Rename one of them first."
+        return ""
+
+
+class CubbyQuerySet(models.QuerySet["Cubby"]):
+    """Cubby reads."""
+
+    def active(self) -> CubbyQuerySet:
+        """Cubbies not archived, on a unit not archived: the ones members can see."""
+        return self.filter(archived_at__isnull=True, unit__archived_at__isnull=True)
+
+
+class Cubby(models.Model):
+    """One rentable cubby on a guild's shelf unit (#977).
+
+    Placed by its top left square (``row``, ``column``, counted from 1) and the squares it
+    takes up (``width`` and ``height``). Priced by the guild unless it sets its own floor and
+    suggestion. Archived, never deleted: part 2's rentals (#978) PROTECT it.
+    """
+
+    class Shape(models.TextChoices):
+        ONE = "one", "1 Spot"
+        WIDE = "wide", "Wide"
+        TALL = "tall", "Tall"
+        BIG = "big", "Big"
+
+    #: (width, height) in squares for each shape the Takes Up chips offer.
+    SHAPE_CELLS: ClassVar[dict[str, tuple[int, int]]] = {
+        Shape.ONE: (1, 1),
+        Shape.WIDE: (2, 1),
+        Shape.TALL: (1, 2),
+        Shape.BIG: (2, 2),
+    }
+
+    class State(models.TextChoices):
+        OPEN = "open", "Open"
+        OUT_OF_SERVICE = "out", "Out of Service"
+
+    unit = models.ForeignKey(
+        ShelfUnit,
+        on_delete=models.CASCADE,
+        related_name="cubbies",
+        help_text="The shelf unit this cubby sits on; its guild owns the cubby.",
+    )
+    label = models.CharField(
+        max_length=8, help_text="What the cubby is called, e.g. A1. Unique among the guild's cubbies."
+    )
+    row = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1)], help_text="The row of its top left square, 1 at the top."
+    )
+    column = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1)], help_text="The column of its top left square, 1 at the left."
+    )
+    width = models.PositiveSmallIntegerField(
+        default=1,
+        validators=[MinValueValidator(1), MaxValueValidator(2)],
+        help_text="How many squares across (1 or 2).",
+    )
+    height = models.PositiveSmallIntegerField(
+        default=1, validators=[MinValueValidator(1), MaxValueValidator(2)], help_text="How many squares tall (1 or 2)."
+    )
+    size = models.CharField(max_length=60, blank=True, default="", help_text="Its size the way members measure it.")
+    photo = models.ImageField(
+        upload_to="cubbies/photos/",
+        blank=True,
+        validators=[validate_image_size],
+        help_text="Optional square photo of the empty cubby, shown when a member taps it.",
+    )
+    note = models.CharField(max_length=300, blank=True, default="", help_text="A short note for members.")
+    floor_cents = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Its own monthly minimum in cents; empty uses the guild's price."
+    )
+    suggested_cents = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Its own suggested monthly amount in cents; empty uses the guild's price."
+    )
+    out_of_service = models.BooleanField(default=False, help_text="Shown hatched; nobody can rent it.")
+    archived_at = models.DateTimeField(
+        null=True, blank=True, help_text="When staff archived it; archived cubbies leave the shelf."
+    )
+    airtable_record_id = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        unique=True,
+        help_text="Airtable record ID, for a later sync. Nothing writes it yet.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was added.")
+
+    objects = CubbyQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["row", "column", "pk"]
+        verbose_name_plural = "cubbies"
+        constraints = [
+            models.CheckConstraint(
+                name="ck_cubby_own_price_pair",
+                condition=(
+                    Q(floor_cents__isnull=True, suggested_cents__isnull=True)
+                    | Q(floor_cents__isnull=False, suggested_cents__isnull=False, suggested_cents__gte=F("floor_cents"))
+                ),
+            ),
+            models.CheckConstraint(name="ck_cubby_span", condition=Q(width__in=[1, 2], height__in=[1, 2])),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.label} on {self.unit.name}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        delete_orphan_on_replace(self, "photo")
+        super().save(*args, **kwargs)
+
+    @property
+    def is_archived(self) -> bool:
+        """Whether staff archived this cubby."""
+        return self.archived_at is not None
+
+    @property
+    def uses_guild_price(self) -> bool:
+        """True while the cubby has no price of its own."""
+        return self.floor_cents is None
+
+    @property
+    def floor(self) -> int:
+        """The monthly minimum in cents: its own, else its guild's."""
+        if self.floor_cents is not None:
+            return self.floor_cents
+        return self.unit.guild.cubby_floor_cents
+
+    @property
+    def suggested(self) -> int:
+        """The suggested monthly amount in cents: its own, else its guild's."""
+        if self.suggested_cents is not None:
+            return self.suggested_cents
+        return self.unit.guild.cubby_suggested_cents
+
+    @property
+    def state(self) -> str:
+        """Open, or Out of Service. Part 2 (#978) adds Rented."""
+        return self.State.OUT_OF_SERVICE if self.out_of_service else self.State.OPEN
+
+    @property
+    def state_label(self) -> str:
+        """The state as a word: "Open", "Out of Service"."""
+        return str(self.State(self.state).label)
+
+    @property
+    def shape(self) -> str:
+        """The Takes Up chip its width and height match."""
+        for shape, cells in self.SHAPE_CELLS.items():
+            if cells == (self.width, self.height):
+                return shape
+        raise ValueError(f"Cubby {self.pk} is {self.width} by {self.height}, which no shape matches.")
+
+    @property
+    def bottom_row(self) -> int:
+        """The last row it reaches."""
+        return self.row + self.height - 1
+
+    @property
+    def right_column(self) -> int:
+        """The last column it reaches."""
+        return self.column + self.width - 1
+
+    @property
+    def floor_display(self) -> str:
+        """The monthly minimum as a cubby shows it: "$15"."""
+        return cubby_dollars(self.floor)
+
+    @property
+    def suggested_display(self) -> str:
+        """The suggested monthly amount as a cubby shows it: "$20"."""
+        return cubby_dollars(self.suggested)
+
+    _ORDINALS: ClassVar[dict[int, str]] = {2: "second", 3: "third", 4: "fourth", 5: "fifth"}
+
+    @property
+    def position_text(self) -> str:
+        """Where it sits in words, for the List view: "Top row, far left", "Bottom row, far right, wide"."""
+        unit = self.unit
+        parts: list[str] = []
+        if unit.rows > 1:
+            if self.row == 1:
+                parts.append("top row")
+            elif self.bottom_row == unit.rows:
+                parts.append("bottom row")
+            elif unit.rows == 3:
+                parts.append("middle row")
+            else:
+                parts.append(f"row {self.row}")
+        if unit.columns > 1:
+            if self.column == 1:
+                parts.append("far left")
+            elif self.right_column == unit.columns:
+                parts.append("far right")
+            else:
+                parts.append(f"{self._ORDINALS[self.column]} from the left")
+        if self.shape != self.Shape.ONE:
+            parts.append(self.Shape(self.shape).label.lower())
+        text = ", ".join(parts) or "the only spot"
+        return text[0].upper() + text[1:]
+
+    def squares(self) -> set[tuple[int, int]]:
+        """Every (row, column) square it covers."""
+        return {(r, c) for r in range(self.row, self.bottom_row + 1) for c in range(self.column, self.right_column + 1)}
+
+    def placement_problems(self) -> dict[str, str]:
+        """Why this cubby cannot sit where it says, keyed by the field to show it on, or {} (#977).
+
+        It must fit inside its unit, must not overlap another active cubby on the unit, and its
+        label must be unique (any case) among the guild's active cubbies.
+        """
+        problems: dict[str, str] = {}
+        unit = self.unit
+        if self.bottom_row > unit.rows:
+            problems["row"] = (
+                f"{unit.name} has {unit.rows} row{'s' if unit.rows != 1 else ''}, so it does not fit there."
+            )
+        elif self.right_column > unit.columns:
+            problems["column"] = f"{unit.name} is {unit.columns} across, so it does not fit there."
+        else:
+            others = unit.cubbies.filter(archived_at__isnull=True).exclude(pk=self.pk)
+            mine = self.squares()
+            for other in others:
+                if mine & other.squares():
+                    problems["column"] = f"That spot overlaps cubby {other.label}."
+                    break
+        label_taken = (
+            Cubby.objects.active()
+            .filter(unit__guild_id=unit.guild_id, label__iexact=self.label)
+            .exclude(pk=self.pk)
+            .exists()
+        )
+        if label_taken:
+            problems["label"] = f"Another cubby in the guild is already called {self.label}."
+        return problems

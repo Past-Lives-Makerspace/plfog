@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-27"
+title = "Admins manage a member's guild roles from their page"
+changes = [
+  "On Manage Members, a member's Permissions tab now lists every guild they lead or help run, with a Class Reviewer switch for each.",
+  "From there an admin can add them to any guild's staff, change or remove a title, make them a guild lead or remove them as one. Every change shows on the guild's Staff tab too.",
+  "To make someone a Class Reviewer on a guild they are not on yet, pick the guild and turn Class Reviewer on: one click adds them.",
+  "On a guild's Staff tab, the guild lead and admins can now turn Class Reviewer on while adding someone, and the switch beside each name is easier to spot.",
+]

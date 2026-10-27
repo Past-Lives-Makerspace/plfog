@@ -1,0 +1,52 @@
+{# The Layout tab (#977): the empty state, or one card per shelf unit and, on a cubby's page, the edit panel beside its unit. #}
+<div x-data>
+{% if not layout.units and not panel %}
+<div class="hub-card pl-cubby-empty" data-cubby-empty>
+  <div class="pl-cubby-empty__art" aria-hidden="true">
+    <div class="pl-cubby-unit__frame"><span class="pl-cubby-unit__plate">Your Shelf</span>
+      <ul class="pl-cubby-grid pl-cubby-grid--cols-3">{% for n in "123456" %}<li><span class="pl-cubby-slot"><svg class="pl-cubby-ico"><use href="#i-plus"/></svg></span></li>{% endfor %}</ul>
+    </div>
+  </div>
+  <h2 class="pl-cubby-empty__title">Build Your First Shelf</h2>
+  <p class="pl-cubby-empty__text">Name a shelf, say how many rows and how many cubbies across, then fill in the cubbies members can rent. It takes about five minutes.</p>
+  <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-modal', 'cubby-add-unit')" data-cubby-add-unit><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-plus"/></svg>Add a Shelf</button>
+</div>
+{% else %}
+<div class="pl-cubby-build{% if panel %} pl-cubby-build--panel{% endif %}">
+  <div class="pl-cubby-build__units">
+    {% for card in unit_cards %}
+    {% include "hub/cubbies/_unit_card.html" with selected_pk=panel.cubby.pk editing=panel %}
+    {% endfor %}
+    {% if not panel %}
+    <button type="button" class="pl-cubby-addunit" @click="$dispatch('open-modal', 'cubby-add-unit')" data-cubby-add-unit><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-plus"/></svg>Add Shelf Unit</button>
+    {% endif %}
+  </div>
+  {% if panel %}{% include "hub/cubbies/_cubby_panel.html" %}{% endif %}
+</div>
+{% endif %}
+
+{% if layout.archived_count and not panel %}
+<details class="pl-disclosure pl-cubby-archive" data-cubby-archived>
+  <summary class="pl-disclosure__summary"><span class="pl-disclosure__text"><span class="pl-disclosure__title">Show Archived ({{ layout.archived_count }})</span><span class="pl-disclosure__hint">Archived shelves and cubbies are off the guild page. Restore puts one back.</span></span><span class="pl-disclosure__chevron" aria-hidden="true"></span></summary>
+  <div class="pl-disclosure__body">
+    <ul class="pl-cubby-archived">
+      {% for unit in layout.archived_units %}
+      <li data-archived-unit="{{ unit.pk }}"><span>{{ unit.name }}<small>Shelf, {{ unit.rows }} by {{ unit.columns }}, archived {{ unit.archived_at|date:"M j" }}</small></span>
+        <form method="post" action="{% url 'hub_shelf_unit_restore' unit.pk %}">{% csrf_token %}<button type="submit" class="pl-btn pl-btn--ghost pl-btn--sm"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-undo"/></svg>Restore</button></form>
+      </li>
+      {% endfor %}
+      {% for cubby in layout.archived_cubbies %}
+      <li data-archived-cubby="{{ cubby.pk }}"><span>{{ cubby.label }}<small>Cubby on {{ cubby.unit.name }}, archived {{ cubby.archived_at|date:"M j" }}</small></span>
+        <form method="post" action="{% url 'hub_cubby_restore' cubby.pk %}">{% csrf_token %}<button type="submit" class="pl-btn pl-btn--ghost pl-btn--sm"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-undo"/></svg>Restore</button></form>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</details>
+{% endif %}
+
+{% if not panel %}
+{% include "components/modal.html" with modal_id="cubby-add-unit" modal_title="Add Shelf Unit" modal_size="sm" modal_body_include="hub/cubbies/_unit_add_form.html" %}
+{% if open_add_modal %}<div x-init="$nextTick(() => $dispatch('open-modal', 'cubby-add-unit'))"></div>{% endif %}
+{% endif %}
+</div>

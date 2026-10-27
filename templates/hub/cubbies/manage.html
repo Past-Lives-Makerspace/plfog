@@ -1,0 +1,50 @@
+{% extends "hub/base.html" %}
+{% load static tab_picker %}
+{% block title %}Cubbies · {{ guild.name }}{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/cubbies.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+The staff Cubbies manager (#977), from mockups/guild-cubbies.html (manage-empty, manage-layout, cubby-edit,
+manage-pricing). One page per tab: Layout (hub_guild_cubbies; with `panel` it is a cubby's page) and
+Pricing (hub_guild_cubbies_pricing). Rentals joins in part 3 (#979).
+{% endcomment %}
+{% include "hub/cubbies/_icons.html" %}
+<a href="{% url 'hub_admin_tools' %}?guild={{ guild.pk }}" class="pl-cubby-back" data-cubby-back><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-chev-left"/></svg>{{ tools_page_title|default:"Guild Tools" }}</a>
+<div class="pl-cubby-manage-head">
+  <div>
+    <h1 class="hub-page-title">Cubbies</h1>
+    <p class="pl-cubby-manage-head__lead">{{ guild.name }}. Build the shelves and set the price.</p>
+  </div>
+</div>
+
+{% if picker_guilds %}
+<form method="get" action="{% url 'hub_cubbies_home' %}" class="pl-tools-guild-picker pl-cubby-picker" data-cubby-guild-picker>
+  <label class="pl-filter-field">
+    <span class="pl-filter-label">Guild</span>
+    <select name="guild" class="pl-filter-control" onchange="this.form.submit()">
+      {% for option in picker_guilds %}
+      <option value="{{ option.pk }}"{% if option.pk == guild.pk %} selected{% endif %}>{{ option.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <noscript><button type="submit" class="hub-btn hub-btn--sm">Open</button></noscript>
+</form>
+{% endif %}
+
+{% include "hub/cubbies/_live_strip.html" %}
+
+{% tab_picker "Cubbies" %}
+<nav role="tablist" class="pl-tabs" data-cubby-tabs>
+  <a href="{% url 'hub_guild_cubbies' guild.pk %}" class="vote-tab{% if cubby_tab == 'layout' %} vote-tab--active{% endif %}"{% if cubby_tab == 'layout' %} aria-current="page"{% endif %}>Layout</a>
+  <a href="{% url 'hub_guild_cubbies_pricing' guild.pk %}" class="vote-tab{% if cubby_tab == 'pricing' %} vote-tab--active{% endif %}"{% if cubby_tab == 'pricing' %} aria-current="page"{% endif %}>Pricing</a>
+</nav>
+{% endtab_picker %}
+
+{% if cubby_tab == "layout" %}
+{% include "hub/cubbies/_layout.html" %}
+{% else %}
+{% include "hub/cubbies/_pricing.html" %}
+{% endif %}
+{% endblock %}
