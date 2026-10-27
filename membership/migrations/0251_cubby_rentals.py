@@ -6,6 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("membership", "0248_member_name_at_deletion"),
         ("membership", "0250_reservation_messages"),
     ]
 

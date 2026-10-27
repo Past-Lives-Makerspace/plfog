@@ -142,6 +142,11 @@ class TransactionLine:
     note: str = ""
     payee_kept_share: bool = False  # refunded after its share was sent, and the payee kept it (#662)
     payout: LinePayout | None = None  # live tab only: how its producer share is paid (#905)
+    stripe_payment_intent_id: str = ""  # blank for money Stripe never saw (a staff Mark as Paid)
+    # What Stripe kept and what reached the bank, refunds included (#984). None means unknown:
+    # no fee record yet, Stripe not read yet, or not a Stripe payment. Never read None as zero.
+    stripe_fee_cents: int | None = None
+    stripe_net_cents: int | None = None
 
 
 @dataclass
@@ -309,6 +314,7 @@ def _member_share_line(
     guild_label: str | None,
     percents: dict[str, Decimal],
     adjustment: TransactionAdjustment | None,
+    stripe_payment_intent_id: str,
 ) -> TransactionLine:
     """Build one class, orientation or reservation line, rolling any unset recipient's share to Past Lives.
 
@@ -374,6 +380,7 @@ def _member_share_line(
         overridden=overridden,
         unassigned=unassigned,
         note="; ".join(notes),
+        stripe_payment_intent_id=stripe_payment_intent_id,
     )
 
 
@@ -385,7 +392,8 @@ def _class_lines(
     from classes.models import Registration
 
     registrations = (
-        Registration.objects.filter(amount_paid_cents__gt=0)
+        Registration.objects.without_demo_money()
+        .filter(amount_paid_cents__gt=0)
         .filter(confirmed_at__gte=window.start_dt, confirmed_at__lt=window.end_dt)
         .select_related("class_offering__instructor", "class_offering__category__guild", "member")
         .prefetch_related("refunds")
@@ -404,7 +412,7 @@ def _class_line(
     instructor = offering.instructor
     guild = offering.category.guild
     guest_name = f"{reg.first_name} {reg.last_name}".strip()
-    payer_name = reg.member.display_name if reg.member is not None else (guest_name or reg.email)
+    payer_name = reg.member.finance_name if reg.member is not None else (guest_name or reg.email)
     return _member_share_line(
         source_kind="class",
         source_pk=reg.pk,
@@ -414,12 +422,13 @@ def _class_line(
         gross_cents=reg.amount_paid_cents,
         refunded_cents=reg.amount_refunded_cents if refunded_cents is None else refunded_cents,
         producer_key=("instructor", instructor.id) if instructor is not None else None,
-        producer_label=instructor.display_name if instructor is not None else None,
+        producer_label=instructor.finance_name if instructor is not None else None,
         producer_role="instructor",
         guild_key=("guild", guild.id) if guild is not None else None,
         guild_label=guild.name if guild is not None else None,
         percents=percents,
         adjustment=adjustments.get(("class", reg.pk)),
+        stripe_payment_intent_id=reg.stripe_payment_id,
     )
 
 
@@ -452,17 +461,18 @@ def _orientation_line(
         source_kind="orientation",
         source_pk=booking.pk,
         when=booking.requested_at,
-        payer_name=booking.member.display_name,
+        payer_name=booking.member.finance_name,
         item=f"Orientation — {booking.orientation_type.owner_name}",
         gross_cents=booking.amount_paid_cents,
         refunded_cents=booking.amount_refunded_cents if refunded_cents is None else refunded_cents,
         producer_key=("orientator", orientator.id) if orientator is not None else None,
-        producer_label=orientator.display_name if orientator is not None else None,
+        producer_label=orientator.finance_name if orientator is not None else None,
         producer_role="orientator",
         guild_key=("guild", booking.guild.id) if booking.guild is not None else None,
         guild_label=booking.guild.name if booking.guild is not None else None,
         percents=percents,
         adjustment=adjustments.get(("orientation", booking.pk)),
+        stripe_payment_intent_id=booking.stripe_payment_id,
     )
 
 
@@ -507,17 +517,18 @@ def _reservation_line(
         source_kind="reservation",
         source_pk=reservation.pk,
         when=reservation.created_at,
-        payer_name=reservation.member.display_name,
+        payer_name=reservation.member.finance_name,
         item=f"Reservation, {equipment.name}",
         gross_cents=reservation.amount_paid_cents,
         refunded_cents=reservation.amount_refunded_cents if refunded_cents is None else refunded_cents,
         producer_key=("manager", payee.id) if payee is not None else None,
-        producer_label=payee.display_name if payee is not None else None,
+        producer_label=payee.finance_name if payee is not None else None,
         producer_role="manager",
         guild_key=("guild", guild.id) if guild is not None else None,
         guild_label=guild.name if guild is not None else None,
         percents=percents,
         adjustment=adjustments.get(("reservation", reservation.pk)),
+        stripe_payment_intent_id=reservation.stripe_payment_id,
     )
 
 
@@ -603,10 +614,11 @@ def _tab_lines(
         if bucket is None:
             bucket = {
                 "when": split.eff,
-                "payer_name": charge.tab.member.display_name,
+                "payer_name": charge.tab.member.finance_name,
                 "shares": {},
                 "labels": {},
                 "gross": 0,
+                "payment_intent": charge.stripe_payment_intent_id,
             }
             charges[charge.pk] = bucket
             order.append(charge.pk)
@@ -638,6 +650,7 @@ def _tab_lines(
                 shares=bucket["shares"],
                 labels=bucket["labels"],
                 omitted=bool(adjustment is not None and adjustment.is_omitted),
+                stripe_payment_intent_id=bucket["payment_intent"],
             )
         )
     return lines
@@ -730,6 +743,7 @@ def build_reconciliation(
     lines.extend(_orientation_lines(window, orientation_percents, adjustments))
     lines.extend(_reservation_lines(window, reservation_percents, adjustments))
     lines.sort(key=lambda line: line.date, reverse=True)
+    lines = attach_stripe_fees(lines)
 
     from billing.payouts import kept_share_notes
 
@@ -771,6 +785,43 @@ def build_reconciliation(
         voting_projected=voting_projected,
         voting_snapshotted_on=voting_on,
     )
+
+
+def _split_by_weight(total: int, weights: list[int]) -> list[int]:
+    """``total`` split across ``weights`` in proportion; the last part takes the rounding so the parts sum exactly."""
+    whole = sum(weights)
+    parts = [total * weight // whole for weight in weights[:-1]]
+    return [*parts, total - sum(parts)]
+
+
+def attach_stripe_fees(lines: list[TransactionLine]) -> list[TransactionLine]:
+    """``lines`` with Stripe's fee and net from each payment's :class:`StripeFeeRecord` (#984), in one query.
+
+    A line with no PaymentIntent, no record or an unread record keeps None (unknown). Lines
+    that share one PaymentIntent split its fee and net by their gross, so no fee is counted twice.
+    """
+    from billing.models import StripeFeeRecord
+
+    indexes_by_pi: dict[str, list[int]] = {}
+    for index, line in enumerate(lines):
+        if line.stripe_payment_intent_id:
+            indexes_by_pi.setdefault(line.stripe_payment_intent_id, []).append(index)
+    records = StripeFeeRecord.objects.by_payment_intent(list(indexes_by_pi))
+    attached = list(lines)
+    for payment_intent_id, indexes in indexes_by_pi.items():
+        if payment_intent_id not in records:
+            continue
+        record = records[payment_intent_id]
+        fee = record.fee_after_refunds_cents
+        net = record.net_after_refunds_cents
+        if fee is None or net is None:
+            continue
+        weights = [max(lines[index].gross_cents, 1) for index in indexes]
+        for index, fee_part, net_part in zip(
+            indexes, _split_by_weight(fee, weights), _split_by_weight(net, weights), strict=True
+        ):
+            attached[index] = replace(attached[index], stripe_fee_cents=fee_part, stripe_net_cents=net_part)
+    return attached
 
 
 def _attach_payouts(

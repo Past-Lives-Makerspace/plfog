@@ -99,6 +99,9 @@ def delete_own_account(member: "Member") -> None:
             custom_question_answers={},
         )
 
+        # Keep the one name finance shows, so Reconciliation and Payouts can still say whose
+        # share it is (#983). Everything else below is scrubbed.
+        member.name_at_deletion = member.display_name
         # Scrub Member PII in place.
         if member.profile_photo:
             member.profile_photo.delete(save=False)
@@ -128,6 +131,7 @@ def delete_own_account(member: "Member") -> None:
         member.save(
             update_fields=[
                 "profile_photo",
+                "name_at_deletion",
                 "full_legal_name",
                 "preferred_name",
                 "_pre_signup_email",

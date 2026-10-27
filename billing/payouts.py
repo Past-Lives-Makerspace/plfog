@@ -59,7 +59,9 @@ def has_earning(member: Member) -> bool:
     from membership.models import OrientationBooking
 
     return (
-        Registration.objects.filter(class_offering__instructor=member, amount_paid_cents__gt=0).exists()
+        Registration.objects.without_demo_money()
+        .filter(class_offering__instructor=member, amount_paid_cents__gt=0)
+        .exists()
         or OrientationBooking.objects.filter(oriented_by=member, amount_paid_cents__gt=0).exists()
         or _reservations().filter(_reservation_payee_is(member)).exists()
     )
@@ -208,9 +210,8 @@ def _registrations() -> QuerySet[Any]:
     from classes.models import Registration
 
     return (
-        Registration.objects.filter(
-            amount_paid_cents__gt=0, confirmed_at__isnull=False, class_offering__instructor__isnull=False
-        )
+        Registration.objects.without_demo_money()
+        .filter(amount_paid_cents__gt=0, confirmed_at__isnull=False, class_offering__instructor__isnull=False)
         .annotate(first_session_at=Min("class_offering__sessions__starts_at"))
         .filter(first_session_at__isnull=False)
         .select_related("class_offering__instructor", "class_offering__category__guild", "member", "payout")
@@ -287,7 +288,7 @@ def _earnings(registrations: Iterable[Any], bookings: Iterable[Any], reservation
                 source=reg,
                 payee=reg.class_offering.instructor,
                 item=reg.class_offering.title,
-                payer=reg.member.display_name if reg.member is not None else (guest or reg.email),
+                payer=reg.member.finance_name if reg.member is not None else (guest or reg.email),
                 taught_at=reg.first_session_at,
                 paid_at=reg.confirmed_at,
                 share_cents=shares.for_registration(reg),
@@ -300,7 +301,7 @@ def _earnings(registrations: Iterable[Any], bookings: Iterable[Any], reservation
                 source=booking,
                 payee=booking.oriented_by,
                 item=f"{booking.orientation_type.owner_name} orientation",
-                payer=booking.member.display_name,
+                payer=booking.member.finance_name,
                 taught_at=booking.slot.starts_at,
                 paid_at=booking.requested_at,
                 share_cents=shares.for_booking(booking),
@@ -316,7 +317,7 @@ def _earnings(registrations: Iterable[Any], bookings: Iterable[Any], reservation
                 source=reservation,
                 payee=payee,
                 item=reservation.equipment.name,
-                payer=reservation.member.display_name,
+                payer=reservation.member.finance_name,
                 taught_at=reservation.starts_at,
                 paid_at=reservation.created_at,
                 share_cents=shares.for_reservation(reservation),
@@ -365,6 +366,7 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
     Even while off, a PENDING share more than ``PAYOUT_SEND_WINDOW`` past due is given up and
     owed by hand, so nothing waits unsent with nobody told.
     """
+    from classes.models import Registration
     from membership.models import EquipmentReservation
 
     now = now or timezone.now()
@@ -400,7 +402,10 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
             continue
         if _record(earning, accounts.get(earning.payee.pk), since):
             run.created += 1
-    for pk in list(Payout.objects.to_send(now).in_current_mode().values_list("pk", flat=True)):
+    # A demo class's share is never sent (#983); real money on a demo- slug still is.
+    demo_money = Registration.objects.demo_money()
+    sendable = Payout.objects.to_send(now).in_current_mode().exclude(registration__in=demo_money)
+    for pk in list(sendable.values_list("pk", flat=True)):
         _send_one(pk, now, snapshots, run)
     return run
 
