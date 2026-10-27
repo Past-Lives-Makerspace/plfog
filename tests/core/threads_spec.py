@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import PropertyMock, patch
 
 import pytest
 from django.template.loader import render_to_string
@@ -87,9 +86,7 @@ def describe_the_thread_template():
         assert "Zzfirst instructor" not in html
 
     def it_reads_a_message_from_any_member_side_account_as_the_member_side():
-        message = OrientationBookingMessage(author_id=5)
-        with patch.object(OrientationBookingMessage, "member_user_ids", new_callable=PropertyMock) as ids:
-            ids.return_value = {4, 5}
-            assert message.is_from_staff is False
-            ids.return_value = {4}
-            assert message.is_from_staff is True
+        is_from_staff = ThreadMessage.is_from_staff.fget  # type: ignore[attr-defined]
+        assert is_from_staff(SimpleNamespace(author_id=5, member_user_ids={4, 5})) is False
+        assert is_from_staff(SimpleNamespace(author_id=5, member_user_ids={4})) is True
+        assert is_from_staff(SimpleNamespace(author_id=None, member_user_ids={4})) is True

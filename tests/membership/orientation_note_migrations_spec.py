@@ -21,12 +21,12 @@ from django.utils import timezone
 from membership.models import OrientationBooking
 from tests.membership.factories import MembershipPlanFactory, OrientationBookingFactory
 
-BEFORE = ("membership", "0247_orientation_booking_messages")
-AFTER = ("membership", "0248_orientation_notes_to_messages")
+BEFORE = ("membership", "0248_orientation_booking_messages")
+AFTER = ("membership", "0249_orientation_notes_to_messages")
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
-migration = importlib.import_module("membership.migrations.0248_orientation_notes_to_messages")
+migration = importlib.import_module("membership.migrations.0249_orientation_notes_to_messages")
 
 
 def _migrate(target: tuple[str, str]) -> Any:

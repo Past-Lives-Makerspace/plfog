@@ -3,6 +3,7 @@
 {% block title %}{{ guild.name }} Settings{% endblock %}
 {% block extra_head %}{{ block.super }}
 <link rel="stylesheet" href="{% static 'css/guild-settings.css' %}">
+<link rel="stylesheet" href="{% static 'css/cubbies.css' %}">
 {% endblock %}
 {% block content %}
 {% include "_components/rich_editor_assets.html" %}
@@ -110,6 +111,7 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
   {# Orientations is its own page (#672); this tab only links there, and ?tab=orientations redirects to it. #}
   <a href="{% url 'hub_guild_orientations' guild.pk %}" class="vote-tab" data-help-key="guild.run-orientations" data-orientations-tab-link>Orientations</a>
   <button type="button" class="vote-tab" :class="section === 'reservations' ? 'vote-tab--active' : ''" @click="section = 'reservations'">Reservations</button>
+  <button type="button" class="vote-tab" :class="section === 'cubbies' ? 'vote-tab--active' : ''" @click="section = 'cubbies'" data-cubbies-tab>Cubbies</button>
   {% if guild_welcome_email_enabled %}<button type="button" class="vote-tab" :class="section === 'welcome_email' ? 'vote-tab--active' : ''" @click="section = 'welcome_email'">Welcome Email</button>{% endif %}
   <button type="button" class="vote-tab" :class="section === 'images' ? 'vote-tab--active' : ''" @click="section = 'images'">Images</button>
   <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">FAQ</button>
@@ -464,6 +466,19 @@ confirm modal carries its own POST form, and template content can't nest a form.
   </div>
 </div>
 
+{# ── Cubbies (#977): the guild page's Cubbies tab switch; shelves and prices live on the Cubbies manager. ── #}
+<div x-show="section === 'cubbies'" x-cloak data-cubbies-settings>
+  <form method="post" action="{% url 'hub_guild_cubbies_settings_save' guild.pk %}" class="hub-form" data-autosave>
+    {% csrf_token %}
+    <div class="hub-card pl-guild-settings-card">
+      <h2 class="hub-detail-label pl-guild-settings-card__title">Cubbies</h2>
+      <p class="hub-text-muted pl-guild-settings-card__lead">Rent shelf space to members, paid monthly.</p>
+      {% include "components/toggle.html" with field=cubbies_settings_form.show_cubbies_tab toggle_label="Show a Cubbies Tab on the Guild Page" toggle_description="Members see the guild's shelves and which cubbies are open." %}
+      <p class="pl-form-note"><a href="{% url 'hub_guild_cubbies' guild.pk %}" class="pl-cubby-live__link" data-cubbies-manage-link>Build Shelves and Set Prices →</a></p>
+    </div>
+  </form>
+</div>
+
 {# ── Welcome Email — the join-lifecycle email; own form + endpoint (multi-form via form_id). ──── #}
 {# Preview and Send test keep their buttons; the email form below saves itself as it is edited. #}
 {# Hidden entirely when the site-wide guild_welcome_email_enabled switch is off; a stale #}
@@ -764,7 +779,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
       Co-Leads, secretaries, treasurers, and orientors. Every staff member gets the same access as the
       guild lead except class review: they can edit this page, manage classes, run orientations, and receive
       orientation requests. Class review requests go only to the guild lead and the staff switched on as
-      Class Reviewer below, and only the guild lead or an admin can change that switch. The guild lead itself
+      Class Reviewer with the switch beside their name, and only the guild lead or an admin can change that switch. The guild lead itself
       is set by an admin, and only an admin can add a Co-Lead.
     </p>
 
@@ -776,6 +791,10 @@ confirm modal carries its own POST form, and template content can't nest a form.
         {# Class Reviewer (#816): saves on change over HTMX, outside every autosave form; read only unless lead or admin. #}
         <div class="pl-staff-reviewer" data-class-reviewer-row="{{ member.pk }}" data-autosave-ignore>
           <span class="pl-staff-reviewer__label">Class Reviewer</span>
+          <span class="pl-help pl-help--right" tabindex="0" aria-label="What Class Reviewer means">
+            <span class="pl-help__icon" aria-hidden="true">?</span>
+            <span class="pl-help__bubble" role="tooltip">On: they get this guild's class review requests and can approve its classes. Only the guild lead or an admin can change it.</span>
+          </span>
           <label class="pl-toggle pl-toggle--sm{% if not can_set_class_reviewers %} pl-toggle--disabled{% endif %}">
             <input type="checkbox" name="on"
                    aria-label="Class Reviewer: {{ member.display_name }}"
@@ -816,9 +835,14 @@ confirm modal carries its own POST form, and template content can't nest a form.
       <div style="flex:2; min-width:220px;">{% include "components/form_field.html" with field=staff_add_form.member %}</div>
       <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=staff_add_form.role %}</div>
       <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=staff_add_form.custom_title %}</div>
+      {% if can_set_class_reviewers %}
+      <div class="pl-staff-add-reviewer" data-staff-add-reviewer>
+        {% include "components/toggle.html" with field=staff_add_form.class_reviewer toggle_label=staff_add_form.class_reviewer.label toggle_description=staff_add_form.class_reviewer.help_text %}
+      </div>
+      {% endif %}
       <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Add staff member</button>
       <p class="hub-text-muted" style="flex-basis:100%; margin:0.25rem 0 0; font-size:0.8125rem;">
-        Pick a preset role or write your own title.
+        Pick a preset role or write your own title.{% if can_set_class_reviewers %} To add someone only as a Class Reviewer, leave both blank and turn Class Reviewer on.{% endif %}
       </p>
     </form>
   </div>
