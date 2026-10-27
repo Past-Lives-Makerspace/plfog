@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-27"
+title = "A draft class now says In draft"
+changes = [
+  "On a class page, a class that has not been sent for review shows In draft with a gray dot instead of a gold dot beside Submitted.",
+  "Submitted shows only once the class really has been sent for review.",
+]

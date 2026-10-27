@@ -220,7 +220,7 @@ def describe_unpublish():
         offering.refresh_from_db()
         pipeline = offering.review_pipeline()
         assert not pipeline.is_live
-        assert pipeline.steps[0].state == "current"
+        assert (pipeline.steps[0].state, pipeline.steps[0].label) == ("draft", "In draft")
 
 
 def describe_publish():
