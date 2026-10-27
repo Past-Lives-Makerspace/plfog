@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0243_discordremoval"),
+        ("membership", "0244_alter_admincapability_capability"),
     ]
 
     operations = [
