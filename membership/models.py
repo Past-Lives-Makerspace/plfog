@@ -954,6 +954,16 @@ class Member(StaffRequestMixin, models.Model):
             "many other reasons. Not filtered by the default manager (see PR rationale)."
         ),
     )
+    name_at_deletion = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "The name finance shows for this member, kept when they delete their account so "
+            "Reconciliation and Payouts can still say whose share it is (#983). Blank for a "
+            "member who never deleted, or one deleted before this was kept."
+        ),
+    )
     welcome_dismissed_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -1162,6 +1172,17 @@ class Member(StaffRequestMixin, models.Model):
     @property
     def display_name(self) -> str:
         return self.preferred_name if self.preferred_name else self.full_legal_name
+
+    @property
+    def finance_name(self) -> str:
+        """The name billing shows as a payer or payee: "Name (account deleted)" for a deleted member.
+
+        A member deleted before #983 has no kept name and reads as their scrubbed
+        ``display_name``, "Deleted Member".
+        """
+        if self.deleted_at is not None and self.name_at_deletion:
+            return f"{self.name_at_deletion} (account deleted)"
+        return self.display_name
 
     @property
     def role_label(self) -> str:

@@ -208,9 +208,8 @@ def _registrations() -> QuerySet[Any]:
     from classes.models import Registration
 
     return (
-        Registration.objects.filter(
-            amount_paid_cents__gt=0, confirmed_at__isnull=False, class_offering__instructor__isnull=False
-        )
+        Registration.objects.not_demo()
+        .filter(amount_paid_cents__gt=0, confirmed_at__isnull=False, class_offering__instructor__isnull=False)
         .annotate(first_session_at=Min("class_offering__sessions__starts_at"))
         .filter(first_session_at__isnull=False)
         .select_related("class_offering__instructor", "class_offering__category__guild", "member", "payout")
@@ -287,7 +286,7 @@ def _earnings(registrations: Iterable[Any], bookings: Iterable[Any], reservation
                 source=reg,
                 payee=reg.class_offering.instructor,
                 item=reg.class_offering.title,
-                payer=reg.member.display_name if reg.member is not None else (guest or reg.email),
+                payer=reg.member.finance_name if reg.member is not None else (guest or reg.email),
                 taught_at=reg.first_session_at,
                 paid_at=reg.confirmed_at,
                 share_cents=shares.for_registration(reg),
@@ -300,7 +299,7 @@ def _earnings(registrations: Iterable[Any], bookings: Iterable[Any], reservation
                 source=booking,
                 payee=booking.oriented_by,
                 item=f"{booking.orientation_type.owner_name} orientation",
-                payer=booking.member.display_name,
+                payer=booking.member.finance_name,
                 taught_at=booking.slot.starts_at,
                 paid_at=booking.requested_at,
                 share_cents=shares.for_booking(booking),
@@ -316,7 +315,7 @@ def _earnings(registrations: Iterable[Any], bookings: Iterable[Any], reservation
                 source=reservation,
                 payee=payee,
                 item=reservation.equipment.name,
-                payer=reservation.member.display_name,
+                payer=reservation.member.finance_name,
                 taught_at=reservation.starts_at,
                 paid_at=reservation.created_at,
                 share_cents=shares.for_reservation(reservation),

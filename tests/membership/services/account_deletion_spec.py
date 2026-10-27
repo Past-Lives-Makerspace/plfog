@@ -152,6 +152,24 @@ def describe_delete_own_account():
             member.refresh_from_db()
             assert member.full_legal_name == "Deleted Member"
 
+        def it_keeps_the_name_finance_shows():
+            member = _linked_member()
+
+            delete_own_account(member)
+
+            member.refresh_from_db()
+            assert member.name_at_deletion == "Janey"
+            assert member.full_legal_name == "Deleted Member"
+            assert member.finance_name == "Janey (account deleted)"
+
+        def it_keeps_the_legal_name_when_there_is_no_preferred_name():
+            member = _linked_member(preferred_name="")
+
+            delete_own_account(member)
+
+            member.refresh_from_db()
+            assert member.name_at_deletion == "Jane Doe"
+
         def it_clears_the_discord_link_timestamp():
             member = _linked_member()
 

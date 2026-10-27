@@ -201,7 +201,7 @@ def _tab_rows(window: PanelWindow) -> list[PaymentRow]:
             PaymentRow(
                 source_kind="tab",
                 source_pk=charge.pk,
-                payer_name=charge.tab.member.display_name,
+                payer_name=charge.tab.member.finance_name,
                 payer_url=None,
                 item="Tab charge",
                 amount_cents=int(round(charge.amount * 100)),
@@ -226,7 +226,8 @@ def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRo
     from classes.models import Registration
 
     registrations = (
-        Registration.objects.filter(amount_paid_cents__gt=0)
+        Registration.objects.not_demo()
+        .filter(amount_paid_cents__gt=0)
         .filter(confirmed_at__gte=window.start_dt, confirmed_at__lt=window.end_dt)
         .select_related("class_offering", "member")
         .prefetch_related("refunds")
@@ -237,7 +238,7 @@ def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRo
         status, pending_age = _refund_status(registration.refund_state, refunds)
         guest_name = f"{registration.first_name} {registration.last_name}".strip()
         payer_name = (
-            registration.member.display_name if registration.member is not None else (guest_name or registration.email)
+            registration.member.finance_name if registration.member is not None else (guest_name or registration.email)
         )
         payer_url = reverse("classes:admin_registration_detail", args=[registration.pk]) if viewer_is_admin else None
         rows.append(
@@ -286,7 +287,7 @@ def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
             PaymentRow(
                 source_kind="orientation",
                 source_pk=booking.pk,
-                payer_name=booking.member.display_name,
+                payer_name=booking.member.finance_name,
                 payer_url=payer_url,
                 item=f"Orientation — {booking.orientation_type.owner_name}",
                 amount_cents=booking.amount_paid_cents,
@@ -329,7 +330,7 @@ def _reservation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
             PaymentRow(
                 source_kind="reservation",
                 source_pk=reservation.pk,
-                payer_name=reservation.member.display_name,
+                payer_name=reservation.member.finance_name,
                 payer_url=payer_url,
                 item=f"Reservation, {reservation.equipment.name}",
                 amount_cents=reservation.amount_paid_cents,
@@ -378,7 +379,7 @@ def _late_fee_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Paymen
             PaymentRow(
                 source_kind="late_fee",
                 source_pk=fee.pk,
-                payer_name=fee.member.display_name,
+                payer_name=fee.member.finance_name,
                 payer_url=payer_url,
                 item=f"Late fee: {fee.item_label}",
                 amount_cents=fee.amount_cents,

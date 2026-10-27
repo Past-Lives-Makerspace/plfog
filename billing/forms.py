@@ -644,7 +644,7 @@ class RefundShareDecisionForm(forms.Form):
         self.sent_payout = sent_payout_for(source)
         if self.sent_payout is None:
             return
-        payee = self.sent_payout.payee.display_name
+        payee = self.sent_payout.payee.finance_name
         remaining = (self.sent_payout.amount_cents - self.sent_payout.reversed_cents) / 100
         sent_on = timezone.localtime(self.sent_payout.sent_at)
         self.fields["share_decision"] = forms.ChoiceField(

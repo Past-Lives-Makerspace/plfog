@@ -278,6 +278,10 @@ def _flexible_window_ended() -> Q:
 
 
 class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
+    def demo(self) -> "ClassOfferingQuerySet":
+        """Seeded demo classes: every class whose slug starts with ``demo-`` (#983)."""
+        return self.filter(slug__startswith=DEMO_SLUG_PREFIX)
+
     def public(self) -> "ClassOfferingQuerySet":
         """Published classes visible in the public portal (excludes private).
 
@@ -5382,6 +5386,10 @@ FAILED_PAYMENT_CANCEL_REASON = "The delayed payment for this signup did not go t
 
 
 class RegistrationQuerySet(models.QuerySet["Registration"]):
+    def not_demo(self) -> "RegistrationQuerySet":
+        """Registrations on real classes only. Finance never counts a ``demo-`` class (#983)."""
+        return self.exclude(class_offering__slug__startswith=DEMO_SLUG_PREFIX)
+
     def with_class_dates_in(self, start: date_type | None, end: date_type | None) -> "RegistrationQuerySet":
         """Registrations whose class runs on a day from ``start`` through ``end``, inclusive (#911).
 

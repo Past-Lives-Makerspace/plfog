@@ -385,7 +385,8 @@ def _class_lines(
     from classes.models import Registration
 
     registrations = (
-        Registration.objects.filter(amount_paid_cents__gt=0)
+        Registration.objects.not_demo()
+        .filter(amount_paid_cents__gt=0)
         .filter(confirmed_at__gte=window.start_dt, confirmed_at__lt=window.end_dt)
         .select_related("class_offering__instructor", "class_offering__category__guild", "member")
         .prefetch_related("refunds")
@@ -404,7 +405,7 @@ def _class_line(
     instructor = offering.instructor
     guild = offering.category.guild
     guest_name = f"{reg.first_name} {reg.last_name}".strip()
-    payer_name = reg.member.display_name if reg.member is not None else (guest_name or reg.email)
+    payer_name = reg.member.finance_name if reg.member is not None else (guest_name or reg.email)
     return _member_share_line(
         source_kind="class",
         source_pk=reg.pk,
@@ -414,7 +415,7 @@ def _class_line(
         gross_cents=reg.amount_paid_cents,
         refunded_cents=reg.amount_refunded_cents if refunded_cents is None else refunded_cents,
         producer_key=("instructor", instructor.id) if instructor is not None else None,
-        producer_label=instructor.display_name if instructor is not None else None,
+        producer_label=instructor.finance_name if instructor is not None else None,
         producer_role="instructor",
         guild_key=("guild", guild.id) if guild is not None else None,
         guild_label=guild.name if guild is not None else None,
@@ -452,12 +453,12 @@ def _orientation_line(
         source_kind="orientation",
         source_pk=booking.pk,
         when=booking.requested_at,
-        payer_name=booking.member.display_name,
+        payer_name=booking.member.finance_name,
         item=f"Orientation — {booking.orientation_type.owner_name}",
         gross_cents=booking.amount_paid_cents,
         refunded_cents=booking.amount_refunded_cents if refunded_cents is None else refunded_cents,
         producer_key=("orientator", orientator.id) if orientator is not None else None,
-        producer_label=orientator.display_name if orientator is not None else None,
+        producer_label=orientator.finance_name if orientator is not None else None,
         producer_role="orientator",
         guild_key=("guild", booking.guild.id) if booking.guild is not None else None,
         guild_label=booking.guild.name if booking.guild is not None else None,
@@ -507,12 +508,12 @@ def _reservation_line(
         source_kind="reservation",
         source_pk=reservation.pk,
         when=reservation.created_at,
-        payer_name=reservation.member.display_name,
+        payer_name=reservation.member.finance_name,
         item=f"Reservation, {equipment.name}",
         gross_cents=reservation.amount_paid_cents,
         refunded_cents=reservation.amount_refunded_cents if refunded_cents is None else refunded_cents,
         producer_key=("manager", payee.id) if payee is not None else None,
-        producer_label=payee.display_name if payee is not None else None,
+        producer_label=payee.finance_name if payee is not None else None,
         producer_role="manager",
         guild_key=("guild", guild.id) if guild is not None else None,
         guild_label=guild.name if guild is not None else None,
@@ -603,7 +604,7 @@ def _tab_lines(
         if bucket is None:
             bucket = {
                 "when": split.eff,
-                "payer_name": charge.tab.member.display_name,
+                "payer_name": charge.tab.member.finance_name,
                 "shares": {},
                 "labels": {},
                 "gross": 0,

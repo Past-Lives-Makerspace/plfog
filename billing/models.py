@@ -1754,6 +1754,40 @@ class ReconciliationSnapshot(models.Model):
         SiteActivity.log(SiteActivity.Kind.RECONCILIATION_SNAPSHOT_TAKEN, actor=actor, target=snapshot)
         return snapshot
 
+    @classmethod
+    def latest_for(cls, *, period_start: Any, period_end: Any) -> ReconciliationSnapshot:
+        """The snapshot that currently stands for a window: the newest one, as Reconciliation reads it.
+
+        Raises:
+            ValueError: No snapshot exists for that window.
+        """
+        snapshot = cls.objects.filter(period_start=period_start, period_end=period_end).order_by("-taken_at").first()
+        if snapshot is None:
+            raise ValueError(f"No reconciliation snapshot for {period_start} to {period_end}.")
+        return snapshot
+
+    def retake(self, *, actor: Any | None = None) -> ReconciliationSnapshot:
+        """Freeze this window again from today's data, keeping this snapshot's guild voting cents (#983).
+
+        The new snapshot is taken while this one still stands, so ``resolve_voting_allocation``
+        reads its frozen voting figures rather than projecting fresh ones; this one is then
+        deleted in the same transaction. Its title is kept. Pending payouts it counted lose that
+        link on delete and ``freeze_split`` binds them to the new snapshot.
+
+        Returns:
+            The new snapshot.
+        """
+        with transaction.atomic():
+            replacement = ReconciliationSnapshot.take(
+                period_start=self.period_start,
+                period_end=self.period_end,
+                title=self.title,
+                is_auto=False,
+                actor=actor,
+            )
+            self.delete()
+        return replacement
+
 
 # ---------------------------------------------------------------------------
 # LateCancellationFee — what a late self cancel costs, paid through Stripe (#456)
