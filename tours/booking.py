@@ -392,6 +392,14 @@ def _stamp_completed_tour(user: User, toured_at: datetime) -> None:
 def _unstamp_completed_tour(user: User, toured_at: datetime) -> None:
     """Undo this tour's stamp when attended is corrected away: only a stamp equal to this tour's start.
 
-    A stamp from an earlier tour (or SimplyBook) is a different instant and stays.
+    A stamp from an earlier tour (or SimplyBook) is a different instant and stays. When it is cleared,
+    the visitor's earliest tour still marked attended stamps it again, so a correction never erases
+    a tour they did take.
     """
-    UserProfile.objects.filter(user=user, completed_tour_at=toured_at).update(completed_tour_at=None)
+    cleared = UserProfile.objects.filter(user=user, completed_tour_at=toured_at).update(completed_tour_at=None)
+    if cleared:
+        still_attended = (
+            TourBooking.objects.filter(user=user, status=TourBooking.Status.ATTENDED).order_by("starts_at").first()
+        )
+        if still_attended is not None:
+            _stamp_completed_tour(user, still_attended.starts_at)

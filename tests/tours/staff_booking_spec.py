@@ -329,6 +329,16 @@ def describe_mark_tour_outcome():
         mark_tour_outcome(booked, TourBooking.Status.NO_SHOW, now=FIVE)
         assert UserProfile.objects.get(user=user).completed_tour_at == earlier
 
+    def it_restamps_from_a_later_tour_still_attended_when_the_first_is_corrected(booked: TourBooking):
+        user = _user(MemberFactory())
+        TourBooking.objects.filter(pk=booked.pk).update(user=user)
+        later = TourBookingFactory(guide=booked.guide, starts_at=FIVE, user=user)
+        mark_tour_outcome(booked, TourBooking.Status.ATTENDED, now=FIVE + timedelta(hours=2))
+        mark_tour_outcome(later, TourBooking.Status.ATTENDED, now=FIVE + timedelta(hours=2))
+        assert UserProfile.objects.get(user=user).completed_tour_at == FOUR
+        mark_tour_outcome(booked, TourBooking.Status.NO_SHOW, now=FIVE + timedelta(hours=2))
+        assert UserProfile.objects.get(user=user).completed_tour_at == FIVE
+
     def it_leaves_the_stamp_alone_when_attended_is_marked_again(booked: TourBooking):
         user = _user(MemberFactory())
         TourBooking.objects.filter(pk=booked.pk).update(user=user)
