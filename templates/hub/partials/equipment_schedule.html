@@ -198,8 +198,9 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
           <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--ok">Confirmed</span>{% if reservation.amount_paid_cents %} Paid {{ reservation.paid_display }}{% endif %}{% if reservation.credit_minutes %} <span class="pl-equip-badge pl-equip-badge--credit" data-credit-used>{{ reservation.credit_used_label }}</span>{% endif %}</span>
           {% endif %}
         </span>
-        {% if not reservation.is_declined and not reservation.credited_minutes_total %}
         <span class="pl-equip-res-row__actions">
+          {% include "hub/partials/_equipment_my_messages_link.html" %}
+          {% if not reservation.is_declined and not reservation.credited_minutes_total %}
           {% if reservation.end_early_hours %}{% include "hub/partials/_equipment_end_early.html" %}{% endif %}
           {% if reservation.is_awaiting_payment %}
           {# Pay now resumes the same Checkout; unboosted, because the answer is a redirect to Stripe. #}
@@ -210,7 +211,9 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
           {% endif %}
           <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                   @click="$dispatch('open-confirm', 'cancel-my-res-{{ reservation.pk }}')">Cancel</button>
+          {% endif %}
         </span>
+        {% if not reservation.is_declined and not reservation.credited_minutes_total %}
         {% include "hub/partials/_equipment_my_cancel_modal.html" %}
         {% endif %}
       </li>
@@ -222,13 +225,17 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
         </span>
         {% if reservation.is_cancelled_by_manager %}
         <span class="hub-text-muted">Cancelled by the manager: {{ reservation.cancelled_reason }}{% if reservation.refund_note %} {{ reservation.refund_note }}{% endif %}</span>
+        <span class="pl-equip-res-row__actions">{% include "hub/partials/_equipment_my_messages_link.html" %}</span>
         {% elif reservation.status == "confirmed" and not reservation.credited_minutes_total %}
         <span class="pl-equip-res-row__actions">
+          {% include "hub/partials/_equipment_my_messages_link.html" %}
           {% if reservation.end_early_hours %}{% include "hub/partials/_equipment_end_early.html" %}{% endif %}
           <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                   @click="$dispatch('open-confirm', 'cancel-my-res-{{ reservation.pk }}')">Cancel</button>
         </span>
         {% include "hub/partials/_equipment_my_cancel_modal.html" %}
+        {% else %}
+        <span class="pl-equip-res-row__actions">{% include "hub/partials/_equipment_my_messages_link.html" %}</span>
         {% endif %}
       </li>
       {% endif %}

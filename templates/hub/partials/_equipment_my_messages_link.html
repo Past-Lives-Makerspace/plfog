@@ -1,0 +1,2 @@
+{# The member's Messages link on one of their reservations here: the Reservations page's Bookings tab with its thread open. #}
+<a href="{{ reservation.member_messages_url }}" class="pl-btn pl-btn--secondary pl-btn--sm" data-my-reservation-messages="{{ reservation.pk }}">Messages{% if reservation.has_unread_messages %} <span class="pl-equip-badge pl-equip-badge--warn" data-thread-unread="{{ reservation.thread_key }}">New</span>{% endif %}</a>

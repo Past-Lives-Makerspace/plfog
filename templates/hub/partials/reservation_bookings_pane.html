@@ -113,4 +113,5 @@ refund-done, which reloads the body below and closes the refund modal.
   {% if viewer_has_refund_authority %}
   {% include "components/modal.html" with modal_id="refund-modal" modal_title="Refund Payment" modal_size="sm" %}
   {% endif %}
+  {% include "hub/partials/reservation_messages_modal.html" with reservation_thread_next=bookings_next %}
 </div>

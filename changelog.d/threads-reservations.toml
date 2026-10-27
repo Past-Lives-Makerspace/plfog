@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-27"
+title = "Message the managers about a reservation"
+changes = [
+  "Each equipment reservation now has a conversation. Ask the equipment managers a question, add photos, and get a notice when they answer.",
+  "A New message tag shows on any reservation with a reply you have not read.",
+  "When a reservation is declined or cancelled by a manager, their reason shows in the conversation too.",
+]

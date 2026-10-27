@@ -33,6 +33,8 @@ if TYPE_CHECKING:
 
     from django.db.models import QuerySet
 
+    from django.contrib.auth.models import User
+
     from billing.models import LateCancellationFee
     from core.models import SiteConfiguration
     from membership.models import EquipmentReservationQuerySet
@@ -107,6 +109,14 @@ class ReservationRow:
         return f"Credited {credit_hours_short(minutes)}" if minutes else ""
 
     @property
+    def has_unread_messages(self) -> bool:
+        """Whether the thread holds a message the viewer has not read: the row's New message pill.
+
+        Read straight off the annotation :func:`_with_related` adds, so a row built without it fails loudly.
+        """
+        return cast(bool, self.reservation.has_unread_messages)  # type: ignore[attr-defined]
+
+    @property
     def fee_unpaid(self) -> bool:
         """Whether the reservation's late cancellation fee is still owed: the Status column's fee pill."""
         return self.late_fee is not None and self.late_fee.is_unpaid
@@ -172,8 +182,11 @@ def _apply_filters(request: HttpRequest, rows: QuerySet[EquipmentReservation]) -
     return rows
 
 
-def _with_related(rows: QuerySet[EquipmentReservation]) -> QuerySet[EquipmentReservation]:
-    """Everything a row and its menu read, so the pane costs the same with 1 row or 25."""
+def _with_related(request: HttpRequest, rows: QuerySet[EquipmentReservation]) -> QuerySet[EquipmentReservation]:
+    """Everything a row and its menu read, so the pane costs the same with 1 row or 25.
+
+    The viewer's unread cue rides along as one subquery (``with_unread_messages_for``).
+    """
     from hub.views import _primary_email_prefetch
 
     # The reservation's own refunds feed its Paid and Refunded pills (#749); the unused time credited back
@@ -182,7 +195,17 @@ def _with_related(rows: QuerySet[EquipmentReservation]) -> QuerySet[EquipmentRes
         "late_fee__refunds", "refunds", _primary_email_prefetch("member__user__emailaddress_set")
     )
     # Every caller passes EquipmentReservation.objects rows, so the model's own queryset is what arrives here.
-    return cast("EquipmentReservationQuerySet", related).with_credited_unused()
+    return (
+        cast("EquipmentReservationQuerySet", related)
+        .with_credited_unused()
+        .with_unread_messages_for(_viewer_user(request))
+    )
+
+
+def _viewer_user(request: HttpRequest) -> User | None:
+    """The signed in account whose unread cues a list shows, or ``None``."""
+    user = request.user
+    return cast("User", user) if user.is_authenticated else None
 
 
 def build_row(
@@ -312,7 +335,7 @@ def reservation_bookings_context(request: HttpRequest) -> dict[str, Any]:
         waiting_count = table_search(_apply_filters(request, waiting), search, SEARCH_FIELDS).count()
     table = prepare_table(
         request,
-        _with_related(rows),
+        _with_related(request, rows),
         search_fields=SEARCH_FIELDS if is_staff_view else [],
         search_param=SEARCH_PARAM,
         default_sort="starts_at",
@@ -386,6 +409,8 @@ def reservation_bookings_context(request: HttpRequest) -> dict[str, Any]:
         "viewer_has_refund_authority": refund_authority,
         "bookings_next": f"{reverse('hub_equipment_index')}?{page_query}",
         "bookings_refresh_url": f"{reverse('hub_equipment_bookings')}?{page_query}",
+        # A message notice or a Send lands here with ?messages=res-<pk>: the Messages modal opens on it.
+        "open_reservation_thread": reservation_thread_to_open(request),
     }
 
 
@@ -420,6 +445,47 @@ def awaiting_approval_rows(request: HttpRequest, *, limit: int) -> tuple[list[Re
             is_admin=is_admin,
             actual_admin=actual_admin,
         )
-        for reservation in _with_related(waiting)[:limit]
+        for reservation in _with_related(request, waiting)[:limit]
     ]
     return rows, total
+
+
+#: A reservation's thread key prefix in ``?messages=`` ("res-12"), apart from an orientation booking's pk.
+THREAD_KEY_PREFIX = "res-"
+
+
+def reservation_thread_side(request: HttpRequest, reservation: EquipmentReservation) -> str | None:
+    """Which side of ``reservation``'s thread the request is on: "member", "staff", or ``None`` for no access.
+
+    The member who booked is the member side, even when they also manage the equipment;
+    anyone ``can_manage_equipment`` admits (its staff, its guild's leadership, Equipment
+    Administrators, admins) is the staff side. A block has no thread, so nobody may read one.
+    """
+    from hub.views import _get_member
+    from membership.permissions import can_manage_equipment
+
+    if reservation.is_block:
+        return None
+    member = _get_member(request)
+    if member is not None and reservation.member_id == member.pk:
+        return "member"
+    if can_manage_equipment(request, reservation.equipment):
+        return "staff"
+    return None
+
+
+def reservation_thread_to_open(request: HttpRequest) -> int | None:
+    """The reservation whose messages a page opens on arrival (``?messages=res-<pk>``), when the viewer may read them.
+
+    A Send lands back with that key (a boosted redirect drops a ``#fragment``), and every
+    message notice links with it. ``None`` for any other key, an unknown reservation, or one
+    the viewer has no side on, so a modal never opens empty.
+    """
+    key = request.GET.get("messages", "")
+    raw_pk = key.removeprefix(THREAD_KEY_PREFIX)
+    if raw_pk == key or not raw_pk.isdigit():
+        return None
+    reservation = EquipmentReservation.objects.select_related("equipment__guild").filter(pk=int(raw_pk)).first()
+    if reservation is None or reservation_thread_side(request, reservation) is None:
+        return None
+    return reservation.pk

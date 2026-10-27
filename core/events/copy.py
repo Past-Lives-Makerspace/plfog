@@ -2558,6 +2558,85 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # equipment.reservation_message_to_member / equipment.reservation_message_to_managers — the
+    # message thread on an equipment reservation (the shared thread, core.threads). The message
+    # itself is the content, so the email shows it whole (escaped, line breaks kept).
+    # reservation_url opens the member's Reservations page Bookings tab, or the equipment's
+    # Manage > Reservations tab for the managers, with the thread open.
+    "equipment.reservation_message_to_member": EventCopy(
+        placeholders=("author_name", "equipment_name", "reservation_when", "message_body", "reservation_url"),
+        sample_context={
+            "author_name": "Sami Lee",
+            "equipment_name": "CNC Router",
+            "reservation_when": "Tuesday, October 20, 10:00 AM to 12:00 PM",
+            "message_body": "Which bit are you using? The 1/4 inch downcut is out for sharpening.",
+            "reservation_url": "https://pastlives.example/equipment/?view=bookings&messages=res-12",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ author_name }} wrote about your {{ equipment_name }} reservation",
+                body_text="{{ message_body }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="A message about your {{ equipment_name }} reservation",
+                body_text=(
+                    "{{ author_name }} wrote about your {{ equipment_name }} reservation, "
+                    "{{ reservation_when }}:\n\n"
+                    "{{ message_body }}\n\n"
+                    "Read it and reply: {{ reservation_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ author_name }} wrote about your "
+                    '<strong><a href="{{ reservation_url }}">{{ equipment_name }}</a></strong> reservation, '
+                    "{{ reservation_when }}:</p>"
+                    '<p style="white-space:pre-line;">{{ message_body }}</p>'
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ reservation_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read And Reply</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "equipment.reservation_message_to_managers": EventCopy(
+        placeholders=("member_name", "equipment_name", "reservation_when", "message_body", "reservation_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "equipment_name": "CNC Router",
+            "reservation_when": "Tuesday, October 20, 10:00 AM to 12:00 PM",
+            "message_body": "I'm cutting 3/4 inch plywood sign blanks. Is the downcut bit OK for that?",
+            "reservation_url": "https://pastlives.example/equipment/cnc-router/manage/?tab=reservations&messages=res-12",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ member_name }} wrote about their {{ equipment_name }} reservation",
+                body_text="{{ message_body }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ member_name }} wrote about their {{ equipment_name }} reservation",
+                body_text=(
+                    "{{ member_name }} wrote about their {{ equipment_name }} reservation, "
+                    "{{ reservation_when }}:\n\n"
+                    "{{ message_body }}\n\n"
+                    "Read it and answer: {{ reservation_url }}\n\n"
+                    "You get this as a manager of the {{ equipment_name }}.\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ member_name }} wrote about their "
+                    '<strong><a href="{{ reservation_url }}">{{ equipment_name }}</a></strong> reservation, '
+                    "{{ reservation_when }}:</p>"
+                    '<p style="white-space:pre-line;">{{ message_body }}</p>'
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ reservation_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read And Answer</a></p>"
+                    "<p>You get this as a manager of the {{ equipment_name }}.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     # equipment.reservation_declined — a manager declined the member's request (#748), with the
     # required reason; the one CTA sends them back to pick another time. refund_line (#749) is the
     # refund sentence, ending in a space, when the request was paid; "" otherwise.

@@ -28,7 +28,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from hub.orientation_bookings import needs_reply_rows
-from hub.reservation_bookings import awaiting_approval_rows
+from hub.reservation_bookings import awaiting_approval_rows, reservation_thread_to_open
 from membership.models import (
     Equipment,
     EquipmentReservation,
@@ -294,6 +294,8 @@ def manage_bookings_context(request: HttpRequest) -> dict[str, Any]:
         "is_staff_view": True,
         "viewer_has_refund_authority": has_refund_authority(request),
         "bookings_next": reverse("hub_manage_bookings"),
+        # A Send from a row's Messages lands back with ?messages=res-<pk>: the modal opens on it again.
+        "open_reservation_thread": reservation_thread_to_open(request),
     }
 
 
