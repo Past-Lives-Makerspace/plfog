@@ -92,16 +92,15 @@ def describe_retrieve_payment_method():
 
 def describe_attach_payment_method():
     @patch("billing.stripe_utils._get_stripe_client")
-    def it_attaches_and_sets_default(mock_get_client):
+    def it_attaches_and_leaves_the_customer_default_to_the_cubby_subscriptions(mock_get_client):
+        # #978: My Tab charges its card by id; the customer default is what cubby rentals pay from.
         client = _mock_client()
         mock_get_client.return_value = client
 
         stripe_utils.attach_payment_method(customer_id="cus_123", payment_method_id="pm_456")
 
         client.v1.payment_methods.attach.assert_called_once_with("pm_456", params={"customer": "cus_123"})
-        client.v1.customers.update.assert_called_once_with(
-            "cus_123", params={"invoice_settings": {"default_payment_method": "pm_456"}}
-        )
+        client.v1.customers.update.assert_not_called()
 
 
 def describe_detach_payment_method():

@@ -15,9 +15,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
+import stripe
 from django.contrib.auth.models import User
 from django.core import mail
 from django.db import IntegrityError, transaction
@@ -409,7 +410,9 @@ def describe_start_rental():
             from billing.stripe_utils import CheckoutSessionNotFound
 
             cubby, member = _cubby(), _member()
-            _hold(cubby, member, stripe_checkout_session_id="" if answer == "no_session" else "cs_old")
+            old = _hold(cubby, member, stripe_checkout_session_id="" if answer == "no_session" else "cs_old")
+            # Older than a Checkout still being created in another tab.
+            CubbyRental.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(minutes=5))
             if answer == "missing":
                 mock_retrieve.side_effect = CheckoutSessionNotFound("cs_old")
             else:
@@ -1072,3 +1075,141 @@ def describe_edges():
         assert cubby_rentals.settle_subscription(f"sub_{lost.pk}") == "refunded"
         mock_cancel.assert_not_called()
         mock_refund.assert_called_once()
+
+
+# ── Review fixes (#992) ──────────────────────────────────────────────────────
+
+
+def describe_a_refund_that_must_not_be_lost():
+    def _lost_to_someone_else() -> tuple[CubbyRental, Member]:
+        payee = _member("hazelmere")
+        cubby, member = _cubby(payee=payee), _member()
+        lost = _hold(cubby, member)
+        CubbyRental.objects.filter(pk=lost.pk).delete()
+        CubbyRentalFactory(cubby=cubby)  # someone else got it in between
+        return lost, payee
+
+    @patch("billing.stripe_utils.invoice_payment_intent", return_value="pi_lost")
+    @patch("billing.stripe_utils.cancel_subscription")
+    @patch("billing.stripe_utils.retrieve_subscription")
+    def it_still_refunds_on_the_retry_after_the_refund_failed_once_the_cancel_landed(mock_sub, mock_cancel, mock_pi):
+        lost, _payee = _lost_to_someone_else()
+        mock_sub.return_value = _snapshot(lost)
+        with patch("billing.stripe_utils.create_refund", side_effect=RuntimeError("stripe 500")):
+            with pytest.raises(RuntimeError):
+                cubby_rentals.settle_subscription(f"sub_{lost.pk}")
+        assert CubbyRental.objects.get(pk=lost.pk).status == Status.ENDED
+        assert mock_cancel.call_count == 1
+
+        # The webhook's retry: Stripe now says canceled, and the refund still goes out, once.
+        mock_sub.return_value = _snapshot(lost, status="canceled")
+        refund = {"id": "re_retry", "status": "succeeded", "amount": 2200}
+        with patch("billing.stripe_utils.create_refund", return_value=refund) as mock_refund:
+            assert cubby_rentals.settle_subscription(f"sub_{lost.pk}") == "refunded"
+            assert cubby_rentals.settle_subscription(f"sub_{lost.pk}") == "settled"
+        mock_refund.assert_called_once_with(payment_intent_id="pi_lost", idempotency_key=f"cubby-refund-in_{lost.pk}")
+        assert mock_cancel.call_count == 1
+        payment = CubbyPayment.objects.get()
+        assert (payment.stripe_refund_id, payment.payee) == ("re_retry", None)
+        assert _subjects() == ["You've been refunded for B3"]
+
+    @patch("billing.stripe_utils.create_refund", return_value={"id": "re_late", "status": "succeeded", "amount": 2200})
+    @patch("billing.stripe_utils.cancel_subscription")
+    @patch("billing.stripe_utils.retrieve_subscription")
+    def it_refunds_when_invoice_paid_lands_after_the_cancel_found_nothing_paid_yet(mock_sub, mock_cancel, mock_refund):
+        lost, _payee = _lost_to_someone_else()
+        mock_sub.return_value = _snapshot(lost)
+        with patch("billing.stripe_utils.invoice_payment_intent", return_value=""):
+            assert cubby_rentals.settle_subscription(f"sub_{lost.pk}") == "settled"
+        mock_refund.assert_not_called()
+        assert not CubbyPayment.objects.exists()
+
+        mock_sub.return_value = _snapshot(lost, status="canceled")
+        with patch("billing.stripe_utils.invoice_payment_intent", return_value="pi_late"):
+            payment = cubby_rentals.record_invoice_paid(_invoice(lost))
+        assert payment is not None
+        assert (payment.stripe_refund_id, payment.payee, payment.amount_cents) == ("re_late", None, 2200)
+        mock_refund.assert_called_once_with(payment_intent_id="pi_late", idempotency_key=f"cubby-refund-in_{lost.pk}")
+        assert _subjects() == ["You've been refunded for B3"]
+
+    @patch("billing.stripe_utils.create_refund", return_value={"id": "re_first", "status": "succeeded", "amount": 2200})
+    @patch("billing.stripe_utils.invoice_payment_intent", return_value="pi_first")
+    @patch("billing.stripe_utils.cancel_subscription")
+    @patch("billing.stripe_utils.retrieve_subscription")
+    def it_never_owes_a_payee_when_invoice_paid_is_what_finds_the_lost_hold(
+        mock_sub, mock_cancel, mock_pi, mock_refund
+    ):
+        lost, payee = _lost_to_someone_else()
+        mock_sub.return_value = _snapshot(lost)
+        payment = cubby_rentals.record_invoice_paid(_invoice(lost))
+        cubby_rentals.record_invoice_paid(_invoice(lost))  # Stripe retries invoice.paid
+        assert payment is not None
+        assert payment == CubbyPayment.objects.get()
+        assert (payment.stripe_refund_id, payment.payee) == ("re_first", None)
+        assert not CubbyPayment.objects.filter(payee=payee).exists()
+        mock_refund.assert_called_once()
+
+    @patch("billing.stripe_utils.invoice_payment_intent", return_value="")
+    @patch("billing.stripe_utils.retrieve_subscription")
+    def it_records_nothing_for_an_unpaid_invoice_of_a_never_started_rental(mock_sub, mock_pi):
+        rental = CubbyRentalFactory(cubby=_cubby(), status=Status.ENDED, start_date=None)
+        mock_sub.return_value = _snapshot(rental, status="canceled")
+        assert cubby_rentals.record_invoice_paid(_invoice(rental)) is None
+        assert not CubbyPayment.objects.exists()
+
+
+def describe_the_my_tab_card_and_cubby_billing():
+    @patch(
+        "billing.stripe_utils.retrieve_payment_method", return_value={"id": "pm_tab", "brand": "visa", "last4": "4242"}
+    )
+    @patch("billing.stripe_utils.retrieve_subscription")
+    def it_keeps_the_cubby_paying_from_its_card_through_saving_and_removing_a_tab_card(mock_sub, mock_pm):
+        member = _member()
+        hold = _hold(_cubby(), member)
+        mock_sub.return_value = _snapshot(hold, default_payment_method="pm_cubby")
+        client = MagicMock()
+        with patch("billing.stripe_utils._get_stripe_client", return_value=client):
+            cubby_rentals.settle_subscription(f"sub_{hold.pk}")  # rent: card C becomes the customer default
+            member.tab.set_payment_method("pm_tab")  # save a My Tab card
+            member.tab.clear_payment_method()  # and remove it
+        assert client.v1.customers.update.call_args_list == [
+            call("cus_quillon", params={"invoice_settings": {"default_payment_method": "pm_cubby"}})
+        ]
+        client.v1.payment_methods.detach.assert_called_once_with("pm_tab")
+
+
+def describe_a_second_tab_while_the_first_reaches_stripe():
+    @patch("billing.stripe_utils.create_subscription_checkout_session")
+    def it_leaves_the_hold_alone_and_says_it_is_being_paid_for(mock_create):
+        cubby, member = _cubby(), _member()
+        in_progress = _hold(cubby, member, stripe_checkout_session_id=None)
+        with pytest.raises(CubbyTakenError, match="B3 is being paid for right now. Try again in a minute."):
+            cubby_rentals.start_rental(cubby, member, 2200)
+        assert list(CubbyRental.objects.all()) == [in_progress]
+        mock_create.assert_not_called()
+
+
+def describe_more_stripe_statuses():
+    @patch("billing.stripe_utils.retrieve_subscription")
+    def it_treats_a_paused_subscription_as_past_due(mock_sub):
+        rental = CubbyRentalFactory(cubby=_cubby())
+        mock_sub.return_value = _snapshot(rental, status="paused")
+        cubby_rentals.settle_subscription(rental.stripe_subscription_id)
+        rental.refresh_from_db()
+        assert rental.status == Status.PAST_DUE
+
+    @patch("billing.stripe_utils.cancel_subscription", side_effect=stripe.InvalidRequestError("already canceled", None))
+    @patch("billing.stripe_utils.retrieve_subscription")
+    def it_shrugs_off_an_unpaid_subscription_a_concurrent_webhook_already_cancelled(mock_sub, mock_cancel):
+        rental = CubbyRentalFactory(cubby=_cubby())
+        mock_sub.side_effect = [_snapshot(rental, status="unpaid"), _snapshot(rental, status="canceled")]
+        assert cubby_rentals.settle_subscription(rental.stripe_subscription_id) == "settled"
+        mock_cancel.assert_called_once()
+
+    @patch("billing.stripe_utils.cancel_subscription", side_effect=stripe.InvalidRequestError("bad request", None))
+    @patch("billing.stripe_utils.retrieve_subscription")
+    def it_raises_any_other_refusal_to_cancel(mock_sub, mock_cancel):
+        rental = CubbyRentalFactory(cubby=_cubby())
+        mock_sub.return_value = _snapshot(rental, status="unpaid")
+        with pytest.raises(stripe.InvalidRequestError):
+            cubby_rentals.settle_subscription(rental.stripe_subscription_id)

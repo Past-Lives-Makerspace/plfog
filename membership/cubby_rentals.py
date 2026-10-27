@@ -51,6 +51,9 @@ logger = logging.getLogger(__name__)
 CHECKOUT_KIND = "cubby_rental"
 #: How long a rent Checkout stays payable; Stripe expires it and fires ``checkout.session.expired``.
 CHECKOUT_LIFETIME = timedelta(hours=1)
+#: A hold with no Checkout yet, younger than this, is another tab's rent still reaching Stripe.
+HOLD_IN_PROGRESS = timedelta(minutes=2)
+BEING_PAID_FOR = "{label} is being paid for right now. Try again in a minute."
 _TOKEN_SALT = "cubby-rental-checkout"
 _TOKEN_MAX_AGE = 30 * 24 * 3600
 
@@ -63,6 +66,8 @@ _STATUS_FOR: dict[str, str] = {
     "trialing": Status.ACTIVE,
     "past_due": Status.PAST_DUE,
     "unpaid": Status.PAST_DUE,
+    # Collection paused (a trial ended without a card, or paused in the dashboard): not paying, so Past Due.
+    "paused": Status.PAST_DUE,
     "incomplete": Status.PENDING_PAYMENT,
     "canceled": Status.ENDED,
     "incomplete_expired": Status.ENDED,
@@ -234,7 +239,7 @@ def start_rental(cubby: Cubby, member: Member, amount_cents: int) -> str:
         rental.stripe_checkout_session_id = session["id"]
         rental.save(update_fields=["stripe_checkout_session_id"])
         return session["url"]
-    raise CubbyTakenError(f"{cubby.label} is being paid for right now. Try again in a minute.")
+    raise CubbyTakenError(BEING_PAID_FOR.format(label=cubby.label))
 
 
 def _hold(
@@ -276,6 +281,9 @@ def _resume_or_settle(hold: CubbyRental, amount_cents: int) -> str:
     from billing import stripe_utils
 
     if not hold.stripe_checkout_session_id:
+        if hold.created_at > timezone.now() - HOLD_IN_PROGRESS:
+            # Another tab of the member's is creating this hold's Checkout right now: leave it be.
+            raise CubbyTakenError(BEING_PAID_FOR.format(label=hold.cubby.label))
         _delete_hold(hold, expire_session=False)
         return ""
     try:
@@ -360,17 +368,15 @@ def _apply_snapshot(rental: CubbyRental, snapshot: dict[str, Any]) -> None:
 
 def _mirror(snapshot: dict[str, Any], rental_pk: int) -> str:
     """Mirror ``snapshot`` onto rental ``rental_pk`` under its row lock, then notify and clean up."""
-    from billing import stripe_utils
-
     status = _STATUS_FOR[snapshot["status"]]
     became_active = ended = refund = False
     with transaction.atomic():
         rental = _locked_rental(pk=rental_pk)
         assert rental is not None  # checked or recreated by settle_subscription; rentals are never deleted once paid
         if rental.status == Status.ENDED:
-            # Final. One that never started yet is still billing was taken from the member before it began
-            # (deleted account, replaced hold): they must not pay for it.
-            refund = rental.start_date is None and snapshot["status"] not in _STRIPE_ENDED
+            # Final. One that never started is a cubby the member did not get: whatever Stripe says
+            # now (an earlier attempt may already have cancelled it), its payment goes back.
+            refund = rental.start_date is None
         else:
             _apply_snapshot(rental, snapshot)
             if status == Status.ENDED:
@@ -387,11 +393,10 @@ def _mirror(snapshot: dict[str, Any], rental_pk: int) -> str:
                 rental.status = status
             rental.save()
     if refund:
-        _refund_first_payment(rental, snapshot)
-        return "refunded"
+        return "refunded" if _refund_first_payment(rental, snapshot) else "settled"
     if snapshot["status"] == "unpaid":
         # Stripe gave up on the card: the rental ends now, and customer.subscription.deleted frees the cubby.
-        stripe_utils.cancel_subscription(subscription_id=snapshot["id"])
+        _cancel_subscription(snapshot["id"])
     if became_active:
         notify_rented(rental)
     if ended and rental.start_date is not None:
@@ -406,7 +411,8 @@ def _recover_lost_hold(snapshot: dict[str, Any], rental_pk: int) -> str:
     the cubby is archived, out of service or held by someone else, it is made Ended and the
     subscription is cancelled and its first payment refunded.
 
-    Returns ``"exists"`` when a concurrent call already made it, else ``"recovered"`` or ``"refunded"``.
+    Returns ``"exists"`` when a concurrent call already made it, else ``"recovered"``, ``"refunded"``
+    or ``"settled"`` (not free, and nothing paid to refund yet).
     """
     metadata = snapshot["metadata"]
     cubby = Cubby.objects.select_related("unit__guild").get(pk=int(metadata["cubby_pk"]))
@@ -436,29 +442,60 @@ def _recover_lost_hold(snapshot: dict[str, Any], rental_pk: int) -> str:
     if free:
         _mirror(snapshot, rental_pk)
         return "recovered"
-    _refund_first_payment(rental, snapshot)
-    return "refunded"
+    return "refunded" if _refund_first_payment(rental, snapshot) else "settled"
 
 
-def _refund_first_payment(rental: CubbyRental, snapshot: dict[str, Any]) -> None:
-    """Cancel the subscription and refund what it charged, for a cubby the member did not get. Once.
+def _cancel_subscription(subscription_id: str) -> None:
+    """Cancel now, quietly when a concurrent webhook or an earlier attempt already did.
 
-    The refund is keyed by the invoice, and the payment row records it, so its share is owed to
-    nobody (Part 3) and a re-delivered webhook refunds nothing more.
+    Stripe refuses to cancel a canceled subscription; that refusal is checked against the
+    subscription as it is now, and any other refusal propagates.
+    """
+    import stripe
+
+    from billing import stripe_utils
+
+    try:
+        stripe_utils.cancel_subscription(subscription_id=subscription_id)
+    except stripe.InvalidRequestError:
+        if stripe_utils.retrieve_subscription(subscription_id=subscription_id)["status"] not in _STRIPE_ENDED:
+            raise
+
+
+def _refund_first_payment(rental: CubbyRental, snapshot: dict[str, Any]) -> bool:
+    """Cancel the subscription and refund what it charged, for a cubby the member did not get.
+
+    Decided by our own state (an Ended rental that never started, see :func:`_mirror`), never by
+    Stripe's status, so a retry after a failure partway through still refunds: the cancel is skipped
+    once Stripe has it, and the refund once a payment row records it. An invoice not paid yet is
+    refunded when its ``invoice.paid`` arrives (:func:`record_invoice_paid`).
+
+    Returns:
+        True when this call refunded a payment.
+    """
+    if snapshot["status"] not in _STRIPE_ENDED:
+        _cancel_subscription(snapshot["id"])
+    invoice_id = snapshot["latest_invoice"]
+    if not invoice_id:
+        return False
+    return _refund_invoice(rental, invoice_id) is not None
+
+
+def _refund_invoice(rental: CubbyRental, invoice_id: str) -> CubbyPayment | None:
+    """Refund ``invoice_id`` in full once, record it on its payment row (no payee) and tell the member.
+
+    Returns the refunded payment row when this call refunded, else None: already refunded (the row
+    says so), or not paid yet (no payment intent; its ``invoice.paid`` comes back here).
+    Stripe errors propagate, and the webhook's retry starts over from here.
     """
     from billing import stripe_utils
 
-    if snapshot["status"] not in _STRIPE_ENDED:
-        stripe_utils.cancel_subscription(subscription_id=snapshot["id"])
-    invoice_id = snapshot["latest_invoice"]
-    if (
-        not invoice_id
-        or CubbyPayment.objects.filter(stripe_invoice_id=invoice_id).exclude(stripe_refund_id="").exists()
-    ):
-        return
+    if CubbyPayment.objects.filter(stripe_invoice_id=invoice_id).exclude(stripe_refund_id="").exists():
+        return None
     payment_intent = stripe_utils.invoice_payment_intent(invoice_id=invoice_id)
     if not payment_intent:
-        return
+        logger.info("Cubby rental %s: invoice %s is not paid yet; refunding it when it is.", rental.pk, invoice_id)
+        return None
     refund = stripe_utils.create_refund(payment_intent_id=payment_intent, idempotency_key=f"cubby-refund-{invoice_id}")
     payment, _created = CubbyPayment.objects.get_or_create(
         stripe_invoice_id=invoice_id,
@@ -473,6 +510,7 @@ def _refund_first_payment(rental: CubbyRental, snapshot: dict[str, Any]) -> None
     payment.payee = None
     payment.save(update_fields=["stripe_refund_id", "payee"])
     notify_refunded(rental, refund["amount"])
+    return payment
 
 
 # ── Invoices ─────────────────────────────────────────────────────────────────
@@ -496,7 +534,9 @@ def record_invoice_paid(invoice: dict[str, Any]) -> CubbyPayment | None:
 
     Settles the subscription first, which makes a Pending or Past Due rental Active (also when this
     arrives before ``checkout.session.completed``). The payment row is one per invoice; its payee is
-    the guild's cubby payee right now. Returns the payment, or None for an invoice not a cubby's.
+    the guild's cubby payee right now. An invoice of a cubby the member never got is refunded instead
+    and never owes a payee anything. Returns the payment, or None for an invoice not a cubby's (or one
+    of a never-started rental not refunded yet).
     """
     from billing import stripe_utils
 
@@ -511,21 +551,25 @@ def record_invoice_paid(invoice: dict[str, Any]) -> CubbyPayment | None:
     with transaction.atomic():
         rental = _locked_rental(pk=int(metadata["rental_pk"]))
         assert rental is not None  # settle_subscription made or kept it
-        # The unique invoice id is the guard: a re-delivery (or a racing one) fails the insert in its savepoint.
-        try:
-            with transaction.atomic():
-                return CubbyPayment.objects.create(
-                    rental=rental,
-                    stripe_invoice_id=invoice["id"],
-                    stripe_payment_intent_id=payment_intent,
-                    amount_cents=invoice["amount_paid"],
-                    paid_at=paid_at,
-                    period_start=_timestamp(period.get("start")),
-                    period_end=_timestamp(period.get("end")),
-                    payee_id=rental.cubby.unit.guild.cubby_payee_id,
-                )
-        except IntegrityError:
-            return CubbyPayment.objects.get(stripe_invoice_id=invoice["id"])
+        if not (rental.status == Status.ENDED and rental.start_date is None):
+            # The unique invoice id is the guard: a re-delivery (or a racing one) fails the insert in its savepoint.
+            try:
+                with transaction.atomic():
+                    return CubbyPayment.objects.create(
+                        rental=rental,
+                        stripe_invoice_id=invoice["id"],
+                        stripe_payment_intent_id=payment_intent,
+                        amount_cents=invoice["amount_paid"],
+                        paid_at=paid_at,
+                        period_start=_timestamp(period.get("start")),
+                        period_end=_timestamp(period.get("end")),
+                        payee_id=rental.cubby.unit.guild.cubby_payee_id,
+                    )
+            except IntegrityError:
+                return CubbyPayment.objects.get(stripe_invoice_id=invoice["id"])
+    # A cubby the member never got: this money goes back, and no payee is ever owed a share of it.
+    _refund_invoice(rental, invoice["id"])
+    return CubbyPayment.objects.filter(stripe_invoice_id=invoice["id"]).first()
 
 
 def record_payment_failed(invoice: dict[str, Any]) -> None:
@@ -715,14 +759,13 @@ def end_for_deleted_account(member: Member) -> None:
     the rental ended at once, telling nobody (the account is going). Stripe errors propagate, so
     the deletion stops rather than leave a card billing an account that no longer exists.
     """
-    from billing import stripe_utils
 
     for rental in CubbyRental.objects.live().filter(member=member):
         if rental.status == Status.PENDING_PAYMENT:
             _delete_hold(rental)
             continue
         if rental.stripe_subscription_id:
-            stripe_utils.cancel_subscription(subscription_id=rental.stripe_subscription_id)
+            _cancel_subscription(rental.stripe_subscription_id)
         CubbyRental.objects.filter(pk=rental.pk).update(status=Status.ENDED, end_date=timezone.localdate())
 
 

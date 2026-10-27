@@ -74,6 +74,7 @@ def describe_create_subscription_checkout_session():
         params = call.kwargs["params"]
         assert params["mode"] == "subscription"
         assert params["customer"] == "cus_cub"
+        assert params["payment_method_types"] == ["card"]
         assert "customer_email" not in params
         assert params["line_items"] == [
             {

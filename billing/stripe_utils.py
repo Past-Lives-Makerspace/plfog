@@ -179,15 +179,17 @@ def retrieve_payment_method(*, payment_method_id: str) -> dict[str, Any]:
 
 
 def attach_payment_method(*, customer_id: str, payment_method_id: str) -> None:
-    """Attach a payment method to a customer and set it as the default."""
+    """Attach a payment method to a customer, leaving the customer's default card alone.
+
+    My Tab charges its card by id (:func:`create_payment_intent`), so it never needs the default.
+    The default belongs to the cubby subscriptions (#978), which pay from it once
+    :func:`move_subscription_card_to_customer` has put their card there; a Tab card made the
+    default would take over their billing, and removing it would leave them no card at all.
+    """
     client = _get_stripe_client()
     client.v1.payment_methods.attach(
         payment_method_id,
         params={"customer": customer_id},
-    )
-    client.v1.customers.update(
-        customer_id,
-        params={"invoice_settings": {"default_payment_method": payment_method_id}},
     )
 
 
@@ -640,6 +642,8 @@ def create_subscription_checkout_session(
     params: SessionCreateParams = {
         "mode": "subscription",
         "customer": customer_id,
+        # Card only: a delayed payment method could complete the Checkout before its money lands.
+        "payment_method_types": ["card"],
         "line_items": [
             {
                 "quantity": 1,
