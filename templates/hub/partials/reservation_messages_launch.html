@@ -1,0 +1,9 @@
+{% comment %}
+The Messages button for one reservation: loads its thread into the page's Messages modal
+(hub/partials/reservation_messages_modal.html) and opens it, and takes the row's New message pill away
+([data-thread-unread], cleared on the server as the thread loads). Context: r (the EquipmentReservation),
+launch_next (where Send lands), launch_class (the button's classes), launch_in_menu (a row menu item).
+{% endcomment %}
+<button type="button" class="{{ launch_class }}"{% if launch_in_menu %} role="menuitem"{% endif %} data-reservation-messages="{{ r.pk }}"
+        hx-get="{% url 'hub_equipment_reservation_messages' r.pk %}?next={{ launch_next|urlencode }}" hx-target="#reservation-messages-body" hx-swap="innerHTML"
+        @click="{% if launch_in_menu %}closeAndRefocus(); {% endif %}document.getElementById('reservation-messages-body').innerHTML = 'Loading...'; document.querySelectorAll('[data-thread-unread=&quot;{{ r.thread_key }}&quot;]').forEach((el) => el.remove()); $dispatch('open-modal', 'reservation-messages')">Messages</button>

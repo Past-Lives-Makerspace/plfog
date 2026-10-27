@@ -1,0 +1,29 @@
+{% comment %}
+One equipment reservation's messages, loaded into the Messages modal (hub/partials/reservation_messages_modal.html)
+by hub_equipment_reservation_messages: what the reservation is, the shared thread (components/thread.html), then
+the box to write (components/thread_composer.html). The member who booked is the member side; a manager or an admin
+writes as the managers. Context: reservation (loaded with_thread), thread_messages, viewer_is_staff, message_form,
+thread_next (where Send lands, "" for the poster's own page).
+{% endcomment %}
+{% with r=reservation name=reservation.member.display_name %}
+<div class="pl-thread-summary" data-reservation-thread="{{ r.pk }}">
+  <p class="pl-thread-summary__title"><strong>{{ r.equipment.name }}</strong>{% if viewer_is_staff %} · {{ name }}{% endif %}</p>
+  <p class="pl-thread-summary__meta">
+    <span>{{ r.starts_at|date:"D, M j" }} · {{ r.starts_at|time:"g:i A" }} to {{ r.ends_at|time:"g:i A" }}</span>
+    <span class="hub-pill {% if r.status == 'confirmed' %}hub-pill--ok{% elif r.status == 'pending_approval' or r.status == 'pending_payment' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-reservation-status="{{ r.status }}">{{ r.get_status_display }}</span>
+  </p>
+  {% if r.purpose %}<p class="pl-thread-summary__meta">{{ r.purpose }}</p>{% endif %}
+</div>
+{% url 'hub_equipment_reservation_message' r.pk as message_url %}
+{% if viewer_is_staff %}
+{% with empty="No messages yet. Ask "|add:name|add:" anything about this reservation." label="Write to "|add:name note=name|add:" gets a notification." %}
+{% include "components/thread.html" with thread_messages=thread_messages viewer_is_staff=True thread_key=r.thread_key thread_empty=empty %}
+{% include "components/thread_composer.html" with thread_form=message_form thread_action=message_url thread_next=thread_next thread_body_label=label thread_note=note thread_button="Send" %}
+{% endwith %}
+{% else %}
+{% with note="The managers of the "|add:r.equipment.name|add:" get a notification." %}
+{% include "components/thread.html" with thread_messages=thread_messages viewer_is_staff=False thread_key=r.thread_key thread_empty="No messages yet. Ask the managers anything about this reservation." %}
+{% include "components/thread_composer.html" with thread_form=message_form thread_action=message_url thread_next=thread_next thread_body_label="Write to the managers" thread_note=note thread_button="Send" %}
+{% endwith %}
+{% endif %}
+{% endwith %}

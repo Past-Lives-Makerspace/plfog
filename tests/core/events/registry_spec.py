@@ -90,6 +90,8 @@ _BRAND_NEW_KEYS = {
     "feedback.member_replied",
     "orientation.message_to_member",
     "orientation.message_to_orientors",
+    "equipment.reservation_message_to_member",
+    "equipment.reservation_message_to_managers",
     "kiln.crew_replied",
     "kiln.maker_replied",
     "kiln.ready_for_pickup",

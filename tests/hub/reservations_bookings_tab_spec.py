@@ -301,7 +301,7 @@ def describe_the_staff_row_menu():
         content = _tab(client)
         assert f"'reservation-cancel-{upcoming.pk}'" in _row(content, upcoming)
         assert "Rena Reasonrow has this time booked. Cancelling frees it and tells them why." in content
-        assert "Rena Reasonrow will see this." in content
+        assert "Rena Reasonrow will see this, in their email and the reservation&#x27;s messages." in content
         assert ":disabled=\"note.trim() === ''\"" in content
 
     def it_offers_cancel_while_in_progress_but_not_once_ended_or_cancelled(client: Client):

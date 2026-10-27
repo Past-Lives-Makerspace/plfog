@@ -1,0 +1,13 @@
+{% comment %}
+The Messages modal for equipment reservations, once per page that lists them (the Reservations page's Bookings tab,
+the equipment's Manage > Reservations tab, Manage Bookings). A row's Messages button loads the thread into it
+(hub/partials/reservation_messages_launch.html). On arrival with ?messages=res-<pk> (a Send landing back, or a message
+notice), open_reservation_thread names the reservation and the modal opens on it by itself; the view only sets it for
+a thread the viewer may read. Context: open_reservation_thread (a pk or None), reservation_thread_next (where Send lands).
+{% endcomment %}
+{% include "components/modal.html" with modal_id="reservation-messages" modal_title="Messages" modal_size="md" %}
+{% if open_reservation_thread %}
+<div hidden data-reservation-thread-autoload hx-get="{% url 'hub_equipment_reservation_messages' open_reservation_thread %}?next={{ reservation_thread_next|urlencode }}" hx-trigger="load" hx-target="#reservation-messages-body" hx-swap="innerHTML" x-data x-init="$dispatch('open-modal', 'reservation-messages')"></div>
+{% endif %}
+{% include "components/thread_script.html" %}
+{% include "components/busy_submit.html" %}
