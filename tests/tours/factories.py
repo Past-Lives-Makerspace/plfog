@@ -8,7 +8,7 @@ import factory
 from django.utils import timezone
 
 from tests.membership.factories import MemberFactory
-from tours.models import TourBooking, TourDayOff, TourHours
+from tours.models import TourBooking, TourCalendarConnection, TourDayOff, TourHours
 
 
 class TourHoursFactory(factory.django.DjangoModelFactory):
@@ -49,3 +49,25 @@ class TourBookingFactory(factory.django.DjangoModelFactory):
     party_size = 2
     visitor_name = factory.Faker("name")
     visitor_email = factory.Sequence(lambda n: f"visitor{n}@example.com")
+
+
+#: The calendars a connected guide owns in the specs: their main one and a "Tours" calendar.
+GUIDE_CALENDARS = [
+    {"id": "gina@example.com", "name": "Gina Guide", "primary": True},
+    {"id": "tours@group.calendar.google.com", "name": "Tours", "primary": False},
+]
+
+
+class TourCalendarConnectionFactory(factory.django.DjangoModelFactory):
+    """A guide's Google Calendar (#951), connected, with an access token good for an hour."""
+
+    class Meta:
+        model = TourCalendarConnection
+
+    guide = factory.SubFactory(MemberFactory)
+    google_email = "gina@example.com"
+    refresh_token = "refresh-1"
+    access_token = "access-1"
+    access_token_expires_at = factory.LazyFunction(lambda: timezone.now() + timedelta(hours=1))
+    calendar_id = "primary"
+    calendars = factory.LazyFunction(lambda: [dict(calendar) for calendar in GUIDE_CALENDARS])

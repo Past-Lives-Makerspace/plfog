@@ -1,0 +1,13 @@
+{% extends "membership/emails/_base.html" %}
+{% block content %}
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">Reconnect your Google Calendar</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">Google stopped letting Past Lives use {% if google_email %}<strong>{{ google_email }}</strong>{% else %}the Google Calendar you connected{% endif %} for your facility tours. Until you reconnect it:</p>
+<ul style="margin: 0 0 16px; padding-left: 20px; font-size: 14px; color: #33424f; line-height: 1.6;">
+    <li>New tours you give are not added to your calendar.</li>
+    <li>Times your calendar shows you busy are not hidden from visitors, so your tour hours are offered in full.</li>
+</ul>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">Open <a href="{{ hours_url }}" style="color: #0d4876;">My Hours</a> on the Tours page and press Reconnect Google Calendar. It takes a minute.</p>
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ hours_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Reconnect on My Hours</a>
+</div>
+{% endblock %}

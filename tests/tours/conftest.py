@@ -40,3 +40,11 @@ def admin(db) -> Member:
 @pytest.fixture
 def plain(db) -> Member:
     return MemberFactory(full_legal_name="Pat Plain")
+
+
+@pytest.fixture
+def google_on(settings) -> None:
+    """Google sign in for Tour Guides is set up (#951); every call to Google is mocked in the spec."""
+    settings.GOOGLE_OAUTH_CLIENT_ID = "client-id"
+    settings.GOOGLE_OAUTH_CLIENT_SECRET = "client-secret"
+    settings.MEMBER_BASE_URL = "https://members.example.org"

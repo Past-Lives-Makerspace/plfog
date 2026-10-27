@@ -17,6 +17,13 @@ Two entry points:
 Neither reads the "Accepting tour bookings" switch: the booking page decides what a closed site
 shows, and staff keep moving tours while it is closed.
 
+A guide who connected a Google Calendar (#951) is not offered to visitors at a time it shows them
+busy: both entry points drop a tour overlapping one of the guide's cached busy spans
+(:meth:`~tours.models.TourCalendarConnectionQuerySet.busy_by_guide`, read from the database only,
+never from Google). Staff (``staff=True``) see those tours anyway: a guide or an admin moving a tour
+may choose a time the calendar shows busy, and the guide hears of it by bell
+(:func:`tours.calendar_sync.alert_busy_conflicts`). Bookings already made are never affected.
+
 Every instant here is compared and keyed in UTC (#948). On the fall back night the carve yields
 1:00 AM in the repeated hour as a local datetime whose offset depends on ``fold``; PEP 495 makes
 such a value never compare equal to the same instant in another zone, so a booking read back from
@@ -33,7 +40,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from membership.models import Member
-from tours.models import FacilityTourSettings, TourBooking, TourDayOff, TourHours
+from tours.calendar_sync import overlaps
+from tours.models import FacilityTourSettings, TourBooking, TourCalendarConnection, TourDayOff, TourHours
 
 
 @dataclass(frozen=True)
@@ -116,6 +124,13 @@ def _local_midnight(day: date) -> datetime:
     return timezone.make_aware(datetime.combine(day, time.min))
 
 
+def _offered(
+    window: BookingWindow, starts_at: datetime, ends_at: datetime, busy: list[tuple[datetime, datetime]]
+) -> bool:
+    """Whether a carved tour may be booked now: inside the window, and not over a busy time of its guide's."""
+    return window.admits(starts_at) and not overlaps(starts_at, ends_at, busy)
+
+
 def open_tours(
     first_day: date,
     last_day: date,
@@ -129,9 +144,10 @@ def open_tours(
 
     Each offered guide's hours are carved into tours of the row's length; a guide's days off, any
     tour past the booking horizon and any tour inside the minimum notice drop out. Two guides with
-    the same hours give two tours. A tour with no seat left drops out too unless ``include_full``.
-    Four queries however long the range (settings, hours, days off, seats), none when no guide has
-    hours.
+    the same hours give two tours. A tour with no seat left drops out too unless ``include_full``,
+    and for visitors one the guide's Google Calendar shows them busy (#951). Five queries however
+    long the range (settings, hours, days off, seats, busy times; four for staff), none when no
+    guide has hours.
 
     Args:
         first_day: the first local day to list; days before today are skipped.
@@ -139,7 +155,8 @@ def open_tours(
         guide: only this guide's tours, when given.
         include_full: keep tours with no seat left (with ``seats_left`` 0).
         now: the moment to judge the horizon and notice from; defaults to now.
-        staff: a guide or an admin is choosing, so the minimum notice does not apply (#949).
+        staff: a guide or an admin is choosing, so the minimum notice does not apply (#949), nor
+            the guide's Google Calendar busy times (#951).
 
     Returns:
         The tours, soonest first, guides by name within a start time.
@@ -160,6 +177,7 @@ def open_tours(
     taken = TourBooking.objects.seats_taken_by_tour(
         guide_ids, _local_midnight(first_day), _local_midnight(last_day + timedelta(days=1))
     )
+    busy = {} if staff else TourCalendarConnection.objects.busy_by_guide(guide_ids)
     tours: list[OpenTour] = []
     seen: set[tuple[int, datetime]] = set()
     day = first_day
@@ -173,7 +191,7 @@ def open_tours(
                 key = (row.guide_id, starts_at)
                 # A guide's rows never overlap through the editor; one written another way must not
                 # offer the same tour twice.
-                if key in seen or not window.admits(starts_at):
+                if key in seen or not _offered(window, starts_at, ends_at, busy.get(row.guide_id, [])):
                     continue
                 seen.add(key)
                 tour = OpenTour(
@@ -197,7 +215,8 @@ def open_tour_at(
     """The guide's tour starting at ``starts_at`` if visitors may book it now, full or not; else None.
 
     None when the guide gives no tours, no hours of theirs yield that start, they are off that
-    day, or the start is past the horizon or inside the minimum notice. A full tour comes back
+    day, the start is past the horizon or inside the minimum notice, or (for visitors) their
+    Google Calendar shows them busy then (#951). A full tour comes back
     with ``seats_left`` 0, so a booking page can say it just filled up rather than that it never
     existed.
 
@@ -209,7 +228,8 @@ def open_tour_at(
             row before the transaction ends; every booking of one tour takes the same lock, so
             the seat count each one reads includes every booking committed before it.
         now: the moment to judge the horizon and notice from; defaults to now.
-        staff: a guide or an admin is moving a tour, so the minimum notice does not apply (#949).
+        staff: a guide or an admin is moving a tour, so the minimum notice does not apply (#949),
+            nor the guide's Google Calendar busy times (#951).
 
     Returns:
         The tour, or None.
@@ -233,11 +253,16 @@ def open_tour_at(
                 continue
             if TourDayOff.objects.filter(guide=guide).touching(day, day).exists():
                 return None
+            ends_at = span_end.astimezone(UTC)
+            if not staff and overlaps(
+                starts_at, ends_at, TourCalendarConnection.objects.busy_by_guide([guide.pk]).get(guide.pk, [])
+            ):
+                return None
             return OpenTour(
                 guide=guide,
                 hours_id=row.pk,
                 starts_at=starts_at,
-                ends_at=span_end.astimezone(UTC),
+                ends_at=ends_at,
                 seats=row.seats,
                 seats_taken=TourBooking.objects.seats_taken(guide, starts_at),
             )

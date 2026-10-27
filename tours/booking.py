@@ -113,17 +113,22 @@ class Visitor:
 
 
 def _after_commit(booking: TourBooking, change: str, **extra: Any) -> None:
-    """Tell the visitor and the guide, and send the part 5 seam, once the change has committed.
+    """Tell the visitor and the guide, and send the seam the Google Calendar sync hangs off (#951),
+    once the change has committed.
 
-    ``robust``: a failure sending one notice is logged and never undoes or hides the booking.
+    Two callbacks, each ``robust``: a failure sending one notice is logged, never undoes or hides
+    the booking, and never keeps the guide's calendar from hearing of it.
     """
     from tours import notify
 
     def announce() -> None:
         notify.announce(booking, change, **extra)
+
+    def seam() -> None:
         signals.tour_booking_changed.send(sender=TourBooking, booking=booking, change=change, **extra)
 
     transaction.on_commit(announce, robust=True)
+    transaction.on_commit(seam, robust=True)
 
 
 def book_tour(

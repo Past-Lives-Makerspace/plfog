@@ -556,6 +556,8 @@ TOUR_BOOKED = "tour.booked"  # a visitor booked one of your facility tours (#948
 TOUR_VISITOR_CHANGED = "tour.visitor_changed"  # a visitor moved or cancelled your tour from their email (#948)
 TOUR_VISITOR_UPDATE = "tour.visitor_update"  # the visitor's own tour emails, by address only (#948)
 TOUR_CHECKED_IN = "tour.checked_in"  # your visitor checked in at the front desk kiosk (#950)
+TOUR_CALENDAR_BUSY = "tour.calendar_busy"  # your Google Calendar now shows you busy during a booked tour (#951)
+TOUR_CALENDAR_BROKEN = "tour.calendar_broken"  # Google stopped accepting your calendar connection (#951)
 GUILD_NEEDS_ATTENTION = "guild.needs_attention"  # a guild breaks a Needs attention rule (#953)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
@@ -1600,6 +1602,30 @@ _NEW_EVENTS: list[EventType] = [
         category="Tours",
         recipient=Recipients.TOUR_GUIDES,
         channels=(_IN_APP_ON,),
+        activity_kind=None,
+    ),
+    # tour.calendar_busy: a Tour Guide's connected Google Calendar now shows them busy during one of
+    # their booked tours (#951). The tour stays booked; the guide decides. Bell only, once per booking
+    # and start (tours.calendar_sync.alert_busy_conflicts).
+    EventType(
+        key=TOUR_CALENDAR_BUSY,
+        label="Busy during a booked tour",
+        description="Your Google Calendar now shows you busy during one of your booked facility tours.",
+        category="Tours",
+        recipient=Recipients.TOUR_GUIDES,
+        channels=(_IN_APP_ON,),
+        activity_kind=None,
+    ),
+    # tour.calendar_broken: Google stopped accepting a Tour Guide's calendar connection (revoked or
+    # expired, #951). Email and bell, once per breakage: their hours are offered as if unconnected
+    # until they reconnect on My Hours. The email is templates/tours/emails/guide_calendar_broken.*.
+    EventType(
+        key=TOUR_CALENDAR_BROKEN,
+        label="Google Calendar needs reconnecting",
+        description="Google stopped accepting the calendar you connected for facility tours.",
+        category="Tours",
+        recipient=Recipients.TOUR_GUIDES,
+        channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
     # tour.visitor_update: the visitor's confirmation, moved, cancelled and reminder emails

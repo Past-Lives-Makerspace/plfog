@@ -27,6 +27,7 @@ from django.utils import timezone
 from core.abuse_limits import client_rate_key, record_keyed_attempt
 from membership.models import Member
 from tours.availability import OpenTour, open_tours
+from tours.calendar_sync import refresh_stale_busy
 from tours.booking import (
     ALREADY_BOOKED_MESSAGE,
     TourAlreadyBookedError,
@@ -75,7 +76,17 @@ def tours_surface_only(view: View) -> View:
 
 
 def all_open_tours() -> list[OpenTour]:
-    """Every tour visitors can book now (``open_tours`` clamps the range to the horizon and notice)."""
+    """Every tour visitors can book now (``open_tours`` clamps the range to the horizon and notice).
+
+    The booking pages and the kiosk come through here, so it first reads again any guide's Google
+    Calendar busy times older than 15 minutes (#951): bounded to a few seconds, and on any failure
+    the tours are listed from the busy times already cached.
+    """
+    try:
+        refresh_stale_busy()
+    except Exception:
+        # Never an error page for a visitor: the cached busy times (or none) still apply.
+        logger.exception("Reading tour guides' Google Calendar busy times failed")
     today = timezone.localdate()
     return open_tours(today, today + timedelta(days=MAX_HORIZON_DAYS))
 

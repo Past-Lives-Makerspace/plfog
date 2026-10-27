@@ -23,6 +23,7 @@ from django.db import models
 from django.db.models import Q, Sum
 from django.utils import timezone
 
+from billing.fields import EncryptedCharField
 from membership.models import AdminCapability, Member
 
 if TYPE_CHECKING:
@@ -588,3 +589,184 @@ class TourBooking(models.Model):
         if self.starts_at - now < timedelta(hours=cancel_cutoff_hours):
             return "too_close"
         return ""
+
+
+# --- Google Calendar per guide (#951) -----------------------------------------------------------
+
+
+class TourCalendarConnectionQuerySet(models.QuerySet["TourCalendarConnection"]):
+    def healthy(self) -> TourCalendarConnectionQuerySet:
+        """Connections Google still answers for: the only ones whose busy times hide tours."""
+        return self.filter(status=TourCalendarConnection.Status.CONNECTED)
+
+    def busy_by_guide(self, guide_ids: Iterable[int]) -> dict[int, list[tuple[datetime, datetime]]]:
+        """Each listed guide's cached busy spans (UTC), for those whose calendar hides tour times now.
+
+        Empty while Google sign in is not set up (:func:`tours.google.is_configured`): a guide whose
+        connection is broken, or whose busy times were never read, offers their hours as if
+        unconnected. One query.
+        """
+        from tours import google
+
+        if not google.is_configured():
+            return {}
+        rows = self.healthy().filter(guide_id__in=list(guide_ids), busy_checked_at__isnull=False)
+        return {row.guide_id: row.busy_intervals() for row in rows.only("guide_id", "busy_spans")}
+
+
+class TourCalendarConnection(models.Model):
+    """A Tour Guide's Google Calendar (#951): tours they give are written to it, and the times it shows
+    them busy are not offered to visitors.
+
+    One per guide, made by the Connect Google Calendar flow on the My Hours tab (per user OAuth with
+    offline access). The tokens are encrypted at rest with the same Fernet key as the Stripe secrets
+    (``billing.fields.EncryptedCharField``, ``STRIPE_FIELD_ENCRYPTION_KEY``). Disconnect revokes the
+    token at Google and deletes the row. When Google stops accepting the token (revoked, expired) the
+    row turns ``broken``: its tokens are cleared, the guide is emailed once, and their hours offer as
+    if unconnected until they reconnect.
+    """
+
+    class Status(models.TextChoices):
+        CONNECTED = "connected", "Connected"
+        BROKEN = "broken", "Needs reconnecting"
+
+    guide = models.OneToOneField(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="tour_calendar",
+        help_text="The Tour Guide whose Google Calendar this is.",
+    )
+    google_email = models.CharField(
+        max_length=254, blank=True, default="", help_text="The Google account connected (its main calendar's id)."
+    )
+    refresh_token = EncryptedCharField(
+        max_length=2048,
+        blank=True,
+        default="",
+        help_text="Google's long lived token, encrypted at rest. Cleared when the connection breaks.",
+    )
+    access_token = EncryptedCharField(
+        max_length=4096,
+        blank=True,
+        default="",
+        help_text="Google's short lived token (about an hour), encrypted at rest, reused until it expires.",
+    )
+    access_token_expires_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the access token stops working."
+    )
+    calendar_id = models.CharField(
+        max_length=255,
+        default="primary",
+        help_text="The calendar tours are written to: the guide's main calendar unless they picked another.",
+    )
+    calendars = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='The calendars the guide owns, for the picker: [{"id", "name", "primary"}]. Refreshed by the sync job.',
+    )
+    status = models.CharField(
+        max_length=12,
+        choices=Status.choices,
+        default=Status.CONNECTED,
+        help_text="Connected, or needs reconnecting once Google stopped accepting the token.",
+    )
+    broken_at = models.DateTimeField(null=True, blank=True, help_text="When Google stopped accepting the token.")
+    broken_reason = models.CharField(
+        max_length=300, blank=True, default="", help_text="What Google said when it stopped accepting the token."
+    )
+    busy_spans = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='The busy times read from Google over the booking horizon, as UTC ISO pairs [["start", "end"], ...].',
+    )
+    busy_checked_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the busy times were last read from Google."
+    )
+    busy_attempted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When a read of the busy times was last tried, so a Google outage is not retried on every page load.",
+    )
+    connected_at = models.DateTimeField(default=timezone.now, help_text="When the guide last connected or reconnected.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the row last changed.")
+
+    objects = TourCalendarConnectionQuerySet.as_manager()
+
+    class Meta:
+        verbose_name = "tour guide Google Calendar"
+        verbose_name_plural = "tour guide Google Calendars"
+
+    def __str__(self) -> str:
+        return f"{self.guide}: {self.google_email or 'Google Calendar'} ({self.get_status_display()})"
+
+    @property
+    def is_broken(self) -> bool:
+        """Whether the guide has to reconnect before tours are written or busy times read again."""
+        return self.status == self.Status.BROKEN
+
+    def calendar_choices(self) -> list[tuple[str, str]]:
+        """The picker's options, main calendar first: its value is ``primary``, the others' their Google id."""
+        return [
+            ("primary" if calendar.get("primary") else str(calendar["id"]), str(calendar.get("name") or calendar["id"]))
+            for calendar in self.calendars
+        ]
+
+    @property
+    def calendar_label(self) -> str:
+        """The chosen calendar's name as the picker shows it, or "the main calendar" before the list is read."""
+        names = dict(self.calendar_choices())
+        if self.calendar_id in names:
+            return names[self.calendar_id]
+        return "the main calendar" if self.calendar_id == "primary" else self.calendar_id
+
+    def busy_intervals(self) -> list[tuple[datetime, datetime]]:
+        """The cached busy spans as aware UTC pairs, in order."""
+        return [(datetime.fromisoformat(start), datetime.fromisoformat(end)) for start, end in self.busy_spans]
+
+
+class TourCalendarSync(models.Model):
+    """Where one booking's event lives on a guide's Google Calendar, and whether it needs writing (#951).
+
+    Made when a booking whose guide has connected a calendar is booked, moved or cancelled
+    (``tours.signals.tour_booking_changed``) and when a guide connects or picks another calendar. The
+    ``sync_tour_calendars`` job brings every ``due`` row to what the booking says now: an event on the
+    current guide's chosen calendar with the current times, or none for a cancelled tour; an event left
+    on another guide's calendar (a reassignment) or another calendar is deleted first. A failure
+    leaves the row due and waits ``next_attempt_at``; the booking itself never waits on Google.
+    """
+
+    booking = models.OneToOneField(
+        TourBooking,
+        on_delete=models.CASCADE,
+        related_name="calendar_sync",
+        help_text="The booking whose Google event this tracks.",
+    )
+    connection = models.ForeignKey(
+        TourCalendarConnection,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="synced_events",
+        help_text="Whose Google Calendar holds the event now. Empty when none does, or the guide disconnected.",
+    )
+    calendar_id = models.CharField(max_length=255, blank=True, default="", help_text="The calendar holding the event.")
+    event_id = models.CharField(
+        max_length=255, blank=True, default="", help_text="The Google event's id, for updates and deletes."
+    )
+    due = models.BooleanField(default=True, help_text="Google has to be brought up to date with the booking.")
+    attempts = models.PositiveSmallIntegerField(default=0, help_text="Failed tries since the last success.")
+    next_attempt_at = models.DateTimeField(
+        null=True, blank=True, help_text="After a failure: the earliest the job tries again."
+    )
+    last_error = models.CharField(max_length=300, blank=True, default="", help_text="Why the last try failed.")
+    synced_at = models.DateTimeField(null=True, blank=True, help_text="When Google last matched the booking.")
+
+    class Meta:
+        verbose_name = "tour Google Calendar event"
+        verbose_name_plural = "tour Google Calendar events"
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["next_attempt_at"], condition=Q(due=True), name="ix_tourcalsync_due"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.booking}: {self.event_id or 'no event'}{' (due)' if self.due else ''}"

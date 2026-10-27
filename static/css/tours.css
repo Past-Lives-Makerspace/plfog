@@ -397,3 +397,47 @@
 .pl-tours-move__form {
     margin-top: 1.25rem;
 }
+
+/* The My Hours tab's Google Calendar card (#951, tours/partials/_google_calendar.html): the account
+   line with Disconnect on its right (wrapping under it on a phone), when busy times were last read,
+   the calendar picker with Save last, and the broken notice with Reconnect. */
+.pl-tours-gcal__account {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.pl-tours-gcal__status {
+    margin: 0;
+    color: var(--hub-text);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.pl-tours-gcal__status--broken {
+    color: var(--color-error);
+    font-weight: 600;
+}
+.pl-tours-gcal__last {
+    margin: 0;
+    font-size: 0.875rem;
+}
+.pl-tours-gcal__status + .pl-tours-gcal__last {
+    margin-top: 0.5rem;
+}
+.pl-tours-gcal__checked {
+    margin: 0.75rem 0 0;
+    font-size: 0.8125rem;
+}
+.pl-tours-gcal__form {
+    margin-top: 1.25rem;
+}
+.pl-tours-gcal__broken {
+    margin-top: 0;
+}
+.pl-tours-gcal__actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+}

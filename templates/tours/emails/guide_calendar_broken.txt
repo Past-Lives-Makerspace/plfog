@@ -1,0 +1,11 @@
+{% autoescape off %}Reconnect your Google Calendar
+
+Google stopped letting Past Lives use {% if google_email %}{{ google_email }}{% else %}the Google Calendar you connected{% endif %} for your facility tours. Until you reconnect it:
+
+  * New tours you give are not added to your calendar.
+  * Times your calendar shows you busy are not hidden from visitors, so your tour hours are offered in full.
+
+Open My Hours on the Tours page and press Reconnect Google Calendar. It takes a minute.
+
+Reconnect on My Hours: {{ hours_url }}
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}

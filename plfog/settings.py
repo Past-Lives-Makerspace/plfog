@@ -484,6 +484,13 @@ MAILCHIMP_LIST_ID = os.environ.get("MAILCHIMP_LIST_ID", "")
 GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
 GOOGLE_CALENDAR_SYNC_ENABLED = os.environ.get("GOOGLE_CALENDAR_SYNC_ENABLED", "").lower() == "true"
 
+# Tour Guides connect their own Google Calendar (#951): a Google Cloud OAuth client of type "Web
+# application" whose authorized redirect URI is MEMBER_BASE_URL + /facility-tours/google/callback/.
+# Either blank leaves the feature dormant (the My Hours tab says so), as does ENVIRONMENT=staging.
+# The tokens it stores are encrypted with STRIPE_FIELD_ENCRYPTION_KEY.
+GOOGLE_OAUTH_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+
 # Eventbrite listing push for classes (#652). A private token from the Past Lives Eventbrite
 # account, the organization the events are created under, and the venue every class meets at.
 # Blank by default so the app and tests run without them; any blank one (the organizer below too)
