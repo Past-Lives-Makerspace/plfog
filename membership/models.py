@@ -16385,7 +16385,9 @@ class OrientationBookingMessage(ThreadMessage):
         from membership.orientations import request_resolver_context
 
         booking = self.booking
-        audience = {user.pk for user, _reason in guild_orienters_or_equipment_managers(request_resolver_context(booking))}
+        audience = {
+            user.pk for user, _reason in guild_orienters_or_equipment_managers(request_resolver_context(booking))
+        }
         writers = {
             message.author_id
             for message in booking.messages.exclude(pk=self.pk)
@@ -16423,6 +16425,7 @@ class OrientationBookingMessage(ThreadMessage):
         """The member's message: tell the orientors (:meth:`orientor_user_ids`)."""
         from core.events.emit import emit
         from core.events.registry import ORIENTATION_MESSAGE_TO_ORIENTORS
+        from membership.orientations import request_resolver_context
 
         booking = self.booking
         recipient_ids = self.orientor_user_ids()
@@ -16433,6 +16436,8 @@ class OrientationBookingMessage(ThreadMessage):
             actor=self.author,
             target=booking,
             context={
+                # The event's resolver still runs, then recipient_user_ids replaces its people.
+                **request_resolver_context(booking),
                 "member_name": booking.member.display_name,
                 "owner_name": booking.orientation_type.owner_name,
                 "orientation_name": booking.orientation_type.name,
@@ -16450,7 +16455,7 @@ class OrientationBookingMessage(ThreadMessage):
             return ""
         if self.is_from_staff:
             return f" {self.booking.member.display_name} was notified."
-        return f" The orientors for {self.booking.orientation_type.owner_name} were notified."
+        return f" The Orientors for {self.booking.orientation_type.owner_name} were notified."
 
 
 class OrientationBookingMessagePhoto(ThreadPhoto):

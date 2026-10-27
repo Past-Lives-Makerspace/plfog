@@ -1,7 +1,7 @@
 {% comment %}
 "Your requests" on the Feedback page (#693): the viewer's own FeedbackRequest rows, newest first,
-one .pl-disclosure each, holding its thread (hub/partials/_feedback_thread.html) and a reply box
-with photos that posts to hub_feedback_comment. The row whose pk is open_request_pk (the one just
+one .pl-disclosure each, holding its thread (components/thread.html, the request's own message
+first) and a reply box with photos (components/thread_composer.html) that posts to hub_feedback_comment. The row whose pk is open_request_pk (the one just
 sent, or just replied to) renders open, and the script below opens the row a #request-<pk> link
 points at (a notification's link). A closed request (FeedbackRequest.is_closed) keeps its reply box
 and gets a line under it saying so. The GitHub issue link is admin only and never appears here.
@@ -27,13 +27,11 @@ open_request_pk (int or None).
         <span class="pl-disclosure__chevron" aria-hidden="true"></span>
       </summary>
       <div class="pl-disclosure__body pl-feedback-request__body">
-        {% include "hub/partials/_feedback_thread.html" with feedback_request=item as_staff=False %}
-        <form method="post" action="{% url 'hub_feedback_comment' item.pk %}" enctype="multipart/form-data" class="pl-feedback-reply" data-feedback-reply="{{ item.pk }}" data-pl-busy-submit data-pl-busy-label="Sending...">
-          {% csrf_token %}
-          {% include "components/form_field.html" with field=reply_form.body field_label="Reply" field_hint_off=True %}
-          {% include "hub/partials/_feedback_photos_field.html" with field=reply_form.photos %}
-          <div class="pl-feedback-reply__row"><span class="pl-feedback-reply__note">Past Lives gets a notification.</span><button type="submit" class="hub-btn hub-btn--primary" data-pl-busy>Send Reply</button></div>
-        </form>
+        {% with pk_str=item.pk|stringformat:"s" %}
+        {% include "components/thread.html" with thread_messages=item.thread viewer_is_staff=False thread_key="request-"|add:pk_str %}
+        {% endwith %}
+        {% url 'hub_feedback_comment' item.pk as reply_url %}
+        {% include "components/thread_composer.html" with thread_form=reply_form thread_action=reply_url thread_next="" thread_body_label="Reply" thread_note="Past Lives gets a notification." thread_button="Send Reply" %}
         {% if item.is_closed %}<p class="pl-feedback-reply__closed" data-feedback-closed-line>This request is closed. Reply here if you still need help.</p>{% endif %}
       </div>
     </details>

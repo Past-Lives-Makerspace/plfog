@@ -162,7 +162,7 @@ def hub_admin_feedback_comment(request: HttpRequest, pk: int) -> HttpResponse:
     comment = feedback_request.add_comment(
         author=author, body=comment_form.cleaned_data["body"], photos=comment_form.cleaned_data["photos"]
     )
-    messages.success(request, "Sent." + _told(feedback_request, author, comment.notified))
+    messages.success(request, "Sent." + comment.told_sentence())
     return redirect(_request_url(feedback_request, request.GET.urlencode()))
 
 

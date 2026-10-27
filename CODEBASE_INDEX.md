@@ -56,6 +56,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 - `SiteConfiguration` — singleton (pk=1); controls RegistrationMode (open / invite_only)
 - `Invite` — email invite with pre-created Member placeholder; accepted on signup
 - `PushSubscription` — Web Push subscription per user
+- `core/threads.py` — the shared conversation thread: abstract `ThreadMessage` / `ThreadPhoto` bases each domain builds its own tables on (`FeedbackComment`, `OrientationBookingMessage`), with one rule for who hears a message
 - `Notification` / `NotificationPreference` — per-user in-app notifications + per-trigger channel prefs (see `core/triggers.py` catalogue, `core/notifications.py` dispatch)
 - `TransactionalEmailLog` — logs every email sent via `core.email.send()` (sync; console in dev, Resend in prod)
 - `SiteActivity` — cross-app activity/audit feed
@@ -100,6 +101,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 /settings/profile/              Profile settings
 /settings/emails/               Email preferences
 /feedback/                      Feedback form
+/orientation/bookings/<pk>/     A member's orientation booking and its messages (the shared thread)
 /tab/                           My Tab (current balance + add entry)
 /tab/history/                   Past billing charges
 /                               Home / redirects (core.views)

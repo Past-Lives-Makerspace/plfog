@@ -986,27 +986,14 @@ class ThreadMessageForm(forms.Form):
         return " ".join(str(message) for messages in self.errors.values() for message in messages)
 
 
-class FeedbackCommentForm(forms.Form):
-    """One comment on a feedback request's thread, with photos, from the sender or an admin.
+class FeedbackCommentForm(ThreadMessageForm):
+    """One comment on a feedback request's thread: the shared thread's form, labelled Comment.
 
-    The photos take the Feedback form's field and caps. Rendered once per request on the
-    Feedback page, so the caller passes an ``auto_id`` that keeps each row's ids apart.
+    Rendered once per request on the Feedback page, so the caller passes an ``auto_id`` that
+    keeps each row's ids apart.
     """
 
     body = forms.CharField(label="Comment", widget=forms.Textarea(attrs={"rows": 3}))
-    photos = MultiplePhotoField(
-        required=False,
-        label="Photos (optional)",
-        widget=MultiplePhotoInput(attrs={"accept": "image/*"}),
-    )
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.fields["photos"].help_text = feedback_photos_help()
-
-    def clean_photos(self) -> list[UploadedFile]:
-        """Enforce the photo count and combined-size caps with plain messages."""
-        return clean_feedback_photos(self.cleaned_data["photos"])
 
 
 class FeedbackRequestAdminForm(forms.Form):

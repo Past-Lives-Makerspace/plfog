@@ -2642,12 +2642,18 @@ def orientation_move(request: HttpRequest, booking_pk: int) -> HttpResponse:
     try:
         if form.asks_member_first:
             orientations.propose_orientation_time(
-                booking, form.cleaned_data["starts_at"], actor=_get_member(request), message=form.cleaned_data["message"]
+                booking,
+                form.cleaned_data["starts_at"],
+                actor=_get_member(request),
+                message=form.cleaned_data["message"],
             )
             messages.success(request, f"We asked {name} about the new time. Their booking stays put until they answer.")
         else:
             orientations.move_orientation(
-                booking, form.cleaned_data["starts_at"], actor=_get_member(request), message=form.cleaned_data["message"]
+                booking,
+                form.cleaned_data["starts_at"],
+                actor=_get_member(request),
+                message=form.cleaned_data["message"],
             )
             messages.success(request, f"Orientation moved and confirmed. We emailed {name}.")
     except OrientationError as exc:
@@ -2764,7 +2770,9 @@ def orientation_message(request: HttpRequest, booking_pk: int) -> HttpResponse:
     if not form.is_valid():
         if is_member:
             return _member_booking_page(
-                request, OrientationBooking.objects.with_thread().select_related("slot").get(pk=booking.pk), message_form=form
+                request,
+                OrientationBooking.objects.with_thread().select_related("slot").get(pk=booking.pk),
+                message_form=form,
             )
         return _respond_page(request, booking, message_form=form)
     message = booking.post_message(

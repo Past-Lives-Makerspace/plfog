@@ -421,7 +421,7 @@ def describe_your_requests():
 
         assert body.index("Zzwhat I sent") < body.index("Zzcarried over note") < body.index("Zzfrom dana")
         assert body.index("Zzfrom dana") < body.index("Zzmy reply")
-        assert '<strong>Dana Reyes</strong><span class="pl-feedback-msg__role">Past Lives</span>' in body
+        assert '<strong>Dana Reyes</strong><span class="pl-thread-msg__role">Past Lives</span>' in body
         assert "<strong>Past Lives</strong><span>" in body
         assert body.count("<strong>You</strong>") == 2
         assert request.comments.get(author=admin).photos.get().image.url in body
@@ -586,8 +586,9 @@ def describe_replying():
 
         assert f'action="/feedback/{request.pk}/comment/" enctype="multipart/form-data"' in body
         assert f'id="id_reply_{request.pk}_photos"' in body
-        assert f'data-feedback-reply="{request.pk}" data-pl-busy-submit' in body
-        assert body.count("data-feedback-photos>") == 2  # the Feedback form's zone and this reply's
+        assert f'data-thread="request-{request.pk}"' in body
+        assert "data-thread-reply data-pl-busy-submit" in body
+        assert body.count("data-thread-photos>") == 2  # the Feedback form's zone and this reply's
         assert "window.plBusySubmitBound" in body
 
 
@@ -604,6 +605,6 @@ def describe_a_closed_request():
 
         body = client.get("/feedback/").content.decode()
 
-        assert f'data-feedback-reply="{request.pk}"' in body
+        assert f'action="/feedback/{request.pk}/comment/"' in body
         line = "This request is closed. Reply here if you still need help."
         assert (line in body) is closed

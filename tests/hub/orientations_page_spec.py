@@ -541,9 +541,10 @@ def describe_query_count():
                 GuildStaffMembershipFactory(guild=guild, member=orienter)
                 OrientationSlotFactory(guild=guild, orientation_type=orientation_type, orienter=orienter)
                 OrientationAvailabilityBlockFactory(guild=guild, orienter=orienter)
-            if index == 0:
-                OrientationRecordFactory(member=member, orientation_type=orientation_type)
+            # The booking sits on the first type, so both counts load a booking's messages (one fixed query).
             if index == 2:
+                OrientationRecordFactory(member=member, orientation_type=orientation_type)
+            if index == 0:
                 OrientationBookingFactory(
                     slot=OrientationSlotFactory(guild=orientation_type.guild, orientation_type=orientation_type),
                     member=member,

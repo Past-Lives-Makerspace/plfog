@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import time, timedelta
 
 import pytest
+from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -17,6 +18,7 @@ from tests.membership.factories import (
     GuildFactory,
     GuildOrientationSettingsFactory,
     MemberFactory,
+    MembershipPlanFactory,
     OrientationAvailabilityFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
@@ -147,7 +149,8 @@ def describe_OrientationSlot():
     def describe_book():
         def it_creates_a_requested_booking():
             slot = OrientationSlotFactory(seats=2)
-            member = MemberFactory()
+            MembershipPlanFactory()
+            member = User.objects.create_user(username="book_note", email="book_note@example.com").member
             booking = slot.book(member, note="excited!")
             assert booking.status == OrientationBooking.Status.REQUESTED
             assert booking.member == member

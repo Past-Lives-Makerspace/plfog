@@ -79,13 +79,13 @@ def describe_a_feedback_conversation():
         # The admin answers with a photo.
         _sign_in(page, login_via_code, ADMIN, fog_role=Member.FogRole.ADMIN)
         page.goto(f"{live_server.url}{reverse('hub_admin_feedback_request', args=[request.pk])}")
-        comment_form = page.locator("[data-feedback-comment-form]")
+        comment_form = page.locator("[data-thread-reply]")
         comment_form.locator("textarea").fill("Zzwhich phone is this on?")
         comment_form.locator("input[type=file]").set_input_files([_png("admin-shot.png", (40, 90, 160))])
-        send = comment_form.locator("[data-feedback-send]")
+        send = comment_form.locator("[data-thread-send]")
         expect(send).to_have_text("Send to Sam Sender")
         send.click()
-        staff_comment = page.locator('[data-feedback-comment][data-from="staff"]')
+        staff_comment = page.locator('[data-thread-message][data-from="staff"]')
         expect(staff_comment).to_contain_text("Zzwhich phone is this on?")
         expect(staff_comment.locator("img")).to_have_count(1)
         expect(page.get_by_text("Sent. Sam Sender was notified.")).to_be_visible()
@@ -96,12 +96,12 @@ def describe_a_feedback_conversation():
         page.goto(f"{live_server.url}{reverse('hub_beta_feedback')}#request-{request.pk}")
         row = page.locator(f'[data-feedback-request="{request.pk}"]')
         expect(row).to_have_attribute("open", "")
-        expect(row.locator('[data-feedback-comment][data-from="staff"]')).to_contain_text("Zzwhich phone is this on?")
-        expect(row.locator('[data-feedback-comment][data-from="staff"] img')).to_have_count(1)
-        reply = row.locator(f'[data-feedback-reply="{request.pk}"]')
+        expect(row.locator('[data-thread-message][data-from="staff"]')).to_contain_text("Zzwhich phone is this on?")
+        expect(row.locator('[data-thread-message][data-from="staff"] img')).to_have_count(1)
+        reply = row.locator("[data-thread-reply]")
         reply.locator("textarea").fill("Zzit is a Pixel 8")
         reply.locator("input[type=file]").set_input_files([_png("my-shot.png", (160, 60, 40))])
-        expect(reply.locator("[data-feedback-photos-label]")).to_have_text("my-shot.png")
+        expect(reply.locator("[data-thread-photos-label]")).to_have_text("my-shot.png")
         # The busy guard: hold the first request in the browser and Send Reply is already
         # disabled and reads Sending..., so a second click has nothing to press.
         page.evaluate(
@@ -115,12 +115,12 @@ def describe_a_feedback_conversation():
         assert request.comments.filter(author=sender).count() == 0
         page.reload()
         row = page.locator(f'[data-feedback-request="{request.pk}"]')
-        reply = row.locator(f'[data-feedback-reply="{request.pk}"]')
+        reply = row.locator("[data-thread-reply]")
         reply.locator("textarea").fill("Zzit is a Pixel 8")
         reply.locator("input[type=file]").set_input_files([_png("my-shot.png", (160, 60, 40))])
         reply.get_by_role("button", name="Send Reply").dblclick()
         row = page.locator(f'[data-feedback-request="{request.pk}"]')
-        mine = row.locator('[data-feedback-comment][data-from="sender"]')
+        mine = row.locator('[data-thread-message][data-from="member"]')
         expect(mine).to_contain_text("Zzit is a Pixel 8")
         expect(mine.locator("img")).to_have_count(1)
         expect(row).to_have_attribute("open", "")
@@ -141,7 +141,7 @@ def describe_a_feedback_conversation():
 
         # Opening it clears the pill.
         page.locator(f'[data-feedback-row="{request.pk}"] a').first.click()
-        expect(page.locator('[data-feedback-comment][data-from="sender"]')).to_contain_text("Zzit is a Pixel 8")
+        expect(page.locator('[data-thread-message][data-from="member"]')).to_contain_text("Zzit is a Pixel 8")
         assert not FeedbackRequest.objects.member_replied().exists()
 
 
@@ -172,7 +172,7 @@ def describe_closing_feedback():
         resolve.get_by_role("button", name="Mark Not a Bug").click()
         expect(page.get_by_text("Saved. Sam Sender was notified.")).to_be_visible()
         expect(page.locator(".pl-feedback-admin__meta [data-feedback-status]")).to_have_text("Not a bug")
-        expect(page.locator('[data-feedback-comment][data-from="staff"]')).to_contain_text("tap the time first")
+        expect(page.locator('[data-thread-message][data-from="staff"]')).to_contain_text("tap the time first")
 
         # Close: general feedback, no comment needed.
         page.goto(f"{live_server.url}{reverse('hub_admin_feedback_request', args=[idea.pk])}")
@@ -196,11 +196,11 @@ def describe_closing_feedback():
         expect(row.locator("[data-feedback-closed-line]")).to_have_text(
             "This request is closed. Reply here if you still need help."
         )
-        reply = row.locator(f'[data-feedback-reply="{bug.pk}"]')
+        reply = row.locator("[data-thread-reply]")
         reply.locator("textarea").fill("Zzthat did not work for me")
         reply.get_by_role("button", name="Send Reply").click()
         row = page.locator(f'[data-feedback-request="{bug.pk}"]')
-        expect(row.locator('[data-feedback-comment][data-from="sender"]')).to_contain_text("Zzthat did not work")
+        expect(row.locator('[data-thread-message][data-from="member"]')).to_contain_text("Zzthat did not work")
         expect(row.locator("[data-feedback-status]")).to_have_text("Not a bug")
 
         # Back in the inbox, the default Open view shows it with Member replied.

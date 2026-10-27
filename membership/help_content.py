@@ -408,6 +408,16 @@ Sometimes a guild lead or an equipment manager needs a different time. They move
 
 Either way, your payment stays with the booking. Nothing is refunded and nothing is charged again. If the new time doesn't work, cancel it. A booking that was moved for you never costs a late cancellation fee.
 
+## Message the Orientors {#orientation-messages}
+
+Every booking has its own **Messages**. Use them to ask a question, explain a time that suits you better, or answer a new time in words.
+
+1. On the guild page, the tool's page or the Orientations page, open **Messages** under your booking.
+2. Write your message. Add photos if they help.
+3. Click **Send**. The Orientors get a notification.
+
+Their answers show in the same place, and you get a notification for each one. The note you add when you book is your first message. A note sent with a decline or a new time shows there too. To read the messages on any booking, including a declined one, open the Orientations page's **Bookings** tab, then the booking's **...** menu and **Messages**.
+
 ## Good to Know
 
 - Once you've done it, the guild page simply shows **You're oriented** — the booking section goes away.
@@ -1557,6 +1567,14 @@ When a member requests a slot, the guild lead and every staff member get an emai
 - **From the app.** **Manage Bookings** in the left menu opens on **Needs Attention**, every request waiting on you; open the row's **...** menu and pick **Confirm Request** or **Decline Request** (with an optional note, like suggesting another time). The same rows are on the Orientations page's **Bookings** tab. **View Request** opens the full request, which has the same buttons, as do the email's respond link and the in-app notice.
 
 Confirming emails the member a calendar invite. Declining emails them your note. If plans change after you've confirmed, **Cancel this orientation** notifies the member; members can also cancel their own bookings, and you'll see the status change.
+
+### Messages With the Member {#orientation-booking-messages}
+
+Every booking has **Messages**, a conversation between the member and the Orientors. Open it from **Messages** in a row's **...** menu, or from the bottom of the request page.
+
+- Write a message, add photos if they help, and click **Send**. The member gets a notification every time.
+- When the member writes, the Orientors who got the request get a notification. Admins can read and write on every booking.
+- A decline note and a message sent with a new time are posted here too, and go out in that email, so the member gets one notice.
 
 ### Move a Booking to Another Time {#orientation-move-booking}
 

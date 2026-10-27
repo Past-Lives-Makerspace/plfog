@@ -1,3 +1,3 @@
-A note from {{ message.author_name }}:
+A note from {% if message.author_id %}{{ message.author_name }}{% elif slot.orienter %}{{ slot.orienter_first_name }}{% else %}the {{ owner_name }} folks{% endif %}:
 {{ message.body }}
 Reply in the app: {{ messages_url }}

@@ -25,7 +25,8 @@ from django.db import models, transaction
 from django.utils import timezone
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
+    from datetime import datetime
 
     from django.core.files.uploadedfile import UploadedFile
 
@@ -143,7 +144,7 @@ class ThreadMessage(models.Model):
         Returns:
             The saved message.
         """
-        message = cls.objects.create(author=author, body=body.strip(), **thread)
+        message = cls._default_manager.create(author=author, body=body.strip(), **thread)
         for photo in photos:
             photo.seek(0)
             getattr(message, "photos").create(image=photo)
@@ -175,3 +176,29 @@ class ThreadPhoto(models.Model):
     class Meta:
         abstract = True
         ordering = ["pk"]
+
+
+class ThreadOpening:
+    """The member side's first words when they live on the object itself, not as a message.
+
+    A feedback request's own message and photos open its thread. It reads like a member side
+    :class:`ThreadMessage` to ``components/thread.html``, which draws it first; it is never
+    posted and tells nobody. The name is asked for only when the page shows it (a member sees
+    "You"), so building the opening costs no query.
+    """
+
+    is_from_staff = False
+    shows_staff_tag = False
+    staff_signature = ""
+    pk = None
+
+    def __init__(self, *, name: Callable[[], str], body: str, created_at: datetime, photos: list[Any]) -> None:
+        self._name = name
+        self.body = body
+        self.created_at = created_at
+        self.thread_photos = photos
+
+    @property
+    def author_name(self) -> str:
+        """The member side's name, read when the thread shows it."""
+        return self._name()

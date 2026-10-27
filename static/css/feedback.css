@@ -1,6 +1,6 @@
-/* The Feedback page's "Your requests" section and the admin Feedback inbox (#693), and the
-   comment thread both sides share (hub/partials/_feedback_thread.html), drawn like the kiln
-   ticket thread. Loaded by hub/beta_feedback.html, hub/admin/feedback_inbox.html and
+/* The Feedback page's "Your requests" section and the admin Feedback inbox (#693). The comment
+   thread both sides share is the shared thread (components/thread.html), styled by thread.css.
+   Loaded by hub/beta_feedback.html, hub/admin/feedback_inbox.html and
    hub/admin/feedback_request.html. Status pills are the shared .hub-pill family. */
 
 .pl-feedback-lead { margin-bottom: 1.5rem; }
@@ -19,58 +19,6 @@
     margin-top: 0.25rem;
 }
 .pl-feedback-request__body { display: flex; flex-direction: column; }
-
-/* The thread: the original message first, then every comment. The viewer's own side sits right. */
-.pl-feedback-thread { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.75rem; }
-.pl-feedback-msg {
-    max-width: 88%;
-    padding: 0.625rem 0.875rem;
-    border-radius: 12px;
-    background: var(--hub-surface);
-    border: 1px solid var(--hub-border);
-    font-size: 0.9rem;
-    line-height: 1.45;
-    overflow-wrap: anywhere;
-}
-.pl-feedback-msg--mine { justify-self: end; background: var(--hub-blue-soft); border-color: var(--hub-border-strong); }
-.pl-feedback-msg__who {
-    display: flex;
-    gap: 0.4rem;
-    align-items: baseline;
-    flex-wrap: wrap;
-    margin-bottom: 0.2rem;
-    font-size: 0.78rem;
-    color: var(--hub-text-muted);
-}
-.pl-feedback-msg__who strong { color: var(--hub-text); font-size: 0.82rem; }
-.pl-feedback-msg__role { padding: 0 0.35rem; border-radius: 4px; border: 1px solid var(--hub-border-strong); font-size: 0.7rem; }
-.pl-feedback-msg__photos { margin-top: 0.75rem; }
-
-/* The reply box under a thread, on both sides */
-.pl-feedback-reply { margin-top: 1.5rem; }
-.pl-feedback-reply .pl-form-group textarea { min-height: 88px; }
-.pl-feedback-reply__row {
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    margin-top: 0.75rem;
-}
-.pl-feedback-reply__row .hub-btn { min-height: 44px; }
-.pl-feedback-reply__note { font-size: 0.8rem; color: var(--hub-text-muted); }
-
-/* Photo thumbnails, on the member's row and the admin page */
-.pl-feedback-photos { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.pl-feedback-photos__item {
-    display: block;
-    width: 96px;
-    height: 96px;
-    border-radius: 6px;
-    overflow: hidden;
-    border: 1px solid var(--hub-input-border, rgba(139, 151, 168, 0.3));
-}
-.pl-feedback-photos__item img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* Inbox */
 .pl-feedback-inbox__filters {

@@ -1,6 +1,6 @@
-{% comment %}A message from a booking's thread in an orientation email, with a link to reply. Context: message (an OrientationBookingMessage), messages_url.{% endcomment %}
+{% comment %}A message from a booking's thread in an orientation email, with a link to reply. A message with no author signs as the slot's orienter, else the owner's folks. Context: message, slot, owner_name, messages_url.{% endcomment %}
 <div style="background: rgba(13, 72, 118, 0.06); border-radius: 8px; padding: 12px 16px; margin: 0 0 16px;">
-    <p style="margin: 0 0 4px; font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">A note from {{ message.author_name }}</p>
+    <p style="margin: 0 0 4px; font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">A note from {% if message.author_id %}{{ message.author_name }}{% elif slot.orienter %}{{ slot.orienter_first_name }}{% else %}the {{ owner_name }} folks{% endif %}</p>
     <p style="margin: 0; font-size: 14px; color: #33424f; line-height: 1.6; white-space: pre-line;">{{ message.body }}</p>
     <p style="margin: 8px 0 0; font-size: 12px;"><a href="{{ messages_url }}" style="color: #0d4876;">Reply in the app</a></p>
 </div>

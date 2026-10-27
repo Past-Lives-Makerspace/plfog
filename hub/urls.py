@@ -200,9 +200,7 @@ urlpatterns = [
         name="hub_orientation_block_cancel",
     ),
     path("orientation/bookings/<int:booking_pk>/", views.orientation_booking, name="hub_orientation_booking"),
-    path(
-        "orientation/bookings/<int:booking_pk>/messages/", views.orientation_message, name="hub_orientation_message"
-    ),
+    path("orientation/bookings/<int:booking_pk>/messages/", views.orientation_message, name="hub_orientation_message"),
     path("orientation/bookings/<int:booking_pk>/respond/", views.orientation_respond, name="hub_orientation_respond"),
     path(
         "orientation/bookings/<int:booking_pk>/lead-cancel/",
