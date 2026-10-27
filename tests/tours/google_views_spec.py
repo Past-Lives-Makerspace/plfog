@@ -216,13 +216,14 @@ def describe_the_card():
         assert _card(response) == "connected"
         assert "gina@example.com" in html
         assert f'<option value="{TOURS_CAL}" selected>Tours</option>' in html
+        assert '<option value="primary">Gina Guide (main calendar)</option>' in html
         assert "data-tour-gcal-disconnect" in html and "Disconnect Google Calendar?" in html
         assert "Busy times last read" in html
 
     @pytest.mark.usefixtures("google_on")
     def it_says_when_busy_times_have_not_been_read(guide: Member):
         TourCalendarConnectionFactory(guide=guide)
-        assert b"Busy times are read the next time" in signed_in(guide).get(HOURS).content
+        assert b"Busy times are read within 15 minutes." in signed_in(guide).get(HOURS).content
 
     @pytest.mark.usefixtures("google_on")
     def it_shows_reconnect_when_broken(guide: Member):

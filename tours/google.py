@@ -21,7 +21,8 @@ OAuth app needs Google's verification, and in Testing mode its refresh tokens ex
 
 Every call takes a ``timeout``. Errors are :class:`GoogleError` (try again later) or its subclass
 :class:`GoogleAuthError` (the token is revoked or expired, or a permission was not granted: the
-connection is broken until the guide reconnects).
+connection is broken until the guide reconnects). A 401 is :class:`GoogleUnauthorizedError`, which
+the caller answers with one fresh access token before calling the connection broken.
 """
 
 from __future__ import annotations
@@ -62,6 +63,10 @@ class GoogleError(Exception):
 
 class GoogleAuthError(GoogleError):
     """Google no longer accepts the guide's token, or a permission was not granted: reconnect."""
+
+
+class GoogleUnauthorizedError(GoogleAuthError):
+    """A 401: the access token was refused. Worth one fresh token before giving up on the connection."""
 
 
 class GoogleMissingScopeError(GoogleAuthError):
@@ -235,7 +240,7 @@ def _api(
     reasons = {str(item.get("reason", "")) for item in error.get("errors", []) if isinstance(item, dict)}
     status = response.status_code
     if status == 401:
-        raise GoogleAuthError(f"Google Calendar refused the token: {message}")
+        raise GoogleUnauthorizedError(f"Google Calendar refused the token: {message}")
     if status == 403 and reasons & _PERMISSION_REASONS:
         raise GoogleAuthError(f"Google Calendar refused a permission: {message}")
     if status in (404, 410):

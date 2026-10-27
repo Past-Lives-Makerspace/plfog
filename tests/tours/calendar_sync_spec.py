@@ -304,6 +304,11 @@ def describe_event_body():
         assert calendar_sync.event_id_for(booking) != event_id
 
 
+def _sync() -> calendar_sync.SyncCounts:
+    """One pass of the job's writes."""
+    return calendar_sync.sync_due_bookings(timezone.now())
+
+
 def describe_sync_booking():
     def _row(booking: TourBooking, **fields: Any) -> TourCalendarSync:
         return TourCalendarSync.objects.create(booking=booking, **fields)
@@ -312,7 +317,7 @@ def describe_sync_booking():
     def it_creates_the_event_on_the_guides_calendar(connection: TourCalendarConnection, booking: TourBooking):
         route = respx.post(PRIMARY).mock(return_value=httpx.Response(200, json={"id": "created"}))
         row = _row(booking)
-        calendar_sync.sync_booking(row, now=timezone.now())
+        assert _sync().done == 1
         row.refresh_from_db()
         assert (row.event_id, row.connection_id, row.calendar_id, row.due) == (
             "created",
@@ -356,7 +361,7 @@ def describe_sync_booking():
         booking.status = TourBooking.Status.CANCELLED
         booking.save()
         row = _row(booking, connection=connection, calendar_id="primary", event_id="ev1")
-        calendar_sync.sync_booking(row, now=timezone.now())
+        _sync()
         row.refresh_from_db()
         assert route.called
         assert (row.event_id, row.connection_id, row.due) == ("", None, False)
@@ -368,7 +373,7 @@ def describe_sync_booking():
         booking.save()
         row = _row(booking)
         with respx.mock(assert_all_called=False) as mock:
-            calendar_sync.sync_booking(row, now=timezone.now())
+            _sync()
         assert not mock.calls
         assert not TourCalendarSync.objects.get(pk=row.pk).due
 
@@ -415,7 +420,7 @@ def describe_sync_booking():
     def it_forgets_an_event_left_by_a_guide_who_disconnected(booking: TourBooking):
         row = _row(booking, connection=None, calendar_id="primary", event_id="orphan")
         with respx.mock(assert_all_called=False) as mock:
-            calendar_sync.sync_booking(row, now=timezone.now())
+            _sync()
         assert not mock.calls
         row.refresh_from_db()
         assert (row.event_id, row.due) == ("", False)
@@ -424,9 +429,7 @@ def describe_sync_booking():
         booking.guide = None
         booking.save()
         row = _row(booking)
-        calendar_sync.sync_booking(
-            TourCalendarSync.objects.select_related("booking").get(pk=row.pk), now=timezone.now()
-        )
+        _sync()
         assert not TourCalendarSync.objects.get(pk=row.pk).due
 
     def it_waits_while_the_guides_calendar_is_broken(connection: TourCalendarConnection, booking: TourBooking):
@@ -435,14 +438,71 @@ def describe_sync_booking():
         with pytest.raises(calendar_sync._Waiting):
             calendar_sync.sync_booking(_row(booking), now=timezone.now())
 
-    def it_waits_while_the_calendar_holding_the_event_is_broken(booking: TourBooking):
-        holder = TourCalendarConnectionFactory(guide=make_guide(), status=TourCalendarConnection.Status.BROKEN)
-        row = _row(booking, connection=holder, calendar_id="primary", event_id="ev1")
+    def it_waits_while_its_own_guides_broken_calendar_holds_the_event(
+        connection: TourCalendarConnection, booking: TourBooking
+    ):
+        connection.status = TourCalendarConnection.Status.BROKEN
+        connection.save()
+        booking.status = TourBooking.Status.CANCELLED
+        booking.save()
+        row = _row(booking, connection=connection, calendar_id="primary", event_id="ev1")
         with pytest.raises(calendar_sync._Waiting):
             calendar_sync.sync_booking(row, now=timezone.now())
 
     @respx.mock
-    def it_breaks_the_holder_when_google_refuses_the_delete(connection: TourCalendarConnection, booking: TourBooking):
+    def it_writes_the_new_guide_and_forgets_the_old_guides_broken_calendar(
+        connection: TourCalendarConnection, booking: TourBooking
+    ):
+        TourCalendarConnection.objects.filter(pk=connection.pk).update(
+            status=TourCalendarConnection.Status.BROKEN, refresh_token="", access_token=""
+        )
+        row = _row(booking, connection=connection, calendar_id="primary", event_id="ev1", due=False)
+        new_guide = make_guide(full_legal_name="Nia New")
+        TourCalendarConnectionFactory(guide=new_guide, calendar_id=TOURS_CAL, access_token="access-2")
+        created = respx.post(TOURS_EVENTS).mock(return_value=httpx.Response(200, json={"id": "moved"}))
+        booking.guide = new_guide
+        booking.save()
+        calendar_sync.queue_booking_sync(None, booking=booking)
+        assert _sync().done == 1
+        assert created.called
+        row.refresh_from_db()
+        assert (row.event_id, row.calendar_id, row.due) == ("moved", TOURS_CAL, False)
+
+    @respx.mock
+    def it_still_deletes_from_the_old_guide_when_the_new_guides_calendar_is_broken(
+        connection: TourCalendarConnection, booking: TourBooking
+    ):
+        deleted = respx.delete(f"{PRIMARY}/ev1").mock(return_value=httpx.Response(204))
+        row = _row(booking, connection=connection, calendar_id="primary", event_id="ev1")
+        new_guide = make_guide(full_legal_name="Nia New")
+        TourCalendarConnectionFactory(guide=new_guide, status=TourCalendarConnection.Status.BROKEN)
+        booking.guide = new_guide
+        booking.save()
+        assert _sync().waiting == 1
+        assert deleted.called
+        row.refresh_from_db()
+        assert (row.event_id, row.connection_id, row.due) == ("", None, True)
+
+    @respx.mock
+    def it_forgets_the_event_when_the_old_guide_refuses_the_delete(
+        connection: TourCalendarConnection, booking: TourBooking
+    ):
+        respx.delete(f"{PRIMARY}/ev1").mock(
+            return_value=httpx.Response(403, json={"error": {"errors": [{"reason": "forbidden"}]}})
+        )
+        row = _row(booking, connection=connection, calendar_id="primary", event_id="ev1")
+        booking.guide = make_guide()
+        booking.save()
+        assert _sync().done == 1
+        connection.refresh_from_db()
+        assert connection.is_broken
+        assert TourCalendarSync.objects.get(pk=row.pk).event_id == ""
+
+    @respx.mock
+    def it_breaks_the_holder_when_google_refuses_the_delete_twice(
+        connection: TourCalendarConnection, booking: TourBooking
+    ):
+        respx.post(google.TOKEN_URL).mock(return_value=httpx.Response(200, json={"access_token": "fresh"}))
         respx.delete(f"{PRIMARY}/ev1").mock(return_value=httpx.Response(401, json={}))
         booking.status = TourBooking.Status.CANCELLED
         booking.save()
@@ -511,6 +571,76 @@ def describe_sync_due_bookings():
         TourCalendarSync.objects.create(booking=booking)
         assert calendar_sync.sync_due_bookings(timezone.now()).waiting == 1
         assert TourCalendarSync.objects.get(booking=booking).due
+
+    @respx.mock
+    def it_keeps_a_move_made_while_it_was_writing(connection: TourCalendarConnection, booking: TourBooking):
+        TourCalendarSync.objects.create(booking=booking)
+        new_start = booking.starts_at + timedelta(hours=2)
+
+        def staff_moves_it_meanwhile(request: httpx.Request) -> httpx.Response:
+            TourBooking.objects.filter(pk=booking.pk).update(
+                starts_at=new_start, ends_at=new_start + timedelta(hours=1)
+            )
+            calendar_sync.queue_booking_sync(None, booking=TourBooking.objects.get(pk=booking.pk))
+            return httpx.Response(200, json={"id": "ev"})
+
+        route = respx.post(PRIMARY).mock(side_effect=staff_moves_it_meanwhile)
+        respx.put(url__startswith=f"{PRIMARY}/").mock(return_value=httpx.Response(200, json={}))
+        _sync()
+        row = TourCalendarSync.objects.get(booking=booking)
+        assert row.due and row.event_id == "ev"
+        assert _sent(route)["start"]["dateTime"] == booking.starts_at.astimezone(UTC).isoformat()
+        _sync()
+        row.refresh_from_db()
+        assert not row.due
+
+    def it_reads_the_booking_fresh_for_each_row(connection: TourCalendarConnection, booking: TourBooking):
+        TourCalendarSync.objects.create(booking=booking)
+        seen: list[Any] = []
+        with patch(
+            "tours.calendar_sync.sync_booking", side_effect=lambda row, now: seen.append(row.booking.party_size)
+        ):
+            TourBooking.objects.filter(pk=booking.pk).update(party_size=5)
+            _sync()
+        assert seen == [5]
+
+    def it_leaves_a_row_another_run_is_writing(connection: TourCalendarConnection, booking: TourBooking):
+        TourCalendarSync.objects.create(booking=booking, claimed_until=timezone.now() + timedelta(minutes=5))
+        with respx.mock(assert_all_called=False) as mock:
+            counts = _sync()
+        assert not mock.calls and counts.done == 0
+
+    def it_cannot_claim_a_row_already_claimed(connection: TourCalendarConnection, booking: TourBooking):
+        row = TourCalendarSync.objects.create(booking=booking)
+        now = timezone.now()
+        assert calendar_sync._claim(row.pk, now) is not None
+        assert calendar_sync._claim(row.pk, now) is None
+        assert calendar_sync._claim(row.pk, now + calendar_sync.CLAIM_FOR + timedelta(seconds=1)) is not None
+
+    def it_lets_go_of_a_row_once_written(connection: TourCalendarConnection, booking: TourBooking):
+        TourCalendarSync.objects.create(booking=booking)
+        with patch("tours.calendar_sync.sync_booking"):
+            _sync()
+        assert TourCalendarSync.objects.get(booking=booking).claimed_until is None
+
+    def it_skips_a_row_claimed_between_the_list_and_the_claim(connection: TourCalendarConnection, booking: TourBooking):
+        TourCalendarSync.objects.create(booking=booking)
+        with patch("tours.calendar_sync._claim", return_value=None), patch("tours.calendar_sync.sync_booking") as write:
+            _sync()
+        assert not write.called
+
+    def it_keeps_rows_waiting_on_a_reconnect_out_of_the_way(connection: TourCalendarConnection, guide: Member):
+        connection.status = TourCalendarConnection.Status.BROKEN
+        connection.save()
+        waiting = TourCalendarSync.objects.create(booking=TourBookingFactory(guide=guide))
+        now = timezone.now()
+        calendar_sync.sync_due_bookings(now)
+        waiting.refresh_from_db()
+        assert waiting.next_attempt_at == now + calendar_sync.WAIT_RECHECK
+        assert waiting.attempts == 0 and "reconnect" in waiting.last_error
+        with patch("tours.calendar_sync.sync_booking") as write:
+            calendar_sync.sync_due_bookings(now + timedelta(minutes=15))
+        assert not write.called
 
     def it_gives_up_a_day_after_the_tour_ended(connection: TourCalendarConnection, guide: Member):
         old = TourBookingFactory(guide=guide, starts_at=timezone.now() - timedelta(days=3))
@@ -608,9 +738,12 @@ def describe_read_busy():
             )
         )
         respx.get(CALENDAR_LIST).mock(
-            return_value=_calendar_list({"id": "gina.new@example.com", "summary": "Gina", "primary": True})
+            return_value=_calendar_list(
+                {"id": "gina.new@example.com", "summary": "Gina", "primary": True},
+                {"id": TOURS_CAL, "summary": "Tours"},
+            )
         )
-        spans = calendar_sync.read_busy(connection, now=now, timeout=1, with_calendars=True)
+        spans = calendar_sync.read_busy(connection, now=now, deadline=calendar_sync.Deadline(30))
         assert spans == [(a.astimezone(UTC), (a + timedelta(hours=2)).astimezone(UTC))]
         connection.refresh_from_db()
         assert connection.busy_checked_at == now
@@ -623,16 +756,122 @@ def describe_read_busy():
     def it_keeps_the_email_when_the_list_has_no_main_calendar(connection: TourCalendarConnection):
         respx.get(CALENDAR_LIST).mock(return_value=_calendar_list({"id": TOURS_CAL, "summary": "Tours"}))
         respx.get(PRIMARY).mock(return_value=httpx.Response(200, json={"items": []}))
-        calendar_sync.read_busy(connection, now=timezone.now(), timeout=1, with_calendars=True)
+        calendar_sync.read_busy(connection, now=timezone.now(), deadline=calendar_sync.Deadline(30))
         connection.refresh_from_db()
         assert connection.google_email == "gina@example.com"
         assert connection.calendar_choices() == [(TOURS_CAL, "Tours")]
 
     @respx.mock
     def it_reads_the_main_calendar_once_when_it_is_the_chosen_one(connection: TourCalendarConnection):
+        respx.get(CALENDAR_LIST).mock(return_value=_calendar_list())
         route = respx.get(PRIMARY).mock(return_value=httpx.Response(200, json={"items": []}))
-        calendar_sync.read_busy(connection, now=timezone.now(), timeout=1, with_calendars=False)
+        calendar_sync.read_busy(connection, now=timezone.now(), deadline=calendar_sync.Deadline(30))
         assert route.call_count == 1
+
+
+def describe_a_chosen_calendar_that_is_gone():
+    def _gone_bells(connection: TourCalendarConnection) -> Any:
+        return Notification.objects.filter(user=connection.guide.user, trigger="tour.calendar_gone")
+
+    @pytest.fixture
+    def on_tours(connection: TourCalendarConnection) -> TourCalendarConnection:
+        connection.calendar_id = TOURS_CAL
+        connection.save()
+        return connection
+
+    @respx.mock
+    def it_falls_back_when_the_calendar_is_no_longer_listed(on_tours: TourCalendarConnection, booking: TourBooking):
+        respx.get(CALENDAR_LIST).mock(
+            return_value=_calendar_list({"id": "gina@example.com", "summary": "Gina", "primary": True})
+        )
+        respx.get(PRIMARY).mock(return_value=httpx.Response(200, json={"items": []}))
+        assert calendar_sync.refresh_busy(on_tours, now=timezone.now()) is True
+        on_tours.refresh_from_db()
+        assert on_tours.calendar_id == "primary" and not on_tours.is_broken
+        assert TourCalendarSync.objects.get(booking=booking).due
+        assert list(_gone_bells(on_tours).values_list("title", flat=True)) == ["Your tours calendar is gone"]
+        assert "Tours" in _gone_bells(on_tours).get().body
+
+    @respx.mock
+    def it_falls_back_when_the_calendar_answers_not_found(on_tours: TourCalendarConnection):
+        respx.get(CALENDAR_LIST).mock(return_value=_calendar_list())
+        respx.get(PRIMARY).mock(return_value=httpx.Response(200, json={"items": []}))
+        respx.get(TOURS_EVENTS).mock(
+            return_value=httpx.Response(404, json={"error": {"errors": [{"reason": "notFound"}]}})
+        )
+        now = timezone.now()
+        assert calendar_sync.refresh_busy(on_tours, now=now) is True
+        on_tours.refresh_from_db()
+        assert (on_tours.calendar_id, on_tours.busy_checked_at) == ("primary", now)
+        assert calendar_sync.stuck_problems(now + timedelta(minutes=30)) == []
+
+    @respx.mock
+    def it_writes_to_the_main_calendar_when_a_create_finds_it_gone(
+        on_tours: TourCalendarConnection, booking: TourBooking
+    ):
+        respx.post(TOURS_EVENTS).mock(return_value=httpx.Response(404, json={}))
+        main = respx.post(PRIMARY).mock(return_value=httpx.Response(200, json={"id": "on-main"}))
+        TourCalendarSync.objects.create(booking=booking)
+        _sync()
+        assert main.called
+        row = TourCalendarSync.objects.get(booking=booking)
+        assert (row.event_id, row.calendar_id) == ("on-main", "primary")
+        assert _gone_bells(on_tours).count() == 1
+
+    @respx.mock
+    def it_retries_later_when_the_main_calendar_itself_is_not_found(
+        connection: TourCalendarConnection, booking: TourBooking
+    ):
+        respx.post(PRIMARY).mock(return_value=httpx.Response(404, json={}))
+        TourCalendarSync.objects.create(booking=booking)
+        assert _sync().failed == 1
+
+
+def describe_the_401_retry():
+    @respx.mock
+    def it_gets_a_fresh_token_once_and_carries_on(connection: TourCalendarConnection, booking: TourBooking):
+        token = respx.post(google.TOKEN_URL).mock(return_value=httpx.Response(200, json={"access_token": "fresh"}))
+        respx.post(PRIMARY).mock(side_effect=[httpx.Response(401, json={}), httpx.Response(200, json={"id": "ev"})])
+        TourCalendarSync.objects.create(booking=booking)
+        assert _sync().done == 1
+        assert token.call_count == 1
+        connection.refresh_from_db()
+        assert not connection.is_broken and connection.access_token == "fresh"
+
+    @respx.mock
+    def it_breaks_when_the_refresh_is_refused(connection: TourCalendarConnection, booking: TourBooking):
+        respx.post(google.TOKEN_URL).mock(return_value=httpx.Response(400, json={"error": "invalid_grant"}))
+        respx.post(PRIMARY).mock(return_value=httpx.Response(401, json={}))
+        TourCalendarSync.objects.create(booking=booking)
+        assert _sync().waiting == 1
+        connection.refresh_from_db()
+        assert connection.is_broken
+
+
+def describe_the_per_guide_deadline():
+    def it_stops_reading_one_guide_when_their_time_is_spent(connection: TourCalendarConnection, monkeypatch):
+        clock = {"t": 1000.0}
+        monkeypatch.setattr(calendar_sync.clock, "monotonic", lambda: clock["t"])
+
+        def slow(request: httpx.Request) -> httpx.Response:
+            clock["t"] += calendar_sync.BUSY_DEADLINE_SECONDS
+            return _calendar_list()
+
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(CALENDAR_LIST).mock(side_effect=slow)
+            events = mock.get(PRIMARY).mock(return_value=httpx.Response(200, json={"items": []}))
+            assert calendar_sync.refresh_busy(connection, now=timezone.now()) is False
+        assert not events.called
+        connection.refresh_from_db()
+        assert connection.busy_checked_at is None and not connection.is_broken
+
+    def it_gives_each_call_what_is_left(monkeypatch):
+        clock = {"t": 0.0}
+        monkeypatch.setattr(calendar_sync.clock, "monotonic", lambda: clock["t"])
+        deadline = calendar_sync.Deadline(12)
+        assert deadline.timeout() == google.DEFAULT_TIMEOUT
+        clock["t"] = 9
+        assert deadline.timeout() == 3
 
 
 def describe_refresh_busy():
@@ -641,10 +880,8 @@ def describe_refresh_busy():
         connection.busy_spans = [["2030-01-08T18:00:00+00:00", "2030-01-08T19:00:00+00:00"]]
         connection.save()
         respx.get(CALENDAR_LIST).mock(return_value=httpx.Response(500, json={}))
-        now = timezone.now()
-        assert calendar_sync.refresh_busy(connection, now=now) is False
+        assert calendar_sync.refresh_busy(connection, now=timezone.now()) is False
         connection.refresh_from_db()
-        assert connection.busy_attempted_at == now
         assert len(connection.busy_spans) == 1
 
     @respx.mock
@@ -655,55 +892,6 @@ def describe_refresh_busy():
         assert calendar_sync.refresh_busy(connection, now=timezone.now()) is False
         connection.refresh_from_db()
         assert connection.is_broken
-
-
-def describe_refresh_stale_busy():
-    @pytest.fixture
-    def hours(guide: Member) -> Any:
-        return TourHoursFactory(guide=guide)
-
-    @respx.mock
-    def it_reads_a_stale_calendar_of_a_guide_with_hours(connection: TourCalendarConnection, hours: Any):
-        connection.busy_checked_at = timezone.now() - timedelta(minutes=16)
-        connection.save()
-        route = respx.get(PRIMARY).mock(return_value=httpx.Response(200, json={"items": []}))
-        calendar_sync.refresh_stale_busy()
-        assert route.called
-        connection.refresh_from_db()
-        assert connection.busy_checked_at > timezone.now() - timedelta(minutes=1)
-
-    @pytest.mark.parametrize(
-        "fields",
-        [
-            {"busy_checked_at": "fresh"},
-            {"busy_attempted_at": "fresh"},
-            {"status": TourCalendarConnection.Status.BROKEN},
-        ],
-    )
-    def it_leaves_google_alone_when_nothing_is_due(connection: TourCalendarConnection, hours: Any, fields: dict):
-        for name, value in fields.items():
-            setattr(connection, name, timezone.now() - timedelta(minutes=2) if value == "fresh" else value)
-        connection.save()
-        with respx.mock(assert_all_called=False) as mock:
-            calendar_sync.refresh_stale_busy()
-        assert not mock.calls
-
-    def it_skips_a_guide_with_no_hours(connection: TourCalendarConnection):
-        with respx.mock(assert_all_called=False) as mock:
-            calendar_sync.refresh_stale_busy()
-        assert not mock.calls
-
-    def it_stops_when_its_time_is_spent(connection: TourCalendarConnection, hours: Any, monkeypatch):
-        monkeypatch.setattr(calendar_sync, "ON_DEMAND_BUDGET_SECONDS", 0)
-        with respx.mock(assert_all_called=False) as mock:
-            calendar_sync.refresh_stale_busy()
-        assert not mock.calls
-
-    def it_does_nothing_until_google_is_set_up(connection: TourCalendarConnection, hours: Any, settings):
-        settings.GOOGLE_OAUTH_CLIENT_ID = ""
-        with respx.mock(assert_all_called=False) as mock:
-            calendar_sync.refresh_stale_busy()
-        assert not mock.calls
 
 
 def describe_alert_busy_conflicts():
@@ -779,12 +967,14 @@ def describe_the_job():
         report = calendar_sync.run()
         assert (report.read, report.read_failed) == (0, 1)
 
-    def it_skips_a_calendar_read_moments_ago(connection: TourCalendarConnection):
+    @respx.mock
+    def it_reads_every_connected_calendar_every_tick(connection: TourCalendarConnection):
         connection.busy_checked_at = timezone.now() - timedelta(minutes=5)
         connection.save()
-        with respx.mock(assert_all_called=False) as mock:
-            report = calendar_sync.run()
-        assert not mock.calls and report.read == 0
+        TourCalendarConnectionFactory(guide=make_guide(), status=TourCalendarConnection.Status.BROKEN)
+        respx.get(CALENDAR_LIST).mock(return_value=_calendar_list())
+        respx.get(PRIMARY).mock(return_value=httpx.Response(200, json={"items": []}))
+        assert calendar_sync.run().read == 1
 
     def it_fails_loudly_when_writes_keep_failing_or_a_calendar_goes_unread(
         connection: TourCalendarConnection, booking: TourBooking

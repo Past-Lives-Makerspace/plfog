@@ -95,6 +95,7 @@ _BRAND_NEW_KEYS = {
     "tour.checked_in",
     "tour.calendar_busy",
     "tour.calendar_broken",
+    "tour.calendar_gone",
     "guild.needs_attention",
 }
 

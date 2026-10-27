@@ -40,7 +40,7 @@ is_self, target.
     <p class="pl-tours-gcal__status" data-tour-gcal-account>Connected as <strong>{{ gcal.google_email }}</strong></p>
     <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'tour-gcal-disconnect')" data-tour-gcal-disconnect>Disconnect</button>
   </div>
-  <p class="hub-text-muted pl-tours-gcal__checked">{% if gcal.busy_checked_at %}Busy times last read {{ gcal.busy_checked_at|date:"M j, g:i A" }}.{% else %}Busy times are read the next time someone opens the booking page, or within 15 minutes.{% endif %}</p>
+  <p class="hub-text-muted pl-tours-gcal__checked">{% if gcal.busy_checked_at %}Busy times last read {{ gcal.busy_checked_at|date:"M j, g:i A" }}.{% else %}Busy times are read within 15 minutes.{% endif %}</p>
   <form method="post" action="{% url 'tours:google_calendar' %}" class="hub-form pl-tours-gcal__form" data-tour-gcal-form>
     {% csrf_token %}
     {% include "components/form_field.html" with field=gcal_form.calendar %}

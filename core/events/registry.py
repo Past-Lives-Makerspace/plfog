@@ -558,6 +558,7 @@ TOUR_VISITOR_UPDATE = "tour.visitor_update"  # the visitor's own tour emails, by
 TOUR_CHECKED_IN = "tour.checked_in"  # your visitor checked in at the front desk kiosk (#950)
 TOUR_CALENDAR_BUSY = "tour.calendar_busy"  # your Google Calendar now shows you busy during a booked tour (#951)
 TOUR_CALENDAR_BROKEN = "tour.calendar_broken"  # Google stopped accepting your calendar connection (#951)
+TOUR_CALENDAR_GONE = "tour.calendar_gone"  # the calendar you picked for tours is gone; the main one took over (#951)
 GUILD_NEEDS_ATTENTION = "guild.needs_attention"  # a guild breaks a Needs attention rule (#953)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
@@ -1626,6 +1627,18 @@ _NEW_EVENTS: list[EventType] = [
         category="Tours",
         recipient=Recipients.TOUR_GUIDES,
         channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # tour.calendar_gone: the calendar a Tour Guide picked for tours was deleted or is no longer theirs
+    # (#951). Tours go to their main calendar from then on. Bell only, once per calendar lost
+    # (tours.calendar_sync.chosen_calendar_gone).
+    EventType(
+        key=TOUR_CALENDAR_GONE,
+        label="Tours calendar gone",
+        description="The Google Calendar you picked for tours is gone, so tours go to your main calendar.",
+        category="Tours",
+        recipient=Recipients.TOUR_GUIDES,
+        channels=(_IN_APP_ON,),
         activity_kind=None,
     ),
     # tour.visitor_update: the visitor's confirmation, moved, cancelled and reminder emails

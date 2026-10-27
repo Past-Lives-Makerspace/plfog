@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, timedelta
 from typing import Any
-from unittest.mock import patch
 
-import httpx
 import pytest
 import respx
 from django.test import Client
@@ -14,7 +12,6 @@ from django.utils import timezone
 
 from membership.models import Member
 from tests.tours.factories import TourBookingFactory, TourCalendarConnectionFactory, TourHoursFactory, local
-from tours import google
 from tours.availability import open_tour_at, open_tours
 from tours.booking import TourUnavailableError, Visitor, book_tour
 from tours.models import TourBooking, TourCalendarConnection
@@ -115,42 +112,17 @@ def describe_the_booking_page():
         TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
         return day
 
-    @respx.mock
-    def it_reads_stale_busy_times_first_and_hides_the_busy_tour(guide: Member, soon: date):
-        connection = TourCalendarConnectionFactory(guide=guide, busy_checked_at=timezone.now() - timedelta(minutes=20))
+    def it_hides_the_busy_tour_from_the_cache_without_calling_google(guide: Member, soon: date):
         start = local(soon, 16)
-        route = respx.get(f"{google.API_URL}/calendars/primary/events").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "items": [
-                        {
-                            "start": {"dateTime": start.isoformat()},
-                            "end": {"dateTime": (start + timedelta(hours=1)).isoformat()},
-                        }
-                    ]
-                },
-            )
+        TourCalendarConnectionFactory(
+            guide=guide,
+            busy_spans=[[start.astimezone(UTC).isoformat(), (start + timedelta(hours=1)).astimezone(UTC).isoformat()]],
+            busy_checked_at=timezone.now() - timedelta(hours=3),
         )
-        response = Client(HTTP_HOST=HOST).get("/", {"date": f"{soon:%Y-%m-%d}"})
-        assert response.status_code == 200
-        assert route.called
-        connection.refresh_from_db()
-        assert connection.busy_checked_at > timezone.now() - timedelta(minutes=1)
-        content = response.content.decode()
-        five_key = f"{guide.pk}-{local(soon, 17).astimezone(UTC):%Y%m%dT%H%MZ}"
-        four_key = f"{guide.pk}-{start.astimezone(UTC):%Y%m%dT%H%MZ}"
-        assert five_key in content and four_key not in content
-
-    @respx.mock
-    def it_lists_tours_from_the_cache_when_google_is_down(guide: Member, soon: date):
-        TourCalendarConnectionFactory(guide=guide, busy_checked_at=timezone.now() - timedelta(minutes=20))
-        respx.get(f"{google.API_URL}/calendars/primary/events").mock(side_effect=httpx.ConnectTimeout("slow"))
-        response = Client(HTTP_HOST=HOST).get("/", {"date": f"{soon:%Y-%m-%d}"})
-        assert response.status_code == 200
-        assert f"{guide.pk}-{local(soon, 16).astimezone(UTC):%Y%m%dT%H%MZ}" in response.content.decode()
-
-    def it_never_shows_an_error_page_for_a_sync_bug(guide: Member, soon: date):
-        with patch("tours.public_views.refresh_stale_busy", side_effect=RuntimeError("bug")):
+        with respx.mock(assert_all_called=False, assert_all_mocked=True) as mock:
             response = Client(HTTP_HOST=HOST).get("/", {"date": f"{soon:%Y-%m-%d}"})
         assert response.status_code == 200
+        assert not mock.calls
+        content = response.content.decode()
+        assert f"{guide.pk}-{local(soon, 17).astimezone(UTC):%Y%m%dT%H%MZ}" in content
+        assert f"{guide.pk}-{start.astimezone(UTC):%Y%m%dT%H%MZ}" not in content

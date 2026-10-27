@@ -355,7 +355,10 @@ class TourCalendarChoiceForm(forms.Form):
 
     def __init__(self, *args: Any, connection: TourCalendarConnection, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        choices = connection.calendar_choices() or [("primary", "Your main calendar")]
+        choices = [
+            (value, f"{label} (main calendar)" if value == "primary" else label)
+            for value, label in connection.calendar_choices()
+        ] or [("primary", "Your main calendar")]
         field = cast("forms.ChoiceField", self.fields["calendar"])
         field.choices = choices
         field.initial = connection.calendar_id

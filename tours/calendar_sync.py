@@ -1,30 +1,34 @@
 """A Tour Guide's Google Calendar, both ways (#951): tours written to it, busy times read from it.
 
+Nothing here runs inside a visitor's request: every Google call is made by the
+``sync_tour_calendars`` job (every tick, :func:`run`), the Connect flow and Disconnect.
+
 **Writes.** :func:`queue_booking_sync` hangs off :data:`tours.signals.tour_booking_changed` (sent after
-commit) and only marks the booking's :class:`~tours.models.TourCalendarSync` row ``due``: nothing
-talks to Google inside the request that saved a booking. The ``sync_tour_calendars`` job (every
-tick) runs :func:`sync_due_bookings`, which brings each due row to what its booking says now
-(:func:`sync_booking`): an event on the guide's chosen calendar with the current times, title
-"Past Lives tour: <visitor> (<party size>)" and the visitor's contact in the description; none for
-a cancelled tour; and an event left on another guide's calendar (a reassignment) or on a calendar
-the guide stopped using is deleted first. Event ids are ours (:func:`event_id_for`), so a create
-that reached Google but not our database, or a reconnect after a disconnect, updates the event in
-place rather than adding a second. A failure leaves the row due with a growing wait
-(:data:`RETRY_BASE` doubling up to :data:`RETRY_CAP`); the booking never waits on Google.
+commit) and only marks the booking's :class:`~tours.models.TourCalendarSync` row due, raising its
+``generation``. :func:`sync_due_bookings` claims each due row (``claimed_until``, so two overlapping
+runs never write one row), reads the booking fresh and brings Google to it (:func:`sync_booking`):
+an event on the guide's chosen calendar with the current times, title "Past Lives tour: <visitor>
+(<party size>)" and the visitor's contact in the description; none for a cancelled tour; and an
+event left on another guide's calendar (a reassignment) or on a calendar the guide stopped using is
+deleted first. Due is cleared only while the row still holds the generation read, so a move that
+commits while the job talks to Google is written on the next run, never lost. Event ids are ours
+(:func:`event_id_for`), so a create that reached Google but not our database, or a reconnect,
+updates the event in place. A failure leaves the row due with a growing wait (:data:`RETRY_BASE`
+doubling up to :data:`RETRY_CAP`); the booking never waits on Google.
 
-**Reads.** Each connected guide's busy times over the booking horizon are cached on their
-connection (:func:`read_busy`): every event on their main calendar and their chosen one that blocks
-time, except our own tour events (they carry :data:`EVENT_MARKER`), so a guide's other seats at a
-tour's time stay offered. The job refreshes them every tick, and a booking page or the kiosk
-refreshes any older than :data:`BUSY_FRESH` on load (:func:`refresh_stale_busy`, a few seconds at
-most, never an error page). :mod:`tours.availability` hides a visitor's tour that overlaps a cached
-span. A tour already booked is never taken away: the guide gets a bell instead
-(:func:`alert_busy_conflicts`), once per booking and start.
+**Reads.** Every tick the job reads each connected guide's busy times over the booking horizon
+(:func:`read_busy`, at most :data:`BUSY_DEADLINE_SECONDS` a guide): every event on their main
+calendar and their chosen one that blocks time, except our own tour events (they carry
+:data:`EVENT_MARKER`), so a guide's other seats at a tour's time stay offered. They are cached on
+the connection, at most about 15 minutes old, and :mod:`tours.availability` reads only the cache.
+A tour already booked is never taken away: the guide gets a bell instead
+(:func:`alert_busy_conflicts`), once per booking and start. A chosen calendar that is gone (deleted,
+or no longer theirs) falls back to the main one, with one bell (:func:`chosen_calendar_gone`).
 
-**Broken.** When Google refuses the token (revoked, expired, a permission unticked), the
-connection turns broken (:func:`mark_broken`): its tokens are cleared, the guide gets one email and
-bell, their busy times stop counting (their hours offer as if unconnected) and nothing is written
-until they reconnect from My Hours.
+**Broken.** A 401 gets one fresh access token first (:func:`_with_token`). When Google still refuses
+(revoked, expired, a permission unticked), the connection turns broken (:func:`mark_broken`): its
+tokens are cleared, the guide gets one email and bell, their busy times stop counting (their hours
+offer as if unconnected) and nothing is written to it until they reconnect from My Hours.
 """
 
 from __future__ import annotations
@@ -35,11 +39,12 @@ import logging
 import time as clock
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.urls import reverse
 from django.utils import timezone
 
@@ -50,23 +55,23 @@ from tours.models import (
     TourBooking,
     TourCalendarConnection,
     TourCalendarSync,
-    TourHours,
 )
 
 if TYPE_CHECKING:
     from membership.models import Member
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
-#: Busy times older than this are read again when a booking page or the kiosk loads.
-BUSY_FRESH = timedelta(minutes=15)
-#: The job reads again anything older than this, so a tick that runs a little early still reads.
-JOB_REFRESH_AFTER = timedelta(minutes=10)
-#: After a failed read on a page load, page loads leave Google alone this long.
-ON_DEMAND_RETRY = timedelta(minutes=5)
-#: The most a page load spends reading busy times, and on any one call.
-ON_DEMAND_BUDGET_SECONDS = 4.0
-ON_DEMAND_CALL_TIMEOUT = 3.0
+#: The most the job spends reading one guide's busy times, and writing one booking's event.
+BUSY_DEADLINE_SECONDS = 30.0
+WRITE_DEADLINE_SECONDS = 30.0
+#: Disconnect's patience for Google's revoke, inside the guide's request.
+REVOKE_TIMEOUT = 5.0
+#: How long a run holds a row it is writing; a run that died lets go after this.
+CLAIM_FOR = timedelta(minutes=10)
+#: A row waiting on a broken calendar is looked at again after this (a reconnect queues it at once).
+WAIT_RECHECK = timedelta(hours=1)
 #: An access token this close to expiring is refreshed first.
 TOKEN_MARGIN = timedelta(minutes=2)
 #: The wait after a failed write: 15 minutes, doubling each time, at most 6 hours.
@@ -85,9 +90,8 @@ EVENT_MARKER = "plfogTour"
 
 BUSY_EVENT = "tour.calendar_busy"
 BROKEN_EVENT = "tour.calendar_broken"
+GONE_EVENT = "tour.calendar_gone"
 BUSY_TITLE = "Your calendar now shows you busy during a booked tour"
-
-_DUE: dict[str, Any] = {"due": True, "attempts": 0, "next_attempt_at": None, "last_error": ""}
 
 
 class _Waiting(Exception):
@@ -132,7 +136,6 @@ def connect_from_code(guide: Member, code: str, *, now: datetime | None = None) 
         connection.broken_reason = ""
         connection.busy_spans = []
         connection.busy_checked_at = None
-        connection.busy_attempted_at = None
         connection.connected_at = now
         connection.save()
         queue_upcoming(guide, now=now)
@@ -144,8 +147,7 @@ def choose_calendar(connection: TourCalendarConnection, calendar_id: str, *, now
     connection.calendar_id = calendar_id
     connection.busy_spans = []
     connection.busy_checked_at = None
-    connection.busy_attempted_at = None
-    connection.save(update_fields=["calendar_id", "busy_spans", "busy_checked_at", "busy_attempted_at", "updated_at"])
+    connection.save(update_fields=["calendar_id", "busy_spans", "busy_checked_at", "updated_at"])
     queue_upcoming(connection.guide, now=now or timezone.now())
 
 
@@ -159,7 +161,7 @@ def disconnect(connection: TourCalendarConnection) -> bool:
     revoked = True
     if token:
         try:
-            google.revoke(token, timeout=ON_DEMAND_CALL_TIMEOUT)
+            google.revoke(token, timeout=REVOKE_TIMEOUT)
         except google.GoogleError as exc:
             logger.warning("Could not revoke %s's Google token: %s", connection.guide, exc)
             revoked = False
@@ -178,8 +180,18 @@ def queue_upcoming(guide: Member, *, now: datetime) -> int:
         )
     )
     for booking_id in bookings:
-        TourCalendarSync.objects.update_or_create(booking_id=booking_id, defaults=_DUE)
+        mark_due(booking_id)
     return len(bookings)
+
+
+def mark_due(booking_id: int) -> None:
+    """Queue the booking for the job: due, no wait, and a new ``generation`` so a run already writing
+    it keeps it due when it finishes."""
+    queued = TourCalendarSync.objects.filter(booking_id=booking_id).update(
+        due=True, attempts=0, next_attempt_at=None, last_error="", generation=F("generation") + 1
+    )
+    if not queued:
+        TourCalendarSync.objects.get_or_create(booking_id=booking_id)
 
 
 def queue_booking_sync(sender: Any, *, booking: TourBooking, **kwargs: Any) -> None:
@@ -191,20 +203,22 @@ def queue_booking_sync(sender: Any, *, booking: TourBooking, **kwargs: Any) -> N
     has_event = TourCalendarSync.objects.filter(booking=booking).exclude(event_id="").exists()
     if not has_event and not TourCalendarConnection.objects.filter(guide_id=booking.guide_id).exists():
         return
-    TourCalendarSync.objects.update_or_create(booking=booking, defaults=_DUE)
+    mark_due(booking.pk)
 
 
 # --- Tokens and broken connections ------------------------------------------------------------------
 
 
-def access_token(connection: TourCalendarConnection, *, timeout: float) -> str:
-    """A working access token: the stored one while it lasts, else a fresh one from the refresh token.
+def access_token(connection: TourCalendarConnection, *, timeout: float, fresh: bool = False) -> str:
+    """A working access token: the stored one while it lasts (unless ``fresh``), else a new one from the
+    refresh token.
 
     Raises:
         google.GoogleAuthError: no refresh token (cleared, or unreadable after a key change) or Google refused it.
     """
     expires_at = connection.access_token_expires_at
-    if connection.access_token and expires_at is not None and expires_at > timezone.now() + TOKEN_MARGIN:
+    lasting = expires_at is not None and expires_at > timezone.now() + TOKEN_MARGIN
+    if connection.access_token and lasting and not fresh:
         return connection.access_token
     if not connection.refresh_token:
         raise google.GoogleAuthError("No refresh token is stored.")
@@ -217,6 +231,38 @@ def access_token(connection: TourCalendarConnection, *, timeout: float) -> str:
         fields.append("refresh_token")
     connection.save(update_fields=fields)
     return connection.access_token
+
+
+class Deadline:
+    """A time limit for a run of calls: each call gets what is left, at most Google's own timeout."""
+
+    def __init__(self, seconds: float) -> None:
+        self.ends = clock.monotonic() + seconds
+
+    def timeout(self) -> float:
+        """The next call's timeout.
+
+        Raises:
+            google.GoogleError: the time is spent.
+        """
+        left = self.ends - clock.monotonic()
+        if left <= 0:
+            raise google.GoogleError("Google took too long to answer.")
+        return min(google.DEFAULT_TIMEOUT, left)
+
+
+def _with_token(connection: TourCalendarConnection, call: Callable[[str, float], T], deadline: Deadline) -> T:
+    """``call(token, timeout)`` with the connection's token; on a 401, once more with a fresh token.
+
+    Only a refresh Google refuses, or a 401 on a token it has just issued, reaches the caller as a
+    :class:`google.GoogleAuthError`.
+    """
+    token = access_token(connection, timeout=deadline.timeout())
+    try:
+        return call(token, deadline.timeout())
+    except google.GoogleUnauthorizedError:
+        token = access_token(connection, timeout=deadline.timeout(), fresh=True)
+        return call(token, deadline.timeout())
 
 
 def mark_broken(connection: TourCalendarConnection, reason: str) -> bool:
@@ -312,23 +358,79 @@ def event_body(booking: TourBooking) -> dict[str, Any]:
     }
 
 
-def _write_event(connection: TourCalendarConnection, row: TourCalendarSync, booking: TourBooking) -> str:
-    """Create or update the booking's event on the connection's chosen calendar; returns its id."""
-    token = access_token(connection, timeout=google.DEFAULT_TIMEOUT)
+def chosen_calendar_gone(connection: TourCalendarConnection, lost: str = "") -> None:
+    """The guide's chosen calendar is gone (deleted, or no longer theirs): write to their main one.
+
+    Every upcoming tour of theirs is queued again so it lands there, and the guide gets one bell per
+    calendar lost (``lost`` is its name, when the list that named it was just read again). The main
+    calendar itself never goes this way.
+    """
+    lost = lost or connection.calendar_label
+    lost_id = connection.calendar_id
+    connection.calendar_id = "primary"
+    connection.save(update_fields=["calendar_id", "updated_at"])
+    queue_upcoming(connection.guide, now=timezone.now())
+    from core.events.emit import emit
+
+    emit(
+        GONE_EVENT,
+        target=connection,
+        context={"guide": connection.guide},
+        title="Your tours calendar is gone",
+        body=(
+            f"Google no longer lets us write to {lost}, so your tours go to your main calendar now. "
+            "Pick another calendar on My Hours if you like."
+        ),
+        url=reverse("tours:hours"),
+        period=f"tour_calendar:{connection.pk}:gone:{lost_id}",
+    )
+
+
+def _write_event(connection: TourCalendarConnection, event_id: str, booking: TourBooking, deadline: Deadline) -> str:
+    """Create or update the booking's event on the connection's chosen calendar; returns its id.
+
+    A chosen calendar that answers "not found" to a create is gone: the main calendar takes over
+    (:func:`chosen_calendar_gone`) and the event is written there.
+    """
     body = event_body(booking)
-    if row.event_id:
+    if event_id:
         try:
-            google.update_event(token, connection.calendar_id, row.event_id, body)
+            _with_token(
+                connection,
+                lambda token, timeout: google.update_event(
+                    token, connection.calendar_id, event_id, body, timeout=timeout
+                ),
+                deadline,
+            )
         except google.GoogleNotFoundError:
             pass
         else:
-            return row.event_id
-    event_id = event_id_for(booking)
+            return event_id
+    ours = event_id_for(booking)
     try:
-        return google.insert_event(token, connection.calendar_id, {"id": event_id, **body})
+        return _insert(connection, ours, body, deadline)
+    except google.GoogleNotFoundError:
+        if connection.calendar_id == "primary":
+            raise
+        chosen_calendar_gone(connection)
+        return _insert(connection, ours, body, deadline)
+
+
+def _insert(connection: TourCalendarConnection, event_id: str, body: dict[str, Any], deadline: Deadline) -> str:
+    """Insert with our id; one already there (a lost answer, a reconnect, a tour moving back) is updated."""
+    calendar_id = connection.calendar_id
+    try:
+        return _with_token(
+            connection,
+            lambda token, timeout: google.insert_event(token, calendar_id, {"id": event_id, **body}, timeout=timeout),
+            deadline,
+        )
     except google.GoogleConflictError:
-        # Ours already (a lost answer, a reconnect, a tour moving back to this calendar): update it in place.
-        google.update_event(token, connection.calendar_id, event_id, body)
+        _with_token(
+            connection,
+            lambda token, timeout: google.update_event(token, calendar_id, event_id, body, timeout=timeout),
+            deadline,
+        )
         return event_id
 
 
@@ -338,42 +440,69 @@ def _guide_connection(booking: TourBooking) -> TourCalendarConnection | None:
     return TourCalendarConnection.objects.filter(guide_id=booking.guide_id).first()
 
 
-def sync_booking(row: TourCalendarSync, *, now: datetime) -> None:
-    """Bring one booking's Google event to what the booking says now, then mark the row done.
+def _place(row: TourCalendarSync, connection: TourCalendarConnection | None, calendar_id: str, event_id: str) -> None:
+    """Record where the event is now, touching nothing else on the row (due and generation stay as queued)."""
+    row.connection, row.calendar_id, row.event_id = connection, calendar_id, event_id
+    TourCalendarSync.objects.filter(pk=row.pk).update(connection=connection, calendar_id=calendar_id, event_id=event_id)
+
+
+def _remove_old_event(row: TourCalendarSync, connection: TourCalendarConnection | None, deadline: Deadline) -> None:
+    """Delete the event from the calendar holding it, or forget it when that calendar is out of reach.
+
+    A broken holder that is not the booking's guide (a reassignment away from them) is out of reach
+    for good, like a disconnect: the event is forgotten and the new guide's calendar is still
+    written. The guide's own broken calendar comes back with a reconnect, so the row waits for it.
 
     Raises:
-        _Waiting: a connection it needs is broken (marked so here when Google just refused it).
+        _Waiting: the event is on the guide's own broken calendar.
+    """
+    holder = row.connection
+    own = holder is not None and connection is not None and holder.pk == connection.pk
+    if holder is not None and holder.is_broken and own:
+        raise _Waiting
+    if holder is not None and not holder.is_broken:
+        calendar_id, event_id = row.calendar_id, row.event_id
+        try:
+            _with_token(
+                holder,
+                lambda token, timeout: google.delete_event(token, calendar_id, event_id, timeout=timeout),
+                deadline,
+            )
+        except google.GoogleAuthError as exc:
+            mark_broken(holder, str(exc))
+            if own:
+                raise _Waiting from exc
+    _place(row, None, "", "")
+
+
+def sync_booking(row: TourCalendarSync, *, now: datetime) -> None:
+    """Bring one booking's Google event to what the booking says now (``row.booking`` read fresh).
+
+    Leaves ``due`` alone: :func:`sync_due_bookings` clears it only if nothing was queued meanwhile.
+
+    Raises:
+        _Waiting: the guide's own calendar is broken (marked so here when Google just refused it).
         google.GoogleError: Google failed; the caller records it and tries again later.
     """
     booking = row.booking
     connection = _guide_connection(booking)
-    if connection is not None and connection.is_broken:
-        raise _Waiting
+    deadline = Deadline(WRITE_DEADLINE_SECONDS)
     want = booking.status != TourBooking.Status.CANCELLED and connection is not None
     in_place = (
         connection is not None and row.connection_id == connection.pk and row.calendar_id == connection.calendar_id
     )
     if row.event_id and not (want and in_place):
-        holder = row.connection
-        if holder is not None:
-            if holder.is_broken:
-                raise _Waiting
-            try:
-                google.delete_event(access_token(holder, timeout=google.DEFAULT_TIMEOUT), row.calendar_id, row.event_id)
-            except google.GoogleAuthError as exc:
-                mark_broken(holder, str(exc))
-                raise _Waiting from exc
-        row.connection, row.calendar_id, row.event_id = None, "", ""
-        row.save(update_fields=["connection", "calendar_id", "event_id"])
-    if want and connection is not None:
-        try:
-            row.event_id = _write_event(connection, row, booking)
-        except google.GoogleAuthError as exc:
-            mark_broken(connection, str(exc))
-            raise _Waiting from exc
-        row.connection, row.calendar_id = connection, connection.calendar_id
-    row.due, row.attempts, row.next_attempt_at, row.last_error, row.synced_at = False, 0, None, "", now
-    row.save()
+        _remove_old_event(row, connection, deadline)
+    if not want or connection is None:
+        return
+    if connection.is_broken:
+        raise _Waiting
+    try:
+        event_id = _write_event(connection, row.event_id, booking, deadline)
+    except google.GoogleAuthError as exc:
+        mark_broken(connection, str(exc))
+        raise _Waiting from exc
+    _place(row, connection, connection.calendar_id, event_id)
 
 
 @dataclass
@@ -386,44 +515,82 @@ class SyncCounts:
     given_up: int = 0
 
 
-def _record_failure(row: TourCalendarSync, exc: Exception, now: datetime) -> None:
-    row.attempts += 1
-    row.last_error = (str(exc) or type(exc).__name__)[:300]
-    row.next_attempt_at = now + min(RETRY_BASE * 2 ** (row.attempts - 1), RETRY_CAP)
-    row.save(update_fields=["attempts", "last_error", "next_attempt_at"])
+def _settle(row: TourCalendarSync, generation: int, **fields: Any) -> bool:
+    """Write ``fields`` only while nothing was queued since the run read ``generation``; whether it did."""
+    return bool(TourCalendarSync.objects.filter(pk=row.pk, generation=generation).update(**fields))
+
+
+def _record_failure(row: TourCalendarSync, generation: int, exc: Exception, now: datetime) -> None:
+    attempts = row.attempts + 1
+    _settle(
+        row,
+        generation,
+        attempts=attempts,
+        last_error=(str(exc) or type(exc).__name__)[:300],
+        next_attempt_at=now + min(RETRY_BASE * 2 ** (attempts - 1), RETRY_CAP),
+    )
+
+
+def _claim(pk: int, now: datetime) -> TourCalendarSync | None:
+    """Take the row for this run, read fresh with its booking, or None when another run holds it."""
+    free = Q(claimed_until__isnull=True) | Q(claimed_until__lt=now)
+    if not TourCalendarSync.objects.filter(free, pk=pk, due=True).update(claimed_until=now + CLAIM_FOR):
+        return None
+    return TourCalendarSync.objects.select_related("booking", "connection").get(pk=pk)
+
+
+def _sync_one(row: TourCalendarSync, now: datetime, counts: SyncCounts) -> None:
+    generation = row.generation
+    if row.booking.ends_at < now - GIVE_UP_AFTER_END:
+        logger.warning("Gave up writing tour booking %s to Google Calendar: %s", row.booking_id, row.last_error)
+        _settle(row, generation, due=False, last_error=row.last_error or "The tour was over before Google was updated.")
+        counts.given_up += 1
+        return
+    try:
+        sync_booking(row, now=now)
+    except _Waiting:
+        _settle(
+            row,
+            generation,
+            next_attempt_at=now + WAIT_RECHECK,
+            last_error="Waiting for the guide to reconnect their Google Calendar.",
+        )
+        counts.waiting += 1
+    except google.GoogleError as exc:
+        logger.warning("Google Calendar write for tour booking %s failed: %s", row.booking_id, exc)
+        _record_failure(row, generation, exc, now)
+        counts.failed += 1
+    except Exception as exc:
+        # One bad row must not stop the rest; the stuck check makes a repeat failure loud.
+        logger.exception("Google Calendar write for tour booking %s failed", row.booking_id)
+        _record_failure(row, generation, exc, now)
+        counts.failed += 1
+    else:
+        _settle(row, generation, due=False, attempts=0, next_attempt_at=None, last_error="", synced_at=now)
+        counts.done += 1
 
 
 def sync_due_bookings(now: datetime) -> SyncCounts:
-    """Write every due row whose wait is over, soonest tour first, at most :data:`SYNC_BATCH`."""
+    """Write every due row whose wait is over, soonest tour first, at most :data:`SYNC_BATCH`.
+
+    Rows waiting on a broken calendar carry a :data:`WAIT_RECHECK` wait, so they never fill the batch.
+    """
     counts = SyncCounts()
-    rows = (
+    pks = list(
         TourCalendarSync.objects.filter(due=True)
         .filter(Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lte=now))
-        .select_related("booking", "connection")
-        .order_by("booking__starts_at", "pk")[:SYNC_BATCH]
+        .filter(Q(claimed_until__isnull=True) | Q(claimed_until__lt=now))
+        .order_by("booking__starts_at", "pk")
+        .values_list("pk", flat=True)[:SYNC_BATCH]
     )
-    for row in rows:
-        if row.booking.ends_at < now - GIVE_UP_AFTER_END:
-            row.due = False
-            row.last_error = row.last_error or "The tour was over before Google was updated."
-            row.save(update_fields=["due", "last_error"])
-            counts.given_up += 1
+    for pk in pks:
+        row = _claim(pk, now)
+        if row is None:
             continue
         try:
-            sync_booking(row, now=now)
-        except _Waiting:
-            counts.waiting += 1
-        except google.GoogleError as exc:
-            logger.warning("Google Calendar write for tour booking %s failed: %s", row.booking_id, exc)
-            _record_failure(row, exc, now)
-            counts.failed += 1
-        except Exception as exc:
-            # One bad row must not stop the rest; the stuck check makes a repeat failure loud.
-            logger.exception("Google Calendar write for tour booking %s failed", row.booking_id)
-            _record_failure(row, exc, now)
-            counts.failed += 1
-        else:
-            counts.done += 1
+            _sync_one(row, now, counts)
+        finally:
+            TourCalendarSync.objects.filter(pk=pk).update(claimed_until=None)
     return counts
 
 
@@ -490,35 +657,49 @@ def overlaps(start: datetime, end: datetime, spans: list[tuple[datetime, datetim
     return any(span_start < end and start < span_end for span_start, span_end in spans)
 
 
-def _refresh_calendar_list(connection: TourCalendarConnection, token: str, *, timeout: float) -> None:
-    calendars = google.list_calendars(token, timeout=timeout)
+def _refresh_calendar_list(connection: TourCalendarConnection, deadline: Deadline) -> None:
+    """Read the guide's owned calendars again for the picker; a chosen one no longer among them is gone."""
+    calendars = _with_token(connection, lambda token, timeout: google.list_calendars(token, timeout=timeout), deadline)
+    chosen_name = connection.calendar_label
     connection.calendars = [calendar.as_json() for calendar in calendars]
     primary = next((calendar for calendar in calendars if calendar.primary), None)
     if primary is not None:
         connection.google_email = primary.id
     connection.save(update_fields=["calendars", "google_email", "updated_at"])
+    if connection.calendar_id != "primary" and connection.calendar_id not in {cal.id for cal in calendars}:
+        chosen_calendar_gone(connection, chosen_name)
+
+
+def _calendar_busy(
+    connection: TourCalendarConnection, calendar_id: str, start: datetime, end: datetime, deadline: Deadline
+) -> list[tuple[datetime, datetime]]:
+    events = _with_token(
+        connection,
+        lambda token, timeout: google.list_events(token, calendar_id, start, end, timeout=timeout),
+        deadline,
+    )
+    return [span for span in map(busy_span, events) if span is not None]
 
 
 def read_busy(
-    connection: TourCalendarConnection, *, now: datetime, timeout: float, with_calendars: bool
+    connection: TourCalendarConnection, *, now: datetime, deadline: Deadline
 ) -> list[tuple[datetime, datetime]]:
-    """Read the guide's busy times over the horizon from their main and chosen calendars, and cache them.
+    """Read the guide's calendars and busy times over the horizon, and cache the busy times.
 
-    ``with_calendars`` also refreshes the picker's list of calendars (the job does; a page load does not).
+    The picker's list first (a chosen calendar gone from it falls back to the main one), then the
+    main calendar and the chosen one. A chosen calendar that answers "not found" is gone too.
 
     Raises:
-        google.GoogleError: as the calls raise it.
+        google.GoogleError: as the calls raise it, or when ``deadline`` runs out.
     """
-    token = access_token(connection, timeout=timeout)
-    if with_calendars:
-        _refresh_calendar_list(connection, token, timeout=timeout)
+    _refresh_calendar_list(connection, deadline)
     start, end = busy_window(now)
-    spans: list[tuple[datetime, datetime]] = []
-    for calendar_id in dict.fromkeys(["primary", connection.calendar_id]):
-        for event in google.list_events(token, calendar_id, start, end, timeout=timeout):
-            span = busy_span(event)
-            if span is not None:
-                spans.append(span)
+    spans = _calendar_busy(connection, "primary", start, end, deadline)
+    if connection.calendar_id != "primary":
+        try:
+            spans += _calendar_busy(connection, connection.calendar_id, start, end, deadline)
+        except google.GoogleNotFoundError:
+            chosen_calendar_gone(connection)
     merged = merge_spans(spans)
     connection.busy_spans = [[span_start.isoformat(), span_end.isoformat()] for span_start, span_end in merged]
     connection.busy_checked_at = now
@@ -526,22 +707,15 @@ def read_busy(
     return merged
 
 
-def refresh_busy(
-    connection: TourCalendarConnection,
-    *,
-    now: datetime,
-    timeout: float = google.DEFAULT_TIMEOUT,
-    with_calendars: bool = True,
-) -> bool:
-    """:func:`read_busy`, keeping the cache as it was when Google fails, and breaking the connection when it refuses.
+def refresh_busy(connection: TourCalendarConnection, *, now: datetime) -> bool:
+    """:func:`read_busy` within :data:`BUSY_DEADLINE_SECONDS`, keeping the cache as it was when Google
+    fails, and breaking the connection when it refuses.
 
     Returns:
         Whether the busy times were read.
     """
-    connection.busy_attempted_at = now
-    TourCalendarConnection.objects.filter(pk=connection.pk).update(busy_attempted_at=now)
     try:
-        read_busy(connection, now=now, timeout=timeout, with_calendars=with_calendars)
+        read_busy(connection, now=now, deadline=Deadline(BUSY_DEADLINE_SECONDS))
     except google.GoogleAuthError as exc:
         mark_broken(connection, str(exc))
         return False
@@ -549,31 +723,6 @@ def refresh_busy(
         logger.warning("Could not read %s's Google Calendar busy times: %s", connection.guide, exc)
         return False
     return True
-
-
-def refresh_stale_busy(*, now: datetime | None = None) -> None:
-    """On a booking page or kiosk load: read again the busy times older than :data:`BUSY_FRESH`.
-
-    Only for connected guides who have tour hours, skipping one whose read failed in the last
-    :data:`ON_DEMAND_RETRY`, and stopping after :data:`ON_DEMAND_BUDGET_SECONDS`. A Google failure
-    keeps the cached times (or none); this never raises a Google error to the page.
-    """
-    if not google.is_configured():
-        return
-    now = now or timezone.now()
-    stale = (
-        TourCalendarConnection.objects.healthy()
-        .filter(Q(busy_checked_at__isnull=True) | Q(busy_checked_at__lt=now - BUSY_FRESH))
-        .filter(Q(busy_attempted_at__isnull=True) | Q(busy_attempted_at__lt=now - ON_DEMAND_RETRY))
-        .filter(guide__in=TourHours.objects.values("guide_id"))
-        .select_related("guide")
-    )
-    deadline = clock.monotonic() + ON_DEMAND_BUDGET_SECONDS
-    for connection in stale:
-        remaining = deadline - clock.monotonic()
-        if remaining <= 0:
-            break
-        refresh_busy(connection, now=now, timeout=min(ON_DEMAND_CALL_TIMEOUT, remaining), with_calendars=False)
 
 
 def tell_guide_busy(booking: TourBooking) -> None:
@@ -656,13 +805,11 @@ def stuck_problems(now: datetime) -> list[str]:
 
 
 def run(now: datetime | None = None) -> SyncReport:
-    """The ``sync_tour_calendars`` job: read busy times, bell any clash with a booked tour, write due events."""
+    """The ``sync_tour_calendars`` job: read every connected guide's busy times (so the cache is at most
+    a tick old), bell any clash with a booked tour, write due events."""
     now = now or timezone.now()
     report = SyncReport()
-    to_read = TourCalendarConnection.objects.healthy().filter(
-        Q(busy_checked_at__isnull=True) | Q(busy_checked_at__lt=now - JOB_REFRESH_AFTER)
-    )
-    for connection in to_read.select_related("guide"):
+    for connection in TourCalendarConnection.objects.healthy().select_related("guide"):
         if refresh_busy(connection, now=now):
             report.read += 1
         else:

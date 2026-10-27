@@ -682,11 +682,6 @@ class TourCalendarConnection(models.Model):
     busy_checked_at = models.DateTimeField(
         null=True, blank=True, help_text="When the busy times were last read from Google."
     )
-    busy_attempted_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="When a read of the busy times was last tried, so a Google outage is not retried on every page load.",
-    )
     connected_at = models.DateTimeField(default=timezone.now, help_text="When the guide last connected or reconnected.")
     updated_at = models.DateTimeField(auto_now=True, help_text="When the row last changed.")
 
@@ -760,6 +755,18 @@ class TourCalendarSync(models.Model):
     )
     last_error = models.CharField(max_length=300, blank=True, default="", help_text="Why the last try failed.")
     synced_at = models.DateTimeField(null=True, blank=True, help_text="When Google last matched the booking.")
+    generation = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Raised every time the booking changes and the row is queued again. The job clears due only "
+            "while it still holds the generation it read, so a change made while it was writing is not lost."
+        ),
+    )
+    claimed_until = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="A run is writing this row until then; another run (Run now during a tick) leaves it alone.",
+    )
 
     class Meta:
         verbose_name = "tour Google Calendar event"
