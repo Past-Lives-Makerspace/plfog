@@ -16,7 +16,7 @@ from django.urls import reverse
 
 from billing.models import BillingSettings, Payout, PayoutAccount, ReconciliationSnapshot, TransactionAdjustment
 from billing.payments_panel import PanelWindow
-from billing.payouts import LinePayout, PayoutBadge, account_badge
+from billing.payouts import LinePayout, LineState, PayoutBadge, account_badge
 from billing.reconciliation import RecipientKind, ReconciliationResult, build_reconciliation, result_from_snapshot
 from classes.factories import ClassOfferingFactory, ClassSessionFactory, RegistrationFactory
 from classes.models import Registration
@@ -171,33 +171,70 @@ def describe_account_badge():
 def describe_line_payout():
     def it_dates_a_sent_share_in_local_time():
         # 2am UTC on Oct 15 is still Oct 14 in Portland.
-        state = LinePayout("sent", datetime(2026, 10, 15, 2, 0, tzinfo=UTC))
-        assert state.badge == PayoutBadge("Sent through Stripe Oct 14", "ok")
+        state = LinePayout(LineState.SENT, datetime(2026, 10, 15, 2, 0, tzinfo=UTC))
+        assert state.badge == PayoutBadge("Sent through Stripe Oct 14", "muted")
         assert state.through_stripe is True
 
     def it_leaves_the_date_off_a_sent_share_with_no_stamp():
-        assert LinePayout("sent").badge == PayoutBadge("Sent through Stripe", "ok")
+        assert LinePayout(LineState.SENT).badge == PayoutBadge("Sent through Stripe", "muted")
 
     def it_says_a_share_will_be_sent():
-        state = LinePayout("will_send")
-        assert state.badge == PayoutBadge("Will be sent through Stripe", "warn")
+        state = LinePayout(LineState.WILL_SEND)
+        assert state.badge == PayoutBadge("Will be sent through Stripe", "muted")
         assert state.through_stripe is True
 
     def it_names_a_refund_taken_back_from_a_sent_share():
-        state = LinePayout("taken_back", datetime(2026, 10, 13, 18, 0, tzinfo=UTC))
-        assert state.badge == PayoutBadge("Sent through Stripe Oct 13, refund taken back", "ok")
+        state = LinePayout(LineState.TAKEN_BACK, datetime(2026, 10, 13, 18, 0, tzinfo=UTC))
+        assert state.badge == PayoutBadge("Sent through Stripe Oct 13, refund taken back", "muted")
         assert state.through_stripe is True
-        assert LinePayout("taken_back").badge == PayoutBadge("Sent through Stripe, refund taken back", "ok")
+        assert LinePayout(LineState.TAKEN_BACK).badge == PayoutBadge("Sent through Stripe, refund taken back", "muted")
 
-    def it_says_stripe_is_retrying_a_rejected_transfer_but_counts_it_owed():
-        state = LinePayout("retrying")
-        assert state.badge == PayoutBadge("Stripe is retrying", "warn")
-        assert state.through_stripe is False
+    def it_says_stripe_is_retrying_a_rejected_transfer_in_red_but_counts_it_owed():
+        state = LinePayout(LineState.RETRYING)
+        assert state.badge == PayoutBadge("Stripe is retrying", "fail")
+        assert (state.through_stripe, state.owed) == (False, True)
 
-    def it_says_to_pay_by_hand():
-        state = LinePayout("by_hand")
-        assert state.badge == PayoutBadge("Pay by hand", "muted")
-        assert state.through_stripe is False
+    def it_says_in_red_that_stripe_could_not_confirm_a_pending_transfer():
+        state = LinePayout(LineState.UNCONFIRMED)
+        assert state.badge == PayoutBadge("Not sent, Stripe unreachable", "fail")
+        assert (state.through_stripe, state.owed) == (True, False)
+
+    def it_says_owed_now_with_the_day_it_fell_due():
+        state = LinePayout(LineState.OWED, due_at=datetime(2026, 10, 15, 2, 0, tzinfo=UTC))
+        assert state.badge == PayoutBadge("Owed now, fell due Oct 14", "ok")
+        assert state.export_label == "Owed now, fell due 2026-10-14"
+        assert (state.through_stripe, state.owed, state.not_due) == (False, True, False)
+
+    def it_says_owed_now_without_a_day_when_it_has_none():
+        assert LinePayout(LineState.OWED).badge == PayoutBadge("Owed now", "ok")
+
+    def it_says_not_yet_due_with_the_day_it_falls_due():
+        state = LinePayout(LineState.NOT_DUE, due_at=datetime(2026, 11, 5, 18, 0, tzinfo=UTC))
+        assert state.badge == PayoutBadge("Not yet due, falls due Nov 5", "warn")
+        assert state.export_label == "Not yet due, falls due 2026-11-05"
+        assert (state.through_stripe, state.owed, state.not_due) == (False, False, True)
+
+    def it_says_not_yet_due_for_a_class_with_no_date():
+        assert LinePayout(LineState.NOT_DUE).badge == PayoutBadge("Not yet due, no class date yet", "warn")
+
+    def describe_for_window():
+        start = datetime(2026, 10, 1, 7, tzinfo=UTC)
+        end = datetime(2026, 11, 1, 7, tzinfo=UTC)
+
+        def it_keeps_owed_now_for_a_share_that_fell_due_inside():
+            state = LinePayout(LineState.OWED, due_at=datetime(2026, 10, 20, tzinfo=UTC))
+            assert state.for_window(start, end) == state
+
+        def it_says_a_share_that_fell_due_after_the_window_counts_there():
+            state = LinePayout(LineState.OWED, due_at=datetime(2026, 11, 3, 18, tzinfo=UTC)).for_window(start, end)
+            assert state.state == LineState.DUE_LATER
+            assert state.badge == PayoutBadge("Fell due Nov 3, after these dates", "warn")
+            assert (state.through_stripe, state.owed, state.not_due) == (False, False, False)
+
+        def it_leaves_every_other_state_alone():
+            for line_state in (LineState.SENT, LineState.RETRYING, LineState.NOT_DUE):
+                state = LinePayout(line_state, due_at=datetime(2026, 11, 3, 18, tzinfo=UTC))
+                assert state.for_window(start, end) == state
 
 
 def describe_producer_rows():
@@ -228,8 +265,8 @@ def describe_producer_rows():
         result = build_reconciliation(window=WINDOW)
         row = _row(result, RecipientKind.INSTRUCTOR, on)
         assert row.payout_badge == PayoutBadge("Paid by hand", "muted")
-        assert _line(result, "class", reg.pk).payout == LinePayout("by_hand")
-        assert (row.stripe_cents, row.manual_cents) == (0, 7000)
+        assert _line(result, "class", reg.pk).payout.state == LineState.OWED
+        assert (row.stripe_cents, row.owed_now_cents) == (0, 7000)
 
     def it_says_payouts_switched_off_for_a_row_with_shares_already_through_stripe():
         _turn_on()
@@ -238,7 +275,7 @@ def describe_producer_rows():
         BillingSettings.objects.filter(pk=1).update(connect_enabled=False)
         row = _row(build_reconciliation(window=WINDOW), RecipientKind.INSTRUCTOR, on)
         assert row.payout_badge == PayoutBadge("Payouts switched off", "warn")
-        assert (row.stripe_cents, row.manual_cents) == (7000, 0)
+        assert (row.stripe_cents, row.owed_now_cents) == (7000, 0)
 
     def it_counts_only_accounts_in_the_current_stripe_mode():
         # Testing Mode is on by default, so a live mode account is not this payee's account now.
@@ -297,19 +334,27 @@ def describe_transaction_lines():
             "pending": "Will be sent through Stripe",
             "not_yet_due": "Will be sent through Stripe",
             "failed": "Stripe is retrying",
-            "owed": "Pay by hand",
-            "legacy": "Pay by hand",
-            "no_sessions": "Pay by hand",
+            "owed": "Owed now, fell due Oct 19",
+            "legacy": "Owed now, fell due Oct 19",
+            "no_sessions": "Not yet due, no class date yet",
         }
 
-    def it_agrees_with_the_sent_through_stripe_and_owed_manually_columns(setup: dict[str, Any]):
+    def it_agrees_with_the_sent_through_stripe_owed_now_and_not_yet_due_columns(setup: dict[str, Any]):
         result = build_reconciliation(window=WINDOW)
         instructor = setup["instructor"]
         key = ("instructor", instructor.pk)
-        through = sum(line.shares[key] for line in result.lines if line.payout and line.payout.through_stripe)
-        by_hand = sum(line.shares[key] for line in result.lines if line.payout and not line.payout.through_stripe)
+
+        def summed(test: Any) -> int:
+            return sum(line.shares[key] for line in result.lines if line.payout and test(line.payout))
+
         row = _row(result, RecipientKind.INSTRUCTOR, instructor)
-        assert (row.stripe_cents, row.manual_cents) == (through, by_hand) == (28000, 28000)
+        columns = (row.stripe_cents, row.owed_now_cents, row.not_due_cents)
+        through, owed, not_due = (
+            summed(lambda p: p.through_stripe),
+            summed(lambda p: p.owed),
+            summed(lambda p: p.not_due),
+        )
+        assert columns == (through, owed, not_due) == (28000, 21000, 7000)
 
     def it_marks_a_failed_transfer_retrying_and_leaves_the_columns_as_they_were():
         _turn_on()
@@ -317,9 +362,9 @@ def describe_transaction_lines():
         reg = _registration(instructor)
         _payout(reg, Payout.Status.FAILED)
         result = build_reconciliation(window=WINDOW)
-        assert _line(result, "class", reg.pk).payout == LinePayout("retrying")
+        assert _line(result, "class", reg.pk).payout.state == LineState.RETRYING
         row = _row(result, RecipientKind.INSTRUCTOR, instructor)
-        assert (row.total_cents, row.stripe_cents, row.manual_cents) == (7000, 0, 7000)
+        assert (row.total_cents, row.stripe_cents, row.owed_now_cents) == (7000, 0, 7000)
 
     def it_leaves_an_omitted_line_unbadged():
         reg = _registration(_producer("Alex Eason"))
@@ -338,19 +383,30 @@ def describe_transaction_lines():
         booking = _booking(_producer("Oren Orients"))
         reservation = _reservation(_producer("Sami Okafor", status=None))
         result = build_reconciliation(window=WINDOW)
-        assert _line(result, "orientation", booking.pk).payout == LinePayout("will_send")
-        assert _line(result, "reservation", reservation.pk).payout == LinePayout("by_hand")
+        assert _line(result, "orientation", booking.pk).payout.state == LineState.WILL_SEND
+        assert _line(result, "reservation", reservation.pk).payout.state == LineState.OWED
 
 
 def describe_snapshots():
-    def it_freezes_no_payout_state_into_a_snapshot():
+    def it_freezes_the_split_but_no_payout_state_into_a_snapshot():
         _turn_on()
         _registration(_producer("Alex Eason"))
         snapshot = ReconciliationSnapshot.take(period_start=WINDOW.start, period_end=WINDOW.end, title="Oct")
         rows = [row for group in snapshot.results["groups"] for row in group["rows"]]
         assert rows
         assert all(
-            set(row) == {"recipient_id", "label", "total_cents", "transaction_count", "voting_cents", "stripe_cents"}
+            set(row)
+            == {
+                "recipient_id",
+                "label",
+                "total_cents",
+                "transaction_count",
+                "voting_cents",
+                "stripe_cents",
+                "owed_now_cents",
+                "not_due_cents",
+                "next_due_at",
+            }
             for row in rows
         )
         rebuilt = result_from_snapshot(snapshot)
@@ -365,20 +421,21 @@ def describe_reconciliation_tab():
         _payout(reg, Payout.Status.SENT, sent_at=datetime(2026, 10, 14, 18, tzinfo=UTC))
         content = client.get(reverse("billing_admin_reconciliation_table"), WINDOW_QUERY).content.decode()
         assert "data-recon-pay-lead" in content
-        assert "Pay by hand only the shares marked Pay by hand in Transaction Detail." in content
+        assert "Pay by hand only the shares marked Owed now in Transaction Detail." in content
         assert "data-payee-payout-state" in content
         assert "Automatic payouts on since Oct 1, 2026" in content
         assert 'data-line-payout-state="sent"' in content
         assert "Sent through Stripe Oct 14" in content
         assert content.index("data-recon-pay-lead") < content.index("data-payee-payout-state")
 
-    def it_leaves_the_snapshot_detail_page_unchanged(client: Client):
+    def it_shows_the_frozen_split_without_payout_badges_on_the_snapshot_detail_page(client: Client):
         _turn_on()
         _login_admin(client)
         _registration(_producer("Alex Eason"))
         snapshot = ReconciliationSnapshot.take(period_start=WINDOW.start, period_end=WINDOW.end, title="Oct")
         content = client.get(reverse("billing_reconciliation_snapshot_detail", args=[snapshot.pk])).content.decode()
-        assert "Owed manually" in content
+        assert "data-recon-owed-now" in content
+        assert "data-recon-not-due" in content
         for marker in ("data-recon-pay-lead", "data-payee-payout-state", "data-line-payout-state"):
             assert marker not in content
 

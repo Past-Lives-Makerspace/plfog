@@ -2258,6 +2258,8 @@ select[multiple] option:checked {
 .pl-recon-payout { display: block; margin-top: 0.5rem; }
 .pl-recon-payout .pl-status-badge { white-space: normal; }
 .pl-recon-pay-lead { margin: 1.5rem 0; max-width: 62ch; color: var(--hub-text-muted); }
+.pl-recon-due-earlier { margin-top: 1.5rem; }
+.pl-recon-due-earlier .pl-section-label { margin-bottom: 0.75rem; }
 
 /* Busy submit (#713, components/busy_submit.html). The .btn[aria-busy] spinner lives in
    style.css, which hub pages never load, and it hides the label; here the spinner sits beside

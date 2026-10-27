@@ -1,0 +1,6 @@
+{% load classes_tags %}{# #985: a producer row's Owed now and Not yet due cells, with the next due day; needs alloc. #}
+<td class="text-right" data-recon-owed-now>{{ alloc.owed_now_cents|cents_as_dollars }}</td>
+<td class="text-right" data-recon-not-due>
+  {{ alloc.not_due_cents|cents_as_dollars }}
+  {% if alloc.next_due_at %}<span class="pl-payouts-sub">Next due {{ alloc.next_due_at|date:"M j" }}</span>{% endif %}
+</td>

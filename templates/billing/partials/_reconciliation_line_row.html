@@ -1,0 +1,29 @@
+{% load classes_tags %}{# One Transaction Detail line on the Reconciliation tab; needs line. #}
+          <tr style="cursor:default{% if line.omitted %};opacity:0.5;text-decoration:line-through{% endif %}">
+            <td>{{ line.date|date:"M j" }}</td>
+            <td><span class="pl-badge pl-badge--muted">{{ line.source_kind|capfirst }}</span></td>
+            <td>{{ line.payer_name }}</td>
+            <td>
+              {{ line.item }}
+              {% if line.overridden %}<span class="pl-badge pl-badge--warn">Adjusted</span>{% endif %}
+              {% if line.omitted %}<span class="pl-badge pl-badge--fail">Omitted</span>{% endif %}
+              {% if line.payee_kept_share %}<span class="pl-badge pl-badge--warn">Payee kept share</span>{% endif %}
+              {% if line.note %}<span class="pl-text-muted" style="font-size:0.75rem">({{ line.note }})</span>{% endif %}
+              {% if line.payout %}<span class="pl-recon-payout" data-line-payout-state="{{ line.payout.state }}"><span class="pl-status-badge pl-status-badge--{{ line.payout.badge.tone }}">{{ line.payout.badge.label }}</span></span>{% endif %}
+            </td>
+            <td class="text-right">{{ line.gross_cents|cents_as_dollars }}</td>
+            <td class="text-right">{{ line.refunded_cents|cents_as_dollars }}</td>
+            <td class="text-right">{{ line.net_cents|cents_as_dollars }}</td>
+            <td class="text-right">
+              {% if line.omitted %}
+              <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+                      hx-post="{% url 'billing_reconciliation_clear' line.source_kind line.source_pk %}"
+                      hx-swap="none">Undo</button>
+              {% else %}
+              <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+                      @click="$dispatch('open-modal', 'txn-adjust')"
+                      hx-get="{% url 'billing_reconciliation_adjust_form' line.source_kind line.source_pk %}"
+                      hx-target="#txn-adjust-body" hx-swap="innerHTML">Adjust</button>
+              {% endif %}
+            </td>
+          </tr>

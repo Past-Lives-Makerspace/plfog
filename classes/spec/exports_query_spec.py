@@ -241,14 +241,16 @@ def describe_payout_column():
     def it_writes_every_state_as_reconciliation_names_it_with_iso_pacific_dates():
         regs = _mixed_states()
         cells = _payout_cells()
+        # 48 hours after the class, as Pacific time writes the day (#985).
+        due = timezone.localtime(regs["owed"].class_offering.sessions.get().starts_at + timedelta(hours=48))
         assert {name: cells[reg.pk] for name, reg in regs.items()} == {
             "sent": "Sent through Stripe 2026-10-21",
             "taken_back": "Sent through Stripe 2026-10-13, refund taken back",
             "pending": "Will be sent through Stripe",
             "not_yet_due": "Will be sent through Stripe",
             "failed": "Stripe is retrying",
-            "owed": "Pay by hand",
-            "legacy": "Pay by hand",
+            "owed": f"Owed now, fell due {due.date().isoformat()}",
+            "legacy": f"Owed now, fell due {due.date().isoformat()}",
             "free": "",
             "unconfirmed": "",
             "no_instructor": "",
@@ -269,12 +271,12 @@ def describe_payout_column():
         assert {pk: cells[pk] for pk in shown} == shown
         assert all(cells[pk] == "" for pk in cells.keys() - shown.keys())
 
-    def it_writes_pay_by_hand_for_a_connected_instructor_while_payouts_are_switched_off():
+    def it_writes_owed_now_for_a_connected_instructor_while_payouts_are_switched_off():
         _payouts_on()
         reg = _paid(_instructor())
         assert _payout_cells()[reg.pk] == "Will be sent through Stripe"
         BillingSettings.objects.filter(pk=1).update(connect_enabled=False)
-        assert _payout_cells()[reg.pk] == "Pay by hand"
+        assert _payout_cells()[reg.pk].startswith("Owed now, fell due ")
 
     def it_looks_payouts_up_once_per_chunk_of_rows():
         def count() -> int:

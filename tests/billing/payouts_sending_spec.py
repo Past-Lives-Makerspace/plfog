@@ -413,7 +413,7 @@ def describe_reconciliation_split():
     def _row(result: Any, kind: RecipientKind, member: Member) -> Any:
         return next(alloc for alloc in result.groups[kind] if alloc.recipient_id == member.pk)
 
-    def it_splits_an_instructor_into_sent_through_stripe_and_owed_manually():
+    def it_splits_an_instructor_into_sent_through_stripe_and_owed_now():
         _turn_on()
         instructor = _payee()
         _registration(instructor)  # sent
@@ -422,16 +422,16 @@ def describe_reconciliation_split():
         with _Stripe():
             payouts.run_payouts(NOW)
         row = _row(build_reconciliation(window=_window()), RecipientKind.INSTRUCTOR, instructor)
-        assert (row.total_cents, row.stripe_cents, row.manual_cents) == (21000, 14000, 7000)
+        assert (row.total_cents, row.stripe_cents, row.owed_now_cents, row.not_due_cents) == (21000, 14000, 7000, 0)
 
-    def it_counts_a_failed_transfer_as_owed_manually():
+    def it_counts_a_failed_transfer_as_owed_now():
         _turn_on()
         instructor = _payee()
         _registration(instructor)
         with _Stripe(fail="No."), patch("core.events.emit.emit"):
             payouts.run_payouts(NOW)
         row = _row(build_reconciliation(window=_window()), RecipientKind.INSTRUCTOR, instructor)
-        assert (row.stripe_cents, row.manual_cents) == (0, 7000)
+        assert (row.stripe_cents, row.owed_now_cents) == (0, 7000)
 
     def it_splits_orientors_and_leaves_guild_rows_unchanged():
         _turn_on()
@@ -448,7 +448,7 @@ def describe_reconciliation_split():
         instructor = _payee()
         _registration(instructor)
         row = _row(build_reconciliation(window=_window()), RecipientKind.INSTRUCTOR, instructor)
-        assert (row.stripe_cents, row.manual_cents) == (0, 7000)
+        assert (row.stripe_cents, row.owed_now_cents) == (0, 7000)
 
     def it_carries_the_split_through_a_snapshot_and_reads_old_ones_as_owed():
         _turn_on()
@@ -462,11 +462,12 @@ def describe_reconciliation_split():
         assert _row(result_from_snapshot(snapshot), RecipientKind.INSTRUCTOR, instructor).stripe_cents == 7000
         for group in snapshot.results["groups"]:
             for row in group["rows"]:
-                del row["stripe_cents"]
+                for key in ("stripe_cents", "owed_now_cents", "not_due_cents", "next_due_at"):
+                    del row[key]
         old = _row(result_from_snapshot(snapshot), RecipientKind.INSTRUCTOR, instructor)
-        assert (old.stripe_cents, old.manual_cents) == (0, 7000)
+        assert (old.stripe_cents, old.owed_now_cents, old.not_due_cents) == (0, 7000, 0)
 
-    def it_adds_both_columns_to_the_csv():
+    def it_adds_the_split_columns_to_the_csv():
         from billing.reconciliation import CSV_HEADERS, stream_reconciliation_csv
 
         _turn_on()
@@ -475,8 +476,8 @@ def describe_reconciliation_split():
         with _Stripe():
             payouts.run_payouts(NOW)
         body = b"".join(stream_reconciliation_csv(build_reconciliation(window=_window())).streaming_content).decode()
-        assert CSV_HEADERS[-2:] == ["Sent through Stripe", "Owed manually"]
-        assert f"{instructor.display_name},1,70.00,,70.00,70.00,0.00" in body
+        assert CSV_HEADERS[-4:] == ["Sent through Stripe", "Owed now", "Not yet due", "Next due"]
+        assert f"{instructor.display_name},1,70.00,,70.00,70.00,0.00,0.00,\r\n" in body
 
 
 def describe_payee_earnings():

@@ -18,13 +18,13 @@ share Stripe later sends.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Iterable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 import stripe
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Min, QuerySet
 from django.db.models.functions import Greatest
 from django.utils import timezone
@@ -44,8 +44,6 @@ PAYOUT_DELAY = timedelta(hours=48)
 
 EARNINGS_LOOKBACK = timedelta(days=60)
 """How far back the Payouts tab lists earnings, by when they were taught."""
-
-_THROUGH_STRIPE_STATUSES = frozenset({Payout.Status.PENDING, Payout.Status.SENT, Payout.Status.TAKEN_BACK})
 
 
 def payouts_on() -> bool:
@@ -394,7 +392,7 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
     snapshots = list(ReconciliationSnapshot.objects.values_list("period_start", "period_end"))
     accounts = _accounts(due)
     for earning in due:
-        if earning.kind == "reservation" and _in_snapshot(earning.paid_at, snapshots):
+        if earning.kind == "reservation" and in_snapshot(earning.paid_at, snapshots):
             # A month-end snapshot already closed this payment out with no share recorded (nobody
             # was picked then, so it went to Past Lives); a pick made since must not pay it again.
             continue
@@ -405,7 +403,7 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
     return run
 
 
-def _in_snapshot(when: datetime, snapshots: list[tuple[Any, Any]]) -> bool:
+def in_snapshot(when: datetime, snapshots: list[tuple[Any, Any]]) -> bool:
     """True when ``when``'s local date falls in a snapshotted period: the test ``_send_one`` uses too."""
     day = timezone.localdate(when)
     return any(start <= day <= end for start, end in snapshots)
@@ -471,7 +469,7 @@ def _send_one(pk: int, now: datetime, snapshots: list[tuple[Any, Any]], run: Pay
         if payout is None:
             return
         if payout.status == Payout.Status.FAILED:
-            if _in_snapshot(payout.paid_on, snapshots):
+            if in_snapshot(payout.paid_on, snapshots):
                 with contextlib.suppress(*_UNANSWERED):  # no answer from Stripe: try again next run
                     if payout.give_up():
                         run.gave_up += 1
@@ -730,62 +728,118 @@ def account_badge(account: PayoutAccount | None) -> PayoutBadge:
     return PayoutBadge("Stripe signup not finished", "warn")
 
 
+class LineState(models.TextChoices):
+    """How one Reconciliation line's producer share is paid (#905, #985)."""
+
+    SENT = "sent", "Sent through Stripe"
+    TAKEN_BACK = "taken_back", "Sent through Stripe, refund taken back"
+    WILL_SEND = "will_send", "Will be sent through Stripe"
+    UNCONFIRMED = "unconfirmed", "Not sent, Stripe unreachable"
+    RETRYING = "retrying", "Stripe is retrying"
+    OWED = "by_hand", "Owed now"
+    NOT_DUE = "not_due", "Not yet due"
+    DUE_LATER = "due_later", "Fell due after these dates"
+
+
 @dataclass(frozen=True)
 class LinePayout:
-    """How one class, orientation or reservation line's producer share is paid (#905).
+    """How one class, orientation or reservation line's producer share is paid (#905, #985).
 
-    ``state`` is one of:
+    ``state`` is one of :class:`LineState`:
 
-    - "sent": Stripe accepted the transfer (``sent_at`` set when it did).
-    - "taken_back": sent, then a refund took some or all of it back.
-    - "will_send": recorded and pending, or not yet due but going through Stripe.
-    - "retrying": Stripe rejected the transfer and the send job retries it daily until it gives
-      up (``PayoutQuerySet.to_send``). It counts in Owed manually, as it always has, but it is
-      not to be paid by hand, or the payee could be paid twice.
-    - "by_hand": owed by hand, or with no Stripe route.
+    - SENT: Stripe accepted the transfer (``sent_at`` set when it did).
+    - TAKEN_BACK: sent, then a refund took some or all of it back.
+    - WILL_SEND: recorded and pending, or not yet due but going through Stripe.
+    - UNCONFIRMED: pending, but Stripe could not be reached to check whether it was sent.
+    - RETRYING: Stripe rejected the transfer and the send job retries it daily until it gives
+      up (``PayoutQuerySet.to_send``). It counts in Owed now, as it always counted as owed, and
+      the snapshot gives it up and owes it by hand; until then its red badge says not to pay it.
+    - OWED: paid by hand, and ``due_at`` has passed.
+    - NOT_DUE: paid by hand, and ``due_at`` is still ahead, or None for a class with no sessions.
+    - DUE_LATER: an OWED share seen in a Reconciliation window it did not fall due in. It counts
+      in the Owed now of the window ``due_at`` falls in, so here it counts in no column and is
+      not to be paid from this window (``for_window``).
+
+    ``due_at`` is the share's ``Earning.due_at``, the one rule the Stripe payouts follow too.
     """
 
-    state: str
+    state: LineState
     sent_at: datetime | None = None
+    due_at: datetime | None = None
 
     @property
     def through_stripe(self) -> bool:
-        """True when the share counts in Sent through Stripe rather than Owed manually."""
+        """True when the share counts in Sent through Stripe."""
         return self.state in _THROUGH_STRIPE_LINE_STATES
 
     @property
+    def owed(self) -> bool:
+        """True when the share counts in Owed now, for the window its ``due_at`` falls in."""
+        return self.state in (LineState.OWED, LineState.RETRYING)
+
+    @property
+    def not_due(self) -> bool:
+        """True when the share counts in Not yet due."""
+        return self.state == LineState.NOT_DUE
+
+    def for_window(self, start: datetime, end: datetime) -> LinePayout:
+        """This state as a Reconciliation window ``[start, end)`` shows it: Owed now only if it fell due inside."""
+        if self.state == LineState.OWED and self.due_at is not None and not start <= self.due_at < end:
+            return replace(self, state=LineState.DUE_LATER)
+        return self
+
+    @property
     def badge(self) -> PayoutBadge:
-        """The line's Transaction Detail badge: the sent day as "Oct 14"."""
-        sent_on = None
-        if self.sent_at is not None:
-            sent = timezone.localtime(self.sent_at)
-            sent_on = f"{sent:%b} {sent.day}"
-        return PayoutBadge(self._words(sent_on), _LINE_TONES[self.state])
+        """The line's Transaction Detail badge, days written as "Oct 14"."""
+        return PayoutBadge(self._words(_short_day), _LINE_TONES[self.state])
 
     @property
     def export_label(self) -> str:
-        """The same words for a spreadsheet (#910): the sent day in Pacific time as "2026-10-14"."""
-        sent_on = None if self.sent_at is None else timezone.localtime(self.sent_at).date().isoformat()
-        return self._words(sent_on)
+        """The same words for a spreadsheet (#910), days in Pacific time as "2026-10-14"."""
+        return self._words(_iso_day)
 
-    def _words(self, sent_on: str | None) -> str:
-        """The state in words; ``sent_on`` is the sent day as the surface writes it, or None."""
-        if self.state in ("sent", "taken_back"):
-            words = "Sent through Stripe" if sent_on is None else f"Sent through Stripe {sent_on}"
-            return f"{words}, refund taken back" if self.state == "taken_back" else words
-        return _LINE_WORDS[self.state]
+    def _words(self, day: Callable[[datetime], str]) -> str:
+        """The state in words; ``day`` writes a date the way the surface does."""
+        if self.state in (LineState.SENT, LineState.TAKEN_BACK):
+            words = "Sent through Stripe" if self.sent_at is None else f"Sent through Stripe {day(self.sent_at)}"
+            return f"{words}, refund taken back" if self.state == LineState.TAKEN_BACK else words
+        if self.state in (LineState.OWED, LineState.DUE_LATER) and self.due_at is not None:
+            prefix = "Owed now, fell due" if self.state == LineState.OWED else "Fell due"
+            suffix = "" if self.state == LineState.OWED else ", after these dates"
+            return f"{prefix} {day(self.due_at)}{suffix}"
+        if self.state == LineState.NOT_DUE:
+            if self.due_at is None:
+                return "Not yet due, no class date yet"
+            return f"Not yet due, falls due {day(self.due_at)}"
+        return str(self.state.label)
 
 
-_LINE_WORDS = {
-    "will_send": "Will be sent through Stripe",
-    "retrying": "Stripe is retrying",
-    "by_hand": "Pay by hand",
+def _short_day(when: datetime) -> str:
+    local = timezone.localtime(when)
+    return f"{local:%b} {local.day}"
+
+
+def _iso_day(when: datetime) -> str:
+    return timezone.localtime(when).date().isoformat()
+
+
+_LINE_TONES = {
+    LineState.SENT: "muted",
+    LineState.TAKEN_BACK: "muted",
+    LineState.WILL_SEND: "muted",
+    LineState.UNCONFIRMED: "fail",
+    LineState.RETRYING: "fail",
+    LineState.OWED: "ok",
+    LineState.NOT_DUE: "warn",
+    LineState.DUE_LATER: "warn",
 }
-_LINE_TONES = {"sent": "ok", "taken_back": "ok", "will_send": "warn", "retrying": "warn", "by_hand": "muted"}
-_THROUGH_STRIPE_LINE_STATES = frozenset({"sent", "taken_back", "will_send"})
+_THROUGH_STRIPE_LINE_STATES = frozenset(
+    {LineState.SENT, LineState.TAKEN_BACK, LineState.WILL_SEND, LineState.UNCONFIRMED}
+)
 
 
-PAY_BY_HAND = LinePayout("by_hand")
+NOT_DUE_UNDATED = LinePayout(LineState.NOT_DUE)
+"""A line with a producer share but no ``Earning`` (a class with no sessions): it has not happened."""
 
 
 def producer_accounts(member_ids: Iterable[int]) -> dict[int, PayoutAccount]:
@@ -794,14 +848,16 @@ def producer_accounts(member_ids: Iterable[int]) -> dict[int, PayoutAccount]:
 
 
 def line_payouts(
-    lines: Iterable[TransactionLine], accounts: dict[int, PayoutAccount]
+    lines: Iterable[TransactionLine], accounts: dict[int, PayoutAccount], now: datetime
 ) -> dict[tuple[str, int], LinePayout]:
     """How each class, orientation and reservation line's producer share is paid, for the Reconciliation split.
 
     A recorded share counts as Stripe while pending, sent or taken back (a failed one is owed
-    by hand until it succeeds); one not yet due follows ``goes_through_stripe``. A line with no
-    earning (omitted, no producer, nothing left to pay) is absent. ``accounts`` must hold every
-    payee's current mode account (``producer_accounts``); a payee missing from it has none.
+    until it succeeds or is given up); one not yet recorded follows ``goes_through_stripe``. A
+    share paid by hand is Owed now once its ``Earning.due_at`` has passed at ``now``, and Not yet
+    due before that (#985). A line with no earning (omitted, no producer, nothing left to pay)
+    is absent. ``accounts`` must hold every payee's current mode account (``producer_accounts``);
+    a payee missing from it has none.
     """
     lines = [line for line in lines if not line.omitted]
     class_pks = [line.source_pk for line in lines if line.source_kind == "class"]
@@ -817,23 +873,32 @@ def line_payouts(
     since = _payouts_since()
     states: dict[tuple[str, int], LinePayout] = {}
     for earning in earnings:
-        payout = earning.payout
-        if payout is not None and payout.status == Payout.Status.SENT:
-            state = LinePayout("sent", payout.sent_at)
-        elif payout is not None and payout.status == Payout.Status.TAKEN_BACK:
-            state = LinePayout("taken_back", payout.sent_at)
-        elif payout is not None and payout.status in _THROUGH_STRIPE_STATUSES:
-            state = LinePayout("will_send")  # pending: the only through status left
-        elif payout is not None and payout.status == Payout.Status.FAILED:
-            state = LinePayout("retrying")
-        elif payout is not None:
-            state = PAY_BY_HAND
-        elif goes_through_stripe(earning, accounts.get(earning.payee.pk), since):
-            state = LinePayout("will_send")
-        else:
-            state = PAY_BY_HAND
-        states[(earning.kind, earning.source.pk)] = state
+        state = _line_state(earning, accounts.get(earning.payee.pk), since, now)
+        states[(earning.kind, earning.source.pk)] = LinePayout(state, _sent_at(earning), earning.due_at)
     return states
+
+
+def _line_state(earning: Earning, account: PayoutAccount | None, since: datetime | None, now: datetime) -> LineState:
+    """One earning's :class:`LineState` at ``now``."""
+    payout = earning.payout
+    if payout is not None and payout.status == Payout.Status.SENT:
+        return LineState.SENT
+    if payout is not None and payout.status == Payout.Status.TAKEN_BACK:
+        return LineState.TAKEN_BACK
+    if payout is not None and payout.status == Payout.Status.PENDING:
+        if payout.failure_reason == PAYOUT_LOOKUP_UNREACHABLE:
+            return LineState.UNCONFIRMED
+        return LineState.WILL_SEND
+    if payout is not None and payout.status == Payout.Status.FAILED:
+        return LineState.RETRYING
+    if payout is None and goes_through_stripe(earning, account, since):
+        return LineState.WILL_SEND
+    return LineState.OWED if earning.due_at <= now else LineState.NOT_DUE
+
+
+def _sent_at(earning: Earning) -> datetime | None:
+    payout = earning.payout
+    return None if payout is None else payout.sent_at
 
 
 # ---------------------------------------------------------------------------

@@ -503,14 +503,14 @@ def describe_the_reconciliation_line():
         assert not RecipientKind.PL.is_producer
         assert GROUP_LABELS[RecipientKind.MANAGER] == "Equipment Managers"
 
-    def it_splits_sent_through_stripe_from_owed_manually_for_a_manager():
+    def it_splits_sent_through_stripe_from_owed_now_for_a_manager():
         _turn_on()
         payee = _manager()
         reservation = _paid(_equipment(payee), amount=10000)
         unconnected = _manager("Lee Tran", connected=False)
         _paid(_equipment(unconnected, name="Band Saw"), amount=10000, pi="pi_res_2")
         result = build_reconciliation(window=_window(), include_voting=False)
-        rows = {row.label: (row.stripe_cents, row.manual_cents) for row in result.groups[RecipientKind.MANAGER]}
+        rows = {row.label: (row.stripe_cents, row.owed_now_cents) for row in result.groups[RecipientKind.MANAGER]}
         assert rows == {"Sami Okafor": (7000, 0), "Lee Tran": (0, 7000)}
         body = b"".join(stream_reconciliation_csv(result).streaming_content).decode()
         assert "Equipment Managers,Sami Okafor,1,70.00,,70.00,70.00,0.00" in body
@@ -596,7 +596,8 @@ def describe_the_month_end_snapshot():
         snapshot = ReconciliationSnapshot.take(period_start=today - timedelta(days=40), period_end=today)
         content = client.get(reverse("billing_reconciliation_snapshot_detail", args=[snapshot.pk])).content.decode()
         assert "Equipment Managers" in content
-        assert "Owed manually" in content
+        assert "data-recon-owed-now" in content
+        assert "data-recon-not-due" in content
 
 
 # ---------------------------------------------------------------------------

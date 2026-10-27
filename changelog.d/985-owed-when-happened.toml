@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-27"
+title = "Reconciliation counts a share as owed only once its class has happened"
+changes = [
+  "On Reconciliation, Owed manually is now two columns: Owed now and Not yet due.",
+  "Owed now is what to pay instructors, orientors and equipment managers by hand: shares whose class, orientation or reservation happened at least 48 hours ago. Each one counts in the dates it fell due, even if the payment came in an earlier month.",
+  "A share whose class has not happened yet shows as Not yet due, with the day it falls due.",
+  "The CSV and the print page have the same two columns.",
+]
