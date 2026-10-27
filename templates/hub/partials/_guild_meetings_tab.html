@@ -45,23 +45,21 @@ whether the tab exists at all.
         <p class="hub-text-muted pl-guild-meetings__hint">The agenda is locked — proposals are closed for this one.</p>
         {% endif %}
         {% else %}
-        {% if next_meeting %}
-        <div class="pl-guild-meetings__meta">{% if next_meeting.title %}{{ next_meeting.title }}: {% else %}Next per schedule: {% endif %}{{ next_meeting.when|date:"l, F j" }}{% if next_meeting.has_time %} · {{ next_meeting.when|time:"g:i A" }}{% endif %}</div>
-        {# Only a meeting gets an agenda; studio hours or a Google event show their date and nothing more (#953). #}
-        {% if next_meeting.is_meeting %}
+        {# The soonest meeting, not studio hours or a Google event, so the agenda follows the meeting (#953). #}
+        {% if next_scheduled_meeting %}
+        <div class="pl-guild-meetings__meta">{% if next_scheduled_meeting.title %}{{ next_scheduled_meeting.title }}: {% else %}Next per schedule: {% endif %}{{ next_scheduled_meeting.when|date:"l, F j" }}{% if next_scheduled_meeting.has_time %} · {{ next_scheduled_meeting.when|time:"g:i A" }}{% endif %}</div>
         {% if can_edit_this_guild %}
         {# The §6.2 Start-the-agenda contract — an existing scope+date meeting redirects into it, no twin. #}
         <form method="post" action="{% url 'hub_meeting_create' %}" class="pl-guild-meetings__start">
             {% csrf_token %}
             <input type="hidden" name="scope" value="{{ guild.pk }}">
             <input type="hidden" name="kind" value="monthly">
-            <input type="hidden" name="date" value="{{ next_meeting.when|date:'Y-m-d' }}">
-            <input type="hidden" name="time" value="{% if next_meeting.has_time %}{{ next_meeting.when|time:'H:i' }}{% endif %}">
+            <input type="hidden" name="date" value="{{ next_scheduled_meeting.when|date:'Y-m-d' }}">
+            <input type="hidden" name="time" value="{% if next_scheduled_meeting.has_time %}{{ next_scheduled_meeting.when|time:'H:i' }}{% endif %}">
             <button type="submit" class="pl-btn pl-btn--sm">Start the agenda</button>
         </form>
         {% else %}
         <p class="hub-text-muted pl-guild-meetings__hint">Proposals open once leadership starts the agenda.</p>
-        {% endif %}
         {% endif %}
         {% else %}
         <p class="hub-text-muted">No meeting scheduled yet.</p>

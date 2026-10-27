@@ -99,6 +99,17 @@ def describe_next_meeting_card():
         card = content.split('<h3 class="hub-detail-label">Next Meeting</h3>')[1].split("Get Involved")[0]
         assert '<div class="hub-member-name pl-guild-next__title">Open Bench Hours</div>' in card
         assert f'<div class="pl-guild-next__date">{date_filter(start, "l, F j")}</div>' in card
+        assert f"Next up {date_filter(start, 'M j')}" in content
+        assert "Next meeting " not in content.split('class="pl-guild-statbar__chips"')[1].split("</div>")[0]
+
+    def it_says_next_meeting_in_the_badge_for_a_meeting(client: Client):
+        _member(client, "v7")
+        guild = GuildFactory()
+        start = timezone.localtime(timezone.now()) + timezone.timedelta(days=2)
+        CommunityEventFactory(
+            guild_meeting=True, guild=guild, starts_at=start, ends_at=start + timezone.timedelta(hours=1)
+        )
+        content = client.get(f"/guilds/{guild.slug}/").content.decode()
         assert f"Next meeting {date_filter(start, 'M j')}" in content
 
     def it_still_reads_tba_for_a_tba_guild_with_nothing_dated(client: Client):

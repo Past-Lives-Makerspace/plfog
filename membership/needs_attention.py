@@ -13,8 +13,9 @@ places, because a fixed rule clears the inbox items by their link.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from django.db import transaction
@@ -25,6 +26,8 @@ from core.events.emit import emit
 from core.events.registry import GUILD_NEEDS_ATTENTION, Channel
 from core.models import EventDelivery, Notification
 from membership.models import Guild, GuildNeedsAttention, NextMeetingSources
+
+logger = logging.getLogger(__name__)
 
 REMINDER_AFTER = timedelta(days=30)
 
@@ -75,6 +78,16 @@ class CheckResult:
     items: int = 0
     reminders: int = 0
     cleared: int = 0
+    failed_guild_pks: list[int] = field(default_factory=list)
+
+
+class NeedsAttentionCheckError(Exception):
+    """Some guilds could not be checked. Every other guild was, and each failure is logged."""
+
+    def __init__(self, result: CheckResult) -> None:
+        self.result = result
+        pks = ", ".join(str(pk) for pk in result.failed_guild_pks)
+        super().__init__(f"Needs attention check failed for {len(result.failed_guild_pks)} guild(s): {pks}")
 
 
 def item_title(guild: Guild) -> str:
@@ -83,32 +96,59 @@ def item_title(guild: Guild) -> str:
 
 
 def check_all() -> CheckResult:
-    """Run every active guild against every rule: open, nudge, remind and clear."""
+    """Run every active guild against every rule: open, nudge, remind and clear.
+
+    A guild that raises is logged with its pk and skipped, so the others are still checked;
+    then one :class:`NeedsAttentionCheckError` names every guild that failed, so the scheduled
+    run is recorded as failed. A failed guild keeps its open rows.
+
+    Raises:
+        NeedsAttentionCheckError: When any guild could not be checked.
+    """
     result = CheckResult()
     guilds = list(Guild.objects.filter(is_active=True).prefetch_related("events").order_by("name"))
     result.guilds = len(guilds)
     sources = NextMeetingSources.load(guilds)
     open_rows = {(row.guild_id, row.rule): row for row in GuildNeedsAttention.objects.open()}
     for guild in guilds:
-        for rule in RULES:
-            row = open_rows.pop((guild.pk, rule.key), None)
-            if not rule.is_broken(guild, sources):
-                if row is not None:
-                    _clear(row)
-                    result.cleared += 1
-                continue
+        try:
+            with transaction.atomic():
+                _check_guild(guild, sources, open_rows, result)
+        except Exception:
+            logger.exception("Needs attention check failed for guild pk=%s", guild.pk)
+            result.failed_guild_pks.append(guild.pk)
+    # Whatever is left belongs to a guild that is hidden or deleted now, or to a rule that
+    # was removed: nobody should be asked to fix it any more.
+    for (guild_pk, _rule_key), row in open_rows.items():
+        if guild_pk not in result.failed_guild_pks:
+            _clear(row)
+            result.cleared += 1
+    if result.failed_guild_pks:
+        raise NeedsAttentionCheckError(result)
+    return result
+
+
+def _check_guild(
+    guild: Guild,
+    sources: NextMeetingSources,
+    open_rows: dict[tuple[int, str], GuildNeedsAttention],
+    result: CheckResult,
+) -> None:
+    """Run one guild against every rule, taking its handled rows out of ``open_rows``."""
+    for rule in RULES:
+        row = open_rows.get((guild.pk, rule.key))
+        if not rule.is_broken(guild, sources):
+            if row is not None:
+                _clear(row)
+                result.cleared += 1
+        else:
             if row is None:
                 row = GuildNeedsAttention.objects.create(guild=guild, rule=rule.key)
             result.open += 1
             items, reminders = _nudge(guild, rule, row)
             result.items += items
             result.reminders += reminders
-    # Whatever is left belongs to a guild that is hidden or deleted now, or to a rule that
-    # was removed: nobody should be asked to fix it any more.
-    for row in open_rows.values():
-        _clear(row)
-        result.cleared += 1
-    return result
+        open_rows.pop((guild.pk, rule.key), None)
 
 
 def clear_fixed(guild: Guild) -> int:
@@ -150,13 +190,19 @@ def _nudge(guild: Guild, rule: Rule, row: GuildNeedsAttention) -> tuple[int, int
 
     The delivery ledger keeps it to one item per person per stretch, so a daily re-run sends
     nothing new. A person's reminder is due 30 days after their own first item, so a staff
-    member added halfway through is not reminded on the day they are first told. The reminder
-    marks that person's earlier item read, so the bell shows the guild once. Returns the number
-    of first items and reminders sent.
+    member added halfway through is not reminded on the day they are first told, and goes only
+    to people who still lead or staff the guild. Someone who left has their open item marked
+    read instead. The reminder marks that person's earlier item read, so the bell shows the
+    guild once. Returns the number of first items and reminders sent.
     """
+    url = rule.url(guild.pk)
+    current_user_ids = {member.user_id for member in guild.leadership_members() if member.user_id is not None}
+    Notification.objects.unread().filter(trigger=GUILD_NEEDS_ATTENTION, url=url).exclude(
+        user_id__in=current_user_ids
+    ).update(read_at=timezone.now())
     first_period = _period(guild, rule, row)
     first = _send(guild, rule, first_period)
-    due_user_ids = {
+    due_user_ids = current_user_ids & {
         int(target_ref.removeprefix("user:"))
         for target_ref in EventDelivery.objects.filter(
             event_key=GUILD_NEEDS_ATTENTION,
@@ -171,7 +217,7 @@ def _nudge(guild: Guild, rule: Rule, row: GuildNeedsAttention) -> tuple[int, int
     reminded = _send(guild, rule, f"{first_period}:reminder", recipient_user_ids=due_user_ids)
     if reminded:
         Notification.objects.unread().filter(
-            user_id__in=reminded, trigger=GUILD_NEEDS_ATTENTION, url=rule.url(guild.pk), created_at__lt=sent_at
+            user_id__in=reminded, trigger=GUILD_NEEDS_ATTENTION, url=url, created_at__lt=sent_at
         ).update(read_at=timezone.now())
     return len(first), len(reminded)
 

@@ -210,13 +210,17 @@ class NextMeetingSources:
         """Load the upcoming Meeting rows and name matched Google rows for ``guilds``."""
         if not guilds:
             return cls(meetings={}, calendar_events=[])
+        now = timezone.now()
         meetings: dict[int, Meeting] = {}
         for meeting in Meeting.objects.upcoming().filter(guild_id__in=[guild.pk for guild in guilds]):
+            # A timed meeting from earlier today is over; an untimed one dated today is still
+            # today's meeting and sorts by its date.
+            if meeting.scheduled_time is not None and cast(datetime_type, meeting.starts_at) < now:
+                continue
             meetings.setdefault(cast(int, meeting.guild_id), meeting)  # soonest first: the first one wins
         names = Q()
         for guild in guilds:
             names |= Q(title__icontains=guild.name)
-        now = timezone.now()
         calendar_events = list(
             CalendarEvent.objects.filter(
                 names, start_dt__gte=now, start_dt__lte=now + timedelta(days=NEXT_MEETING_HORIZON_DAYS)
@@ -3373,7 +3377,9 @@ class Guild(HeroCropMixin, models.Model):
             )
         return blocks
 
-    def next_meeting_occurrence(self, sources: NextMeetingSources | None = None) -> NextMeeting | None:
+    def next_meeting_occurrence(
+        self, sources: NextMeetingSources | None = None, *, meetings_only: bool = False
+    ) -> NextMeeting | None:
         """The soonest thing this guild has coming up, for the "Next Meeting" card (#953).
 
         Counts every published event of the guild's own, of any type (meetings, studio hours,
@@ -3385,28 +3391,14 @@ class Guild(HeroCropMixin, models.Model):
         Reads the prefetched ``events`` cache. ``sources`` carries the Meeting and Google rows
         for a page that lists many guilds (:meth:`NextMeetingSources.load`, two queries for the
         page); without it this guild's own are loaded, two queries.
+
+        ``meetings_only`` keeps to meetings (guild meeting events, Meeting rows, the cadence):
+        what "Start the agenda" and the Meetings page read, so weekly studio hours never hide
+        the monthly meeting there.
         """
         if sources is None:
             sources = NextMeetingSources.load([self])
-        now = timezone.now()
-        today = timezone.localdate()
-        horizon = today + timedelta(days=NEXT_MEETING_HORIZON_DAYS)
-        candidates: list[NextMeeting] = []
-        for event in self.events.all():
-            if event.moderation_state != CommunityEvent.ModerationState.PUBLISHED:
-                continue
-            for occurrence in event.occurrences_in(today, horizon):
-                if occurrence >= now:
-                    candidates.append(
-                        NextMeeting(
-                            when=occurrence,
-                            location=event.location,
-                            has_time=True,
-                            title=event.title,
-                            is_meeting=event.event_type == CommunityEvent.EventType.GUILD_MEETING,
-                        )
-                    )
-                    break
+        candidates = self._next_event_occurrences(meetings_only=meetings_only)
         meeting = sources.meetings.get(self.pk)
         if meeting is not None:
             candidates.append(
@@ -3416,7 +3408,7 @@ class Guild(HeroCropMixin, models.Model):
                     has_time=meeting.scheduled_time is not None,
                 )
             )
-        calendar_event = sources.calendar_event_for(self)
+        calendar_event = None if meetings_only else sources.calendar_event_for(self)
         if calendar_event is not None:
             candidates.append(
                 NextMeeting(
@@ -3436,6 +3428,30 @@ class Guild(HeroCropMixin, models.Model):
         if not candidates:
             return None
         return min(candidates, key=lambda candidate: candidate.when)
+
+    def _next_event_occurrences(self, *, meetings_only: bool) -> list[NextMeeting]:
+        """The next occurrence of each published event of the guild's own (its guild meetings
+        alone when ``meetings_only``), from the prefetched ``events`` cache."""
+        now = timezone.now()
+        today = timezone.localdate()
+        horizon = today + timedelta(days=NEXT_MEETING_HORIZON_DAYS)
+        found: list[NextMeeting] = []
+        for event in self.events.all():
+            is_meeting = event.event_type == CommunityEvent.EventType.GUILD_MEETING
+            if event.moderation_state != CommunityEvent.ModerationState.PUBLISHED or (meetings_only and not is_meeting):
+                continue
+            occurrence = next((when for when in event.occurrences_in(today, horizon) if when >= now), None)
+            if occurrence is not None:
+                found.append(
+                    NextMeeting(
+                        when=occurrence,
+                        location=event.location,
+                        has_time=True,
+                        title=event.title,
+                        is_meeting=is_meeting,
+                    )
+                )
+        return found
 
     def has_something_coming_up(self, sources: NextMeetingSources | None = None) -> bool:
         """Whether the guild has anything on the books (#953): its meeting is marked TBA, or

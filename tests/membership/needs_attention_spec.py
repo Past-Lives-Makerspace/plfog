@@ -3,8 +3,10 @@ that puts an inbox item in front of its leads and staff when it has nothing."""
 
 from __future__ import annotations
 
+import logging
 from datetime import time, timedelta
 from io import StringIO
+from unittest import mock
 
 import pytest
 from django.core.management import call_command
@@ -14,8 +16,17 @@ from django.utils import timezone
 
 from classes.factories import UserFactory
 from core.models import EventDelivery, Notification
-from membership.models import CalendarEvent, CommunityEvent, Guild, GuildNeedsAttention, Member, NextMeetingSources
-from membership.needs_attention import RULES, check_all, clear_fixed
+from membership import needs_attention
+from membership.models import (
+    CalendarEvent,
+    CommunityEvent,
+    Guild,
+    GuildNeedsAttention,
+    GuildStaffMembership,
+    Member,
+    NextMeetingSources,
+)
+from membership.needs_attention import RULES, NeedsAttentionCheckError, check_all, clear_fixed
 from tests.membership.factories import (
     CommunityEventFactory,
     GuildFactory,
@@ -207,6 +218,67 @@ def describe_something_coming_up():
         assert result is not None
         assert result.title == "Events Guild Planning"
 
+    def it_does_not_count_a_name_word_without_guild():
+        # The match is the full guild name, so a word of it in a title is not enough.
+        guild = GuildFactory(name="Events Guild")
+        _google("Holiday Events Planning")
+        assert guild.has_something_coming_up() is False
+
+    def it_drops_a_timed_meeting_from_earlier_today():
+        guild = GuildFactory()
+        start = timezone.now() + timedelta(hours=3)
+        CommunityEventFactory(
+            guild=guild,
+            event_type=CommunityEvent.EventType.COMMUNITY,
+            starts_at=start,
+            ends_at=start + timedelta(hours=1),
+        )
+        MeetingFactory(guild=guild, scheduled_date=timezone.localdate(), scheduled_time=time(0, 0))
+        result = _loaded(guild).next_meeting_occurrence()
+        assert result is not None
+        assert result.when == start
+
+    def it_counts_an_untimed_meeting_dated_today_for_today():
+        guild = GuildFactory()
+        MeetingFactory(guild=guild, scheduled_date=timezone.localdate())
+        result = guild.next_meeting_occurrence()
+        assert result is not None
+        assert timezone.localtime(result.when).date() == timezone.localdate()
+        assert result.has_time is False
+
+
+def describe_meetings_only():
+    def it_skips_studio_hours_for_the_monthly_meeting():
+        guild = GuildFactory(meeting_next_override=timezone.localdate() + timedelta(days=12), meeting_time=time(19))
+        start = timezone.now() + timedelta(hours=2)
+        CommunityEventFactory(
+            studio_hours=True,
+            guild=guild,
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+            starts_at=start,
+            ends_at=start + timedelta(hours=3),
+        )
+        guild = _loaded(guild)
+        assert guild.next_meeting_occurrence().is_meeting is False
+        meeting = guild.next_meeting_occurrence(meetings_only=True)
+        assert meeting is not None
+        assert timezone.localtime(meeting.when).date() == timezone.localdate() + timedelta(days=12)
+
+    def it_skips_google_rows_and_keeps_meeting_rows():
+        guild = GuildFactory(name="Writers Guild")
+        _google("Writers Guild Read Night", days=1)
+        MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=8))
+        meeting = guild.next_meeting_occurrence(meetings_only=True)
+        assert meeting is not None
+        assert meeting.title == ""
+        assert timezone.localtime(meeting.when).date() == timezone.localdate() + timedelta(days=8)
+
+    def it_is_none_for_a_guild_with_only_studio_hours():
+        guild = GuildFactory()
+        start = timezone.now() + timedelta(days=1)
+        CommunityEventFactory(studio_hours=True, guild=guild, starts_at=start, ends_at=start + timedelta(hours=3))
+        assert _loaded(guild).next_meeting_occurrence(meetings_only=True) is None
+
 
 def describe_next_meeting_sources():
     def it_loads_nothing_for_no_guilds(django_assert_num_queries):
@@ -314,6 +386,27 @@ def describe_check_all():
         assert check_all().guilds == 0
         assert _bells(lead.user_id) == []
 
+    def it_checks_the_other_guilds_when_one_fails_then_raises_once(caplog):
+        broken = GuildFactory(name="Broken Guild")
+        GuildNeedsAttention.objects.create(guild=broken, rule="nothing_coming_up")
+        fine = GuildFactory(name="Fine Guild")
+        lead = _lead(fine)
+        real_nudge = needs_attention._nudge
+
+        def nudge(guild, rule, row):
+            if guild.pk == broken.pk:
+                raise RuntimeError("boom")
+            return real_nudge(guild, rule, row)
+
+        with mock.patch.object(needs_attention, "_nudge", side_effect=nudge), caplog.at_level(logging.ERROR):
+            with pytest.raises(NeedsAttentionCheckError) as raised:
+                check_all()
+        assert raised.value.result.failed_guild_pks == [broken.pk]
+        assert str(broken.pk) in str(raised.value)
+        assert f"guild pk={broken.pk}" in caplog.text
+        assert len(_bells(lead.user_id)) == 1
+        assert GuildNeedsAttention.objects.open().filter(guild=broken).exists()
+
     def describe_the_reminder():
         def it_reminds_once_30_days_on_and_reads_the_first_item():
             guild = GuildFactory()
@@ -328,6 +421,27 @@ def describe_check_all():
             assert reminder.body == BODY
             assert check_all().reminders == 0
             assert len(_bells(lead.user_id)) == 2
+
+        def it_does_not_remind_someone_removed_from_staff():
+            guild = GuildFactory()
+            keep = _staff(guild)
+            gone = _staff(guild)
+            check_all()
+            GuildStaffMembership.objects.filter(guild=guild, member=gone).delete()
+            _age_first_items(31)
+            assert check_all().reminders == 1
+            assert len(_bells(keep.user_id)) == 2
+            assert len(_bells(gone.user_id)) == 1
+
+        def it_marks_a_removed_persons_open_item_read():
+            guild = GuildFactory()
+            keep = _staff(guild)
+            gone = _staff(guild)
+            check_all()
+            GuildStaffMembership.objects.filter(guild=guild, member=gone).delete()
+            check_all()
+            assert _bells(gone.user_id)[0].read_at is not None
+            assert _bells(keep.user_id)[0].read_at is None
 
         def it_waits_the_full_30_days():
             guild = GuildFactory()

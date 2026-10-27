@@ -1083,7 +1083,8 @@ def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Me
                 "label": guild.name,
                 "most_recent": latest_past.get(guild.pk),
                 "next_meeting": next_meeting,
-                "cadence": guild.next_meeting_occurrence(sources) if next_meeting is None else None,
+                # The soonest meeting, so studio hours never hide it or get an agenda (#953).
+                "cadence": guild.next_meeting_occurrence(sources, meetings_only=True) if next_meeting is None else None,
                 "can_edit": guild.pk in editable_ids,
             }
         )
@@ -1093,13 +1094,8 @@ def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Me
 def _start_agenda_rows(dash_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Editable scopes with a cadence but nothing upcoming yet — filters the already-
     computed ``dash_rows``, no new query. Feeds the prominent 'Start the agenda' affordance
-    in the Needs-attention strip (§6.2 Part 2a-2). Only a meeting gets an agenda: a guild whose
-    soonest thing is studio hours or a Google event is left out (#953)."""
-    return [
-        row
-        for row in dash_rows
-        if row["can_edit"] and row["next_meeting"] is None and row["cadence"] is not None and row["cadence"].is_meeting
-    ]
+    in the Needs-attention strip (§6.2 Part 2a-2)."""
+    return [row for row in dash_rows if row["can_edit"] and row["next_meeting"] is None and row["cadence"] is not None]
 
 
 def _archive_page(request: HttpRequest) -> dict[str, Any]:

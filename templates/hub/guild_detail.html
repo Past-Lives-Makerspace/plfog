@@ -119,7 +119,7 @@
         {% include "hub/partials/_guild_member_count.html" %}
         {% if past_class_count %}<span class="hub-badge">{{ past_class_count }} past class{{ past_class_count|pluralize:"es" }}</span>{% endif %}
         {% if current_class_count %}<span class="hub-badge">{{ current_class_count }} current class{{ current_class_count|pluralize:"es" }}</span>{% endif %}
-        {% if next_meeting %}<span class="hub-badge">Next meeting {{ next_meeting.when|date:"M j" }}</span>{% endif %}
+        {% if next_meeting %}<span class="hub-badge">{% if next_meeting.is_meeting %}Next meeting{% else %}Next up{% endif %} {{ next_meeting.when|date:"M j" }}</span>{% endif %}
     </div>
     {% include "hub/partials/_guild_join_cta.html" %}
 </div>
