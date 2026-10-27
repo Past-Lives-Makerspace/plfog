@@ -157,7 +157,7 @@ def can_manage_orientations(request: HttpRequest, guild: Guild) -> bool:
     """True when this request may run the guild's orientations.
 
     Anyone who can edit the guild can run its orientations — that now includes every
-    staff member (orienters are a staff role). Honors ``view_as`` preview mode like the
+    staff member (orientors are a staff role). Honors ``view_as`` preview mode like the
     other helpers, so an admin previewing as a member sees only what that viewer would.
     """
     return can_edit_guild(request, guild)
@@ -190,7 +190,7 @@ def can_edit_equipment_orienter_hours(request: HttpRequest, equipment: Equipment
 
     The equipment twin of :func:`can_edit_orienter_hours`. Own hours: anyone who may
     manage the equipment (all three tiers) — but ONLY while actually one of the tool's
-    orienters. An admin or capability holder who has not been added on the Staff tab must
+    orientors. An admin or capability holder who has not been added on the Staff tab must
     not publish hours for themselves: ``_rule_generates`` skips personal rules whose owner
     is off ``orienter_members()``, so such a save would be a silent no-op — fail loudly
     here instead (they can still edit on behalf, the ``orienter != self`` path).
@@ -204,7 +204,7 @@ def can_edit_equipment_orienter_hours(request: HttpRequest, equipment: Equipment
     member = _editing_member(request)
     if orienter is not None and member is not None and orienter.pk == member.pk:
         if all(runner.pk != member.pk for runner in equipment.orienter_members()):
-            return False  # self scope off this tool's orienters would only make dead rules
+            return False  # self scope off this tool's orientors would only make dead rules
         return can_manage_equipment(request, equipment)
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.is_admin:
@@ -788,7 +788,7 @@ def can_moderate_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     Page-scoped rather than request-scoped, and that is the whole point: a guild lead must
     be able to archive a bad page in their own guild without pulling in an officer, and
     :func:`is_effective_staff` alone cannot express that. ``can_edit_guild`` already covers
-    co-lead, secretary, treasurer and orienter. A space-wide page (``guild`` is None) is
+    co-lead, secretary, treasurer and orientor. A space-wide page (``guild`` is None) is
     moderatable by effective staff only.
     """
     return can_moderate_wiki_scope(request, page.guild)
@@ -883,11 +883,11 @@ def can_verify_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
 
     An OFFICIAL page is never verifiable, by anyone — this guard runs first, before any
     authority test. Otherwise: a guild-scoped page defers to :func:`can_edit_guild`
-    (lead, every staff role, orienters included via the staff-role fold-in), and a
+    (lead, every staff role, orientors included via the staff-role fold-in), and a
     space-wide page takes :func:`is_effective_staff`.
 
-    **A tool's own ``EquipmentStaffMembership`` orienters are deliberately NOT admitted
-    here.** Brief section 9.1 rules that "equipment orienters who are not guild staff stay
+    **A tool's own ``EquipmentStaffMembership`` orientors are deliberately NOT admitted
+    here.** Brief section 9.1 rules that "equipment orientors who are not guild staff stay
     deferred", and spec B section 10 records the same. An earlier revision of this helper
     shipped that leg anyway, which had two costs: it disagreed with spec B's tab-level
     bulk shortcut (``can_edit_guild`` only), so the guild tab hid a Verify button the page

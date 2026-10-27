@@ -4,7 +4,7 @@ Which types the page lists and which a member's own booking keeps
 (``OrientationType.objects.listed_for``), why a listed type is paused
 (``OrientationType.paused_message``), where Book the orientation goes
 (``OrientationType.booking_link``, ``Equipment.unlocking_orientation_links``), and the
-many guilds orienter labels (``Guild.orienter_name_labels_for``).
+many guilds orientor labels (``Guild.orienter_name_labels_for``).
 """
 
 from __future__ import annotations

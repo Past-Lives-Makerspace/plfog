@@ -231,7 +231,7 @@ def describe_class_stream():
 def describe_orientation_stream():
     def it_splits_a_paid_orientation_by_the_orientation_percentages():
         guild = GuildFactory(name="Ceramics")
-        orientator = MemberFactory(full_legal_name="Bo Orientator")
+        orientator = MemberFactory(full_legal_name="Bo Orientor")
         _paid_orientation(cents=10000, guild=guild, orientator=orientator)
         result = build_reconciliation(window=_window(), adjustments={})
         assert _alloc(result, RecipientKind.ORIENTATOR, orientator.display_name).total_cents == 7000

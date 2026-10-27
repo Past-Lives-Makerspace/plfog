@@ -95,7 +95,7 @@ def guild_wiki_tab_context(request: HttpRequest, guild: Guild) -> dict[str, Any]
     # once for the tab instead of once per row, so the two can no longer disagree about who
     # may verify. The per-row flag below re-adds the guards that are about the page rather
     # than the person: Official is never verifiable, and neither is a page carrying an open
-    # report. This used to miss the Equipment-orienter leg; brief section 9.1 defers that
+    # report. This used to miss the Equipment-orientor leg; brief section 9.1 defers that
     # case and can_verify_wiki_page no longer admits it either.
     can_verify = can_edit_guild(request, guild)
 

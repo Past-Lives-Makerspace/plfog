@@ -337,7 +337,7 @@ def describe_can_edit_equipment_orienter_hours():
         """An off-roster save would only make rules that never generate — fail loudly.
 
         Mirrors the guild gate, which refuses self scope off a guild's leadership for the
-        same reason. The capability still grants edit-on-behalf (the orienter != self path).
+        same reason. The capability still grants edit-on-behalf (the orientor != self path).
         """
         equipment, _manager = _managed_tool()
         holder = _member_user()

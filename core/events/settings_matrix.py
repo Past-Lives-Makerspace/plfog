@@ -557,7 +557,7 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         Recipients.ALL_GUILD_LEADS: (lead or profile.is_officer) and profile.is_active,
         Recipients.GUILD_ORIENTERS: profile.leads_guild or profile.is_orienter,
         # Every audience of the composed orientation_requested resolver: a guild's leadership
-        # (whole team for a shared slot, orienter plus lead for a personal one) or the
+        # (whole team for a shared slot, orientor plus lead for a personal one) or the
         # equipment's managers. An EQUIPMENT holder keeps the row because equipment nobody
         # manages falls back to them (#746).
         Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: lead or profile.manages_equipment or cap.EQUIPMENT in caps,

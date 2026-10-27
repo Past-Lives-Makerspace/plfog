@@ -1,6 +1,6 @@
 """BDD specs for open windows generated from recurring hours (issue #532, part 1): the open
 row's shape and constraint, the one person one calendar overlap refusal, window generation
-across the horizon and cadences, window retirement on pause, delete and re-grid, the orienter
+across the horizon and cadences, window retirement on pause, delete and re-grid, the orientor
 wide busy check inside a window, and windows for one orientation only."""
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ def _local(year: int, month: int, day: int, hour: int, minute: int = 0) -> datet
 
 
 def _guild_with_orienter(*, enabled: bool = True) -> tuple[object, object, object]:
-    """An orientation guild with one active type and Amber on staff as an orienter."""
+    """An orientation guild with one active type and Amber on staff as an orientor."""
     guild = GuildFactory(guild_lead=MemberFactory(full_legal_name="Lead Person"))
     GuildOrientationSettingsFactory(guild=guild, is_enabled=enabled)
     orientation_type = OrientationTypeFactory(guild=guild, name="Print Studio Orientation", duration_minutes=60)
@@ -469,7 +469,7 @@ def _window_for(guild: object, amber: object) -> OrientationAvailabilityBlock:
 def _busy_slot(
     guild: object, amber: object, window: OrientationAvailabilityBlock, **overrides: object
 ) -> OrientationSlot:
-    """A fixed slot of the same orienter from 12 to 1 inside the window's day, holding a REQUESTED booking."""
+    """A fixed slot of the same orientor from 12 to 1 inside the window's day, holding a REQUESTED booking."""
     fields: dict[str, object] = {
         "guild": guild,
         "orienter": amber,

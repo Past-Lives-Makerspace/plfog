@@ -495,7 +495,7 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Guilds & Orientations",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when an orienter confirms the member's orientation request — carries a confirmed "
+            "Sent when an orientor confirms the member's orientation request — carries a confirmed "
             "calendar invite. Goes to the requesting member."
         ),
         edit_pointer=_tpl("membership/emails", "orientation_confirmed"),
@@ -511,7 +511,7 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Guilds & Orientations",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when an orienter declines the member's orientation request. Goes to the requesting member."
+            "Sent when an orientor declines the member's orientation request. Goes to the requesting member."
         ),
         edit_pointer=_tpl("membership/emails", "orientation_declined"),
         audience="The member whose request was declined.",
@@ -623,16 +623,16 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
     ),
     GalleryEmail(
         key="orientation_lead_request",
-        name="New orientation request (orienters)",
+        name="New orientation request (orientors)",
         section="Guilds & Orientations",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
             "Sent when a member requests an orientation. Goes to the guild's lead and staff (a personal "
-            "slot: the orienter booked plus the lead; equipment: its managers), with one-click confirm / "
+            "slot: the orientor booked plus the lead; equipment: its managers), with one-click confirm / "
             "decline links. Each person's Email switch for Orientation requested decides."
         ),
         edit_pointer=_tpl("membership/emails", "orientation_lead_request"),
-        audience="The guild's lead and all of its staff, or the orienter booked plus the lead.",
+        audience="The guild's lead and all of its staff, or the orientor booked plus the lead.",
         event_keys=frozenset({"orientation_requested"}),
         text_template="membership/emails/orientation_lead_request.txt",
         html_template="membership/emails/orientation_lead_request.html",
@@ -701,7 +701,7 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
             "find. A guild with nothing to report gets no email at all."
         ),
         edit_pointer=_tpl("membership/emails", "wiki_guild_digest"),
-        audience="The guild's lead and every staff role, orienters included.",
+        audience="The guild's lead and every staff role, orientors included.",
         event_keys=frozenset({"wiki.guild_digest_monthly"}),
         text_template="membership/emails/wiki_guild_digest.txt",
         html_template="membership/emails/wiki_guild_digest.html",

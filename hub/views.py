@@ -848,7 +848,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     )
     is_oriented = bool(completed_type_ids)  # oriented for the guild = ANY completed type
     orientation_all_done = bool(orientation_types) and all(t.pk in completed_type_ids for t in orientation_types)
-    # bookable() (not upcoming()) so a departed orienter's surviving personal slot
+    # bookable() (not upcoming()) so a departed orientor's surviving personal slot
     # never reappears in the member list once its booking is declined or cancelled.
     all_slots = (
         list(
@@ -1107,7 +1107,7 @@ def _require_can_manage_orientations(request: HttpRequest, guild: Guild) -> Http
     """Return a 403 response if the user cannot run ``guild``'s orientations, else None.
 
     Wider than ``_require_can_edit_guild``: it also lets the guild's designated
-    orienters through. Use it for the orientation operational surfaces (dashboard,
+    orientors through. Use it for the orientation operational surfaces (dashboard,
     booking responses, availability) — not for guild-page or class editing.
     """
     if not _can_manage_orientations(request, guild):
@@ -1352,7 +1352,7 @@ def _guild_orientations_context(
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
 
     # The Orientation Schedule overview + slots.
-    # Every orienter edits their own recurring hours through the Edit Hours modal (its own
+    # Every orientor edits their own recurring hours through the Edit Hours modal (its own
     # GET partial + save prefix) from their row in the overview — never by reloading this page.
     viewer = _get_member(request)
     can_edit_others_hours = can_edit_orienter_hours(request, guild, None)
@@ -1582,7 +1582,7 @@ def guild_orientations(request: HttpRequest, pk: int) -> HttpResponse:
     """The guild's Orientations page (#672): every orientation setting for one guild, under its own title.
 
     Gated exactly like Guild Settings (``_require_can_edit_guild``): admins, officers, and the
-    guild's lead and staff. An orienter sees only their own Edit Hours row; a lead or admin
+    guild's lead and staff. An orientor sees only their own Edit Hours row; a lead or admin
     sees everyone's (``_guild_orientations_context``). Each card saves through its own
     endpoint, which lands back here.
     """
@@ -1762,7 +1762,7 @@ def _hours_save_message(
 
 _GUILD_SHARED_FAREWELL = (
     "Shared hours deleted. From now on recurring hours are personal. "
-    "Use an Any orienter one-off slot for shared coverage."
+    "Use an Any orientor one-off slot for shared coverage."
 )
 
 
@@ -1794,7 +1794,7 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
     prefix, and only accepted WITH the ``HX-Request`` header). An unlisted prefix, or
     ``modal_rules`` on a non-HTMX request, is a 404 (fail loudly). Gate is
     ``can_edit_orienter_hours``. Deleted rows retire via
-    ``retire_rule``, new rows are stamped with the scope's orienter, and saved hours
+    ``retire_rule``, new rows are stamped with the scope's orientor, and saved hours
     materialize slots immediately. A valid HTMX (modal) save answers 204 + ``HX-Redirect``
     to reload the tab; an invalid modal save re-renders the bound formset inside the modal.
     Non-HTMX (page) saves keep the plain redirect / full-page re-render on the tab.
@@ -1810,7 +1810,7 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
     target = None
     if scope_raw:
         if not scope_raw.isdigit():
-            raise Http404("Unknown orienter scope.")
+            raise Http404("Unknown orientor scope.")
         target = get_object_or_404(Member, pk=int(scope_raw))
     if not can_edit_orienter_hours(request, guild, target):
         return HttpResponse("Forbidden", status=403)
@@ -1878,7 +1878,7 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 def guild_orientation_hours_form(request: HttpRequest, pk: int) -> HttpResponse:
-    """Return the Edit Hours modal's formset partial for one orienter (HTMX GET).
+    """Return the Edit Hours modal's formset partial for one orientor (HTMX GET).
 
     Reads ``?orienter=<pk>`` (non-digit or missing → 404), resolves the target Member, and
     gates with ``can_edit_orienter_hours`` (403 otherwise) — the same gate the save uses, so
@@ -1892,7 +1892,7 @@ def guild_orientation_hours_form(request: HttpRequest, pk: int) -> HttpResponse:
     guild = get_object_or_404(Guild, pk=pk)
     orienter_raw = request.GET.get("orienter", "")
     if not orienter_raw.isdigit():
-        raise Http404("Unknown orienter.")
+        raise Http404("Unknown orientor.")
     target = get_object_or_404(Member, pk=int(orienter_raw))
     if not can_edit_orienter_hours(request, guild, target):
         return HttpResponse("Forbidden", status=403)
@@ -1964,7 +1964,7 @@ def _apply_hours_formset(formset: Any, *, target: Any) -> tuple[int, int, int]:
     paused = [rule_form.instance for rule_form in formset.forms if _flipped_off(rule_form)]
     for rule in formset.save(commit=False):
         if rule.orienter_id is None and target is not None:
-            rule.orienter = target  # scope stamps new rows — orienter is write-once from the UI
+            rule.orienter = target  # scope stamps new rows — orientor is write-once from the UI
         rule.save()
     for rule in paused:
         rule_removed, rule_kept = orientations.retire_open_slots(rule)
@@ -2091,7 +2091,7 @@ def guild_staff_remove(request: HttpRequest, pk: int, staff_pk: int) -> HttpResp
     staff.delete()
     message = f"{member_name} is no longer {title_label} of {guild.name}."
     # Retire their personal hours ONLY when this was their last leadership row — staff can
-    # hold multiple roles (Treasurer + Orienter), and dropping one must not nuke their hours.
+    # hold multiple roles (Treasurer + Orientor), and dropping one must not nuke their hours.
     if removed_member.pk not in {m.pk for m in guild.leadership_members()}:
         from membership import orientations
 
@@ -2175,7 +2175,7 @@ def guild_orientation_slot_add(request: HttpRequest, pk: int) -> HttpResponse:
     if forbidden is not None:
         return forbidden
 
-    # Leads/admins may pick any leadership member (or "Any orienter"); plain staff
+    # Leads/admins may pick any leadership member (or "Any orientor"); plain staff
     # add slots for themselves only — the form locks and forces the acting member.
     form = OrientationSlotForm(
         request.POST,

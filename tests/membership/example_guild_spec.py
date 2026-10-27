@@ -52,7 +52,7 @@ def describe_seed_example_guild():
             "Niko Contour": "Co-Lead",
             "June Azimuth": "Secretary",
             "Otto Scale": "Treasurer",
-            "Rhea Compass": "Orienter",
+            "Rhea Compass": "Orientor",
             "Felix Atlas": "Keeper of the Legend",
         }
         for member in [lead, *(sm.member for sm in guild.staff_memberships.all())]:

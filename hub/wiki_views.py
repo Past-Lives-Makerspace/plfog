@@ -753,13 +753,13 @@ def _create_page_from_form(
     ``publish_proposal``**, which is the round's one authority rule for safety content
     rather than a second one written out here. It matters: ``can_moderate_wiki_scope`` is
     true for any ``GuildStaffMembership`` row, so deciding "published or not" on that
-    alone let a guild orienter, secretary or treasurer create a page wearing the Official
+    alone let a guild orientor, secretary or treasurer create a page wearing the Official
     chip — which brief §4 and §5.2 lock to admins and officers. Routing through
     ``publish_proposal`` gives the create path exactly the outcomes the queue already
     gives: effective staff land Official, a guild lead or staff land Guild verified, and
     everyone else stays a held proposal for a second read.
 
-    It also closes the secondary bug that arrangement had: a guild orienter who created an
+    It also closes the secondary bug that arrangement had: a guild orientor who created an
     Official page was instantly locked out of it, because ``can_edit_wiki_page`` answers
     ``is_effective_staff`` on a published Official page and ``can_verify_wiki_page``
     refuses Official outright. Landing Guild verified leaves it theirs to edit.
@@ -1583,7 +1583,7 @@ _WANTED_PAGE_SIZE = 25
 def _can_manage_wanted_scope(request: HttpRequest, guild: Guild | None) -> bool:
     """``can_verify_wiki_page``'s authority test, asked about a SCOPE rather than a page.
 
-    A guild scope defers to :func:`can_edit_guild` (lead, every staff role, orienters
+    A guild scope defers to :func:`can_edit_guild` (lead, every staff role, orientors
     included, plus effective staff); the space-wide scope takes :func:`is_effective_staff`,
     because there is no guild whose authority could stand behind it. Deliberately the same
     test the lead panels render against, so a lead never sees a control the view refuses.

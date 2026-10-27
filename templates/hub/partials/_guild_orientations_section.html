@@ -22,12 +22,12 @@
     {% include "components/form_field.html" with field=orientation_form.closed_message %}
   </div>
 
-  {# Who runs orientations (orienters are guild staff). #}
+  {# Who runs orientations (orientors are guild staff). #}
   <div class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1.5rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
     <div style="flex:1; min-width:240px;">
       <h2 class="hub-detail-label" style="margin:0 0 0.25rem;">Who runs orientations</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin:0;">
-        Orienters are now part of your guild staff. Add someone as an orienter (or any staff role) and they
+        Orientors are now part of your guild staff. Add someone as an orientor (or any staff role) and they
         can confirm bookings, sign members off, and manage availability here.
       </p>
     </div>
@@ -71,7 +71,7 @@
     {# Read-only: the split is set by an admin on the Payments Dashboard, not here. #}
     <div class="hub-text-muted" style="margin-top:1rem; font-size:0.9rem;">
       <strong>Orientation payment split:</strong>
-      {{ orientation_split.orientator|floatformat:"-2" }}% orientator ·
+      {{ orientation_split.orientator|floatformat:"-2" }}% orientor ·
       {{ orientation_split.guild|floatformat:"-2" }}% guild ·
       {{ orientation_split.pl|floatformat:"-2" }}% Past Lives.
       <span class="pl-help">
@@ -97,7 +97,7 @@
 </form>
 
 {# Orientation Schedule — everyone who can give orientations, grouped by person; Edit Hours opens a modal. #}
-{# A lead/admin (can_edit_others_hours) sees + edits every row including their own; a plain orienter #}
+{# A lead/admin (can_edit_others_hours) sees + edits every row including their own; a plain orientor #}
 {# (show_my_hours_card only) sees just their own row, still with an Edit Hours button. #}
 {% if show_my_hours_card or can_edit_others_hours %}
 <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
@@ -178,14 +178,14 @@
 {% include "components/modal.html" with modal_id="days-off-modal" modal_title="Days Off" modal_size="md" modal_static=True %}
 {% endif %}
 
-{# Guild Hours (Any Orienter) — legacy shared rules; renders only while such rows exist. #}
+{# Guild Hours (Any Orientor) — legacy shared rules; renders only while such rows exist. #}
 {% if guild_rule_formset %}
 <form id="guild-hours-form" method="post" action="{% url 'hub_guild_orientation_hours_save' guild.pk %}" class="hub-form" data-autosave="change" data-formset="guild_rules" data-formset-required="{{ guild_rule_formset.empty_form|required_fields }}" data-autosave-confirm="delete-guild-hours">
   {% csrf_token %}
   <input type="hidden" name="orienter_scope" value="">
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Guild Hours (Any Orienter)</h2>
-    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">These shared hours predate personal hours and cannot be recreated once deleted. New recurring hours always belong to a person. For occasional shared coverage, add an Any orienter one off in Upcoming Times.</p>
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Guild Hours (Any Orientor)</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">These shared hours predate personal hours and cannot be recreated once deleted. New recurring hours always belong to a person. For occasional shared coverage, add an Any orientor one off in Upcoming Times.</p>
     {{ guild_rule_formset.management_form }}
     <div class="pl-hours-rows" data-formset-rows>
       {% for rule in guild_rule_formset %}
@@ -212,8 +212,8 @@
 {% include "components/confirm_modal.html" with confirm_id="delete-guild-hours" confirm_title="Delete these shared hours?" confirm_message="Shared recurring hours cannot be recreated. Upcoming open slots from this window will be removed; booked slots stay until you cancel them." confirm_button_text="Delete" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-delete'))" %}
 {% elif guild_rules_readonly %}
 <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-  <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Guild Hours (Any Orienter)</h2>
-  <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">These are shared guild hours any orienter can run. Only the guild lead can change them.</p>
+  <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Guild Hours (Any Orientor)</h2>
+  <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">These are shared guild hours any orientor can run. Only the guild lead can change them.</p>
   <ul class="pl-orient-overview__rules">
     {% for r in guild_rules_readonly %}
     <li>{{ r.type_display }} · {{ r.cadence_display }}{% if r.starts_on_note %} {{ r.starts_on_note }}{% endif %} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
@@ -328,7 +328,7 @@
           {% if item.orienter.profile_photo %}<img src="{{ item.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ item.orienter.display_name|slice:":1" }}</span>{% endif %}
           {{ item.orienter.display_name }}
         {% else %}
-          <span class="hub-text-muted">Any orienter</span>
+          <span class="hub-text-muted">Any orientor</span>
         {% endif %}
       </span>
       <span class="pl-slot-admin__seats">{{ item.active_booking_count }} of {{ item.seats }} booked{% if item.hold_count %} <span class="hub-text-muted">· {{ item.hold_count }} seat{{ item.hold_count|pluralize }} held by a checkout in progress</span>{% endif %}</span>

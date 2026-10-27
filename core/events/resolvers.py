@@ -218,7 +218,7 @@ def equipment_managers(context: dict[str, Any]) -> list[Recipient]:
 
     The item's own staff rows (tagged ``equipment_staff``) plus the owning guild's
     leadership (``guild_leadership``), deduped keeping the first reason. A personal slot
-    in context narrows that to the orienter the member booked plus the owning guild's
+    in context narrows that to the orientor the member booked plus the owning guild's
     lead (mirrors :func:`guild_orienters`). Only when that audience is empty (no staff
     rows and no guild leadership) does it fall back to the EQUIPMENT capability holders
     (``capability:equipment``), so a request never goes to nobody (#746). The test is
@@ -347,12 +347,12 @@ def guild_orienters_or_equipment_managers(context: dict[str, Any]) -> list[Recip
     * equipment-owned: :func:`equipment_managers` (the item's managers plus its guild's
       leadership, with its own personal-slot narrowing and an Equipment Administrator
       fallback only for equipment nobody runs);
-    * a guild's personal slot: :func:`guild_orienters`, which narrows to the orienter
+    * a guild's personal slot: :func:`guild_orienters`, which narrows to the orientor
       the member booked plus the guild lead;
     * a guild's shared slot: :func:`guild_leadership`, the whole team (lead, co-leads,
-      secretaries, treasurers, orienters), because any of them can confirm it.
+      secretaries, treasurers, orientors), because any of them can confirm it.
 
-    ``guild_orienters`` itself stays lead-plus-orienters for its other callers. A context
+    ``guild_orienters`` itself stays lead-plus-orientors for its other callers. A context
     carrying neither ``equipment`` nor ``guild`` fails loudly in the delegated resolver.
     """
     if context.get("equipment") is not None:
@@ -366,12 +366,12 @@ def guild_orienters_or_equipment_managers(context: dict[str, Any]) -> list[Recip
 def guild_orienters(context: dict[str, Any]) -> list[Recipient]:
     """GUILD-SCOPED — the lead plus members holding the ORIENTER staff role.
 
-    Used for "an orientation needs a runner" fan-out (Decision 7): every orienter
+    Used for "an orientation needs a runner" fan-out (Decision 7): every orientor
     is pinged, not just the lead. The lead is always included (the lead can run
     orientations and carries full authority).
 
     Personal-slot scoping: when the context carries a ``slot`` with an ``orienter``,
-    the audience narrows to that orienter + the guild lead (deduped) — the request
+    the audience narrows to that orientor + the guild lead (deduped) — the request
     belongs to the person the member booked, with the lead kept in the loop.
     """
     from membership.models import GuildStaffMembership

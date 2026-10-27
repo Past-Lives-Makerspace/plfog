@@ -514,7 +514,7 @@ TOURS: dict[str, Tour] = {
                 target='[data-help-key="admin.reconciliation"]',
                 title="Reconciliation",
                 body=(
-                    "This report breaks down exactly what each guild, instructor, and orientator is owed, "
+                    "This report breaks down exactly what each guild, instructor, and orientor is owed, "
                     "so you can tell the treasurer precisely what to transfer."
                 ),
                 navigate="billing_admin_dashboard",

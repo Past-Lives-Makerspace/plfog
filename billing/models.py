@@ -96,7 +96,7 @@ class BillingSettings(models.Model):
         decimal_places=2,
         default=Decimal("70.00"),
         validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
-        help_text="Percent of each paid orientation that goes to the orientator (0-100).",
+        help_text="Percent of each paid orientation that goes to the orientor (0-100).",
     )
     orientation_guild_percent = models.DecimalField(
         max_digits=5,

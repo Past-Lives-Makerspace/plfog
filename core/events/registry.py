@@ -105,7 +105,7 @@ class Recipients(str, Enum):
     GUILD_MEMBERS = "guild_members"
     GUILD_ORIENTERS = "guild_orienters"
     # Composed (never a union): equipment in context -> the equipment's managers;
-    # else the guild's orienters (personal-slot narrowing preserved).
+    # else the guild's orientors (personal-slot narrowing preserved).
     GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS = "guild_orienters_or_equipment_managers"
     ORIENTATION_RUNNER = "orientation_runner"
     REGISTRANT = "registrant"
@@ -1404,7 +1404,7 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # wiki.guild_digest_monthly — one email per guild, on the 1st, to that guild's
-    # leadership (lead + every staff role, orienters included). It carries the three things
+    # leadership (lead + every staff role, orientors included). It carries the three things
     # a lead can act on in an afternoon: pages that went up, pages due a check, and what
     # members searched for and did not find. A guild with nothing to report gets NO email,
     # so this is never a monthly reminder that nothing happened.

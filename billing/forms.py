@@ -383,7 +383,7 @@ class TransactionAdjustmentForm(forms.Form):
 
     _PERCENT_KEYS: dict[str, list[tuple[str, str]]] = {
         "class": [("instructor", "Instructor"), ("guild", "Guild"), ("pl", "Past Lives")],
-        "orientation": [("orientator", "Orientator"), ("guild", "Guild"), ("pl", "Past Lives")],
+        "orientation": [("orientator", "Orientor"), ("guild", "Guild"), ("pl", "Past Lives")],
         "reservation": [("manager", "Manager"), ("guild", "Guild"), ("pl", "Past Lives")],
         "tab": [],
     }

@@ -112,25 +112,25 @@ def describe_a_member_proposing_a_safety_page():
     def describe_a_guild_moderator_who_is_not_an_officer():
         def it_publishes_guild_verified_and_never_official(client: Client):
             # can_moderate_wiki_scope is true for ANY GuildStaffMembership row, so deciding
-            # published-or-not on it alone let an orienter, secretary or treasurer create a
+            # published-or-not on it alone let an orientor, secretary or treasurer create a
             # page wearing the Official chip. Brief §4 and §5.2 lock Official to admins and
             # officers, so the create path lands exactly where the queue's Publish does.
             user = login(client, "gate_orienter")
             guild = GuildFactory()
-            # A guild's orienter is a member of it; the New-page scope picker offers the
+            # A guild's orientor is a member of it; the New-page scope picker offers the
             # guilds you have JOINED, so the join is what puts it on the form.
             GuildMembershipFactory(guild=guild, member=user.member)
             GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
-            response = _create(client, "safety", title="Orienter Written Rules", guild=guild)
+            response = _create(client, "safety", title="Orientor Written Rules", guild=guild)
             assert response.status_code == 302
-            page = WikiPage.objects.get(title="Orienter Written Rules")
+            page = WikiPage.objects.get(title="Orientor Written Rules")
             assert page.is_published is True
             assert page.status == WikiPage.Status.GUILD_VERIFIED
             assert page.verified_by == user.member
 
         def it_leaves_the_page_editable_by_its_own_author(client: Client):
             # The secondary bug the old arrangement had: an Official page answers
-            # can_edit_wiki_page with is_effective_staff, so the orienter who wrote it was
+            # can_edit_wiki_page with is_effective_staff, so the orientor who wrote it was
             # locked out of it the instant it was created.
             user = login(client, "gate_orienter2")
             guild = GuildFactory()
