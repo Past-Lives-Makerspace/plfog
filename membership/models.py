@@ -20108,7 +20108,8 @@ class EquipmentReservation(models.Model):
             reservation=self, user=user, defaults={"read_at": moment}
         )
         if not created and read.read_at < moment:
-            EquipmentReservationMessageRead.objects.filter(pk=read.pk).update(read_at=moment)
+            # The guard in the filter keeps a concurrent later stamp from being overwritten.
+            EquipmentReservationMessageRead.objects.filter(pk=read.pk, read_at__lt=moment).update(read_at=moment)
 
 
 class EquipmentReservationMessage(ThreadMessage):
