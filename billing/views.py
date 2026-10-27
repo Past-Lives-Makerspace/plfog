@@ -20,7 +20,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from billing import stripe_utils, webhook_handlers
+from billing import stripe_fees, stripe_utils, webhook_handlers
 from classes import eventbrite_orders, webhook_handlers as classes_webhook_handlers
 from membership import webhook_handlers as membership_webhook_handlers
 from billing.exceptions import TabLimitExceededError, TabLockedError
@@ -195,6 +195,8 @@ def stripe_webhook(request: HttpRequest) -> HttpResponse:
         try:
             event_data = event.to_dict() if hasattr(event, "to_dict") else dict(event)
             handler(event_data)
+            # After the handler, so confirming a payment never waits on it; a DB write only (#984).
+            stripe_fees.note_event(event_data)
         except Exception:
             logger.exception("Webhook handler error for event %s", event_type)
             return HttpResponse(status=500)

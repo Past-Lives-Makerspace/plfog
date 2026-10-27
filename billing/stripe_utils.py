@@ -14,8 +14,9 @@ page (Payments → Reports) and paid out manually.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from datetime import datetime, timedelta
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import stripe
@@ -587,3 +588,188 @@ def find_transfer_reversal(*, transfer_id: str, refund_pk: int) -> str | None:
         if metadata is not None and "refund_pk" in metadata and metadata["refund_pk"] == str(refund_pk):
             return reversal.id
     return None
+
+
+# ---------------------------------------------------------------------------
+# Fees, nets and payouts (#984)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RefundSettlement:
+    """One settled refund's balance transaction, signed as Stripe's balance shows it (amount and net negative).
+
+    A refund that failed after settling also carries its reversal (``failure_*``, positive), which
+    Stripe credits back on a balance transaction of its own.
+    """
+
+    refund_id: str
+    balance_transaction_id: str
+    amount_cents: int
+    fee_cents: int
+    net_cents: int
+    available_on: datetime
+    failed: bool = False
+    failure_balance_transaction_id: str = ""
+    failure_amount_cents: int | None = None
+    failure_fee_cents: int | None = None
+    failure_net_cents: int | None = None
+    failure_available_on: datetime | None = None
+
+    @property
+    def amount_after_failure_cents(self) -> int:
+        """The refund's balance effect with any reversal netted in: zero for a failed refund."""
+        return self.amount_cents + (self.failure_amount_cents or 0)
+
+    @property
+    def fee_after_failure_cents(self) -> int:
+        """Stripe's fee change on the refund with any reversal netted in."""
+        return self.fee_cents + (self.failure_fee_cents or 0)
+
+
+@dataclass(frozen=True)
+class ChargeSettlement:
+    """What Stripe's balance says about one paid PaymentIntent: the charge's fee, net and availability, and its refunds."""
+
+    account: str  # "active" | "previous": StripeFeeRecord.Account values
+    charge_id: str
+    balance_transaction_id: str
+    amount_cents: int
+    fee_cents: int
+    net_cents: int
+    available_on: datetime
+    refunds: tuple[RefundSettlement, ...] = ()
+
+    @property
+    def refunded_cents(self) -> int:
+        """What the refunds took out and kept out, as a positive amount; a failed refund adds nothing."""
+        return -sum(refund.amount_after_failure_cents for refund in self.refunds)
+
+    @property
+    def refund_fee_cents(self) -> int:
+        """Stripe's fee change across the refunds and any reversals; negative when fee came back."""
+        return sum(refund.fee_after_failure_cents for refund in self.refunds)
+
+
+def fee_accounts() -> dict[str, stripe.StripeClient]:
+    """The accounts with a secret key for the current mode, in lookup order: "active", then "previous"."""
+    bs = _billing_settings()
+    keys = {"active": bs.active_secret_key, "previous": bs.active_previous_secret_key}
+    return {account: stripe.StripeClient(key) for account, key in keys.items() if key}
+
+
+def _settled_at(timestamp: int) -> datetime:
+    return datetime.fromtimestamp(timestamp, tz=UTC)
+
+
+REFUND_REVERSED_STATUSES = ("failed", "canceled")
+"""Refund statuses whose money Stripe puts back with a reversal balance transaction once it had settled."""
+
+
+def _settled_refund(refund: Any) -> bool:
+    """Whether a refund ever moved money: succeeded, or reversed after its debit settled."""
+    if refund.status == "succeeded":
+        return True
+    return refund.status in REFUND_REVERSED_STATUSES and refund.balance_transaction is not None
+
+
+def _expanded_balance(balance: Any) -> Any:
+    """``balance`` when Stripe expanded it; a missing or bare id means Stripe has not settled it yet."""
+    from billing.exceptions import StripeSettlementNotReadyError
+
+    if balance is None or isinstance(balance, str):
+        raise StripeSettlementNotReadyError("Stripe has not settled a refund on this payment yet.")
+    return balance
+
+
+def _refund_settlement(refund: Any) -> RefundSettlement:
+    """A settled refund's settlement, with its reversal when it failed afterwards."""
+    balance = _expanded_balance(refund.balance_transaction)
+    settlement = RefundSettlement(
+        refund_id=refund.id,
+        balance_transaction_id=balance.id,
+        amount_cents=balance.amount,
+        fee_cents=balance.fee,
+        net_cents=balance.net,
+        available_on=_settled_at(balance.available_on),
+    )
+    if refund.status == "succeeded":
+        return settlement
+    reversal = _expanded_balance(refund.failure_balance_transaction)
+    return replace(
+        settlement,
+        failed=True,
+        failure_balance_transaction_id=reversal.id,
+        failure_amount_cents=reversal.amount,
+        failure_fee_cents=reversal.fee,
+        failure_net_cents=reversal.net,
+        failure_available_on=_settled_at(reversal.available_on),
+    )
+
+
+def retrieve_charge_settlement(*, payment_intent_id: str) -> ChargeSettlement | None:
+    """Read a PaymentIntent's fee, net, availability and refunds from whichever account holds it.
+
+    Returns:
+        The settlement, or ``None`` when both the active and the previous account answered that they have no such PaymentIntent.
+
+    Raises:
+        StripeAccountUnavailableError: An account the answer depends on has no key for this mode, so "not found" cannot be concluded.
+        StripeSettlementNotReadyError: Stripe has the payment but has not settled the charge or a refund yet.
+        stripe.StripeError: Stripe could not answer; the caller retries later.
+    """
+    from billing.exceptions import StripeAccountUnavailableError, StripeSettlementNotReadyError
+
+    clients = fee_accounts()
+    if "active" not in clients:
+        raise StripeAccountUnavailableError("No Stripe secret key is set for this mode.")
+    for account, client in clients.items():
+        try:
+            payment_intent = client.v1.payment_intents.retrieve(
+                payment_intent_id, params={"expand": ["latest_charge.balance_transaction"]}
+            )
+        except stripe.InvalidRequestError as exc:
+            if exc.code == "resource_missing":
+                continue
+            raise
+        charge = payment_intent.latest_charge
+        if charge is None or isinstance(charge, str) or charge.balance_transaction is None:
+            raise StripeSettlementNotReadyError("Stripe has not settled this payment yet.")
+        balance = charge.balance_transaction
+        if isinstance(balance, str):
+            raise StripeSettlementNotReadyError("Stripe did not expand the balance transaction.")
+        refunds = client.v1.refunds.list(
+            params={
+                "payment_intent": payment_intent_id,
+                "expand": ["data.balance_transaction", "data.failure_balance_transaction"],
+                "limit": 100,
+            }
+        )
+        return ChargeSettlement(
+            account=account,
+            charge_id=charge.id,
+            balance_transaction_id=balance.id,
+            amount_cents=balance.amount,
+            fee_cents=balance.fee,
+            net_cents=balance.net,
+            available_on=_settled_at(balance.available_on),
+            refunds=tuple(
+                _refund_settlement(refund) for refund in refunds.auto_paging_iter() if _settled_refund(refund)
+            ),
+        )
+    if "previous" not in clients:
+        raise StripeAccountUnavailableError("Not on the current account, and no previous account key is set.")
+    return None
+
+
+def iter_paid_payouts(*, client: stripe.StripeClient, arrived_since: datetime) -> Iterator[tuple[str, list[str]]]:
+    """Each paid Stripe payout on ``client``'s account that arrived since ``arrived_since``, with its balance transaction ids.
+
+    Only automatic payouts list their balance transactions; a manual one yields an empty list.
+    """
+    payouts = client.v1.payouts.list(
+        params={"status": "paid", "arrival_date": {"gte": int(arrived_since.timestamp())}, "limit": 100}
+    )
+    for payout in payouts.auto_paging_iter():
+        transactions = client.v1.balance_transactions.list(params={"payout": payout.id, "limit": 100})
+        yield payout.id, [transaction.id for transaction in transactions.auto_paging_iter()]

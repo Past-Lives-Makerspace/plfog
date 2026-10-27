@@ -27,3 +27,11 @@ class AlreadyRefundedError(RefundError):
 
 class InvalidRefundAmountError(RefundError):
     """Raised when a requested refund amount is zero, negative, or exceeds the refundable remainder."""
+
+
+class StripeSettlementNotReadyError(Exception):
+    """Raised when Stripe holds a payment but has not settled it yet: no charge, or no balance transaction."""
+
+
+class StripeAccountUnavailableError(Exception):
+    """Raised when a fee read needs a Stripe account whose secret key is not set for the current mode."""
