@@ -976,7 +976,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     from membership.models import NextMeetingSources
     from membership.services.location_status import guild_location_statuses
 
-    meeting_sources = NextMeetingSources.load([guild])
+    meeting_sources = NextMeetingSources.load([guild], with_meetings=is_on("meetings"))
     return render(
         request,
         "hub/guild_detail.html",

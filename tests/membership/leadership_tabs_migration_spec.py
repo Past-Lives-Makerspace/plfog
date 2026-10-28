@@ -38,6 +38,9 @@ def _member(apps: Any, name: str) -> Any:
     return apps.get_model(_APP, "Member").objects.create(membership_plan=plan, full_legal_name=name)
 
 
+# Rolling membership back to 0188 also rolls core back through 0124, whose leftover Spotlight columns
+# SQLite has already dropped (tests/core/spotlight_columns_spec.py), so only PostgreSQL can undo it.
+@pytest.mark.postgres_only
 @pytest.mark.django_db(transaction=True)
 def describe_migration_0190_leadership_tabs_data():
     def it_makes_leadership_then_guild_leads_with_the_page_intros_and_moves_every_listing():

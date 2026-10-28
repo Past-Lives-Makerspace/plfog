@@ -210,13 +210,17 @@ class NextMeetingSources:
     calendar_events: list[CalendarEvent]
 
     @classmethod
-    def load(cls, guilds: Sequence[Guild]) -> NextMeetingSources:
-        """Load the upcoming Meeting rows and name matched Google rows for ``guilds``."""
+    def load(cls, guilds: Sequence[Guild], *, with_meetings: bool = True) -> NextMeetingSources:
+        """Load the upcoming Meeting rows and name matched Google rows for ``guilds``.
+
+        ``with_meetings=False`` skips the Meeting query, for a page shown while the Meetings switch is off.
+        """
         if not guilds:
             return cls(meetings={}, calendar_events=[])
         now = timezone.now()
         meetings: dict[int, Meeting] = {}
-        for meeting in Meeting.objects.upcoming().filter(guild_id__in=[guild.pk for guild in guilds]):
+        upcoming = Meeting.objects.upcoming() if with_meetings else Meeting.objects.none()
+        for meeting in upcoming.filter(guild_id__in=[guild.pk for guild in guilds]):
             # A timed meeting from earlier today is over; an untimed one dated today is still
             # today's meeting and sorts by its date.
             if meeting.scheduled_time is not None and cast(datetime_type, meeting.starts_at) < now:
@@ -960,6 +964,7 @@ class Member(StaffRequestMixin, models.Model):
         max_length=255,
         blank=True,
         default="",
+        db_default="",
         help_text=(
             "The name finance shows for this member, kept when they delete their account so "
             "Reconciliation and Payouts can still say whose share it is (#983). Blank for a "
