@@ -23,6 +23,9 @@ name: Changelog
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
+  # Required checks must report in the merge queue too. The fragment was already judged on the
+  # PR, so there the job skips, which GitHub counts as passing.
+  merge_group:
 
 permissions:
   contents: read
@@ -30,11 +33,12 @@ permissions:
 # One check per PR at a time; adding and removing a label in quick succession should settle on
 # the last state rather than race.
 concurrency:
-  group: changelog-${{ github.event.pull_request.number }}
+  group: changelog-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   fragment:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
