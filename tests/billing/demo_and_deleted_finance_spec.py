@@ -8,12 +8,13 @@ ledger, even when a seeder puts one back. A member who deleted their account rea
 from __future__ import annotations
 
 import csv
+from datetime import timedelta
 
 import pytest
 from django.utils import timezone
 
 from billing.models import Payout, ReconciliationSnapshot
-from billing.payments_panel import build_payments_ledger, parse_window
+from billing.payments_panel import PanelWindow, build_payments_ledger, parse_window
 from billing.reconciliation import RecipientKind, build_reconciliation, stream_reconciliation_csv
 from tests.membership.factories import GuildFactory, MemberFactory
 
@@ -24,16 +25,25 @@ def _window():
     return parse_window("", "")
 
 
-def _paid_registration(*, cents, slug, instructor=None, guild=None, member=None, pi=""):
+def _closed_window():
+    """The last 30 days up to yesterday: a snapshot may only freeze dates that are over (#985)."""
+    today = timezone.localdate()
+    return PanelWindow(start=today - timedelta(days=30), end=today - timedelta(days=1))
+
+
+TWO_DAYS_AGO = timedelta(days=2)
+
+
+def _paid_registration(*, cents, slug, instructor=None, guild=None, member=None, pi="", ago=timedelta(0)):
     from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory, RegistrationFactory
 
     offering = ClassOfferingFactory(slug=slug, category=CategoryFactory(guild=guild), instructor=instructor)
-    ClassSessionFactory(class_offering=offering, starts_at=timezone.now())
+    ClassSessionFactory(class_offering=offering, starts_at=timezone.now() - ago)
     return RegistrationFactory(
         class_offering=offering,
         amount_paid_cents=cents,
         member=member,
-        confirmed_at=timezone.now(),
+        confirmed_at=timezone.now() - ago,
         stripe_payment_id=pi,
     )
 
@@ -81,9 +91,13 @@ def describe_demo_classes():
 
     def it_freezes_no_payout_for_a_demo_registration():
         instructor = MemberFactory()
-        real = _paid_registration(cents=10000, slug="real-wood", instructor=instructor, guild=GuildFactory())
-        demo = _paid_registration(cents=40000, slug="demo-wood", instructor=instructor, guild=GuildFactory())
-        window = _window()
+        real = _paid_registration(
+            cents=10000, slug="real-wood", instructor=instructor, guild=GuildFactory(), ago=TWO_DAYS_AGO
+        )
+        demo = _paid_registration(
+            cents=40000, slug="demo-wood", instructor=instructor, guild=GuildFactory(), ago=TWO_DAYS_AGO
+        )
+        window = _closed_window()
 
         ReconciliationSnapshot.take(period_start=window.start, period_end=window.end)
 
@@ -122,9 +136,14 @@ def describe_real_money_on_a_demo_slug():
 
     def it_freezes_a_payout_for_a_real_demo_day_class():
         reg = _paid_registration(
-            cents=10000, slug="demo-day-2026-11-02", instructor=MemberFactory(), guild=GuildFactory(), pi="pi_real"
+            cents=10000,
+            slug="demo-day-2026-11-02",
+            instructor=MemberFactory(),
+            guild=GuildFactory(),
+            pi="pi_real",
+            ago=TWO_DAYS_AGO,
         )
-        window = _window()
+        window = _closed_window()
 
         ReconciliationSnapshot.take(period_start=window.start, period_end=window.end)
 
@@ -165,8 +184,10 @@ def describe_deleted_member_names():
 
     def it_names_a_deleted_instructor_on_their_recipient_row_and_in_the_snapshot():
         instructor = _deleted("Sasha Forge")
-        _paid_registration(cents=10000, slug="real-forge", instructor=instructor, guild=GuildFactory())
-        window = _window()
+        _paid_registration(
+            cents=10000, slug="real-forge", instructor=instructor, guild=GuildFactory(), ago=TWO_DAYS_AGO
+        )
+        window = _closed_window()
 
         result = build_reconciliation(window=window, adjustments={})
         snapshot = ReconciliationSnapshot.take(period_start=window.start, period_end=window.end)
