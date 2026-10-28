@@ -2327,6 +2327,8 @@ def _composer_context(
         "can_print_marketing": saved is not None and can_print_class_marketing(request, saved),
         **_missing_context(missing, verb),
         **_composer_discounts_context(saved, is_admin, can_view_discount_codes),
+        # The class's messages (#975), under Where Your Class Is.
+        **_page_thread_context(request, saved, next_url=request.get_full_path()),
     }
 
 
@@ -3288,8 +3290,23 @@ def _render_class_overview(
             "paid_registration_count": offering.paid_registration_count,
             "can_duplicate_run": _may_run_again(access),
             "can_delete_now": _may_delete(access, offering),
+            **_page_thread_context(
+                request, offering, next_url=reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+            ),
         },
     )
+
+
+def _page_thread_context(request: HttpRequest, offering: ClassOffering | None, *, next_url: str) -> dict[str, Any]:
+    """The Messages card on an instructor's class page (#975), for whoever has a side on the thread.
+
+    A send lands on ``next_url``: the page's own address, never the POST endpoint a refused
+    form re-rendered it under. A class not yet saved has no thread.
+    """
+    side = offering.message_side(request.user) if offering is not None and offering.pk else None
+    if offering is None or side is None:
+        return {"class_thread": None}
+    return _class_thread_context(request, offering, side=side, next_url=next_url)
 
 
 def _save_sale(request: HttpRequest, offering: ClassOffering) -> ClassSaleForm | None:
@@ -5014,10 +5031,6 @@ def _class_review_view(
             approval = ClassApproval.objects.create(class_offering=offering, role=role)
     settings_obj = ClassSettings.load()
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
-    history_qs = offering.approvals.order_by("-created_at")
-    if approval is not None:
-        history_qs = history_qs.exclude(pk=approval.pk)
-    history = list(history_qs)
 
     form = ClassReviewDecisionForm(request.POST or None)
     # A signed-in person who is not this guild's lead or a Class Reviewer cannot decide a
@@ -5059,7 +5072,6 @@ def _class_review_view(
             "offering": offering,
             "settings_obj": settings_obj,
             "approval": approval,
-            "history": history,
             "form": form,
             "role": role,
             "is_reviewable": is_reviewable,
@@ -5071,8 +5083,163 @@ def _class_review_view(
             "readiness": readiness,
             "readiness_ready_count": sum(1 for item in readiness if item.ok),
             "is_ready": all(item.ok for item in readiness),
+            # The class's messages (#975), in place of the old list of past decisions' notes:
+            # every note is in the thread, and the thread outlives the rows a resubmit deletes.
+            **_review_thread_context(request, offering, token=token, approval=approval),
         },
     )
+
+
+def _review_thread_context(
+    request: HttpRequest, offering: ClassOffering, *, token: str | None, approval: ClassApproval | None
+) -> dict[str, Any]:
+    """The review page's Messages card: shown to whoever may write on the class's thread.
+
+    On the admin page that is anyone :meth:`ClassOffering.message_side` places. On a review
+    link it is the same people signed in, and signed out the link itself while its review round
+    is live (:func:`_review_link_takes_messages`), through the link's own post address.
+    """
+    side = offering.message_side(request.user)
+    if token is not None and approval is not None and _review_link_takes_messages(request, approval, side):
+        post_url = reverse("classes:class_review_message", kwargs={"token": token})
+        return _class_thread_context(
+            request, offering, side=side or ClassOffering.MESSAGE_SIDE_REVIEWER, post_url=post_url
+        )
+    if token is None and side is not None:
+        return _class_thread_context(request, offering, side=side)
+    return {"class_thread": None}
+
+
+def _review_link_takes_messages(request: HttpRequest, approval: ClassApproval, side: str | None) -> bool:
+    """Whether a review link shows its class's messages and takes a post from this request.
+
+    Signed in, the person needs a side on the thread (:meth:`ClassOffering.message_side`).
+    Signed out, the token is the credential, as for the decision, but only while that gate's
+    round is live (:attr:`ClassApproval.review_cycle_is_live`): an old or forwarded link reads
+    nothing and writes nothing once the class moved on.
+    """
+    if request.user.is_authenticated:
+        return side is not None
+    return approval.review_cycle_is_live
+
+
+def _class_thread_context(
+    request: HttpRequest, offering: ClassOffering, *, side: str, post_url: str = "", next_url: str = ""
+) -> dict[str, Any]:
+    """What ``classes/_components/class_messages.html`` reads: the thread, the composer and its words.
+
+    ``side`` is the viewer's (:meth:`ClassOffering.message_side`); ``post_url`` defaults to the
+    class's own messages address; ``next_url`` is where a send lands back (the page it came from).
+    """
+    from hub.forms import ThreadMessageForm
+
+    is_instructor = side == ClassOffering.MESSAGE_SIDE_INSTRUCTOR
+    if is_instructor:
+        body_label = "Write to the reviewers"
+        note = f"Goes to {offering.reviewers_label}. You do not need to resubmit."
+        empty = "No messages yet. Ask the reviewers anything about this class, any time."
+    else:
+        several = len(offering.instructor_list) > 1
+        body_label = "Write to the instructors" if several else "Write to the instructor"
+        note = f"{offering.instructor_names} {'get' if several else 'gets'} it in the app and by email, per their settings."
+        empty = "No messages yet."
+    return {
+        "class_thread": {
+            "messages": offering.thread(),
+            "viewer_is_staff": not is_instructor,
+            "key": offering.message_thread_key,
+            "empty": empty,
+            "form": ThreadMessageForm(auto_id="id_class_message_%s"),
+            "action": post_url or reverse("classes:class_messages", kwargs={"pk": offering.pk}),
+            "next": next_url,
+            "body_label": body_label,
+            "note": note,
+        }
+    }
+
+
+def _with_open_thread(url: str, key: str) -> str:
+    """``url`` with ``messages=<key>`` in its query, so the page it lands on opens and scrolls to that thread.
+
+    A boosted redirect drops a ``#fragment``, so the query carries it
+    (``components/thread_script.html``).
+    """
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    query = [(name, value) for name, value in parse_qsl(parts.query, keep_blank_values=True) if name != "messages"]
+    query.append(("messages", key))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def _send_class_message(request: HttpRequest, offering: ClassOffering, *, default: str) -> HttpResponse:
+    """Post the submitted message on ``offering``'s thread and land on ``next`` (or ``default``) with it open.
+
+    A refused message (a photo over the caps) sends nothing and lands on the same page with
+    the reason. The toast names who was told.
+    """
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    from hub.forms import ThreadMessageForm
+
+    next_url = request.POST.get("next", "")
+    if not (next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()})):
+        next_url = default
+    form = ThreadMessageForm(request.POST, request.FILES)
+    if not form.is_valid():
+        messages.error(request, f"Not sent. {form.error_summary()}")
+    else:
+        author = cast("User", request.user) if request.user.is_authenticated else None
+        message = offering.post_message(
+            author=author, body=form.cleaned_data["body"], photos=form.cleaned_data["photos"]
+        )
+        messages.success(request, "Sent." + message.told_sentence())
+    return redirect(_with_open_thread(next_url, offering.message_thread_key))
+
+
+@login_required
+def class_messages(request: HttpRequest, pk: int) -> HttpResponse:
+    """A class's messages (#975): GET lands each reader on the page that shows them; POST posts one.
+
+    The stable link every message notice carries. An instructor of the class lands on its
+    Overview; a reviewer who can open the Overview (an admin, a CMS Administrator) lands
+    there too; a guild reviewer who cannot lands on the newest guild lead gate they may decide,
+    never on an admin gate (whose link decides for anyone holding it), and gets a 404 when there
+    is none. A POST writes as the poster's side and tells the other side. Anyone with no side
+    on the thread (:meth:`ClassOffering.message_side`) gets a 404, as if it did not exist.
+    """
+    offering = get_object_or_404(ClassOffering.objects.select_related("category__guild"), pk=pk)
+    side = offering.message_side(request.user)
+    if side is None:
+        raise Http404("This class's messages are not this viewer's.")
+    overview = reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+    access = class_access(request, offering)
+    if side == ClassOffering.MESSAGE_SIDE_INSTRUCTOR or (access is not None and access.can_view_overview):
+        landing = overview
+    else:
+        gates = offering.approvals.filter(role=ClassApproval.Role.GUILD_LEAD).order_by("-created_at")
+        row = next((gate for gate in gates if gate.may_be_decided_by(request.user)), None)
+        if row is None:
+            raise Http404("This class has no review page for this viewer.")
+        landing = row.review_path
+    if request.method == "POST":
+        return _send_class_message(request, offering, default=landing)
+    return redirect(_with_open_thread(landing, offering.message_thread_key))
+
+
+@require_POST
+def class_review_message(request: HttpRequest, token: str) -> HttpResponse:
+    """Post a message from a review link (#975), for whoever :func:`_review_link_takes_messages` admits.
+
+    Signed in, the person writes as their side; signed out, while the link's round is live, the
+    message has no author and signs as the reviewer. Anyone else gets a 404. Lands back on the
+    review link.
+    """
+    approval = get_object_or_404(ClassApproval.objects.select_related("class_offering__category__guild"), token=token)
+    offering = approval.class_offering
+    if not _review_link_takes_messages(request, approval, offering.message_side(request.user)):
+        raise Http404("This class's messages are not this viewer's.")
+    return _send_class_message(request, offering, default=approval.review_path)
 
 
 @class_screen_required
