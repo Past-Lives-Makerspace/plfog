@@ -22,7 +22,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
 from classes.table import prepare_table
-from hub.cubby_forms import CubbyAssignForm
+from hub.cubby_forms import CubbyAssignForm, CubbyEndRentalForm
 from hub.cubby_views import manage_context
 from hub.views import _get_member
 from membership import cubbies, cubby_rentals
@@ -124,12 +124,12 @@ def hub_cubby_rental_end(request: HttpRequest, rental_pk: int) -> HttpResponse:
     if not can_edit_guild(request, guild):
         raise Http404("No such rental among the guilds you run.")
     back = reverse("hub_guild_cubbies_rentals", args=[guild.pk])
-    reason = request.POST.get("reason", "").strip()
-    if not reason:
-        messages.error(request, "Say why you're ending it. The member gets your reason by email.")
+    form = CubbyEndRentalForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, form.errors["reason"][0])
         return redirect(back)
     try:
-        cubby_rentals.end_rental(rental, reason=reason)
+        cubby_rentals.end_rental(rental, reason=form.cleaned_data["reason"])
     except cubby_rentals.CubbyRentalError as refusal:
         messages.error(request, str(refusal))
         return redirect(back)

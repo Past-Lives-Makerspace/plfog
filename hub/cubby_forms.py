@@ -14,7 +14,7 @@ from django import forms
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import SafeString
 
-from membership.models import Cubby, Guild, ShelfUnit, cubby_price_problems
+from membership.models import Cubby, CubbyRental, Guild, ShelfUnit, cubby_price_problems
 
 
 class MoneyInput(forms.TextInput):
@@ -320,12 +320,11 @@ class CubbyAssignForm(forms.Form):
 
     MEMBER_LIST_ID = "cubby-assign-members"
     SOURCE_CHOICES = [
-        ("comped", "Comped"),
-        ("outside", "Paid Another Way"),
+        (source.value, source.label) for source in (CubbyRental.Source.COMPED, CubbyRental.Source.OUTSIDE)
     ]
     SOURCE_HINTS = {
-        "comped": "Free. Nothing is charged, ever.",
-        "outside": "Cash or a check to the guild. Recorded here for your totals, never charged.",
+        CubbyRental.Source.COMPED: "Free. Nothing is charged, ever.",
+        CubbyRental.Source.OUTSIDE: "Cash or a check to the guild. Recorded here for your totals, never charged.",
     }
 
     member = forms.CharField(
@@ -356,7 +355,7 @@ class CubbyAssignForm(forms.Form):
     source = forms.ChoiceField(
         label="How They Pay",
         choices=SOURCE_CHOICES,
-        initial="comped",
+        initial=CubbyRental.Source.COMPED,
         widget=forms.RadioSelect(attrs={"x-model": "source"}),
         error_messages={"required": "Pick how they pay."},
     )
@@ -426,9 +425,9 @@ class CubbyAssignForm(forms.Form):
         if cubby_pk is not None:
             cleaned["cubby_obj"] = self.open_cubbies[cubby_pk]
         source = cleaned.get("source")
-        if source == "comped":
+        if source == CubbyRental.Source.COMPED:
             cleaned["amount_cents"] = 0
-        elif source == "outside":
+        elif source == CubbyRental.Source.OUTSIDE:
             amount = cleaned.get("amount")
             if amount is None:
                 if "amount" not in self.errors:
@@ -436,3 +435,12 @@ class CubbyAssignForm(forms.Form):
             else:
                 cleaned["amount_cents"] = _cents(amount)
         return cleaned
+
+
+class CubbyEndRentalForm(forms.Form):
+    """End Rental's confirm (#979): the reason staff give, which the member gets by email. Required."""
+
+    reason = forms.CharField(
+        strip=True,
+        error_messages={"required": "Say why you're ending it. The member gets your reason by email."},
+    )
