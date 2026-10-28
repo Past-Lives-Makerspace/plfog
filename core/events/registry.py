@@ -575,6 +575,7 @@ CUBBIES_RENTAL_REFUNDED = "cubbies.rental_refunded"  # someone got the cubby fir
 CUBBIES_RENTAL_STARTED = "cubbies.rental_started"  # staff: a member rented one of the guild's cubbies (#979)
 CUBBIES_RENTAL_PAST_DUE = "cubbies.rental_past_due"  # staff: a cubby rental's monthly charge failed (#979)
 CUBBIES_STAFF_RENTAL_ENDED = "cubbies.staff_rental_ended"  # staff: a cubby rental ended; clear the shelf (#979)
+CUBBIES_WAITLIST_OPENED = "cubbies.waitlist_opened"  # a cubby opened in a guild whose waitlist you're first on (#980)
 TOUR_CALENDAR_BUSY = "tour.calendar_busy"  # your Google Calendar now shows you busy during a booked tour (#951)
 TOUR_CALENDAR_BROKEN = "tour.calendar_broken"  # Google stopped accepting your calendar connection (#951)
 TOUR_CALENDAR_GONE = "tour.calendar_gone"  # the calendar you picked for tours is gone; the main one took over (#951)
@@ -1873,6 +1874,18 @@ _NEW_EVENTS: list[EventType] = [
         category="Guilds",
         recipient=Recipients.GUILD_LEADERSHIP,
         channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # The cubby waitlist (#980): a cubby opened and you were first in line. Bell on, email forced
+    # (the member asked to hear). Sent once per entry from membership.cubby_waitlist with the
+    # membership/emails/cubby_waitlist_opened.{txt,html} body.
+    EventType(
+        key=CUBBIES_WAITLIST_OPENED,
+        label="A cubby opened for you",
+        description="A cubby opened in a guild whose waitlist you joined. Whoever rents it first gets it.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
         activity_kind=None,
     ),
 ]

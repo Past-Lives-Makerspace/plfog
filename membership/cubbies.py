@@ -5,6 +5,10 @@ under a lock on the guild row, so two staff saving at once cannot both take the 
 or the same label. The checks themselves live on the models (``Cubby.placement_problems``,
 ``ShelfUnit.resize_problem``, ``ShelfUnit.restore_problem``); this module orders them.
 
+A change that opens a cubby (a new one, Out of Service turned off, a cubby or its shelf restored)
+tells the guild's waitlist once it commits (``membership.cubby_waitlist.open_for_waitlist``, #980).
+Resizing never opens one: it refuses to cut a cubby off, and growing adds empty squares only.
+
 The read models draw a unit as its grid: one cell per square in row order, a cubby taking
 the squares it spans. CSS grid places the cells in that order, so no cell needs a position
 of its own (``.pl-cubby-grid`` in ``static/css/cubbies.css``).
@@ -22,7 +26,8 @@ from django.db import transaction
 from django.db.models import Prefetch
 from django.utils import timezone
 
-from membership.models import Cubby, CubbyRental, Guild, Member, ShelfUnit, cubby_dollars
+from membership import cubby_waitlist
+from membership.models import Cubby, CubbyRental, CubbyWaitlistEntry, Guild, Member, ShelfUnit, cubby_dollars
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -76,7 +81,8 @@ def _rented_label(cubbies: Iterable[Cubby]) -> str:
 def save_cubby(cubby: Cubby) -> None:
     """Place or update ``cubby`` after checking its spot and label again under the guild lock.
 
-    A rented cubby (or one held while someone pays) cannot be put out of service (#978).
+    A rented cubby (or one held while someone pays) cannot be put out of service (#978). A new
+    cubby in service, or one coming back into service, opens for the waitlist (#980).
 
     Raises:
         ValidationError: keyed by field, when the spot or the label was taken meanwhile or the
@@ -94,7 +100,10 @@ def save_cubby(cubby: Cubby) -> None:
         problems = cubby.placement_problems()
         if problems:
             raise ValidationError(problems)
+        was_closed = cubby.pk is None or Cubby.objects.filter(pk=cubby.pk, out_of_service=True).exists()
         cubby.save()
+        if was_closed and not cubby.out_of_service and not _rented_label([cubby]):
+            cubby_waitlist.open_for_waitlist(cubby)
 
 
 def resize_unit(unit: ShelfUnit, *, name: str, rows: int, columns: int) -> None:
@@ -143,6 +152,8 @@ def restore_unit(unit: ShelfUnit) -> None:
             raise ValidationError(problem)
         unit.archived_at = None
         unit.save(update_fields=["archived_at"])
+        for cubby in unit.cubbies.filter(archived_at__isnull=True, out_of_service=False):
+            cubby_waitlist.open_for_waitlist(cubby)
 
 
 def archive_cubby(cubby: Cubby) -> None:
@@ -176,6 +187,8 @@ def restore_cubby(cubby: Cubby) -> None:
             raise ValidationError(" ".join(problems.values()))
         cubby.archived_at = None
         cubby.save(update_fields=["archived_at"])
+        if not cubby.out_of_service:
+            cubby_waitlist.open_for_waitlist(cubby)
 
 
 @dataclass
@@ -261,6 +274,9 @@ class CubbyTab:
 
     ``shelves`` is False when the guild's switch is off but the viewer still rents here: the
     tab then shows only their Your Cubby cards, so they can always cancel or fix their card.
+
+    ``waitlist_entry`` is the viewer's place on the guild's waitlist (#980), with ``waitlist_place``
+    counting from 1: shown as You're on the List whenever they wait, full or not, so they can leave.
     """
 
     guild: Guild
@@ -268,14 +284,18 @@ class CubbyTab:
     rentals: list[CubbyRental] = field(default_factory=list)
     viewer_pk: int | None = None
     shelves: bool = True
+    waitlist_entry: CubbyWaitlistEntry | None = None
+    waitlist_place: int = 0
 
     @classmethod
     def load(cls, guild: Guild, member: Member | None = None) -> CubbyTab:
         """The whole tab: the viewer's live rentals here, then active units with their active cubbies and renters.
 
-        Three queries with a member, two without.
+        Four queries with a member (their waitlist entry too, and a fifth for its place when they
+        wait), two without.
         """
         rentals = cls._rentals(guild, member)
+        entry = cubby_waitlist.entry_for(guild, member) if member is not None else None
         units = list(guild.shelf_units.active())
         cubbies = list(
             Cubby.objects.active()
@@ -285,18 +305,35 @@ class CubbyTab:
             .order_by("row", "column")
         )
         views = [view for view in _unit_views(units, cubbies) if view.cubbies]
-        return cls(guild=guild, units=views, rentals=rentals, viewer_pk=member.pk if member is not None else None)
+        return cls(
+            guild=guild,
+            units=views,
+            rentals=rentals,
+            viewer_pk=member.pk if member is not None else None,
+            waitlist_entry=entry,
+            waitlist_place=cubby_waitlist.place_in_line(entry) if entry is not None else 0,
+        )
 
     @classmethod
     def for_page(cls, guild: Guild, member: Member) -> CubbyTab | None:
         """What the guild page shows ``member``: the whole tab while the switch is on; with it off,
-        only their Your Cubby cards (one query), or None when they rent nothing here."""
+        only their Your Cubby cards and, while they wait, their place with Leave the List (#980), or
+        None when they neither rent nor wait here."""
         if guild.show_cubbies_tab:
             return cls.load(guild, member)
         rentals = cls._rentals(guild, member)
-        if not rentals:
+        entry = cubby_waitlist.entry_for(guild, member)
+        if not rentals and entry is None:
             return None
-        return cls(guild=guild, units=[], rentals=rentals, viewer_pk=member.pk, shelves=False)
+        return cls(
+            guild=guild,
+            units=[],
+            rentals=rentals,
+            viewer_pk=member.pk,
+            shelves=False,
+            waitlist_entry=entry,
+            waitlist_place=cubby_waitlist.place_in_line(entry) if entry is not None else 0,
+        )
 
     @staticmethod
     def _rentals(guild: Guild, member: Member | None) -> list[CubbyRental]:
@@ -315,6 +352,16 @@ class CubbyTab:
     def is_full(self) -> bool:
         """Every cubby on the tab is rented or out of service (the full card, #978)."""
         return bool(self.units) and self.open_count == 0
+
+    @property
+    def offers_waitlist(self) -> bool:
+        """Notify Me When One Opens shows: every cubby is taken and the viewer is not waiting yet (#980)."""
+        return self.is_full and self.waitlist_entry is None
+
+    @property
+    def all_rented(self) -> bool:
+        """Every cubby on the tab is rented (none out of service), for the full card's wording."""
+        return all(cubby.state == Cubby.State.RENTED for cubby in self.cubbies)
 
     @property
     def cubbies(self) -> list[Cubby]:
@@ -621,3 +668,34 @@ class RentalRow:
         if rental.is_cancelling:
             sentence += f" {first} was already cancelling on {_short_day(rental.current_period_end)}."
         return f"{sentence} We'll email {first} your reason, so check the shelf is clear first."
+
+
+# ── The staff Waitlist (#980) ────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class WaitlistRow:
+    """One waiting member as the Rentals tab's Waitlist chip draws them: the table row and the phone card."""
+
+    entry: CubbyWaitlistEntry
+    place: int
+    name: str
+    initials: str
+    joined: str
+
+    @classmethod
+    def for_guild(cls, guild: Guild) -> list[WaitlistRow]:
+        """The guild's line, first told first, in one query."""
+        rows = []
+        for place, entry in enumerate(cubby_waitlist.line(guild), start=1):
+            name = entry.member.display_name
+            rows.append(
+                cls(entry=entry, place=place, name=name, initials=initials(name), joined=_short_day(entry.joined_at))
+            )
+        return rows
+
+    @property
+    def remove_message(self) -> str:
+        """Remove's confirm sentence: who moves up, and that the member is not told."""
+        first = self.name.split()[0] if self.name.split() else self.name
+        return f"{first} leaves the waitlist and everyone behind them moves up one. We won't tell {first}."

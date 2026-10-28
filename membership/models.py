@@ -24121,3 +24121,98 @@ class CubbyPayment(models.Model):
     def refunded_cents(self) -> int:
         """What went back to the member: the whole payment once refunded, else nothing."""
         return self.amount_cents if self.stripe_refund_id else 0
+
+
+# ---------------------------------------------------------------------------
+# Cubby waitlist (#976 part 4, #980): who hears next when a full guild's cubby opens
+# ---------------------------------------------------------------------------
+
+
+class CubbyWaitlistEntryQuerySet(models.QuerySet["CubbyWaitlistEntry"]):
+    """Waitlist reads."""
+
+    def waiting(self) -> CubbyWaitlistEntryQuerySet:
+        """Entries still in line: not told about an opening yet, and not left or removed."""
+        return self.filter(notified_at__isnull=True, left_at__isnull=True)
+
+    def in_line(self) -> CubbyWaitlistEntryQuerySet:
+        """Waiting entries, first come first: the order openings are told in."""
+        return self.waiting().order_by("joined_at", "pk")
+
+
+class CubbyWaitlistEntry(models.Model):
+    """One member waiting for any cubby in a guild whose cubbies are all taken (#980).
+
+    A heads up, never a hold: each cubby that opens tells the entry first in line and takes it off
+    the list (``notified_at``), and whoever rents first gets the cubby. Leaving, or guild staff
+    removing it, sets ``left_at``. ``uq_cubbywait_open`` allows one waiting entry per member per
+    guild, so rejoining makes a new entry at the back. ``membership/cubby_waitlist.py`` is its only writer.
+    """
+
+    guild = models.ForeignKey(
+        Guild,
+        on_delete=models.CASCADE,
+        related_name="cubby_waitlist",
+        help_text="The guild whose cubbies the member is waiting for.",
+    )
+    member = models.ForeignKey(
+        "Member",
+        on_delete=models.CASCADE,
+        related_name="cubby_waitlist_entries",
+        help_text="Who is waiting.",
+    )
+    joined_at = models.DateTimeField(
+        default=timezone.now, help_text="When they joined the list; the earliest is told first."
+    )
+    notified_at = models.DateTimeField(
+        null=True, blank=True, help_text="When a cubby opened and we told them, which took them off the list."
+    )
+    notified_cubby = models.ForeignKey(
+        Cubby,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The cubby whose opening we told them about.",
+    )
+    left_at = models.DateTimeField(
+        null=True, blank=True, help_text="When they left the list, or guild staff removed them."
+    )
+
+    objects = CubbyWaitlistEntryQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["joined_at", "pk"]
+        verbose_name_plural = "cubby waitlist entries"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["guild", "member"],
+                condition=Q(notified_at__isnull=True, left_at__isnull=True),
+                name="uq_cubbywait_open",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["guild", "joined_at"],
+                name="ix_cubbywait_line",
+                condition=Q(notified_at__isnull=True, left_at__isnull=True),
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.display_name} waiting for a {self.guild.name} cubby"
+
+    @property
+    def is_waiting(self) -> bool:
+        """Whether it is still in line."""
+        return self.notified_at is None and self.left_at is None
+
+    @property
+    def remove_confirm_id(self) -> str:
+        """The DOM id of its Remove confirm on the staff Waitlist (#980)."""
+        return f"cubby-wait-remove-{self.pk}"
+
+    @property
+    def remove_url(self) -> str:
+        """Where staff Remove posts."""
+        return reverse("hub_cubby_waitlist_remove", args=[self.pk])

@@ -3,7 +3,8 @@ The Rentals tab (#979), from mockups/guild-cubbies.html views manage-rentals, re
 assign: four tiles, the filter chips beside Export CSV and Assign a Cubby, the sortable table (one card per
 rental below 768px, the same RentalRow words), an End Rental confirm with its required reason per live
 rental, and the Assign a Cubby modal. Context: summary (RentalsSummary), rows (RentalRow), page, sort,
-sort_dir, base_params, show, assign_form, open_assign_modal.
+sort_dir, base_params, show, assign_form, open_assign_modal. The Waitlist chip (#980, show "waitlist")
+swaps the table for hub/cubbies/_waitlist.html (waitlist_rows, waitlist_count).
 {% endcomment %}
 {% load classes_tags %}
 <div class="pl-cubby-rentals" x-data data-cubby-rentals>
@@ -35,6 +36,7 @@ sort_dir, base_params, show, assign_form, open_assign_modal.
       {% for key, label, count in summary.filters %}
       <a href="?show={{ key }}" class="pl-wp-chip{% if key == show %} pl-wp-chip--active{% endif %}"{% if key == show %} aria-current="true"{% endif %} data-rental-filter="{{ key }}">{{ label }} ({{ count }})</a>
       {% endfor %}
+      <a href="?show=waitlist" class="pl-wp-chip{% if show == 'waitlist' %} pl-wp-chip--active{% endif %}"{% if show == 'waitlist' %} aria-current="true"{% endif %} data-rental-filter="waitlist">Waitlist ({{ waitlist_count }})</a>
     </nav>
     <div class="pl-cubby-toolbar__end">
       <a href="{% url 'hub_guild_cubbies_rentals_csv' guild.pk %}" class="pl-cubby-csv" hx-boost="false" data-pl-download data-cubby-csv><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-download"/></svg>Export CSV</a>
@@ -42,7 +44,9 @@ sort_dir, base_params, show, assign_form, open_assign_modal.
     </div>
   </div>
 
-  {% if rows %}
+  {% if show == "waitlist" %}
+  {% include "hub/cubbies/_waitlist.html" %}
+  {% elif rows %}
   <div class="admin-table-wrap pl-cubby-rwide">
     <table class="admin-table pl-cubby-rtable" data-cubby-rentals-table>
       <thead>

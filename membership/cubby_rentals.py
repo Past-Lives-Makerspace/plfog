@@ -22,6 +22,10 @@ monthly Stripe subscription at the amount the member chose:
   the ``customer.subscription.deleted`` that follows finds it Ended and adds nothing. A member's
   own Cancel Rental on an assigned rental ends it today the same way.
 
+Every change that frees a cubby (a rental ending however it ends, a hold deleted) calls
+:func:`membership.cubby_waitlist.open_for_waitlist` inside it, so the member first in that guild's
+waitlist hears once the change commits (#980).
+
 Notifications go out after the change commits, each exactly once through its emit ``period``. The
 renter hears about their own rental; the guild's lead and staff hear about a new rental, a Past
 Due one (the 8 AM digest drops it once it is paid) and an ended one, whose shelf needs clearing.
@@ -39,6 +43,7 @@ from django.db import IntegrityError, transaction
 from django.urls import reverse
 from django.utils import timezone
 
+from membership.cubby_waitlist import leave_everywhere, open_for_waitlist
 from membership.models import (
     CUBBY_PRICE_MAX_CENTS,
     CUBBY_PRICE_MIN_CENTS,
@@ -216,12 +221,20 @@ def start_rental(cubby: Cubby, member: Member, amount_cents: int) -> str:
 
     tab, _created = Tab.objects.get_or_create(member=member)
     customer_id = tab.get_or_create_stripe_customer()
+    released = False
     for _attempt in range(2):
-        rental, own_hold = _hold(cubby, member, amount_cents, customer_id)
+        try:
+            rental, own_hold = _hold(cubby, member, amount_cents, customer_id)
+        except CubbyRentalError:
+            if released:
+                # The member's old hold was released and this rent was refused: the cubby is open (#980).
+                open_for_waitlist(cubby)
+            raise
         if own_hold is not None:
             url = _resume_or_settle(own_hold, amount_cents)
             if url:
                 return url
+            released = True
             continue
         assert rental is not None
         locked_cubby = rental.cubby
@@ -251,6 +264,8 @@ def start_rental(cubby: Cubby, member: Member, amount_cents: int) -> str:
         rental.stripe_checkout_session_id = session["id"]
         rental.save(update_fields=["stripe_checkout_session_id"])
         return session["url"]
+    # Both tries released a hold of the member's and neither was replaced, so the cubby is open (#980).
+    open_for_waitlist(cubby)
     raise CubbyTakenError(BEING_PAID_FOR.format(label=cubby.label))
 
 
@@ -296,27 +311,35 @@ def _resume_or_settle(hold: CubbyRental, amount_cents: int) -> str:
         if hold.created_at > timezone.now() - HOLD_IN_PROGRESS:
             # Another tab of the member's is creating this hold's Checkout right now: leave it be.
             raise CubbyTakenError(BEING_PAID_FOR.format(label=hold.cubby.label))
-        _delete_hold(hold, expire_session=False)
+        _delete_hold(hold, expire_session=False, reopens=False)
         return ""
     try:
         session = stripe_utils.retrieve_checkout_session(session_id=hold.stripe_checkout_session_id)
     except stripe_utils.CheckoutSessionNotFound:
-        _delete_hold(hold, expire_session=False)
+        _delete_hold(hold, expire_session=False, reopens=False)
         return ""
     if session["status"] == "complete" and session["subscription"]:
         settle_subscription(session["subscription"])
         raise CubbyUnavailableError(f"{hold.cubby.label} is already yours.")
     if session["status"] == "open" and session["url"] and hold.amount_cents == amount_cents:
         return str(session["url"])
-    _delete_hold(hold, expire_session=session["status"] == "open")
+    _delete_hold(hold, expire_session=session["status"] == "open", reopens=False)
     return ""
 
 
-def _delete_hold(rental: CubbyRental, *, expire_session: bool = True) -> None:
-    """Delete an unpaid hold (status guarded, so a row a webhook just activated survives)."""
+def _delete_hold(rental: CubbyRental, *, expire_session: bool = True, reopens: bool = True) -> bool:
+    """Delete an unpaid hold (status guarded, so a row a webhook just activated survives).
+
+    Its cubby opens, so the waitlist hears (#980), unless ``reopens`` is False: the member's own
+    hold being replaced by a new one in the same rent. Returns whether a hold was deleted, so a
+    second delivery of the same release tells nobody.
+    """
     if expire_session:
         _expire_session_best_effort(rental)
-    CubbyRental.objects.filter(pk=rental.pk, status=Status.PENDING_PAYMENT).delete()
+    deleted, _rows = CubbyRental.objects.filter(pk=rental.pk, status=Status.PENDING_PAYMENT).delete()
+    if deleted and reopens:
+        open_for_waitlist(rental.cubby)
+    return bool(deleted)
 
 
 def _expire_session_best_effort(rental: CubbyRental) -> None:
@@ -395,6 +418,8 @@ def _mirror(snapshot: dict[str, Any], rental_pk: int) -> str:
                 ended = True
                 rental.status = Status.ENDED
                 rental.end_date = timezone.localdate()
+                # Its cubby is open once this commits; a retried webhook finds it Ended above and opens nothing (#980).
+                open_for_waitlist(rental.cubby)
             elif status != Status.PENDING_PAYMENT:
                 if rental.status == Status.PENDING_PAYMENT:
                     became_active = True
@@ -751,7 +776,9 @@ def release_expired_hold(session: dict[str, Any]) -> None:
     metadata = session.get("metadata") or {}
     if metadata.get("kind") != CHECKOUT_KIND:
         return
-    CubbyRental.objects.filter(pk=int(metadata["rental_pk"]), status=Status.PENDING_PAYMENT).delete()
+    hold = CubbyRental.objects.filter(pk=int(metadata["rental_pk"]), status=Status.PENDING_PAYMENT).first()
+    if hold is not None:
+        _delete_hold(hold, expire_session=False)
 
 
 def complete_checkout(session: dict[str, Any]) -> str:
@@ -789,17 +816,25 @@ def end_for_deleted_account(member: Member) -> None:
     A hold is released (its Checkout expired); a billing rental's subscription is cancelled and
     the rental ended at once, telling the member nothing (the account is going) and the guild's
     staff that the shelf needs clearing. Stripe errors propagate, so
-    the deletion stops rather than leave a card billing an account that no longer exists.
+    the deletion stops rather than leave a card billing an account that no longer exists. They
+    leave every cubby waitlist first, so the cubbies they free go to someone else (#980).
     """
-
+    leave_everywhere(member)
     for rental in CubbyRental.objects.live().filter(member=member).select_related("cubby__unit__guild", "member"):
         if rental.status == Status.PENDING_PAYMENT:
             _delete_hold(rental)
             continue
         if rental.stripe_subscription_id:
             _cancel_subscription(rental.stripe_subscription_id)
-        CubbyRental.objects.filter(pk=rental.pk).update(status=Status.ENDED, end_date=timezone.localdate())
+        # Guarded on a live status: the webhook for that cancel may have ended it already, and only
+        # the change that ends it opens the cubby, so one opening tells one member (#980).
+        ended = (
+            CubbyRental.objects.live().filter(pk=rental.pk).update(status=Status.ENDED, end_date=timezone.localdate())
+        )
+        if not ended:
+            continue
         rental.status = Status.ENDED
+        open_for_waitlist(rental.cubby)
         # The member hears nothing, but the guild still has a shelf to clear (#979).
         notify_staff_ended(rental)
 
@@ -887,6 +922,7 @@ def end_rental(rental: CubbyRental, *, reason: str = "") -> CubbyRental:
         locked.end_date = timezone.localdate()
         locked.end_reason = reason.strip()
         locked.save(update_fields=["status", "end_date", "end_reason"])
+        open_for_waitlist(locked.cubby)
     notify_ended(locked)
     notify_staff_ended(locked)
     return locked

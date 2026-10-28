@@ -1,5 +1,8 @@
 """The staff Cubbies manager's Rentals tab (#979): who rents what, Assign a Cubby, End Rental and the CSV.
 
+Its Waitlist chip (#980, ``?show=waitlist``) lists who waits for a cubby, with Remove
+(``hub/cubby_waitlist_views.py``).
+
 Mockup views manage-rentals, rentals-phone, rentals-end and assign in ``mockups/guild-cubbies.html``.
 Every view reads its guild and answers 404 to anyone :func:`membership.permissions.can_edit_guild`
 refuses: a guild's lead and staff reach only their own guild, admins and officers every guild. End
@@ -25,7 +28,7 @@ from classes.table import prepare_table
 from hub.cubby_forms import CubbyAssignForm, CubbyEndRentalForm
 from hub.cubby_views import manage_context
 from hub.views import _get_member
-from membership import cubbies, cubby_rentals
+from membership import cubbies, cubby_rentals, cubby_waitlist
 from membership.cubby_exports import stream_rentals_csv
 from membership.models import Cubby, CubbyRental, Guild
 from membership.permissions import can_edit_guild
@@ -34,6 +37,9 @@ logger = logging.getLogger(__name__)
 
 #: Stripe errors that are no answer (a timeout, a dropped connection, a 5xx, a rate limit): the cancel may have landed.
 _NO_ANSWER = (stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError)
+
+#: The ``?show=`` of the Waitlist chip (#980), beside the rental filters.
+WAITLIST_CHIP = "waitlist"
 
 #: The Rentals table's sortable columns, by ``?sort=``; Cubby is the default.
 _SORTABLE = frozenset(
@@ -50,23 +56,29 @@ def _staff_guild(request: HttpRequest, pk: int) -> Guild:
 
 
 def _render_rentals(request: HttpRequest, guild: Guild, *, assign_form: CubbyAssignForm | None = None) -> HttpResponse:
-    show = cubbies.rental_filter(request.GET.get("show", ""))
-    table = prepare_table(
-        request,
-        cubbies.staff_rentals(guild, show),
-        search_fields=[],
-        default_sort="cubby__label",
-        sortable=_SORTABLE,
-    )
     context: dict[str, Any] = {
         **manage_context(request, guild, "rentals"),
-        **table,
-        "rows": [cubbies.RentalRow.build(rental) for rental in table["page"].object_list],
-        "show": show,
         "summary": cubbies.RentalsSummary.load(guild),
+        "waitlist_count": cubby_waitlist.waiting_count(guild),
         "assign_form": assign_form or CubbyAssignForm(guild=guild),
         "open_assign_modal": assign_form is not None,
     }
+    if request.GET.get("show") == WAITLIST_CHIP:
+        # The Waitlist chip (#980): who waits for a cubby here, in the order they hear.
+        context["show"] = WAITLIST_CHIP
+        context["waitlist_rows"] = cubbies.WaitlistRow.for_guild(guild)
+    else:
+        show = cubbies.rental_filter(request.GET.get("show", ""))
+        table = prepare_table(
+            request,
+            cubbies.staff_rentals(guild, show),
+            search_fields=[],
+            default_sort="cubby__label",
+            sortable=_SORTABLE,
+        )
+        context.update(table)
+        context["rows"] = [cubbies.RentalRow.build(rental) for rental in table["page"].object_list]
+        context["show"] = show
     # A refused Assign renders at 200: a boosted 4xx becomes a fresh GET (hub_boot.js) and loses what was typed.
     return render(request, "hub/cubbies/manage.html", context)
 

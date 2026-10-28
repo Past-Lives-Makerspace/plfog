@@ -3189,6 +3189,11 @@ _CURATED: dict[str, EventCopy] = {
                 "You've been refunded for {{ cubby_label }}",
                 "{{ cubby_label }} wasn't free by the time your payment went through, so we refunded your {{ amount }}.",
             ),
+            (
+                "cubbies.waitlist_opened",
+                "A cubby just opened at {{ guild_name }}",
+                "Cubby {{ cubby_label }} on the {{ unit_name }} is open. Whoever rents it first gets it.",
+            ),
         )
     },
     # Cubby rentals for the guild's lead and staff (#979), sent in copy mode from
