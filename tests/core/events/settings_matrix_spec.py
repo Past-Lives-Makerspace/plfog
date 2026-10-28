@@ -723,6 +723,13 @@ def describe_padlocked_rows():
         "equipment.reservation_declined": "Spaces & Equipment",
         # The signup email always went out through email_to; the switch now says so (2026-10-14).
         "instructor_new_registration": "Teaching",
+        # A renter's own cubby news (#978): it is about their money.
+        "cubbies.rented": "Guilds",
+        "cubbies.payment_failed": "Guilds",
+        "cubbies.rental_ended": "Guilds",
+        "cubbies.rental_refunded": "Guilds",
+        # The member asked to hear when a cubby opens (#980).
+        "cubbies.waitlist_opened": "Guilds",
     }
     # Forced emails routed to staff: padlocked too, but in Admin / Permissions.
     STAFF_FORCED = {

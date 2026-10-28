@@ -559,6 +559,8 @@ FEEDBACK_COMMENT_ADDED = "feedback.comment_added"  # Past Lives wrote on a reque
 FEEDBACK_MEMBER_REPLIED = "feedback.member_replied"  # a sender wrote back on their request (the Webmasters)
 ORIENTATION_MESSAGE_TO_MEMBER = "orientation.message_to_member"  # an orientor wrote on your orientation booking
 ORIENTATION_MESSAGE_TO_ORIENTORS = "orientation.message_to_orientors"  # a member wrote on their orientation booking
+CLASS_MESSAGE_TO_INSTRUCTORS = "class.message_to_instructors"  # a reviewer wrote on your class (#975)
+CLASS_MESSAGE_TO_REVIEWERS = "class.message_to_reviewers"  # an instructor wrote on a class you review (#975)
 KILN_CREW_REPLIED = "kiln.crew_replied"  # the kiln crew wrote on your kiln ticket (#691)
 KILN_MAKER_REPLIED = "kiln.maker_replied"  # a maker wrote on a kiln ticket (the kiln crew, #691)
 KILN_READY_FOR_PICKUP = "kiln.ready_for_pickup"  # your pieces came out of a firing (#691 part 3)
@@ -566,6 +568,14 @@ TOUR_BOOKED = "tour.booked"  # a visitor booked one of your facility tours (#948
 TOUR_VISITOR_CHANGED = "tour.visitor_changed"  # a visitor moved or cancelled your tour from their email (#948)
 TOUR_VISITOR_UPDATE = "tour.visitor_update"  # the visitor's own tour emails, by address only (#948)
 TOUR_CHECKED_IN = "tour.checked_in"  # your visitor checked in at the front desk kiosk (#950)
+CUBBIES_RENTED = "cubbies.rented"  # your cubby rental is active (#978)
+CUBBIES_PAYMENT_FAILED = "cubbies.payment_failed"  # a monthly cubby charge failed, once per invoice (#978)
+CUBBIES_RENTAL_ENDED = "cubbies.rental_ended"  # your cubby rental ended and the cubby is free (#978)
+CUBBIES_RENTAL_REFUNDED = "cubbies.rental_refunded"  # someone got the cubby first; your payment came back (#978)
+CUBBIES_RENTAL_STARTED = "cubbies.rental_started"  # staff: a member rented one of the guild's cubbies (#979)
+CUBBIES_RENTAL_PAST_DUE = "cubbies.rental_past_due"  # staff: a cubby rental's monthly charge failed (#979)
+CUBBIES_STAFF_RENTAL_ENDED = "cubbies.staff_rental_ended"  # staff: a cubby rental ended; clear the shelf (#979)
+CUBBIES_WAITLIST_OPENED = "cubbies.waitlist_opened"  # a cubby opened in a guild whose waitlist you're first on (#980)
 TOUR_CALENDAR_BUSY = "tour.calendar_busy"  # your Google Calendar now shows you busy during a booked tour (#951)
 TOUR_CALENDAR_BROKEN = "tour.calendar_broken"  # Google stopped accepting your calendar connection (#951)
 TOUR_CALENDAR_GONE = "tour.calendar_gone"  # the calendar you picked for tours is gone; the main one took over (#951)
@@ -1620,6 +1630,36 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
+    # class.message_to_instructors — someone on the reviewer side (a guild lead or Class
+    # Reviewer, a CMS Administrator, an admin, a review link used signed out) posted a message
+    # on a class's thread (the shared thread, core.threads, #975). Reaches every instructor of
+    # the class but the author. A decision's note is written into the thread and rides in the
+    # decision email, so it never fires this. The period is the message. No activity row: the
+    # thread is the record.
+    EventType(
+        key=CLASS_MESSAGE_TO_INSTRUCTORS,
+        label="Messages about your class",
+        description="A reviewer wrote on a class you teach.",
+        category="Teaching",
+        recipient=Recipients.INSTRUCTOR,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # class.message_to_reviewers — an instructor posted a message on their class's thread
+    # (#975). Goes to the audience class_review_requested reaches for the class's first gate
+    # (the guild's lead and Class Reviewers, else the CMS Administrators), never widened with
+    # every admin; the sender passes that set minus the author. A change request on a live
+    # class is written into the thread and rides on class_change_requested instead. The
+    # period is the message. No activity row: the thread is the record.
+    EventType(
+        key=CLASS_MESSAGE_TO_REVIEWERS,
+        label="Messages on classes you review",
+        description="An instructor wrote on a class you review.",
+        category="Classes",
+        recipient=Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
     # kiln.crew_replied — a crew member wrote on a maker's kiln ticket (#691), often a question
     # before the piece goes in. The maker may be a class guest; their account is the User.
     # The period is the reply, so every message notifies once. No activity row: the thread
@@ -1767,6 +1807,86 @@ _NEW_EVENTS: list[EventType] = [
         recipient=Recipients.GUILD_LEADERSHIP,
         channels=(_IN_APP_ON,),
         activity_kind=None,
+    ),  # Cubby rentals (#978): the renter's own news about their monthly subscription. Bell on,
+    # email forced (it is about their money). Sent from membership.cubby_rentals with the
+    # membership/emails/cubby_*.{txt,html} bodies, each once through its period.
+    EventType(
+        key=CUBBIES_RENTED,
+        label="Your cubby is rented",
+        description="You rented a guild cubby and your monthly payment started.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    EventType(
+        key=CUBBIES_PAYMENT_FAILED,
+        label="Cubby payment didn't go through",
+        description="A monthly charge for your cubby failed. Update your card to keep it.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    EventType(
+        key=CUBBIES_RENTAL_ENDED,
+        label="Your cubby rental ended",
+        description="Your cubby rental ended and you won't be charged again.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    EventType(
+        key=CUBBIES_RENTAL_REFUNDED,
+        label="Cubby payment refunded",
+        description="The cubby wasn't free by the time your payment went through, so it was refunded.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # Cubby rentals for the guild's lead and staff (#979), copy mode, from membership.cubby_rentals.
+    # A new rental is bell only by default; Past Due waits for the 8 AM digest, which drops it
+    # once the rental is paid; an ended rental emails at once, since its shelf needs clearing.
+    EventType(
+        key=CUBBIES_RENTAL_STARTED,
+        label="A member rented a guild cubby",
+        description="Someone rented one of your guild's cubbies, or guild staff assigned one.",
+        category="Guilds",
+        recipient=Recipients.GUILD_LEADERSHIP,
+        channels=(_IN_APP_ON, _EMAIL_OFF),
+        activity_kind=None,
+    ),
+    EventType(
+        key=CUBBIES_RENTAL_PAST_DUE,
+        label="A cubby rental is past due",
+        description="A monthly charge for one of your guild's cubbies didn't go through.",
+        category="Guilds",
+        recipient=Recipients.GUILD_LEADERSHIP,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    EventType(
+        key=CUBBIES_STAFF_RENTAL_ENDED,
+        label="A cubby rental ended",
+        description="A rental of one of your guild's cubbies ended, so its shelf needs clearing.",
+        category="Guilds",
+        recipient=Recipients.GUILD_LEADERSHIP,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # The cubby waitlist (#980): a cubby opened and you were first in line. Bell on, email forced
+    # (the member asked to hear). Sent once per entry from membership.cubby_waitlist with the
+    # membership/emails/cubby_waitlist_opened.{txt,html} body.
+    EventType(
+        key=CUBBIES_WAITLIST_OPENED,
+        label="A cubby opened for you",
+        description="A cubby opened in a guild whose waitlist you joined. Whoever rents it first gets it.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
     ),
 ]
 
@@ -1788,6 +1908,8 @@ _DIGEST_EMAIL_EVENTS: frozenset[str] = frozenset(
         "wiki.page_proposed",
         "instructor_application_received",
         "class_change_requested",
+        # #979: a Past Due cubby rental, dropped from the digest once it is paid.
+        "cubbies.rental_past_due",
     }
 )
 

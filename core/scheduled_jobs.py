@@ -342,6 +342,14 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="release_cubby_payment_holds",
+        name="Release abandoned cubby checkouts",
+        description="Frees cubbies held by rent checkouts that were never paid, after asking Stripe about each.",
+        command="release_cubby_payment_holds",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="release_abandoned_class_holds",
         name="Release abandoned class checkouts",
         description="Releases class seats held by signups whose Stripe checkout was never completed.",

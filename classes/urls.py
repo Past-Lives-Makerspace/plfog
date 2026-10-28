@@ -109,6 +109,8 @@ urlpatterns = [
     path("teach/images/<int:pk>/delete/", views.teach_class_image_delete, name="teach_class_image_delete"),
     path("teach/images/<int:pk>/alt/", views.teach_class_image_alt, name="teach_class_image_alt"),
     path("teach/images/<int:pk>/focus/", views.teach_class_image_focus, name="teach_class_image_focus"),
+    # The class's messages (#975): GET sends each reader to the page that shows them, POST posts one.
+    path("teach/classes/<int:pk>/messages/", views.class_messages, name="class_messages"),
     path("teach/classes/<int:pk>/withdraw/", views.teach_class_withdraw, name="teach_class_withdraw"),
     path("teach/classes/<int:pk>/cancel/", views.teach_class_cancel, name="teach_class_cancel"),
     path("teach/classes/<int:pk>/sale/", views.teach_class_sale, name="teach_class_sale"),
@@ -209,6 +211,7 @@ urlpatterns = [
     # Tokenized review page — emailed reviewers act without a hub login.
     path("review/<str:token>/", views.class_review, name="class_review"),
     path("review/<str:token>/preview/", views.class_review_preview, name="class_review_preview"),
+    path("review/<str:token>/messages/", views.class_review_message, name="class_review_message"),
     path("admin/<int:pk>/archive/", views.admin_class_archive, name="admin_class_archive"),
     path("admin/<int:pk>/restore/", views.admin_class_restore, name="admin_class_restore"),
     path("admin/<int:pk>/unpublish/", views.admin_class_unpublish, name="admin_class_unpublish"),

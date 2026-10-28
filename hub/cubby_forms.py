@@ -14,7 +14,7 @@ from django import forms
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import SafeString
 
-from membership.models import Cubby, Guild, ShelfUnit, cubby_price_problems
+from membership.models import Cubby, CubbyRental, Guild, ShelfUnit, cubby_price_problems
 
 
 class MoneyInput(forms.TextInput):
@@ -305,3 +305,141 @@ class CubbyPricingForm(forms.ModelForm):
         if commit:
             guild.save(update_fields=["cubby_floor_cents", "cubby_suggested_cents", "cubby_payee"])
         return guild
+
+
+class CubbyAssignForm(forms.Form):
+    """Assign a Cubby (#979, mockup view assign): a member, one of the guild's open cubbies, and how they pay.
+
+    The member is a search box over a list the page draws (``inquiryMemberPicker``, as on Add
+    Inquiry): typing narrows it and picking a name fills the box, whose label is what posts.
+    The cubby is a select of the guild's open cubbies grouped by shelf unit. Comped is free;
+    Paid Another Way records what the member pays the guild each month, never charged here.
+    ``cleaned_data`` carries ``member``, ``cubby_obj``, ``source`` and ``amount_cents``.
+    :func:`membership.cubby_rentals.assign_rental` checks the cubby again under its lock.
+    """
+
+    MEMBER_LIST_ID = "cubby-assign-members"
+    SOURCE_CHOICES = [
+        (source.value, source.label) for source in (CubbyRental.Source.COMPED, CubbyRental.Source.OUTSIDE)
+    ]
+    SOURCE_HINTS = {
+        CubbyRental.Source.COMPED: "Free. Nothing is charged, ever.",
+        CubbyRental.Source.OUTSIDE: "Cash or a check to the guild. Recorded here for your totals, never charged.",
+    }
+
+    member = forms.CharField(
+        label="Member",
+        max_length=200,
+        widget=forms.TextInput(
+            attrs={
+                "role": "combobox",
+                "aria-controls": MEMBER_LIST_ID,
+                "aria-expanded": "true",
+                "aria-autocomplete": "list",
+                "autocomplete": "off",
+                "spellcheck": "false",
+                "placeholder": "Type a name",
+                "data-member-picker-input": "",
+            }
+        ),
+        error_messages={"required": "Pick a member from the list."},
+    )
+    cubby = forms.TypedChoiceField(
+        label="Cubby",
+        coerce=int,
+        error_messages={
+            "required": "Pick an open cubby.",
+            "invalid_choice": "That cubby isn't open any more. Pick another.",
+        },
+    )
+    source = forms.ChoiceField(
+        label="How They Pay",
+        choices=SOURCE_CHOICES,
+        initial=CubbyRental.Source.COMPED,
+        widget=forms.RadioSelect(attrs={"x-model": "source"}),
+        error_messages={"required": "Pick how they pay."},
+    )
+    amount = forms.DecimalField(
+        label="They pay",
+        required=False,
+        min_value=Decimal("1"),
+        max_value=Decimal("500"),
+        max_digits=6,
+        decimal_places=2,
+        widget=MoneyInput(),
+        error_messages={
+            "invalid": "Enter dollars, like 15 or 15.50.",
+            "min_value": "Enter an amount of $1 or more.",
+            "max_value": "The most a cubby can be is $500 a month.",
+            "max_decimal_places": "Use whole cents.",
+            "max_digits": "The most a cubby can be is $500 a month.",
+            "max_whole_digits": "The most a cubby can be is $500 a month.",
+        },
+    )
+
+    def __init__(self, *args: Any, guild: Guild, **kwargs: Any) -> None:
+        from membership.forms import member_picker_labels, member_picker_lookup
+        from membership.models import CubbyRental, Member
+
+        super().__init__(*args, **kwargs)
+        self.guild = guild
+        open_cubbies = [
+            cubby
+            for cubby in Cubby.objects.active()
+            .with_renter()
+            .filter(unit__guild=guild, out_of_service=False)
+            .select_related("unit")
+            .order_by("unit__name", "unit__pk", "row", "column")
+            if cubby.renter_id is None
+        ]
+        self.open_cubbies = {cubby.pk: cubby for cubby in open_cubbies}
+        groups: dict[str, list[tuple[int, str]]] = {}
+        for cubby in open_cubbies:
+            groups.setdefault(cubby.unit.name, []).append((cubby.pk, f"{cubby.label}, open"))
+        cast(forms.TypedChoiceField, self.fields["cubby"]).choices = [("", "Pick a cubby"), *groups.items()]
+        labels = member_picker_labels(Member.objects.active().without_hidden().order_by("full_legal_name", "pk"))
+        rents = dict(
+            CubbyRental.objects.live()
+            .filter(cubby__unit__guild=guild)
+            .exclude(status=CubbyRental.Status.PENDING_PAYMENT)
+            .values_list("member_id", "cubby__label")
+        )
+        #: (label, the small line beside it) for each row of the member list.
+        self.member_options = [
+            (label, f"Rents {rents[member.pk]}" if member.pk in rents else f"Member #{member.pk}")
+            for label, member in labels.items()
+        ]
+        self._members_by_label = member_picker_lookup(labels)
+
+    def clean_member(self) -> Any:
+        from membership.forms import member_picker_key
+
+        member = self._members_by_label.get(member_picker_key(self.cleaned_data["member"]))
+        if member is None:
+            raise forms.ValidationError("Pick a member from the list.")
+        return member
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        cubby_pk = cleaned.get("cubby")
+        if cubby_pk is not None:
+            cleaned["cubby_obj"] = self.open_cubbies[cubby_pk]
+        source = cleaned.get("source")
+        if source == CubbyRental.Source.COMPED:
+            cleaned["amount_cents"] = 0
+        elif source == CubbyRental.Source.OUTSIDE:
+            amount = cleaned.get("amount")
+            if amount is None:
+                if "amount" not in self.errors:
+                    self.add_error("amount", "Enter what they pay each month.")
+            else:
+                cleaned["amount_cents"] = _cents(amount)
+        return cleaned
+
+
+class CubbyEndRentalForm(forms.Form):
+    """End Rental's confirm (#979): the reason staff give, which the member gets by email. Required."""
+
+    REASON_REQUIRED = "Say why you're ending it. The member gets your reason by email."
+
+    reason = forms.CharField(strip=True, error_messages={"required": REASON_REQUIRED})

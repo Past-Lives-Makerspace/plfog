@@ -2195,6 +2195,80 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # class.message_to_instructors / class.message_to_reviewers — the message thread on a class
+    # between its instructors and its reviewers (the shared thread, core.threads, #975). The
+    # message itself is the content, so the email shows it whole (escaped, line breaks kept).
+    # messages_url is the class's stable messages link, which lands each reader on their page.
+    "class.message_to_instructors": EventCopy(
+        placeholders=("author_name", "class_title", "message_body", "messages_url"),
+        sample_context={
+            "author_name": "Jay Holtman",
+            "class_title": "Make Two Mugs",
+            "message_body": "Could you add a photo of a finished mug? Everything else looks ready.",
+            "messages_url": "https://pastlives.example/classes/teach/classes/12/messages/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ author_name }} wrote about {{ class_title }}",
+                body_text="{{ message_body }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="A message about your class {{ class_title }}",
+                body_text=(
+                    "{{ author_name }} wrote about your class {{ class_title }}:\n\n"
+                    "{{ message_body }}\n\n"
+                    "Read it and reply: {{ messages_url }}\n\n"
+                    "You can reply any time. You do not need to resubmit the class.\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ author_name }} wrote about your class "
+                    '<strong><a href="{{ messages_url }}">{{ class_title }}</a></strong>:</p>'
+                    '<p style="white-space:pre-line;">{{ message_body }}</p>'
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ messages_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read And Reply</a></p>"
+                    "<p>You can reply any time. You do not need to resubmit the class.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "class.message_to_reviewers": EventCopy(
+        placeholders=("author_name", "class_title", "message_body", "messages_url"),
+        sample_context={
+            "author_name": "Erin Horgan",
+            "class_title": "Make Two Mugs",
+            "message_body": "I added the mug photo. Is the materials list detailed enough now?",
+            "messages_url": "https://pastlives.example/classes/teach/classes/12/messages/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ author_name }} wrote about {{ class_title }}",
+                body_text="{{ message_body }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ author_name }} wrote about {{ class_title }}",
+                body_text=(
+                    "{{ author_name }} wrote about their class {{ class_title }}:\n\n"
+                    "{{ message_body }}\n\n"
+                    "Read it and answer: {{ messages_url }}\n\n"
+                    "You get this as a reviewer of this class.\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ author_name }} wrote about their class "
+                    '<strong><a href="{{ messages_url }}">{{ class_title }}</a></strong>:</p>'
+                    '<p style="white-space:pre-line;">{{ message_body }}</p>'
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ messages_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read And Answer</a></p>"
+                    "<p>You get this as a reviewer of this class.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     # kiln.crew_replied / kiln.maker_replied — the reply thread on a kiln ticket (#691). The
     # message itself is the content, so the email shows it whole (escaped, line breaks kept).
     # ticket_label is "Ticket 412"; ticket_summary is "Glaze · 3 pieces"; ticket_url opens
@@ -3071,6 +3145,109 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # Cubby rentals (#978). The emails ship as structural bodies (membership/emails/cubby_*), so
+    # this copy is the catalogue's documentation and the fallback for the bell row.
+    **{
+        key: EventCopy(
+            placeholders=("cubby_label", "unit_name", "guild_name", "amount", "cubby_url"),
+            sample_context={
+                "cubby_label": "B3",
+                "unit_name": "Glaze Wall",
+                "guild_name": "Ceramics Guild",
+                "amount": "$22",
+                "cubby_url": "https://pastlives.example/guilds/ceramics/?tab=cubbies",
+            },
+            channels={
+                Channel.IN_APP: ChannelCopy(subject=subject, body_text=body),
+                Channel.EMAIL: ChannelCopy(
+                    subject=subject,
+                    body_text=body + "\n\nYour cubby: {{ cubby_url }}\n\nPast Lives Makerspace",
+                    body_html="<p>" + body + '</p><p><a href="{{ cubby_url }}">See Your Cubby</a></p>',
+                ),
+            },
+        )
+        for key, subject, body in (
+            (
+                "cubbies.rented",
+                "{{ cubby_label }} is yours",
+                "You're renting cubby {{ cubby_label }} on the {{ unit_name }} in the {{ guild_name }} "
+                "for {{ amount }} a month.",
+            ),
+            (
+                "cubbies.payment_failed",
+                "Your cubby payment didn't go through",
+                "We tried to charge your card {{ amount }} for {{ cubby_label }} and it was declined. "
+                "Update your card to keep it.",
+            ),
+            (
+                "cubbies.rental_ended",
+                "Your rental of {{ cubby_label }} has ended",
+                "Cubby {{ cubby_label }} on the {{ unit_name }} is no longer yours, and you won't be charged again.",
+            ),
+            (
+                "cubbies.rental_refunded",
+                "You've been refunded for {{ cubby_label }}",
+                "{{ cubby_label }} wasn't free by the time your payment went through, so we refunded your {{ amount }}.",
+            ),
+            (
+                "cubbies.waitlist_opened",
+                "A cubby just opened at {{ guild_name }}",
+                "Cubby {{ cubby_label }} on the {{ unit_name }} is open. Whoever rents it first gets it.",
+            ),
+        )
+    },
+    # Cubby rentals for the guild's lead and staff (#979), sent in copy mode from
+    # membership.cubby_rentals._emit_staff. Past Due's email waits for the 8 AM digest.
+    **{
+        key: EventCopy(
+            placeholders=(
+                "cubby_label",
+                "unit_name",
+                "guild_name",
+                "member_name",
+                "amount",
+                "reason_line",
+                "rentals_url",
+            ),
+            sample_context={
+                "cubby_label": "A3",
+                "unit_name": "Glaze Wall",
+                "guild_name": "Ceramics Guild",
+                "member_name": "Jane Doe",
+                "amount": "$20 a month",
+                "reason_line": " The reason given: Moving to the bigger cubby by the kiln.",
+                "rentals_url": "https://pastlives.example/guilds/7/cubbies/rentals/",
+            },
+            channels={
+                Channel.IN_APP: ChannelCopy(subject=subject, body_text=body),
+                Channel.EMAIL: ChannelCopy(
+                    subject=subject,
+                    body_text=body + "\n\nRentals: {{ rentals_url }}\n\nPast Lives Makerspace",
+                    body_html="<p>" + body + '</p><p><a href="{{ rentals_url }}">See the Rentals</a></p>',
+                ),
+            },
+        )
+        for key, subject, body in (
+            (
+                "cubbies.rental_started",
+                "{{ member_name }} has {{ cubby_label }}",
+                "{{ member_name }} has cubby {{ cubby_label }} on the {{ unit_name }} in the {{ guild_name }}, "
+                "{{ amount }}.",
+            ),
+            (
+                "cubbies.rental_past_due",
+                "{{ cubby_label }} is past due",
+                "{{ member_name }}'s monthly payment for cubby {{ cubby_label }} on the {{ unit_name }} didn't go "
+                "through. Stripe tries the card again; if it never goes through, the rental ends.",
+            ),
+            (
+                "cubbies.staff_rental_ended",
+                "Clear {{ cubby_label }}'s shelf",
+                "{{ member_name }}'s rental of cubby {{ cubby_label }} on the {{ unit_name }} has ended."
+                "{{ reason_line }} Clear the shelf so the next member can move in.",
+            ),
+        )
+    },
 }
 
 

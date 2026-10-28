@@ -721,3 +721,46 @@ def describe_review_round_1():
             november = PanelWindow(start=date(2026, 11, 1), end=date(2026, 11, 30))
             assert _owed_now(november, instructor, datetime(2026, 12, 1, 18, tzinfo=UTC)) == 0
             assert _owed_now(OCTOBER, instructor, datetime(2026, 12, 1, 18, tzinfo=UTC)) == 7000
+
+
+def describe_a_cubby_share():
+    """#979 cubby shares follow every #985 rule: due 48 hours after payment, counted once."""
+
+    @pytest.fixture
+    def payment() -> Any:
+        from tests.membership.factories import CubbyPaymentFactory
+
+        payee = _instructor("Test Cubby Payee")
+        # 6 PM Portland on Oct 31: due 6 PM on Nov 2.
+        return CubbyPaymentFactory(payee=payee, amount_cents=2000, paid_at=datetime(2026, 11, 1, 1, tzinfo=UTC))
+
+    def _cubby_row(result: ReconciliationResult, payment: Any) -> Any:
+        return _row(result, RecipientKind.CUBBY_PAYEE, payment.payee)
+
+    def it_is_not_yet_due_in_the_month_it_was_paid_and_owed_now_in_the_next(payment: Any):
+        with patch("django.utils.timezone.now", return_value=NOV_1):
+            october = build_reconciliation(window=OCTOBER)
+        row = _cubby_row(october, payment)
+        share = row.total_cents
+        assert share > 0
+        assert (row.owed_now_cents, row.not_due_cents, row.next_due_at) == (
+            0,
+            share,
+            datetime(2026, 11, 3, 1, tzinfo=UTC),
+        )
+        assert _line(october, payment.pk, "cubby").payout.badge.label == "Not yet due, falls due Nov 2"
+
+        november = PanelWindow(start=date(2026, 11, 1), end=date(2026, 11, 30))
+        with patch("django.utils.timezone.now", return_value=datetime(2026, 11, 5, 18, tzinfo=UTC)):
+            later = build_reconciliation(window=november)
+        row = _cubby_row(later, payment)
+        assert (row.total_cents, row.owed_now_cents, row.not_due_cents) == (0, share, 0)
+        assert [line.source_pk for line in later.due_earlier_lines if line.source_kind == "cubby"] == [payment.pk]
+
+    def it_stays_owed_once_in_november_after_october_is_snapshotted(payment: Any):
+        snapshot = _october_snapshot()
+        frozen = _cubby_row(result_from_snapshot(snapshot), payment)
+        assert (frozen.owed_now_cents, frozen.not_due_cents) == (0, frozen.total_cents)
+        november = PanelWindow(start=date(2026, 11, 1), end=date(2026, 11, 30))
+        with patch("django.utils.timezone.now", return_value=datetime(2026, 11, 5, 18, tzinfo=UTC)):
+            assert _cubby_row(build_reconciliation(window=november), payment).owed_now_cents == frozen.total_cents

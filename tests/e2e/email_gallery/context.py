@@ -1044,3 +1044,77 @@ def tour_guide_changed_context(data: SampleData) -> dict[str, Any]:
             booking, change="moved", previous_when=when_label(previous), stays_with_guide=True
         ),
     }
+
+
+# ── Cubby rentals (#978) ─────────────────────────────────────────────────────
+
+
+def _cubby_rental(data: SampleData) -> Any:
+    """B3 on the Glaze Wall, rented by the sample member at $22 (the guild asks $15), past due on its last charge."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from tests.membership.factories import CubbyFactory, CubbyRentalFactory, ShelfUnitFactory
+
+    unit = ShelfUnitFactory(guild=data.guild, name="Glaze Wall")
+    cubby = CubbyFactory(unit=unit, label="B3", size="12 x 12 x 16 in", floor_cents=1500, suggested_cents=2000)
+    return CubbyRentalFactory(
+        cubby=cubby,
+        member=data.member,
+        amount_cents=2200,
+        payment_failed_at=timezone.now(),
+        next_payment_attempt=timezone.now() + timedelta(days=3),
+    )
+
+
+def _cubby_context(data: SampleData, subject: str, **extra: Any) -> dict[str, Any]:
+    from membership import cubby_rentals
+
+    rental = _cubby_rental(data)
+    manage_url = cubby_rentals._absolute_url(f"/cubbies/rentals/{rental.pk}/payment/")
+    return {
+        "subject": subject,
+        "template_context": {**cubby_rentals._email_context(rental), "manage_url": manage_url, **extra},
+    }
+
+
+def cubby_rented_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.cubby_rentals.notify_rented``."""
+    return _cubby_context(data, "B3 is yours")
+
+
+def cubby_payment_failed_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.cubby_rentals.notify_payment_failed``: declined today, Stripe tries again in 3 days."""
+    from membership import cubby_rentals
+
+    context = _cubby_context(data, "Your cubby payment didn't go through", charged="$22")
+    rental = context["template_context"]["rental"]
+    context["template_context"]["failed_on"] = cubby_rentals.date_display(rental.payment_failed_at)
+    context["template_context"]["retry_line"] = cubby_rentals.retry_sentence(rental)
+    return context
+
+
+def cubby_rental_ended_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.cubby_rentals.notify_ended``."""
+    return _cubby_context(data, "Your rental of B3 has ended")
+
+
+def cubby_rental_refunded_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.cubby_rentals.notify_refunded``."""
+    return _cubby_context(data, "You've been refunded for B3", refunded="$22")
+
+
+def cubby_waitlist_opened_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.cubby_waitlist.notify_opened``: B3 on the Glaze Wall opened, and the sample member was first in line."""
+    from membership import cubby_waitlist
+    from membership.models import CubbyWaitlistEntry
+    from tests.membership.factories import CubbyFactory, ShelfUnitFactory
+
+    unit = ShelfUnitFactory(guild=data.guild, name="Glaze Wall")
+    cubby = CubbyFactory(unit=unit, label="B3", size="12 x 12 x 16 in", floor_cents=1500, suggested_cents=2000)
+    entry = CubbyWaitlistEntry.objects.create(guild=data.guild, member=data.member)
+    return {
+        "subject": cubby_waitlist.opened_subject(cubby),
+        "template_context": cubby_waitlist.email_context(entry, cubby),
+    }

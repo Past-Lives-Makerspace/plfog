@@ -22,7 +22,8 @@ from typing import TYPE_CHECKING, Any, TypeVar
 import stripe
 from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
-from stripe.params import RefundCreateParams
+from stripe.params import RefundCreateParams, SubscriptionCancelParams, SubscriptionUpdateParams
+from stripe.params.billing_portal import SessionCreateParams as PortalSessionCreateParams
 from stripe.params.checkout import SessionCreateParams
 
 if TYPE_CHECKING:
@@ -139,11 +140,18 @@ def create_customer(*, email: str, name: str, member_pk: int) -> str:
     return customer.id
 
 
+#: The ``metadata.kind`` on a SetupIntent the My Tab card page makes. ``setup_intent.succeeded``
+#: saves a card onto the Tab only for these, so a card the member adds elsewhere on the same Stripe
+#: customer (the Billing Portal behind a cubby's Manage Payment, #978) never replaces the Tab's.
+TAB_SETUP_INTENT_KIND = "tab_payment_method"
+
+
 def create_setup_intent(*, customer_id: str) -> dict[str, str]:
     """Create a Stripe SetupIntent for collecting a payment method.
 
     Returns dict with 'client_secret' and 'setup_intent_id'.
     Includes usage='off_session' for future off-session charges (SCA/3DS compliance).
+    Tagged ``kind=tab_payment_method`` (:data:`TAB_SETUP_INTENT_KIND`).
     """
     client = _get_stripe_client()
     intent = client.v1.setup_intents.create(
@@ -151,6 +159,7 @@ def create_setup_intent(*, customer_id: str) -> dict[str, str]:
             "customer": customer_id,
             "usage": "off_session",
             "payment_method_types": ["card"],
+            "metadata": {"kind": TAB_SETUP_INTENT_KIND},
         },
     )
     return {"client_secret": intent.client_secret or "", "setup_intent_id": intent.id}
@@ -171,15 +180,17 @@ def retrieve_payment_method(*, payment_method_id: str) -> dict[str, Any]:
 
 
 def attach_payment_method(*, customer_id: str, payment_method_id: str) -> None:
-    """Attach a payment method to a customer and set it as the default."""
+    """Attach a payment method to a customer, leaving the customer's default card alone.
+
+    My Tab charges its card by id (:func:`create_payment_intent`), so it never needs the default.
+    The default belongs to the cubby subscriptions (#978), which pay from it once
+    :func:`move_subscription_card_to_customer` has put their card there; a Tab card made the
+    default would take over their billing, and removing it would leave them no card at all.
+    """
     client = _get_stripe_client()
     client.v1.payment_methods.attach(
         payment_method_id,
         params={"customer": customer_id},
-    )
-    client.v1.customers.update(
-        customer_id,
-        params={"invoice_settings": {"default_payment_method": payment_method_id}},
     )
 
 
@@ -366,7 +377,17 @@ def retrieve_checkout_session(*, session_id: str) -> dict[str, Any]:
         "payment_status": session.payment_status or "",
         "payment_intent": str(session.payment_intent) if session.payment_intent else "",
         "amount_total": session.amount_total,
+        "subscription": _expandable_id(session.subscription),
+        "invoice": _expandable_id(session.invoice),
+        "metadata": session.metadata.to_dict() if session.metadata else {},
     }
+
+
+def _expandable_id(value: Any) -> str:
+    """The id of an expandable field, whether Stripe sent the id or the object; "" when empty."""
+    if not value:
+        return ""
+    return value if isinstance(value, str) else str(value.id)
 
 
 def create_refund(*, payment_intent_id: str, amount_cents: int | None = None, idempotency_key: str) -> dict[str, Any]:
@@ -588,6 +609,187 @@ def find_transfer_reversal(*, transfer_id: str, refund_pk: int) -> str | None:
         if metadata is not None and "refund_pk" in metadata and metadata["refund_pk"] == str(refund_pk):
             return reversal.id
     return None
+
+
+# ---------------------------------------------------------------------------
+# Cubby rentals (#978): the first recurring billing, a monthly subscription per rental
+# ---------------------------------------------------------------------------
+
+
+def create_subscription_checkout_session(
+    *,
+    customer_id: str,
+    amount_cents: int,
+    product_name: str,
+    description: str,
+    success_url: str,
+    cancel_url: str,
+    metadata: dict[str, str],
+    idempotency_key: str,
+    expires_at: int,
+) -> dict[str, str]:
+    """A hosted Checkout that starts a monthly subscription at ``amount_cents`` for ``customer_id``.
+
+    The price is inline (``price_data``, ``recurring.interval = month``) on a product made inline
+    (``product_data``), so nothing account specific is stored before the money moves: the product
+    id is read back from the subscription. ``metadata`` rides on the session and, as
+    ``subscription_data.metadata``, on the subscription and every invoice it makes
+    (``invoice.parent.subscription_details.metadata``). ``description`` names the cubby on the
+    subscription, which is what the Billing Portal lists.
+
+    Returns dict with 'id' and 'url'. Stripe errors propagate.
+    """
+    client = _get_stripe_client()
+    params: SessionCreateParams = {
+        "mode": "subscription",
+        "customer": customer_id,
+        # Card only: a delayed payment method could complete the Checkout before its money lands.
+        "payment_method_types": ["card"],
+        "line_items": [
+            {
+                "quantity": 1,
+                "price_data": {
+                    "currency": "usd",
+                    "unit_amount": amount_cents,
+                    "recurring": {"interval": "month"},
+                    "product_data": {"name": product_name},
+                },
+            }
+        ],
+        "metadata": metadata,
+        "subscription_data": {"metadata": metadata, "description": description},
+        "success_url": success_url,
+        "cancel_url": cancel_url,
+        "expires_at": expires_at,
+    }
+    session = client.v1.checkout.sessions.create(params=params, options={"idempotency_key": idempotency_key})
+    return {"id": session.id, "url": session.url or ""}
+
+
+def _subscription_dict(subscription: stripe.Subscription) -> dict[str, Any]:
+    """The few subscription facts a cubby rental mirrors, as a plain dict.
+
+    'id', 'status', 'customer', 'metadata', 'cancel_at_period_end', 'cancel_at' (unix or None),
+    'default_payment_method' ("" when the customer's default pays), 'latest_invoice', and from its
+    one item 'item_id', 'product_id', 'unit_amount' and 'current_period_end' (the period end lives
+    on the item since API 2025-03-31).
+    """
+    data = subscription.to_dict()
+    item = data["items"]["data"][0]
+    price = item["price"]
+    product = price["product"]
+    return {
+        "id": data["id"],
+        "status": data["status"],
+        "customer": _expandable_id(subscription.customer),
+        "metadata": dict(data.get("metadata") or {}),
+        "cancel_at_period_end": bool(data["cancel_at_period_end"]),
+        "cancel_at": data.get("cancel_at"),
+        "default_payment_method": _expandable_id(subscription.default_payment_method),
+        "latest_invoice": _expandable_id(subscription.latest_invoice),
+        "item_id": item["id"],
+        "product_id": product if isinstance(product, str) else product["id"],
+        "unit_amount": price["unit_amount"],
+        "current_period_end": item["current_period_end"],
+    }
+
+
+def retrieve_subscription(*, subscription_id: str) -> dict[str, Any]:
+    """The subscription as it is now (see :func:`_subscription_dict`). Stripe errors propagate."""
+    client = _get_stripe_client()
+    return _subscription_dict(client.v1.subscriptions.retrieve(subscription_id))
+
+
+def move_subscription_card_to_customer(*, customer_id: str, subscription_id: str, payment_method_id: str) -> None:
+    """Make the card Checkout saved on the subscription the customer's default, and clear the subscription's own.
+
+    A subscription's own ``default_payment_method`` wins over the customer's, and the Billing
+    Portal's Update Payment Method sets the customer's. Moving the card here is what lets a card
+    the member fixes in the portal pay the next charge. The My Tab card is untouched: My Tab
+    charges its own saved card by id, never the customer default.
+    """
+    client = _get_stripe_client()
+    client.v1.customers.update(customer_id, params={"invoice_settings": {"default_payment_method": payment_method_id}})
+    client.v1.subscriptions.update(subscription_id, params={"default_payment_method": ""})
+
+
+def update_subscription_amount(*, subscription_id: str, item_id: str, product_id: str, amount_cents: int) -> None:
+    """Charge ``amount_cents`` a month from the next charge on: a new inline price on the same product.
+
+    ``proration_behavior="none"``: nothing is charged or credited now. Stripe errors propagate.
+    """
+    client = _get_stripe_client()
+    params: SubscriptionUpdateParams = {
+        "items": [
+            {
+                "id": item_id,
+                "price_data": {
+                    "currency": "usd",
+                    "product": product_id,
+                    "unit_amount": amount_cents,
+                    "recurring": {"interval": "month"},
+                },
+            }
+        ],
+        "proration_behavior": "none",
+    }
+    client.v1.subscriptions.update(subscription_id, params=params)
+
+
+def set_subscription_cancel_at_period_end(*, subscription_id: str, cancel: bool) -> None:
+    """Stop (``cancel=True``) or resume the subscription at the end of the paid month.
+
+    Resuming also clears any ``cancel_at`` date, which a dashboard or portal cancel may have set
+    instead of ``cancel_at_period_end``.
+    """
+    client = _get_stripe_client()
+    params: SubscriptionUpdateParams = {"cancel_at_period_end": True} if cancel else {"cancel_at": ""}
+    if not cancel:
+        params["cancel_at_period_end"] = False
+    client.v1.subscriptions.update(subscription_id, params=params)
+
+
+def cancel_subscription(*, subscription_id: str, idempotency_key: str | None = None) -> None:
+    """End the subscription now. No proration and no refund. Stripe errors propagate.
+
+    With ``idempotency_key`` (staff End Rental, ``cubby-end-<rental pk>``, #979) the call says
+    ``prorate=false`` and ``invoice_now=false`` out loud and a retry replays Stripe's first answer.
+    """
+    client = _get_stripe_client()
+    if idempotency_key is None:
+        client.v1.subscriptions.cancel(subscription_id)
+        return
+    params: SubscriptionCancelParams = {"prorate": False, "invoice_now": False}
+    client.v1.subscriptions.cancel(subscription_id, params=params, options={"idempotency_key": idempotency_key})
+
+
+def create_payment_method_portal_session(*, customer_id: str, return_url: str) -> str:
+    """A Billing Portal link that opens straight on Update Payment Method and comes back to ``return_url``."""
+    client = _get_stripe_client()
+    params: PortalSessionCreateParams = {
+        "customer": customer_id,
+        "return_url": return_url,
+        "flow_data": {
+            "type": "payment_method_update",
+            "after_completion": {"type": "redirect", "redirect": {"return_url": return_url}},
+        },
+    }
+    return client.v1.billing_portal.sessions.create(params=params).url
+
+
+def invoice_payment_intent(*, invoice_id: str) -> str:
+    """The PaymentIntent that paid ``invoice_id``, or "" when none did.
+
+    Since API 2025-03-31 an invoice no longer carries ``payment_intent``; its payments are their
+    own list, not in the webhook payload. Stripe errors propagate.
+    """
+    client = _get_stripe_client()
+    payments = client.v1.invoice_payments.list(params={"invoice": invoice_id, "status": "paid"})
+    for invoice_payment in payments.data:
+        payment_intent = invoice_payment.payment.payment_intent
+        if payment_intent:
+            return _expandable_id(payment_intent)
+    return ""
 
 
 # ---------------------------------------------------------------------------

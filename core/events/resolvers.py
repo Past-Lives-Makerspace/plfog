@@ -912,6 +912,12 @@ def _teaching_applications() -> dict[str, QuerySet[Any]]:
     return {"member": Member.objects.awaiting_teaching_decision()}
 
 
+def _past_due_cubby_rentals() -> dict[str, QuerySet[Any]]:
+    from membership.models import CubbyRental
+
+    return {"cubby_past_due": CubbyRental.objects.filter(status=CubbyRental.Status.PAST_DUE)}
+
+
 _OPEN_CHECKS: dict[str, OpenCheckFn] = {
     "class_review_requested": open_class_review_urls,
     "class_validation_requested": open_class_review_urls,
@@ -925,6 +931,7 @@ _OPEN_CHECKS: dict[str, OpenCheckFn] = {
     "wiki.page_proposed": _open_by_request(_wiki_proposals),
     "instructor_application_received": _open_by_request(_teaching_applications),
     "class_change_requested": always_open,
+    "cubbies.rental_past_due": _open_by_request(_past_due_cubby_rentals),
 }
 
 

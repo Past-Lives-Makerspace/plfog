@@ -1,11 +1,11 @@
 {% comment %}
 The Pricing tab (#977, mockup view manage-pricing): the guild's monthly minimum and suggestion with a live
 preview of the amounts members will be offered, then Who gets paid (the guild lead or staff, "No one yet"
-first). The split bar waits for part 3 (#979), which adds the admin's cubby split.
+first) and the split bar (#979): the admins' cubby pair and what the picked payee gets on the suggested amount.
 {% endcomment %}
 {% with form=pricing_form %}
 <form method="post" action="{% url 'hub_guild_cubbies_pricing' guild.pk %}" class="hub-card pl-cubby-pricing hub-form-group" data-cubby-pricing
-      x-data="{ floor: '{{ form.floor.value|default_if_none:''|escapejs }}', suggested: '{{ form.suggested.value|default_if_none:''|escapejs }}', payee: '{{ form.cubby_payee.value|default_if_none:''|escapejs }}', money(value) { const n = parseFloat(value); return isNaN(n) ? '' : '$' + (n % 1 === 0 ? n : n.toFixed(2)); } }">
+      x-data="{ floor: '{{ form.floor.value|default_if_none:''|escapejs }}', suggested: '{{ form.suggested.value|default_if_none:''|escapejs }}', payee: '{{ form.cubby_payee.value|default_if_none:''|escapejs }}', names: {}, guildPct: {{ split_guild|stringformat:'s' }}, money(value) { const n = parseFloat(value); return isNaN(n) ? '' : '$' + (n % 1 === 0 ? n : n.toFixed(2)); }, part(pct) { const n = parseFloat(this.suggested); return isNaN(n) ? '' : '$' + (Math.round(n * pct) / 100).toFixed(2); } }">
   {% csrf_token %}
   <section class="pl-cubby-pricing__section" aria-labelledby="cubby-price-title">
     <h2 class="hub-detail-label" id="cubby-price-title">Guild Price</h2>
@@ -39,6 +39,16 @@ first). The split bar waits for part 3 (#979), which adds the admin's cubby spli
       {% endif %}
     </p>
     {% endif %}
+    {{ payee_names|json_script:"cubby-payee-names" }}
+    <div class="pl-cubby-split" data-cubby-split x-init="names = JSON.parse(document.getElementById('cubby-payee-names').textContent)">
+      <div class="pl-cubby-split__bar" role="img" aria-label="Guild {{ split_guild|floatformat:'-2' }} percent, Past Lives {{ split_pl|floatformat:'-2' }} percent">
+        <svg class="pl-cubby-split__fill" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="pl-cubby-split__seg--guild" width="{{ split_guild|stringformat:'s' }}" height="10"/><rect class="pl-cubby-split__seg--pl" x="{{ split_guild|stringformat:'s' }}" width="{{ split_pl|stringformat:'s' }}" height="10"/></svg>
+        <span class="pl-cubby-split__label" aria-hidden="true">Guild {{ split_guild|floatformat:"-2" }}%</span>
+        <span class="pl-cubby-split__label pl-cubby-split__label--pl" aria-hidden="true">{{ split_pl|floatformat:"-2" }}%</span>
+      </div>
+      <p class="pl-cubby-split__text" x-show="payee" data-cubby-split-text>On a <span x-text="money(suggested)"></span> cubby, <strong><span x-text="names[payee]"></span> gets <span x-text="part(guildPct)"></span></strong> for the guild and <strong>Past Lives keeps <span x-text="part(100 - guildPct)"></span></strong>. <span>Past Lives admins set this split for every guild.</span></p>
+      <p class="pl-cubby-split__text" x-show="!payee" x-cloak data-cubby-split-none>With no one picked, Past Lives keeps the whole payment. <span>Past Lives admins set this split for every guild.</span></p>
+    </div>
   </section>
   <div class="pl-cubby-save-row"><button type="submit" class="pl-btn pl-btn--primary">Save</button></div>
 </form>

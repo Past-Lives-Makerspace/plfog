@@ -1,0 +1,38 @@
+{% comment %}
+The Assign a Cubby modal body (#979, mockup view assign): Member (a search box over the list the page draws,
+inquiryMemberPicker), Cubby (the guild's open ones by shelf unit), How They Pay (Comped, or Paid Another Way,
+which reveals what they pay a month), then Cancel and Assign. A refused Assign renders the Rentals tab again
+with this modal open and every answer kept.
+{% endcomment %}
+{% with form=assign_form %}
+<form method="post" action="{% url 'hub_guild_cubby_assign' guild.pk %}" class="pl-cubby-assign hub-form-group" novalidate
+      x-data="{ source: '{{ form.source.value|default:'comped'|escapejs }}' }" data-cubby-assign-form>
+  {% csrf_token %}
+  {% for error in form.non_field_errors %}<p class="pl-field-error pl-cubby-assign__error" role="alert">{{ error }}</p>{% endfor %}
+  <div class="pl-member-picker" x-data="inquiryMemberPicker" @input="filter()" @keydown="onKey($event)" data-member-picker>
+    {% include "components/form_field.html" with field=form.member field_hint="Type to narrow the list, then pick a name." %}
+    <ul id="{{ form.MEMBER_LIST_ID }}" class="pl-member-picker__list" role="listbox" aria-label="Members" @click="pick($event)" data-member-picker-list>
+      {% for label, note in form.member_options %}<li id="{{ form.MEMBER_LIST_ID }}-{{ forloop.counter }}" class="pl-member-picker__option" role="option" aria-selected="false" data-member-option="{{ label }}">{{ label }}<small>{{ note }}</small></li>{% endfor %}
+    </ul>
+    <p class="pl-member-picker__none" data-member-picker-none hidden>No members match.</p>
+  </div>
+  {% if form.open_cubbies %}
+  {% include "components/form_field.html" with field=form.cubby %}
+  {% else %}
+  {% for error in form.cubby.errors %}<p class="pl-field-error pl-cubby-assign__error">{{ error }}</p>{% endfor %}
+  <p class="pl-form-note" data-cubby-assign-none>No cubby is open right now. End a rental or add a cubby on Layout first.</p>
+  {% endif %}
+  {% include "components/radio_group.html" with field=form.source choice_hints=form.SOURCE_HINTS %}
+  <div class="pl-cubby-other pl-cubby-assign__amount" x-show="source === 'outside'" x-cloak data-cubby-assign-amount>
+    <label for="{{ form.amount.id_for_label }}">{{ form.amount.label }}</label>
+    {{ form.amount }}
+    <span class="pl-cubby-other__unit">a month</span>
+  </div>
+  {% for error in form.amount.errors %}<p class="pl-field-error pl-cubby-assign__error">{{ error }}</p>{% endfor %}
+  <p class="pl-form-note">They get an email saying the cubby is theirs.</p>
+  <div class="pl-modal__actions pl-cubby-sheet__actions">
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'cubby-assign')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary"{% if not form.open_cubbies %} disabled{% endif %} data-cubby-assign-submit>Assign and Email</button>
+  </div>
+</form>
+{% endwith %}

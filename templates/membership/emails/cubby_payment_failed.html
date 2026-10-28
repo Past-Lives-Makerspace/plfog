@@ -1,0 +1,9 @@
+{% extends "membership/emails/notification_shell.html" %}{% comment %}cubbies.payment_failed (#978), mockup view email-past-due with the retry line from Stripe's next attempt. In the branded notification shell.{% endcomment %}{% block content %}{% include "membership/emails/_cubby_eyebrow.html" %}
+<h1 style="margin: 0 0 14px; font-size: 24px; line-height: 1.25; color: #092E4C;">Your cubby payment didn't go through</h1>
+<p style="margin: 0 0 16px;">Hi {{ first_name }}, we tried to charge your card {{ charged }} for <a href="{{ tab_url }}" style="color: #092E4C; font-weight: 700;">{{ cubby.label }} on the {{ cubby.unit.name }}</a>{% if failed_on %} on {{ failed_on }}{% endif %}, and it was declined.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 22px; border: 1px solid #f0c9c9; background-color: #fdf3f3; border-radius: 10px;">
+  <tr><td style="padding: 14px 16px; font-size: 14px; line-height: 1.6; color: #7a2121;"><strong>Update your card to keep {{ cubby.label }}.</strong><br>{% if retry_line %}{{ retry_line }} {% endif %}If it still doesn't go through, your rental ends and {{ cubby.label }} opens up for someone else.</td></tr>
+</table>
+<p style="margin: 0 0 24px; text-align: center;"><a href="{{ manage_url }}" style="display: inline-block; padding: 13px 26px; border-radius: 8px; background: #EEB44B; color: #092E4C; font-weight: 700; text-decoration: none;">Update Card</a></p>
+<p style="margin: 0; font-size: 14px; color: #5B6B77;">Want to stop renting instead? <a href="{{ tab_url }}" style="color: #092E4C;">Cancel from your cubby</a> and clear {{ cubby.label }} out when you can. Questions go to the <a href="{{ guild_url }}" style="color: #092E4C;">{{ guild.name }} staff</a>.</p>
+{% endblock %}

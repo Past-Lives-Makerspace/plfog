@@ -359,6 +359,7 @@ def describe_the_billing_fan_in():
             classes_handlers.handle_checkout_session_expired,
             membership_handlers.handle_checkout_session_expired,
             membership_handlers.handle_reservation_checkout_expired,
+            membership_handlers.handle_cubby_checkout_expired,
             billing_handlers.handle_late_fee_checkout_expired,
         ]
 

@@ -1,0 +1,12 @@
+{% autoescape off %}Hi {{ first_name }},
+
+Cubby {{ cubby.label }} on the {{ cubby.unit.name }} in the {{ guild.name }} is open. You were first on the waitlist, so you're hearing first.
+
+  From {{ cubby.floor_display }} a month
+{% if cubby.size %}  {{ cubby.size }}
+{% endif %}
+Rent it now: {{ tab_url }}
+
+It's first come, first served: we don't hold it for you, so whoever rents it first gets it. You're off the waitlist now. If someone beats you to it, join the list again from the guild page: {{ guild_url }}
+
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}

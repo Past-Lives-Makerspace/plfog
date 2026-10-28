@@ -207,6 +207,37 @@ class CubbyFactory(factory.django.DjangoModelFactory):
     column = 1
 
 
+class CubbyRentalFactory(factory.django.DjangoModelFactory):
+    """An Active cubby rental at $22 a month, billing through a subscription whose month ends in 30 days (#978)."""
+
+    class Meta:
+        model = "membership.CubbyRental"
+
+    cubby = factory.SubFactory(CubbyFactory)
+    member = factory.SubFactory("tests.membership.factories.MemberFactory")
+    status = "active"
+    amount_cents = 2200
+    start_date = factory.LazyFunction(timezone.localdate)
+    current_period_end = factory.LazyFunction(lambda: timezone.now() + timedelta(days=30))
+    stripe_customer_id = factory.Sequence(lambda n: f"cus_rent{n}")
+    stripe_subscription_id = factory.Sequence(lambda n: f"sub_rent{n}")
+    stripe_subscription_item_id = factory.Sequence(lambda n: f"si_rent{n}")
+    stripe_product_id = factory.Sequence(lambda n: f"prod_rent{n}")
+
+
+class CubbyPaymentFactory(factory.django.DjangoModelFactory):
+    """One paid invoice of a cubby rental (#978)."""
+
+    class Meta:
+        model = "membership.CubbyPayment"
+
+    rental = factory.SubFactory(CubbyRentalFactory)
+    stripe_invoice_id = factory.Sequence(lambda n: f"in_rent{n}")
+    stripe_payment_intent_id = factory.Sequence(lambda n: f"pi_rent{n}")
+    amount_cents = 2200
+    paid_at = factory.LazyFunction(timezone.now)
+
+
 class LocationFactory(factory.django.DjangoModelFactory):
     """An active location with no guild by default (#616). Pass ``guild=`` to make it a guild's area."""
 

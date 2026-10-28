@@ -49,6 +49,11 @@ EXPECTED_PAIRS = {
     "orientation_lead_request",
     "orientation_thankyou",
     "orientation_moved",
+    "cubby_rented",
+    "cubby_payment_failed",
+    "cubby_rental_ended",
+    "cubby_rental_refunded",
+    "cubby_waitlist_opened",
     "orientation_time_proposed",
     "guild_welcome",
     "wiki_guild_digest",
@@ -82,10 +87,10 @@ def describe_email_gallery_completeness():
             "on copy-review.pastlives.space."
         )
 
-    def it_discovers_the_expected_41_pairs():
+    def it_discovers_the_expected_46_pairs():
         """Pins the discovery rule so it never silently sweeps in (or drops) templates."""
         assert discover_template_pairs() == EXPECTED_PAIRS
-        assert len(EXPECTED_PAIRS) == 41
+        assert len(EXPECTED_PAIRS) == 46
 
     def it_excludes_shells_and_partials():
         discovered = discover_template_pairs()

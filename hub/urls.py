@@ -3,7 +3,10 @@ from django.views.generic import RedirectView
 
 from . import (
     announcement_admin_views,
+    cubby_rental_views,
+    cubby_staff_views,
     cubby_views,
+    cubby_waitlist_views,
     day_off_views,
     discord_views,
     door_code_views,
@@ -105,6 +108,39 @@ urlpatterns = [
     path("cubbies/", cubby_views.hub_cubbies_home, name="hub_cubbies_home"),
     path("guilds/<int:pk>/cubbies/", cubby_views.hub_guild_cubbies, name="hub_guild_cubbies"),
     path("guilds/<int:pk>/cubbies/pricing/", cubby_views.hub_guild_cubbies_pricing, name="hub_guild_cubbies_pricing"),
+    # --- Rentals (#979): the staff list, Assign a Cubby, End Rental and the CSV; 404 to anyone who does not run the guild ---
+    path(
+        "guilds/<int:pk>/cubbies/rentals/",
+        cubby_staff_views.hub_guild_cubbies_rentals,
+        name="hub_guild_cubbies_rentals",
+    ),
+    path(
+        "guilds/<int:pk>/cubbies/rentals.csv",
+        cubby_staff_views.hub_guild_cubbies_rentals_csv,
+        name="hub_guild_cubbies_rentals_csv",
+    ),
+    path(
+        "guilds/<int:pk>/cubbies/rentals/assign/",
+        cubby_staff_views.hub_guild_cubby_assign,
+        name="hub_guild_cubby_assign",
+    ),
+    path("cubbies/rentals/<int:rental_pk>/end/", cubby_staff_views.hub_cubby_rental_end, name="hub_cubby_rental_end"),
+    # --- The cubby waitlist (#980): join and leave from the Cubbies tab, staff Remove from Rentals ---
+    path(
+        "guilds/<int:pk>/cubbies/waitlist/join/",
+        cubby_waitlist_views.hub_cubby_waitlist_join,
+        name="hub_cubby_waitlist_join",
+    ),
+    path(
+        "guilds/<int:pk>/cubbies/waitlist/leave/",
+        cubby_waitlist_views.hub_cubby_waitlist_leave,
+        name="hub_cubby_waitlist_leave",
+    ),
+    path(
+        "cubbies/waitlist/<int:entry_pk>/remove/",
+        cubby_waitlist_views.hub_cubby_waitlist_remove,
+        name="hub_cubby_waitlist_remove",
+    ),
     path(
         "guilds/<int:pk>/cubbies/settings/save/",
         cubby_views.hub_guild_cubbies_settings_save,
@@ -119,6 +155,35 @@ urlpatterns = [
     path("cubbies/<int:cubby_pk>/archive/", cubby_views.hub_cubby_archive, name="hub_cubby_archive"),
     path("cubbies/<int:cubby_pk>/restore/", cubby_views.hub_cubby_restore, name="hub_cubby_restore"),
     path("cubbies/<int:cubby_pk>/photo/delete/", cubby_views.hub_cubby_photo_delete, name="hub_cubby_photo_delete"),
+    # --- Renting a cubby (#978): the rent sheet, Stripe's return and cancel pages, the Your Cubby buttons ---
+    path("cubbies/<int:cubby_pk>/rent/", cubby_rental_views.hub_cubby_rent, name="hub_cubby_rent"),
+    path("cubbies/<int:cubby_pk>/rent/sheet/", cubby_rental_views.hub_cubby_rent_sheet, name="hub_cubby_rent_sheet"),
+    path(
+        "cubbies/checkout/<str:token>/", cubby_rental_views.hub_cubby_checkout_return, name="hub_cubby_checkout_return"
+    ),
+    path(
+        "cubbies/checkout/<str:token>/cancelled/",
+        cubby_rental_views.hub_cubby_checkout_cancelled,
+        name="hub_cubby_checkout_cancelled",
+    ),
+    path(
+        "cubbies/rentals/<int:rental_pk>/amount/",
+        cubby_rental_views.hub_cubby_rental_amount,
+        name="hub_cubby_rental_amount",
+    ),
+    path(
+        "cubbies/rentals/<int:rental_pk>/cancel/",
+        cubby_rental_views.hub_cubby_rental_cancel,
+        name="hub_cubby_rental_cancel",
+    ),
+    path(
+        "cubbies/rentals/<int:rental_pk>/keep/", cubby_rental_views.hub_cubby_rental_keep, name="hub_cubby_rental_keep"
+    ),
+    path(
+        "cubbies/rentals/<int:rental_pk>/payment/",
+        cubby_rental_views.hub_cubby_rental_portal,
+        name="hub_cubby_rental_portal",
+    ),
     path("guilds/<int:pk>/orientations/", views.guild_orientations, name="hub_guild_orientations"),
     path("guilds/<int:pk>/qr.<str:fmt>/", views.guild_qr_download, name="hub_guild_qr"),
     path("guilds/<int:pk>/flyer/", views.guild_flyer, name="hub_guild_flyer"),

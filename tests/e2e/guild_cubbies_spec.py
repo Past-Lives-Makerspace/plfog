@@ -3,7 +3,7 @@
 A guild lead opens the Cubbies manager, adds a shelf unit through the Add Shelf Unit modal, taps an
 empty square, labels the cubby and saves, and the cubby is on the shelf. Steppers add a row over
 htmx without a reload. With the switch on, the guild page's ?tab=cubbies deep link opens the tab:
-Grid shows the shelf, List shows the rows, and tapping an open cubby opens its sheet. At 390px the
+Grid shows the shelf, List shows the rows, and tapping an open cubby opens its rent sheet (#978). At 390px the
 tab opens on List and nothing scrolls sideways. Waits are on what the page shows. Run with
 ``pytest -m e2e``, on PostgreSQL in CI.
 """
@@ -86,8 +86,8 @@ def describe_guild_cubbies():
         expect(sheet).to_contain_text("W1")
         expect(sheet).to_contain_text("Glazewick Wall, far left")
         expect(sheet).to_contain_text("Beside the sink")
-        expect(sheet).to_contain_text("From $15 a month, $20 suggested.")
-        sheet.get_by_role("button", name="Close").click()
+        expect(sheet).to_contain_text("The guild asks at least $15 a month.")
+        sheet.get_by_role("button", name="Cancel").click()
         expect(sheet).to_be_hidden()
 
         pane.locator('[data-cubby-view="list"]').click()

@@ -48,6 +48,8 @@ DIGEST_EVENTS = {
     "wiki.page_proposed",
     "instructor_application_received",
     "class_change_requested",
+    # A Past Due cubby rental (#979), dropped once paid (tests/membership/cubby_staff_rentals_spec.py).
+    "cubbies.rental_past_due",
 }
 
 
