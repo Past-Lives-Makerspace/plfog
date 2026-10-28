@@ -1,0 +1,6 @@
+{% extends "membership/emails/notification_shell.html" %}{% comment %}cubbies.rental_refunded (#978), in the rented email's shell: someone else got the cubby before this member's payment landed, so it was cancelled and refunded.{% endcomment %}{% block content %}{% include "membership/emails/_cubby_eyebrow.html" %}
+<h1 style="margin: 0 0 14px; font-size: 24px; line-height: 1.25; color: #092E4C;">You've been refunded for {{ cubby.label }}</h1>
+<p style="margin: 0 0 16px;">Hi {{ first_name }}, cubby <a href="{{ tab_url }}" style="color: #092E4C; font-weight: 700;">{{ cubby.label }} on the {{ cubby.unit.name }}</a> wasn't free by the time your payment went through, so it isn't yours.</p>
+<p style="margin: 0 0 24px;">We cancelled the monthly payment and refunded your {{ refunded }}. It can take 5 to 10 days to show on your card.</p>
+<p style="margin: 0 0 24px; text-align: center;"><a href="{{ tab_url }}" style="display: inline-block; padding: 13px 26px; border-radius: 8px; background: #EEB44B; color: #092E4C; font-weight: 700; text-decoration: none;">Pick Another Cubby</a></p>
+{% endblock %}

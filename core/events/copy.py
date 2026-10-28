@@ -3071,6 +3071,52 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # Cubby rentals (#978). The emails ship as structural bodies (membership/emails/cubby_*), so
+    # this copy is the catalogue's documentation and the fallback for the bell row.
+    **{
+        key: EventCopy(
+            placeholders=("cubby_label", "unit_name", "guild_name", "amount", "cubby_url"),
+            sample_context={
+                "cubby_label": "B3",
+                "unit_name": "Glaze Wall",
+                "guild_name": "Ceramics Guild",
+                "amount": "$22",
+                "cubby_url": "https://pastlives.example/guilds/ceramics/?tab=cubbies",
+            },
+            channels={
+                Channel.IN_APP: ChannelCopy(subject=subject, body_text=body),
+                Channel.EMAIL: ChannelCopy(
+                    subject=subject,
+                    body_text=body + "\n\nYour cubby: {{ cubby_url }}\n\nPast Lives Makerspace",
+                    body_html="<p>" + body + '</p><p><a href="{{ cubby_url }}">See Your Cubby</a></p>',
+                ),
+            },
+        )
+        for key, subject, body in (
+            (
+                "cubbies.rented",
+                "{{ cubby_label }} is yours",
+                "You're renting cubby {{ cubby_label }} on the {{ unit_name }} in the {{ guild_name }} "
+                "for {{ amount }} a month.",
+            ),
+            (
+                "cubbies.payment_failed",
+                "Your cubby payment didn't go through",
+                "We tried to charge your card {{ amount }} for {{ cubby_label }} and it was declined. "
+                "Update your card to keep it.",
+            ),
+            (
+                "cubbies.rental_ended",
+                "Your rental of {{ cubby_label }} has ended",
+                "Cubby {{ cubby_label }} on the {{ unit_name }} is no longer yours, and you won't be charged again.",
+            ),
+            (
+                "cubbies.rental_refunded",
+                "You've been refunded for {{ cubby_label }}",
+                "{{ cubby_label }} wasn't free by the time your payment went through, so we refunded your {{ amount }}.",
+            ),
+        )
+    },
 }
 
 

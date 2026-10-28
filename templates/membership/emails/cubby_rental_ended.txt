@@ -1,0 +1,9 @@
+{% autoescape off %}Hi {{ first_name }},
+
+Your rental of cubby {{ cubby.label }} on the {{ cubby.unit.name }} in the {{ guild.name }} has ended, and you won't be charged again.
+
+If anything of yours is still in it, please clear it out so the next member can move in.
+
+See the cubbies: {{ tab_url }}
+
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}

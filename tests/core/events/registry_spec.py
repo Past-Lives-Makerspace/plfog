@@ -104,6 +104,10 @@ _BRAND_NEW_KEYS = {
     "tour.calendar_gone",
     "tour.calendar_unread",
     "guild.needs_attention",
+    "cubbies.rented",
+    "cubbies.payment_failed",
+    "cubbies.rental_ended",
+    "cubbies.rental_refunded",
 }
 
 # The five staff emails #524 moved off fixed address lists, pinned as a literal: who gets
