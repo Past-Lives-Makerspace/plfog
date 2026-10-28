@@ -28,7 +28,7 @@ from hub.autosave import autosave_saved, wants_autosave
 from hub.cubby_forms import CubbyForm, CubbyPricingForm, GuildCubbiesSettingsForm, ShelfUnitForm
 from hub.toast import trigger_toast
 from hub.views import _get_hub_context, _get_member
-from membership import cubbies
+from membership import cubbies, cubby_waitlist
 from membership.models import Cubby, CubbyRental, Guild, ShelfUnit
 from membership.permissions import can_edit_guild, manageable_guilds
 
@@ -160,9 +160,13 @@ def hub_guild_cubbies_settings_save(request: HttpRequest, pk: int) -> HttpRespon
         return forbidden
     # The manager's strip posts strip=1 under the "cubbies" prefix; Guild Settings posts the bare field.
     from_strip = bool(request.POST.get("strip"))
+    was_on = guild.show_cubbies_tab
     form = GuildCubbiesSettingsForm(request.POST, instance=guild, prefix="cubbies" if from_strip else None)
     form.is_valid()  # one boolean: it cannot fail, and save() raises loudly if it ever did
     form.save()
+    if guild.show_cubbies_tab and not was_on:
+        # Members could not rent while it was off: each open cubby is an opening for the waitlist (#980).
+        cubby_waitlist.open_all_for_waitlist(guild)
     if wants_autosave(request):
         return autosave_saved()
     if from_strip and request.headers.get("HX-Request"):

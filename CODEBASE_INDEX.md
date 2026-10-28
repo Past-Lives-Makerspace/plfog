@@ -42,7 +42,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 - `Space` — physical space (studio/storage/parking/desk); linked to Airtable
 - `Location` — a named area of the building, optionally a guild's (#616); classes, events, orientation types and equipment point at it through a nullable `area` FK, and `membership/services/location_status.py` lights it on the guild page
 - `Lease` — tenant→space via GenericForeignKey (tenant = Member or Guild)
-- `ShelfUnit` / `Cubby` — a guild's own rentable cubbies on shelf units drawn as grids (#977); rules and read models in `membership/cubbies.py`, the staff manager in `hub/cubby_views.py` and `hub/cubby_forms.py`. Not the Past Lives house cubbies, which are Airtable `Space` rows
+- `ShelfUnit` / `Cubby` — a guild's own rentable cubbies on shelf units drawn as grids (#977); rules and read models in `membership/cubbies.py`, the staff manager in `hub/cubby_views.py` and `hub/cubby_forms.py`. `CubbyWaitlistEntry` (#980) is a member waiting for any cubby in a full guild, `membership/cubby_waitlist.py`. Not the Past Lives house cubbies, which are Airtable `Space` rows
 - `MemberEmail` — additional email aliases per member
 
 ### billing

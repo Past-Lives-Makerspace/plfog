@@ -423,11 +423,20 @@ a.pl-cubby, a.pl-cubby-slot { text-decoration: none; }
     .pl-cubby-sheet__fine { text-align: center; }
 }
 
-/* ---- Every cubby taken (Part 4 adds the waitlist button) ---- */
+/* ---- Every cubby taken: the waitlist (#980, mockup views full and full-joined) ---- */
 .pl-cubby-wait { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1rem 1.25rem; align-items: start; padding: 1.5rem; }
 .pl-cubby-wait__icon { display: inline-flex; align-items: center; justify-content: center; width: 3rem; height: 3rem; border-radius: 999px; background: color-mix(in srgb, var(--color-tuscan-yellow) 16%, transparent); color: var(--hub-link); font-size: 1.375rem; }
+.pl-cubby-wait--joined .pl-cubby-wait__icon { background: color-mix(in srgb, var(--pl-lifecycle-live) 16%, transparent); color: var(--pl-lifecycle-live); }
 .pl-cubby-wait__title { margin: 0; font-family: var(--font-heading); font-size: 1.25rem; font-weight: 900; color: var(--hub-text); }
 .pl-cubby-wait__text { margin-top: 0.5rem; max-width: 60ch; color: var(--hub-text-muted); line-height: 1.55; }
+.pl-cubby-wait .pl-cubby-actions { margin-top: 1.25rem; }
+.pl-cubby-place { font-family: var(--font-heading); font-weight: 900; color: var(--hub-text); }
+
+/* The staff Waitlist chip's list (#980): the rentals table's look, a place pill on each phone card. */
+.pl-cubby-wtable td { vertical-align: middle; }
+.pl-cubby-wtable th:first-child, .pl-cubby-wtable td:first-child { width: 4rem; }
+.pl-cubby-wtable th:last-child { width: 1%; }
+.pl-cubby-wplace { display: inline-flex; align-items: center; padding: 0.125rem 0.625rem; border-radius: 999px; background: var(--hub-surface); border: 1px solid var(--hub-border); font-size: 0.75rem; font-weight: 700; color: var(--hub-text); white-space: nowrap; }
 
 /* ---- Part 3 (#979): the staff Rentals tab, Assign a Cubby, End Rental and the Pricing split bar ---- */
 :root { --pl-cubby-pl-bg: var(--hub-blue); --pl-cubby-pl-fg: var(--color-navy); }
