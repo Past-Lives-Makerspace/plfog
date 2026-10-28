@@ -440,7 +440,6 @@ class CubbyAssignForm(forms.Form):
 class CubbyEndRentalForm(forms.Form):
     """End Rental's confirm (#979): the reason staff give, which the member gets by email. Required."""
 
-    reason = forms.CharField(
-        strip=True,
-        error_messages={"required": "Say why you're ending it. The member gets your reason by email."},
-    )
+    REASON_REQUIRED = "Say why you're ending it. The member gets your reason by email."
+
+    reason = forms.CharField(strip=True, error_messages={"required": REASON_REQUIRED})

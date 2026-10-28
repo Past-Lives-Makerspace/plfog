@@ -126,7 +126,7 @@ def hub_cubby_rental_end(request: HttpRequest, rental_pk: int) -> HttpResponse:
     back = reverse("hub_guild_cubbies_rentals", args=[guild.pk])
     form = CubbyEndRentalForm(request.POST)
     if not form.is_valid():
-        messages.error(request, " ".join(form.errors["reason"]))
+        messages.error(request, CubbyEndRentalForm.REASON_REQUIRED)  # a blank reason is its only error
         return redirect(back)
     try:
         cubby_rentals.end_rental(rental, reason=form.cleaned_data["reason"])
