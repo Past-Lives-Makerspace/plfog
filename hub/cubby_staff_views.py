@@ -32,8 +32,8 @@ from membership.permissions import can_edit_guild
 
 logger = logging.getLogger(__name__)
 
-#: Stripe errors that are no answer (a timeout, a dropped connection, a 5xx): the cancel may have landed.
-_NO_ANSWER = (stripe.APIConnectionError, stripe.APIError)
+#: Stripe errors that are no answer (a timeout, a dropped connection, a 5xx, a rate limit): the cancel may have landed.
+_NO_ANSWER = (stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError)
 
 #: The Rentals table's sortable columns, by ``?sort=``; Cubby is the default.
 _SORTABLE = frozenset(
