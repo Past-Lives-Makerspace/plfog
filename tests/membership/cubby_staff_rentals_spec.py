@@ -122,7 +122,7 @@ def describe_assign_rental():
         started = _staff_notices("cubbies.rental_started")
         assert [n.user.username for n in started] == ["marigold_staff"]
         assert started[0].title == "Pip Laddersmith has A3"
-        assert started[0].url == f"/guilds/{guild.pk}/cubbies/rentals/"
+        assert started[0].url == f"/guilds/{guild.pk}/cubbies/rentals/?show=all#rental-{rental.pk}"
 
     def it_records_a_paid_another_way_amount():
         guild, lead, _staff = _guild()
@@ -324,6 +324,33 @@ def describe_staff_notices_from_stripe():
         cubby_rentals.notify_staff_past_due(rental, {"id": "in_late_2"})
         (email,) = digest_emails("hollis_lead@example.com")
         assert "A3 is past due" in email.body
+
+    def it_keeps_one_digest_line_per_past_due_rental_and_drops_only_the_paid_one():
+        from core.events.channels import DigestAdapter, digest_line_key
+
+        guild, _lead, _staff = _guild()
+        a2 = CubbyRentalFactory(cubby=_cubby(guild, "A2"), status=Status.PAST_DUE)
+        b4 = CubbyRentalFactory(cubby=_cubby(guild, "B4"), status=Status.PAST_DUE)
+        cubby_rentals.notify_staff_past_due(a2, {"id": "in_a2"})
+        cubby_rentals.notify_staff_past_due(b4, {"id": "in_b4"})
+        base = f"/guilds/{guild.pk}/cubbies/rentals/?show=past_due"
+        rows = list(EventDelivery.objects.filter(event_key="cubbies.rental_past_due", channel="digest"))
+        assert {row.url for row in rows} == {f"{base}#rental-{a2.pk}", f"{base}#rental-{b4.pk}"}
+        lead_rows = [row for row in rows if row.target_ref == rows[0].target_ref]
+        assert len({digest_line_key(row) for row in lead_rows}) == 2
+        CubbyRental.objects.filter(pk=a2.pk).update(status=Status.ACTIVE)
+        keep, left_out = DigestAdapter._drop_decided(lead_rows)
+        assert [row.url for row in keep] == [f"{base}#rental-{b4.pk}"]
+        assert sum(left_out.values()) == 1
+        (email,) = digest_emails("hollis_lead@example.com")
+        assert "B4 is past due" in email.body and "A2 is past due" not in email.body
+
+    def it_links_the_ended_notice_to_its_rental_among_the_ended():
+        guild, _lead, _staff = _guild()
+        rental = CubbyRentalFactory(cubby=_cubby(guild), status=Status.ENDED)
+        cubby_rentals.notify_staff_ended(rental)
+        [notice, *_rest] = _staff_notices("cubbies.staff_rental_ended")
+        assert notice.url == f"/guilds/{guild.pk}/cubbies/rentals/?show=ended#rental-{rental.pk}"
 
     @patch("billing.stripe_utils.cancel_subscription")
     def it_asks_the_staff_to_clear_a_deleted_accounts_shelf(_mock_cancel):

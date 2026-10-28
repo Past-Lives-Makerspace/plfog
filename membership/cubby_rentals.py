@@ -1053,7 +1053,16 @@ def rentals_url(guild: Guild) -> str:
     return reverse("hub_guild_cubbies_rentals", args=[guild.pk])
 
 
-def _staff_context(rental: CubbyRental) -> dict[str, Any]:
+def rental_staff_url(rental: CubbyRental, show: str = "all") -> str:
+    """One rental's own place on the Rentals tab (relative): its chip and its row's anchor.
+
+    Each staff event links its own rental, so the 8 AM digest (which keys a line, and its
+    still-open check, on the link) keeps one line per rental and drops only the one paid.
+    """
+    return f"{rentals_url(rental.cubby.unit.guild)}?show={show}#rental-{rental.pk}"
+
+
+def _staff_context(rental: CubbyRental, show: str = "all") -> dict[str, Any]:
     """What the three staff events' copy reads (``core/events/copy.py``), plus the guild the resolver needs."""
     cubby = rental.cubby
     guild = cubby.unit.guild
@@ -1065,18 +1074,20 @@ def _staff_context(rental: CubbyRental) -> dict[str, Any]:
         "member_name": rental.member.display_name,
         "amount": "Comped" if rental.is_comped else f"{rental.amount_display} a month",
         "reason_line": f" The reason given: {rental.end_reason.rstrip('.')}." if rental.end_reason else "",
-        "rentals_url": _absolute_url(rentals_url(guild)),
+        "rentals_url": _absolute_url(rental_staff_url(rental, show)),
     }
 
 
-def _emit_staff(rental: CubbyRental, event_key: str, *, period: str, actor: Member | None = None) -> None:
+def _emit_staff(
+    rental: CubbyRental, event_key: str, *, period: str, show: str = "all", actor: Member | None = None
+) -> None:
     """One staff event to the guild's lead and staff (the bell, and email where it has one), once per ``period``.
 
     ``actor`` (staff who did it themselves) is left out; the rest of the leadership still hears.
     """
     from core.events.emit import emit
 
-    context = _staff_context(rental)
+    context = _staff_context(rental, show)
     recipient_user_ids: set[int] | None = None
     if actor is not None:
         guild: Guild = context["guild"]
@@ -1089,7 +1100,7 @@ def _emit_staff(rental: CubbyRental, event_key: str, *, period: str, actor: Memb
         event_key,
         target=rental,
         context=context,
-        url=rentals_url(context["guild"]),
+        url=rental_staff_url(rental, show),
         period=period,
         recipient_user_ids=recipient_user_ids,
     )
@@ -1103,9 +1114,11 @@ def notify_staff_rental_started(rental: CubbyRental, *, actor: Member | None = N
 def notify_staff_past_due(rental: CubbyRental, invoice: dict[str, Any]) -> None:
     """``cubbies.rental_past_due``: a monthly charge failed. Its email waits for the 8 AM digest, which
     drops it once the rental is paid (the still-open check reads ``cubby_past_due:<pk>``)."""
-    _emit_staff(rental, "cubbies.rental_past_due", period=f"cubby_past_due:{rental.pk}:{invoice['id']}")
+    _emit_staff(
+        rental, "cubbies.rental_past_due", period=f"cubby_past_due:{rental.pk}:{invoice['id']}", show="past_due"
+    )
 
 
 def notify_staff_ended(rental: CubbyRental) -> None:
     """``cubbies.staff_rental_ended``: a rental ended however it ended, so its shelf needs clearing."""
-    _emit_staff(rental, "cubbies.staff_rental_ended", period=f"cubby_rental:{rental.pk}:staff_ended")
+    _emit_staff(rental, "cubbies.staff_rental_ended", period=f"cubby_rental:{rental.pk}:staff_ended", show="ended")

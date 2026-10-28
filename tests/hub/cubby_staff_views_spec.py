@@ -256,14 +256,31 @@ def describe_end_rental():
         response = _end(client, rental)
         assert "This rental isn&#x27;t active any more." in client.get(response.url).content.decode()
 
-    @patch("billing.stripe_utils.cancel_subscription", side_effect=stripe.APIConnectionError("down"))
-    def it_changes_nothing_when_stripe_is_down(_mock_cancel, client: Client):
+    @patch("billing.stripe_utils.cancel_subscription", side_effect=stripe.APIConnectionError("timed out"))
+    def it_says_to_check_again_when_stripe_gives_no_answer(_mock_cancel, client: Client):
         _lead, guild = _staff(client)
         rental = CubbyRentalFactory(cubby=_cubby(guild))
         response = _end(client, rental)
         rental.refresh_from_db()
         assert rental.status == Status.ACTIVE
-        assert "We couldn&#x27;t reach Stripe" in client.get(response.url).content.decode()
+        content = client.get(response.url).content.decode()
+        assert "Stripe didn&#x27;t answer. Check again in a minute." in content
+        assert "nothing changed" not in content
+
+    @patch("billing.stripe_utils.cancel_subscription", side_effect=stripe.PermissionError("no access"))
+    def it_says_nothing_changed_when_stripe_refuses(_mock_cancel, client: Client):
+        _lead, guild = _staff(client)
+        rental = CubbyRentalFactory(cubby=_cubby(guild))
+        response = _end(client, rental)
+        rental.refresh_from_db()
+        assert rental.status == Status.ACTIVE
+        assert "Stripe refused, so nothing changed. Try again in a minute." in client.get(response.url).content.decode()
+
+    def it_anchors_each_rental_for_the_staff_notices(client: Client):
+        _lead, guild = _staff(client)
+        rental = CubbyRentalFactory(cubby=_cubby(guild))
+        content = client.get(_rentals_url(guild)).content.decode()
+        assert f'id="rental-{rental.pk}"' in content and f'id="rental-{rental.pk}-card"' in content
 
     def it_is_a_404_for_another_guilds_rental(client: Client):
         _lead, _guild = _staff(client)

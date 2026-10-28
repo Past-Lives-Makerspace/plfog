@@ -32,6 +32,9 @@ from membership.permissions import can_edit_guild
 
 logger = logging.getLogger(__name__)
 
+#: Stripe errors that are no answer (a timeout, a dropped connection, a 5xx): the cancel may have landed.
+_NO_ANSWER = (stripe.APIConnectionError, stripe.APIError)
+
 #: The Rentals table's sortable columns, by ``?sort=``; Cubby is the default.
 _SORTABLE = frozenset(
     {"member__full_legal_name", "cubby__label", "amount_cents", "start_date", "current_period_end", "status"}
@@ -130,9 +133,14 @@ def hub_cubby_rental_end(request: HttpRequest, rental_pk: int) -> HttpResponse:
     except cubby_rentals.CubbyRentalError as refusal:
         messages.error(request, str(refusal))
         return redirect(back)
+    except _NO_ANSWER:
+        # No answer: Stripe may have cancelled it anyway, and its webhook then ends the rental here.
+        logger.exception("Stripe gave no answer cancelling cubby rental %s.", rental.pk)
+        messages.error(request, "Stripe didn't answer. Check again in a minute.")
+        return redirect(back)
     except stripe.StripeError:
-        logger.exception("Could not cancel the subscription of cubby rental %s.", rental.pk)
-        messages.error(request, "We couldn't reach Stripe, so nothing changed. Try again in a minute.")
+        logger.exception("Stripe refused to cancel the subscription of cubby rental %s.", rental.pk)
+        messages.error(request, "Stripe refused, so nothing changed. Try again in a minute.")
         return redirect(back)
     messages.success(request, f"{rental.cubby.label} is open again. We told {rental.member.display_name}.")
     return redirect(back)

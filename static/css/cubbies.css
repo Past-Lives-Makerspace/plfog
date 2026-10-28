@@ -515,3 +515,8 @@ a.pl-cubby, a.pl-cubby-slot { text-decoration: none; }
 .pl-cubby-split__label--pl { color: var(--pl-cubby-pl-fg); }
 .pl-cubby-split__text { margin-top: 0.75rem; font-size: 0.875rem; color: var(--hub-text); line-height: 1.55; }
 .pl-cubby-split__text > span:last-child { color: var(--hub-text-muted); }
+
+/* A staff notice's link lands on its rental (#979): clear of the sticky top bar, and marked. */
+.pl-cubby-rtable tr[id], .pl-cubby-rcard[id] { scroll-margin-top: calc(var(--topbar-height) + 1rem); }
+.pl-cubby-rtable tr:target td { background: var(--pl-cubby-glow); }
+.pl-cubby-rcard:target { border-color: var(--color-tuscan-yellow); }
