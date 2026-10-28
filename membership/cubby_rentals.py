@@ -826,7 +826,13 @@ def end_for_deleted_account(member: Member) -> None:
             continue
         if rental.stripe_subscription_id:
             _cancel_subscription(rental.stripe_subscription_id)
-        CubbyRental.objects.filter(pk=rental.pk).update(status=Status.ENDED, end_date=timezone.localdate())
+        # Guarded on a live status: the webhook for that cancel may have ended it already, and only
+        # the change that ends it opens the cubby, so one opening tells one member (#980).
+        ended = (
+            CubbyRental.objects.live().filter(pk=rental.pk).update(status=Status.ENDED, end_date=timezone.localdate())
+        )
+        if not ended:
+            continue
         rental.status = Status.ENDED
         open_for_waitlist(rental.cubby)
         # The member hears nothing, but the guild still has a shelf to clear (#979).

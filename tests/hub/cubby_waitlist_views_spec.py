@@ -124,6 +124,27 @@ def describe_the_cubbies_tab():
         content = _tab(client, guild)
         assert "data-cubbies-waiting" in content and "data-waitlist-join" not in content
 
+    def it_keeps_the_place_and_leave_the_list_while_the_tab_is_switched_off(client: Client):
+        # Like Your Cubby, a waiting member can always leave, even with the switch off (#980 review).
+        guild = _guild()
+        _wait(guild, "Firstly")
+        member = _login(client, "switched_off_waiter")
+        CubbyWaitlistEntry.objects.create(guild=guild, member=member)
+        Guild.objects.filter(pk=guild.pk).update(show_cubbies_tab=False)
+        content = _tab(client, guild)
+        assert 'data-guild-tab="cubbies"' in content
+        assert '<span class="pl-cubby-place" data-waitlist-place>number 2</span>' in content
+        assert "data-waitlist-leave" in content and "data-cubby-wall" not in content
+        response = client.post(reverse("hub_cubby_waitlist_leave", args=[guild.pk]))
+        assert _messages(response) == ["You've left the list."]
+        assert 'data-guild-tab="cubbies"' not in _tab(client, guild)
+
+    def it_shows_no_tab_with_the_switch_off_to_someone_who_neither_rents_nor_waits(client: Client):
+        guild = _guild()
+        Guild.objects.filter(pk=guild.pk).update(show_cubbies_tab=False)
+        _login(client, "bystander")
+        assert 'data-guild-tab="cubbies"' not in _tab(client, guild)
+
 
 def describe_joining_and_leaving():
     def it_joins_with_a_toast_and_a_second_tap_keeps_one_place(client: Client):

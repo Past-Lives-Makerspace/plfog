@@ -224,6 +224,15 @@ def describe_the_line():
         assert [row.entry for row in cubbies.WaitlistRow.for_guild(shelf.guild)] == [first, second, third]
         assert cubby_waitlist.waiting_count(shelf.guild) == 3
 
+    def it_leaves_deactivated_and_deleted_members_out_of_places_the_list_and_the_count(shelf: Shelf):
+        # notify_next skips them, so they must not hold a place nobody can move past (#980 review).
+        inactive, deleted, live = shelf.wait("asleep", "erased", "awake")
+        User.objects.filter(pk=inactive.member.user_id).update(is_active=False)
+        Member.objects.filter(pk=deleted.member_id).update(deleted_at=timezone.now())
+        assert cubby_waitlist.place_in_line(live) == 1
+        assert [row.entry for row in cubbies.WaitlistRow.for_guild(shelf.guild)] == [live]
+        assert cubby_waitlist.waiting_count(shelf.guild) == 1
+
     def it_moves_everyone_up_when_someone_ahead_leaves(shelf: Shelf):
         first, second = shelf.wait("up_one", "up_two")
         cubby_waitlist.leave(shelf.guild, first.member)
@@ -288,6 +297,37 @@ def describe_notify_next():
         Guild.objects.filter(pk=shelf.guild.pk).update(show_cubbies_tab=False)
         assert cubby_waitlist.notify_next(shelf.a1.pk) is None  # the tab is off: nobody can rent it
         assert _told() == [] and cubby_waitlist.waiting_count(shelf.guild) == 1
+
+    def it_passes_over_a_member_who_left_between_the_read_and_the_claim(shelf: Shelf):
+        # The read finds the first member; they leave before the claim lands, so the next is told (#980 review).
+        first, second = shelf.wait("left_late", "told_instead")
+        CubbyRental.objects.filter(pk=shelf.r1.pk).update(status=Status.ENDED)
+        real_claim = cubby_waitlist._claim
+
+        def leave_then_claim(entry: CubbyWaitlistEntry, cubby: Cubby) -> bool:
+            if entry.pk == first.pk:
+                cubby_waitlist.leave(shelf.guild, first.member)
+            return real_claim(entry, cubby)
+
+        with patch("membership.cubby_waitlist._claim", side_effect=leave_then_claim):
+            assert cubby_waitlist.notify_next(shelf.a1.pk) == second
+        first.refresh_from_db()
+        assert first.notified_at is None and first.left_at is not None
+        assert _told() == ["told_instead"]
+        assert [message.to for message in mail.outbox] == [["told_instead@example.com"]]
+
+    def it_tells_nobody_when_everyone_left_before_the_claim(shelf: Shelf):
+        (only,) = shelf.wait("gone_too")
+        CubbyRental.objects.filter(pk=shelf.r1.pk).update(status=Status.ENDED)
+        real_claim = cubby_waitlist._claim
+
+        def leave_then_claim(entry: CubbyWaitlistEntry, cubby: Cubby) -> bool:
+            cubby_waitlist.leave(shelf.guild, only.member)
+            return real_claim(entry, cubby)
+
+        with patch("membership.cubby_waitlist._claim", side_effect=leave_then_claim):
+            assert cubby_waitlist.notify_next(shelf.a1.pk) is None
+        assert _told() == [] and mail.outbox == []
 
     def it_skips_a_member_whose_account_was_deleted_or_switched_off(shelf: Shelf):
         deleted, inactive, live = shelf.wait("deleted_one", "inactive_one", "live_one")
@@ -420,6 +460,22 @@ def describe_each_way_a_cubby_opens():
         committed(cubby_rentals.end_for_deleted_account, leaving)
         assert _told() == ["next_up"]  # A1 told next_up; A2 found nobody else waiting
         assert cubby_waitlist.entry_for(shelf.guild, leaving) is None
+
+    @patch("billing.stripe_utils.retrieve_subscription")
+    @patch("billing.stripe_utils.cancel_subscription")
+    def it_tells_one_member_when_the_webhook_ends_a_deleted_accounts_rental_mid_deletion(
+        mock_cancel, mock_sub, shelf: Shelf, committed
+    ):
+        # The cancel's own customer.subscription.deleted is settled before the deletion's update
+        # runs: whichever ends the rental opens the cubby, the other changes nothing (#980 review).
+        shelf.wait("once_one", "once_two")
+        mock_sub.return_value = _snapshot(shelf.r1, status="canceled")
+        mock_cancel.side_effect = lambda **kwargs: cubby_rentals.settle_subscription(shelf.r1.stripe_subscription_id)
+        committed(cubby_rentals.end_for_deleted_account, shelf.r1.member)
+        shelf.r1.refresh_from_db()
+        assert shelf.r1.status == Status.ENDED
+        assert _told() == ["once_one"]
+        assert cubby_waitlist.waiting_count(shelf.guild) == 1
 
     def it_tells_one_member_when_an_expired_checkout_releases_a_hold_and_nobody_on_the_retry(shelf: Shelf, committed):
         hold = _free_a1_hold(shelf)

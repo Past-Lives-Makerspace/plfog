@@ -2,7 +2,7 @@
 The guild page's Cubbies tab (#977, #978), from mockups/guild-cubbies.html (tab-desktop, tab-phone,
 tab-list, mine, past-due, full, full-joined). Expects cubby_tab (membership.cubbies.CubbyTab), guild and
 can_edit_this_guild. The viewer's Your Cubby cards come first, one per live rental. With the guild's
-switch off (cubby_tab.shelves False) those cards are all it shows. Grid draws each shelf unit as a
+switch off (cubby_tab.shelves False) those cards, and the viewer's waitlist place, are all it shows. Grid draws each shelf unit as a
 shelf; List is the same cubbies one row each, and phones open on it. Tapping an open cubby loads its
 Rent This Cubby sheet into the cubby-detail modal. Every cubby taken offers Notify Me When One Opens
 (#980); a viewer on the waitlist sees their place and Leave the List, full or not, so they can always leave.
@@ -15,18 +15,10 @@ Rent This Cubby sheet into the cubby-detail modal. Every cubby taken offers Noti
   {% endfor %}
   {% if not cubby_tab.shelves %}
   <h2 class="sr-only" id="cubbies-title">Your Cubbies</h2>
+  {% if cubby_tab.waitlist_entry %}{% include "hub/partials/_guild_cubby_waiting.html" %}{% endif %}
   {% elif cubby_tab.units %}
   {% if cubby_tab.waitlist_entry %}
-  <div class="hub-card pl-cubby-wait pl-cubby-wait--joined" data-cubbies-waiting>
-    <span class="pl-cubby-wait__icon"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-check"/></svg></span>
-    <div>
-      <h2 class="pl-cubby-wait__title">You're on the List</h2>
-      <p class="pl-cubby-wait__text">You're <span class="pl-cubby-place" data-waitlist-place>number {{ cubby_tab.waitlist_place }}</span> in line. When a cubby opens, we email the people on the list in order, so keep an eye on your inbox.</p>
-      <div class="pl-cubby-actions"><button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'cubby-waitlist-leave')" data-waitlist-leave>Leave the List</button></div>
-    </div>
-  </div>
-  {% url 'hub_cubby_waitlist_leave' guild.pk as leave_url %}
-  {% include "components/confirm_modal.html" with confirm_id="cubby-waitlist-leave" confirm_title="Leave the List?" confirm_message="You'll stop hearing when a cubby opens here. If you join again later, you go to the back of the line." confirm_action_url=leave_url confirm_button_text="Leave the List" %}
+  {% include "hub/partials/_guild_cubby_waiting.html" %}
   {% elif cubby_tab.is_full %}
   <div class="hub-card pl-cubby-wait" data-cubbies-full>
     <span class="pl-cubby-wait__icon"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-bell"/></svg></span>

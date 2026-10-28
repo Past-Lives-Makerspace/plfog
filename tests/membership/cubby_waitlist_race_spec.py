@@ -1,8 +1,11 @@
-"""Two cubbies opening at once (#980): two different members hear, never the same one twice.
+"""Races on the cubby waitlist (#980), each widened inside ``notify_next`` between reading the line and claiming.
 
-Needs PostgreSQL: SQLite writes no FOR UPDATE, so CI's postgres-only job runs it (STANDARDS.md 8).
-The gap between reading the line and marking the first entry told is widened inside the guild lock;
-without it both openings would read the same member as first in line.
+* Two cubbies opening at once tell two different members, never the same one twice (the guild lock).
+* A member who leaves while a cubby's opening is picking them is passed over, and the next in line is
+  told (the claim is a conditional update on a still waiting row).
+
+Needs PostgreSQL: SQLite writes no FOR UPDATE and serialises writers, so CI's postgres-only job runs
+these (STANDARDS.md 8).
 """
 
 from __future__ import annotations
@@ -47,14 +50,13 @@ def describe_two_cubbies_opening_at_once():
             for n in range(3)
         ]
         barrier = threading.Barrier(len(opened))
-        real_line = CubbyWaitlistEntry.objects.in_line
+        real_claim = cubby_waitlist._claim
         errors: list[BaseException] = []
 
-        def slow_line() -> Any:
-            # Inside the lock, before the first entry is marked: without the lock both would read waiter0.
-            entries = real_line()
+        def slow_claim(*args: Any) -> bool:
+            # Inside the lock, after the line was read: without the lock both would read waiter0 first.
             time.sleep(0.3)
-            return entries
+            return real_claim(*args)
 
         def opening(cubby_pk: int) -> None:
             try:
@@ -66,7 +68,7 @@ def describe_two_cubbies_opening_at_once():
                 connection.close()
 
         with (
-            patch.object(CubbyWaitlistEntry.objects, "in_line", side_effect=slow_line),
+            patch("membership.cubby_waitlist._claim", side_effect=slow_claim),
             patch("membership.cubby_waitlist.notify_opened"),
         ):
             threads = [threading.Thread(target=opening, args=(cubby.pk,)) for cubby in opened]
@@ -80,3 +82,65 @@ def describe_two_cubbies_opening_at_once():
         assert sorted(told.values_list("pk", flat=True)) == [waiting[0].pk, waiting[1].pk]
         assert sorted(told.values_list("notified_cubby_id", flat=True)) == sorted(c.pk for c in opened)
         assert CubbyWaitlistEntry.objects.get(pk=waiting[2].pk).is_waiting
+
+
+def describe_leaving_while_a_cubby_opens():
+    @pytest.mark.postgres_only
+    @pytest.mark.django_db(transaction=True)
+    def it_passes_over_the_member_who_left_and_tells_the_next():
+        MembershipPlanFactory()
+        guild = GuildFactory(show_cubbies_tab=True)
+        cubby = CubbyFactory(unit=ShelfUnitFactory(guild=guild), label="L1")
+        start = timezone.now() - timedelta(hours=1)
+        leaver, next_up = (
+            CubbyWaitlistEntry.objects.create(
+                guild=guild, member=_member(f"leaving{n}"), joined_at=start + timedelta(minutes=n)
+            )
+            for n in range(2)
+        )
+        line_read = threading.Event()
+        left = threading.Event()
+        real_claim = cubby_waitlist._claim
+        errors: list[BaseException] = []
+        told: list[int] = []
+
+        def claim_after_the_leave(entry: CubbyWaitlistEntry, opened: Any) -> bool:
+            # The line is read with the leaver first; their Leave commits before this claim lands.
+            line_read.set()
+            left.wait(5)
+            return real_claim(entry, opened)
+
+        def opening() -> None:
+            try:
+                entry = cubby_waitlist.notify_next(cubby.pk)
+                if entry is not None:
+                    told.append(entry.pk)
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                connection.close()
+
+        def leaving() -> None:
+            try:
+                line_read.wait(5)
+                cubby_waitlist.leave(guild, leaver.member)
+                left.set()
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                connection.close()
+
+        with (
+            patch("membership.cubby_waitlist._claim", side_effect=claim_after_the_leave),
+            patch("membership.cubby_waitlist.notify_opened"),
+        ):
+            threads = [threading.Thread(target=opening), threading.Thread(target=leaving)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        assert errors == []
+        assert told == [next_up.pk]
+        leaver.refresh_from_db()
+        assert leaver.notified_at is None and leaver.left_at is not None

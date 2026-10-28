@@ -317,13 +317,23 @@ class CubbyTab:
     @classmethod
     def for_page(cls, guild: Guild, member: Member) -> CubbyTab | None:
         """What the guild page shows ``member``: the whole tab while the switch is on; with it off,
-        only their Your Cubby cards (one query), or None when they rent nothing here."""
+        only their Your Cubby cards and, while they wait, their place with Leave the List (#980), or
+        None when they neither rent nor wait here."""
         if guild.show_cubbies_tab:
             return cls.load(guild, member)
         rentals = cls._rentals(guild, member)
-        if not rentals:
+        entry = cubby_waitlist.entry_for(guild, member)
+        if not rentals and entry is None:
             return None
-        return cls(guild=guild, units=[], rentals=rentals, viewer_pk=member.pk, shelves=False)
+        return cls(
+            guild=guild,
+            units=[],
+            rentals=rentals,
+            viewer_pk=member.pk,
+            shelves=False,
+            waitlist_entry=entry,
+            waitlist_place=cubby_waitlist.place_in_line(entry) if entry is not None else 0,
+        )
 
     @staticmethod
     def _rentals(guild: Guild, member: Member | None) -> list[CubbyRental]:

@@ -66,6 +66,15 @@ def is_full(guild: Guild) -> bool:
     return Cubby.objects.active().filter(unit__guild=guild).exists() and not _rentable_cubbies(guild).exists()
 
 
+def _live_line() -> QuerySet[CubbyWaitlistEntry]:
+    """Waiting entries of members who can still hear: an account not deleted and still switched on.
+
+    ``notify_next`` skips everyone else, so the places, the staff list and its count leave them
+    out too; a deactivated member never holds a place nobody can move past.
+    """
+    return CubbyWaitlistEntry.objects.in_line().filter(member__deleted_at__isnull=True, member__user__is_active=True)
+
+
 def entry_for(guild: Guild, member: Member) -> CubbyWaitlistEntry | None:
     """The member's waiting entry in ``guild``, or None."""
     return CubbyWaitlistEntry.objects.waiting().filter(guild=guild, member=member).first()
@@ -74,7 +83,7 @@ def entry_for(guild: Guild, member: Member) -> CubbyWaitlistEntry | None:
 def place_in_line(entry: CubbyWaitlistEntry) -> int:
     """Where a waiting entry stands, counting from 1: how many waiting entries joined before it, plus one."""
     return (
-        CubbyWaitlistEntry.objects.waiting()
+        _live_line()
         .filter(guild_id=entry.guild_id, joined_at__lte=entry.joined_at)
         .exclude(joined_at=entry.joined_at, pk__gt=entry.pk)
         .count()
@@ -83,12 +92,12 @@ def place_in_line(entry: CubbyWaitlistEntry) -> int:
 
 def line(guild: Guild) -> list[CubbyWaitlistEntry]:
     """The guild's waiting entries in the order they are told, with each member loaded."""
-    return list(CubbyWaitlistEntry.objects.in_line().filter(guild=guild).select_related("member"))
+    return list(_live_line().filter(guild=guild).select_related("member"))
 
 
 def waiting_count(guild: Guild) -> int:
     """How many are waiting in ``guild``, for the staff Waitlist chip."""
-    return CubbyWaitlistEntry.objects.waiting().filter(guild=guild).count()
+    return _live_line().filter(guild=guild).count()
 
 
 # ── The member's buttons and staff Remove ────────────────────────────────────
@@ -160,7 +169,9 @@ def notify_next(cubby_pk: int) -> CubbyWaitlistEntry | None:
     """Tell the member first in line that ``cubby_pk`` is open, and take them off the list.
 
     Under the guild lock: the cubby must still be open and the guild's tab on, or nobody is told.
-    The pick skips a member whose account was deleted or switched off.
+    The pick skips a member whose account was deleted or switched off. Each candidate is claimed by
+    a conditional update on its still waiting row, so a member who leaves (or is removed) between
+    the read and the claim is passed over and the next in line is told instead.
 
     Returns:
         The entry told, or None when the cubby is not open any more or nobody is waiting.
@@ -172,19 +183,29 @@ def notify_next(cubby_pk: int) -> CubbyWaitlistEntry | None:
         guild.refresh_from_db(fields=["show_cubbies_tab"])
         if not guild.show_cubbies_tab or not _rentable_cubbies(guild).filter(pk=cubby.pk).exists():
             return None
-        entry = (
-            CubbyWaitlistEntry.objects.in_line()
-            .filter(guild=guild, member__deleted_at__isnull=True, member__user__is_active=True)
-            .select_related("member__user")
-            .first()
-        )
-        if entry is None:
+        told: CubbyWaitlistEntry | None = None
+        for entry in _live_line().filter(guild=guild).select_related("member__user"):
+            if _claim(entry, cubby):
+                told = entry
+                break
+        if told is None:
             return None
-        entry.notified_at = timezone.now()
+    notify_opened(told, cubby)
+    return told
+
+
+def _claim(entry: CubbyWaitlistEntry, cubby: Cubby) -> bool:
+    """Mark ``entry`` told about ``cubby`` if it is still waiting; False when it left meanwhile.
+
+    A conditional update rather than a row lock: under ``LIMIT`` PostgreSQL can hand back no row
+    at all once a locked row stops matching, which would tell nobody.
+    """
+    now = timezone.now()
+    claimed = CubbyWaitlistEntry.objects.waiting().filter(pk=entry.pk).update(notified_at=now, notified_cubby=cubby)
+    if claimed:
+        entry.notified_at = now
         entry.notified_cubby = cubby
-        entry.save(update_fields=["notified_at", "notified_cubby"])
-    notify_opened(entry, cubby)
-    return entry
+    return bool(claimed)
 
 
 def email_context(entry: CubbyWaitlistEntry, cubby: Cubby) -> dict[str, object]:
