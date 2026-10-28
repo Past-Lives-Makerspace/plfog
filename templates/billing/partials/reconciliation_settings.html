@@ -2,12 +2,12 @@
 <div class="pl-card">
   <div class="pl-section-label">Reconciliation Splits</div>
   <p class="pl-text-muted" style="margin:0 0 1.25rem">
-    How each paid orientation, class and equipment reservation payment is divided among its recipients. These percentages also show,
+    How each paid orientation, class, equipment reservation and cubby payment is divided among its recipients. These percentages also show,
     read-only, on each guild's Orientation settings. Each set must add up to 100%. A change affects future
     reconciliation reads only; already-taken snapshots keep their frozen percentages.
   </p>
 
-  <form method="post" action="{% url 'billing_admin_save_reconciliation_settings' %}">
+  <form method="post" action="{% url 'billing_admin_save_reconciliation_settings' %}" class="pl-split-form">
     {% csrf_token %}
 
     <div class="pl-section-label" style="margin-top:0.25rem">Orientation Splits (= 100%)</div>
@@ -60,6 +60,19 @@
       {{ reconciliation_settings_form.reservation_pl_percent }}
       {% if reconciliation_settings_form.reservation_pl_percent.errors %}<div class="pl-form-errors">{{ reconciliation_settings_form.reservation_pl_percent.errors }}</div>{% endif %}
     </div>
+
+    <div class="pl-section-label pl-section-label--spaced">Cubby Splits (= 100%)</div>
+    <div class="pl-form-row">
+      <label for="{{ reconciliation_settings_form.cubby_guild_percent.id_for_label }}">Guild %</label>
+      {{ reconciliation_settings_form.cubby_guild_percent }}
+      {% if reconciliation_settings_form.cubby_guild_percent.errors %}<div class="pl-form-errors">{{ reconciliation_settings_form.cubby_guild_percent.errors }}</div>{% endif %}
+    </div>
+    <div class="pl-form-row">
+      <label for="{{ reconciliation_settings_form.cubby_pl_percent.id_for_label }}">Past Lives %</label>
+      {{ reconciliation_settings_form.cubby_pl_percent }}
+      {% if reconciliation_settings_form.cubby_pl_percent.errors %}<div class="pl-form-errors">{{ reconciliation_settings_form.cubby_pl_percent.errors }}</div>{% endif %}
+    </div>
+    <p class="pl-text-muted pl-split-note" data-cubby-split-note>The guild's share is paid to the payee each guild picks on its Cubbies Pricing tab. With no payee picked, the whole payment stays with Past Lives.</p>
 
     <div class="pl-form-actions">
       <button type="submit" class="pl-btn pl-btn--primary">Save</button>

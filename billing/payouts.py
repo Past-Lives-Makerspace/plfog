@@ -1,10 +1,12 @@
-"""Instructor, orientor and equipment manager payouts through Stripe Connect Express (#662, #749).
+"""Instructor, orientor, equipment manager and cubby payee payouts through Stripe Connect Express (#662, #749, #979).
 
 Setup (part 1): who is a payee, which state their Payouts tab shows, and whether a nudge
-points them at it. Sending (part 2): every paid registration, orientation booking or
-confirmed equipment reservation is an ``Earning`` for its producer (the instructor, the
-orientor, or the item's picked manager, ``Equipment.payee``); ``run_payouts`` turns each one into a ``Payout`` row when it falls
-due and sends it through Stripe or records it as owed at month end.
+points them at it. Sending (part 2): every paid registration, orientation booking,
+confirmed equipment reservation or paid cubby invoice is an ``Earning`` for its producer (the
+instructor, the orientor, the item's picked manager, ``Equipment.payee``, or the payee frozen on
+the cubby payment, ``CubbyPayment.payee``); ``run_payouts`` turns each one into a ``Payout`` row
+when it falls due and sends it through Stripe or records it as owed at month end. A cubby
+payment with no payee, or a refunded one, earns nobody anything.
 
 ``BillingSettings.connect_enabled`` is the one switch; while it is off nothing here shows and
 nothing is sent. No charge path reads that switch.
@@ -25,7 +27,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import stripe
 from django.db import transaction
-from django.db.models import Min, QuerySet
+from django.db.models import F, Min, QuerySet
 from django.db.models.functions import Greatest
 from django.utils import timezone
 
@@ -54,7 +56,8 @@ def payouts_on() -> bool:
 
 
 def has_earning(member: Member) -> bool:
-    """True when anyone has paid for a class ``member`` teaches, an orientation they ran, or a reservation they're paid for."""
+    """True when anyone has paid for a class ``member`` teaches, an orientation they ran, a reservation they're paid for,
+    or a cubby whose guild share is theirs (#979)."""
     from classes.models import Registration
     from membership.models import OrientationBooking
 
@@ -64,6 +67,7 @@ def has_earning(member: Member) -> bool:
         .exists()
         or OrientationBooking.objects.filter(oriented_by=member, amount_paid_cents__gt=0).exists()
         or _reservations().filter(_reservation_payee_is(member)).exists()
+        or _cubby_payments().filter(payee=member).exists()
     )
 
 
@@ -160,15 +164,15 @@ def reservation_nudge_items(member: Member) -> list[str]:
 class Earning:
     """One producer's share of one payment, with the facts that decide when and how it is paid."""
 
-    kind: str  # "class" | "orientation" | "reservation", the reconciliation source_kind
-    source: Any  # the Registration, OrientationBooking or EquipmentReservation
+    kind: str  # "class" | "orientation" | "reservation" | "cubby", the reconciliation source_kind
+    source: Any  # the Registration, OrientationBooking, EquipmentReservation or CubbyPayment
     payee: Member
     item: str
     payer: str
     taught_at: datetime
     paid_at: datetime
     share_cents: int
-    detail: str = ""  # a reservation's sub line on the Payouts tab: "2 hours, Jane D."
+    detail: str = ""  # a reservation's or cubby's sub line on the Payouts tab: "2 hours, Jane D."
 
     @property
     def due_at(self) -> datetime:
@@ -256,6 +260,19 @@ def _reservations() -> QuerySet[Any]:
     )
 
 
+def _cubby_payments() -> QuerySet[Any]:
+    """Paid cubby invoices (#979) that owe their frozen payee the guild's share.
+
+    No payee keeps the whole payment with Past Lives, and a refunded payment (a cubby the member
+    never got: ``stripe_refund_id`` set, payee cleared) owes nobody, so neither is listed.
+    """
+    from membership.models import CubbyPayment
+
+    return CubbyPayment.objects.filter(payee__isnull=False, stripe_refund_id="").select_related(
+        "rental__cubby__unit__guild", "rental__member", "payee", "payout"
+    )
+
+
 def _reservation_payee_is(member: Member) -> Any:
     """``share_payee`` as a query: the payee a ``Payout`` fixed, else the item's current pick."""
     from django.db.models import Q
@@ -274,7 +291,12 @@ def length_words(minutes: int) -> str:
     return " ".join(parts)
 
 
-def _earnings(registrations: Iterable[Any], bookings: Iterable[Any], reservations: Iterable[Any] = ()) -> list[Earning]:
+def _earnings(
+    registrations: Iterable[Any],
+    bookings: Iterable[Any],
+    reservations: Iterable[Any] = (),
+    cubby_payments: Iterable[Any] = (),
+) -> list[Earning]:
     """Earnings with a positive share, built in a fixed number of queries."""
     from billing.reconciliation import ShareSource
 
@@ -322,6 +344,22 @@ def _earnings(registrations: Iterable[Any], bookings: Iterable[Any], reservation
                 paid_at=reservation.created_at,
                 share_cents=shares.for_reservation(reservation),
                 detail=f"{length_words(reservation.duration_minutes)}, {reservation.member.short_name}",
+            )
+        )
+    for payment in cubby_payments:
+        cubby = payment.rental.cubby
+        earnings.append(
+            Earning(
+                kind="cubby",
+                source=payment,
+                payee=payment.payee,
+                item=f"Cubby {cubby.label}",
+                payer=payment.rental.member.finance_name,
+                # Nothing is taught: the share falls due 48 hours after Stripe took the payment.
+                taught_at=payment.paid_at,
+                paid_at=payment.paid_at,
+                share_cents=shares.for_cubby_payment(payment),
+                detail=f"{cubby.unit.guild.name}, {payment.rental.member.short_name}",
             )
         )
     # A share already sent stays listed by what was sent, even once a refund (taken back or
@@ -392,6 +430,7 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
         .filter(payout__isnull=True, status=EquipmentReservation.Status.CONFIRMED)
         .annotate(due_base=Greatest("starts_at", "created_at"))
         .filter(**window),
+        _cubby_payments().filter(payout__isnull=True).annotate(due_base=F("paid_at")).filter(**window),
     )
     snapshots = list(ReconciliationSnapshot.objects.values_list("period_start", "period_end"))
     accounts = _accounts(due)
@@ -417,7 +456,12 @@ def _in_snapshot(when: datetime, snapshots: list[tuple[Any, Any]]) -> bool:
 
 
 #: The ``Payout`` field each earning kind's source row goes in.
-_SOURCE_FIELDS = {"class": "registration", "orientation": "orientation_booking", "reservation": "reservation"}
+_SOURCE_FIELDS = {
+    "class": "registration",
+    "orientation": "orientation_booking",
+    "reservation": "reservation",
+    "cubby": "cubby_payment",
+}
 
 
 def _record(
@@ -468,6 +512,7 @@ def _send_one(pk: int, now: datetime, snapshots: list[tuple[Any, Any]], run: Pay
                 "registration__class_offering",
                 "orientation_booking__orientation_type",
                 "reservation__equipment",
+                "cubby_payment",
                 "payee",
             )
             .filter(pk=pk)
@@ -543,6 +588,9 @@ def _refresh_amount(payout: Payout) -> bool:
         earnings = _earnings(_registrations().filter(pk=payout.registration_id), [])
     elif payout.reservation_id is not None:
         earnings = _earnings([], [], _reservations().filter(pk=payout.reservation_id))
+    elif payout.cubby_payment_id is not None:
+        # A refund since it was recorded leaves no earning: nothing is due (#979).
+        earnings = _earnings([], [], (), _cubby_payments().filter(pk=payout.cubby_payment_id))
     else:
         earnings = _earnings([], _bookings().filter(pk=payout.orientation_booking_id))
     share = earnings[0].share_cents if earnings else 0
@@ -569,6 +617,7 @@ def freeze_split(snapshot: ReconciliationSnapshot, window: Any) -> None:
         _registrations().filter(confirmed_at__gte=window.start_dt, confirmed_at__lt=window.end_dt),
         _bookings().filter(requested_at__gte=window.start_dt, requested_at__lt=window.end_dt),
         _reservations().filter(created_at__gte=window.start_dt, created_at__lt=window.end_dt),
+        _cubby_payments().filter(paid_at__gte=window.start_dt, paid_at__lt=window.end_dt),
     )
     accounts = _accounts(earnings)
     since = _payouts_since()
@@ -607,8 +656,9 @@ class EarningRow:
 
     @property
     def detail(self) -> str:
-        """ "3 students" for a class; the member's name for a single orientation; "2 hours, Jane D." for a reservation."""
-        if self.kind == "reservation":
+        """ "3 students" for a class; the member's name for a single orientation; "2 hours, Jane D." for a
+        reservation; "Ceramics Guild, Jane D." for a cubby payment."""
+        if self.kind in ("reservation", "cubby"):
             return self.note
         if self.kind == "orientation" and self.count == 1:
             return self.payers[0]
@@ -671,7 +721,8 @@ def _earning_lines(
 def payee_earnings(member: Member, now: datetime | None = None) -> EarningsList:
     """What ``member`` earned: taught in the last 60 days or still to come, each earning in one row.
 
-    A class's registrations taught the same day share a row; each reservation is its own row.
+    A class's registrations taught the same day share a row; each reservation and each cubby payment
+    is its own row.
     """
     now = now or timezone.now()
     floor = now - EARNINGS_LOOKBACK
@@ -679,6 +730,7 @@ def payee_earnings(member: Member, now: datetime | None = None) -> EarningsList:
         _registrations().filter(class_offering__instructor=member, first_session_at__gte=floor),
         _bookings().filter(oriented_by=member, slot__starts_at__gte=floor),
         _reservations().filter(_reservation_payee_is(member), starts_at__gte=floor),
+        _cubby_payments().filter(payee=member, paid_at__gte=floor),
     )
     account = PayoutAccount.for_member(member)
     since = _payouts_since()
@@ -689,7 +741,7 @@ def payee_earnings(member: Member, now: datetime | None = None) -> EarningsList:
         payout = earning.payout
         taught_on = timezone.localtime(earning.taught_at).date()
         for state, label, badge, amount in _earning_lines(earning, payout, account, since):
-            own = earning.source.pk if earning.kind == "reservation" else None
+            own = earning.source.pk if earning.kind in ("reservation", "cubby") else None
             key = (earning.kind, earning.item, taught_on, state, label, own)
             row = rows.setdefault(
                 key,
@@ -801,7 +853,7 @@ def producer_accounts(member_ids: Iterable[int]) -> dict[int, PayoutAccount]:
 def line_payouts(
     lines: Iterable[TransactionLine], accounts: dict[int, PayoutAccount]
 ) -> dict[tuple[str, int], LinePayout]:
-    """How each class, orientation and reservation line's producer share is paid, for the Reconciliation split.
+    """How each class, orientation, reservation and cubby line's producer share is paid, for the Reconciliation split.
 
     A recorded share counts as Stripe while pending, sent or taken back (a failed one is owed
     by hand until it succeeds); one not yet due follows ``goes_through_stripe``. A line with no
@@ -812,12 +864,14 @@ def line_payouts(
     class_pks = [line.source_pk for line in lines if line.source_kind == "class"]
     booking_pks = [line.source_pk for line in lines if line.source_kind == "orientation"]
     reservation_pks = [line.source_pk for line in lines if line.source_kind == "reservation"]
-    if not class_pks and not booking_pks and not reservation_pks:
+    cubby_pks = [line.source_pk for line in lines if line.source_kind == "cubby"]
+    if not class_pks and not booking_pks and not reservation_pks and not cubby_pks:
         return {}
     earnings = _earnings(
         _registrations().filter(pk__in=class_pks),
         _bookings().filter(pk__in=booking_pks),
         _reservations().filter(pk__in=reservation_pks),
+        _cubby_payments().filter(pk__in=cubby_pks),
     )
     since = _payouts_since()
     states: dict[tuple[str, int], LinePayout] = {}
@@ -1032,6 +1086,8 @@ def flag_refunds_past_a_send(payout: Payout) -> None:
     from billing.models import PaymentRefund
     from billing.reconciliation import ShareSource
 
+    if payout.cubby_payment_id is not None:
+        return  # a cubby payment is never refunded through a PaymentRefund (#979), so there is nothing to flag
     source = payout.source
     due = ShareSource().for_source(payout.source_kind, source)
     if due >= payout.amount_cents - payout.reversed_cents:

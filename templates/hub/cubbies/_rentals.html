@@ -1,0 +1,109 @@
+{% comment %}
+The Rentals tab (#979), from mockups/guild-cubbies.html views manage-rentals, rentals-phone, rentals-end and
+assign: four tiles, the filter chips beside Export CSV and Assign a Cubby, the sortable table (one card per
+rental below 768px, the same RentalRow words), an End Rental confirm with its required reason per live
+rental, and the Assign a Cubby modal. Context: summary (RentalsSummary), rows (RentalRow), page, sort,
+sort_dir, base_params, show, assign_form, open_assign_modal.
+{% endcomment %}
+{% load classes_tags %}
+<div class="pl-cubby-rentals" x-data data-cubby-rentals>
+  <div class="pl-cubby-tiles">
+    <div class="hub-card pl-cubby-tile" data-cubby-tile="revenue">
+      <span class="pl-cubby-tile__label"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-card"/></svg>Monthly Revenue</span>
+      <div class="pl-cubby-tile__value">{{ summary.monthly_display }}</div>
+      <div class="pl-cubby-tile__sub">{{ summary.to_guild_display }} to the guild</div>
+    </div>
+    <div class="hub-card pl-cubby-tile" data-cubby-tile="open">
+      <span class="pl-cubby-tile__label"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-plus-circle"/></svg>Open</span>
+      <div class="pl-cubby-tile__value">{{ summary.open_count }}</div>
+      <div class="pl-cubby-tile__sub">of {{ summary.cubby_count }} cubb{{ summary.cubby_count|pluralize:"y,ies" }}</div>
+    </div>
+    <div class="hub-card pl-cubby-tile" data-cubby-tile="rented">
+      <span class="pl-cubby-tile__label"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-lock"/></svg>Rented</span>
+      <div class="pl-cubby-tile__value">{{ summary.rented_count }}</div>
+      <div class="pl-cubby-tile__sub">{{ summary.rented_sub }}</div>
+    </div>
+    <div class="hub-card pl-cubby-tile{% if summary.past_due %} pl-cubby-tile--alert{% endif %}" data-cubby-tile="past-due">
+      <span class="pl-cubby-tile__label"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-alert"/></svg>Past Due</span>
+      <div class="pl-cubby-tile__value">{{ summary.past_due|length }}</div>
+      <div class="pl-cubby-tile__sub">{{ summary.past_due_sub }}</div>
+    </div>
+  </div>
+
+  <div class="pl-cubby-toolbar">
+    <nav class="pl-cubby-toolbar__chips" aria-label="Show">
+      {% for key, label, count in summary.filters %}
+      <a href="?show={{ key }}" class="pl-wp-chip{% if key == show %} pl-wp-chip--active{% endif %}"{% if key == show %} aria-current="true"{% endif %} data-rental-filter="{{ key }}">{{ label }} ({{ count }})</a>
+      {% endfor %}
+    </nav>
+    <div class="pl-cubby-toolbar__end">
+      <a href="{% url 'hub_guild_cubbies_rentals_csv' guild.pk %}" class="pl-cubby-csv" hx-boost="false" data-pl-download data-cubby-csv><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-download"/></svg>Export CSV</a>
+      <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-modal', 'cubby-assign')" data-cubby-assign-open><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-user-plus"/></svg>Assign a Cubby</button>
+    </div>
+  </div>
+
+  {% if rows %}
+  <div class="admin-table-wrap pl-cubby-rwide">
+    <table class="admin-table pl-cubby-rtable" data-cubby-rentals-table>
+      <thead>
+        <tr>
+          {% sort_header "Member" "member__full_legal_name" sort sort_dir base_params %}
+          {% sort_header "Cubby" "cubby__label" sort sort_dir base_params %}
+          {% sort_header "Amount" "amount_cents" sort sort_dir base_params %}
+          {% sort_header "Since" "start_date" sort sort_dir base_params %}
+          {% sort_header "Next Charge" "current_period_end" sort sort_dir base_params %}
+          {% sort_header "Status" "status" sort sort_dir base_params %}
+          <th><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr class="{% if row.rental.status == 'ended' %}pl-cubby-rtable__ended{% endif %}" data-rental-row="{{ row.rental.pk }}" data-rental-state="{{ row.rental.staff_state }}">
+          <td><span class="pl-cubby-who"><span class="pl-cubby-avatar" aria-hidden="true">{{ row.initials }}</span><span>{{ row.name }}{% if row.email %}<small>{{ row.email }}</small>{% endif %}</span></span></td>
+          <td>{{ row.rental.cubby.label }}<small>{{ row.rental.cubby.unit.name }}</small></td>
+          <td class="pl-cubby-num">{{ row.amount }}{% if row.amount_note %}<small>{{ row.amount_note }}</small>{% endif %}</td>
+          <td>{{ row.since }}</td>
+          <td>{{ row.next_main }}{% if row.next_note %}<small>{{ row.next_note }}</small>{% endif %}</td>
+          <td>{% include "hub/cubbies/_rental_chip.html" with rental=row.rental %}</td>
+          <td>{% if row.rental.is_live %}<button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', '{{ row.rental.end_confirm_id }}')" data-cubby-end="{{ row.rental.pk }}">End Rental</button>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <ul class="pl-cubby-rcards" aria-label="Rentals">
+    {% for row in rows %}
+    <li class="hub-card pl-cubby-rcard" data-rental-card="{{ row.rental.pk }}">
+      <div class="pl-cubby-rcard__top">
+        <span class="pl-cubby-who"><span class="pl-cubby-avatar" aria-hidden="true">{{ row.initials }}</span><span class="pl-cubby-rcard__name">{{ row.name }}</span></span>
+        {% include "hub/cubbies/_rental_chip.html" with rental=row.rental %}
+      </div>
+      <p class="pl-cubby-rcard__where">{{ row.rental.cubby.label }} on the {{ row.rental.cubby.unit.name }}</p>
+      <div class="pl-cubby-rcard__lines">
+        <span>Amount<strong>{{ row.amount }}</strong></span>
+        <span>Since<strong>{{ row.since|default:"None" }}</strong></span>
+        <span>{{ row.card_label }}<strong>{{ row.card_value|default:"None" }}</strong></span>
+      </div>
+      {% if row.rental.is_live %}<button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', '{{ row.rental.end_confirm_id }}')" data-cubby-end-card="{{ row.rental.pk }}">End Rental</button>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% include "components/table_pagination.html" with page=page base_params=base_params %}
+
+  {% for row in rows %}{% if row.rental.is_live %}
+  {% include "components/confirm_modal.html" with confirm_id=row.rental.end_confirm_id confirm_title="End "|add:row.name|add:"'s Rental?" confirm_message=row.end_message confirm_action_url=row.rental.end_url confirm_button_text="End Rental" confirm_note_name="reason" confirm_note_label="Reason" confirm_note_required=True confirm_note_hint="Sent to the member in their email." %}
+  {% endif %}{% endfor %}
+  {% else %}
+  <div class="hub-card pl-cubby-rempty" data-cubby-rentals-empty>
+    {% if summary.chip_counts.all %}
+    <p>No {% if show == "past_due" %}past due{% elif show == "ended" %}ended{% else %}current{% endif %} rentals.</p>
+    {% else %}
+    <p>No rentals yet. Members rent from the Cubbies tab, or assign one here.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% include "components/modal.html" with modal_id="cubby-assign" modal_title="Assign a Cubby" modal_size="md" modal_class="pl-cubby-sheet" modal_body_include="hub/cubbies/_assign_form.html" %}
+  {% if open_assign_modal %}<div x-init="$nextTick(() => $dispatch('open-modal', 'cubby-assign'))"></div>{% endif %}
+</div>

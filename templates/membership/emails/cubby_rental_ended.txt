@@ -1,7 +1,9 @@
 {% autoescape off %}Hi {{ first_name }},
 
-Your rental of cubby {{ cubby.label }} on the {{ cubby.unit.name }} in the {{ guild.name }} has ended, and you won't be charged again.
-
+Your rental of cubby {{ cubby.label }} on the {{ cubby.unit.name }} in the {{ guild.name }} has ended{% if rental.is_assigned %}.{% else %}, and you won't be charged again.{% endif %}
+{% if rental.end_reason %}
+Guild staff said: {{ rental.end_reason }}
+{% endif %}
 If anything of yours is still in it, please clear it out so the next member can move in.
 
 See the cubbies: {{ tab_url }}

@@ -23856,6 +23856,13 @@ class CubbyRental(models.Model):
         PAST_DUE = "past_due", "Past Due"
         ENDED = "ended", "Ended"
 
+    class Source(models.TextChoices):
+        """How a rental is paid for (#979): its own Stripe subscription, or assigned by guild staff."""
+
+        STRIPE = "stripe", "Stripe"
+        COMPED = "comped", "Comped"
+        OUTSIDE = "outside", "Paid Another Way"
+
     LIVE_STATUSES: ClassVar[tuple[str, ...]] = (Status.PENDING_PAYMENT, Status.ACTIVE, Status.PAST_DUE)
     #: An unpaid hold older than this is checked with Stripe by the ``release_cubby_payment_holds`` sweep.
     HOLD_SWEEP_AGE: ClassVar[timedelta] = timedelta(hours=2)
@@ -23872,9 +23879,27 @@ class CubbyRental(models.Model):
         default=Status.PENDING_PAYMENT,
         help_text="Awaiting Payment while Checkout is open; Active or Past Due while billed; Ended for good.",
     )
-    amount_cents = models.PositiveIntegerField(help_text="What the member pays each month, in cents.")
+    amount_cents = models.PositiveIntegerField(
+        help_text="What the member pays each month, in cents; 0 for a comped rental."
+    )
+    source = models.CharField(
+        max_length=20,
+        choices=Source.choices,
+        default=Source.STRIPE,
+        db_default=Source.STRIPE,
+        help_text=(
+            "Stripe for a member's own monthly subscription; Comped or Paid Another Way when guild staff "
+            "assigned it, which nothing ever charges."
+        ),
+    )
     start_date = models.DateField(null=True, blank=True, help_text="The day the rental became active.")
     end_date = models.DateField(null=True, blank=True, help_text="The day it ended.")
+    end_reason = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Why guild staff ended it, as the member was told. Empty when it ended any other way.",
+    )
     cancel_at_period_end = models.BooleanField(
         default=False, help_text="The member cancelled: it stays theirs until the paid month ends."
     )
@@ -23917,8 +23942,11 @@ class CubbyRental(models.Model):
                 condition=Q(status__in=["pending_payment", "active", "past_due"]),
                 name="uq_cubbyrental_live_cubby",
             ),
+            # A comped rental costs nothing; every other one is between $1 and $500 a month (#979).
             models.CheckConstraint(
-                name="ck_cubbyrental_amount", condition=Q(amount_cents__gte=100, amount_cents__lte=50000)
+                name="ck_cubbyrental_amount",
+                condition=Q(source="comped", amount_cents=0)
+                | (~Q(source="comped") & Q(amount_cents__gte=100, amount_cents__lte=50000)),
             ),
         ]
         indexes = [
@@ -23944,9 +23972,56 @@ class CubbyRental(models.Model):
         return self.cancel_at_period_end
 
     @property
+    def is_assigned(self) -> bool:
+        """Whether guild staff assigned it (Comped or Paid Another Way): no subscription, nothing charged (#979)."""
+        return self.source != self.Source.STRIPE
+
+    @property
+    def is_comped(self) -> bool:
+        """Whether guild staff gave it for free."""
+        return self.source == self.Source.COMPED
+
+    @property
     def amount_display(self) -> str:
         """The monthly amount as "$22"."""
         return cubby_dollars(self.amount_cents)
+
+    @property
+    def staff_state(self) -> str:
+        """The state the staff Rentals tab shows (#979): ``ended``, ``past_due``, ``cancelling``, ``comped`` or ``active``.
+
+        Cancelling is an Active rental that ends at the end of its paid month.
+        """
+        if self.status == self.Status.ENDED:
+            return "ended"
+        if self.status == self.Status.PAST_DUE:
+            return "past_due"
+        if self.cancel_at_period_end:
+            return "cancelling"
+        if self.is_comped:
+            return "comped"
+        return "active"
+
+    @property
+    def staff_state_label(self) -> str:
+        """The Rentals tab's word for :attr:`staff_state`: "Past Due", "Cancelling"."""
+        return {
+            "ended": "Ended",
+            "past_due": "Past Due",
+            "cancelling": "Cancelling",
+            "comped": "Comped",
+            "active": "Active",
+        }[self.staff_state]
+
+    @property
+    def end_confirm_id(self) -> str:
+        """The DOM id of its End Rental confirm on the staff Rentals tab (#979)."""
+        return f"cubby-end-{self.pk}"
+
+    @property
+    def end_url(self) -> str:
+        """Where End Rental posts."""
+        return reverse("hub_cubby_rental_end", args=[self.pk])
 
     @property
     def over_floor_cents(self) -> int:
@@ -23975,7 +24050,15 @@ class CubbyRental(models.Model):
 
     @property
     def cancel_message(self) -> str:
-        """The Cancel Rental confirm's sentence, with the last day of the paid month."""
+        """The Cancel Rental confirm's sentence, with the last day of the paid month.
+
+        An assigned rental has no paid month: cancelling ends it today (#979).
+        """
+        if self.is_assigned:
+            return (
+                f"{self.cubby.label} stops being yours today and opens up for the next member. "
+                "Please clear it out today."
+            )
         until = ""
         if self.current_period_end is not None:
             day = timezone.localtime(self.current_period_end)
@@ -23991,7 +24074,8 @@ class CubbyPayment(models.Model):
 
     One row per Stripe invoice (``uq_cubbypayment_invoice``), so a re-delivered ``invoice.paid``
     records nothing twice. ``payee`` is the guild's cubby payee frozen when the payment landed;
-    paying it out is Part 3 (#979), and an empty payee leaves the whole payment with Past Lives.
+    ``billing.payouts`` pays them the guild's share through a ``Payout`` (#979), and an empty payee
+    leaves the whole payment with Past Lives. A refunded payment never pays anyone.
     """
 
     rental = models.ForeignKey(
@@ -24027,3 +24111,13 @@ class CubbyPayment(models.Model):
 
     def __str__(self) -> str:
         return f"{cubby_dollars(self.amount_cents)} for {self.rental.cubby.label} ({self.stripe_invoice_id})"
+
+    @property
+    def stripe_payment_id(self) -> str:
+        """The PaymentIntent, under the name every payout source shares (``billing.payouts``, #979)."""
+        return self.stripe_payment_intent_id
+
+    @property
+    def refunded_cents(self) -> int:
+        """What went back to the member: the whole payment once refunded, else nothing."""
+        return self.amount_cents if self.stripe_refund_id else 0

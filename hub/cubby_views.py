@@ -7,7 +7,7 @@ cubby is refused for anyone who does not run that guild.
 
 Pages: Layout (``hub_guild_cubbies``, the shelf builder), a cubby's page (the builder with the
 edit panel beside the cubby's unit: ``hub_cubby_add`` for an empty square, ``hub_cubby_edit``)
-and Pricing (``hub_guild_cubbies_pricing``). Part 3 (#979) adds Rentals.
+and Pricing (``hub_guild_cubbies_pricing``). Rentals (#979) is ``hub/cubby_staff_views.py``.
 """
 
 from __future__ import annotations
@@ -23,12 +23,13 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from billing.models import BillingSettings
 from hub.autosave import autosave_saved, wants_autosave
 from hub.cubby_forms import CubbyForm, CubbyPricingForm, GuildCubbiesSettingsForm, ShelfUnitForm
 from hub.toast import trigger_toast
 from hub.views import _get_hub_context, _get_member
 from membership import cubbies
-from membership.models import Cubby, Guild, ShelfUnit
+from membership.models import Cubby, CubbyRental, Guild, ShelfUnit
 from membership.permissions import can_edit_guild, manageable_guilds
 
 
@@ -56,8 +57,11 @@ def _unit_cards(layout: cubbies.CubbyLayout) -> list[dict[str, Any]]:
     ]
 
 
-def _manage_context(request: HttpRequest, guild: Guild, tab: str) -> dict[str, Any]:
-    """What every tab of the manager shares: the guild, its picker, the switch strip and the tab row."""
+def manage_context(request: HttpRequest, guild: Guild, tab: str) -> dict[str, Any]:
+    """What every tab of the manager shares: the guild, its picker, the switch strip and the tab row.
+
+    The Rentals tab's label carries how many rentals hold a cubby now (#979).
+    """
     guilds = list(manageable_guilds(request))
     return {
         **_get_hub_context(request),
@@ -65,6 +69,9 @@ def _manage_context(request: HttpRequest, guild: Guild, tab: str) -> dict[str, A
         "cubby_tab": tab,
         "picker_guilds": guilds if len(guilds) > 1 else [],
         "settings_form": GuildCubbiesSettingsForm(instance=guild, prefix="cubbies"),
+        "rental_count": CubbyRental.objects.filter(
+            cubby__unit__guild=guild, status__in=(CubbyRental.Status.ACTIVE, CubbyRental.Status.PAST_DUE)
+        ).count(),
     }
 
 
@@ -78,7 +85,7 @@ def _render_layout(
 ) -> HttpResponse:
     layout = cubbies.CubbyLayout.load(guild)
     context = {
-        **_manage_context(request, guild, "layout"),
+        **manage_context(request, guild, "layout"),
         "layout": layout,
         "unit_cards": _unit_cards(layout),
         "unit_add_form": unit_add_form or ShelfUnitForm(prefix="new-unit"),
@@ -127,10 +134,19 @@ def hub_guild_cubbies_pricing(request: HttpRequest, pk: int) -> HttpResponse:
         messages.success(request, "Pricing saved.")
         return redirect("hub_guild_cubbies_pricing", pk=guild.pk)
     payee_status = payouts.payee_status(SimpleNamespace(payee=guild.cubby_payee), _get_member(request))
+    settings_obj = BillingSettings.load()
     return render(
         request,
         "hub/cubbies/manage.html",
-        {**_manage_context(request, guild, "pricing"), "pricing_form": form, "payee_status": payee_status},
+        {
+            **manage_context(request, guild, "pricing"),
+            "pricing_form": form,
+            "payee_status": payee_status,
+            # The split bar under Who Gets Paid (#979): the admins' cubby pair, and each payee's name for its sentence.
+            "split_guild": settings_obj.cubby_guild_percent,
+            "split_pl": settings_obj.cubby_pl_percent,
+            "payee_names": {str(m.pk): m.display_name for m in guild.cubby_payee_choices()},
+        },
     )
 
 

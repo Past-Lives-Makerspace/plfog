@@ -67,11 +67,12 @@ def paid_sources() -> dict[str, tuple[QuerySet[Any], str]]:
     """Each Payments panel source's paid rows and the field holding their PaymentIntent, by source kind.
 
     The same paid rules as ``billing.payments_panel``: succeeded tab charges, paid registrations,
-    orientation bookings and reservations past their payment hold, and paid or refunded late fees.
+    orientation bookings and reservations past their payment hold, paid or refunded late fees, and
+    paid cubby invoices.
     """
     from billing.models import LateCancellationFee, TabCharge
     from classes.models import Registration
-    from membership.models import EquipmentReservation, OrientationBooking
+    from membership.models import CubbyPayment, EquipmentReservation, OrientationBooking
 
     return {
         "tab": (TabCharge.objects.filter(status=TabCharge.Status.SUCCEEDED), "stripe_payment_intent_id"),
@@ -94,6 +95,8 @@ def paid_sources() -> dict[str, tuple[QuerySet[Any], str]]:
             ),
             "stripe_payment_id",
         ),
+        # A paid cubby invoice (#979): Reconciliation's Cubby line reads its fee and net too.
+        "cubby": (CubbyPayment.objects.all(), "stripe_payment_intent_id"),
     }
 
 

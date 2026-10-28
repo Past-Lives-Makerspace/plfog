@@ -124,11 +124,14 @@ def notify_admin_charge_failed(charge: TabCharge) -> None:
 
 
 def _payout_item(payout: Payout) -> str:
-    """What the share was for: the class title, the orientation's owner name, or the reserved item (#749)."""
+    """What the share was for: the class title, the orientation's owner name, the reserved item (#749), or the cubby (#979)."""
     if payout.registration is not None:
         return payout.registration.class_offering.title
     if payout.reservation is not None:
         return f"{payout.reservation.equipment.name} reservation"
+    if payout.cubby_payment is not None:
+        cubby = payout.cubby_payment.rental.cubby
+        return f"Cubby {cubby.label} rent, {cubby.unit.guild.name}"
     return f"{payout.source.orientation_type.owner_name} orientation"
 
 

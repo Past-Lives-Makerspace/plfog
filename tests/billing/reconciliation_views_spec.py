@@ -180,6 +180,8 @@ def describe_reconciliation_settings_form():
                 "reservation_manager_percent": "80",
                 "reservation_guild_percent": "5",
                 "reservation_pl_percent": "15",
+                "cubby_guild_percent": "85",
+                "cubby_pl_percent": "15",
             },
         )
         assert response.status_code == 302
@@ -204,6 +206,8 @@ def describe_reconciliation_settings_form():
                 "reservation_manager_percent": "70",
                 "reservation_guild_percent": "15",
                 "reservation_pl_percent": "15",
+                "cubby_guild_percent": "85",
+                "cubby_pl_percent": "15",
                 **reservation,
             }
 

@@ -2,7 +2,7 @@
 
 No fourth money table. This module walks the same streams as
 ``payments_panel`` (paid registrations, paid orientation bookings, paid equipment
-reservations, succeeded tab charges), attributes each payment to its recipients under the makerspace's split
+reservations, succeeded tab charges) plus paid cubby invoices (#979), attributes each payment to its recipients under the makerspace's split
 rules, and aggregates per recipient. All money is integer cents; the penny
 rounding mirrors ``TabEntry.snapshot_splits`` (largest-percent recipient absorbs
 the +/-1c drift so every allocation sums exactly to what was collected).
@@ -14,7 +14,7 @@ back to the module constants only when a value is unset.
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import Enum
@@ -50,6 +50,11 @@ RESERVATION_SPLIT: dict[str, Decimal] = {
     "guild": Decimal("15"),
     "pl": Decimal("15"),
 }
+# A cubby payment is a pair (#979): the guild's share goes to the payee the guild picked.
+CUBBY_SPLIT: dict[str, Decimal] = {
+    "cubby_payee": Decimal("85"),
+    "pl": Decimal("15"),
+}
 
 PL_LABEL = "Past Lives"
 
@@ -61,6 +66,7 @@ class RecipientKind(str, Enum):
     INSTRUCTOR = "instructor"
     ORIENTATOR = "orientator"
     MANAGER = "manager"  # an equipment item's picked manager, paid from its reservations (#749)
+    CUBBY_PAYEE = "cubby_payee"  # a guild's cubby payee, paid the guild's share of its cubby rent (#979)
     PL = "pl"
 
     @property
@@ -75,6 +81,7 @@ GROUP_ORDER: tuple[RecipientKind, ...] = (
     RecipientKind.INSTRUCTOR,
     RecipientKind.ORIENTATOR,
     RecipientKind.MANAGER,
+    RecipientKind.CUBBY_PAYEE,
     RecipientKind.PL,
 )
 
@@ -83,11 +90,12 @@ GROUP_LABELS: dict[RecipientKind, str] = {
     RecipientKind.INSTRUCTOR: "Instructors",
     RecipientKind.ORIENTATOR: "Orientors",
     RecipientKind.MANAGER: "Equipment Managers",
+    RecipientKind.CUBBY_PAYEE: "Cubby Payees",
     RecipientKind.PL: "Past Lives",
 }
 
-# The producer recipient kinds' values: each has a percent key of the same name in its triad.
-_PRODUCER_KINDS = frozenset({"instructor", "orientator", "manager"})
+# The producer recipient kinds' values: each has a percent key of the same name in its split.
+_PRODUCER_KINDS = frozenset({"instructor", "orientator", "manager", "cubby_payee"})
 
 # A recipient key: (kind_value, recipient_id) — recipient_id is None only for PL.
 RecipientKey = tuple[str, "int | None"]
@@ -126,7 +134,7 @@ def split_cents(amount_cents: int, percents: dict[str, Decimal]) -> dict[str, in
 class TransactionLine:
     """One contributing payment, with its per-recipient split resolved."""
 
-    source_kind: str  # "tab" | "class" | "orientation" | "reservation"
+    source_kind: str  # "tab" | "class" | "orientation" | "reservation" | "cubby"
     source_pk: int
     date: Any  # datetime
     payer_name: str
@@ -190,6 +198,7 @@ class ReconciliationResult:
     voting_projected: bool = True
     voting_snapshotted_on: date | None = None
     is_snapshot: bool = False
+    cubby_percents: dict[str, Decimal] = field(default_factory=dict)
 
     @property
     def producers_total_cents(self) -> int:
@@ -231,6 +240,7 @@ class ReconciliationResult:
             "class_percents": {k: str(v) for k, v in self.class_percents.items()},
             "orientation_percents": {k: str(v) for k, v in self.orientation_percents.items()},
             "reservation_percents": {k: str(v) for k, v in self.reservation_percents.items()},
+            "cubby_percents": {k: str(v) for k, v in self.cubby_percents.items()},
             "groups": [
                 {
                     "kind": kind.value,
@@ -283,6 +293,14 @@ def _reservation_percents(settings_obj: BillingSettings) -> dict[str, Decimal]:
     }
 
 
+def _cubby_percents(settings_obj: BillingSettings) -> dict[str, Decimal]:
+    """Cubby split (#979) from BillingSettings, payee first, constant fallback if unset."""
+    return {
+        "cubby_payee": _percent_or(settings_obj, "cubby_guild_percent", CUBBY_SPLIT["cubby_payee"]),
+        "pl": _percent_or(settings_obj, "cubby_pl_percent", CUBBY_SPLIT["pl"]),
+    }
+
+
 def _percent_or(settings_obj: BillingSettings, attr: str, fallback: Decimal) -> Decimal:
     value = getattr(settings_obj, attr, None)
     return value if value is not None else fallback
@@ -296,6 +314,28 @@ def _override_percents(raw: dict[str, Any], order: tuple[str, ...]) -> dict[str,
 # ---------------------------------------------------------------------------
 # Streams
 # ---------------------------------------------------------------------------
+
+
+def _effective_percents(
+    percents: dict[str, Decimal], adjustment: TransactionAdjustment | None, order: tuple[str, ...]
+) -> tuple[dict[str, Decimal], bool, list[str]]:
+    """The split one line uses: an adjustment's override when it is sound, else ``percents``.
+
+    Returns the percents, whether they are an override, and the notes the line carries.
+    """
+    if adjustment is None or adjustment.override_percents is None:
+        return percents, False, []
+    # The adjustment form guarantees a valid override, but the model is editable in
+    # Django admin too. Defend the read path: a malformed override (missing key or a
+    # split that does not sum to 100) falls back to the standard split with a note,
+    # rather than raising and 500ing the whole Reconciliation tab.
+    try:
+        candidate = _override_percents(adjustment.override_percents, order)
+        if sum(candidate.values(), Decimal("0")) != Decimal("100"):
+            raise ValueError("override does not sum to 100")
+    except (KeyError, ValueError, TypeError, InvalidOperation):
+        return percents, False, ["override ignored (malformed)"]
+    return candidate, True, []
 
 
 def _member_share_line(
@@ -322,22 +362,7 @@ def _member_share_line(
     is the guild recipient or None. Unset producer/guild shares roll to PL with a note.
     """
     net_cents = gross_cents - refunded_cents
-    effective = percents
-    overridden = False
-    notes: list[str] = []
-    if adjustment is not None and adjustment.override_percents is not None:
-        # The adjustment form guarantees a valid override, but the model is editable in
-        # Django admin too. Defend the read path: a malformed override (missing key or a
-        # triad that does not sum to 100) falls back to the standard split with a note,
-        # rather than raising and 500ing the whole Reconciliation tab.
-        try:
-            candidate = _override_percents(adjustment.override_percents, (producer_role, "guild", "pl"))
-            if sum(candidate.values(), Decimal("0")) != Decimal("100"):
-                raise ValueError("override does not sum to 100")
-            effective = candidate
-            overridden = True
-        except (KeyError, ValueError, TypeError, InvalidOperation):
-            notes.append("override ignored (malformed)")
+    effective, overridden, notes = _effective_percents(percents, adjustment, (producer_role, "guild", "pl"))
     shares_by_role = split_cents(net_cents, effective)
 
     shares: dict[RecipientKey, int] = {}
@@ -532,6 +557,71 @@ def _reservation_line(
     )
 
 
+def _cubby_lines(
+    window: PanelWindow,
+    percents: dict[str, Decimal],
+    adjustments: dict[AdjustmentKey, TransactionAdjustment],
+) -> list[TransactionLine]:
+    """Paid cubby invoices (#979) in the window, one line per payment, filed under when Stripe took it."""
+    from membership.models import CubbyPayment
+
+    payments = CubbyPayment.objects.filter(paid_at__gte=window.start_dt, paid_at__lt=window.end_dt).select_related(
+        "rental__cubby__unit__guild", "rental__member", "payee"
+    )
+    return [_cubby_line(payment, percents, adjustments) for payment in payments]
+
+
+def _cubby_line(
+    payment: Any,
+    percents: dict[str, Decimal],
+    adjustments: dict[AdjustmentKey, TransactionAdjustment],
+    refunded_cents: int | None = None,
+) -> TransactionLine:
+    """One paid cubby invoice's line: the guild's share to its frozen payee, the rest to Past Lives.
+
+    ``payment`` needs its rental (cubby, unit, guild, member) and payee loaded. With no payee the
+    whole payment stays with Past Lives, noted like an unset producer. A refunded payment (a cubby
+    the member never got) nets to nothing and owes nobody.
+    """
+    cubby = payment.rental.cubby
+    payee = payment.payee
+    gross_cents = payment.amount_cents
+    refunded = payment.refunded_cents if refunded_cents is None else refunded_cents
+    net_cents = gross_cents - refunded
+    adjustment = adjustments.get(("cubby", payment.pk))
+    effective, overridden, notes = _effective_percents(percents, adjustment, ("cubby_payee", "pl"))
+    shares_by_role = split_cents(net_cents, effective)
+    pl_key: RecipientKey = ("pl", None)
+    shares: dict[RecipientKey, int] = {pl_key: shares_by_role["pl"]}
+    labels: dict[RecipientKey, str] = {pl_key: PL_LABEL}
+    unassigned = False
+    if payee is not None:
+        shares[("cubby_payee", payee.id)] = shares_by_role["cubby_payee"]
+        labels[("cubby_payee", payee.id)] = payee.finance_name
+    else:
+        shares[pl_key] += shares_by_role["cubby_payee"]
+        if net_cents:
+            notes.append("cubby payee unset -> Past Lives")
+            unassigned = True
+    return TransactionLine(
+        source_kind="cubby",
+        source_pk=payment.pk,
+        date=payment.paid_at,
+        payer_name=payment.rental.member.finance_name,
+        item=f"Cubby {cubby.label}, {cubby.unit.guild.name}",
+        gross_cents=gross_cents,
+        refunded_cents=refunded,
+        net_cents=net_cents,
+        shares=shares,
+        labels=labels,
+        omitted=bool(adjustment is not None and adjustment.is_omitted),
+        overridden=overridden,
+        unassigned=unassigned,
+        note="; ".join(notes),
+        stripe_payment_intent_id=payment.stripe_payment_intent_id,
+    )
+
+
 class ShareSource:
     """Producer shares for single payments: the one share calculation the payouts code uses (#662).
 
@@ -547,6 +637,7 @@ class ShareSource:
         self._class_percents = _class_percents(settings_obj)
         self._orientation_percents = _orientation_percents(settings_obj)
         self._reservation_percents = _reservation_percents(settings_obj)
+        self._cubby_percents = _cubby_percents(settings_obj)
         self._adjustments = TransactionAdjustment.objects.as_map()
 
     def for_registration(self, reg: Any, refunded_cents: int | None = None) -> int:
@@ -572,12 +663,22 @@ class ShareSource:
             return 0
         return line.shares[("manager", payee.id)]
 
+    def for_cubby_payment(self, payment: Any, refunded_cents: int | None = None) -> int:
+        """The guild's share of a paid cubby invoice (#979) for its frozen payee, in cents; 0 with no payee."""
+        line = _cubby_line(payment, self._cubby_percents, self._adjustments, refunded_cents)
+        payee = payment.payee
+        if line.omitted or payee is None:
+            return 0
+        return line.shares[("cubby_payee", payee.id)]
+
     def for_source(self, kind: str, source: Any, refunded_cents: int | None = None) -> int:
-        """The producer's share of one payment by its source kind: ``"class"``, ``"orientation"`` or ``"reservation"``."""
+        """The producer's share of one payment by its source kind: ``"class"``, ``"orientation"``,
+        ``"reservation"`` or ``"cubby"``."""
         share = {
             "class": self.for_registration,
             "orientation": self.for_booking,
             "reservation": self.for_reservation,
+            "cubby": self.for_cubby_payment,
         }[kind]
         return share(source, refunded_cents)
 
@@ -736,12 +837,14 @@ def build_reconciliation(
     class_percents = _class_percents(settings_obj)
     orientation_percents = _orientation_percents(settings_obj)
     reservation_percents = _reservation_percents(settings_obj)
+    cubby_percents = _cubby_percents(settings_obj)
 
     lines: list[TransactionLine] = []
     lines.extend(_tab_lines(window, adjustments))
     lines.extend(_class_lines(window, class_percents, adjustments))
     lines.extend(_orientation_lines(window, orientation_percents, adjustments))
     lines.extend(_reservation_lines(window, reservation_percents, adjustments))
+    lines.extend(_cubby_lines(window, cubby_percents, adjustments))
     lines.sort(key=lambda line: line.date, reverse=True)
     lines = attach_stripe_fees(lines)
 
@@ -784,6 +887,7 @@ def build_reconciliation(
         reservation_percents=reservation_percents,
         voting_projected=voting_projected,
         voting_snapshotted_on=voting_on,
+        cubby_percents=cubby_percents,
     )
 
 
@@ -1045,6 +1149,8 @@ def result_from_snapshot(snapshot: ReconciliationSnapshot) -> ReconciliationResu
     orientation_percents = {k: Decimal(v) for k, v in data.get("orientation_percents", {}).items()}
     # Snapshots taken before #749 carry no reservation split: there were no paid reservations.
     reservation_percents = {k: Decimal(v) for k, v in data.get("reservation_percents", {}).items()}
+    # Snapshots taken before #979 carry no cubby split: no cubby was paid for before it.
+    cubby_percents = {k: Decimal(v) for k, v in data.get("cubby_percents", {}).items()}
     return ReconciliationResult(
         window=window,
         groups=groups,
@@ -1058,6 +1164,7 @@ def result_from_snapshot(snapshot: ReconciliationSnapshot) -> ReconciliationResu
         voting_projected=False,
         voting_snapshotted_on=timezone.localtime(snapshot.taken_at).date(),
         is_snapshot=True,
+        cubby_percents=cubby_percents,
     )
 
 

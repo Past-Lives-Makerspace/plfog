@@ -1,7 +1,10 @@
-{% extends "membership/emails/notification_shell.html" %}{% comment %}cubbies.rental_ended (#978), in the rented email's shell: the subscription ended and the cubby is free again.{% endcomment %}{% block content %}{% include "membership/emails/_cubby_eyebrow.html" %}
+{% extends "membership/emails/notification_shell.html" %}{% comment %}cubbies.rental_ended (#978), in the rented email's shell: the rental ended and the cubby is free again; a reason guild staff gave when ending it shows in its own box (#979).{% endcomment %}{% block content %}{% include "membership/emails/_cubby_eyebrow.html" %}
 <h1 style="margin: 0 0 14px; font-size: 24px; line-height: 1.25; color: #092E4C;">Your rental of {{ cubby.label }} has ended</h1>
-<p style="margin: 0 0 20px;">Hi {{ first_name }}, your rental of cubby <a href="{{ tab_url }}" style="color: #092E4C; font-weight: 700;">{{ cubby.label }} on the {{ cubby.unit.name }}</a> in the <a href="{{ guild_url }}" style="color: #092E4C; font-weight: 700;">{{ guild.name }}</a> has ended, and you won't be charged again.</p>
-<p style="margin: 0 0 24px;">If anything of yours is still in it, please clear it out so the next member can move in.</p>
+<p style="margin: 0 0 20px;">Hi {{ first_name }}, your rental of cubby <a href="{{ tab_url }}" style="color: #092E4C; font-weight: 700;">{{ cubby.label }} on the {{ cubby.unit.name }}</a> in the <a href="{{ guild_url }}" style="color: #092E4C; font-weight: 700;">{{ guild.name }}</a> has ended{% if rental.is_assigned %}.{% else %}, and you won't be charged again.{% endif %}</p>
+{% if rental.end_reason %}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 22px; border: 1px solid #e3e7ec; border-radius: 10px;">
+  <tr><td style="padding: 12px 16px; font-size: 14px; line-height: 1.7;"><strong style="color: #092E4C;">Guild staff said</strong><br>{{ rental.end_reason|linebreaksbr }}</td></tr>
+</table>
+{% endif %}<p style="margin: 0 0 24px;">If anything of yours is still in it, please clear it out so the next member can move in.</p>
 <p style="margin: 0 0 24px; text-align: center;"><a href="{{ tab_url }}" style="display: inline-block; padding: 13px 26px; border-radius: 8px; background: #EEB44B; color: #092E4C; font-weight: 700; text-decoration: none;">See the Cubbies</a></p>
 <p style="margin: 0; font-size: 14px; color: #5B6B77;">Want a cubby again later? Rent any open one from the guild page.</p>
 {% endblock %}

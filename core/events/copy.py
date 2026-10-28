@@ -3117,6 +3117,58 @@ _CURATED: dict[str, EventCopy] = {
             ),
         )
     },
+    # Cubby rentals for the guild's lead and staff (#979), sent in copy mode from
+    # membership.cubby_rentals._emit_staff. Past Due's email waits for the 8 AM digest.
+    **{
+        key: EventCopy(
+            placeholders=(
+                "cubby_label",
+                "unit_name",
+                "guild_name",
+                "member_name",
+                "amount",
+                "reason_line",
+                "rentals_url",
+            ),
+            sample_context={
+                "cubby_label": "A3",
+                "unit_name": "Glaze Wall",
+                "guild_name": "Ceramics Guild",
+                "member_name": "Jane Doe",
+                "amount": "$20 a month",
+                "reason_line": " The reason given: Moving to the bigger cubby by the kiln.",
+                "rentals_url": "https://pastlives.example/guilds/7/cubbies/rentals/",
+            },
+            channels={
+                Channel.IN_APP: ChannelCopy(subject=subject, body_text=body),
+                Channel.EMAIL: ChannelCopy(
+                    subject=subject,
+                    body_text=body + "\n\nRentals: {{ rentals_url }}\n\nPast Lives Makerspace",
+                    body_html="<p>" + body + '</p><p><a href="{{ rentals_url }}">See the Rentals</a></p>',
+                ),
+            },
+        )
+        for key, subject, body in (
+            (
+                "cubbies.rental_started",
+                "{{ member_name }} has {{ cubby_label }}",
+                "{{ member_name }} has cubby {{ cubby_label }} on the {{ unit_name }} in the {{ guild_name }}, "
+                "{{ amount }}.",
+            ),
+            (
+                "cubbies.rental_past_due",
+                "{{ cubby_label }} is past due",
+                "{{ member_name }}'s monthly payment for cubby {{ cubby_label }} on the {{ unit_name }} didn't go "
+                "through. Stripe tries the card again; if it never goes through, the rental ends.",
+            ),
+            (
+                "cubbies.staff_rental_ended",
+                "Clear {{ cubby_label }}'s shelf",
+                "{{ member_name }}'s rental of cubby {{ cubby_label }} on the {{ unit_name }} has ended."
+                "{{ reason_line }} Clear the shelf so the next member can move in.",
+            ),
+        )
+    },
 }
 
 
