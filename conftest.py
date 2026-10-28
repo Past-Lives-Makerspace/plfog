@@ -57,6 +57,17 @@ def _disable_airtable_sync(settings):
 
 
 @pytest.fixture(autouse=True)
+def _media_in_tmp(settings, tmp_path):
+    """Uploads land in a throwaway folder, never the checkout's media/.
+
+    factory-boy's ImageField writes a real file on every build, and nothing removes it, so
+    without this the checkout's media/ grew by hundreds of thousands of example.jpg files
+    (3 GB on one machine). pytest prunes tmp_path folders after a few runs on its own.
+    """
+    settings.MEDIA_ROOT = str(tmp_path / "media")
+
+
+@pytest.fixture(autouse=True)
 def _fake_stripe_keys(settings):
     """Stable Fernet encryption key so EncryptedCharField round-trips work in tests.
 
