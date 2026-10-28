@@ -1,8 +1,10 @@
 import os
+from collections.abc import Iterator
 
 import pytest
 
 from django.conf import settings
+from pytest_django.plugin import DjangoDbBlocker
 
 # Set by CI's postgres-only job, whose whole point is running these specs: there a database
 # other than PostgreSQL is a broken job, not a reason to skip.
@@ -51,7 +53,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 @pytest.fixture(autouse=True)
-def _restore_latest_migrations(request, django_db_blocker):
+def _restore_latest_migrations(request: pytest.FixtureRequest, django_db_blocker: DjangoDbBlocker) -> Iterator[None]:
     """After a migration spec, migrate every app back to its latest migration if any is behind.
 
     A migration spec moves apps to an older state and must restore them. One that restored only its
