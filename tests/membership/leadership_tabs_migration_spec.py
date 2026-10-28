@@ -8,7 +8,7 @@ one listing per member so 0189's reverse can restore the one-card-per-member rul
 the tabs.
 
 Uses Django's ``MigrationExecutor`` (the 0132 spec's approach) so fixtures are built against
-the state before or after; each test restores the head in a ``finally``.
+the state before or after; each test restores every app's latest migration in a ``finally``.
 """
 
 from __future__ import annotations
@@ -30,6 +30,12 @@ def _migrate(target: str) -> Any:
     executor = MigrationExecutor(connection)
     executor.migrate([(_APP, target)])
     return executor.loader.project_state([(_APP, target)]).apps
+
+
+def _head() -> None:
+    """Migrate every app back to its latest migration, so later specs see the real schema."""
+    executor = MigrationExecutor(connection)
+    executor.migrate(executor.loader.graph.leaf_nodes())
 
 
 def _member(apps: Any, name: str) -> Any:
@@ -75,7 +81,7 @@ def describe_migration_0190_leadership_tabs_data():
             }
             assert listing_model.objects.get(pk=hidden.pk).is_listed is False
         finally:
-            _migrate(_AFTER)
+            _head()
 
     def it_uses_the_default_intros_when_the_page_was_never_saved():
         try:
@@ -94,7 +100,7 @@ def describe_migration_0190_leadership_tabs_data():
             ]
             assert apps.get_model(_APP, "LeadershipPage").objects.count() == 0  # forward reads, never writes it
         finally:
-            _migrate(_AFTER)
+            _head()
 
     def it_reverses_to_one_listing_per_member_with_the_intros_back_on_the_page():
         try:
@@ -132,7 +138,7 @@ def describe_migration_0190_leadership_tabs_data():
             with pytest.raises(IntegrityError), transaction.atomic():
                 listing_model.objects.create(member=listing_model.objects.get(pk=ada_board.pk).member)
         finally:
-            _migrate(_AFTER)
+            _head()
 
     def it_reverses_with_no_tabs_left_and_keeps_the_page_wording():
         try:
@@ -146,4 +152,4 @@ def describe_migration_0190_leadership_tabs_data():
             page = apps.get_model(_APP, "LeadershipPage").objects.get(pk=1)
             assert (page.team_intro, page.guilds_intro) == ("Kept Intro", "Kept Guilds Intro")
         finally:
-            _migrate(_AFTER)
+            _head()

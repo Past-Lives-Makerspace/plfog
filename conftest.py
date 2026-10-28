@@ -51,6 +51,27 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 @pytest.fixture(autouse=True)
+def _restore_latest_migrations(request, django_db_blocker):
+    """After a migration spec, migrate every app back to its latest migration if any is behind.
+
+    A migration spec moves apps to an older state and must restore them. One that restored only its
+    own target (or failed before its ``finally``) left later specs on an old schema, and they failed
+    with missing columns far from the cause (#1002). Only ``*migration*_spec.py`` files pay for this.
+    """
+    yield
+    if "migration" not in request.node.path.name:
+        return
+    from django.db import connection
+    from django.db.migrations.executor import MigrationExecutor
+
+    with django_db_blocker.unblock():
+        executor = MigrationExecutor(connection)
+        leaves = executor.loader.graph.leaf_nodes()
+        if executor.migration_plan(leaves):
+            executor.migrate(leaves)
+
+
+@pytest.fixture(autouse=True)
 def _disable_airtable_sync(settings):
     """Disable Airtable sync in all tests by default."""
     settings.AIRTABLE_SYNC_ENABLED = False

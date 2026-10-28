@@ -24,6 +24,7 @@ from tests.membership.factories import (
     GuildFactory,
     GuildMeetingNoteAttachmentFactory,
     GuildMeetingNoteFactory,
+    MeetingFactory,
     MembershipPlanFactory,
 )
 
@@ -122,6 +123,15 @@ def describe_the_meetings_tab():
             with CaptureQueriesContext(connection) as queries:
                 _guild_page(client, guild)
             assert not [q["sql"] for q in queries.captured_queries if f'"{Meeting._meta.db_table}"' in q["sql"]]
+
+        def it_shows_no_upcoming_meeting_row_as_the_next_meeting(client):
+            hide("meetings")
+            _login(client, "notes_off_next")
+            guild = GuildFactory()
+            MeetingFactory(guild=guild, scheduled_date=date(2099, 3, 4))
+            html = _guild_page(client, guild)
+            assert "Mar 4" not in html
+            assert "Wednesday, March 4" not in html
 
         def it_lists_the_tab_in_the_phone_picker(client):
             hide("meetings")
