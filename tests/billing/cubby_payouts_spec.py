@@ -335,7 +335,7 @@ def describe_payouts():
         payment = _payment(payee)
         result = build_reconciliation(window=_window(), include_voting=False)
         [line] = result.lines
-        assert line.payout is not None and line.payout.state == "will_send"
+        assert line.payout is not None and line.payout.state == "sending"  # due and going through Stripe (#985)
         [row] = result.groups[RecipientKind.CUBBY_PAYEE]
         assert row.stripe_cents == 1700 and row.payout_badge is not None
         Payout.objects.create(

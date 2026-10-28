@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass, field, replace
-from datetime import date
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, cast
@@ -71,7 +71,7 @@ class RecipientKind(str, Enum):
 
     @property
     def is_producer(self) -> bool:
-        """True for the people paid a producer share, whose rows split Sent through Stripe / Owed manually."""
+        """True for the people paid a producer share, whose rows split Sent through Stripe / Owed now / Not yet due."""
         return self.value in _PRODUCER_KINDS
 
 
@@ -168,13 +168,16 @@ class RecipientAllocation:
     transaction_count: int
     voting_cents: int = 0
     voting_projected: bool = False
-    stripe_cents: int = 0  # producer rows: the part sent (or scheduled) through Stripe (#662)
+    stripe_cents: int = 0  # producer rows: the part paid in the window sent (or scheduled) through Stripe (#662)
+    # Producer rows (#985): what the treasurer pays by hand now, every unsent share that fell due
+    # in the window whenever it was paid, and the part paid in the window whose class, slot or
+    # reservation has not happened yet, with the earliest day one of those falls due.
+    owed_now_cents: int = 0
+    not_due_cents: int = 0
+    next_due_at: datetime | None = None
+    # Producer rows: transfers Stripe rejected and is still retrying. Never paid by hand (#985).
+    retrying_cents: int = 0
     payout_badge: PayoutBadge | None = None  # live producer rows: the payee's automatic payouts state (#905)
-
-    @property
-    def manual_cents(self) -> int:
-        """Producer rows (instructor, orientor, manager): what the finance lead still pays by hand at month end."""
-        return self.total_cents - self.stripe_cents
 
     @property
     def combined_cents(self) -> int:
@@ -199,6 +202,8 @@ class ReconciliationResult:
     voting_snapshotted_on: date | None = None
     is_snapshot: bool = False
     cubby_percents: dict[str, Decimal] = field(default_factory=dict)
+    # Producer lines paid before the window whose share fell due inside it and is still owed (#985).
+    due_earlier_lines: list[TransactionLine] = field(default_factory=list)
 
     @property
     def producers_total_cents(self) -> int:
@@ -214,6 +219,11 @@ class ReconciliationResult:
     @property
     def voting_total_cents(self) -> int:
         return sum(alloc.voting_cents for alloc in self.groups[RecipientKind.GUILD])
+
+    @property
+    def retrying_total_cents(self) -> int:
+        """Producer shares whose transfer failed and Stripe is retrying; the tables show their column only then."""
+        return sum(alloc.retrying_cents for kind in GROUP_ORDER for alloc in self.groups[kind])
 
     @property
     def kept_share_count(self) -> int:
@@ -241,6 +251,7 @@ class ReconciliationResult:
             "orientation_percents": {k: str(v) for k, v in self.orientation_percents.items()},
             "reservation_percents": {k: str(v) for k, v in self.reservation_percents.items()},
             "cubby_percents": {k: str(v) for k, v in self.cubby_percents.items()},
+            SPLIT_BY_DUE_KEY: True,
             "groups": [
                 {
                     "kind": kind.value,
@@ -252,6 +263,10 @@ class ReconciliationResult:
                             "transaction_count": alloc.transaction_count,
                             "voting_cents": alloc.voting_cents,
                             "stripe_cents": alloc.stripe_cents,
+                            "owed_now_cents": alloc.owed_now_cents,
+                            "not_due_cents": alloc.not_due_cents,
+                            "retrying_cents": alloc.retrying_cents,
+                            "next_due_at": None if alloc.next_due_at is None else alloc.next_due_at.isoformat(),
                         }
                         for alloc in self.groups[kind]
                     ],
@@ -259,6 +274,13 @@ class ReconciliationResult:
                 for kind in GROUP_ORDER
             ],
         }
+
+
+SPLIT_BY_DUE_KEY = "owed_by_due"
+"""Marks a snapshot taken since #985, whose Owed now counts shares by the window they fell due in.
+
+A snapshot without it counted every unsent share paid in its window as owed manually, due or not.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -794,8 +816,12 @@ def resolve_voting_allocation(window: PanelWindow) -> tuple[dict[int, int], bool
     """
     from billing.models import ReconciliationSnapshot
 
+    # A snapshot still being taken has no groups yet (``ReconciliationSnapshot.take`` freezes the
+    # ledger before it reads the results), so it must not stand in for the projection.
     snapshot = (
-        ReconciliationSnapshot.objects.filter(period_start=window.start, period_end=window.end)
+        ReconciliationSnapshot.objects.filter(
+            period_start=window.start, period_end=window.end, results__has_key="groups"
+        )
         .order_by("-taken_at")
         .first()
     )
@@ -821,17 +847,20 @@ def build_reconciliation(
     window: PanelWindow,
     adjustments: dict[AdjustmentKey, TransactionAdjustment] | None = None,
     include_voting: bool = True,
+    now: datetime | None = None,
 ) -> ReconciliationResult:
     """Attribute every payment in ``window`` to its recipients and aggregate.
 
     ``adjustments`` defaults to the full ``TransactionAdjustment.objects.as_map()`` —
     pass ``{}`` to force the standard splits. Voting allocation (guild rows) is projected
-    live unless a snapshot already froze the window.
+    live unless a snapshot already froze the window. ``now`` (default: the current time)
+    decides which shares have fallen due (#985).
     """
     from billing.models import BillingSettings, TransactionAdjustment
 
     if adjustments is None:
         adjustments = TransactionAdjustment.objects.as_map()
+    now = timezone.now() if now is None else now
 
     settings_obj = BillingSettings.load()
     class_percents = _class_percents(settings_obj)
@@ -862,9 +891,13 @@ def build_reconciliation(
             else line
             for line in lines
         ]
-    lines, accounts, payouts_by_line = _attach_payouts(lines)
-    stripe_keys = {key for key, state in payouts_by_line.items() if state.through_stripe}
-    aggregate = _aggregate_lines(lines, stripe_keys)
+    earlier = _due_earlier_lines(
+        window, now, class_percents, orientation_percents, reservation_percents, cubby_percents, adjustments
+    )
+    attached, accounts = _attach_payouts(lines + earlier, now)
+    lines = [_in_window(line, window) for line in attached[: len(lines)]]
+    due_earlier = [line for line in attached[len(lines) :] if _owed_for(line, window)]
+    aggregate = _aggregate_lines(lines, due_earlier, window)
 
     voting_by_guild: dict[int, int] = {}
     voting_projected = True
@@ -888,7 +921,105 @@ def build_reconciliation(
         voting_projected=voting_projected,
         voting_snapshotted_on=voting_on,
         cubby_percents=cubby_percents,
+        due_earlier_lines=due_earlier,
     )
+
+
+def _due_earlier_lines(
+    window: PanelWindow,
+    now: datetime,
+    class_percents: dict[str, Decimal],
+    orientation_percents: dict[str, Decimal],
+    reservation_percents: dict[str, Decimal],
+    cubby_percents: dict[str, Decimal],
+    adjustments: dict[AdjustmentKey, TransactionAdjustment],
+) -> list[TransactionLine]:
+    """Class, orientation, reservation and cubby lines paid before ``window`` whose share may fall due inside it (#985).
+
+    The queries narrow by the recorded ``Payout.due_at``, else the base ``run_payouts`` uses
+    (``fell_due_between``), or by a give up or a snapshot that placed the share in this window;
+    the test that counts is the line's own ``LinePayout.owed_at`` once its state attaches
+    (``_owed_for``). A payment inside a period a
+    snapshot froze before #985 is left out: that snapshot already counted its share as owed.
+    Seven queries for any number of lines.
+    """
+    from datetime import timedelta
+
+    from django.db.models import F, Min, Q
+    from django.db.models.functions import Greatest
+
+    from billing.models import ReconciliationSnapshot
+    from billing.payouts import fell_due_between, in_snapshot
+    from classes.models import Registration
+    from membership.models import CubbyPayment, EquipmentReservation, OrientationBooking
+
+    # Fell due in the window, became owed by hand in it after a give up, or counted by its snapshot.
+    due = (
+        fell_due_between(window.start_dt, min(window.end_dt, now + timedelta(microseconds=1)))
+        | Q(payout__owed_since__gte=window.start_dt, payout__owed_since__lt=window.end_dt)
+        | Q(payout__counted_owed_in__period_end__gte=window.start, payout__counted_owed_in__period_end__lte=window.end)
+    )
+    registrations = (
+        Registration.objects.filter(amount_paid_cents__gt=0, confirmed_at__lt=window.start_dt)
+        .annotate(due_base=Greatest(Min("class_offering__sessions__starts_at"), "confirmed_at"))
+        .filter(due)
+        .select_related("class_offering__instructor", "class_offering__category__guild", "member")
+        .prefetch_related("refunds")
+    )
+    bookings = (
+        OrientationBooking.objects.filter(amount_paid_cents__gt=0, requested_at__lt=window.start_dt)
+        .exclude(status=OrientationBooking.Status.PENDING_PAYMENT)
+        .annotate(due_base=Greatest("slot__starts_at", "requested_at"))
+        .filter(due)
+        .select_related("guild", "member", "oriented_by", "orientation_type__guild", "orientation_type__equipment")
+        .prefetch_related("refunds")
+    )
+    reservations = (
+        EquipmentReservation.objects.filter(amount_paid_cents__gt=0, created_at__lt=window.start_dt)
+        .exclude(status=EquipmentReservation.Status.PENDING_PAYMENT)
+        .annotate(due_base=Greatest("starts_at", "created_at"))
+        .filter(due)
+        .select_related("equipment__payee", "equipment__guild", "member", "payout__payee")
+        .prefetch_related("refunds")
+    )
+    # Nothing is taught: a cubby share falls due 48 hours after payment (#979).
+    cubby_payments = (
+        CubbyPayment.objects.filter(paid_at__lt=window.start_dt)
+        .annotate(due_base=F("paid_at"))
+        .filter(due)
+        .select_related("rental__cubby__unit__guild", "rental__member", "payee")
+    )
+    lines = [
+        *(_class_line(reg, class_percents, adjustments) for reg in registrations),
+        *(_orientation_line(booking, orientation_percents, adjustments) for booking in bookings),
+        *(_reservation_line(reservation, reservation_percents, adjustments) for reservation in reservations),
+        *(_cubby_line(payment, cubby_percents, adjustments) for payment in cubby_payments),
+    ]
+    if not lines:
+        return []
+    counted_before = list(
+        ReconciliationSnapshot.objects.exclude(results__has_key=SPLIT_BY_DUE_KEY).values_list(
+            "period_start", "period_end"
+        )
+    )
+    return [line for line in lines if not in_snapshot(line.date, counted_before)]
+
+
+def _in_window(line: TransactionLine, window: PanelWindow) -> TransactionLine:
+    """``line`` with its payout state as ``window`` shows it (``LinePayout.for_window``)."""
+    if line.payout is None:
+        return line
+    return replace(line, payout=line.payout.for_window(window.start_dt, window.end_dt))
+
+
+def _owed_for(line: TransactionLine, window: PanelWindow) -> bool:
+    """True when ``line``'s producer share counts in ``window``'s Owed now (``LinePayout.owed_in``)."""
+    return line.payout is not None and line.payout.owed_in(window.start_dt, window.end_dt)
+
+
+def owed_lines(result: ReconciliationResult) -> list[TransactionLine]:
+    """Every line whose producer share ``result`` counts in Owed now: paid in its window, or paid earlier."""
+    return [line for line in result.lines if _owed_for(line, result.window)] + result.due_earlier_lines
 
 
 def _split_by_weight(total: int, weights: list[int]) -> list[int]:
@@ -929,9 +1060,9 @@ def attach_stripe_fees(lines: list[TransactionLine]) -> list[TransactionLine]:
 
 
 def _attach_payouts(
-    lines: list[TransactionLine],
-) -> tuple[list[TransactionLine], dict[int, PayoutAccount], dict[AdjustmentKey, LinePayout]]:
-    """``lines`` with their payout states (#905), the producers' accounts, and the states by line.
+    lines: list[TransactionLine], now: datetime
+) -> tuple[list[TransactionLine], dict[int, PayoutAccount]]:
+    """``lines`` with their payout states at ``now`` (#905, #985), and the producers' accounts.
 
     The one path from lines to what Transaction Detail shows, shared by ``build_reconciliation``
     and ``registration_payouts``. One query for every producer's account: producer keys always
@@ -942,8 +1073,8 @@ def _attach_payouts(
     accounts = producer_accounts(
         cast(int, key[1]) for line in lines for key in line.shares if key[0] in _PRODUCER_KINDS
     )
-    payouts_by_line = line_payouts(lines, accounts)
-    return [_with_payout(line, payouts_by_line) for line in lines], accounts, payouts_by_line
+    payouts_by_line = line_payouts(lines, accounts, now)
+    return [_with_payout(line, payouts_by_line) for line in lines], accounts
 
 
 def registration_payouts(registration_pks: Iterable[int]) -> dict[int, LinePayout]:
@@ -966,7 +1097,9 @@ def registration_payouts(registration_pks: Iterable[int]) -> dict[int, LinePayou
     )
     percents = _class_percents(BillingSettings.load())
     adjustments = TransactionAdjustment.objects.filter(source_kind="class", source_pk__in=pks).as_map()
-    lines, _accounts, _states = _attach_payouts([_class_line(reg, percents, adjustments) for reg in registrations])
+    lines, _accounts = _attach_payouts(
+        [_class_line(reg, percents, adjustments) for reg in registrations], timezone.now()
+    )
     return {line.source_pk: line.payout for line in lines if line.payout is not None}
 
 
@@ -974,15 +1107,15 @@ def _with_payout(line: TransactionLine, payouts_by_line: dict[AdjustmentKey, Lin
     """``line`` with its producer share's payout state (#905), the same state that split it into the columns.
 
     A line with no earning but a producer share still to pay (a class with no sessions, say)
-    is paid by hand, as Owed manually counts it; an omitted line, or one with no producer share
-    left, gets no state.
+    has not happened, so it is Not yet due with no date (#985); an omitted line, or one with no
+    producer share left, gets no state.
     """
-    from billing.payouts import PAY_BY_HAND
+    from billing.payouts import NOT_DUE_UNDATED
 
     state = payouts_by_line.get((line.source_kind, line.source_pk))
     if state is None and not line.omitted:
         if any(cents for key, cents in line.shares.items() if key[0] in _PRODUCER_KINDS):
-            state = PAY_BY_HAND
+            state = NOT_DUE_UNDATED
     return line if state is None else replace(line, payout=state)
 
 
@@ -997,7 +1130,7 @@ def _badge_producers(
     While payouts are switched off site wide (``BillingSettings.connect_enabled``, the switch
     ``payouts.payouts_on`` reads) Stripe starts nothing new, so the account's status no longer
     says who Stripe pays. A row with nothing in Sent through Stripe reads Paid by hand, as its
-    lines and Owed manually do. A row that still has shares recorded through Stripe (sent,
+    lines and Owed now do. A row that still has shares recorded through Stripe (sent,
     pending or taken back before the switch went off) reads Payouts switched off instead, since
     part of it is not the treasurer's to pay.
     """
@@ -1016,6 +1149,39 @@ def _badge_producers(
                 alloc.payout_badge = account_badge(None)
 
 
+@dataclass
+class _ProducerSplit:
+    """Producer shares by how they are paid (#662, #985), keyed by recipient."""
+
+    stripe: dict[RecipientKey, int] = field(default_factory=dict)
+    owed_now: dict[RecipientKey, int] = field(default_factory=dict)
+    not_due: dict[RecipientKey, int] = field(default_factory=dict)
+    next_due: dict[RecipientKey, datetime] = field(default_factory=dict)
+    retrying: dict[RecipientKey, int] = field(default_factory=dict)
+
+    def add_paid(self, line: TransactionLine, window: PanelWindow) -> None:
+        """Count a line paid in ``window`` by its payout state; Owed now only if it also fell due in ``window``."""
+        payout = line.payout
+        if payout is None:
+            return
+        for key, cents in _producer_shares(line):
+            if payout.through_stripe:
+                self.stripe[key] = self.stripe.get(key, 0) + cents
+            elif payout.not_due:
+                self.not_due[key] = self.not_due.get(key, 0) + cents
+                if payout.due_at is not None and (key not in self.next_due or payout.due_at < self.next_due[key]):
+                    self.next_due[key] = payout.due_at
+            elif payout.retrying:
+                self.retrying[key] = self.retrying.get(key, 0) + cents
+            elif _owed_for(line, window):
+                self.owed_now[key] = self.owed_now.get(key, 0) + cents
+
+    def add_due_earlier(self, line: TransactionLine) -> None:
+        """Count a line paid before the window that fell due in it, to Owed now."""
+        for key, cents in _producer_shares(line):
+            self.owed_now[key] = self.owed_now.get(key, 0) + cents
+
+
 @dataclass(frozen=True)
 class _Aggregate:
     totals: dict[RecipientKey, int]
@@ -1024,16 +1190,20 @@ class _Aggregate:
     grand_total_cents: int
     unassigned_note_count: int
     omitted_count: int
-    stripe_totals: dict[RecipientKey, int]
+    split: _ProducerSplit
 
 
-def _aggregate_lines(lines: list[TransactionLine], stripe_keys: set[tuple[str, int]]) -> _Aggregate:
+def _aggregate_lines(
+    lines: list[TransactionLine], due_earlier: list[TransactionLine], window: PanelWindow
+) -> _Aggregate:
     """Sum non-omitted lines' shares per recipient; tally grand total, notes, and omissions.
 
-    ``stripe_keys`` names the lines whose producer share goes through Stripe (#662); that
-    share also adds to the producer's ``stripe_totals``. Guild and Past Lives rows ignore it.
+    Each line's producer share also goes by its own payout state: Sent through Stripe (#662),
+    Not yet due, Stripe retrying, or Owed now when it fell due inside ``window`` (#985). ``due_earlier`` are
+    lines paid before the window that fell due in it: they add to Owed now only, never to the
+    totals, which group by payment date. Guild and Past Lives rows ignore all of it.
     """
-    stripe_totals: dict[RecipientKey, int] = {}
+    split = _ProducerSplit()
     totals: dict[RecipientKey, int] = {}
     counts: dict[RecipientKey, int] = {}
     labels: dict[RecipientKey, str] = {}
@@ -1047,15 +1217,21 @@ def _aggregate_lines(lines: list[TransactionLine], stripe_keys: set[tuple[str, i
         if line.unassigned:
             unassigned_note_count += 1
         grand_total += line.net_cents
-        through_stripe = (line.source_kind, line.source_pk) in stripe_keys
         for key, cents in line.shares.items():
             totals[key] = totals.get(key, 0) + cents
-            if through_stripe and key[0] in _PRODUCER_KINDS:
-                stripe_totals[key] = stripe_totals.get(key, 0) + cents
             labels[key] = line.labels[key]
             if cents > 0:
                 counts[key] = counts.get(key, 0) + 1
-    return _Aggregate(totals, counts, labels, grand_total, unassigned_note_count, omitted_count, stripe_totals)
+        split.add_paid(line, window)
+    for line in due_earlier:
+        split.add_due_earlier(line)
+        labels.update(line.labels)
+    return _Aggregate(totals, counts, labels, grand_total, unassigned_note_count, omitted_count, split)
+
+
+def _producer_shares(line: TransactionLine) -> list[tuple[RecipientKey, int]]:
+    """``line``'s producer share as (key, cents): at most one, an instructor, orientor or manager."""
+    return [(key, cents) for key, cents in line.shares.items() if key[0] in _PRODUCER_KINDS]
 
 
 def _build_groups(
@@ -1068,11 +1244,15 @@ def _build_groups(
     """Turn aggregated totals into sorted per-kind allocation rows, folding in voting."""
     groups: dict[RecipientKind, list[RecipientAllocation]] = {kind: [] for kind in GROUP_ORDER}
     seen_guild_ids: set[int] = set()
-    for key, total in aggregate.totals.items():
+    split = aggregate.split
+    for key in aggregate.totals.keys() | split.owed_now.keys():
+        total = aggregate.totals.get(key, 0)
+        owed_now = split.owed_now.get(key, 0)
         # Drop only exact-zero recipients. A negative total (an over refund past the
         # payment) must still show so the per recipient rows keep summing to the grand
-        # total; hiding it would silently break conservation of money.
-        if total == 0:
+        # total; hiding it would silently break conservation of money. A producer paid
+        # nothing in the window still shows when a share paid earlier fell due in it (#985).
+        if total == 0 and owed_now == 0:
             continue
         kind = RecipientKind(key[0])
         recipient_id = key[1]
@@ -1082,7 +1262,11 @@ def _build_groups(
             label=aggregate.labels[key],
             total_cents=total,
             transaction_count=aggregate.counts.get(key, 0),
-            stripe_cents=aggregate.stripe_totals.get(key, 0),
+            stripe_cents=split.stripe.get(key, 0),
+            owed_now_cents=owed_now,
+            not_due_cents=split.not_due.get(key, 0),
+            next_due_at=split.next_due.get(key),
+            retrying_cents=split.retrying.get(key, 0),
         )
         if kind is RecipientKind.GUILD and recipient_id is not None:
             alloc.voting_cents = voting_by_guild.get(recipient_id, 0)
@@ -1132,19 +1316,28 @@ def result_from_snapshot(snapshot: ReconciliationSnapshot) -> ReconciliationResu
     for group in data.get("groups", []):
         kind = RecipientKind(group["kind"])
         for row in group.get("rows", []):
-            groups[kind].append(
-                RecipientAllocation(
-                    kind=kind,
-                    recipient_id=row.get("recipient_id"),
-                    label=row["label"],
-                    total_cents=int(row["total_cents"]),
-                    transaction_count=int(row["transaction_count"]),
-                    voting_cents=int(row.get("voting_cents", 0)),
-                    voting_projected=False,
-                    # Snapshots taken before #662 carry no split: all of it was owed by hand.
-                    stripe_cents=int(row.get("stripe_cents", 0)),
-                )
+            # Snapshots taken before #662 carry no split: all of it was owed by hand.
+            stripe_cents = int(row.get("stripe_cents", 0))
+            alloc = RecipientAllocation(
+                kind=kind,
+                recipient_id=row.get("recipient_id"),
+                label=row["label"],
+                total_cents=int(row["total_cents"]),
+                transaction_count=int(row["transaction_count"]),
+                voting_cents=int(row.get("voting_cents", 0)),
+                voting_projected=False,
+                stripe_cents=stripe_cents,
             )
+            if "owed_now_cents" in row:
+                alloc.owed_now_cents = int(row["owed_now_cents"])
+                alloc.not_due_cents = int(row["not_due_cents"])
+                alloc.retrying_cents = int(row["retrying_cents"])
+                next_due = row["next_due_at"]
+                alloc.next_due_at = None if next_due is None else datetime.fromisoformat(next_due)
+            elif kind.is_producer:
+                # Taken before #985: everything not sent through Stripe was counted as owed.
+                alloc.owed_now_cents = alloc.total_cents - stripe_cents
+            groups[kind].append(alloc)
     class_percents = {k: Decimal(v) for k, v in data.get("class_percents", {}).items()}
     orientation_percents = {k: Decimal(v) for k, v in data.get("orientation_percents", {}).items()}
     # Snapshots taken before #749 carry no reservation split: there were no paid reservations.
@@ -1188,7 +1381,10 @@ CSV_HEADERS = [
     "Voting",
     "Total",
     "Sent through Stripe",
-    "Owed manually",
+    "Owed now",
+    "Not yet due",
+    "Next due",
+    "Stripe retrying",
 ]
 
 
@@ -1207,9 +1403,17 @@ def _csv_lines(result: ReconciliationResult, writer: Any) -> Iterator[str]:
                     voting,
                     f"{alloc.combined_cents / 100:.2f}",
                     f"{alloc.stripe_cents / 100:.2f}" if producer else "",
-                    f"{alloc.manual_cents / 100:.2f}" if producer else "",
+                    f"{alloc.owed_now_cents / 100:.2f}" if producer else "",
+                    f"{alloc.not_due_cents / 100:.2f}" if producer else "",
+                    _iso_day(alloc.next_due_at),
+                    f"{alloc.retrying_cents / 100:.2f}" if producer else "",
                 ]
             )
+
+
+def _iso_day(when: datetime | None) -> str:
+    """``when`` as its Pacific day, "2026-11-05", or an empty cell."""
+    return "" if when is None else timezone.localtime(when).date().isoformat()
 
 
 def stream_reconciliation_csv(result: ReconciliationResult) -> StreamingHttpResponse:

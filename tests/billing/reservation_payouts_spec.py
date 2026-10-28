@@ -503,14 +503,14 @@ def describe_the_reconciliation_line():
         assert not RecipientKind.PL.is_producer
         assert GROUP_LABELS[RecipientKind.MANAGER] == "Equipment Managers"
 
-    def it_splits_sent_through_stripe_from_owed_manually_for_a_manager():
+    def it_splits_sent_through_stripe_from_owed_now_for_a_manager():
         _turn_on()
         payee = _manager()
         reservation = _paid(_equipment(payee), amount=10000)
         unconnected = _manager("Lee Tran", connected=False)
         _paid(_equipment(unconnected, name="Band Saw"), amount=10000, pi="pi_res_2")
         result = build_reconciliation(window=_window(), include_voting=False)
-        rows = {row.label: (row.stripe_cents, row.manual_cents) for row in result.groups[RecipientKind.MANAGER]}
+        rows = {row.label: (row.stripe_cents, row.owed_now_cents) for row in result.groups[RecipientKind.MANAGER]}
         assert rows == {"Sami Okafor": (7000, 0), "Lee Tran": (0, 7000)}
         body = b"".join(stream_reconciliation_csv(result).streaming_content).decode()
         assert "Equipment Managers,Sami Okafor,1,70.00,,70.00,70.00,0.00" in body
@@ -571,7 +571,9 @@ def describe_the_month_end_snapshot():
         payee = _manager()
         reservation = _paid(_equipment(payee), amount=10000)
         today = timezone.localdate()
-        snapshot = ReconciliationSnapshot.take(period_start=today - timedelta(days=40), period_end=today, title="Oct")
+        snapshot = ReconciliationSnapshot.take(
+            period_start=today - timedelta(days=40), period_end=today - timedelta(days=1), title="Oct"
+        )
         assert snapshot.results["reservation_percents"] == {"manager": "70.00", "guild": "15.00", "pl": "15.00"}
         [group] = [group for group in snapshot.results["groups"] if group["kind"] == "manager"]
         assert group["rows"][0]["label"] == "Sami Okafor"
@@ -593,10 +595,13 @@ def describe_the_month_end_snapshot():
         _login_admin(client)
         _paid(_equipment(_manager()), amount=10000)
         today = timezone.localdate()
-        snapshot = ReconciliationSnapshot.take(period_start=today - timedelta(days=40), period_end=today)
+        snapshot = ReconciliationSnapshot.take(
+            period_start=today - timedelta(days=40), period_end=today - timedelta(days=1)
+        )
         content = client.get(reverse("billing_reconciliation_snapshot_detail", args=[snapshot.pk])).content.decode()
         assert "Equipment Managers" in content
-        assert "Owed manually" in content
+        assert "data-recon-owed-now" in content
+        assert "data-recon-not-due" in content
 
 
 # ---------------------------------------------------------------------------
@@ -847,7 +852,9 @@ def describe_taking_the_share_back():
 
 def _take_snapshot() -> ReconciliationSnapshot:
     today = timezone.localdate()
-    return ReconciliationSnapshot.take(period_start=today - timedelta(days=40), period_end=today, title="Oct")
+    return ReconciliationSnapshot.take(
+        period_start=today - timedelta(days=40), period_end=today - timedelta(days=1), title="Oct"
+    )
 
 
 def _manager_row(snapshot: ReconciliationSnapshot) -> dict[str, Any]:
@@ -870,7 +877,13 @@ def describe_a_request_awaiting_approval_at_month_end():
         )
         snapshot = _take_snapshot()
         row = _manager_row(snapshot)
-        assert (row["total_cents"], row["stripe_cents"]) == (7000, 7000)  # Sent through Stripe, not owed by hand
+        # Not yet due until Stripe sends it (#985), and never owed by hand.
+        assert (row["total_cents"], row["stripe_cents"], row["owed_now_cents"], row["not_due_cents"]) == (
+            7000,
+            0,
+            0,
+            7000,
+        )
         payout = Payout.objects.get(reservation=waiting)
         assert (payout.status, payout.counted_as_stripe_in) == (Payout.Status.PENDING, snapshot)
 
