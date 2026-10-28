@@ -26,13 +26,8 @@ an admin reading a queue wants the glance.{% endcomment %}
 <section class="hub-card pl-pipeline-card" style="margin:0 0 1rem;" data-help-key="teach.review-pipeline">
     <h3 style="margin:0;">Where Your Class Is</h3>
     {% include "classes/_components/review_pipeline.html" with pipeline=pipeline %}
-    {% if pipeline.is_bounced or pipeline.note %}
-        <div class="pl-review-note">
-            <span class="pl-review-note__label">Reviewer's note</span>{% if pipeline.note %}{{ pipeline.note }}{% else %}The reviewer left no note.{% endif %}
-        </div>
-    {% endif %}
     {% if pipeline.is_bounced %}
-        <p style="margin:0.75rem 0 0;color:var(--hub-text-muted);">Fix the notes and submit again.</p>
+        <p style="margin:0.75rem 0 0;color:var(--hub-text-muted);">Fix the notes and submit again. The reviewer's note is in Messages below.</p>
     {% elif offering.status == 'pending' %}
         <p style="margin:0.5rem 0 0;color:var(--hub-text-muted);">Reviewers can see it now. You can still edit it, or take it back to draft.</p>
     {% endif %}
@@ -40,14 +35,10 @@ an admin reading a queue wants the glance.{% endcomment %}
 {% else %}
 <div style="margin-bottom:1rem;" data-help-key="teach.review-pipeline">
     {% include "classes/_components/review_pipeline.html" with pipeline=pipeline %}
-    {% if pipeline.is_bounced or pipeline.note %}
-        <div class="pl-review-note">
-            <span class="pl-review-note__label">Reviewer's note</span>{% if pipeline.note %}{{ pipeline.note }}{% else %}The reviewer left no note.{% endif %}
-        </div>
-    {% endif %}
 </div>
 {% endif %}
 {% endif %}
+{% if class_thread %}{% include "classes/_components/class_messages.html" %}{% endif %}
 {% if offering.status == 'cancelled' %}
   <p style="margin:0 0 1rem;color:var(--hub-text-muted);">Cancelled {{ offering.cancelled_at|date:"M j, Y" }}{% if offering.cancelled_by %} by {{ offering.cancelled_by.display_name }}{% endif %}. Reason: {{ offering.cancellation_reason }}</p>
 {% endif %}

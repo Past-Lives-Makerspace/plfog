@@ -51,6 +51,7 @@ from core.integrations.eventbrite_choices import EventbriteCategory, EventbriteS
 from core.html_sanitize import is_editor_html, rich_body_to_text, rich_html_to_text
 from core.images import cut_hero_crop, normalize_field_if_uploaded
 from core.models import HERO_CROP_FIELDS, HeroCropMixin, StaffRequestMixin
+from core.threads import ThreadMessage, ThreadPhoto
 from core.validators import validate_image_content, validate_image_size
 from membership.names import user_name_or_email
 
@@ -62,7 +63,7 @@ if TYPE_CHECKING:
 
     from billing.models import PaymentRefund
     from core.integrations.eventbrite import ListingCheck, ListingSchedule
-    from membership.models import Member
+    from membership.models import Guild, Member
 
 logger = logging.getLogger(__name__)
 
@@ -2291,6 +2292,10 @@ class ClassOffering(HeroCropMixin, models.Model):
         inside :attr:`CHANGE_REQUEST_REPEAT_WINDOW` logs nothing and notifies nobody, since
         the admins already hold it.
 
+        The request is also written into the class's thread as the instructor's message
+        (:meth:`write_message`), telling nobody more: the notice above is its one notice. A
+        repeat writes nothing, as it notifies nobody.
+
         Returns:
             True when the request went out, False when it repeated one the admins have.
 
@@ -2302,6 +2307,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             raise ValueError(f"Only published classes can request a change; got {self.status}.")
         if self.lifecycle == self.Lifecycle.COMPLETED:
             raise ValueError("This class has already happened.")
+        typed = note
         note = " ".join(note.split())
         if not note:
             raise ValueError("Say what needs to change.")
@@ -2338,6 +2344,9 @@ class ClassOffering(HeroCropMixin, models.Model):
             url=edit_path,
             period=f"offering:{self.pk}:change_request:{row.pk}",
         )
+        # The request is also the instructor's message on the class's thread, as typed (line
+        # breaks kept). The notice above is its only notice, so it is written, not posted.
+        self.write_message(author=actor, body=typed)
         return True
 
     def _change_request_repeats(self, actor: "User | None", note: str) -> bool:
@@ -2357,6 +2366,127 @@ class ClassOffering(HeroCropMixin, models.Model):
             return False
         return (
             latest.created_at >= timezone.now() - self.CHANGE_REQUEST_REPEAT_WINDOW and latest.payload["note"] == note
+        )
+
+    # --- The class's messages (the shared thread, core.threads) -------------------------------
+
+    #: The two sides of a class's thread, as :meth:`message_side` names them.
+    MESSAGE_SIDE_INSTRUCTOR: ClassVar[str] = "instructor"
+    MESSAGE_SIDE_REVIEWER: ClassVar[str] = "reviewer"
+
+    @property
+    def messages_path(self) -> str:
+        """The stable link to this class's messages: it sends each viewer to the page that shows them."""
+        from django.urls import reverse
+
+        return reverse("classes:class_messages", kwargs={"pk": self.pk})
+
+    @property
+    def message_thread_key(self) -> str:
+        """The thread's id on a page (``data-thread-open``) and in ``?messages=`` after a send."""
+        return f"class-{self.pk}"
+
+    def thread(self) -> list[ClassMessage]:
+        """Every message on this class, oldest first, with its author and photos.
+
+        Each message is handed this instance, so its side is answered from
+        :meth:`instructor_user_ids`, cached here: a thread of any length costs a fixed number
+        of queries.
+        """
+        messages = list(self.messages.select_related("author__member").prefetch_related("photos"))
+        for message in messages:
+            message.class_offering = self
+        return messages
+
+    def instructor_user_ids(self) -> set[int]:
+        """The accounts of every instructor of this class: whoever writes as one is the instructor side.
+
+        Cached on the instance, because every message on a thread asks it.
+        """
+        cached: set[int] | None = getattr(self, "_instructor_user_ids_cache", None)
+        if cached is None:
+            cached = {member.user_id for member in self.instructor_list if member.user_id is not None}
+            self._instructor_user_ids_cache = cached
+        return cached
+
+    @property
+    def message_review_guild(self) -> Guild | None:
+        """The guild whose reviewers are this thread's reviewer side, or ``None`` for the CMS Administrators.
+
+        The same guild the first review gate is opened for: a class whose category's guild has a
+        lead is reviewed by that guild (its lead and Class Reviewers); any other class by the CMS
+        Administrators (:func:`core.events.resolvers.guild_leadership_or_class_approvers`).
+        """
+        if ClassApproval.Role.GUILD_LEAD in self.required_review_roles:
+            return self.category.guild
+        return None
+
+    def reviewer_user_ids(self) -> set[int]:
+        """Who an instructor's message reaches: the class's reviewers (the review request's audience).
+
+        Never widened with every admin: an admin reads and writes on every thread, and hears
+        an instructor's answer only after writing there (:meth:`ClassMessage.reviewer_recipient_ids`).
+        """
+        from core.events.resolvers import guild_leadership_or_class_approvers
+
+        return {user.pk for user, _reason in guild_leadership_or_class_approvers({"guild": self.message_review_guild})}
+
+    @property
+    def reviewers_label(self) -> str:
+        """Who the reviewer side is, in words: "the Ceramics Guild lead and Class Reviewers" or "the CMS Administrators"."""
+        guild = self.message_review_guild
+        if guild is not None:
+            return f"the {guild.name} lead and Class Reviewers"
+        return "the CMS Administrators"
+
+    def message_side(self, user: AbstractBaseUser | AnonymousUser | None) -> str | None:
+        """Which side of this class's thread ``user`` writes on, or ``None`` when it is not theirs.
+
+        An instructor of the class writes as the instructor side, whatever else they are. The
+        reviewer side is the class's reviewers (the lead and Class Reviewers of
+        :attr:`message_review_guild`, a guild with a lead, so the same people its messages
+        reach), the CMS Administrators, and every admin. A guild with no lead does not review
+        its classes, so its Class Reviewers have no side on them.
+        """
+        if user is None or not user.is_authenticated:
+            return None
+        if user.pk in self.instructor_user_ids():
+            return self.MESSAGE_SIDE_INSTRUCTOR
+        if getattr(user, "is_superuser", False):
+            return self.MESSAGE_SIDE_REVIEWER
+        from membership.models import AdminCapability, Member
+
+        member = Member.objects.filter(user_id=user.pk).first()
+        if member is None:
+            return None
+        if member.is_fog_admin or member.has_admin_capability(AdminCapability.Capability.CLASS_APPROVER):
+            return self.MESSAGE_SIDE_REVIEWER
+        guild = self.message_review_guild
+        if guild is not None and guild.reviews_classes(member):
+            return self.MESSAGE_SIDE_REVIEWER
+        return None
+
+    def post_message(self, *, author: User | None, body: str, photos: Sequence[Any] = ()) -> ClassMessage:
+        """Post a message on this class's thread and tell the other side, every time.
+
+        An instructor writing tells the reviewers (:meth:`reviewer_user_ids`); anyone else
+        writing (a reviewer, an admin, a review link used signed out) tells the instructors.
+        Either way the author is left out.
+        """
+        return ClassMessage.post(author=author, body=body, photos=list(photos), class_offering=self)
+
+    def write_message(
+        self, *, author: User | None, body: str, created_at: datetime | None = None
+    ) -> ClassMessage | None:
+        """Save a message that rides on another notice (a decision's note, a change request); tells nobody.
+
+        Blank text writes nothing and returns ``None``. ``created_at`` dates it at the action it
+        belongs to (a decision is dated when it was decided).
+        """
+        if not body.strip():
+            return None
+        return ClassMessage.write(
+            author=author, body=body, class_offering=self, created_at=created_at or timezone.now()
         )
 
     @property
@@ -4260,6 +4390,23 @@ class ClassApproval(models.Model):
         stale = [pk for pk, token in tokens_by_pk.items() if token and token not in still_open]
         return Notification.objects.filter(pk__in=stale).update(read_at=timezone.now())
 
+    @property
+    def review_cycle_is_live(self) -> bool:
+        """Whether this gate's review round is still the class's current one (#975).
+
+        Live while the class is pending and this gate is undecided, or while the class is a
+        draft this gate sent back (the newest bounce). A gate decided in a round that moved on,
+        or any gate once the class is published, cancelled or archived, is spent: a review link
+        used signed out reads and writes the class's messages only while it is live.
+        """
+        offering = self.class_offering
+        if offering.status == ClassOffering.Status.PENDING:
+            return not self.decision
+        if offering.status == ClassOffering.Status.DRAFT and self.decision in _BOUNCE_DECISIONS:
+            bounce = offering.latest_bounce_row
+            return bounce is not None and bounce.pk == self.pk
+        return False
+
     def may_be_decided_by(self, user: "AbstractBaseUser | AnonymousUser | None") -> bool:
         """Whether ``user`` may record this gate's decision from the tokenized review page (#816).
 
@@ -4357,9 +4504,163 @@ class ClassApproval(models.Model):
         # undecided and the class PENDING, never an APPROVED row on an unpublished class.
         with transaction.atomic():
             self.save(update_fields=update_fields)
+            # The note stays here as the decision's record, and is also the reviewer's message
+            # on the class's thread, which outlives this row (a resubmit deletes a bounced one).
+            # The decision email carries it, so it is written, never posted: one notice.
+            self.class_offering.write_message(author=user, body=notes, created_at=self.decided_at)
             self.class_offering.on_review_decision_recorded(self)
             # Decided, so the bell entries asking for this decision stop asking (#894).
             ClassApproval.mark_review_bells_read([self.token])
+
+
+class ClassMessage(ThreadMessage):
+    """One message on a :class:`ClassOffering`'s thread, between its instructors and its reviewers.
+
+    The instructor side is every instructor of the class (#686, all equal); the reviewer side
+    is everyone else who may write here (:meth:`ClassOffering.message_side`): the class's
+    reviewers, the CMS Administrators and admins. A message is the instructor side's when its
+    author teaches the class, so the side follows who teaches it now. A message with no author
+    (a decision made from a review link signed out, a note carried over) signs as the reviewer.
+
+    The thread hangs off the class, never off a :class:`ClassApproval`, so it survives the
+    bounced rows a resubmit deletes: it is the durable record of the review conversation.
+    """
+
+    STAFF_SIGNATURE: ClassVar[str] = "Reviewer"
+
+    class_offering = models.ForeignKey(
+        ClassOffering,
+        on_delete=models.CASCADE,
+        related_name="messages",
+        help_text="The class this message is on.",
+    )
+
+    class Meta(ThreadMessage.Meta):
+        pass
+
+    def __str__(self) -> str:
+        return f"Message {self.pk} on class {self.class_offering_id}"
+
+    @property
+    def member_user_ids(self) -> set[int]:
+        """The instructor side's accounts: every instructor of the class (#686, all equal)."""
+        return self.class_offering.instructor_user_ids()
+
+    @property
+    def member_side_name(self) -> str:
+        """An instructor's message signs with that instructor's own name."""
+        from membership.names import user_display_name
+
+        return user_display_name(self.author) if self.author is not None else ""
+
+    def _tell_member_side(self) -> bool:
+        """A reviewer's message: tell every instructor of the class but the author."""
+        instructors = [
+            member for member in self.class_offering.instructor_list if member.user_id not in {None, self.author_id}
+        ]
+        if not instructors:
+            return False
+        from core.events.registry import CLASS_MESSAGE_TO_INSTRUCTORS
+
+        self._emit(CLASS_MESSAGE_TO_INSTRUCTORS, context={"instructors": instructors})
+        return True
+
+    def reviewer_recipient_ids(self) -> set[int]:
+        """Who an instructor's message reaches: the class's reviewers, plus reviewer side writers, minus the author.
+
+        The reviewers are :meth:`ClassOffering.reviewer_user_ids` (the first gate's audience).
+        Anyone else who has written here from the reviewer side (an admin, a CMS Administrator
+        on a guild-led class) hears the answer to what they wrote, while they still have that
+        side (:meth:`ClassOffering.message_side`): someone who no longer reviews hears nothing more.
+        """
+        offering = self.class_offering
+        audience = offering.reviewer_user_ids()
+        writer_ids = {
+            message.author_id
+            for message in offering.messages.exclude(pk=self.pk).select_related("author")
+            if message.author_id is not None and message.author_id not in audience and message.is_from_staff
+        }
+        from django.contrib.auth import get_user_model
+
+        writers = {
+            user.pk
+            for user in get_user_model().objects.filter(pk__in=writer_ids)
+            if offering.message_side(user) == ClassOffering.MESSAGE_SIDE_REVIEWER
+        }
+        return (audience | writers) - {self.author_id}
+
+    def _tell_staff_side(self) -> bool:
+        """An instructor's message: tell :meth:`reviewer_recipient_ids`."""
+        offering = self.class_offering
+        recipient_ids = self.reviewer_recipient_ids()
+        if not recipient_ids:
+            return False
+        from core.events.registry import CLASS_MESSAGE_TO_REVIEWERS
+
+        # The event's resolver still runs on the guild, then recipient_user_ids replaces its people.
+        self._emit(
+            CLASS_MESSAGE_TO_REVIEWERS,
+            context={"guild": offering.message_review_guild},
+            recipient_user_ids=recipient_ids,
+        )
+        return True
+
+    def _emit(self, key: str, *, context: dict[str, Any], recipient_user_ids: set[int] | None = None) -> None:
+        """Emit one message notice, linking the stable messages path (it lands each reader on their page)."""
+        from classes.emails import _absolute_url
+        from core.events.emit import emit
+
+        offering = self.class_offering
+        emit(
+            key,
+            actor=self.author,
+            target=offering,
+            context={
+                **context,
+                "author_name": self.author_name,
+                "class_title": offering.title,
+                "message_body": self.body,
+                "messages_url": _absolute_url(offering.messages_path),
+            },
+            url=offering.messages_path,
+            period=f"class-message-{self.pk}",
+            recipient_user_ids=recipient_user_ids,
+        )
+
+    def told_sentence(self) -> str:
+        if not self.notified:
+            return ""
+        offering = self.class_offering
+        if self.is_from_staff:
+            names = [
+                member.display_name
+                for member in offering.instructor_list
+                if member.user_id not in {None, self.author_id}
+            ]
+            joined = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+            return f" {joined} {'was' if len(names) == 1 else 'were'} notified."
+        label = offering.reviewers_label
+        return f" {label[0].upper()}{label[1:]} were notified."
+
+
+class ClassMessagePhoto(ThreadPhoto):
+    """One photo posted with a :class:`ClassMessage`."""
+
+    message = models.ForeignKey(
+        ClassMessage,
+        on_delete=models.CASCADE,
+        related_name="photos",
+        help_text="The message this photo was posted with.",
+    )
+    image = models.ImageField(
+        upload_to="class-messages/%Y/%m/", help_text="The uploaded photo, on the default storage."
+    )
+
+    class Meta(ThreadPhoto.Meta):
+        pass
+
+    def __str__(self) -> str:
+        return f"Photo {self.pk} on class message {self.message_id}"
 
 
 class ClassImage(models.Model):

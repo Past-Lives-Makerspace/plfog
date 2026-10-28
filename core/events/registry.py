@@ -559,6 +559,8 @@ FEEDBACK_COMMENT_ADDED = "feedback.comment_added"  # Past Lives wrote on a reque
 FEEDBACK_MEMBER_REPLIED = "feedback.member_replied"  # a sender wrote back on their request (the Webmasters)
 ORIENTATION_MESSAGE_TO_MEMBER = "orientation.message_to_member"  # an orientor wrote on your orientation booking
 ORIENTATION_MESSAGE_TO_ORIENTORS = "orientation.message_to_orientors"  # a member wrote on their orientation booking
+CLASS_MESSAGE_TO_INSTRUCTORS = "class.message_to_instructors"  # a reviewer wrote on your class (#975)
+CLASS_MESSAGE_TO_REVIEWERS = "class.message_to_reviewers"  # an instructor wrote on a class you review (#975)
 KILN_CREW_REPLIED = "kiln.crew_replied"  # the kiln crew wrote on your kiln ticket (#691)
 KILN_MAKER_REPLIED = "kiln.maker_replied"  # a maker wrote on a kiln ticket (the kiln crew, #691)
 KILN_READY_FOR_PICKUP = "kiln.ready_for_pickup"  # your pieces came out of a firing (#691 part 3)
@@ -1624,6 +1626,36 @@ _NEW_EVENTS: list[EventType] = [
         description="A member wrote on an orientation booking you run.",
         category="Orientations",
         recipient=Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # class.message_to_instructors — someone on the reviewer side (a guild lead or Class
+    # Reviewer, a CMS Administrator, an admin, a review link used signed out) posted a message
+    # on a class's thread (the shared thread, core.threads, #975). Reaches every instructor of
+    # the class but the author. A decision's note is written into the thread and rides in the
+    # decision email, so it never fires this. The period is the message. No activity row: the
+    # thread is the record.
+    EventType(
+        key=CLASS_MESSAGE_TO_INSTRUCTORS,
+        label="Messages about your class",
+        description="A reviewer wrote on a class you teach.",
+        category="Teaching",
+        recipient=Recipients.INSTRUCTOR,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # class.message_to_reviewers — an instructor posted a message on their class's thread
+    # (#975). Goes to the audience class_review_requested reaches for the class's first gate
+    # (the guild's lead and Class Reviewers, else the CMS Administrators), never widened with
+    # every admin; the sender passes that set minus the author. A change request on a live
+    # class is written into the thread and rides on class_change_requested instead. The
+    # period is the message. No activity row: the thread is the record.
+    EventType(
+        key=CLASS_MESSAGE_TO_REVIEWERS,
+        label="Messages on classes you review",
+        description="An instructor wrote on a class you review.",
+        category="Classes",
+        recipient=Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
