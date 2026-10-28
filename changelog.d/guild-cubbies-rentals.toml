@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-10-27"
+title = "Guilds can rent out cubbies"
+changes = [
+  "A guild can turn on a Cubbies tab that draws its shelves and shows which cubbies are open.",
+  "Rent an open cubby right from the tab: pick what you pay each month, at or above the guild's minimum. Paying more helps the guild.",
+  "Your Cubby shows your next charge and lets you change your amount, update your card or cancel.",
+  "Guild staff see every rental, assign a cubby by hand, end a rental and download the list.",
+  "Most of each cubby payment goes to the guild.",
+]

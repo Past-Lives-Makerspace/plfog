@@ -160,6 +160,24 @@ class BillingSettings(models.Model):
         validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
         help_text="Percent of each paid equipment reservation that goes to Past Lives (0-100).",
     )
+    # #979: a paid cubby rental's split, a pair: the guild's share goes to the payee the guild
+    # picked (Guild.cubby_payee). Database defaults too, for the old release during the deploy.
+    cubby_guild_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("85.00"),
+        db_default=Decimal("85.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percent of each cubby payment that goes to the guild's cubby payee (0-100).",
+    )
+    cubby_pl_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("15.00"),
+        db_default=Decimal("15.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percent of each cubby payment that Past Lives keeps (0-100).",
+    )
 
     # ---- Stripe platform configuration ----
     # Credentials for the single Past Lives platform Stripe account. All charges
@@ -1604,6 +1622,7 @@ class TransactionAdjustment(models.Model):
         CLASS = "class", "Class"
         ORIENTATION = "orientation", "Orientation"
         RESERVATION = "reservation", "Reservation"
+        CUBBY = "cubby", "Cubby"
 
     source_kind = models.CharField(
         max_length=20,
@@ -1611,7 +1630,10 @@ class TransactionAdjustment(models.Model):
         help_text="Which payment stream the target transaction lives in.",
     )
     source_pk = models.PositiveIntegerField(
-        help_text="PK of the TabCharge / Registration / OrientationBooking / EquipmentReservation being adjusted.",
+        help_text=(
+            "PK of the TabCharge / Registration / OrientationBooking / EquipmentReservation / CubbyPayment "
+            "being adjusted."
+        ),
     )
     is_omitted = models.BooleanField(
         default=False,
@@ -2264,8 +2286,8 @@ class PayoutQuerySet(models.QuerySet["Payout"]):
 
 
 class Payout(models.Model):
-    """One instructor, orientor or equipment manager share of one paid registration, orientation booking
-    or equipment reservation (#662, reservations #749).
+    """One instructor, orientor, equipment manager or cubby payee share of one paid registration,
+    orientation booking, equipment reservation or cubby invoice (#662, reservations #749, cubbies #979).
 
     Made by ``billing.payouts.run_payouts`` when the share falls due (48 hours after the first
     session or slot starts, or after payment if that came later). A share that goes through
@@ -2312,6 +2334,14 @@ class Payout(models.Model):
         on_delete=models.PROTECT,
         related_name="payout",
         help_text="The paid equipment reservation this share comes from (#749; exactly one source is set).",
+    )
+    cubby_payment = models.OneToOneField(
+        "membership.CubbyPayment",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="payout",
+        help_text="The paid cubby invoice whose guild share this is (#979; exactly one source is set).",
     )
     payee = models.ForeignKey(
         "membership.Member",
@@ -2379,9 +2409,30 @@ class Payout(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=(
-                    Q(registration__isnull=False, orientation_booking__isnull=True, reservation__isnull=True)
-                    | Q(registration__isnull=True, orientation_booking__isnull=False, reservation__isnull=True)
-                    | Q(registration__isnull=True, orientation_booking__isnull=True, reservation__isnull=False)
+                    Q(
+                        registration__isnull=False,
+                        orientation_booking__isnull=True,
+                        reservation__isnull=True,
+                        cubby_payment__isnull=True,
+                    )
+                    | Q(
+                        registration__isnull=True,
+                        orientation_booking__isnull=False,
+                        reservation__isnull=True,
+                        cubby_payment__isnull=True,
+                    )
+                    | Q(
+                        registration__isnull=True,
+                        orientation_booking__isnull=True,
+                        reservation__isnull=False,
+                        cubby_payment__isnull=True,
+                    )
+                    | Q(
+                        registration__isnull=True,
+                        orientation_booking__isnull=True,
+                        reservation__isnull=True,
+                        cubby_payment__isnull=False,
+                    )
                 ),
                 name="payout_exactly_one_source",
             ),
@@ -2392,20 +2443,24 @@ class Payout(models.Model):
 
     @property
     def source(self) -> Any:
-        """The registration, orientation booking or equipment reservation that paid for this share."""
+        """The registration, orientation booking, equipment reservation or cubby payment that paid for this share."""
         if self.registration_id is not None:
             return self.registration
         if self.reservation_id is not None:
             return self.reservation
+        if self.cubby_payment_id is not None:
+            return self.cubby_payment
         return self.orientation_booking
 
     @property
     def source_kind(self) -> str:
-        """``"class"``, ``"orientation"`` or ``"reservation"``: the reconciliation source vocabulary."""
+        """``"class"``, ``"orientation"``, ``"reservation"`` or ``"cubby"``: the reconciliation source vocabulary."""
         if self.registration_id is not None:
             return "class"
         if self.reservation_id is not None:
             return "reservation"
+        if self.cubby_payment_id is not None:
+            return "cubby"
         return "orientation"
 
     @property
@@ -2416,6 +2471,8 @@ class Payout(models.Model):
         if self.reservation_id is not None:
             # A reservation's hold is made within its one hour checkout, so its creation stands in for paid at.
             return cast("Any", self.reservation).created_at
+        if self.cubby_payment_id is not None:
+            return cast("Any", self.cubby_payment).paid_at
         return cast("Any", self.orientation_booking).requested_at
 
     def send(self) -> None:

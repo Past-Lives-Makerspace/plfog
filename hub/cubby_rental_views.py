@@ -223,7 +223,10 @@ def _set_cancelling(request: HttpRequest, rental_pk: int, *, cancel: bool) -> Ht
         messages.error(request, str(refusal))
     else:
         label = changed.cubby.label
-        if cancel:
+        if changed.status == CubbyRental.Status.ENDED:
+            # An assigned rental's Cancel Rental ends it today (#979).
+            messages.success(request, f"{label} is no longer yours. Thanks for clearing it out.")
+        elif cancel:
             until = cubby_rentals.date_display(changed.current_period_end)
             messages.success(request, f"{label} stays yours until {until}. You won't be charged again.")
         else:

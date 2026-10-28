@@ -14,12 +14,18 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 
 from membership.models import Cubby, CubbyRental, Guild, Member, ShelfUnit, cubby_dollars
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 #: The span class each shape's cell carries on the shelf.
 _SPAN_CLASSES: dict[str, str] = {
@@ -390,3 +396,228 @@ class CubbyLayout:
     def cubby_count(self) -> int:
         """Active cubbies across the guild."""
         return sum(len(view.cubbies) for view in self.units)
+
+
+# ── The staff Rentals tab (#979) ─────────────────────────────────────────────
+
+#: The Rentals tab's filter chips, in order: ``?show=`` value and label. Current is the default.
+RENTAL_FILTERS: tuple[tuple[str, str], ...] = (
+    ("current", "Current"),
+    ("past_due", "Past Due"),
+    ("ended", "Ended"),
+    ("all", "All"),
+)
+_FILTER_STATUSES: dict[str, tuple[str, ...]] = {
+    "current": (CubbyRental.Status.ACTIVE, CubbyRental.Status.PAST_DUE),
+    "past_due": (CubbyRental.Status.PAST_DUE,),
+    "ended": (CubbyRental.Status.ENDED,),
+    "all": (CubbyRental.Status.ACTIVE, CubbyRental.Status.PAST_DUE, CubbyRental.Status.ENDED),
+}
+
+
+def rental_filter(value: str) -> str:
+    """The chip ``?show=`` picks, Current for anything it does not name."""
+    return value if value in _FILTER_STATUSES else "current"
+
+
+def staff_rentals(guild: Guild, show: str) -> QuerySet[CubbyRental]:
+    """The guild's rentals one chip shows, with what a row draws loaded (a hold awaiting payment is not a rental yet).
+
+    Each renter's primary email comes prefetched, so the table asks a fixed number of queries.
+    """
+    from allauth.account.models import EmailAddress
+
+    return (
+        CubbyRental.objects.filter(cubby__unit__guild=guild, status__in=_FILTER_STATUSES[rental_filter(show)])
+        .select_related("member__user", "cubby__unit")
+        .prefetch_related(
+            Prefetch(
+                "member__user__emailaddress_set",
+                queryset=EmailAddress.objects.filter(primary=True),
+                to_attr="_primary_emailaddresses",
+            )
+        )
+    )
+
+
+def initials(name: str) -> str:
+    """ "Priya Nair" -> "PN": the avatar letters a rental row shows."""
+    parts = name.split()
+    if not parts:
+        return ""
+    return (parts[0][0] + (parts[-1][0] if len(parts) > 1 else "")).upper()
+
+
+@dataclass(frozen=True)
+class RentalsSummary:
+    """The Rentals tab's tiles and chip counts (#979, mockup view manage-rentals), in three queries.
+
+    Monthly Revenue is what the live rentals bring in each month. Of it, the guild gets its share
+    of the Stripe rentals once it has picked who gets paid (``BillingSettings.cubby_guild_percent``),
+    and all of a Paid Another Way rental's amount, which is paid to the guild directly.
+    """
+
+    monthly_cents: int
+    to_guild_cents: int
+    open_count: int
+    cubby_count: int
+    rented_count: int
+    comped_count: int
+    outside_count: int
+    ending_count: int
+    past_due: list[CubbyRental]
+    chip_counts: dict[str, int]
+
+    @classmethod
+    def load(cls, guild: Guild) -> RentalsSummary:
+        from billing.models import BillingSettings
+        from billing.reconciliation import _cubby_percents, split_cents
+
+        rentals = list(
+            CubbyRental.objects.filter(cubby__unit__guild=guild)
+            .exclude(status=CubbyRental.Status.PENDING_PAYMENT)
+            .select_related("member", "cubby")
+            .order_by("cubby__label", "pk")
+        )
+        cubbies = list(Cubby.objects.active().with_renter().filter(unit__guild=guild))
+        live = [rental for rental in rentals if rental.is_live]
+        stripe_cents = sum(rental.amount_cents for rental in live if not rental.is_assigned)
+        outside_cents = sum(rental.amount_cents for rental in live if rental.source == CubbyRental.Source.OUTSIDE)
+        to_guild = outside_cents
+        if guild.cubby_payee_id is not None and stripe_cents:
+            to_guild += split_cents(stripe_cents, _cubby_percents(BillingSettings.load()))["cubby_payee"]
+        return cls(
+            monthly_cents=stripe_cents + outside_cents,
+            to_guild_cents=to_guild,
+            open_count=sum(1 for cubby in cubbies if cubby.state == Cubby.State.OPEN),
+            cubby_count=len(cubbies),
+            rented_count=len(live),
+            comped_count=sum(1 for rental in live if rental.is_comped),
+            outside_count=sum(1 for rental in live if rental.source == CubbyRental.Source.OUTSIDE),
+            ending_count=sum(1 for rental in live if rental.is_cancelling),
+            past_due=[rental for rental in live if rental.is_past_due],
+            chip_counts={
+                key: sum(1 for rental in rentals if rental.status in _FILTER_STATUSES[key])
+                for key, _label in RENTAL_FILTERS
+            },
+        )
+
+    @property
+    def monthly_display(self) -> str:
+        """Monthly Revenue as "$232"."""
+        return cubby_dollars(self.monthly_cents)
+
+    @property
+    def to_guild_display(self) -> str:
+        """The guild's part of it as "$197.20"."""
+        return cubby_dollars(self.to_guild_cents)
+
+    @property
+    def rented_sub(self) -> str:
+        """Under Rented: "1 comped, 1 ending", or how they are all paid."""
+        parts = [
+            f"{count} {words}"
+            for count, words in (
+                (self.comped_count, "comped"),
+                (self.outside_count, "paid another way"),
+                (self.ending_count, "ending"),
+            )
+            if count
+        ]
+        if parts:
+            return ", ".join(parts)
+        return "All paid by card" if self.rented_count else "None yet"
+
+    @property
+    def past_due_sub(self) -> str:
+        """Under Past Due: who and which cubby, "Priya Nair, A2", or that nobody is."""
+        if not self.past_due:
+            return "Every card went through"
+        first = self.past_due[0]
+        words = f"{first.member.display_name}, {first.cubby.label}"
+        more = len(self.past_due) - 1
+        return f"{words} and {more} more" if more else words
+
+    @property
+    def filters(self) -> list[tuple[str, str, int]]:
+        """Each chip as (``show`` value, label, count)."""
+        return [(key, label, self.chip_counts[key]) for key, label in RENTAL_FILTERS]
+
+
+def _short_day(value: date | datetime | None) -> str:
+    """ "Nov 27": the Rentals tab's dates."""
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        value = timezone.localtime(value).date()
+    return f"{value:%b} {value.day}"
+
+
+@dataclass(frozen=True)
+class RentalRow:
+    """One rental as the Rentals table and its phone card draw it (#979): the same words in both."""
+
+    rental: CubbyRental
+    name: str
+    initials: str
+    email: str
+    amount: str
+    amount_note: str
+    since: str
+    next_main: str
+    next_note: str
+    card_label: str
+    card_value: str
+
+    @classmethod
+    def build(cls, rental: CubbyRental) -> RentalRow:
+        """``rental`` needs its member (with the primary email prefetched) and cubby loaded."""
+        name = rental.member.display_name
+        if rental.is_comped:
+            amount, amount_note = "$0", ""
+        else:
+            amount = f"{rental.amount_display}/mo"
+            amount_note = "Paid another way" if rental.is_assigned else ""
+        period_end = _short_day(rental.current_period_end)
+        state = rental.staff_state
+        if state == "ended":
+            next_main, next_note = "None", f"Ended {_short_day(rental.end_date)}"
+            card_label, card_value = "Ended", _short_day(rental.end_date)
+        elif state == "past_due":
+            retry = _short_day(rental.next_payment_attempt)
+            next_main, next_note = "Retrying", f"Next try {retry}" if retry else "No more tries"
+            card_label, card_value = "Next Try", retry or "None"
+        elif state == "cancelling":
+            next_main, next_note = "None", f"Ends {period_end}"
+            card_label, card_value = "Ends", period_end
+        elif rental.is_assigned:
+            next_main, next_note = "None", "Never charged"
+            card_label, card_value = "Next Charge", "None"
+        else:
+            next_main, next_note = period_end, ""
+            card_label, card_value = "Next Charge", period_end
+        return cls(
+            rental=rental,
+            name=name,
+            initials=initials(name),
+            email=rental.member.primary_email,
+            amount=amount,
+            amount_note=amount_note,
+            since=_short_day(rental.start_date),
+            next_main=next_main,
+            next_note=next_note,
+            card_label=card_label,
+            card_value=card_value,
+        )
+
+    @property
+    def end_message(self) -> str:
+        """End Rental's confirm sentence: what happens, and that nothing is refunded."""
+        rental = self.rental
+        cubby = rental.cubby
+        first = self.name.split()[0] if self.name.split() else self.name
+        sentence = f"{cubby.label} on the {cubby.unit.name} opens right away"
+        sentence += "." if rental.is_assigned else f" and {first} stops being charged. Nothing is refunded."
+        if rental.is_cancelling:
+            sentence += f" {first} was already cancelling on {_short_day(rental.current_period_end)}."
+        return f"{sentence} We'll email {first} your reason, so check the shelf is clear first."

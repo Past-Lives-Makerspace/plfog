@@ -4,6 +4,7 @@ from django.views.generic import RedirectView
 from . import (
     announcement_admin_views,
     cubby_rental_views,
+    cubby_staff_views,
     cubby_views,
     day_off_views,
     discord_views,
@@ -106,6 +107,23 @@ urlpatterns = [
     path("cubbies/", cubby_views.hub_cubbies_home, name="hub_cubbies_home"),
     path("guilds/<int:pk>/cubbies/", cubby_views.hub_guild_cubbies, name="hub_guild_cubbies"),
     path("guilds/<int:pk>/cubbies/pricing/", cubby_views.hub_guild_cubbies_pricing, name="hub_guild_cubbies_pricing"),
+    # --- Rentals (#979): the staff list, Assign a Cubby, End Rental and the CSV; 404 to anyone who does not run the guild ---
+    path(
+        "guilds/<int:pk>/cubbies/rentals/",
+        cubby_staff_views.hub_guild_cubbies_rentals,
+        name="hub_guild_cubbies_rentals",
+    ),
+    path(
+        "guilds/<int:pk>/cubbies/rentals.csv",
+        cubby_staff_views.hub_guild_cubbies_rentals_csv,
+        name="hub_guild_cubbies_rentals_csv",
+    ),
+    path(
+        "guilds/<int:pk>/cubbies/rentals/assign/",
+        cubby_staff_views.hub_guild_cubby_assign,
+        name="hub_guild_cubby_assign",
+    ),
+    path("cubbies/rentals/<int:rental_pk>/end/", cubby_staff_views.hub_cubby_rental_end, name="hub_cubby_rental_end"),
     path(
         "guilds/<int:pk>/cubbies/settings/save/",
         cubby_views.hub_guild_cubbies_settings_save,

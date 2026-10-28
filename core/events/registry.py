@@ -572,6 +572,9 @@ CUBBIES_RENTED = "cubbies.rented"  # your cubby rental is active (#978)
 CUBBIES_PAYMENT_FAILED = "cubbies.payment_failed"  # a monthly cubby charge failed, once per invoice (#978)
 CUBBIES_RENTAL_ENDED = "cubbies.rental_ended"  # your cubby rental ended and the cubby is free (#978)
 CUBBIES_RENTAL_REFUNDED = "cubbies.rental_refunded"  # someone got the cubby first; your payment came back (#978)
+CUBBIES_RENTAL_STARTED = "cubbies.rental_started"  # staff: a member rented one of the guild's cubbies (#979)
+CUBBIES_RENTAL_PAST_DUE = "cubbies.rental_past_due"  # staff: a cubby rental's monthly charge failed (#979)
+CUBBIES_STAFF_RENTAL_ENDED = "cubbies.staff_rental_ended"  # staff: a cubby rental ended; clear the shelf (#979)
 TOUR_CALENDAR_BUSY = "tour.calendar_busy"  # your Google Calendar now shows you busy during a booked tour (#951)
 TOUR_CALENDAR_BROKEN = "tour.calendar_broken"  # Google stopped accepting your calendar connection (#951)
 TOUR_CALENDAR_GONE = "tour.calendar_gone"  # the calendar you picked for tours is gone; the main one took over (#951)
@@ -1842,6 +1845,36 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_FORCED),
         activity_kind=None,
     ),
+    # Cubby rentals for the guild's lead and staff (#979), copy mode, from membership.cubby_rentals.
+    # A new rental is bell only by default; Past Due waits for the 8 AM digest, which drops it
+    # once the rental is paid; an ended rental emails at once, since its shelf needs clearing.
+    EventType(
+        key=CUBBIES_RENTAL_STARTED,
+        label="A member rented a guild cubby",
+        description="Someone rented one of your guild's cubbies, or guild staff assigned one.",
+        category="Guilds",
+        recipient=Recipients.GUILD_LEADERSHIP,
+        channels=(_IN_APP_ON, _EMAIL_OFF),
+        activity_kind=None,
+    ),
+    EventType(
+        key=CUBBIES_RENTAL_PAST_DUE,
+        label="A cubby rental is past due",
+        description="A monthly charge for one of your guild's cubbies didn't go through.",
+        category="Guilds",
+        recipient=Recipients.GUILD_LEADERSHIP,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    EventType(
+        key=CUBBIES_STAFF_RENTAL_ENDED,
+        label="A cubby rental ended",
+        description="A rental of one of your guild's cubbies ended, so its shelf needs clearing.",
+        category="Guilds",
+        recipient=Recipients.GUILD_LEADERSHIP,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
 ]
 
 
@@ -1862,6 +1895,8 @@ _DIGEST_EMAIL_EVENTS: frozenset[str] = frozenset(
         "wiki.page_proposed",
         "instructor_application_received",
         "class_change_requested",
+        # #979: a Past Due cubby rental, dropped from the digest once it is paid.
+        "cubbies.rental_past_due",
     }
 )
 

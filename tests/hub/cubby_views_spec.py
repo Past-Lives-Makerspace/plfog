@@ -185,7 +185,9 @@ def describe_layout():
         assert 'aria-current="page">Layout</a>' in content
         assert "css/cubbies.css" in content
         assert "data-cubby-guild-picker" not in content
-        assert "Rentals" not in content.split("data-cubby-tabs", 1)[1].split("</nav>", 1)[0]
+        tabs = content.split("data-cubby-tabs", 1)[1].split("</nav>", 1)[0]
+        assert reverse("hub_guild_cubbies_rentals", args=[guild.pk]) in tabs
+        assert 'pl-cubby-tabcount">0<' in tabs
 
     def it_draws_each_unit_with_cubbies_and_add_squares(client: Client):
         _member, guild = _lead(client)
