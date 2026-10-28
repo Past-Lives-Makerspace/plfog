@@ -956,6 +956,16 @@ class Member(StaffRequestMixin, models.Model):
             "many other reasons. Not filtered by the default manager (see PR rationale)."
         ),
     )
+    name_at_deletion = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "The name finance shows for this member, kept when they delete their account so "
+            "Reconciliation and Payouts can still say whose share it is (#983). Blank for a "
+            "member who never deleted, or one deleted before this was kept."
+        ),
+    )
     welcome_dismissed_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -1164,6 +1174,17 @@ class Member(StaffRequestMixin, models.Model):
     @property
     def display_name(self) -> str:
         return self.preferred_name if self.preferred_name else self.full_legal_name
+
+    @property
+    def finance_name(self) -> str:
+        """The name billing shows as a payer or payee: "Name (account deleted)" for a deleted member.
+
+        A member deleted before #983 has no kept name and reads as their scrubbed
+        ``display_name``, "Deleted Member".
+        """
+        if self.deleted_at is not None and self.name_at_deletion:
+            return f"{self.name_at_deletion} (account deleted)"
+        return self.display_name
 
     @property
     def role_label(self) -> str:
@@ -19296,6 +19317,36 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
             self.holding().reservations().filter(member=member, equipment=equipment, ends_at__gt=timezone.now()).count()
         )
 
+    def with_thread(self) -> EquipmentReservationQuerySet:
+        """Load each reservation's messages, their authors' names and photos in a fixed number of queries."""
+        return self.select_related("member__user", "equipment").prefetch_related(
+            Prefetch(
+                "messages",
+                queryset=EquipmentReservationMessage.objects.select_related("author__member").prefetch_related(
+                    "photos"
+                ),
+            )
+        )
+
+    def with_unread_messages_for(self, user: User | None) -> EquipmentReservationQuerySet:
+        """Annotate ``has_unread_messages``: a message by someone else newer than ``user`` last read the thread.
+
+        One subquery per row, so a list shows its unread cue at no extra query. With no
+        ``user`` (nobody signed in) nothing is unread.
+        """
+        if user is None:
+            return self.annotate(has_unread_messages=Value(False, output_field=BooleanField()))
+        read_at = EquipmentReservationMessageRead.objects.filter(reservation=OuterRef("reservation"), user=user).values(
+            "read_at"
+        )[:1]
+        unread = (
+            EquipmentReservationMessage.objects.filter(reservation=OuterRef("pk"))
+            .exclude(author=user)
+            .annotate(viewer_read_at=Subquery(read_at))
+            .filter(Q(viewer_read_at__isnull=True) | Q(created_at__gt=F("viewer_read_at")))
+        )
+        return self.annotate(has_unread_messages=Exists(unread))
+
 
 class EquipmentAgreementAcceptanceQuerySet(models.QuerySet["EquipmentAgreementAcceptance"]):
     def pairs_for(self, member: Member) -> set[tuple[int, str]]:
@@ -19691,8 +19742,9 @@ class EquipmentReservation(models.Model):
         """Decline a waiting request (#748): it becomes DECLINED, its time frees and the member hears why.
 
         The row stays, carrying the manager and the reason in ``cancelled_by`` and
-        ``cancelled_reason``, so the member's list shows it until its date passes. A
-        conditional update keyed on status, like :meth:`approve`.
+        ``cancelled_reason``, so the member's list shows it until its date passes. The reason
+        is also written into the reservation's thread as the manager's message, telling nobody:
+        the decline notice carries it. A conditional update keyed on status, like :meth:`approve`.
 
         Raises:
             EquipmentError: When ``actor`` cannot manage the equipment, the row is not
@@ -19713,6 +19765,8 @@ class EquipmentReservation(models.Model):
                 raise EquipmentError(self.NOT_WAITING_MESSAGE)
             # The credit this request spent goes back, in the same transaction as the decline (#787).
             EquipmentCredit.objects.restore_for(self)
+            # The reason is also the manager's message on the thread; the decline notice carries it.
+            self.write_message(author=actor.user, body=cleaned_reason)
         self.status = self.Status.DECLINED
         self.cancelled_by = actor
         self.cancelled_reason = cleaned_reason
@@ -19782,8 +19836,8 @@ class EquipmentReservation(models.Model):
         "you cancelled" email, and a cancel inside the notice window creates the late
         cancellation fee (#456) in the same transaction as the cancel, unless the actor
         manages this equipment. Manager cancel: also
-        allowed while in progress, requires a reason the member will see, notifies the
-        member, and never charges. A manager cancelling THEIR OWN row from the manage tab
+        allowed while in progress, requires a reason the member will see (also written into the reservation's thread as
+        the manager's message, which the cancel notice carries), notifies the member, and never charges. A manager cancelling THEIR OWN row from the manage tab
         passes ``as_manager=True`` — the manager guards apply (reason honored, in-progress
         allowed), nobody is notified because the member IS the actor, and nothing charges.
         A manager of this equipment who cancels their own row from the ordinary member Cancel
@@ -19856,6 +19910,9 @@ class EquipmentReservation(models.Model):
             self.cancelled_at = now
             if not fee_exempt and not was_waiting:
                 fee = charge_if_late(self, now=now)
+            if acting_as_manager and not is_own_row:
+                # The reason is also the manager's message on the thread; the cancel notice carries it.
+                self.write_message(author=actor.user, body=cleaned_reason)
         from membership import equipment as equipment_service
 
         # Every cancel of a paid row refunds it in full (#749); the late fee above stays separate,
@@ -20006,6 +20063,219 @@ class EquipmentReservation(models.Model):
                 raise EquipmentError("This reservation already ended.")
         elif self.starts_at <= now:
             raise EquipmentError("This reservation already started. Ask a manager if it needs cancelling.")
+
+    # --- The reservation's messages (the shared thread, core.threads) ---------------------
+
+    @property
+    def thread_key(self) -> str:
+        """The thread's key in ``?messages=`` and ``data-thread`` ("res-12"), apart from an orientation booking's."""
+        return f"res-{self.pk}"
+
+    @property
+    def member_messages_url(self) -> str:
+        """The Reservations page's Bookings tab with this reservation's messages open: where a message to the member links."""
+        return f"{reverse('hub_equipment_index')}?view=bookings&messages={self.thread_key}"
+
+    @property
+    def staff_messages_url(self) -> str:
+        """The equipment's Manage > Reservations tab with these messages open: where a message to the managers links."""
+        path = reverse("hub_equipment_manage", args=[self.equipment.slug])
+        return f"{path}?tab=reservations&messages={self.thread_key}"
+
+    def thread(self) -> list[EquipmentReservationMessage]:
+        """Every message on this reservation, oldest first (reads a ``with_thread()`` prefetch)."""
+        return list(self.messages.all())
+
+    def _ensure_has_thread(self) -> None:
+        """A manager's block holds time for nobody, so it has no conversation.
+
+        Raises:
+            EquipmentError: When this row is a block.
+        """
+        if self.is_block:
+            raise EquipmentError("A block has no messages.")
+
+    def post_message(self, *, author: User, body: str, photos: Sequence[Any] = ()) -> EquipmentReservationMessage:
+        """Post a message on this reservation's thread and tell the other side, every time.
+
+        The member who booked writing tells the managers of the equipment
+        (:meth:`EquipmentReservationMessage.manager_user_ids`); anyone else writing (a manager,
+        an admin) is the manager side and tells the member.
+
+        Raises:
+            EquipmentError: On a block, which has no thread.
+        """
+        self._ensure_has_thread()
+        return EquipmentReservationMessage.post(author=author, body=body, photos=list(photos), reservation=self)
+
+    def write_message(self, *, author: User | None, body: str) -> EquipmentReservationMessage | None:
+        """Save a message that rides on another notice (a decline's or a manager cancel's reason); tells nobody.
+
+        Blank text writes nothing and returns ``None``.
+        """
+        if not body.strip():
+            return None
+        return EquipmentReservationMessage.write(author=author, body=body, reservation=self)
+
+    def mark_messages_read(self, user: User | None, *, at: datetime_type | None = None) -> None:
+        """Record that ``user`` has seen this thread up to ``at`` (now by default), which clears their unread cue.
+
+        Never moves a stamp backwards, so a message posted with an older time cannot reopen it.
+        """
+        if user is None:
+            return
+        moment = at or timezone.now()
+        read, created = EquipmentReservationMessageRead.objects.get_or_create(
+            reservation=self, user=user, defaults={"read_at": moment}
+        )
+        if not created and read.read_at < moment:
+            # The guard in the filter keeps a concurrent later stamp from being overwritten.
+            EquipmentReservationMessageRead.objects.filter(pk=read.pk, read_at__lt=moment).update(read_at=moment)
+
+
+class EquipmentReservationMessage(ThreadMessage):
+    """One message on an :class:`EquipmentReservation`'s thread, between the member and the managers.
+
+    The member side is the member who booked; the manager side is whoever may manage the
+    equipment (``can_manage_equipment``: its staff, its guild's leadership, Equipment
+    Administrators, admins). A member's message tells the ``equipment_managers`` audience,
+    the one ``equipment.reservation_needs_approval`` reaches, plus anyone on the manager side
+    who already wrote here and still manages the item, minus the author
+    (:meth:`manager_user_ids`). A manager side message signs with the equipment's name as its tag.
+    """
+
+    reservation = models.ForeignKey(
+        EquipmentReservation,
+        on_delete=models.CASCADE,
+        related_name="messages",
+        help_text="The reservation this message is on.",
+    )
+
+    class Meta(ThreadMessage.Meta):
+        pass
+
+    def __str__(self) -> str:
+        return f"Message {self.pk} on reservation {self.reservation_id}"
+
+    @property
+    def member_user_ids(self) -> set[int]:
+        user_id = self.reservation.member.user_id
+        return {user_id} if user_id is not None else set()
+
+    @property
+    def member_side_name(self) -> str:
+        return self.reservation.member.display_name
+
+    @property
+    def staff_signature(self) -> str:
+        return self.reservation.equipment.name
+
+    def after_write(self) -> None:
+        """Whoever wrote has read the thread up to their own message."""
+        self.reservation.mark_messages_read(self.author, at=self.created_at)
+
+    def manager_user_ids(self) -> set[int]:
+        """Who a member's message reaches: the managers, plus staff side writers who still manage it, minus the author.
+
+        The audience is the ``equipment_managers`` resolver's for the item (its staff, its
+        guild's leadership, else the Equipment Administrators). Anyone else on the staff side
+        who has written on this thread (an admin who asked something, say) hears the answer
+        while they still may manage the item (:meth:`Member.can_manage_equipment`, or a
+        superuser, as the hub's gate lets them); someone who no longer does hears nothing more.
+        """
+        from core.events.resolvers import equipment_managers
+
+        reservation = self.reservation
+        equipment = reservation.equipment
+        audience = {user.pk for user, _reason in equipment_managers({"equipment": equipment})}
+        writer_ids = {
+            message.author_id
+            for message in reservation.messages.exclude(pk=self.pk).select_related("reservation__member")
+            if message.author_id is not None and message.is_from_staff
+        } - audience
+        writers = {
+            cast(int, member.user_id)
+            for member in Member.objects.filter(user_id__in=writer_ids).select_related("user")
+            if (member.user is not None and member.user.is_superuser) or member.can_manage_equipment(equipment)
+        }
+        return (audience | writers) - {self.author_id}
+
+    def _tell_member_side(self) -> bool:
+        """A manager side message: tell the member who booked (no account, nobody to tell)."""
+        if self.reservation.member.user is None:
+            return False
+        from membership import equipment as equipment_service
+
+        equipment_service.notify_message_to_member(self)
+        return True
+
+    def _tell_staff_side(self) -> bool:
+        """The member's message: tell the managers (:meth:`manager_user_ids`)."""
+        recipient_ids = self.manager_user_ids()
+        if not recipient_ids:
+            return False
+        from membership import equipment as equipment_service
+
+        equipment_service.notify_message_to_managers(self, recipient_ids)
+        return True
+
+    def told_sentence(self) -> str:
+        if not self.notified:
+            return ""
+        if self.is_from_staff:
+            return f" {self.reservation.member.display_name} was notified."
+        return f" The managers of the {self.reservation.equipment.name} were notified."
+
+
+class EquipmentReservationMessagePhoto(ThreadPhoto):
+    """One photo posted with an :class:`EquipmentReservationMessage`."""
+
+    message = models.ForeignKey(
+        EquipmentReservationMessage,
+        on_delete=models.CASCADE,
+        related_name="photos",
+        help_text="The message this photo was posted with.",
+    )
+    image = models.ImageField(
+        upload_to="reservation-messages/%Y/%m/", help_text="The uploaded photo, on the default storage."
+    )
+
+    class Meta(ThreadPhoto.Meta):
+        pass
+
+    def __str__(self) -> str:
+        return f"Photo {self.pk} on reservation message {self.message_id}"
+
+
+class EquipmentReservationMessageRead(models.Model):
+    """How far one person has read one reservation's thread: the unread cue on the lists reads it.
+
+    One row per reservation and person, stamped when they open the thread or write on it
+    (:meth:`EquipmentReservation.mark_messages_read`). A message by someone else newer than
+    the stamp, or any message with no stamp yet, is unread for them.
+    """
+
+    reservation = models.ForeignKey(
+        EquipmentReservation,
+        on_delete=models.CASCADE,
+        related_name="message_reads",
+        help_text="The reservation whose messages were read.",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="+",
+        help_text="Who read them.",
+    )
+    read_at = models.DateTimeField(help_text="When they last opened or wrote on the thread.")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["reservation", "user"], name="uniq_resmsg_read"),
+        ]
+
+    def __str__(self) -> str:
+        return f"User {self.user_id} read reservation {self.reservation_id} at {self.read_at:%Y-%m-%d %H:%M}"
 
 
 @dataclass(frozen=True)
@@ -23300,6 +23570,11 @@ class CubbyQuerySet(models.QuerySet["Cubby"]):
         """Cubbies not archived, on a unit not archived: the ones members can see."""
         return self.filter(archived_at__isnull=True, unit__archived_at__isnull=True)
 
+    def with_renter(self) -> CubbyQuerySet:
+        """Annotate ``live_renter_pk``, the member holding each cubby, so ``Cubby.state`` asks nothing more (#978)."""
+        live = CubbyRental.objects.live().filter(cubby_id=OuterRef("pk")).values("member_id")[:1]
+        return self.annotate(live_renter_pk=Subquery(live))
+
 
 class Cubby(models.Model):
     """One rentable cubby on a guild's shelf unit (#977).
@@ -23325,6 +23600,7 @@ class Cubby(models.Model):
 
     class State(models.TextChoices):
         OPEN = "open", "Open"
+        RENTED = "rented", "Rented"
         OUT_OF_SERVICE = "out", "Out of Service"
 
     unit = models.ForeignKey(
@@ -23425,9 +23701,30 @@ class Cubby(models.Model):
         return self.unit.guild.cubby_suggested_cents
 
     @property
+    def renter_id(self) -> int | None:
+        """The member pk of its live rental (#978), or None while nobody holds it.
+
+        Reads the ``live_renter_pk`` annotation :meth:`CubbyQuerySet.with_renter` adds, so a page
+        drawing many cubbies asks once; a cubby loaded without it asks for itself.
+        """
+        if "live_renter_pk" in self.__dict__:
+            return cast("int | None", self.__dict__["live_renter_pk"])
+        return CubbyRental.objects.live().filter(cubby_id=self.pk).values_list("member_id", flat=True).first()
+
+    @property
     def state(self) -> str:
-        """Open, or Out of Service. Part 2 (#978) adds Rented."""
+        """Rented while a live rental holds it (#978), else Out of Service or Open."""
+        if self.renter_id is not None:
+            return self.State.RENTED
         return self.State.OUT_OF_SERVICE if self.out_of_service else self.State.OPEN
+
+    #: The shapes a rented cubby's drawing cycles through, so a full shelf does not look stamped (#978).
+    _STUFF: ClassVar[tuple[str, ...]] = ("s-jars", "s-box", "s-bin", "s-tools")
+
+    @property
+    def stuff_icon(self) -> str:
+        """The sprite id of the drawing inside a rented cubby, fixed per cubby."""
+        return self._STUFF[self.pk % len(self._STUFF)]
 
     @property
     def state_label(self) -> str:
@@ -23524,3 +23821,209 @@ class Cubby(models.Model):
         if label_taken:
             problems["label"] = f"Another cubby in the guild is already called {self.label}."
         return problems
+
+
+# ---------------------------------------------------------------------------
+# Cubby rentals (#976 part 2, #978): a monthly Stripe subscription per rented cubby
+# ---------------------------------------------------------------------------
+
+
+class CubbyRentalQuerySet(models.QuerySet["CubbyRental"]):
+    """Rental reads."""
+
+    def live(self) -> CubbyRentalQuerySet:
+        """Rentals holding their cubby: awaiting payment, active or past due."""
+        return self.filter(status__in=CubbyRental.LIVE_STATUSES)
+
+    def for_actor(self, member: Member, *, is_admin: bool) -> CubbyRentalQuerySet:
+        """The rentals ``member`` may change, cancel or pay for: their own, or every one for an admin."""
+        return self if is_admin else self.filter(member=member)
+
+
+class CubbyRental(models.Model):
+    """One member's rental of one cubby, paid by its own monthly Stripe subscription (#978).
+
+    Every change of status goes through ``membership/cubby_rentals.py``, which mirrors the
+    subscription Stripe holds. A rental awaiting payment holds the cubby for an hour while its
+    Checkout is open and is deleted, never ended, when that Checkout dies unpaid. Ended is final.
+    The constraint ``uq_cubbyrental_live_cubby`` is the database's guarantee that one cubby has at
+    most one live rental, whatever two checkouts race.
+    """
+
+    class Status(models.TextChoices):
+        PENDING_PAYMENT = "pending_payment", "Awaiting Payment"
+        ACTIVE = "active", "Active"
+        PAST_DUE = "past_due", "Past Due"
+        ENDED = "ended", "Ended"
+
+    LIVE_STATUSES: ClassVar[tuple[str, ...]] = (Status.PENDING_PAYMENT, Status.ACTIVE, Status.PAST_DUE)
+    #: An unpaid hold older than this is checked with Stripe by the ``release_cubby_payment_holds`` sweep.
+    HOLD_SWEEP_AGE: ClassVar[timedelta] = timedelta(hours=2)
+
+    cubby = models.ForeignKey(
+        Cubby, on_delete=models.PROTECT, related_name="rentals", help_text="The cubby this rental holds."
+    )
+    member = models.ForeignKey(
+        "Member", on_delete=models.PROTECT, related_name="cubby_rentals", help_text="Who rents it and pays for it."
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING_PAYMENT,
+        help_text="Awaiting Payment while Checkout is open; Active or Past Due while billed; Ended for good.",
+    )
+    amount_cents = models.PositiveIntegerField(help_text="What the member pays each month, in cents.")
+    start_date = models.DateField(null=True, blank=True, help_text="The day the rental became active.")
+    end_date = models.DateField(null=True, blank=True, help_text="The day it ended.")
+    cancel_at_period_end = models.BooleanField(
+        default=False, help_text="The member cancelled: it stays theirs until the paid month ends."
+    )
+    current_period_end = models.DateTimeField(
+        null=True, blank=True, help_text="When the paid month ends: the next charge, or the last day when cancelling."
+    )
+    payment_failed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the last monthly charge was declined; cleared once a charge goes through.",
+    )
+    next_payment_attempt = models.DateTimeField(
+        null=True, blank=True, help_text="When Stripe tries the card again after a declined charge, if it will."
+    )
+    stripe_checkout_session_id = models.CharField(
+        max_length=255, null=True, blank=True, unique=True, help_text="The Checkout Session that started it."
+    )
+    stripe_customer_id = models.CharField(max_length=255, blank=True, default="", help_text="The member's customer.")
+    stripe_subscription_id = models.CharField(
+        max_length=255, null=True, blank=True, unique=True, help_text="The monthly subscription that bills it."
+    )
+    stripe_subscription_item_id = models.CharField(
+        max_length=255, blank=True, default="", help_text="The subscription's one item, which Change Amount reprices."
+    )
+    stripe_product_id = models.CharField(
+        max_length=255, blank=True, default="", help_text="The Stripe product its price belongs to."
+    )
+    airtable_record_id = models.CharField(
+        max_length=20, blank=True, null=True, unique=True, help_text="Airtable record ID, for a later sync."
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the member started renting it.")
+
+    objects = CubbyRentalQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["cubby"],
+                condition=Q(status__in=["pending_payment", "active", "past_due"]),
+                name="uq_cubbyrental_live_cubby",
+            ),
+            models.CheckConstraint(
+                name="ck_cubbyrental_amount", condition=Q(amount_cents__gte=100, amount_cents__lte=50000)
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["created_at"], name="ix_cubbyrental_pending", condition=Q(status="pending_payment")),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.cubby.label} rented by {self.member.display_name} ({self.get_status_display()})"
+
+    @property
+    def is_live(self) -> bool:
+        """Whether it still holds its cubby."""
+        return self.status in self.LIVE_STATUSES
+
+    @property
+    def is_past_due(self) -> bool:
+        """Whether its last charge failed."""
+        return self.status == self.Status.PAST_DUE
+
+    @property
+    def is_cancelling(self) -> bool:
+        """Whether it ends at the end of the paid month."""
+        return self.cancel_at_period_end
+
+    @property
+    def amount_display(self) -> str:
+        """The monthly amount as "$22"."""
+        return cubby_dollars(self.amount_cents)
+
+    @property
+    def over_floor_cents(self) -> int:
+        """How much the member pays above the cubby's minimum today; 0 at or below it."""
+        return max(0, self.amount_cents - self.cubby.floor)
+
+    @property
+    def over_floor_display(self) -> str:
+        """The amount over the minimum as "$7"."""
+        return cubby_dollars(self.over_floor_cents)
+
+    @property
+    def change_modal_id(self) -> str:
+        """The DOM id of its Change Amount modal on the Cubbies tab."""
+        return f"cubby-change-{self.pk}"
+
+    @property
+    def cancel_confirm_id(self) -> str:
+        """The DOM id of its Cancel Rental confirm."""
+        return f"cubby-cancel-{self.pk}"
+
+    @property
+    def cancel_url(self) -> str:
+        """Where Cancel Rental posts."""
+        return reverse("hub_cubby_rental_cancel", args=[self.pk])
+
+    @property
+    def cancel_message(self) -> str:
+        """The Cancel Rental confirm's sentence, with the last day of the paid month."""
+        until = ""
+        if self.current_period_end is not None:
+            day = timezone.localtime(self.current_period_end)
+            until = f" until {day:%a, %b} {day.day}"
+        return (
+            f"{self.cubby.label} stays yours{until}, the end of the month you've paid for. You won't be charged "
+            "again. Please clear it out by then so the next member can move in."
+        )
+
+
+class CubbyPayment(models.Model):
+    """One paid invoice of a cubby rental (#978): the money, its month, and who is owed the guild's share.
+
+    One row per Stripe invoice (``uq_cubbypayment_invoice``), so a re-delivered ``invoice.paid``
+    records nothing twice. ``payee`` is the guild's cubby payee frozen when the payment landed;
+    paying it out is Part 3 (#979), and an empty payee leaves the whole payment with Past Lives.
+    """
+
+    rental = models.ForeignKey(
+        CubbyRental, on_delete=models.PROTECT, related_name="payments", help_text="The rental this paid for."
+    )
+    stripe_invoice_id = models.CharField(max_length=255, help_text="The Stripe invoice that was paid.")
+    stripe_payment_intent_id = models.CharField(
+        max_length=255, blank=True, default="", help_text="The PaymentIntent that paid it."
+    )
+    stripe_refund_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="The refund, when the member paid for a cubby someone else got first. Its share is owed to nobody.",
+    )
+    amount_cents = models.PositiveIntegerField(help_text="What was paid, in cents.")
+    paid_at = models.DateTimeField(help_text="When Stripe took the payment.")
+    period_start = models.DateTimeField(null=True, blank=True, help_text="The start of the month it paid for.")
+    period_end = models.DateTimeField(null=True, blank=True, help_text="The end of the month it paid for.")
+    payee = models.ForeignKey(
+        "Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="owed_cubby_payments",
+        help_text="Who gets the guild's share of this payment, as the guild had it then. Empty keeps it with Past Lives.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When plfog recorded it.")
+
+    class Meta:
+        ordering = ["-paid_at", "-pk"]
+        constraints = [models.UniqueConstraint(fields=["stripe_invoice_id"], name="uq_cubbypayment_invoice")]
+
+    def __str__(self) -> str:
+        return f"{cubby_dollars(self.amount_cents)} for {self.rental.cubby.label} ({self.stripe_invoice_id})"

@@ -20,7 +20,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from billing import stripe_utils, webhook_handlers
+from billing import stripe_fees, stripe_utils, webhook_handlers
 from classes import eventbrite_orders, webhook_handlers as classes_webhook_handlers
 from membership import webhook_handlers as membership_webhook_handlers
 from billing.exceptions import TabLimitExceededError, TabLockedError
@@ -40,12 +40,14 @@ _CHECKOUT_COMPLETED_HANDLERS = [
     classes_webhook_handlers.handle_checkout_session_completed,
     membership_webhook_handlers.handle_checkout_session_completed,
     membership_webhook_handlers.handle_reservation_checkout_completed,
+    membership_webhook_handlers.handle_cubby_checkout_completed,
     webhook_handlers.handle_late_fee_checkout_completed,
 ]
 _CHECKOUT_EXPIRED_HANDLERS = [
     classes_webhook_handlers.handle_checkout_session_expired,
     membership_webhook_handlers.handle_checkout_session_expired,
     membership_webhook_handlers.handle_reservation_checkout_expired,
+    membership_webhook_handlers.handle_cubby_checkout_expired,
     webhook_handlers.handle_late_fee_checkout_expired,
 ]
 # ``checkout.session.async_payment_failed`` fires for delayed-notification methods (bank
@@ -96,6 +98,11 @@ _WEBHOOK_HANDLERS = {
     "charge.refunded": classes_webhook_handlers.handle_charge_refunded,
     "refund.updated": classes_webhook_handlers.handle_refund_updated,
     "account.updated": webhook_handlers.handle_account_updated,
+    # Cubby rentals (#978): the subscription lifecycle. Each handler ignores what is not a cubby's.
+    "invoice.paid": membership_webhook_handlers.handle_cubby_invoice_paid,
+    "invoice.payment_failed": membership_webhook_handlers.handle_cubby_invoice_payment_failed,
+    "customer.subscription.updated": membership_webhook_handlers.handle_cubby_subscription_changed,
+    "customer.subscription.deleted": membership_webhook_handlers.handle_cubby_subscription_changed,
 }
 
 
@@ -195,6 +202,8 @@ def stripe_webhook(request: HttpRequest) -> HttpResponse:
         try:
             event_data = event.to_dict() if hasattr(event, "to_dict") else dict(event)
             handler(event_data)
+            # After the handler, so confirming a payment never waits on it; a DB write only (#984).
+            stripe_fees.note_event(event_data)
         except Exception:
             logger.exception("Webhook handler error for event %s", event_type)
             return HttpResponse(status=500)

@@ -3,6 +3,7 @@ from django.views.generic import RedirectView
 
 from . import (
     announcement_admin_views,
+    cubby_rental_views,
     cubby_views,
     day_off_views,
     discord_views,
@@ -119,6 +120,35 @@ urlpatterns = [
     path("cubbies/<int:cubby_pk>/archive/", cubby_views.hub_cubby_archive, name="hub_cubby_archive"),
     path("cubbies/<int:cubby_pk>/restore/", cubby_views.hub_cubby_restore, name="hub_cubby_restore"),
     path("cubbies/<int:cubby_pk>/photo/delete/", cubby_views.hub_cubby_photo_delete, name="hub_cubby_photo_delete"),
+    # --- Renting a cubby (#978): the rent sheet, Stripe's return and cancel pages, the Your Cubby buttons ---
+    path("cubbies/<int:cubby_pk>/rent/", cubby_rental_views.hub_cubby_rent, name="hub_cubby_rent"),
+    path("cubbies/<int:cubby_pk>/rent/sheet/", cubby_rental_views.hub_cubby_rent_sheet, name="hub_cubby_rent_sheet"),
+    path(
+        "cubbies/checkout/<str:token>/", cubby_rental_views.hub_cubby_checkout_return, name="hub_cubby_checkout_return"
+    ),
+    path(
+        "cubbies/checkout/<str:token>/cancelled/",
+        cubby_rental_views.hub_cubby_checkout_cancelled,
+        name="hub_cubby_checkout_cancelled",
+    ),
+    path(
+        "cubbies/rentals/<int:rental_pk>/amount/",
+        cubby_rental_views.hub_cubby_rental_amount,
+        name="hub_cubby_rental_amount",
+    ),
+    path(
+        "cubbies/rentals/<int:rental_pk>/cancel/",
+        cubby_rental_views.hub_cubby_rental_cancel,
+        name="hub_cubby_rental_cancel",
+    ),
+    path(
+        "cubbies/rentals/<int:rental_pk>/keep/", cubby_rental_views.hub_cubby_rental_keep, name="hub_cubby_rental_keep"
+    ),
+    path(
+        "cubbies/rentals/<int:rental_pk>/payment/",
+        cubby_rental_views.hub_cubby_rental_portal,
+        name="hub_cubby_rental_portal",
+    ),
     path("guilds/<int:pk>/orientations/", views.guild_orientations, name="hub_guild_orientations"),
     path("guilds/<int:pk>/qr.<str:fmt>/", views.guild_qr_download, name="hub_guild_qr"),
     path("guilds/<int:pk>/flyer/", views.guild_flyer, name="hub_guild_flyer"),
@@ -607,6 +637,16 @@ urlpatterns = [
         "equipment/<slug:slug>/reservations/<int:pk>/decline/",
         equipment_views.hub_equipment_reservation_decline,
         name="hub_equipment_reservation_decline",
+    ),
+    path(
+        "equipment/reservations/<int:pk>/messages/",
+        equipment_views.hub_equipment_reservation_messages,
+        name="hub_equipment_reservation_messages",
+    ),
+    path(
+        "equipment/reservations/<int:pk>/messages/send/",
+        equipment_views.hub_equipment_reservation_message,
+        name="hub_equipment_reservation_message",
     ),
     path(
         "equipment/<slug:slug>/manage/hours/",

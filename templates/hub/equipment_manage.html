@@ -519,9 +519,10 @@
       <div class="pl-equip-res-row" data-approval-row="{{ reservation.pk }}">
         <span class="pl-equip-approve-row__main">
           <span>{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</span>
-          <span class="pl-equip-approve-row__who">{{ reservation.member.display_name }}{% if reservation.purpose %} · {{ reservation.purpose }}{% endif %}</span>
+          <span class="pl-equip-approve-row__who">{{ reservation.member.display_name }}{% if reservation.purpose %} · {{ reservation.purpose }}{% endif %}{% if reservation.has_unread_messages %} <span class="pl-equip-badge pl-equip-badge--warn" data-thread-unread="{{ reservation.thread_key }}">New message</span>{% endif %}</span>
         </span>
         <span class="pl-equip-approve-row__actions">
+          {% include "hub/partials/reservation_messages_launch.html" with r=reservation launch_next=reservations_tab_url launch_class="pl-btn pl-btn--secondary pl-btn--sm" %}
           <form method="post" action="{% url 'hub_equipment_reservation_approve' equipment.slug reservation.pk %}">
             {% csrf_token %}
             <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm" data-approve-button>Approve</button>
@@ -631,14 +632,17 @@
       {% else %}
       <div class="pl-equip-res-row">
         <span>{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</span>
-        <span>{{ reservation.member.display_name }}{% if reservation.purpose %} <span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}{% if reservation.amount_paid_cents %} <span class="pl-price-chip" data-paid-chip>Paid {{ reservation.paid_display }}</span>{% endif %}</span>
-        {% if reservation.credited_minutes_total %}
-        {# Unused time was credited (#787): the member has it back as credit, so the row is never cancelled. #}
-        <span class="pl-price-chip" data-credited-chip>{{ reservation.credited_unused_label }}</span>
-        {% else %}
-        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
-                @click="$dispatch('open-confirm', 'mgr-cancel-{{ reservation.pk }}')">Cancel</button>
-        {% endif %}
+        <span>{{ reservation.member.display_name }}{% if reservation.purpose %} <span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}{% if reservation.amount_paid_cents %} <span class="pl-price-chip" data-paid-chip>Paid {{ reservation.paid_display }}</span>{% endif %}{% if reservation.has_unread_messages %} <span class="pl-equip-badge pl-equip-badge--warn" data-thread-unread="{{ reservation.thread_key }}">New message</span>{% endif %}</span>
+        <span class="pl-equip-approve-row__actions">
+          {% include "hub/partials/reservation_messages_launch.html" with r=reservation launch_next=reservations_tab_url launch_class="pl-btn pl-btn--secondary pl-btn--sm" %}
+          {% if reservation.credited_minutes_total %}
+          {# Unused time was credited (#787): the member has it back as credit, so the row is never cancelled. #}
+          <span class="pl-price-chip" data-credited-chip>{{ reservation.credited_unused_label }}</span>
+          {% else %}
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                  @click="$dispatch('open-confirm', 'mgr-cancel-{{ reservation.pk }}')">Cancel</button>
+          {% endif %}
+        </span>
       </div>
       {% endif %}
       {% endfor %}
@@ -684,13 +688,16 @@
 {% with rpks=reservation.pk|stringformat:"s" who=reservation.member.display_name %}
 {# A paid row (#749) adds "Their $50.00 is refunded in full." #}
 {% if reservation.amount_paid_cents %}
-{% include "components/confirm_modal.html" with confirm_id="mgr-cancel-"|add:rpks confirm_title="Cancel This Reservation?" confirm_message="The member has this time booked. Cancelling frees it and tells them why. Their "|add:reservation.paid_display|add:" is refunded in full." confirm_action_url=mgr_cancel_url confirm_button_text="Cancel Reservation" confirm_note_name="reason" confirm_note_label="Reason" confirm_note_placeholder="Why is this being cancelled?" confirm_note_hint="The member will see this. Please tell the member why." %}
+{% include "components/confirm_modal.html" with confirm_id="mgr-cancel-"|add:rpks confirm_title="Cancel This Reservation?" confirm_message="The member has this time booked. Cancelling frees it and tells them why. Their "|add:reservation.paid_display|add:" is refunded in full." confirm_action_url=mgr_cancel_url confirm_button_text="Cancel Reservation" confirm_note_name="reason" confirm_note_label="Reason" confirm_note_placeholder="Why is this being cancelled?" confirm_note_hint="The member will see this, in their email and the reservation's messages." %}
 {% else %}
-{% include "components/confirm_modal.html" with confirm_id="mgr-cancel-"|add:rpks confirm_title="Cancel This Reservation?" confirm_message="The member has this time booked. Cancelling frees it and tells them why." confirm_action_url=mgr_cancel_url confirm_button_text="Cancel Reservation" confirm_note_name="reason" confirm_note_label="Reason" confirm_note_placeholder="Why is this being cancelled?" confirm_note_hint="The member will see this. Please tell the member why." %}
+{% include "components/confirm_modal.html" with confirm_id="mgr-cancel-"|add:rpks confirm_title="Cancel This Reservation?" confirm_message="The member has this time booked. Cancelling frees it and tells them why." confirm_action_url=mgr_cancel_url confirm_button_text="Cancel Reservation" confirm_note_name="reason" confirm_note_label="Reason" confirm_note_placeholder="Why is this being cancelled?" confirm_note_hint="The member will see this, in their email and the reservation's messages." %}
 {% endif %}
 {% endwith %}
 {% endif %}
 {% endfor %}
+
+{# The Messages modal for every reservation row's Messages button, outside the panes so it always mounts. #}
+{% include "hub/partials/reservation_messages_modal.html" with reservation_thread_next=reservations_tab_url %}
 
 {# Decline confirms (#748), one per waiting request, outside the panes; the reason is required and the member sees it. #}
 {% for reservation in manage_approvals %}

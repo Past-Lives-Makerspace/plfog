@@ -14,14 +14,16 @@ page (Payments → Reports) and paid out manually.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from datetime import datetime, timedelta
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import stripe
 from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
-from stripe.params import RefundCreateParams
+from stripe.params import RefundCreateParams, SubscriptionUpdateParams
+from stripe.params.billing_portal import SessionCreateParams as PortalSessionCreateParams
 from stripe.params.checkout import SessionCreateParams
 
 if TYPE_CHECKING:
@@ -138,11 +140,18 @@ def create_customer(*, email: str, name: str, member_pk: int) -> str:
     return customer.id
 
 
+#: The ``metadata.kind`` on a SetupIntent the My Tab card page makes. ``setup_intent.succeeded``
+#: saves a card onto the Tab only for these, so a card the member adds elsewhere on the same Stripe
+#: customer (the Billing Portal behind a cubby's Manage Payment, #978) never replaces the Tab's.
+TAB_SETUP_INTENT_KIND = "tab_payment_method"
+
+
 def create_setup_intent(*, customer_id: str) -> dict[str, str]:
     """Create a Stripe SetupIntent for collecting a payment method.
 
     Returns dict with 'client_secret' and 'setup_intent_id'.
     Includes usage='off_session' for future off-session charges (SCA/3DS compliance).
+    Tagged ``kind=tab_payment_method`` (:data:`TAB_SETUP_INTENT_KIND`).
     """
     client = _get_stripe_client()
     intent = client.v1.setup_intents.create(
@@ -150,6 +159,7 @@ def create_setup_intent(*, customer_id: str) -> dict[str, str]:
             "customer": customer_id,
             "usage": "off_session",
             "payment_method_types": ["card"],
+            "metadata": {"kind": TAB_SETUP_INTENT_KIND},
         },
     )
     return {"client_secret": intent.client_secret or "", "setup_intent_id": intent.id}
@@ -170,15 +180,17 @@ def retrieve_payment_method(*, payment_method_id: str) -> dict[str, Any]:
 
 
 def attach_payment_method(*, customer_id: str, payment_method_id: str) -> None:
-    """Attach a payment method to a customer and set it as the default."""
+    """Attach a payment method to a customer, leaving the customer's default card alone.
+
+    My Tab charges its card by id (:func:`create_payment_intent`), so it never needs the default.
+    The default belongs to the cubby subscriptions (#978), which pay from it once
+    :func:`move_subscription_card_to_customer` has put their card there; a Tab card made the
+    default would take over their billing, and removing it would leave them no card at all.
+    """
     client = _get_stripe_client()
     client.v1.payment_methods.attach(
         payment_method_id,
         params={"customer": customer_id},
-    )
-    client.v1.customers.update(
-        customer_id,
-        params={"invoice_settings": {"default_payment_method": payment_method_id}},
     )
 
 
@@ -365,7 +377,17 @@ def retrieve_checkout_session(*, session_id: str) -> dict[str, Any]:
         "payment_status": session.payment_status or "",
         "payment_intent": str(session.payment_intent) if session.payment_intent else "",
         "amount_total": session.amount_total,
+        "subscription": _expandable_id(session.subscription),
+        "invoice": _expandable_id(session.invoice),
+        "metadata": session.metadata.to_dict() if session.metadata else {},
     }
+
+
+def _expandable_id(value: Any) -> str:
+    """The id of an expandable field, whether Stripe sent the id or the object; "" when empty."""
+    if not value:
+        return ""
+    return value if isinstance(value, str) else str(value.id)
 
 
 def create_refund(*, payment_intent_id: str, amount_cents: int | None = None, idempotency_key: str) -> dict[str, Any]:
@@ -587,3 +609,361 @@ def find_transfer_reversal(*, transfer_id: str, refund_pk: int) -> str | None:
         if metadata is not None and "refund_pk" in metadata and metadata["refund_pk"] == str(refund_pk):
             return reversal.id
     return None
+
+
+# ---------------------------------------------------------------------------
+# Cubby rentals (#978): the first recurring billing, a monthly subscription per rental
+# ---------------------------------------------------------------------------
+
+
+def create_subscription_checkout_session(
+    *,
+    customer_id: str,
+    amount_cents: int,
+    product_name: str,
+    description: str,
+    success_url: str,
+    cancel_url: str,
+    metadata: dict[str, str],
+    idempotency_key: str,
+    expires_at: int,
+) -> dict[str, str]:
+    """A hosted Checkout that starts a monthly subscription at ``amount_cents`` for ``customer_id``.
+
+    The price is inline (``price_data``, ``recurring.interval = month``) on a product made inline
+    (``product_data``), so nothing account specific is stored before the money moves: the product
+    id is read back from the subscription. ``metadata`` rides on the session and, as
+    ``subscription_data.metadata``, on the subscription and every invoice it makes
+    (``invoice.parent.subscription_details.metadata``). ``description`` names the cubby on the
+    subscription, which is what the Billing Portal lists.
+
+    Returns dict with 'id' and 'url'. Stripe errors propagate.
+    """
+    client = _get_stripe_client()
+    params: SessionCreateParams = {
+        "mode": "subscription",
+        "customer": customer_id,
+        # Card only: a delayed payment method could complete the Checkout before its money lands.
+        "payment_method_types": ["card"],
+        "line_items": [
+            {
+                "quantity": 1,
+                "price_data": {
+                    "currency": "usd",
+                    "unit_amount": amount_cents,
+                    "recurring": {"interval": "month"},
+                    "product_data": {"name": product_name},
+                },
+            }
+        ],
+        "metadata": metadata,
+        "subscription_data": {"metadata": metadata, "description": description},
+        "success_url": success_url,
+        "cancel_url": cancel_url,
+        "expires_at": expires_at,
+    }
+    session = client.v1.checkout.sessions.create(params=params, options={"idempotency_key": idempotency_key})
+    return {"id": session.id, "url": session.url or ""}
+
+
+def _subscription_dict(subscription: stripe.Subscription) -> dict[str, Any]:
+    """The few subscription facts a cubby rental mirrors, as a plain dict.
+
+    'id', 'status', 'customer', 'metadata', 'cancel_at_period_end', 'cancel_at' (unix or None),
+    'default_payment_method' ("" when the customer's default pays), 'latest_invoice', and from its
+    one item 'item_id', 'product_id', 'unit_amount' and 'current_period_end' (the period end lives
+    on the item since API 2025-03-31).
+    """
+    data = subscription.to_dict()
+    item = data["items"]["data"][0]
+    price = item["price"]
+    product = price["product"]
+    return {
+        "id": data["id"],
+        "status": data["status"],
+        "customer": _expandable_id(subscription.customer),
+        "metadata": dict(data.get("metadata") or {}),
+        "cancel_at_period_end": bool(data["cancel_at_period_end"]),
+        "cancel_at": data.get("cancel_at"),
+        "default_payment_method": _expandable_id(subscription.default_payment_method),
+        "latest_invoice": _expandable_id(subscription.latest_invoice),
+        "item_id": item["id"],
+        "product_id": product if isinstance(product, str) else product["id"],
+        "unit_amount": price["unit_amount"],
+        "current_period_end": item["current_period_end"],
+    }
+
+
+def retrieve_subscription(*, subscription_id: str) -> dict[str, Any]:
+    """The subscription as it is now (see :func:`_subscription_dict`). Stripe errors propagate."""
+    client = _get_stripe_client()
+    return _subscription_dict(client.v1.subscriptions.retrieve(subscription_id))
+
+
+def move_subscription_card_to_customer(*, customer_id: str, subscription_id: str, payment_method_id: str) -> None:
+    """Make the card Checkout saved on the subscription the customer's default, and clear the subscription's own.
+
+    A subscription's own ``default_payment_method`` wins over the customer's, and the Billing
+    Portal's Update Payment Method sets the customer's. Moving the card here is what lets a card
+    the member fixes in the portal pay the next charge. The My Tab card is untouched: My Tab
+    charges its own saved card by id, never the customer default.
+    """
+    client = _get_stripe_client()
+    client.v1.customers.update(customer_id, params={"invoice_settings": {"default_payment_method": payment_method_id}})
+    client.v1.subscriptions.update(subscription_id, params={"default_payment_method": ""})
+
+
+def update_subscription_amount(*, subscription_id: str, item_id: str, product_id: str, amount_cents: int) -> None:
+    """Charge ``amount_cents`` a month from the next charge on: a new inline price on the same product.
+
+    ``proration_behavior="none"``: nothing is charged or credited now. Stripe errors propagate.
+    """
+    client = _get_stripe_client()
+    params: SubscriptionUpdateParams = {
+        "items": [
+            {
+                "id": item_id,
+                "price_data": {
+                    "currency": "usd",
+                    "product": product_id,
+                    "unit_amount": amount_cents,
+                    "recurring": {"interval": "month"},
+                },
+            }
+        ],
+        "proration_behavior": "none",
+    }
+    client.v1.subscriptions.update(subscription_id, params=params)
+
+
+def set_subscription_cancel_at_period_end(*, subscription_id: str, cancel: bool) -> None:
+    """Stop (``cancel=True``) or resume the subscription at the end of the paid month.
+
+    Resuming also clears any ``cancel_at`` date, which a dashboard or portal cancel may have set
+    instead of ``cancel_at_period_end``.
+    """
+    client = _get_stripe_client()
+    params: SubscriptionUpdateParams = {"cancel_at_period_end": True} if cancel else {"cancel_at": ""}
+    if not cancel:
+        params["cancel_at_period_end"] = False
+    client.v1.subscriptions.update(subscription_id, params=params)
+
+
+def cancel_subscription(*, subscription_id: str) -> None:
+    """End the subscription now. No proration and no refund. Stripe errors propagate."""
+    client = _get_stripe_client()
+    client.v1.subscriptions.cancel(subscription_id)
+
+
+def create_payment_method_portal_session(*, customer_id: str, return_url: str) -> str:
+    """A Billing Portal link that opens straight on Update Payment Method and comes back to ``return_url``."""
+    client = _get_stripe_client()
+    params: PortalSessionCreateParams = {
+        "customer": customer_id,
+        "return_url": return_url,
+        "flow_data": {
+            "type": "payment_method_update",
+            "after_completion": {"type": "redirect", "redirect": {"return_url": return_url}},
+        },
+    }
+    return client.v1.billing_portal.sessions.create(params=params).url
+
+
+def invoice_payment_intent(*, invoice_id: str) -> str:
+    """The PaymentIntent that paid ``invoice_id``, or "" when none did.
+
+    Since API 2025-03-31 an invoice no longer carries ``payment_intent``; its payments are their
+    own list, not in the webhook payload. Stripe errors propagate.
+    """
+    client = _get_stripe_client()
+    payments = client.v1.invoice_payments.list(params={"invoice": invoice_id, "status": "paid"})
+    for invoice_payment in payments.data:
+        payment_intent = invoice_payment.payment.payment_intent
+        if payment_intent:
+            return _expandable_id(payment_intent)
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Fees, nets and payouts (#984)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RefundSettlement:
+    """One settled refund's balance transaction, signed as Stripe's balance shows it (amount and net negative).
+
+    A refund that failed after settling also carries its reversal (``failure_*``, positive), which
+    Stripe credits back on a balance transaction of its own.
+    """
+
+    refund_id: str
+    balance_transaction_id: str
+    amount_cents: int
+    fee_cents: int
+    net_cents: int
+    available_on: datetime
+    failed: bool = False
+    failure_balance_transaction_id: str = ""
+    failure_amount_cents: int | None = None
+    failure_fee_cents: int | None = None
+    failure_net_cents: int | None = None
+    failure_available_on: datetime | None = None
+
+    @property
+    def amount_after_failure_cents(self) -> int:
+        """The refund's balance effect with any reversal netted in: zero for a failed refund."""
+        return self.amount_cents + (self.failure_amount_cents or 0)
+
+    @property
+    def fee_after_failure_cents(self) -> int:
+        """Stripe's fee change on the refund with any reversal netted in."""
+        return self.fee_cents + (self.failure_fee_cents or 0)
+
+
+@dataclass(frozen=True)
+class ChargeSettlement:
+    """What Stripe's balance says about one paid PaymentIntent: the charge's fee, net and availability, and its refunds."""
+
+    account: str  # "active" | "previous": StripeFeeRecord.Account values
+    charge_id: str
+    balance_transaction_id: str
+    amount_cents: int
+    fee_cents: int
+    net_cents: int
+    available_on: datetime
+    refunds: tuple[RefundSettlement, ...] = ()
+
+    @property
+    def refunded_cents(self) -> int:
+        """What the refunds took out and kept out, as a positive amount; a failed refund adds nothing."""
+        return -sum(refund.amount_after_failure_cents for refund in self.refunds)
+
+    @property
+    def refund_fee_cents(self) -> int:
+        """Stripe's fee change across the refunds and any reversals; negative when fee came back."""
+        return sum(refund.fee_after_failure_cents for refund in self.refunds)
+
+
+def fee_accounts() -> dict[str, stripe.StripeClient]:
+    """The accounts with a secret key for the current mode, in lookup order: "active", then "previous"."""
+    bs = _billing_settings()
+    keys = {"active": bs.active_secret_key, "previous": bs.active_previous_secret_key}
+    return {account: stripe.StripeClient(key) for account, key in keys.items() if key}
+
+
+def _settled_at(timestamp: int) -> datetime:
+    return datetime.fromtimestamp(timestamp, tz=UTC)
+
+
+REFUND_REVERSED_STATUSES = ("failed", "canceled")
+"""Refund statuses whose money Stripe puts back with a reversal balance transaction once it had settled."""
+
+
+def _settled_refund(refund: Any) -> bool:
+    """Whether a refund ever moved money: succeeded, or reversed after its debit settled."""
+    if refund.status == "succeeded":
+        return True
+    return refund.status in REFUND_REVERSED_STATUSES and refund.balance_transaction is not None
+
+
+def _expanded_balance(balance: Any) -> Any:
+    """``balance`` when Stripe expanded it; a missing or bare id means Stripe has not settled it yet."""
+    from billing.exceptions import StripeSettlementNotReadyError
+
+    if balance is None or isinstance(balance, str):
+        raise StripeSettlementNotReadyError("Stripe has not settled a refund on this payment yet.")
+    return balance
+
+
+def _refund_settlement(refund: Any) -> RefundSettlement:
+    """A settled refund's settlement, with its reversal when it failed afterwards."""
+    balance = _expanded_balance(refund.balance_transaction)
+    settlement = RefundSettlement(
+        refund_id=refund.id,
+        balance_transaction_id=balance.id,
+        amount_cents=balance.amount,
+        fee_cents=balance.fee,
+        net_cents=balance.net,
+        available_on=_settled_at(balance.available_on),
+    )
+    if refund.status == "succeeded":
+        return settlement
+    reversal = _expanded_balance(refund.failure_balance_transaction)
+    return replace(
+        settlement,
+        failed=True,
+        failure_balance_transaction_id=reversal.id,
+        failure_amount_cents=reversal.amount,
+        failure_fee_cents=reversal.fee,
+        failure_net_cents=reversal.net,
+        failure_available_on=_settled_at(reversal.available_on),
+    )
+
+
+def retrieve_charge_settlement(*, payment_intent_id: str) -> ChargeSettlement | None:
+    """Read a PaymentIntent's fee, net, availability and refunds from whichever account holds it.
+
+    Returns:
+        The settlement, or ``None`` when both the active and the previous account answered that they have no such PaymentIntent.
+
+    Raises:
+        StripeAccountUnavailableError: An account the answer depends on has no key for this mode, so "not found" cannot be concluded.
+        StripeSettlementNotReadyError: Stripe has the payment but has not settled the charge or a refund yet.
+        stripe.StripeError: Stripe could not answer; the caller retries later.
+    """
+    from billing.exceptions import StripeAccountUnavailableError, StripeSettlementNotReadyError
+
+    clients = fee_accounts()
+    if "active" not in clients:
+        raise StripeAccountUnavailableError("No Stripe secret key is set for this mode.")
+    for account, client in clients.items():
+        try:
+            payment_intent = client.v1.payment_intents.retrieve(
+                payment_intent_id, params={"expand": ["latest_charge.balance_transaction"]}
+            )
+        except stripe.InvalidRequestError as exc:
+            if exc.code == "resource_missing":
+                continue
+            raise
+        charge = payment_intent.latest_charge
+        if charge is None or isinstance(charge, str) or charge.balance_transaction is None:
+            raise StripeSettlementNotReadyError("Stripe has not settled this payment yet.")
+        balance = charge.balance_transaction
+        if isinstance(balance, str):
+            raise StripeSettlementNotReadyError("Stripe did not expand the balance transaction.")
+        refunds = client.v1.refunds.list(
+            params={
+                "payment_intent": payment_intent_id,
+                "expand": ["data.balance_transaction", "data.failure_balance_transaction"],
+                "limit": 100,
+            }
+        )
+        return ChargeSettlement(
+            account=account,
+            charge_id=charge.id,
+            balance_transaction_id=balance.id,
+            amount_cents=balance.amount,
+            fee_cents=balance.fee,
+            net_cents=balance.net,
+            available_on=_settled_at(balance.available_on),
+            refunds=tuple(
+                _refund_settlement(refund) for refund in refunds.auto_paging_iter() if _settled_refund(refund)
+            ),
+        )
+    if "previous" not in clients:
+        raise StripeAccountUnavailableError("Not on the current account, and no previous account key is set.")
+    return None
+
+
+def iter_paid_payouts(*, client: stripe.StripeClient, arrived_since: datetime) -> Iterator[tuple[str, list[str]]]:
+    """Each paid Stripe payout on ``client``'s account that arrived since ``arrived_since``, with its balance transaction ids.
+
+    Only automatic payouts list their balance transactions; a manual one yields an empty list.
+    """
+    payouts = client.v1.payouts.list(
+        params={"status": "paid", "arrival_date": {"gte": int(arrived_since.timestamp())}, "limit": 100}
+    )
+    for payout in payouts.auto_paging_iter():
+        transactions = client.v1.balance_transactions.list(params={"payout": payout.id, "limit": 100})
+        yield payout.id, [transaction.id for transaction in transactions.auto_paging_iter()]

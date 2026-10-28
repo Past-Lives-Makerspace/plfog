@@ -940,10 +940,11 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     )
 
     # The Cubbies tab (#977): while the guild has it on, on the members surface, for a linked Member
-    # (the Reservations tab's two gates). None, and no query, otherwise.
+    # (the Reservations tab's two gates). With the switch off it still shows the viewer's own Your
+    # Cubby cards while they rent here (#978), so they can always cancel or fix their card.
     from membership.cubbies import CubbyTab
 
-    cubby_tab = CubbyTab.load(guild) if guild.show_cubbies_tab and member is not None and not guilds_surface else None
+    cubby_tab = CubbyTab.for_page(guild, member) if member is not None and not guilds_surface else None
 
     # The Kiln Tickets tab (#691): the kiln guild's page only; None (no query) on every other guild.
     from kiln.services import guild_kiln_home
@@ -2744,15 +2745,17 @@ def orientation_proposal_answer(request: HttpRequest, booking_pk: int) -> HttpRe
     return _orientation_return(request, booking.orientation_type)
 
 
-def _with_open_thread(url: str, booking_pk: int) -> str:
-    """``url`` with ``messages=<pk>`` in its query, so the page it lands on opens that booking's messages.
+def _with_open_thread(url: str, thread_key: int | str) -> str:
+    """``url`` with ``messages=<key>`` in its query, so the page it lands on opens that thread.
+
+    The key is an orientation booking's pk, or a reservation's ``thread_key`` ("res-12").
 
     A boosted redirect drops a ``#fragment``, so the query carries it: the thread script
     (``components/thread_script.html``) opens and scrolls to the thread it names.
     """
     parts = urlsplit(url)
     query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != "messages"]
-    query.append(("messages", str(booking_pk)))
+    query.append(("messages", str(thread_key)))
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 

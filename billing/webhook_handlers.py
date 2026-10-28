@@ -14,8 +14,19 @@ logger = logging.getLogger(__name__)
 
 
 def handle_setup_intent_succeeded(event: dict[str, Any]) -> None:
-    """Attach the payment method from a completed SetupIntent to the Tab."""
+    """Attach the payment method from a completed SetupIntent to the Tab.
+
+    Only a SetupIntent the My Tab card page made (``metadata.kind`` is
+    :data:`billing.stripe_utils.TAB_SETUP_INTENT_KIND`). The Billing Portal behind a cubby's
+    Manage Payment (#978) collects its card with a SetupIntent on the same customer, and that card
+    is the rental's, never a replacement for the Tab's. The card page also saves the card itself
+    (``confirm_setup``), so this is the backup path.
+    """
+    from billing.stripe_utils import TAB_SETUP_INTENT_KIND
+
     setup_intent = event["data"]["object"]
+    if (setup_intent.get("metadata") or {}).get("kind") != TAB_SETUP_INTENT_KIND:
+        return
     customer_id = setup_intent["customer"]
     payment_method_id = setup_intent["payment_method"]
 

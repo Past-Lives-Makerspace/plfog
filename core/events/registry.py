@@ -532,6 +532,12 @@ EQUIPMENT_RESERVATION_CANCELLED = "equipment.reservation_cancelled"  # the membe
 EQUIPMENT_RESERVATION_REQUESTED = "equipment.reservation_requested"  # your request is in, the time held (#748)
 EQUIPMENT_RESERVATION_NEEDS_APPROVAL = "equipment.reservation_needs_approval"  # managers: approve or decline (#748)
 EQUIPMENT_RESERVATION_DECLINED = "equipment.reservation_declined"  # a manager declined your request, with why (#748)
+EQUIPMENT_RESERVATION_MESSAGE_TO_MEMBER = (
+    "equipment.reservation_message_to_member"  # a manager wrote on your reservation
+)
+EQUIPMENT_RESERVATION_MESSAGE_TO_MANAGERS = (
+    "equipment.reservation_message_to_managers"  # a member wrote on their reservation
+)
 EQUIPMENT_CREDIT_GRANTED = "equipment.credit_granted"  # a manager gave you hourly credit on an item (#787)
 BILLING_LATE_FEE_PAID = "billing.late_fee_paid"  # the receipt for a paid late cancellation fee
 BILLING_LATE_FEE_WAIVED = "billing.late_fee_waived"  # an unpaid late cancellation fee was forgiven
@@ -562,6 +568,10 @@ TOUR_BOOKED = "tour.booked"  # a visitor booked one of your facility tours (#948
 TOUR_VISITOR_CHANGED = "tour.visitor_changed"  # a visitor moved or cancelled your tour from their email (#948)
 TOUR_VISITOR_UPDATE = "tour.visitor_update"  # the visitor's own tour emails, by address only (#948)
 TOUR_CHECKED_IN = "tour.checked_in"  # your visitor checked in at the front desk kiosk (#950)
+CUBBIES_RENTED = "cubbies.rented"  # your cubby rental is active (#978)
+CUBBIES_PAYMENT_FAILED = "cubbies.payment_failed"  # a monthly cubby charge failed, once per invoice (#978)
+CUBBIES_RENTAL_ENDED = "cubbies.rental_ended"  # your cubby rental ended and the cubby is free (#978)
+CUBBIES_RENTAL_REFUNDED = "cubbies.rental_refunded"  # someone got the cubby first; your payment came back (#978)
 TOUR_CALENDAR_BUSY = "tour.calendar_busy"  # your Google Calendar now shows you busy during a booked tour (#951)
 TOUR_CALENDAR_BROKEN = "tour.calendar_broken"  # Google stopped accepting your calendar connection (#951)
 TOUR_CALENDAR_GONE = "tour.calendar_gone"  # the calendar you picked for tours is gone; the main one took over (#951)
@@ -1266,6 +1276,32 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_FORCED),
         activity_kind=None,
     ),
+    # equipment.reservation_message_to_member — a manager of the equipment or an admin posted a
+    # message on a member's reservation (the shared thread, core.threads). A decline's or a
+    # manager cancel's reason is written into the thread too, but rides in that notice and never
+    # fires this. The period is the message. No activity row: the thread is the record.
+    EventType(
+        key=EQUIPMENT_RESERVATION_MESSAGE_TO_MEMBER,
+        label="Messages about your reservation",
+        description="A manager wrote on one of your equipment reservations.",
+        category="Spaces & Equipment",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # equipment.reservation_message_to_managers — a member posted a message on their reservation.
+    # Goes to the EQUIPMENT_MANAGERS audience (the one reservation_needs_approval reaches, with
+    # its Equipment Administrators fallback); the sender passes that set minus the author, and
+    # admins are not added. The period is the message. No activity row: the thread is the record.
+    EventType(
+        key=EQUIPMENT_RESERVATION_MESSAGE_TO_MANAGERS,
+        label="Messages on reservations",
+        description="A member wrote on a reservation of equipment you manage.",
+        category="Spaces & Equipment",
+        recipient=Recipients.EQUIPMENT_MANAGERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
     # equipment.credit_granted — a manager gave the member hourly credit on one item (#787),
     # by hand or from a reservation's unused time. Good news, not an obligation, so email
     # defaults on rather than forced; a Book a Time button takes them to spend it.
@@ -1766,6 +1802,44 @@ _NEW_EVENTS: list[EventType] = [
         category="Guilds",
         recipient=Recipients.GUILD_LEADERSHIP,
         channels=(_IN_APP_ON,),
+        activity_kind=None,
+    ),  # Cubby rentals (#978): the renter's own news about their monthly subscription. Bell on,
+    # email forced (it is about their money). Sent from membership.cubby_rentals with the
+    # membership/emails/cubby_*.{txt,html} bodies, each once through its period.
+    EventType(
+        key=CUBBIES_RENTED,
+        label="Your cubby is rented",
+        description="You rented a guild cubby and your monthly payment started.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    EventType(
+        key=CUBBIES_PAYMENT_FAILED,
+        label="Cubby payment didn't go through",
+        description="A monthly charge for your cubby failed. Update your card to keep it.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    EventType(
+        key=CUBBIES_RENTAL_ENDED,
+        label="Your cubby rental ended",
+        description="Your cubby rental ended and you won't be charged again.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    EventType(
+        key=CUBBIES_RENTAL_REFUNDED,
+        label="Cubby payment refunded",
+        description="The cubby wasn't free by the time your payment went through, so it was refunded.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
         activity_kind=None,
     ),
 ]

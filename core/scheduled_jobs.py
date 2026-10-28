@@ -342,6 +342,14 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="release_cubby_payment_holds",
+        name="Release abandoned cubby checkouts",
+        description="Frees cubbies held by rent checkouts that were never paid, after asking Stripe about each.",
+        command="release_cubby_payment_holds",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="release_abandoned_class_holds",
         name="Release abandoned class checkouts",
         description="Releases class seats held by signups whose Stripe checkout was never completed.",
@@ -370,6 +378,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         name="Sweep stale refunds",
         description="Marks refunds that never reached Stripe as failed so they can be retried.",
         command="sweep_stale_refunds",
+        schedule_label="Nightly ~6 AM",
+        cadence=Cadence.DAILY,
+    ),
+    ScheduledJob(
+        key="sync_stripe_fees",
+        name="Stripe fees and payouts",
+        description=(
+            "Records what Stripe kept as its fee on each payment, what reached the bank, and the payout that "
+            "carried it, for the Reconciliation and Payment reports."
+        ),
+        command="sync_stripe_fees",
         schedule_label="Nightly ~6 AM",
         cadence=Cadence.DAILY,
     ),

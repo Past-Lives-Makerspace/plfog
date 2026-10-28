@@ -152,6 +152,24 @@ def describe_delete_own_account():
             member.refresh_from_db()
             assert member.full_legal_name == "Deleted Member"
 
+        def it_keeps_the_name_finance_shows():
+            member = _linked_member()
+
+            delete_own_account(member)
+
+            member.refresh_from_db()
+            assert member.name_at_deletion == "Janey"
+            assert member.full_legal_name == "Deleted Member"
+            assert member.finance_name == "Janey (account deleted)"
+
+        def it_keeps_the_legal_name_when_there_is_no_preferred_name():
+            member = _linked_member(preferred_name="")
+
+            delete_own_account(member)
+
+            member.refresh_from_db()
+            assert member.name_at_deletion == "Jane Doe"
+
         def it_clears_the_discord_link_timestamp():
             member = _linked_member()
 
@@ -420,6 +438,35 @@ def describe_delete_own_account():
             assert member.full_legal_name == "Jane Doe"
             assert member.user.is_active is True
             assert EmailAddress.objects.filter(user=member.user).exists()
+
+    def describe_cubby_rentals():
+        # #978: a deleted account stops paying for its cubbies at once, with no refund.
+        @patch("billing.stripe_utils.cancel_subscription")
+        def it_cancels_every_live_rental_before_scrubbing(mock_cancel):
+            from membership.models import CubbyRental
+            from tests.membership.factories import CubbyRentalFactory
+
+            member = _linked_member()
+            rental = CubbyRentalFactory(member=member)
+
+            delete_own_account(member)
+
+            mock_cancel.assert_called_once_with(subscription_id=rental.stripe_subscription_id)
+            rental.refresh_from_db()
+            assert rental.status == CubbyRental.Status.ENDED
+
+        @patch("billing.stripe_utils.cancel_subscription", side_effect=RuntimeError("stripe down"))
+        def it_stops_the_deletion_when_stripe_cannot_cancel(mock_cancel):
+            from tests.membership.factories import CubbyRentalFactory
+
+            member = _linked_member()
+            CubbyRentalFactory(member=member)
+
+            with pytest.raises(RuntimeError, match="stripe down"):
+                delete_own_account(member)
+
+            member.refresh_from_db()
+            assert member.deleted_at is None
 
     def describe_reinvite_after_deletion():
         def it_frees_the_email_for_a_fresh_invite_with_no_collision():

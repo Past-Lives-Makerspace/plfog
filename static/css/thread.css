@@ -62,3 +62,24 @@
 
 /* A thread anchored by ?messages=<key> scrolls clear of the sticky top bar. */
 [data-thread-open] { scroll-margin-top: 5rem; }
+
+/* What a thread in a modal is about (an equipment reservation's Messages), above its messages. */
+.pl-thread-summary {
+    display: grid;
+    gap: 0.25rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--hub-border);
+}
+.pl-thread-summary__title { font-size: 0.95rem; color: var(--hub-text); }
+.pl-thread-summary__meta {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+    color: var(--hub-text-muted);
+}
+/* The light theme's pill text, as the bookings tables read it: the plain pill colours wash out on white. */
+[data-theme="light"] .pl-thread-summary .hub-pill--ok { color: #1f7a52; }
+[data-theme="light"] .pl-thread-summary .hub-pill--neutral { color: #5b6675; }
+[data-theme="light"] .pl-thread-summary .hub-pill--warn { color: #9a6a00; }

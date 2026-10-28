@@ -1,0 +1,6 @@
+{% comment %}
+The Alpine state a pay what you want sheet (#978) shares, as one x-data object: the picked chip,
+the Other box, each chip's cents, the floor and the server's refusal. `amount` is the pick in
+cents, `clientError` the floor rule as the server words it (amount_problem), `error` what the
+sheet shows: the server's refusal until the member changes something, then the live one.
+{% endcomment %}{ picked: '{{ form.picked|escapejs }}', other: '{{ form.other.value|default_if_none:""|escapejs }}', touched: false, serverError: '{{ form.error_text|escapejs }}', floor: {{ cubby.floor }}, cents: { {% for chip in form.chips %}{% if chip.cents is not None %}'{{ chip.key }}': {{ chip.cents }}, {% endif %}{% endfor %} }, get amount() { return this.picked === 'other' ? Math.round(parseFloat(this.other) * 100) : this.cents[this.picked]; }, get clientError() { if (this.picked !== 'other') return ''; const c = this.amount; if (!(c > 0)) return 'Enter your amount.'; if (c > 50000) return 'The most a cubby can be is $500 a month.'; if (c < this.floor) return '{{ floor_message|escapejs }}'; return ''; }, get error() { return (!this.touched && this.serverError) || this.clientError; }, money(c) { return '$' + (c % 100 === 0 ? String(c / 100) : (c / 100).toFixed(2)); } }

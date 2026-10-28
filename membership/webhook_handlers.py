@@ -284,3 +284,47 @@ def handle_reservation_checkout_expired(event: dict[str, Any]) -> None:
         return  # already released, finalized, or never existed: an idempotent no-op
     # The session just expired on Stripe's side, so there is nothing to expire again.
     equipment_service._delete_hold(reservation, expire_session=False)
+
+
+# ── Cubby rentals (#978): a monthly subscription per rental ──────────────────
+# Each handler self-filters on metadata.kind == "cubby_rental" and hands the work to
+# membership.cubby_rentals, which re-reads the subscription from Stripe, so delivery order
+# never matters and a re-delivery changes nothing.
+
+
+def handle_cubby_checkout_completed(event: dict[str, Any]) -> None:
+    """A rent Checkout finished: the subscription it started settles its rental (Active once)."""
+    from membership import cubby_rentals
+
+    cubby_rentals.complete_checkout(event["data"]["object"])
+
+
+def handle_cubby_checkout_expired(event: dict[str, Any]) -> None:
+    """A rent Checkout died unpaid: release the cubby it held."""
+    from membership import cubby_rentals
+
+    cubby_rentals.release_expired_hold(event["data"]["object"])
+
+
+def handle_cubby_invoice_paid(event: dict[str, Any]) -> None:
+    """``invoice.paid``: one payment row per invoice, and the rental Active."""
+    from membership import cubby_rentals
+
+    cubby_rentals.record_invoice_paid(event["data"]["object"])
+
+
+def handle_cubby_invoice_payment_failed(event: dict[str, Any]) -> None:
+    """``invoice.payment_failed``: Past Due as Stripe has it, the member told once per invoice."""
+    from membership import cubby_rentals
+
+    cubby_rentals.record_payment_failed(event["data"]["object"])
+
+
+def handle_cubby_subscription_changed(event: dict[str, Any]) -> None:
+    """``customer.subscription.updated`` and ``.deleted``: mirror the subscription as Stripe has it now."""
+    from membership import cubby_rentals
+
+    subscription = event["data"]["object"]
+    if (subscription.get("metadata") or {}).get("kind") != cubby_rentals.CHECKOUT_KIND:
+        return
+    cubby_rentals.settle_subscription(subscription["id"])

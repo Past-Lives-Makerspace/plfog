@@ -16,6 +16,7 @@ from typing import Any, cast
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.db.models import Prefetch, Q
 from django.http import Http404, HttpRequest, HttpResponse
@@ -336,6 +337,7 @@ def _schedule_context(
             .select_related("cancelled_by")  # a declined row names the manager (#748)
             .prefetch_related("refunds")  # a paid row's refund line (#749)
             .with_credited_unused()  # a credited row offers no Cancel (#787)
+            .with_unread_messages_for(member.user)  # the Messages link's New pill
             .order_by("starts_at")
         )
         for reservation in my_reservations:
@@ -1323,7 +1325,15 @@ def _render_manage(
     orientation_ctx = _orientation_tab_context(request, equipment)
     if agreement_member_count is None:
         agreement_member_count = equipment.current_agreement_member_count()
-    approvals = list(equipment.reservations.reservations().awaiting_approval().select_related("member"))
+    from hub.reservation_bookings import reservation_thread_to_open
+
+    viewer = cast(User, request.user)
+    approvals = list(
+        equipment.reservations.reservations()
+        .awaiting_approval()
+        .select_related("member")
+        .with_unread_messages_for(viewer)  # the row's New message pill
+    )
     return render(
         request,
         "hub/equipment_manage.html",
@@ -1367,7 +1377,8 @@ def _render_manage(
                 .reservations()
                 .exclude(status=EquipmentReservation.Status.PENDING_APPROVAL)
                 .select_related("member")
-                .with_credited_unused(),  # a credited row offers no Cancel (#787)
+                .with_credited_unused()  # a credited row offers no Cancel (#787)
+                .with_unread_messages_for(viewer),  # the row's New message pill
                 25,
             ).get_page(request.GET.get("page", 1)),
             # The Needs Approval card (#748), shown while the switch is on or anything still waits.
@@ -1387,6 +1398,9 @@ def _render_manage(
             "manage_late_fees": _manage_late_fees(equipment),
             "manage_late_fees_next": f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations",
             "active_tab": active_tab,
+            # A message notice or a Send lands here with ?messages=res-<pk>: the Messages modal opens on it.
+            "open_reservation_thread": reservation_thread_to_open(request),
+            "reservations_tab_url": _manage_reservations_tab(equipment),
         },
     )
 
@@ -1609,6 +1623,92 @@ def hub_equipment_reservation_decline(request: HttpRequest, slug: str, pk: int) 
         messages.success(request, f"Declined. {first_name} has been emailed.{_REFUND_FAILED_TAIL}")
     else:
         messages.success(request, f"Declined. {first_name} has been emailed.")
+    return redirect(back)
+
+
+def _thread_target(request: HttpRequest, pk: int) -> tuple[EquipmentReservation, bool]:
+    """The reservation whose thread the request reads or writes, and whether the viewer is the manager side.
+
+    The member who booked is the member side; anyone who may manage the equipment (admins
+    included) is the manager side. Anyone else, and any block, gets a 404 as if it did not exist.
+
+    Raises:
+        Http404: When the reservation is missing, is a block, or the viewer has no side on it.
+    """
+    from hub.reservation_bookings import reservation_thread_side
+
+    reservation = get_object_or_404(
+        EquipmentReservation.objects.with_thread().select_related("equipment__guild"),
+        pk=pk,
+        kind=EquipmentReservation.Kind.RESERVATION,
+    )
+    side = reservation_thread_side(request, reservation)
+    if side is None:
+        raise Http404("No such reservation.")
+    return reservation, side == "staff"
+
+
+def _thread_home(reservation: EquipmentReservation, *, is_staff: bool) -> str:
+    """Where a side's thread lives with its modal open: the manage tab for managers, the Bookings tab for the member."""
+    return reservation.staff_messages_url if is_staff else reservation.member_messages_url
+
+
+@login_required
+def hub_equipment_reservation_messages(request: HttpRequest, pk: int) -> HttpResponse:
+    """GET — a reservation's messages and the box to write, for the Messages modal; opening marks them read.
+
+    Fetched into the modal by a row's Messages item or by a page arriving with
+    ``?messages=res-<pk>``. Viewing tells nobody. A plain GET (a typed address, a history
+    restore) is sent to the viewer's page with the modal open, never a bare fragment.
+    ``next`` (a local path) is where the composer lands after Send.
+    """
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    from hub.forms import ThreadMessageForm
+
+    reservation, is_staff = _thread_target(request, pk)
+    if not wants_fragment(request):
+        return redirect(_thread_home(reservation, is_staff=is_staff))
+    reservation.mark_messages_read(cast(User, request.user))
+    next_url = request.GET.get("next", "")
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        next_url = ""
+    return render(
+        request,
+        "hub/partials/reservation_messages.html",
+        {
+            "reservation": reservation,
+            "thread_messages": reservation.thread(),
+            "viewer_is_staff": is_staff,
+            "message_form": ThreadMessageForm(auto_id="id_resmsg_%s"),
+            "thread_next": next_url,
+        },
+    )
+
+
+@login_required
+@require_POST
+def hub_equipment_reservation_message(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST — post a message, with photos, on a reservation's thread; the other side is always told.
+
+    The member who booked writes as the member; a manager or an admin writes as the managers.
+    Anyone else gets a 404. Lands on ``next`` when it is a local path, else on the poster's page,
+    with ``?messages=res-<pk>`` so the modal opens again on the new message. A refused message
+    (a photo over the caps) lands the same way with the reason as an error.
+    """
+    from hub.forms import ThreadMessageForm
+    from hub.views import _with_open_thread
+
+    reservation, is_staff = _thread_target(request, pk)
+    back = _with_open_thread(_safe_next(request, _thread_home(reservation, is_staff=is_staff)), reservation.thread_key)
+    form = ThreadMessageForm(request.POST, request.FILES)
+    if not form.is_valid():
+        messages.error(request, form.error_summary())
+        return redirect(back)
+    message = reservation.post_message(
+        author=cast(User, request.user), body=form.cleaned_data["body"], photos=form.cleaned_data["photos"]
+    )
+    messages.success(request, "Sent." + message.told_sentence())
     return redirect(back)
 
 

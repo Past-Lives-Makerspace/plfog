@@ -47,28 +47,51 @@ def _seed_fog_admin(email: str = "admin@example.com") -> Member:
 
 
 def describe_handle_setup_intent_succeeded():
+    _TAB_KIND = {"kind": "tab_payment_method"}
+
     @patch("billing.stripe_utils.retrieve_payment_method")
     def it_updates_tab_payment_method(mock_retrieve):
         mock_retrieve.return_value = {"id": "pm_new", "brand": "visa", "last4": "4242"}
         tab = TabFactory(stripe_customer_id="cus_123", stripe_payment_method_id="")
 
-        handle_setup_intent_succeeded({"data": {"object": {"customer": "cus_123", "payment_method": "pm_new"}}})
+        handle_setup_intent_succeeded(
+            {"data": {"object": {"customer": "cus_123", "payment_method": "pm_new", "metadata": _TAB_KIND}}}
+        )
 
         tab.refresh_from_db()
         assert tab.stripe_payment_method_id == "pm_new"
         assert tab.payment_method_last4 == "4242"
 
+    @patch("billing.stripe_utils.retrieve_payment_method")
+    def it_leaves_the_tab_card_alone_for_a_card_added_elsewhere(mock_retrieve):
+        # #978: the Billing Portal behind a cubby's Manage Payment saves its card through a
+        # SetupIntent on the same customer, untagged. That card is the rental's, not the Tab's.
+        tab = TabFactory(stripe_customer_id="cus_123", stripe_payment_method_id="pm_tab")
+
+        handle_setup_intent_succeeded({"data": {"object": {"customer": "cus_123", "payment_method": "pm_portal"}}})
+        handle_setup_intent_succeeded(
+            {"data": {"object": {"customer": "cus_123", "payment_method": "pm_portal", "metadata": {}}}}
+        )
+
+        tab.refresh_from_db()
+        assert tab.stripe_payment_method_id == "pm_tab"
+        mock_retrieve.assert_not_called()
+
     def it_is_idempotent_when_already_set():
         tab = TabFactory(stripe_customer_id="cus_123", stripe_payment_method_id="pm_existing")
 
-        handle_setup_intent_succeeded({"data": {"object": {"customer": "cus_123", "payment_method": "pm_existing"}}})
+        handle_setup_intent_succeeded(
+            {"data": {"object": {"customer": "cus_123", "payment_method": "pm_existing", "metadata": _TAB_KIND}}}
+        )
 
         tab.refresh_from_db()
         assert tab.stripe_payment_method_id == "pm_existing"
 
     def it_skips_when_no_tab_found():
         # Should not raise
-        handle_setup_intent_succeeded({"data": {"object": {"customer": "cus_unknown", "payment_method": "pm_new"}}})
+        handle_setup_intent_succeeded(
+            {"data": {"object": {"customer": "cus_unknown", "payment_method": "pm_new", "metadata": _TAB_KIND}}}
+        )
 
 
 def describe_handle_payment_intent_succeeded():

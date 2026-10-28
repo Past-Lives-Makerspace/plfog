@@ -252,7 +252,11 @@ def hub_shelf_unit_archive(request: HttpRequest, unit_pk: int) -> HttpResponse:
     if forbidden is not None:
         return forbidden
     if not unit.is_archived:
-        cubbies.archive_unit(unit)
+        try:
+            cubbies.archive_unit(unit)
+        except ValidationError as refusal:
+            messages.error(request, " ".join(refusal.messages))
+            return redirect(_layout_url(unit.guild, f"cubby-unit-{unit.pk}"))
         messages.success(request, f"{unit.name} archived.")
     return redirect(_layout_url(unit.guild))
 
@@ -337,7 +341,11 @@ def hub_cubby_archive(request: HttpRequest, cubby_pk: int) -> HttpResponse:
     if forbidden is not None:
         return forbidden
     if not cubby.is_archived:
-        cubbies.archive_cubby(cubby)
+        try:
+            cubbies.archive_cubby(cubby)
+        except ValidationError as refusal:
+            messages.error(request, " ".join(refusal.messages))
+            return redirect("hub_cubby_edit", cubby_pk=cubby.pk)
         messages.success(request, f"Cubby {cubby.label} archived.")
     return redirect(_layout_url(cubby.unit.guild, f"cubby-unit-{cubby.unit_id}"))
 

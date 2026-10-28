@@ -31,6 +31,8 @@ from django.db.models import (
     Max,
     OuterRef,
     Q,
+    Subquery,
+    Sum,
     Value,
     When,
 )
@@ -279,6 +281,10 @@ def _flexible_window_ended() -> Q:
 
 
 class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
+    def demo(self) -> "ClassOfferingQuerySet":
+        """Seeded demo classes: every class whose slug starts with ``demo-`` (#983)."""
+        return self.filter(slug__startswith=DEMO_SLUG_PREFIX)
+
     def public(self) -> "ClassOfferingQuerySet":
         """Published classes visible in the public portal (excludes private).
 
@@ -5682,7 +5688,35 @@ EXPIRED_HOLD_CANCEL_REASON = "The checkout for this signup expired before it was
 FAILED_PAYMENT_CANCEL_REASON = "The delayed payment for this signup did not go through."
 
 
+#: Demo money (#983): a registration on a ``demo-`` slugged class with no Stripe payment behind
+#: it, or one fully refunded. A ``demo-`` slug alone proves nothing, because a real class titled
+#: "Demo Day" is slugged ``demo-day-<date>``; real money on it always counts.
+_DEMO_MONEY = Q(class_offering__slug__startswith=DEMO_SLUG_PREFIX) & (
+    Q(stripe_payment_id="") | Q(_succeeded_refund_cents__gte=F("amount_paid_cents"))
+)
+
+
 class RegistrationQuerySet(models.QuerySet["Registration"]):
+    def _with_succeeded_refund_cents(self) -> "RegistrationQuerySet":
+        """Alias each row's succeeded refund total, summed in a subquery so no join multiplies it."""
+        from billing.models import PaymentRefund
+
+        total = (
+            PaymentRefund.objects.filter(registration=OuterRef("pk"), status=PaymentRefund.Status.SUCCEEDED)
+            .values("registration")
+            .annotate(cents=Sum("amount_cents"))
+            .values("cents")
+        )
+        return self.alias(_succeeded_refund_cents=Coalesce(Subquery(total), 0))
+
+    def demo_money(self) -> "RegistrationQuerySet":
+        """Registrations that are demo money: on a ``demo-`` class, unpaid through Stripe or fully refunded (#983)."""
+        return self._with_succeeded_refund_cents().filter(_DEMO_MONEY)
+
+    def without_demo_money(self) -> "RegistrationQuerySet":
+        """Every registration finance counts: all but demo money, so real money on a ``demo-`` slug stays (#983)."""
+        return self._with_succeeded_refund_cents().exclude(_DEMO_MONEY)
+
     def with_class_dates_in(self, start: date_type | None, end: date_type | None) -> "RegistrationQuerySet":
         """Registrations whose class runs on a day from ``start`` through ``end``, inclusive (#911).
 

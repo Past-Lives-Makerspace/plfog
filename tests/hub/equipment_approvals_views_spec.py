@@ -296,7 +296,7 @@ def describe_the_needs_approval_card():
         assert reverse("hub_equipment_reservation_approve", args=[equipment.slug, later.pk]) in pane
         assert f"decline-res-{later.pk}" in content
         assert "Decline This Reservation?" in content
-        assert "The member will see this. Please tell the member why." in content
+        assert "The member will see this, in their email and the reservation's messages." in content
         # A waiting row lists here, never under Upcoming Reservations.
         upcoming = pane[pane.index("data-upcoming-reservations-card") :]
         assert f"mgr-cancel-{later.pk}" not in upcoming
