@@ -2,8 +2,8 @@
 
 Every manage URL is refused (403) to a plain member and to another guild's staff, including a
 crafted POST naming a cubby or unit of a guild they do not run: the guild is read from the
-record, never the URL. Admins and officers reach every guild. Assertions anchor on markup and
-factory strings (STANDARDS.md, section 8).
+record, never the URL. Admins reach every guild; a Guild Officer only a guild they lead or staff
+(#1015). Assertions anchor on markup and factory strings (STANDARDS.md, section 8).
 """
 
 from __future__ import annotations
@@ -128,12 +128,52 @@ def describe_permissions():
         _guild, _unit, cubby = _theirs()
         assert client.post(reverse("hub_cubby_archive", args=[cubby.pk])).status_code == 403
 
-    @pytest.mark.parametrize("role", [Member.FogRole.ADMIN, Member.FogRole.GUILD_OFFICER])
-    def it_lets_admins_and_officers_reach_every_guild(client: Client, role: str):
-        _login(client, f"top_{role}", fog_role=role)
+    def it_lets_an_admin_reach_every_guild(client: Client):
+        _login(client, "top_admin", fog_role=Member.FogRole.ADMIN)
         guild, unit, cubby = _theirs()
         for method, url, data in _manage_urls(guild, unit, cubby):
             assert getattr(client, method)(url, data).status_code in (200, 302), url
+
+    def it_refuses_a_guild_officer_who_neither_leads_nor_staffs_the_guild(client: Client):
+        # #1015: the Guild Officer role alone opens no guild's cubbies, and with no guild of their
+        # own there is no manager for Admin Tools' Cubbies card to open.
+        _login(client, "roaming_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+        guild, unit, cubby = _theirs()
+        size = (unit.rows, unit.columns)
+        for method, url, data in _manage_urls(guild, unit, cubby):
+            assert getattr(client, method)(url, data).status_code == 403, url
+        assert client.get(reverse("hub_cubbies_home")).status_code == 403
+        cubby.refresh_from_db()
+        guild.refresh_from_db()
+        unit.refresh_from_db()
+        assert cubby.label == "T1" and not cubby.is_archived and not guild.show_cubbies_tab
+        assert (unit.name, unit.rows, unit.columns) == ("Their Shelf", *size) and not unit.is_archived
+        assert not Cubby.objects.filter(unit__guild=guild).exclude(pk=cubby.pk).exists()
+
+    def it_lets_a_guild_officer_in_as_the_guilds_lead_or_staff(client: Client):
+        officer = _login(client, "own_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+        guild, unit, cubby = _theirs()
+        guild.guild_lead = officer
+        guild.save(update_fields=["guild_lead"])
+        for method, url, data in _manage_urls(guild, unit, cubby):
+            assert getattr(client, method)(url, data).status_code in (200, 302), url
+        assert client.get(reverse("hub_cubbies_home")).url == reverse("hub_guild_cubbies", args=[guild.pk])
+        guild.guild_lead = None
+        guild.save(update_fields=["guild_lead"])
+        assert client.get(reverse("hub_guild_cubbies", args=[guild.pk])).status_code == 403
+        GuildStaffMembership.objects.create(guild=guild, member=officer, role="secretary")
+        for method, url, data in _manage_urls(guild, unit, cubby):
+            assert getattr(client, method)(url, data).status_code in (200, 302), url
+
+    def it_refuses_an_admin_previewing_as_a_guild_officer(client: Client):
+        _login(client, "preview_admin", fog_role=Member.FogRole.ADMIN)
+        session = client.session
+        session["view_as_role"] = "guild_officer"
+        session.save()
+        guild, unit, cubby = _theirs()
+        for method, url, data in _manage_urls(guild, unit, cubby):
+            assert getattr(client, method)(url, data).status_code == 403, url
+        assert client.get(reverse("hub_cubbies_home")).status_code == 403
 
     def it_lets_the_guilds_staff_in(client: Client):
         member = _login(client, "own_staff")
@@ -165,6 +205,16 @@ def describe_cubbies_home():
     def it_refuses_someone_who_runs_no_guild(client: Client):
         _login(client, "runs_nothing")
         assert client.get(reverse("hub_cubbies_home")).status_code == 403
+
+    def it_refuses_an_admin_previewing_as_a_guest(client: Client):
+        # A guest preview has no member behind it, so there is no guild to run (#1015).
+        _login(client, "guest_preview_admin", fog_role=Member.FogRole.ADMIN)
+        session = client.session
+        session["view_as_role"] = "guest"
+        session.save()
+        guild = GuildFactory(name="Guest Guild")
+        assert client.get(reverse("hub_cubbies_home")).status_code == 403
+        assert client.get(reverse("hub_guild_cubbies", args=[guild.pk])).status_code == 403
 
     def it_opens_the_first_guild_or_the_one_asked_for(client: Client):
         _login(client, "home_admin", fog_role=Member.FogRole.ADMIN)
