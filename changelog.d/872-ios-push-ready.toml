@@ -1,5 +1,8 @@
 bump = "patch"
 date = "2026-10-20"
+audience = ["members"]
+feature = "account.notifications"
+guidance = "link"
 title = "Push notifications on iPhone"
 changes = [
   "Push notifications now work in the iPhone app as well as on Android. Update the app, then turn push on under Settings, Notifications.",

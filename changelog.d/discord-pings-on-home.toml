@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-26"
+audience = ["members", "admins"]
+feature = "home.spotlight"
+guidance = "link"
 title = "Discord announcements reach Home and guild pages"
 changes = [
   "When someone pings everyone or a guild in Discord, an admin can approve the message and it crawls across the top of Home for a week, with the guild's name and who said it.",

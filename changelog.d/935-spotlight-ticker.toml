@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-26"
+audience = ["members", "admins"]
+feature = "home.spotlight"
+guidance = "link"
 title = "Spotlight messages now scroll quietly across the top of Home"
 changes = [
   "Spotlight messages now glide across one slim line at the top of Home, like a news ticker, instead of a big yellow banner. Hover over it to hold it still and click a link. The X hides it until a new message arrives.",

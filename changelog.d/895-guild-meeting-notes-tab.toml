@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-23"
+audience = ["members", "guild-leads"]
+feature = "guild.meetings"
+guidance = "link"
 title = "Read your guild's meeting notes on the guild page"
 changes = [
   "Your guild's meeting notes, files and links now show on the guild page's Meetings tab, newest meeting first.",

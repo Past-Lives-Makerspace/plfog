@@ -1,5 +1,6 @@
 bump = "minor"
 date = "2026-10-23"
+audience = ["guild-staff", "admins"]
 title = "More staff requests come once a day"
 changes = [
   "Requests for spaces, discount codes, events, guild announcements, meeting items, wiki pages and teaching, and class change requests, now reach approvers in the 8 AM email instead of one email each.",

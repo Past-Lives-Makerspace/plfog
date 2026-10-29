@@ -228,12 +228,16 @@ multi call commands like `gh pr create` fail almost every time without it.
 2. **Push.** The pre push hook runs real ruff and real mypy. A failure there is a real finding: fix, amend,
    push again. Never bypass the hook past red.
 3. **Open the PR** against `main` as HexagonStorms, **in the shape of `.github/pull_request_template.md`**
-   (`CONTRIBUTING.md`): at most 300 words; `**Summary:**` (160 characters, for a non-technical reader) and
-   `**Area:**`; then `### Problem` (`Closes #412`), `### Solution` (2 to 4 bullets), `### Impact / Risks` (one
-   line) and `### Verification`. Verification holds the evidence, one line per criterion: a spec name for
-   backend, and for a screen a screenshot uploaded with `scripts/upload_screenshot.py` and embedded (never
-   committed). Jo reads
+   (`CONTRIBUTING.md`): at most 300 words; `**Summary:**` (160 characters, for a non-technical reader),
+   `**Area:**` and `**Guidance:**`; then `### Problem` (`Closes #412`), `### Solution` (2 to 4 bullets),
+   `### Impact / Risks` (one line) and `### Verification`. Verification holds the evidence, one line per
+   criterion: a spec name for backend, and for a screen a screenshot uploaded with
+   `scripts/upload_screenshot.py` and embedded (never committed). Jo reads
    evidence, not claims. CI's `description` check fails a body that breaks the shape; edit it and it re-runs.
+   **The Guidance line is the fragment's `guidance`**, picked by `docs/GUIDANCE.md`: `none` for a fix or an
+   internal fragment, `link` for a feature members can find once told (register its key in
+   `core/guidance.py` if it is new, and name it as `feature` in the fragment with the `audience` list),
+   `clip` or `tour` only when the PR ships that material. The check fails the body when the two differ.
    Aim under 400 changed lines of code; a bigger ticket ships as parts ("#412, part 1 of 2"). Only the
    last part closes the ticket ("Closes #412, part 2 of 2"): GitHub closes it on any merged PR that says
    `Closes`, and a last part without it leaves the ticket open after the work ships, as #514 did to #505.
@@ -241,6 +245,7 @@ multi call commands like `gh pr create` fail almost every time without it.
    ```
    **Summary:** Admins can send a class back to its instructor with a reason instead of rejecting it.
    **Area:** class review: the review model, the admin review page, the instructor email
+   **Guidance:** link
 
    ### Problem
    Closes #412.

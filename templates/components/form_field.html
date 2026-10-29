@@ -50,7 +50,7 @@ Parameters (pass via {% include ... with %}):
     {% endif %}
     {{ field }}
     {% if field.errors %}
-    <ul class="pl-field-errors">
+    <ul class="pl-field-errors" id="{{ field.auto_id }}_error">
         {% for error in field.errors %}
         <li class="pl-field-error">{{ error }}</li>
         {% endfor %}

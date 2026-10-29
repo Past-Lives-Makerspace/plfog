@@ -190,6 +190,22 @@ A row of tabs is the shared `.pl-tabs` strip of `.vote-tab` links (`aria-current
 - A row nested under another (the per-class tabs under the Classes portal row) is not a picker: nested navigation must never look the same twice. The class screen's own tabs come from `{% class_sections %}` (`classes/_components/class_sections.html`), which on a phone shows a list of every other section with a one line hint on the Overview and a back row ("‹ Class Overview", where you are, "n of N") on every other tab.
 - Filter chips are not tabs: `.pl-wp-chiprow` scrolls by itself and never borrows `.pl-tabs`.
 
+### New! badge and What's New button (`{% new_badge %}`, `{% whats_new_button %}`)
+
+Both come from `core/templatetags/guidance.py` (`{% load guidance %}`; #1007, part 3) and take a feature key from `core/guidance.py`. Neither is a `components/` include, and nothing else marks a thing as new.
+
+```html
+<span class="vote-tab__label">Cubbies{% new_badge "guild.cubbies" %}</span>
+{% whats_new_button "guild" %}
+```
+
+- **The badge goes right after the label** it belongs to (a tab, a card title, a Home quick link, a sidebar feature link) and renders only while an entry for that key, in the viewer's audiences and dated within the last 30 days, is unseen. It renders nothing otherwise, so it is safe on every label.
+- **The badge rides inside a tab label**, never beside the tab, and `{% tab_picker %}` carries `.pl-new` into the phone picker's item label and shows a dot on the picker's summary while any item has one. No second tab component.
+- **The button goes in a header's action slot**: Admin Tools and Guild Tools right of the title, the guild page left of the Join / Member button, Home beside the Door Code. It opens What's New filtered to the key and everything under it (`guild` covers `guild.*`), renders only when such entries exist, and pulses only while one is unseen.
+- **Clicking either marks that key seen** and removes the badge in place; opening What's New marks everything it listed.
+- **Animations are off under `prefers-reduced-motion`**: no pulse, no fade. The badge is never animated.
+- Both read one per-request object built lazily by a context processor, so a page costs one query however many badges it holds. Do not look up entries in a template or a view.
+
 ### Conversation thread (`components/thread.html`, `components/thread_composer.html`)
 
 Any two sided conversation (a feedback request, an orientation booking, an equipment reservation) is the shared thread, never a new design: `components/thread.html` with `thread_messages`, `viewer_is_staff`, `thread_key` and `thread_empty`, then `components/thread_composer.html` with `thread_form` (a `ThreadMessageForm`), `thread_action`, `thread_next`, `thread_body_label`, `thread_note` (who hears it) and `thread_button`. Its photos field is `components/thread_photos_field.html` (Rule 16's drop zone, the caps in a `?` bubble). Include `components/thread_script.html` and `components/busy_submit.html` once on the page. Mark the block to reopen after Send with `data-thread-open="<key>"`; the view redirects with `?messages=<key>`. A thread with no page of its own (an equipment reservation) opens in a Messages modal instead: `hub/partials/reservation_messages_modal.html` loads it on `?messages=res-<pk>`, and its summary line above the messages is `.pl-thread-summary`. The model side is `core/AGENTS.md`, Shared thread.

@@ -28,7 +28,7 @@ from tests.membership.factories import MembershipPlanFactory
 ADMIN_EMAIL = "hq-vendor-sheet-admin@example.com"
 NO_SIDEWAYS_SCROLL = "() => document.documentElement.scrollWidth <= window.innerWidth"
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1SpecVendorSheetIdAbCdEfGhIjKlMnOpQrStUvW/edit#gid=0"
-SHEET = "Name,Table size,Status,What they sell\nSpec Riley,8 ft,Requested,Cutting boards\nSpec Moss,huge,,Wallets\n"
+SHEET = "Name,Table size,Status,What they sell\nSpec Juniper,8 ft,Requested,Cutting boards\nSpec Moss,huge,,Wallets\n"
 
 
 @pytest.fixture
@@ -99,8 +99,8 @@ def it_saves_the_link_then_pulls_the_sheet_into_the_list(page, live_server, logi
     )
     expect(page.locator("[data-hq-vt-pull-problems]")).to_contain_text('Row 3: Table size "huge"')
     expect(page.locator("[data-hq-vt-pull-when]")).to_contain_text("Last pulled")
-    riley = VendorTable.objects.get(name="Spec Riley")
-    expect(page.locator(f'[data-hq-vt-row="{riley.pk}"]')).to_be_visible()
+    juniper = VendorTable.objects.get(name="Spec Juniper")
+    expect(page.locator(f'[data-hq-vt-row="{juniper.pk}"]')).to_be_visible()
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
 
 

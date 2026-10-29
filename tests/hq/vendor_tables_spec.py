@@ -970,7 +970,7 @@ def describe_the_csv():
             note="+ from the sign-up doc",
             requested_on=date(2026, 9, 22),
             request_source="Kate's sign-up doc",
-            discord_handle="Q | PlentifulPotter",
+            discord_handle="Z | SpecPotter",
             created_by=kate,
         )
         VendorTableFactory(hub=hub, name="Spec Requested")
@@ -1018,7 +1018,7 @@ def describe_the_csv():
             "Source": "'+ from the sign-up doc",
             "Requested on": "2026-09-22",
             "Request source": "Kate's sign-up doc",
-            "Discord handle": "Q | PlentifulPotter",
+            "Discord handle": "Z | SpecPotter",
             "Needs": "Power",
             "Added by": "Kate Lindqvist",
         }

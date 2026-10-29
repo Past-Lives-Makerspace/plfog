@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-23"
+audience = ["members", "admins"]
+feature = "home.spotlight"
+guidance = "link"
 title = "Announcements at the top of Home"
 changes = [
   "Short announcements now show in a banner at the top of Home, taking turns every few seconds.",

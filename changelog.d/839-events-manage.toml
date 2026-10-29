@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-18"
+audience = ["admins"]
+feature = "admin.events"
+guidance = "link"
 title = "Manage Events joins Admin Tools"
 changes = [
   "Admins and Calendar Administrators see every Calendar event in one place: what is waiting for a review, what is scheduled, what is live and what has passed.",

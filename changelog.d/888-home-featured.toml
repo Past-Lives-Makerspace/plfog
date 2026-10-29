@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-23"
+audience = ["members"]
+feature = "home.upcoming"
+guidance = "link"
 title = "Home shows upcoming classes and events in a rotating carousel"
 changes = [
   "The top of the Upcoming card on Home now rotates through a mix of classes you can still book and events still to come, with their pictures.",

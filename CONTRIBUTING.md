@@ -22,10 +22,12 @@ Start from `.github/pull_request_template.md`: the Summary and Area lines, then 
 Rules marked ✓ are checked by `.github/workflows/pr-description.yml`, which re-runs when you edit the description:
 
 - ✓ The summary is present and at most 160 characters; the Area line and all four sections are present; Solution has 2 to 4 bullets.
+- ✓ The `**Guidance:**` line says how much teaching the change ships, `none`, `link`, `clip` or `tour`, and matches the `guidance` of the fragment the PR adds (`docs/GUIDANCE.md`).
 - ✓ At most 300 words.
 - ✓ A PR naming its part in `### Problem` ("part 3 of 3") says `Closes #N` there when it is the last part, and does not when it is an earlier one.
 - ✓ A PR touching `templates/`, `static/css/` or `static/js/` shows a screenshot or mockup in the description. Images are never committed: upload each with `.venv/bin/python scripts/upload_screenshot.py <file>` and paste the Markdown it prints, or, without the R2 keys, drag it into the description ([`mockups/screenshots/`](mockups/screenshots/README.md)). The check fails a committed image and a relative link. Uploaded screenshots are deleted after 30 days. When such a change shows nothing (a comment, a refactor), add the `no-screenshots` label.
 - ✓ (warning) About 400 changed lines of code or fewer. Docs, migrations, lock files, images and changelog fragments do not count.
 - Every PR also adds a changelog fragment (`changelog.d/README.md`).
+- No PR adds or extends a Help Center article (#1009). Teaching ships as a What's New entry, a clip or a tour, at the level the Guidance line declares.
 
 Bots' PRs are exempt. A maintainer can exempt any other PR with the `no-description-check` label, for one opened before these rules or one that cannot follow them.

@@ -137,9 +137,9 @@ def _table(hub: Any, name: str) -> VendorTable:
 
 def describe_the_pulls_rule():
     def it_adds_a_new_name_made_by_nobody_with_the_sheets_requested_on(hub, linked, sheet):
-        result = _pull(hub, sheet, "Riley,,8 ft,Requested,Cutting boards,2026-10-21,riley@example.com")
+        result = _pull(hub, sheet, "Juniper,,8 ft,Requested,Cutting boards,2026-10-21,juniper@example.com")
 
-        table = _table(hub, "Riley")
+        table = _table(hub, "Juniper")
         assert (result.added, result.updated, result.unchanged) == (1, 0, 0)
         assert table.created_by is None
         assert table.requested_on == date(2026, 10, 21)
@@ -147,9 +147,9 @@ def describe_the_pulls_rule():
         assert table.sheet_cells["status"] == "Requested"
 
     def it_keeps_a_status_confirmed_on_the_card_while_the_sheets_cell_has_not_changed(hub, linked, sheet):
-        row = "Riley,,8 ft,Requested,Cutting boards,2026-10-21,riley@example.com"
+        row = "Juniper,,8 ft,Requested,Cutting boards,2026-10-21,juniper@example.com"
         _pull(hub, sheet, row)
-        table = _table(hub, "Riley")
+        table = _table(hub, "Juniper")
         table.status = S.CONFIRMED
         table.save()
 
@@ -160,13 +160,13 @@ def describe_the_pulls_rule():
         assert (result.added, result.updated, result.unchanged) == (0, 0, 1)
 
     def it_sets_waitlist_once_kate_changes_that_cell(hub, linked, sheet):
-        _pull(hub, sheet, "Riley,,8 ft,Requested,Cutting boards,,")
-        table = _table(hub, "Riley")
+        _pull(hub, sheet, "Juniper,,8 ft,Requested,Cutting boards,,")
+        table = _table(hub, "Juniper")
         table.status = S.CONFIRMED
         table.sells = "Boards and spoons"
         table.save()
 
-        result = _pull(hub, sheet, "Riley,,8 ft,Waitlist,Cutting boards,,")
+        result = _pull(hub, sheet, "Juniper,,8 ft,Waitlist,Cutting boards,,")
 
         table.refresh_from_db()
         assert table.status == S.WAITLIST
@@ -175,11 +175,11 @@ def describe_the_pulls_rule():
 
     def it_clears_a_field_whose_cell_kate_blanked(hub, linked, sheet):
         guild = GuildFactory(name="Ceramics Guild")
-        _pull(hub, sheet, "Ellie,Ceramics,4 ft,Waitlist,Mugs,2026-10-01,ellie@example.com")
+        _pull(hub, sheet, "Wren,Ceramics,4 ft,Waitlist,Mugs,2026-10-01,wren@example.com")
 
-        _pull(hub, sheet, "Ellie,,,,,,")
+        _pull(hub, sheet, "Wren,,,,,,")
 
-        table = _table(hub, "Ellie")
+        table = _table(hub, "Wren")
         assert guild.pk  # the guild is still there; only the table's link to it cleared
         assert table.guild is None
         assert table.size == VendorTable.Size.SIX_FT
@@ -189,18 +189,18 @@ def describe_the_pulls_rule():
         assert table.email == ""
 
     def it_gives_a_never_pulled_table_the_sheets_filled_cells_without_a_duplicate(hub, linked, sheet):
-        table = VendorTableFactory(hub=hub, name="Shaun Morrison", sells="Belts", status=S.CONFIRMED, email="")
+        table = VendorTableFactory(hub=hub, name="Spec Silversmith", sells="Belts", status=S.CONFIRMED, email="")
 
-        result = _pull(hub, sheet, "shaun  morrison,,Bringing own,,Lapidary,,shaun@example.com")
+        result = _pull(hub, sheet, "spec  silversmith,,Bringing own,,Lapidary,,spec@example.com")
 
         table.refresh_from_db()
         assert hub.vendor_tables.count() == 1
         assert (result.added, result.updated) == (0, 1)
         assert table.sells == "Lapidary"
-        assert table.email == "shaun@example.com"
+        assert table.email == "spec@example.com"
         assert table.size == VendorTable.Size.OWN
         assert table.status == S.CONFIRMED  # a blank cell on a first pull never clears
-        assert table.sheet_cells["name"] == "shaun  morrison"
+        assert table.sheet_cells["name"] == "spec  silversmith"
 
     def it_never_renames_a_table_whose_name_matches_only_after_normalising(hub, linked, sheet):
         _pull(hub, sheet, "Moss and Fern,,,,Wallets,,")
@@ -213,17 +213,17 @@ def describe_the_pulls_rule():
         only_on_card = VendorTableFactory(hub=hub, name="Card Only", sells="Prints", status=S.CONFIRMED)
         before = VendorTable.objects.filter(pk=only_on_card.pk).values().get()
 
-        _pull(hub, sheet, "Riley,,,,,,")
-        _pull(hub, sheet, "Riley,,,Waitlist,,,")
+        _pull(hub, sheet, "Juniper,,,,,,")
+        _pull(hub, sheet, "Juniper,,,Waitlist,,,")
 
         assert VendorTable.objects.filter(pk=only_on_card.pk).values().get() == before
 
     def it_keeps_the_cards_value_for_a_cell_it_cannot_read_and_reports_it_every_pull(hub, linked, sheet):
-        _pull(hub, sheet, "Riley,,8 ft,Requested,,,")
-        table = _table(hub, "Riley")
+        _pull(hub, sheet, "Juniper,,8 ft,Requested,,,")
+        table = _table(hub, "Juniper")
 
-        first = _pull(hub, sheet, "Riley,,huge,Requested,,,")
-        again = _pull(hub, sheet, "Riley,,huge,Requested,,,")
+        first = _pull(hub, sheet, "Juniper,,huge,Requested,,,")
+        again = _pull(hub, sheet, "Juniper,,huge,Requested,,,")
 
         table.refresh_from_db()
         assert table.size == VendorTable.Size.EIGHT_FT
@@ -232,58 +232,58 @@ def describe_the_pulls_rule():
         assert table.sheet_cells["size"] == "8 ft"  # an unreadable cell is never remembered, so it is retried
 
     def it_applies_an_unreadable_cell_once_the_portal_knows_its_value(hub, linked, sheet):
-        _pull(hub, sheet, "Riley,Glassblowing,,,,,")
-        assert _table(hub, "Riley").guild is None
-        assert "guild" not in _table(hub, "Riley").sheet_cells
+        _pull(hub, sheet, "Juniper,Glassblowing,,,,,")
+        assert _table(hub, "Juniper").guild is None
+        assert "guild" not in _table(hub, "Juniper").sheet_cells
 
         guild = GuildFactory(name="Glassblowing Guild")
-        result = _pull(hub, sheet, "Riley,Glassblowing,,,,,")
+        result = _pull(hub, sheet, "Juniper,Glassblowing,,,,,")
 
-        assert _table(hub, "Riley").guild == guild
+        assert _table(hub, "Juniper").guild == guild
         assert (result.updated, result.problems) == (1, [])
 
     def it_keeps_a_columns_memory_while_the_sheet_lacks_it_so_restoring_it_changes_nothing(hub, linked, sheet):
-        _pull(hub, sheet, "Riley,,,Requested,Boards,,")
-        table = _table(hub, "Riley")
+        _pull(hub, sheet, "Juniper,,,Requested,Boards,,")
+        table = _table(hub, "Juniper")
         table.status = S.CONFIRMED
         table.save()
 
-        sheet.text = "Name,What they sell\nRiley,Boards\n"  # Kate deleted the Status column for a day
+        sheet.text = "Name,What they sell\nJuniper,Boards\n"  # Kate deleted the Status column for a day
         services.pull_vendor_sheet(hub)
-        _pull(hub, sheet, "Riley,,,Requested,Boards,,")  # and put it back
+        _pull(hub, sheet, "Juniper,,,Requested,Boards,,")  # and put it back
 
         table.refresh_from_db()
         assert table.status == S.CONFIRMED
         assert table.sheet_cells["status"] == "Requested"
 
     def it_keeps_a_columns_memory_while_its_header_is_renamed_and_restored(hub, linked, sheet):
-        _pull(hub, sheet, "Riley,,,Requested,Boards,,")
-        table = _table(hub, "Riley")
+        _pull(hub, sheet, "Juniper,,,Requested,Boards,,")
+        table = _table(hub, "Juniper")
         table.status = S.CONFIRMED
         table.save()
 
-        sheet.text = "Name,State,What they sell\nRiley,Requested,Boards\n"  # Status renamed to State
+        sheet.text = "Name,State,What they sell\nJuniper,Requested,Boards\n"  # Status renamed to State
         services.pull_vendor_sheet(hub)
-        _pull(hub, sheet, "Riley,,,Requested,Boards,,")
+        _pull(hub, sheet, "Juniper,,,Requested,Boards,,")
 
         table.refresh_from_db()
         assert table.status == S.CONFIRMED
 
     def it_applies_the_cell_once_kate_fixes_what_could_not_be_read(hub, linked, sheet):
-        _pull(hub, sheet, "Riley,,huge,Requested,,,")
+        _pull(hub, sheet, "Juniper,,huge,Requested,,,")
 
-        _pull(hub, sheet, "Riley,,4 ft,Requested,,,")
+        _pull(hub, sheet, "Juniper,,4 ft,Requested,,,")
 
-        assert _table(hub, "Riley").size == VendorTable.Size.FOUR_FT
+        assert _table(hub, "Juniper").size == VendorTable.Size.FOUR_FT
 
     def it_reads_a_column_new_to_the_sheet_as_changed_when_filled(hub, linked, sheet):
-        sheet.text = "Name,Status\nRiley,Requested\n"
+        sheet.text = "Name,Status\nJuniper,Requested\n"
         services.pull_vendor_sheet(hub)
-        table = _table(hub, "Riley")
+        table = _table(hub, "Juniper")
         table.sells = "Boards"
         table.save()
 
-        sheet.text = "Name,Status,What they sell,Phone\nRiley,Requested,,503-555-0199\n"
+        sheet.text = "Name,Status,What they sell,Phone\nJuniper,Requested,,503-555-0199\n"
         services.pull_vendor_sheet(hub)
 
         table.refresh_from_db()
@@ -291,13 +291,13 @@ def describe_the_pulls_rule():
         assert table.phone == "503-555-0199"
 
     def it_uses_the_first_of_two_rows_with_one_name_and_reports_the_second(hub, linked, sheet):
-        result = _pull(hub, sheet, "Riley,,,Requested,Boards,,", "riley,,,Waitlist,Spoons,,")
+        result = _pull(hub, sheet, "Juniper,,,Requested,Boards,,", "juniper,,,Waitlist,Spoons,,")
 
-        table = _table(hub, "Riley")
+        table = _table(hub, "Juniper")
         assert hub.vendor_tables.count() == 1
         assert (table.status, table.sells) == (S.REQUESTED, "Boards")
         assert [str(problem) for problem in result.problems] == [
-            'Row 3: "riley" is also on row 2, so this row was skipped.'
+            'Row 3: "juniper" is also on row 2, so this row was skipped.'
         ]
 
     def it_reports_a_row_with_no_name_and_writes_nothing_for_it(hub, linked, sheet):
@@ -307,13 +307,13 @@ def describe_the_pulls_rule():
         assert [problem.line for problem in result.problems] == [2]
 
     def it_remembers_new_cells_without_a_save_when_nothing_on_the_card_changes(hub, linked, sheet):
-        _pull(hub, sheet, "Riley,,,Requested,Boards,,")
-        table = _table(hub, "Riley")
+        _pull(hub, sheet, "Juniper,,,Requested,Boards,,")
+        table = _table(hub, "Juniper")
         table.status = S.CONFIRMED
         table.save()
         stamp = VendorTable.objects.get(pk=table.pk).updated_at
 
-        result = _pull(hub, sheet, "Riley,,,Confirmed,Boards,,")
+        result = _pull(hub, sheet, "Juniper,,,Confirmed,Boards,,")
 
         table.refresh_from_db()
         assert result.unchanged == 1
@@ -322,7 +322,7 @@ def describe_the_pulls_rule():
 
     @pytest.mark.postgres_only
     def it_locks_the_hub_before_reading_its_tables_so_two_pulls_take_turns(hub):
-        sheet_rows = parse_rows(read_csv(f"{HEADER}\nRiley,,,,,,\n".encode()), guilds=[])
+        sheet_rows = parse_rows(read_csv(f"{HEADER}\nJuniper,,,,,,\n".encode()), guilds=[])
 
         with CaptureQueriesContext(connection) as queries:
             apply_pull(hub, sheet_rows)
@@ -333,8 +333,8 @@ def describe_the_pulls_rule():
         assert hub_lock < next(i for i, text in enumerate(sql) if '"hq_vendortable"' in text)
 
     def it_writes_in_one_transaction_under_the_rows_lock(hub, sheet):
-        VendorTableFactory(hub=hub, name="Riley")
-        sheet_rows = parse_rows(read_csv(f"{HEADER}\nRiley,,,Waitlist,,,\n".encode()), guilds=[])
+        VendorTableFactory(hub=hub, name="Juniper")
+        sheet_rows = parse_rows(read_csv(f"{HEADER}\nJuniper,,,Waitlist,,,\n".encode()), guilds=[])
 
         result = apply_pull(hub, sheet_rows)
 
@@ -404,10 +404,10 @@ def describe_fetching_the_sheet():
         content = "https://doc-0s-sheets.googleusercontent.com/export/spec"
         respx.get(EXPORT_URL).mock(return_value=httpx.Response(307, headers={"location": content}))
         respx.get(content).mock(
-            return_value=httpx.Response(200, content=b"Name\nRiley\n", headers={"content-type": "text/csv"})
+            return_value=httpx.Response(200, content=b"Name\nJuniper\n", headers={"content-type": "text/csv"})
         )
 
-        assert fetch_sheet_csv(LINK) == b"Name\nRiley\n"
+        assert fetch_sheet_csv(LINK) == b"Name\nJuniper\n"
 
     @respx.mock
     def it_says_the_sheet_is_not_shared_when_google_sends_a_sign_in_page():
@@ -482,7 +482,7 @@ def describe_fetching_the_sheet():
 
 def describe_pulling_a_hub():
     def it_records_when_it_ran_what_it_did_and_its_problems(hub, linked, sheet):
-        _pull(hub, sheet, "Riley,,huge,,,,", "Ellie,,,,,,")
+        _pull(hub, sheet, "Juniper,,huge,,,,", "Wren,,,,,,")
 
         state = services.vendor_sheet_state(hub)
         assert state.pulled_at is not None
@@ -493,12 +493,12 @@ def describe_pulling_a_hub():
         assert sheet.links == [SheetLink(sheet_id=SHEET_ID, gid="0")]
 
     def it_leaves_every_row_as_it_was_and_records_why_when_the_sheet_cannot_be_read(hub, linked, sheet):
-        table = VendorTableFactory(hub=hub, name="Riley", status=S.CONFIRMED)
+        table = VendorTableFactory(hub=hub, name="Juniper", status=S.CONFIRMED)
         before = list(hub.vendor_tables.values())
         sheet.error = NOT_SHARED
 
         with pytest.raises(SheetUnreadable):
-            _pull(hub, sheet, "Riley,,,Waitlist,,,", "Ellie,,,,,,")
+            _pull(hub, sheet, "Juniper,,,Waitlist,,,", "Wren,,,,,,")
 
         state = services.vendor_sheet_state(hub)
         assert list(hub.vendor_tables.values()) == before
@@ -507,7 +507,7 @@ def describe_pulling_a_hub():
         assert state.pulled_at is not None
 
     def it_records_a_sheet_the_reader_refuses_as_the_error(hub, linked, sheet):
-        sheet.text = "Artist,Status\nRiley,Requested\n"
+        sheet.text = "Artist,Status\nJuniper,Requested\n"
 
         with pytest.raises(SheetUnreadable, match="no Name column"):
             services.pull_vendor_sheet(hub)
@@ -521,7 +521,7 @@ def describe_pulling_a_hub():
             _pull(hub, sheet)
         sheet.error = ""
 
-        _pull(hub, sheet, "Riley,,,,,,")
+        _pull(hub, sheet, "Juniper,,,,,,")
 
         state = services.vendor_sheet_state(hub)
         assert state.error == ""
@@ -546,7 +546,7 @@ def describe_pulling_a_hub():
         def fetch(link: SheetLink) -> bytes:
             calls.append(link.sheet_id)
             if len(calls) == 1:
-                return b"Name\nRiley\n"
+                return b"Name\nJuniper\n"
             raise SheetUnreadable(NOT_SHARED)
 
         with patch.object(vendor_sheet, "fetch_sheet_csv", fetch):
@@ -554,7 +554,7 @@ def describe_pulling_a_hub():
 
         assert len(calls) == 2
         assert failed == [(other, NOT_SHARED)]
-        assert hub.vendor_tables.filter(name="Riley").exists()
+        assert hub.vendor_tables.filter(name="Juniper").exists()
 
     def it_records_any_other_failure_on_that_hub_and_still_pulls_the_rest(hub, linked, sheet, caplog):
         other = EventHubFactory(title="Spec Spring Market")
@@ -565,14 +565,14 @@ def describe_pulling_a_hub():
             calls.append(link.sheet_id)
             if len(calls) == 1:
                 raise RuntimeError("spec bug")
-            return b"Name\nRiley\n"
+            return b"Name\nJuniper\n"
 
         with patch.object(vendor_sheet, "fetch_sheet_csv", fetch):
             failed = services.pull_every_vendor_sheet()
 
         assert failed == [(hub, services.PULL_FAILED)]
         assert services.vendor_sheet_state(hub).error == services.PULL_FAILED
-        assert other.vendor_tables.filter(name="Riley").exists()
+        assert other.vendor_tables.filter(name="Juniper").exists()
         assert "Vendor sheet pull failed" in caplog.text
 
     def it_leaves_out_hubs_whose_event_has_ended(hub, linked, sheet):
@@ -585,13 +585,13 @@ def describe_pulling_a_hub():
             event=CommunityEventFactory(starts_at=now + timedelta(days=30), ends_at=now + timedelta(days=30, hours=5))
         )
         VendorFloorFactory(hub=coming, sheet_url=SHEET_URL)
-        sheet.text = "Name\nRiley\n"
+        sheet.text = "Name\nJuniper\n"
 
         assert services.pull_every_vendor_sheet() == []
 
         assert len(sheet.links) == 2  # this hub (no event) and the coming one
         assert not past.vendor_tables.exists()
-        assert coming.vendor_tables.filter(name="Riley").exists()
+        assert coming.vendor_tables.filter(name="Juniper").exists()
 
 
 def describe_saving_the_link():
@@ -601,13 +601,13 @@ def describe_saving_the_link():
         assert (floor.sheet_url, floor.capacity) == (SHEET_URL, None)
 
     def it_forgets_the_last_pull_when_the_link_changes_and_keeps_the_remembered_cells(hub, linked, sheet):
-        _pull(hub, sheet, "Riley,,,Requested,,,")
+        _pull(hub, sheet, "Juniper,,,Requested,,,")
 
         services.set_vendor_sheet(hub, f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit#gid=55")
 
         state = services.vendor_sheet_state(hub)
         assert (state.pulled_at, state.summary) == (None, "")
-        assert _table(hub, "Riley").sheet_cells["status"] == "Requested"
+        assert _table(hub, "Juniper").sheet_cells["status"] == "Requested"
 
     def it_stores_the_address_built_from_the_sheets_id_not_the_pasted_text(hub):
         floor = services.set_vendor_sheet(
@@ -617,7 +617,7 @@ def describe_saving_the_link():
         assert floor.sheet_url == f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit#gid=7"
 
     def it_keeps_the_last_pull_when_the_same_link_is_saved_again(hub, linked, sheet):
-        _pull(hub, sheet, "Riley,,,,,,")
+        _pull(hub, sheet, "Juniper,,,,,,")
 
         services.set_vendor_sheet(hub, SHEET_URL)
 
@@ -680,17 +680,17 @@ def describe_the_page():
 
 def describe_pull_from_sheet_now():
     def it_pulls_for_the_team_and_answers_with_a_toast(hub, linked, sheet, kate_client):
-        sheet.text = f"{HEADER}\nRiley,,,,,,\n"
+        sheet.text = f"{HEADER}\nJuniper,,,,,,\n"
 
         response = kate_client.post(_pull_url(hub))
 
         assert response.status_code == 302
         assert response["Location"] == _page(hub)
         assert _messages(response) == [("success", "Pulled from the sheet: 1 added, 0 updated, 0 unchanged.")]
-        assert hub.vendor_tables.filter(name="Riley").exists()
+        assert hub.vendor_tables.filter(name="Juniper").exists()
 
     def it_warns_when_the_pull_has_problems(hub, linked, sheet, kate_client):
-        sheet.text = f"{HEADER}\nRiley,,huge,,,,\n"
+        sheet.text = f"{HEADER}\nJuniper,,huge,,,,\n"
 
         response = kate_client.post(_pull_url(hub))
 
@@ -789,11 +789,11 @@ def describe_the_daily_job():
         assert (job.command, job.cadence) == ("pull_vendor_sheets", Cadence.DAILY)
 
     def it_pulls_every_hub_with_a_link(hub, linked, sheet, capsys):
-        sheet.text = f"{HEADER}\nRiley,,,,,,\n"
+        sheet.text = f"{HEADER}\nJuniper,,,,,,\n"
 
         call_command("pull_vendor_sheets")
 
-        assert hub.vendor_tables.filter(name="Riley").exists()
+        assert hub.vendor_tables.filter(name="Juniper").exists()
         assert "Vendor sheets pulled." in capsys.readouterr().out
 
     def it_fails_the_run_and_alerts_the_webmasters_when_a_sheet_cannot_be_read(hub, linked, sheet):

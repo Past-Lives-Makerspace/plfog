@@ -1,5 +1,6 @@
 bump = "patch"
 date = "2026-10-20"
+audience = ["members"]
 title = "The Face ID sign in card is readable in light mode"
 changes = [
   "In light mode, the \"Sign In Faster Next Time\" and \"You're All Set\" cards showed their heading in black on dark blue. It is white now, like in dark mode.",

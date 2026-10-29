@@ -482,8 +482,8 @@ def apply_upload(hub: EventHub, sheet: ParsedSheet, *, member: Member | None) ->
 def _update(table: VendorTable, values: Mapping[str, Any]) -> bool:
     """Set ``values`` on ``table`` and save it when any differs; whether it did.
 
-    A name that matches the table's once normalised is the same name, so the stored spelling is kept: "riley" never
-    renames Riley, and a sheet pulled every day never flips a name back and forth.
+    A name that matches the table's once normalised is the same name, so the stored spelling is kept: "juniper" never
+    renames Juniper, and a sheet pulled every day never flips a name back and forth.
     """
     changed = [
         name

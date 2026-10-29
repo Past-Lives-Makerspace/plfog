@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-28"
+audience = ["members", "guild-staff"]
+feature = "guild.cubbies"
+guidance = "link"
 title = "Get in line for a guild cubby"
 changes = [
   "When every cubby in a guild is taken, tap Notify Me When One Opens on the Cubbies tab to join the list.",

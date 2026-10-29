@@ -111,7 +111,7 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
   {# Orientations is its own page (#672); this tab only links there, and ?tab=orientations redirects to it. #}
   <a href="{% url 'hub_guild_orientations' guild.pk %}" class="vote-tab" data-help-key="guild.run-orientations" data-orientations-tab-link>Orientations</a>
   <button type="button" class="vote-tab" :class="section === 'reservations' ? 'vote-tab--active' : ''" @click="section = 'reservations'">Reservations</button>
-  <button type="button" class="vote-tab" :class="section === 'cubbies' ? 'vote-tab--active' : ''" @click="section = 'cubbies'" data-cubbies-tab>Cubbies</button>
+  {% if can_manage_cubbies %}<button type="button" class="vote-tab" :class="section === 'cubbies' ? 'vote-tab--active' : ''" @click="section = 'cubbies'" data-cubbies-tab>Cubbies</button>{% endif %}
   {% if guild_welcome_email_enabled %}<button type="button" class="vote-tab" :class="section === 'welcome_email' ? 'vote-tab--active' : ''" @click="section = 'welcome_email'">Welcome Email</button>{% endif %}
   <button type="button" class="vote-tab" :class="section === 'images' ? 'vote-tab--active' : ''" @click="section = 'images'">Images</button>
   <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">FAQ</button>
@@ -467,6 +467,8 @@ confirm modal carries its own POST form, and template content can't nest a form.
 </div>
 
 {# ── Cubbies (#977): the guild page's Cubbies tab switch; shelves and prices live on the Cubbies manager. ── #}
+{# Only whoever runs the guild's cubbies sees the tab (#1015, can_manage_cubbies): the lead, staff and admins. #}
+{% if can_manage_cubbies %}
 <div x-show="section === 'cubbies'" x-cloak data-cubbies-settings>
   <form method="post" action="{% url 'hub_guild_cubbies_settings_save' guild.pk %}" class="hub-form" data-autosave>
     {% csrf_token %}
@@ -478,6 +480,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
     </div>
   </form>
 </div>
+{% endif %}
 
 {# ── Welcome Email — the join-lifecycle email; own form + endpoint (multi-form via form_id). ──── #}
 {# Preview and Send test keep their buttons; the email form below saves itself as it is edited. #}
