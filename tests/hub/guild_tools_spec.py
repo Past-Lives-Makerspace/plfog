@@ -76,14 +76,17 @@ def _page_title(body: str) -> str:
     return found.group(1)
 
 
-def _guild_cards(guild: Guild) -> list[str]:
-    """The four guild section card targets for ``guild``, in page order."""
+def _guild_cards(guild: Guild, *, cubbies: bool = True) -> list[str]:
+    """The guild section's card targets for ``guild``, in page order.
+
+    Cubbies is there only for whoever runs the guild's cubbies, its lead or staff (#1015).
+    """
     edit = reverse("hub_guild_edit", args=[guild.pk])
     return [
         edit,
         reverse("hub_guild_orientations", args=[guild.pk]),
         f"{edit}?tab=reservations",
-        reverse("hub_guild_cubbies", args=[guild.pk]),
+        *([reverse("hub_guild_cubbies", args=[guild.pk])] if cubbies else []),
         f"{edit}?tab=events",
     ]
 
@@ -96,6 +99,7 @@ def _guild_section_hrefs(client: Client, query: str = "") -> list[str]:
 
 
 _GUILD_CARDS = ["Guild Settings", "Orientations", "Reservations", "Cubbies", "Events"]
+_OFFICER_GUILD_CARDS = [card for card in _GUILD_CARDS if card != "Cubbies"]
 
 
 def describe_guild_tools():
@@ -159,7 +163,8 @@ def describe_guild_tools():
             assert "Aa Officer Guild" in picker.group(0)
             assert "Bb Officer Guild" in picker.group(0)
             assert "Hidden Officer Guild" not in picker.group(0)
-            assert _guild_section_hrefs(client) == _guild_cards(first)
+            # Previewing as an officer, the admin is refused the Cubbies card like one (#1015).
+            assert _guild_section_hrefs(client) == _guild_cards(first, cubbies=False)
 
     def describe_a_guild_lead():
         def it_says_guild_tools_in_the_sidebar_the_home_quick_link_and_the_page(client: Client):
@@ -246,7 +251,22 @@ def describe_guild_tools():
             body = client.get(_TOOLS).content.decode()
             assert _sidebar_label(body) == "Guild Tools"
             assert "data-tools-guild-picker" in body
-            assert _guild_section_hrefs(client) == _guild_cards(first)
+            assert _guild_section_hrefs(client) == _guild_cards(first, cubbies=False)
+
+        def it_gets_the_cubbies_card_only_for_a_guild_it_leads_or_staffs(client: Client):
+            # #1015: the officer's Guild Tools shows Guild Settings, Orientations, Reservations and
+            # Events for every guild, and Cubbies only where they are the lead or on the staff.
+            member = _login(client, "gt_officer_cubbies")
+            member.fog_role = Member.FogRole.GUILD_OFFICER
+            member.save(update_fields=["fog_role"])
+            theirs = GuildFactory(name="Aa Other Guild")
+            mine = GuildFactory(name="Bb Own Guild", guild_lead=member)
+            assert "data-tool-guild-cubbies" not in client.get(_TOOLS).content.decode()
+            assert _sections(client)[0] == ("guild", "Aa Other Guild", _OFFICER_GUILD_CARDS)
+            assert _guild_section_hrefs(client) == _guild_cards(theirs, cubbies=False)
+            assert "data-tool-guild-cubbies" in client.get(f"{_TOOLS}?guild={mine.pk}").content.decode()
+            assert _sections(client, f"?guild={mine.pk}")[0] == ("guild", "Bb Own Guild", _GUILD_CARDS)
+            assert _guild_section_hrefs(client, f"?guild={mine.pk}") == _guild_cards(mine)
 
         def it_shows_no_guild_section_when_there_is_no_active_guild(client: Client):
             member = _login(client, "gt_officer_none")

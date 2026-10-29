@@ -3,8 +3,9 @@ Cubbies tab, and guild staff's Remove on the Rentals tab's Waitlist chip.
 
 Every change is :mod:`membership.cubby_waitlist`; these views parse, call and answer with a message
 the hub shows as a toast. Remove reads the guild from the entry and answers 404 to anyone
-:func:`membership.permissions.can_edit_guild` refuses (a lead or staff member of another guild),
-admins passing everywhere. The member is not told they were removed.
+:func:`membership.permissions.can_manage_cubbies` refuses (a lead or staff member of another
+guild, or a Guild Officer who runs no guild, #1015), admins passing everywhere. The member is not
+told they were removed.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from django.views.decorators.http import require_POST
 from hub.views import _get_member
 from membership import cubby_rentals, cubby_waitlist
 from membership.models import CubbyWaitlistEntry, Guild
-from membership.permissions import can_edit_guild
+from membership.permissions import can_manage_cubbies
 
 if TYPE_CHECKING:
     from membership.models import Member
@@ -65,7 +66,7 @@ def hub_cubby_waitlist_leave(request: HttpRequest, pk: int) -> HttpResponse:
 def hub_cubby_waitlist_remove(request: HttpRequest, entry_pk: int) -> HttpResponse:
     """Guild staff's Remove: the entry leaves the line and the member is not told."""
     entry = get_object_or_404(CubbyWaitlistEntry.objects.select_related("guild", "member"), pk=entry_pk)
-    if not can_edit_guild(request, entry.guild):
+    if not can_manage_cubbies(request, entry.guild):
         raise Http404("No such waitlist entry among the guilds you run.")
     name = entry.member.display_name
     if cubby_waitlist.remove(entry):

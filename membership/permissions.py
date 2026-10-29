@@ -74,6 +74,20 @@ def can_edit_guild(request: HttpRequest, guild: Guild) -> bool:
     return member is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member))
 
 
+def can_manage_cubbies(request: HttpRequest, guild: Guild) -> bool:
+    """True when this request may run the guild's cubbies (#1015): an admin, the lead, or any staff member.
+
+    Narrower than :func:`can_edit_guild`: a guild's shelves, prices, rentals and waitlist are
+    the guild's own business, so the Guild Officer tier opens nothing here. ``view_as`` aware,
+    so an admin previewing as a lower role is refused like that role.
+    """
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.is_admin:
+        return True
+    member = _editing_member(request)
+    return member is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member))
+
+
 def can_set_class_reviewers(request: HttpRequest, guild: Guild) -> bool:
     """True when this request may flip a staff member's Class Reviewer switch on ``guild`` (#816).
 
@@ -100,6 +114,27 @@ def manageable_guilds(request: HttpRequest) -> QuerySet[Guild]:
     from membership.models import Guild
 
     if is_effective_staff(request):
+        return Guild.objects.filter(is_active=True).order_by("name")
+    member = _editing_member(request)
+    if member is None:
+        return Guild.objects.none()
+    return member.staffed_guilds.order_by("name")
+
+
+def cubby_guilds(request: HttpRequest) -> QuerySet[Guild]:
+    """The guilds whose cubbies this request may run, name-ordered, as a queryset (one query when read).
+
+    The queryset form of :func:`can_manage_cubbies` (#1015): an admin (``view_as`` aware) gets
+    every active guild; anyone else gets every guild they lead or staff, hidden ones included,
+    because the manager still works for a hidden guild. Same legs, same ``view_as`` preview, so
+    every guild listed passes :func:`can_manage_cubbies`; an admin also passes it for a hidden
+    guild, which this list leaves out, as :func:`manageable_guilds` does. A Guild Officer who
+    leads or staffs no guild gets nothing.
+    """
+    from membership.models import Guild
+
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.is_admin:
         return Guild.objects.filter(is_active=True).order_by("name")
     member = _editing_member(request)
     if member is None:

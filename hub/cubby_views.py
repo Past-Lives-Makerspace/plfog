@@ -1,7 +1,8 @@
 """The staff Cubbies manager (#977): a guild's shelf units, its cubbies, its Pricing and the tab switch.
 
-Every view is gated by :func:`membership.permissions.can_edit_guild` (admins and officers reach
-every guild; a lead or staff member only their own). A view that names a shelf unit or a cubby
+Every view is gated by :func:`membership.permissions.can_manage_cubbies` (#1015: admins reach
+every guild; a lead or staff member only their own; the Guild Officer role alone opens nothing).
+A view that names a shelf unit or a cubby
 reads the guild from that record, never from the URL, so a crafted POST naming another guild's
 cubby is refused for anyone who does not run that guild.
 
@@ -30,12 +31,12 @@ from hub.toast import trigger_toast
 from hub.views import _get_hub_context, _get_member
 from membership import cubbies, cubby_waitlist
 from membership.models import Cubby, CubbyRental, Guild, ShelfUnit
-from membership.permissions import can_edit_guild, manageable_guilds
+from membership.permissions import can_manage_cubbies, cubby_guilds
 
 
 def _forbidden(request: HttpRequest, guild: Guild) -> HttpResponse | None:
-    """403 unless this request may edit ``guild`` (``view_as`` aware), else None."""
-    if not can_edit_guild(request, guild):
+    """403 unless this request may run ``guild``'s cubbies (``view_as`` aware), else None."""
+    if not can_manage_cubbies(request, guild):
         return HttpResponse("Forbidden", status=403)
     return None
 
@@ -62,7 +63,7 @@ def manage_context(request: HttpRequest, guild: Guild, tab: str) -> dict[str, An
 
     The Rentals tab's label carries how many rentals hold a cubby now (#979).
     """
-    guilds = list(manageable_guilds(request))
+    guilds = list(cubby_guilds(request))
     return {
         **_get_hub_context(request),
         "guild": guild,
@@ -101,7 +102,7 @@ def _render_layout(
 @login_required
 def hub_cubbies_home(request: HttpRequest) -> HttpResponse:
     """Admin Tools' Cubbies card: the manager of ``?guild=<pk>`` when it is one this viewer runs, else the first."""
-    guilds = list(manageable_guilds(request))
+    guilds = list(cubby_guilds(request))
     if not guilds:
         return HttpResponse("Forbidden", status=403)
     asked = request.GET.get("guild", "")
