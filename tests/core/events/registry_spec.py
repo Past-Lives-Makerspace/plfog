@@ -92,6 +92,8 @@ _BRAND_NEW_KEYS = {
     "orientation.message_to_orientors",
     "equipment.reservation_message_to_member",
     "equipment.reservation_message_to_managers",
+    "class.message_to_instructors",
+    "class.message_to_reviewers",
     "kiln.crew_replied",
     "kiln.maker_replied",
     "kiln.ready_for_pickup",
@@ -108,6 +110,10 @@ _BRAND_NEW_KEYS = {
     "cubbies.payment_failed",
     "cubbies.rental_ended",
     "cubbies.rental_refunded",
+    "cubbies.rental_started",
+    "cubbies.rental_past_due",
+    "cubbies.staff_rental_ended",
+    "cubbies.waitlist_opened",
 }
 
 # The five staff emails #524 moved off fixed address lists, pinned as a literal: who gets

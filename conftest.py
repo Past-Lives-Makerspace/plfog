@@ -1,8 +1,10 @@
 import os
+from collections.abc import Iterator
 
 import pytest
 
 from django.conf import settings
+from pytest_django.plugin import DjangoDbBlocker
 
 # Set by CI's postgres-only job, whose whole point is running these specs: there a database
 # other than PostgreSQL is a broken job, not a reason to skip.
@@ -48,6 +50,29 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     skip = pytest.mark.skip(reason="Needs PostgreSQL; CI's postgres-only job runs it (pytest -m postgres_only).")
     for item in marked:
         item.add_marker(skip)
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _restore_latest_migrations(request: pytest.FixtureRequest, django_db_blocker: DjangoDbBlocker) -> Iterator[None]:
+    """After a migration spec file, migrate every app back to its latest migration if any is behind.
+
+    A migration spec moves apps to an older state and must restore them. One that restored only its
+    own target (or failed before its ``finally``) left later specs on an old schema, and they failed
+    with missing columns far from the cause (#1002). Once per spec file with "migration" in its path, not per
+    spec: on SQLite each restore rebuilds tables, and per spec it pushed the test job past its
+    three hour limit (#1004).
+    """
+    yield
+    if "migration" not in str(request.path):
+        return
+    from django.db import connection
+    from django.db.migrations.executor import MigrationExecutor
+
+    with django_db_blocker.unblock():
+        executor = MigrationExecutor(connection)
+        leaves = executor.loader.graph.leaf_nodes()
+        if executor.migration_plan(leaves):
+            executor.migrate(leaves)
 
 
 @pytest.fixture(autouse=True)

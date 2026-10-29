@@ -1,0 +1,2 @@
+{# A rental's state on the staff Rentals tab (#979): an icon and a word, never color alone. #}
+{% with state=rental.staff_state %}<span class="pl-cubby-chip pl-cubby-chip--{% if state == 'past_due' %}past-due{% else %}{{ state }}{% endif %}" data-rental-chip="{{ state }}"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#{% if state == 'past_due' %}i-alert{% elif state == 'cancelling' %}i-cal{% elif state == 'comped' %}i-gift{% elif state == 'ended' %}i-archive{% else %}i-check{% endif %}"/></svg>{{ rental.staff_state_label }}</span>{% endwith %}

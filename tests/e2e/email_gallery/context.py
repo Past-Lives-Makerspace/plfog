@@ -1103,3 +1103,18 @@ def cubby_rental_ended_context(data: SampleData) -> dict[str, Any]:
 def cubby_rental_refunded_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``membership.cubby_rentals.notify_refunded``."""
     return _cubby_context(data, "You've been refunded for B3", refunded="$22")
+
+
+def cubby_waitlist_opened_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.cubby_waitlist.notify_opened``: B3 on the Glaze Wall opened, and the sample member was first in line."""
+    from membership import cubby_waitlist
+    from membership.models import CubbyWaitlistEntry
+    from tests.membership.factories import CubbyFactory, ShelfUnitFactory
+
+    unit = ShelfUnitFactory(guild=data.guild, name="Glaze Wall")
+    cubby = CubbyFactory(unit=unit, label="B3", size="12 x 12 x 16 in", floor_cents=1500, suggested_cents=2000)
+    entry = CubbyWaitlistEntry.objects.create(guild=data.guild, member=data.member)
+    return {
+        "subject": cubby_waitlist.opened_subject(cubby),
+        "template_context": cubby_waitlist.email_context(entry, cubby),
+    }

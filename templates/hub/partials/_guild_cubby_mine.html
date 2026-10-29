@@ -2,7 +2,8 @@
 One Your Cubby card (#978) for `rental` (a live CubbyRental of the viewer's), first on the Cubbies
 tab; from mockups/guild-cubbies.html views mine, mine-change, mine-cancel and past-due. Change Amount
 loads its sheet into this card's modal; Manage Payment leaves for Stripe (hx-boost off); Cancel
-Rental confirms first; while cancelling, Keep My Cubby takes its place.
+Rental confirms first; while cancelling, Keep My Cubby takes its place. A rental guild staff assigned
+(#979) says so, has no Change Amount or Manage Payment, and its Cancel Rental ends it today.
 {% endcomment %}
 {% with cubby=rental.cubby %}
 <article class="hub-card pl-cubby-mine{% if rental.is_past_due %} pl-cubby-mine--past-due{% endif %}" aria-labelledby="cubby-mine-{{ rental.pk }}" data-cubby-mine="{{ cubby.label }}" data-rental-status="{{ rental.status }}">
@@ -26,8 +27,14 @@ Rental confirms first; while cancelling, Keep My Cubby takes its place.
   </div>
   <div class="pl-cubby-mine__after">
     <dl class="pl-cubby-facts">
+      {% if rental.is_assigned %}
+      <div><dt>You Pay</dt><dd>{% if rental.is_comped %}Nothing, it's free{% else %}{{ rental.amount_display }} a month to the guild{% endif %}</dd></div>
+      <div><dt>Since</dt><dd>{{ rental.start_date|date:"D, M j" }}</dd></div>
+      {% else %}
       <div><dt>You Pay</dt><dd>{{ rental.amount_display }} a month</dd></div>
-      {% if rental.is_past_due %}
+      {% endif %}
+      {% if rental.is_assigned %}
+      {% elif rental.is_past_due %}
       {% if rental.next_payment_attempt %}<div><dt>Next Try</dt><dd>{{ rental.next_payment_attempt|date:"D, M j" }}</dd></div>{% endif %}
       {% elif rental.is_cancelling %}
       <div><dt>Yours Until</dt><dd>{{ rental.current_period_end|date:"D, M j" }}</dd></div>
@@ -35,11 +42,15 @@ Rental confirms first; while cancelling, Keep My Cubby takes its place.
       <div><dt>Next Charge</dt><dd>{{ rental.current_period_end|date:"D, M j" }}</dd></div>
       {% endif %}
     </dl>
-    {% if rental.over_floor_cents and not rental.is_past_due %}
+    {% if rental.is_assigned %}
+    <p class="pl-cubby-assigned" data-cubby-assigned><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-star"/></svg><span>Assigned by guild staff. Nothing is charged here.</span></p>
+    {% elif rental.over_floor_cents and not rental.is_past_due %}
     <p class="pl-cubby-thanks"><svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-heart"/></svg><span>You pay {{ rental.over_floor_display }} more than the minimum. Thank you{% if cubby.unit.guild.cubby_payee_id %}, that helps the guild keep the studio stocked{% endif %}.</span></p>
     {% endif %}
     <div class="pl-cubby-actions">
-      {% if rental.is_cancelling %}
+      {% if rental.is_assigned %}
+      <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" data-cubby-cancel @click="$dispatch('open-confirm', '{{ rental.cancel_confirm_id }}')">Cancel Rental</button>
+      {% elif rental.is_cancelling %}
       <form method="post" action="{% url 'hub_cubby_rental_keep' rental.pk %}">{% csrf_token %}<button type="submit" class="pl-btn pl-btn--primary" data-cubby-keep>Keep My Cubby</button></form>
       <a href="{% url 'hub_cubby_rental_portal' rental.pk %}" class="pl-btn pl-btn--ghost" hx-boost="false" data-cubby-manage-payment>Manage Payment<svg class="pl-cubby-ico" aria-hidden="true"><use href="#i-external"/></svg></a>
       {% else %}
@@ -53,7 +64,7 @@ Rental confirms first; while cancelling, Keep My Cubby takes its place.
   </div>
 </article>
 {% if not rental.is_cancelling %}
-{% include "components/modal.html" with modal_id=rental.change_modal_id modal_title="Change Your Amount" modal_size="md" modal_class="pl-cubby-sheet" %}
+{% if not rental.is_assigned %}{% include "components/modal.html" with modal_id=rental.change_modal_id modal_title="Change Your Amount" modal_size="md" modal_class="pl-cubby-sheet" %}{% endif %}
 {% include "components/confirm_modal.html" with confirm_id=rental.cancel_confirm_id confirm_title="Cancel Your Cubby?" confirm_message=rental.cancel_message confirm_action_url=rental.cancel_url confirm_button_text="Cancel Rental" confirm_cancel_text="Keep My Cubby" %}
 {% endif %}
 {% endwith %}

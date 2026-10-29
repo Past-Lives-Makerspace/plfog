@@ -1,0 +1,50 @@
+{% comment %}
+The Rentals tab's Waitlist chip (#980): who waits for one of the guild's cubbies, in the order a cubby
+opening tells them. A table with place, member, joined date and Remove; one card per member below 768px,
+like the rentals. Remove confirms first and the member is not told. Context: waitlist_rows (WaitlistRow).
+{% endcomment %}
+{% if waitlist_rows %}
+<div class="admin-table-wrap pl-cubby-rwide">
+  <table class="admin-table pl-cubby-wtable" data-cubby-waitlist-table>
+    <thead>
+      <tr>
+        <th scope="col">Place</th>
+        <th scope="col">Member</th>
+        <th scope="col">Joined</th>
+        <th><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in waitlist_rows %}
+      <tr id="waiting-{{ row.entry.pk }}" data-waitlist-row="{{ row.entry.pk }}">
+        <td class="pl-cubby-num">{{ row.place }}</td>
+        <td><span class="pl-cubby-who"><span class="pl-cubby-avatar" aria-hidden="true">{{ row.initials }}</span><span>{{ row.name }}</span></span></td>
+        <td>{{ row.joined }}</td>
+        <td><button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', '{{ row.entry.remove_confirm_id }}')" data-waitlist-remove="{{ row.entry.pk }}">Remove</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<ul class="pl-cubby-rcards" aria-label="Waitlist">
+  {% for row in waitlist_rows %}
+  <li class="hub-card pl-cubby-rcard" data-waitlist-card="{{ row.entry.pk }}">
+    <div class="pl-cubby-rcard__top">
+      <span class="pl-cubby-who"><span class="pl-cubby-avatar" aria-hidden="true">{{ row.initials }}</span><span class="pl-cubby-rcard__name">{{ row.name }}</span></span>
+      <span class="pl-cubby-wplace">Number {{ row.place }}</span>
+    </div>
+    <p class="pl-cubby-rcard__where">Joined {{ row.joined }}</p>
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', '{{ row.entry.remove_confirm_id }}')" data-waitlist-remove-card="{{ row.entry.pk }}">Remove</button>
+  </li>
+  {% endfor %}
+</ul>
+
+{% for row in waitlist_rows %}
+{% include "components/confirm_modal.html" with confirm_id=row.entry.remove_confirm_id confirm_title="Remove "|add:row.name|add:" from the Waitlist?" confirm_message=row.remove_message confirm_action_url=row.entry.remove_url confirm_button_text="Remove" %}
+{% endfor %}
+{% else %}
+<div class="hub-card pl-cubby-rempty" data-cubby-waitlist-empty>
+  <p>No one is waiting.</p>
+</div>
+{% endif %}

@@ -492,6 +492,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": None,
         "anchor": None,
     },
+    "teach.class-messages": {
+        "title": "Messages",
+        "short_text": (
+            "Write to the other side of this class's review. Instructors can write any time without "
+            "resubmitting, and every decision note shows here too."
+        ),
+        "article_slug": "become-an-instructor",
+        "anchor": "teach-class-messages",
+    },
     "teach.money-split": {
         "title": "Where the money goes",
         "short_text": (

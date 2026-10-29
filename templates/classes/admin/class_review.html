@@ -138,19 +138,8 @@
     </form>
   {% endif %}
 
-  {% if history %}
-    <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Review History</h2>
-    <ul style="list-style:none;padding:0;margin:0 0 1.5rem;display:flex;flex-direction:column;gap:6px;">
-      {% for h in history %}
-        <li style="padding:10px 14px;background:var(--hub-bg);border:1px solid var(--hub-card-border);border-radius:6px;font-size:13px;">
-          <strong>{{ h.get_role_display }}</strong> ·
-          {% if h.decision %}{{ h.get_decision_display }}{% else %}<em>still pending</em>{% endif %} ·
-          {{ h.created_at|date:"M j, Y g:i A" }}{% if h.decided_at %} (decided {{ h.decided_at|date:"M j, g:i A" }}){% endif %}
-          {% if h.notes %}<div style="margin-top:6px;color:var(--hub-text-muted);white-space:pre-wrap;">{{ h.notes }}</div>{% endif %}
-        </li>
-      {% endfor %}
-    </ul>
-  {% endif %}
+  {# The class's messages with its instructors (#975): every decision's note, from every round, and the conversation. #}
+  {% if class_thread %}{% include "classes/_components/class_messages.html" %}{% endif %}
 
   {# Student preview last, and chromeless: ?framed=1 drops the sidebar and topbar so the #}
   {# iframe shows the class page itself rather than a page inside a page. The new-tab link #}
@@ -166,4 +155,5 @@
             style="display:block;width:100%;height:720px;border:0;"></iframe>
   </div>
 </div>
+{% include "components/busy_submit.html" %}
 {% endblock %}

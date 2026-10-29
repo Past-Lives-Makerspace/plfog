@@ -43,6 +43,16 @@ def _window():
     return parse_window("", "")
 
 
+def _closed_window():
+    """The last 30 days up to yesterday: a snapshot may only freeze dates that are over (#985)."""
+    from datetime import timedelta
+
+    from billing.payments_panel import PanelWindow
+
+    today = timezone.localdate()
+    return PanelWindow(start=today - timedelta(days=30), end=today - timedelta(days=1))
+
+
 def _paid_registration(*, cents, instructor=None, guild=None, when=None):
     from classes.factories import CategoryFactory, ClassOfferingFactory, RegistrationFactory
 
@@ -408,7 +418,7 @@ def describe_voting_allocation():
         g3 = GuildFactory(name="Clay")
         member = MemberFactory()
         VotePreferenceFactory(member=member, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
-        window = _window()
+        window = _closed_window()
 
         projected = build_reconciliation(window=window)
         wood = _alloc(projected, RecipientKind.GUILD, "Wood")
@@ -457,8 +467,10 @@ def describe_snapshot_roundtrip():
     def it_rebuilds_a_result_from_a_frozen_snapshot():
         guild = GuildFactory(name="Leather")
         instructor = MemberFactory()
-        _paid_registration(cents=10000, instructor=instructor, guild=guild)
-        window = _window()
+        from datetime import timedelta
+
+        _paid_registration(cents=10000, instructor=instructor, guild=guild, when=timezone.now() - timedelta(days=2))
+        window = _closed_window()
         snapshot = ReconciliationSnapshot.take(period_start=window.start, period_end=window.end)
         result = result_from_snapshot(snapshot)
         assert result.is_snapshot is True

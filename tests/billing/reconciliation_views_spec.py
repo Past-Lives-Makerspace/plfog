@@ -180,6 +180,8 @@ def describe_reconciliation_settings_form():
                 "reservation_manager_percent": "80",
                 "reservation_guild_percent": "5",
                 "reservation_pl_percent": "15",
+                "cubby_guild_percent": "85",
+                "cubby_pl_percent": "15",
             },
         )
         assert response.status_code == 302
@@ -204,6 +206,8 @@ def describe_reconciliation_settings_form():
                 "reservation_manager_percent": "70",
                 "reservation_guild_percent": "15",
                 "reservation_pl_percent": "15",
+                "cubby_guild_percent": "85",
+                "cubby_pl_percent": "15",
                 **reservation,
             }
 
@@ -438,10 +442,10 @@ def describe_take_reconciliation_snapshot_command():
     def it_freezes_december_to_the_last_day_of_the_year():
         from datetime import date
 
-        call_command("take_reconciliation_snapshot", "--month", "2026-12", stdout=StringIO())
+        call_command("take_reconciliation_snapshot", "--month", "2025-12", stdout=StringIO())
         snap = ReconciliationSnapshot.objects.get()
-        assert snap.period_start == date(2026, 12, 1)
-        assert snap.period_end == date(2026, 12, 31)
+        assert snap.period_start == date(2025, 12, 1)
+        assert snap.period_end == date(2025, 12, 31)
 
     def it_rejects_a_malformed_month():
         with pytest.raises(CommandError):

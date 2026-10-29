@@ -48,9 +48,10 @@ def create_guild_class_types(apps: Any, schema_editor: Any) -> None:
 def delete_guild_class_types(apps: Any, schema_editor: Any) -> None:
     Category = apps.get_model("classes", "Category")
     bare = Category.objects.filter(guild__isnull=False, classes__isnull=True, hero_image="", icon_svg="")
-    for category in bare.select_related("guild"):
-        if category.name == class_type_name(category.guild.name):
-            category.delete()
+    # Only the names: a whole Guild row would name columns a later membership migration may already have dropped.
+    for pk, name, guild_name in bare.values_list("pk", "name", "guild__name"):
+        if name == class_type_name(guild_name):
+            Category.objects.filter(pk=pk).delete()
 
 
 class Migration(migrations.Migration):

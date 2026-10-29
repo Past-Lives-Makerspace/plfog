@@ -160,6 +160,24 @@ class BillingSettings(models.Model):
         validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
         help_text="Percent of each paid equipment reservation that goes to Past Lives (0-100).",
     )
+    # #979: a paid cubby rental's split, a pair: the guild's share goes to the payee the guild
+    # picked (Guild.cubby_payee). Database defaults too, for the old release during the deploy.
+    cubby_guild_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("85.00"),
+        db_default=Decimal("85.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percent of each cubby payment that goes to the guild's cubby payee (0-100).",
+    )
+    cubby_pl_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("15.00"),
+        db_default=Decimal("15.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percent of each cubby payment that Past Lives keeps (0-100).",
+    )
 
     # ---- Stripe platform configuration ----
     # Credentials for the single Past Lives platform Stripe account. All charges
@@ -1604,6 +1622,7 @@ class TransactionAdjustment(models.Model):
         CLASS = "class", "Class"
         ORIENTATION = "orientation", "Orientation"
         RESERVATION = "reservation", "Reservation"
+        CUBBY = "cubby", "Cubby"
 
     source_kind = models.CharField(
         max_length=20,
@@ -1611,7 +1630,10 @@ class TransactionAdjustment(models.Model):
         help_text="Which payment stream the target transaction lives in.",
     )
     source_pk = models.PositiveIntegerField(
-        help_text="PK of the TabCharge / Registration / OrientationBooking / EquipmentReservation being adjusted.",
+        help_text=(
+            "PK of the TabCharge / Registration / OrientationBooking / EquipmentReservation / CubbyPayment "
+            "being adjusted."
+        ),
     )
     is_omitted = models.BooleanField(
         default=False,
@@ -1660,6 +1682,10 @@ class TransactionAdjustment(models.Model):
 # ---------------------------------------------------------------------------
 # ReconciliationSnapshot — a frozen month-end allocation record (Phase 3)
 # ---------------------------------------------------------------------------
+
+
+class SnapshotTooEarlyError(ValueError):
+    """A snapshot asked for before its last day is over (#985): a share falling due later that day would be lost."""
 
 
 class ReconciliationSnapshot(models.Model):
@@ -1728,30 +1754,46 @@ class ReconciliationSnapshot(models.Model):
         """Freeze the reconciliation for ``[period_start, period_end]``.
 
         A create plus one ``SiteActivity`` audit row — no event, no email, no Airtable,
-        unlike ``FundingSnapshot.take()``. It also binds the payout split (#662): in the
+        unlike ``FundingSnapshot.take()``. Refused until ``period_end`` is over in Pacific time
+        (``SnapshotTooEarlyError``, #985). It also binds the payout split (#662): in the
         same transaction, every instructor, orientor and manager share in the window gets its
-        ``Payout`` row (``billing.payouts.freeze_split``), classified by the same rule the
-        results just used, so what the snapshot calls "Sent through Stripe" is what gets sent.
+        ``Payout`` row first (``billing.payouts.freeze_split``), and the results are then read
+        from those rows, so what the snapshot calls "Sent through Stripe" is what gets sent.
         """
         from core.models import SiteActivity
 
         from billing.payments_panel import PanelWindow
-        from billing.payouts import freeze_split
+        from billing.payouts import freeze_split, mark_counted_owed
         from billing.reconciliation import build_reconciliation
 
+        first_open_day = period_end + timedelta(days=1)
+        if timezone.localdate() < first_open_day:
+            raise SnapshotTooEarlyError(
+                f"These dates end {period_end:%B} {period_end.day}, so the snapshot can be taken from "
+                f"{first_open_day:%B} {first_open_day.day}, {first_open_day.year}. A share can still fall due "
+                "before the last day is over."
+            )
         window = PanelWindow(start=period_start, end=period_end)
         with transaction.atomic():
-            result = build_reconciliation(window=window)
             snapshot = cls.objects.create(
                 title=title.strip(),
                 period_start=period_start,
                 period_end=period_end,
-                results=result.to_snapshot_dict(),
-                grand_total_cents=result.grand_total_cents,
+                results={},
+                grand_total_cents=0,
                 is_auto=is_auto,
                 taken_by=actor if (actor is not None and getattr(actor, "pk", None)) else None,
             )
+            # Freeze the ledger first, then read the results from it (#985): a transfer still
+            # failing is given up here and owed by hand, so the snapshot counts it in Owed now
+            # rather than freezing it as Stripe retrying, which nobody would then pay.
             freeze_split(snapshot, window)
+            result = build_reconciliation(window=window)
+            snapshot.results = result.to_snapshot_dict()
+            snapshot.grand_total_cents = result.grand_total_cents
+            snapshot.save(update_fields=["results", "grand_total_cents"])
+            # Every share this snapshot counts in Owed now is owed in its dates only (#985).
+            mark_counted_owed(snapshot, result)
         SiteActivity.log(SiteActivity.Kind.RECONCILIATION_SNAPSHOT_TAKEN, actor=actor, target=snapshot)
         return snapshot
 
@@ -2264,8 +2306,8 @@ class PayoutQuerySet(models.QuerySet["Payout"]):
 
 
 class Payout(models.Model):
-    """One instructor, orientor or equipment manager share of one paid registration, orientation booking
-    or equipment reservation (#662, reservations #749).
+    """One instructor, orientor, equipment manager or cubby payee share of one paid registration,
+    orientation booking, equipment reservation or cubby invoice (#662, reservations #749, cubbies #979).
 
     Made by ``billing.payouts.run_payouts`` when the share falls due (48 hours after the first
     session or slot starts, or after payment if that came later). A share that goes through
@@ -2288,6 +2330,9 @@ class Payout(models.Model):
         NOT_CONNECTED = "not_connected", "Payouts were not on when this was paid for"
         NOT_THROUGH_STRIPE = "not_through_stripe", "Not paid through Stripe"
         TRANSFER_FAILED = "transfer_failed", "Stripe kept rejecting the transfer"
+
+    SETTLED_STATUSES = (Status.SENT, Status.TAKEN_BACK)
+    """Statuses whose recorded ``due_at`` is final: the transfer happened (#985, ``is_settled``)."""
 
     registration = models.OneToOneField(
         "classes.Registration",
@@ -2312,6 +2357,14 @@ class Payout(models.Model):
         on_delete=models.PROTECT,
         related_name="payout",
         help_text="The paid equipment reservation this share comes from (#749; exactly one source is set).",
+    )
+    cubby_payment = models.OneToOneField(
+        "membership.CubbyPayment",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="payout",
+        help_text="The paid cubby invoice whose guild share this is (#979; exactly one source is set).",
     )
     payee = models.ForeignKey(
         "membership.Member",
@@ -2368,20 +2421,69 @@ class Payout(models.Model):
             "pay it. If Stripe then rejects it, it is owed by hand at once and flagged with this snapshot."
         ),
     )
+    counted_owed_in = models.ForeignKey(
+        "billing.ReconciliationSnapshot",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="payouts_counted_owed",
+        help_text=(
+            "The month-end snapshot that counted this share in Owed now (#985). It is owed in that snapshot's "
+            "dates only, so no later report asks for it again, even if its class moves."
+        ),
+    )
+    owed_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When Stripe gave up on this share and it became owed by hand (#985). Owed now counts it in the "
+            "dates this falls in, since the dates it fell due in may already be closed. Empty when a snapshot "
+            "gave it up, which counts it in its own dates."
+        ),
+    )
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="When this row was made: the share fell due, or a snapshot froze it."
     )
 
     objects = PayoutQuerySet.as_manager()
 
+    @property
+    def is_settled(self) -> bool:
+        """True once the recorded ``due_at`` is final (#985): sent through Stripe, counted in a
+        snapshot's Owed now, or owed by hand after a give up. Until then a moved class re-dates it."""
+        return (
+            self.status in self.SETTLED_STATUSES or self.counted_owed_in_id is not None or self.owed_since is not None
+        )
+
     class Meta:
         ordering = ["-due_at"]
         constraints = [
             models.CheckConstraint(
                 condition=(
-                    Q(registration__isnull=False, orientation_booking__isnull=True, reservation__isnull=True)
-                    | Q(registration__isnull=True, orientation_booking__isnull=False, reservation__isnull=True)
-                    | Q(registration__isnull=True, orientation_booking__isnull=True, reservation__isnull=False)
+                    Q(
+                        registration__isnull=False,
+                        orientation_booking__isnull=True,
+                        reservation__isnull=True,
+                        cubby_payment__isnull=True,
+                    )
+                    | Q(
+                        registration__isnull=True,
+                        orientation_booking__isnull=False,
+                        reservation__isnull=True,
+                        cubby_payment__isnull=True,
+                    )
+                    | Q(
+                        registration__isnull=True,
+                        orientation_booking__isnull=True,
+                        reservation__isnull=False,
+                        cubby_payment__isnull=True,
+                    )
+                    | Q(
+                        registration__isnull=True,
+                        orientation_booking__isnull=True,
+                        reservation__isnull=True,
+                        cubby_payment__isnull=False,
+                    )
                 ),
                 name="payout_exactly_one_source",
             ),
@@ -2392,20 +2494,24 @@ class Payout(models.Model):
 
     @property
     def source(self) -> Any:
-        """The registration, orientation booking or equipment reservation that paid for this share."""
+        """The registration, orientation booking, equipment reservation or cubby payment that paid for this share."""
         if self.registration_id is not None:
             return self.registration
         if self.reservation_id is not None:
             return self.reservation
+        if self.cubby_payment_id is not None:
+            return self.cubby_payment
         return self.orientation_booking
 
     @property
     def source_kind(self) -> str:
-        """``"class"``, ``"orientation"`` or ``"reservation"``: the reconciliation source vocabulary."""
+        """``"class"``, ``"orientation"``, ``"reservation"`` or ``"cubby"``: the reconciliation source vocabulary."""
         if self.registration_id is not None:
             return "class"
         if self.reservation_id is not None:
             return "reservation"
+        if self.cubby_payment_id is not None:
+            return "cubby"
         return "orientation"
 
     @property
@@ -2416,6 +2522,8 @@ class Payout(models.Model):
         if self.reservation_id is not None:
             # A reservation's hold is made within its one hour checkout, so its creation stands in for paid at.
             return cast("Any", self.reservation).created_at
+        if self.cubby_payment_id is not None:
+            return cast("Any", self.cubby_payment).paid_at
         return cast("Any", self.orientation_booking).requested_at
 
     def send(self) -> None:
@@ -2541,7 +2649,7 @@ class Payout(models.Model):
         self.save(update_fields=["attempt"])
         self.send()
 
-    def give_up(self, reason: str = "", *, lookup: bool = True) -> bool:
+    def give_up(self, reason: str = "", *, lookup: bool = True, by_snapshot: bool = False) -> bool:
         """Stop trying: the finance lead pays the share by hand, and it is never sent again.
 
         First asks Stripe whether an earlier attempt landed after all (``lookup``); if it did,
@@ -2551,6 +2659,10 @@ class Payout(models.Model):
 
         A lookup Stripe refuses outright (a rotated key) counts as no transfer found, and its
         error joins the reason; only an unanswered lookup stops the give up.
+
+        ``owed_since`` records when it became owed by hand, so Owed now counts it in the dates of
+        the give up rather than in dates that may already be snapshotted (#985). A give up by a
+        month-end snapshot (``by_snapshot``) leaves it empty: that snapshot counts it itself.
 
         Raises:
             stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError: the lookup got no
@@ -2576,9 +2688,10 @@ class Payout(models.Model):
                 return False
         self.status = self.Status.OWED_MANUALLY
         self.owed_reason = self.OwedReason.TRANSFER_FAILED
+        self.owed_since = None if by_snapshot else timezone.now()
         if reason:
             self.failure_reason = reason
-        self.save(update_fields=["status", "owed_reason", "failure_reason", "attempted_at"])
+        self.save(update_fields=["status", "owed_reason", "failure_reason", "attempted_at", "owed_since"])
         notify_admins_payout_failed(self, owed=True)
         return True
 

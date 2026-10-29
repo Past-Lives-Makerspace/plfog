@@ -75,8 +75,8 @@
                 <a href="{{ payment_report_url }}" class="hub-btn hub-btn--sm hub-btn--ghost" data-reg-payment-report>Payment Report</a>
                 <span class="pl-help pl-help--right" data-reg-payment-report-help>
                   <span class="pl-help__icon" tabindex="0" role="img"
-                        aria-label="Payment Report: opens Reconciliation for these dates. It groups payments by the day they were paid, not the class date.">?</span>
-                  <span class="pl-help__bubble">Opens Reconciliation for these dates. It groups payments by the day they were paid, not the class date.</span>
+                        aria-label="Payment Report: opens Reconciliation for these dates. It groups payments by the day they were paid, not the class date. Owed now is what to pay instructors, orientors and equipment managers by hand: only shares whose class, orientation or reservation happened at least 48 hours ago, counted in the dates they fell due.">?</span>
+                  <span class="pl-help__bubble">Opens Reconciliation for these dates. It groups payments by the day they were paid, not the class date. Owed now is what to pay instructors, orientors and equipment managers by hand: only shares whose class, orientation or reservation happened at least 48 hours ago, counted in the dates they fell due.</span>
                 </span>
             </span>
             <a href="{% url 'classes:admin_registrations_export' %}{% if base_params %}?{{ base_params }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false" data-pl-download>Export CSV</a>

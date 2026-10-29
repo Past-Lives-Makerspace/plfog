@@ -335,11 +335,12 @@ def _format_percent(total: Decimal) -> str:
 
 
 class ReconciliationSettingsForm(forms.ModelForm):
-    """Editable split percentages on BillingSettings — each triad must sum to 100.00."""
+    """Editable split percentages on BillingSettings — each triad, and the cubby pair (#979), must sum to 100.00."""
 
     _ORIENTATION = ["orientation_orientator_percent", "orientation_guild_percent", "orientation_pl_percent"]
     _CLASS = ["class_instructor_percent", "class_guild_percent", "class_pl_percent"]
     _RESERVATION = ["reservation_manager_percent", "reservation_guild_percent", "reservation_pl_percent"]
+    _CUBBY = ["cubby_guild_percent", "cubby_pl_percent"]
 
     class Meta:
         model = BillingSettings
@@ -353,6 +354,8 @@ class ReconciliationSettingsForm(forms.ModelForm):
             "reservation_manager_percent",
             "reservation_guild_percent",
             "reservation_pl_percent",
+            "cubby_guild_percent",
+            "cubby_pl_percent",
         ]
 
     def clean(self) -> dict[str, Any]:
@@ -360,6 +363,7 @@ class ReconciliationSettingsForm(forms.ModelForm):
         self._check_triad(cleaned, self._ORIENTATION, "Orientation")
         self._check_triad(cleaned, self._CLASS, "Class")
         self._check_triad(cleaned, self._RESERVATION, "Reservation")
+        self._check_triad(cleaned, self._CUBBY, "Cubby")
         return cleaned
 
     def _check_triad(self, cleaned: dict[str, Any], fields: list[str], label: str) -> None:
@@ -378,13 +382,16 @@ class TransactionAdjustmentForm(forms.Form):
     """Per-transaction reconciliation override: omit the transaction or re-split it.
 
     Class, orientation and reservation transactions expose one percent field per recipient
-    (the triad must sum to 100 unless omitted). Tab charges are omit-only.
+    (the triad must sum to 100 unless omitted), and a cubby payment its pair (#979). Tab charges
+    are omit-only.
     """
 
     _PERCENT_KEYS: dict[str, list[tuple[str, str]]] = {
         "class": [("instructor", "Instructor"), ("guild", "Guild"), ("pl", "Past Lives")],
         "orientation": [("orientator", "Orientor"), ("guild", "Guild"), ("pl", "Past Lives")],
         "reservation": [("manager", "Manager"), ("guild", "Guild"), ("pl", "Past Lives")],
+        # The guild's share of a cubby payment is paid to the guild's cubby payee (#979).
+        "cubby": [("cubby_payee", "Guild"), ("pl", "Past Lives")],
         "tab": [],
     }
 
@@ -419,10 +426,12 @@ class TransactionAdjustmentForm(forms.Form):
         if cleaned.get("is_omitted") or not self.percent_keys:
             return cleaned
         raw = [cleaned.get(f"percent_{key}") for key in self.percent_keys]
+        count = "both" if len(raw) == 2 else "all three"
         if any(value is None for value in raw):
-            raise forms.ValidationError("Enter all three percentages.")
+            raise forms.ValidationError(f"Enter {count} percentages.")
         if sum((Decimal(str(value)) for value in raw), Decimal("0")) != Decimal("100"):
-            raise forms.ValidationError("The three percentages must add up to 100.")
+            together = "The two" if len(raw) == 2 else "The three"
+            raise forms.ValidationError(f"{together} percentages must add up to 100.")
         return cleaned
 
     def save(self, *, actor: Any) -> Any:

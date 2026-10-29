@@ -306,6 +306,15 @@ def describe_next_meeting_sources():
         soonest = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=2))
         assert NextMeetingSources.load([guild]).meetings[guild.pk] == soonest
 
+    def it_reads_no_meeting_rows_without_meetings_but_keeps_the_google_rows(django_assert_num_queries):
+        guild = GuildFactory(name="Quiet Guild")
+        MeetingFactory(guild=guild)
+        google = _google("Quiet Guild night")
+        with django_assert_num_queries(1):
+            sources = NextMeetingSources.load([guild], with_meetings=False)
+        assert sources.meetings == {}
+        assert sources.calendar_events == [google]
+
 
 def describe_check_all():
     def it_gives_each_lead_and_staff_member_one_item_naming_the_guild():
