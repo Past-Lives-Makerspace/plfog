@@ -13,6 +13,7 @@ import os
 import pathlib
 import subprocess
 import sys
+from typing import cast
 
 import pytest
 from django.urls import reverse
@@ -20,7 +21,7 @@ from django.urls import reverse
 from core.guidance import GUIDANCE, Guidance, url_for
 from core.help_registry import HELP_KEYS, KEY_PATTERN
 from core.tours import TOURS
-from membership.models import Member
+from membership.models import AdminCapability, Member
 from tests.membership.factories import GuildFactory, GuildMembershipFactory, MemberFactory
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -94,23 +95,45 @@ def describe_GUIDANCE():
         assert completed.stdout.split() == [str(len(GUIDANCE)), "False"]
 
 
+def _member(**fields: object) -> Member:
+    """A factory member as its model: the factory returns one at runtime, its typing does not say so."""
+    return cast(Member, MemberFactory(**fields))
+
+
 def describe_url_for():
-    def _lead() -> Member:
-        member = MemberFactory()
+    def _lead(fog_role: str = Member.FogRole.MEMBER) -> Member:
+        member = _member(fog_role=fog_role)
         GuildFactory(name="Led Guild", slug="led-guild", guild_lead=member)
         return member
 
     def it_resolves_every_url_that_needs_a_member():
-        member = _lead()
+        # An admin who leads a guild can open every registered page, Manage Classes included.
+        member = _lead(fog_role=Member.FogRole.ADMIN)
         for guidance in GUIDANCE.values():
             if guidance.url_kwargs is not None:
                 assert url_for(guidance.key, member).startswith("/"), guidance.key
+
+    def describe_class_review():
+        """Manage Classes is for admins and CMS Administrators; a guild reviewer reviews from the email."""
+
+        def it_opens_manage_classes_for_an_admin():
+            assert url_for("classes.review", _member(fog_role=Member.FogRole.ADMIN)) == reverse("classes:admin_classes")
+
+        def it_opens_manage_classes_for_a_cms_administrator():
+            member = _member()
+            AdminCapability.objects.create(member=member, capability=AdminCapability.Capability.CLASS_APPROVER)
+            assert url_for("classes.review", member) == reverse("classes:admin_classes")
+
+        def it_hides_it_from_a_guild_lead_or_class_reviewer():
+            # classes_review_access_required answers them with a 403, so Open it must not render.
+            with pytest.raises(ValueError, match="cannot open Manage Classes"):
+                url_for("classes.review", _lead())
 
     def it_lands_on_the_tab_the_entry_names():
         assert url_for("guild.cubbies", _lead()) == "/guilds/led-guild/?tab=cubbies"
 
     def it_leaves_a_page_without_a_query_alone():
-        assert url_for("guild.voting", MemberFactory()) == reverse("hub_guild_voting")
+        assert url_for("guild.voting", _member()) == reverse("hub_guild_voting")
 
     def it_opens_the_guild_a_member_staffs_first():
         member = _lead()
@@ -118,7 +141,7 @@ def describe_url_for():
         assert url_for("guild.page", member) == "/guilds/led-guild/"
 
     def it_falls_back_to_a_guild_the_member_belongs_to():
-        member = MemberFactory()
+        member = _member()
         GuildMembershipFactory(member=member, guild=GuildFactory(name="Joined Guild", slug="joined-guild"))
         assert url_for("guild.page", member) == "/guilds/joined-guild/"
 
@@ -126,25 +149,25 @@ def describe_url_for():
         GuildFactory(name="Zed Guild", slug="zed-guild")
         GuildFactory(name="Alpha Guild", slug="alpha-guild")
         GuildFactory(name="Aardvark Guild", slug="aardvark-guild", is_active=False)
-        admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
+        admin = _member(fog_role=Member.FogRole.ADMIN)
         assert url_for("guild.page", admin) == "/guilds/alpha-guild/"
         assert url_for("guild.staff", admin).startswith("/guilds/")
 
     def it_refuses_a_member_with_no_guild_to_open():
         GuildFactory(name="Some Guild", slug="some-guild")
         with pytest.raises(ValueError, match="no guild"):
-            url_for("guild.page", MemberFactory())
+            url_for("guild.page", _member())
 
     def it_needs_lead_authority_for_the_guild_edit_page():
         # Belonging to a guild opens its page but not its settings.
-        member = MemberFactory()
+        member = _member()
         GuildMembershipFactory(member=member, guild=GuildFactory(name="Joined Guild", slug="joined-guild"))
         with pytest.raises(ValueError, match="no guild"):
             url_for("guild.staff", member)
 
     def it_fails_loudly_on_an_unregistered_key():
         with pytest.raises(KeyError):
-            url_for("nope.nothing", MemberFactory())
+            url_for("nope.nothing", _member())
 
 
 def describe_Guidance():
