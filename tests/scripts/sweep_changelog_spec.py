@@ -155,12 +155,16 @@ def describe_plan():
         entries, new_base = module.plan("origin/main")
 
         assert [(e["version"], e["title"]) for e in entries] == [("1.63.2", "A fix"), ("1.63.0", "A visible thing")]
+        # The frozen entry keeps the #1007 keys too, so What's New keeps its role split through a sweep.
         assert entries[0] == {
             "version": "1.63.2",
             "date": "2026-09-14",
             "title": "A fix",
             "changes": ["It is fixed."],
             "slug": "11-fix",
+            "audiences": ["members"],
+            "feature": "",
+            "guidance": "none",
         }
         assert new_base == "1.63.2"
 

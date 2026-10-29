@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-15"
+audience = ["guild-leads", "instructors"]
+feature = "guild.staff"
+guidance = "link"
 title = "Guild leads choose who reviews their classes"
 changes = [
   "On a guild's Staff tab, the guild lead can switch a staff member on as a Class Reviewer. Class review requests and reminders now go only to the guild lead and those reviewers, not to every staff member.",

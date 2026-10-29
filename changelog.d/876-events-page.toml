@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-21"
+audience = ["members"]
+feature = "calendar.events"
+guidance = "link"
 title = "Event pages get a new look with a people count"
 changes = [
   "Every public event page opens with a large photo, the date and the place, and a Get directions link.",

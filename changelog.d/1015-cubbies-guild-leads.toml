@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-29"
+title = "Cubbies are run by the guild's own lead and staff"
+changes = [
+  "A guild's shelves, prices, rentals and waitlist are managed by that guild's lead and staff, and by Past Lives admins.",
+  "Guild Officers no longer reach the cubbies of guilds they do not lead or staff. Everything else they do is unchanged.",
+]

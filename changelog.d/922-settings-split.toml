@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-23"
+audience = ["admins"]
+feature = "admin.tools"
+guidance = "link"
 title = "Member Agreement, Automations, Manage Features and Manage CMS get their own cards"
 changes = [
   "Admin Tools now has its own cards for Member Agreement, Automations, Manage Features and Manage CMS, each opening its own page.",

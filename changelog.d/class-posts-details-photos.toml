@@ -1,5 +1,6 @@
 bump = "minor"
 date = "2026-10-20"
+audience = ["members"]
 title = "New class posts in Discord show the details and photos"
 changes = [
   "When a new class goes live, its post in #classes now shows the description, when it meets, how long it runs, where, who teaches it, the price and how many spots it has.",

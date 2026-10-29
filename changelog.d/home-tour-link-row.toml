@@ -1,5 +1,8 @@
 bump = "patch"
 date = "2026-10-20"
+audience = ["members"]
+feature = "home.tour"
+guidance = "link"
 title = "Show me around moves under the Home welcome"
 changes = [
   "On Home, the Show me around button now sits under the welcome message instead of beside the door code, and it goes away once you have taken or closed the tour. You can always take the tour again from the Guided Tours card on the Help page.",

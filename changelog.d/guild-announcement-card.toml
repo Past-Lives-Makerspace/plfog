@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-26"
+audience = ["members"]
+feature = "guild.page"
+guidance = "link"
 title = "Guild pages show just the latest announcement"
 changes = [
   "A guild page now shows only its newest announcement, in a smaller card. Long posts fold up with a Read more button.",

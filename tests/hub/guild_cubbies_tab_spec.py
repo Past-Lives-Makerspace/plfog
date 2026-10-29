@@ -2,8 +2,10 @@
 and the Cubbies cards on Guild Tools and Admin Tools.
 
 The tab shows only while the guild's switch is on, on the members surface, to a signed in member;
-the switch off hides it from everyone while staff keep building in the manager. Assertions anchor
-on markup and factory strings (STANDARDS.md, section 8).
+the switch off hides it from everyone while staff keep building in the manager. The Set Up Cubbies
+link and Guild Settings' Cubbies tab go to whoever runs the guild's cubbies, its lead and staff
+and admins, never a Guild Officer who does not (#1015). Assertions anchor on markup and factory
+strings (STANDARDS.md, section 8).
 """
 
 from __future__ import annotations
@@ -102,6 +104,15 @@ def describe_the_guild_page_tab():
         assert "data-cubbies-empty" in content
         assert reverse("hub_guild_cubbies", args=[guild.pk]) not in content
 
+    def it_offers_a_guild_officer_who_does_not_run_the_guild_no_manager_link(client: Client):
+        # #1015: the Guild Officer role alone opens no guild's cubbies, so the link would only 403.
+        _login(client, "tab_empty_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+        guild = GuildFactory(show_cubbies_tab=True)
+        content = _page(client, guild)
+        card = content.split("data-cubbies-empty", 1)[1].split("</div>", 1)[0]
+        assert "No cubbies yet." in card
+        assert reverse("hub_guild_cubbies", args=[guild.pk]) not in content
+
     def it_leaves_archived_shelves_and_cubbies_off(client: Client):
         _login(client, "tab_archived_member")
         guild = GuildFactory(show_cubbies_tab=True)
@@ -171,6 +182,32 @@ def describe_guild_settings():
         assert 'name="show_cubbies_tab"' in section
         assert 'type="submit"' not in section
         assert "Build Shelves and Set Prices →" in section
+
+    def it_hides_the_cubbies_tab_from_a_guild_officer_who_does_not_run_the_guild(client: Client):
+        # #1015: no tab button and no section for them, while every other tab stays.
+        _login(client, "settings_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+        guild = GuildFactory()
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        content = response.content.decode()
+        assert response.status_code == 200
+        assert "data-cubbies-tab" not in content and "data-cubbies-settings" not in content
+        assert reverse("hub_guild_cubbies_settings_save", args=[guild.pk]) not in content
+        for tab in ("Basic Information", "Meetings", "Reservations", "Email Members", "Staff"):
+            assert f">{tab}</button>" in content, tab
+
+    def it_sends_a_stale_cubbies_tab_link_to_basic_information_for_that_officer(client: Client):
+        # #1015: the page opens the tab ?tab= names, and theirs has no tab, so the link lands on the page itself.
+        _login(client, "settings_officer_link", fog_role=Member.FogRole.GUILD_OFFICER)
+        guild = GuildFactory()
+        url = reverse("hub_guild_edit", args=[guild.pk])
+        response = client.get(f"{url}?tab=cubbies")
+        assert response.status_code == 302 and response["Location"] == url
+
+    def it_keeps_the_cubbies_tab_link_working_for_the_lead(client: Client):
+        lead = _login(client, "settings_lead_link")
+        guild = GuildFactory(guild_lead=lead)
+        response = client.get(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=cubbies")
+        assert response.status_code == 200 and "data-cubbies-settings" in response.content.decode()
 
 
 def describe_tools_cards():

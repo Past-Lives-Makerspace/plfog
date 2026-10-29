@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-27"
+audience = ["admins"]
+feature = "admin.reconciliation"
+guidance = "link"
 title = "Reconciliation counts a share as owed only once its class has happened"
 changes = [
   "On Reconciliation, Owed manually is now two columns: Owed now and Not yet due.",

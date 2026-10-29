@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-26"
+audience = ["members", "guild-staff"]
+feature = "guild.page"
+guidance = "link"
 title = "Guild pages always show what's coming up next"
 changes = [
   "A guild's Next Meeting card now shows whatever the guild has coming up, like studio hours or a potluck, with its name.",
