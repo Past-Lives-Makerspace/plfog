@@ -1,5 +1,11 @@
 # Writing Help Center Guides
 
+> **Frozen (#1009).** No PR adds a Help Center article or extends one with a new section, at
+> any guidance level; the review bot blocks an addition to `membership/help_content.py`'s
+> `ARTICLES` or to `static/help/`. Teaching now ships through `docs/GUIDANCE.md`: a What's New
+> entry, a clip or a Guided Tour, declared on the PR. The rules below still govern an edit to
+> an existing article (a copy fix, a caveat that changed) until #1009 retires them.
+
 The standard for every article in the Help Center. Follow this and the drift
 guards stay green, the screenshots regenerate themselves, and the guides keep
 one voice. The Help Center overhaul plan

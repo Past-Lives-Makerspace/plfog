@@ -31,6 +31,9 @@ _SCRIPT = pathlib.Path(__file__).resolve().parents[2] / ".github" / "scripts" / 
 _BASE = "a" * 40
 _HEAD = "b" * 40
 
+#: A member-facing fragment up to the two #1007 keys a spec appends.
+_FRAGMENT_PREFIX = 'bump = "minor"\ndate = "2026-10-29"\ntitle = "A guided thing"\nchanges = ["It does the thing."]\n'
+
 
 def _load_script() -> ModuleType:
     spec = importlib.util.spec_from_file_location("check_changelog_fragment", _SCRIPT)
@@ -235,6 +238,62 @@ def describe_main():
             )
             module.main()
             assert "no-changelog' label present" in capsys.readouterr().out
+
+    def describe_when_a_fragment_promises_materials_its_feature_lacks():
+        """``guidance = "clip"`` needs a registered clip and ``"tour"`` a registered tour (#1007)."""
+
+        def it_fails_a_clip_no_feature_has_yet(monkeypatch, tmp_path):
+            # No clip slug is registered until #1008 lands, so this level cannot ship today.
+            module = _load_script()
+            _env(monkeypatch, labels=[])
+            _fake_diff(monkeypatch, _Completed(0, "changelog.d/1-guided.toml\n"))
+            (tmp_path / "1-guided.toml").write_text(_FRAGMENT_PREFIX + 'feature = "guild.cubbies"\nguidance = "clip"\n')
+            monkeypatch.setattr(module, "FRAGMENTS_PATH", tmp_path)
+            with pytest.raises(SystemExit) as exit_info:
+                module.main()
+            message = str(exit_info.value)
+            assert "changelog.d/1-guided.toml" in message
+            assert "'guild.cubbies' has no clip registered" in message
+
+        def it_fails_a_tour_on_a_feature_with_none(monkeypatch, tmp_path):
+            module = _load_script()
+            _env(monkeypatch, labels=[])
+            _fake_diff(monkeypatch, _Completed(0, "changelog.d/1-guided.toml\n"))
+            (tmp_path / "1-guided.toml").write_text(_FRAGMENT_PREFIX + 'feature = "guild.cubbies"\nguidance = "tour"\n')
+            monkeypatch.setattr(module, "FRAGMENTS_PATH", tmp_path)
+            with pytest.raises(SystemExit) as exit_info:
+                module.main()
+            assert "'guild.cubbies' has no tour registered" in str(exit_info.value)
+
+        def it_passes_a_tour_the_feature_registers(monkeypatch, tmp_path, capsys):
+            module = _load_script()
+            _env(monkeypatch, labels=[])
+            _fake_diff(monkeypatch, _Completed(0, "changelog.d/1-guided.toml\n"))
+            (tmp_path / "1-guided.toml").write_text(_FRAGMENT_PREFIX + 'feature = "classes.teach"\nguidance = "tour"\n')
+            monkeypatch.setattr(module, "FRAGMENTS_PATH", tmp_path)
+            module.main()
+            assert "changelog.d/1-guided.toml" in capsys.readouterr().out
+
+        def it_passes_a_link_which_needs_no_materials(monkeypatch, tmp_path, capsys):
+            module = _load_script()
+            _env(monkeypatch, labels=[])
+            _fake_diff(monkeypatch, _Completed(0, "changelog.d/1-guided.toml\n"))
+            (tmp_path / "1-guided.toml").write_text(_FRAGMENT_PREFIX + 'feature = "guild.cubbies"\nguidance = "link"\n')
+            monkeypatch.setattr(module, "FRAGMENTS_PATH", tmp_path)
+            module.main()
+            assert "folding to" in capsys.readouterr().out
+
+        def it_names_every_offending_fragment_at_once(monkeypatch, tmp_path):
+            module = _load_script()
+            _env(monkeypatch, labels=[])
+            _fake_diff(monkeypatch, _Completed(0, "changelog.d/1-a.toml\n"))
+            (tmp_path / "1-a.toml").write_text(_FRAGMENT_PREFIX + 'feature = "guild.cubbies"\nguidance = "clip"\n')
+            (tmp_path / "2-b.toml").write_text(_FRAGMENT_PREFIX + 'feature = "guild.cubbies"\nguidance = "tour"\n')
+            monkeypatch.setattr(module, "FRAGMENTS_PATH", tmp_path)
+            with pytest.raises(SystemExit) as exit_info:
+                module.main()
+            message = str(exit_info.value)
+            assert "changelog.d/1-a.toml" in message and "changelog.d/2-b.toml" in message
 
     def describe_when_a_fragment_is_malformed():
         def it_fails_with_the_parse_error_and_points_at_the_readme(monkeypatch, tmp_path):

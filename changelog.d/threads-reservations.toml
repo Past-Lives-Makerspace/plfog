@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-27"
+audience = ["members", "equipment-managers"]
+feature = "guild.reservations"
+guidance = "link"
 title = "Message the managers about a reservation"
 changes = [
   "Each equipment reservation now has a conversation. Ask the equipment managers a question, add photos, and get a notice when they answer.",

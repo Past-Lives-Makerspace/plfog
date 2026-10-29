@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-26"
+audience = ["members"]
+feature = "home.polls"
+guidance = "link"
 title = "Hide the poll on Home once you have voted"
 changes = [
   "The Poll on Home now has a Hide button that folds it to one line, and Show opens it again. Once you have voted it starts folded, and your choice is remembered for each poll.",

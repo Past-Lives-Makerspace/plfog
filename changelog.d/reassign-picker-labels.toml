@@ -1,5 +1,8 @@
 bump = "patch"
 date = "2026-10-15"
+audience = ["admins"]
+feature = "admin.discount-codes"
+guidance = "link"
 title = "Moving a discount code shows which class run is which"
 changes = [
   "When an admin re-assigns a discount code, each class in the list shows its date and whether it is a draft or waiting for review, so two runs of the same class are easy to tell apart.",

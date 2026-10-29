@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-23"
+audience = ["members"]
+feature = "home.spotlight"
+guidance = "link"
 title = "Announcements in the Spotlight"
 changes = [
   "The Spotlight in the top left of every portal page now shows the current announcements, taking turns, where the weekly poll used to be.",

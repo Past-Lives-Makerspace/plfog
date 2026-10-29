@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-18"
+audience = ["members"]
+feature = "wiki.home"
+guidance = "link"
 title = "Wiki pages get panels, checklists and settings boxes"
 changes = [
   "The wiki editor has a Panel menu: Info, Tip, Warning and Danger boxes, so a safety rule stands out instead of hiding in a paragraph.",
