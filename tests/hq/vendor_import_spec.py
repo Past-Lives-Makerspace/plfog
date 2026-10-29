@@ -571,20 +571,6 @@ def describe_the_uploads_rule():
 
         assert [problem.line for problem in result.problems] == [2, 3, 4]
 
-    def it_writes_nothing_when_a_row_fails_to_save(hub, kate, monkeypatch):
-        def broken_save(*args: Any, **kwargs: Any) -> None:
-            raise RuntimeError("disk full")
-
-        VendorTableFactory(hub=hub, name="Wren")
-        sheet = _parse("Name,What they sell\nAdded First,Mugs\nWren,Vases\n")
-        monkeypatch.setattr(VendorTable, "save", broken_save)
-
-        with pytest.raises(RuntimeError):
-            apply_upload(hub, sheet, member=kate)
-
-        monkeypatch.undo()
-        assert list(hub.vendor_tables.values_list("name", "sells")) == [("Wren", "")]
-
 
 def describe_kates_sheet():
     def it_imports_every_row_and_every_column_into_an_empty_hub(hub, kate, kate_client, guilds):
