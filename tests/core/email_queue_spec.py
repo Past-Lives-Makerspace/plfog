@@ -8,6 +8,7 @@ pill on Site Settings > Emails.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
@@ -266,9 +267,14 @@ def describe_sent_digests():
             _ = EventDelivery(event_key="staff_digest").digest_counts
 
 
+MID_MONTH = datetime(2026, 10, 12, 12, 0, tzinfo=PACIFIC)
+
+
 def describe_coming_up_in_the_next_24_hours():
     def it_says_so_when_nothing_is_due(staff_client: Client):
-        response = staff_client.get(UPCOMING_URL)
+        # Mid-month, far from the voting reminders, which fire at month end whatever the test makes.
+        with patch("django.utils.timezone.now", return_value=MID_MONTH):
+            response = staff_client.get(UPCOMING_URL)
         assert "No timed emails in the next 24 hours." in response.content.decode()
 
     def it_lists_a_class_reminder_with_its_time_label_class_and_reach(staff_client: Client):
