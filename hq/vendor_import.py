@@ -433,6 +433,13 @@ def _month_day_year(text: str) -> date:
 # ---- The CSV upload's rule ----
 
 
+def hub_lock(hub: EventHub) -> None:
+    """Lock ``hub``'s row until the transaction ends, so writes that add tables to it take turns."""
+    from hq.models import EventHub
+
+    list(EventHub.objects.select_for_update().filter(pk=hub.pk))
+
+
 def apply_upload(hub: EventHub, sheet: ParsedSheet, *, member: Member | None) -> ImportResult:
     """Write ``sheet`` to ``hub``'s table requests by the CSV upload's rule, in one transaction.
 
@@ -443,6 +450,9 @@ def apply_upload(hub: EventHub, sheet: ParsedSheet, *, member: Member | None) ->
     """
     result = ImportResult()
     with transaction.atomic():
+        # The hub's own row first: locking its tables does not stop a second import (or a pull) inserting a name this
+        # one is about to add, so two at once would add it twice; on the hub row the second waits and then sees it.
+        hub_lock(hub)
         existing: dict[str, VendorTable] = {}
         for table in hub.vendor_tables.select_related("guild").select_for_update(of=("self",)).order_by("pk"):
             existing.setdefault(normalise(table.name), table)

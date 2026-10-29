@@ -13,7 +13,9 @@ from typing import Any
 import pytest
 from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from hq import services
@@ -428,6 +430,16 @@ def describe_reading_a_file():
 
 
 def describe_the_uploads_rule():
+    @pytest.mark.postgres_only
+    def it_locks_the_hub_before_reading_its_tables_so_two_imports_take_turns(hub, kate):
+        with CaptureQueriesContext(connection) as queries:
+            apply_upload(hub, _parse("Name\nEllie\n"), member=kate)
+
+        sql = [query["sql"] for query in queries.captured_queries]
+        hub_lock = next(i for i, text in enumerate(sql) if "FOR UPDATE" in text)
+        assert '"hq_eventhub"' in sql[hub_lock]
+        assert hub_lock < next(i for i, text in enumerate(sql) if '"hq_vendortable"' in text)
+
     def it_adds_an_unmatched_row_made_by_the_importer_and_requested_unless_the_file_says(hub, kate):
         sheet = _parse("Name,Status\nEllie,\nRiley,Confirmed\n")
 
