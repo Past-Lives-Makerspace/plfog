@@ -272,6 +272,13 @@ def describe_who_may_open_it():
 
 
 def describe_the_page_cost():
+    @pytest.fixture(autouse=True)
+    def _no_changelog(monkeypatch):
+        # The sidebar's New! badges (#1007) add one roles query while a fragment in the window names a sidebar
+        # key the member has not seen; that cost is pinned in tests/core/guidance_tags_spec.py, so the changelog
+        # is emptied here to keep QUERIES_PER_PAGE the flyer page's own.
+        monkeypatch.setattr("plfog.version.CHANGELOG", [])
+
     def it_renders_for_a_member_in_a_fixed_number_of_queries(hub, event, member_client, django_assert_num_queries):
         _with_flyer(hub)
         _with_flyer(hub, LAST_YEAR, _pdf())

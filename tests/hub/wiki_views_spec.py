@@ -678,9 +678,12 @@ def describe_the_review_round_fixes():
             assert client.get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 200
 
     def describe_the_home_pages_query_count():
-        def it_does_not_grow_with_the_number_of_rows(client: Client, django_assert_num_queries):
+        def it_does_not_grow_with_the_number_of_rows(client: Client, django_assert_num_queries, monkeypatch):
             # Every card renders guild.name and the updated_by byline. Before with_fact_prefetch
-            # this page cost two queries per row and grew with the wiki.
+            # this page cost two queries per row and grew with the wiki. The sidebar's New! badges (#1007)
+            # add one roles query while a fragment in the window names a sidebar key the member has not seen;
+            # that cost is pinned in tests/core/guidance_tags_spec.py, so the changelog is emptied here.
+            monkeypatch.setattr("plfog.version.CHANGELOG", [])
             user = _login(client, "home_queries")
             guild = GuildFactory(name="Woodworking")
             GuildMembershipFactory(guild=guild, member=user.member)
