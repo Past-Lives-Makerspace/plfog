@@ -433,6 +433,10 @@ def describe_a_posts_text():
 
         assert text == "@role see #holiday-bizarre and #channel, doors Wed Nov 4, 5 PM"
 
+    @pytest.mark.parametrize("token", ["<t:99999999999999>", "<t:-99999999999999:F>", f"<t:{'9' * 400}>"])
+    def it_leaves_a_timestamp_no_date_can_hold_as_written(token):
+        assert readable(f"see you {token}", [], _read()) == f"see you {token}"
+
 
 def describe_a_posters_request():
     def it_dates_the_request_by_the_first_post_in_portland():

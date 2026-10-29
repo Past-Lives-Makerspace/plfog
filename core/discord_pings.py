@@ -54,8 +54,14 @@ _TIMESTAMP_RE = re.compile(r"<t:(-?\d+)(?::[tTdDfFR])?>")
 
 
 def readable_time(match: re.Match[str]) -> str:
-    """A Discord timestamp as a Pacific date and time: "Fri Oct 30, 7 PM", or "7:30 PM" off the hour."""
-    moment = timezone.localtime(datetime.fromtimestamp(int(match.group(1)), tz=UTC))
+    """A Discord timestamp as a Pacific date and time: "Fri Oct 30, 7 PM", or "7:30 PM" off the hour.
+
+    Anyone can type a timestamp, so one outside what a date can hold stays as it was written rather than raising.
+    """
+    try:
+        moment = timezone.localtime(datetime.fromtimestamp(int(match.group(1)), tz=UTC))
+    except (ValueError, OverflowError, OSError):
+        return match.group(0)
     clock = moment.strftime("%-I %p") if moment.minute == 0 else moment.strftime("%-I:%M %p")
     return f"{moment:%a %b} {moment.day}, {clock}"
 
