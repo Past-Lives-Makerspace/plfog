@@ -154,7 +154,8 @@ def describe_the_three_existing_callers():
         # Sorted, because rglob order is filesystem order and an unsorted list made this
         # assertion fragile. Every caller collects a reason a person will read later: why a
         # wiki page was removed, why a discount request was turned down, why a
-        # reservation was cancelled, and why a reservation request was declined (#754). A new name here wants that same justification, which is
+        # reservation was cancelled, why a reservation request was declined (#754), and why a
+        # guild ended a member's cubby rental (#980). A new name here wants that same justification, which is
         # why the list stays explicit.
         root = Path(settings.BASE_DIR) / "templates"
         callers = sorted(
@@ -163,6 +164,7 @@ def describe_the_three_existing_callers():
             if path.name != "confirm_modal.html" and "confirm_note_required" in path.read_text()
         )
         assert callers == [
+            "_rentals.html",
             "_wiki_moderation_actions.html",
             "discount_code_request_review.html",
             "reservation_booking_modals.html",
