@@ -1,22 +1,25 @@
 """What's New for one viewer (#1007, part 2): which entries, on which tab, and what they have seen.
 
 The entries are ``plfog.version.CHANGELOG`` as it stands (D1: fragments and ``history.json``,
-no model), cut to the last :data:`NEW_DAYS` days. Each one names its ``audiences`` (D2;
-a frozen entry from before the keys is for ``members``), and a tab lists every entry whose
-audience rolls up to it (:data:`plfog.changelog.AUDIENCES`), to every member, as the changelog
-modal shows everything to everyone (D8). Who the viewer is comes from ``request.view_as`` (D5),
-in one query however many roles there are to ask about, and decides only two things: whether
-Open it shows on an entry and whether the entry counts as unseen.
+no model), every release, newest first, a page of :data:`PAGE_SIZE` at a time. Each one names
+its ``audiences`` (D2; a frozen entry from before the keys is for ``members``), and a tab lists
+every entry whose audience rolls up to it (:data:`plfog.changelog.AUDIENCES`), to every member,
+as the changelog modal shows everything to everyone (D8). Who the viewer is comes from
+``request.view_as`` (D5), in one query however many roles there are to ask about, and decides
+only two things: whether Open it shows on an entry and whether the entry counts as unseen.
 
-Seen state is ``Member.whats_new_seen``, a list of entry slugs pruned to the window on every
-write (D6). One :class:`WhatsNew` per request, built on first use by :func:`whats_new_for`, so
-the Home button's dot, the modal and part 3's badges share the roles query (D9).
+Unseen is bounded by the window: an entry dated inside the last :data:`NEW_DAYS` days, in the
+viewer's audiences, that they have not looked at. Seen state is ``Member.whats_new_seen``, a
+list of entry slugs pruned to the window on every write (D6). One :class:`WhatsNew` per
+request, built on first use by :func:`whats_new_for`, so the Home button's dot, the modal and
+part 3's badges share the roles query (D9).
 """
 
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Mapping
+import hashlib
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import cached_property
 from itertools import groupby
@@ -32,12 +35,16 @@ if TYPE_CHECKING:
 
     from membership.models import Member
 
-#: How long an entry counts as new: listed in What's New, unseen until looked at, badged (D6).
+#: How long an entry counts as new: unseen until looked at, the dot on the button, badged (D6).
 NEW_DAYS = 30
 
-#: The three tabs, in the order they are drawn, and what each is called.
+#: How many entries a tab shows at a time; Show older loads the next page.
+PAGE_SIZE = 20
+
+#: The three tabs, in the order they are drawn, what each is called, and who it is for in a sentence.
 TABS = ("members", "guild-staff", "admins")
 TAB_LABELS = {"members": "For Members", "guild-staff": "For Guild Staff", "admins": "For Admins"}
+TAB_NOUNS = {"members": "members", "guild-staff": "guild staff", "admins": "admins"}
 
 #: What the chip on an entry says for a finer audience key. The three tabs get no chip.
 AUDIENCE_LABELS = {
@@ -48,6 +55,15 @@ AUDIENCE_LABELS = {
     "equipment-managers": "Equipment Managers",
     "instructors": "Instructors",
 }
+
+
+def history_slug(date: str, title: str) -> str:
+    """The slug of a frozen ``history.json`` entry, which the sweep left without one.
+
+    Twelve hex characters of a hash over the date and the title: short enough to keep the seen
+    column small, and stable across machines, unlike a title that someone later edits in place.
+    """
+    return hashlib.sha256(f"{date}|{title}".encode()).hexdigest()[:12]
 
 
 @dataclass(frozen=True)
@@ -66,13 +82,11 @@ class Entry:
     def from_changelog(cls, raw: dict[str, Any]) -> Entry:
         """An entry from ``CHANGELOG``, with the defaults a frozen entry from before #1007 needs.
 
-        A ``history.json`` row has no ``slug`` (the sweep drops it), no ``audiences``, no
-        ``feature`` and no ``guidance``: it is for members, opens nothing, and is identified by
-        its date and title, which is also how the changelog modal tells history rows apart.
+        A ``history.json`` row has no ``slug`` (the sweep drops it) and, from before the keys,
+        no ``audiences``, ``feature`` or ``guidance``: it is for members and opens nothing.
         """
-        slug = raw.get("slug") or f"{raw['date']}-{raw['title']}"
         return cls(
-            slug=slug,
+            slug=raw.get("slug") or history_slug(raw["date"], raw["title"]),
             date=raw["date"],
             title=raw["title"],
             changes=tuple(raw["changes"]),
@@ -121,17 +135,38 @@ class DateGroup:
     rows: list[Row]
 
 
+@dataclass(frozen=True)
+class Page:
+    """One page of a tab: its date groups, whether its first date continues the page before, and what follows."""
+
+    groups: list[DateGroup]
+    #: True when the first group's date is the date the previous page ended on, so its eyebrow is not drawn again.
+    joins_previous: bool
+    #: The slug Show older asks after, or ``""`` on the last page.
+    older_after: str
+
+    @property
+    def slugs(self) -> list[str]:
+        """Every entry on this page, for the seen write."""
+        return [row.entry.slug for group in self.groups for row in group.rows]
+
+
 def window_start(today: dt.date | None = None) -> dt.date:
     """The first day inside the window: an entry dated on or after it is new."""
     return (today or timezone.localdate()) - dt.timedelta(days=NEW_DAYS)
 
 
-def window_entries() -> list[Entry]:
-    """Every entry inside the window, newest first, read from the changelog as it stands now."""
+def all_entries() -> list[Entry]:
+    """Every entry, newest first, read from the changelog as it stands now."""
     from plfog import version
 
+    return [Entry.from_changelog(raw) for raw in version.CHANGELOG]
+
+
+def window_entries() -> list[Entry]:
+    """Every entry inside the window, newest first."""
     start = window_start().isoformat()
-    return [Entry.from_changelog(raw) for raw in version.CHANGELOG if raw["date"] >= start]
+    return [entry for entry in all_entries() if entry.date >= start]
 
 
 def can_open(entry: Entry, audiences: frozenset[str]) -> bool:
@@ -144,7 +179,7 @@ def open_url(entry: Entry, member: Member) -> str:
 
     Empty for an entry with no feature, and for a member the feature's page cannot be resolved
     for (a guild tab for a member in no guild raises ``ValueError``): Open it is hidden, never
-    broken.
+    broken. :meth:`WhatsNew._open_url` is the same answer with the guild resolved once per page.
     """
     if not entry.feature:
         return ""
@@ -155,19 +190,18 @@ def open_url(entry: Entry, member: Member) -> str:
 
 
 def tour_url(entry: Entry, member: Member) -> str:
-    """The Take the tour link for a level ``tour`` entry, or ``""`` when the member cannot take it."""
+    """The Take the tour link for a level ``tour`` entry, or ``""`` when the member cannot take it.
+
+    The tour's own ``audience`` decides, as the Help page does; a member it admits always has the
+    guild its entry page needs, so the URL resolves.
+    """
     from core.tours import TOURS, entry_url_for
 
     guidance = GUIDANCE.get(entry.feature)
     if entry.guidance != "tour" or guidance is None or guidance.tour is None:
         return ""
     tour = TOURS[guidance.tour]
-    if not tour.audience(member):
-        return ""
-    try:
-        return entry_url_for(tour, member)
-    except ValueError:
-        return ""
+    return entry_url_for(tour, member) if tour.audience(member) else ""
 
 
 def mark_seen(member: Member, slugs: list[str]) -> bool:
@@ -196,10 +230,18 @@ class WhatsNew:
         self.request = request
         self.member: Member | None = getattr(request.user, "member", None) if request.user.is_authenticated else None
         self._urls: dict[str, str] = {}
+        self._kwargs: dict[Callable[[Member], dict[str, Any]], dict[str, Any] | None] = {}
 
     @cached_property
     def entries(self) -> list[Entry]:
-        return window_entries()
+        """Every entry, newest first."""
+        return all_entries()
+
+    @cached_property
+    def window(self) -> list[Entry]:
+        """The entries that can be unseen: those inside the last :data:`NEW_DAYS` days."""
+        start = window_start().isoformat()
+        return [entry for entry in self.entries if entry.date >= start]
 
     @cached_property
     def audiences(self) -> frozenset[str]:
@@ -265,19 +307,39 @@ class WhatsNew:
         return flags
 
     def entries_for(self, *, tab: str | None = None, feature: str | None = None) -> list[Entry]:
-        """The window's entries on ``tab`` (every tab when None) and under ``feature`` (every feature when None)."""
+        """Every entry on ``tab`` (every tab when None) and under ``feature`` (every feature when None), newest first."""
         return [
             entry
             for entry in self.entries
             if (tab is None or entry.on_tab(tab)) and (feature is None or entry.under(feature))
         ]
 
+    def page_for(self, tab: str, feature: str | None = None, after: str = "") -> Page:
+        """One page of the tab as the body draws it: :data:`PAGE_SIZE` entries after ``after`` (the top when empty).
+
+        Raises ``LookupError`` when ``after`` names no entry on the tab, which happens when the
+        changelog changed under an open modal.
+        """
+        listed = self.entries_for(tab=tab, feature=feature)
+        start, previous_date = 0, ""
+        if after:
+            index = next((i for i, entry in enumerate(listed) if entry.slug == after), None)
+            if index is None:
+                raise LookupError(f"No entry {after!r} on the {tab} tab")
+            start, previous_date = index + 1, listed[index].date
+        chunk = listed[start : start + PAGE_SIZE]
+        return Page(
+            groups=[
+                DateGroup(date=date, rows=[self._row(entry, tab) for entry in entries])
+                for date, entries in groupby(chunk, key=lambda entry: entry.date)
+            ],
+            joins_previous=bool(chunk) and chunk[0].date == previous_date,
+            older_after=chunk[-1].slug if len(listed) > start + PAGE_SIZE else "",
+        )
+
     def groups_for(self, tab: str, feature: str | None = None) -> list[DateGroup]:
-        """The tab's entries as the body draws them: grouped by date, newest first, with the viewer's links."""
-        return [
-            DateGroup(date=date, rows=[self._row(entry, tab) for entry in entries])
-            for date, entries in groupby(self.entries_for(tab=tab, feature=feature), key=lambda entry: entry.date)
-        ]
+        """The tab's first page, grouped by date, newest first, with the viewer's links."""
+        return self.page_for(tab, feature).groups
 
     def _row(self, entry: Entry, tab: str) -> Row:
         opens = self.member is not None and can_open(entry, self.audiences)
@@ -289,26 +351,46 @@ class WhatsNew:
         )
 
     def _open_url(self, entry: Entry) -> str:
-        """One resolve per feature key however many entries share it: a guild tab's URL looks the guild up."""
+        """:func:`open_url` with each feature resolved once, and each resolver (the member's guild) run once.
+
+        Six ``guild.*`` entries share ``_guild_slug``, so the guild is looked up once for the
+        page, not once per entry.
+        """
         assert self.member is not None
+        if not entry.feature:
+            return ""
         if entry.feature not in self._urls:
-            self._urls[entry.feature] = open_url(entry, self.member)
+            guidance = GUIDANCE[entry.feature]
+            resolver = guidance.url_kwargs
+            if resolver is None:
+                self._urls[entry.feature] = guidance.url({})
+            else:
+                if resolver not in self._kwargs:
+                    try:
+                        self._kwargs[resolver] = resolver(self.member)
+                    except ValueError:
+                        self._kwargs[resolver] = None
+                kwargs = self._kwargs[resolver]
+                self._urls[entry.feature] = guidance.url(kwargs) if kwargs is not None else ""
         return self._urls[entry.feature]
 
     def is_unseen(self, entry: Entry) -> bool:
-        """Whether the viewer has an unseen entry here: not yet looked at, and in their audiences.
+        """Whether the viewer has an unseen entry here: inside the window, not yet looked at, and in their audiences.
 
-        The seen list is asked first, since it costs nothing: a member who has looked at
-        everything in the window pays no roles query on a page whose only readers are badges.
+        The window and the seen list are asked first, since they cost nothing: a member who has
+        looked at everything in the window pays no roles query on a page whose only readers are badges.
         """
         return (
-            self.member is not None and entry.slug not in self.member.whats_new_seen and can_open(entry, self.audiences)
+            self.member is not None
+            and entry.date >= window_start().isoformat()
+            and entry.slug not in self.member.whats_new_seen
+            and can_open(entry, self.audiences)
         )
 
     @cached_property
     def unseen(self) -> bool:
         """The Home button's dot."""
-        return any(self.is_unseen(entry) for entry in self.entries)
+        return any(self.is_unseen(entry) for entry in self.window)
 
     def has_unseen(self, feature: str) -> bool:
         """Whether the viewer has an unseen entry under ``feature``: its badge shows and its button pulses (part 3)."""
@@ -328,7 +410,7 @@ class WhatsNew:
     def default_tab(self) -> str:
         """The tab the modal opens on: the first with something unseen for the viewer, else For Members."""
         for tab in TABS:
-            if any(self.is_unseen(entry) for entry in self.entries_for(tab=tab)):
+            if any(self.is_unseen(entry) for entry in self.window if entry.on_tab(tab)):
                 return tab
         return TABS[0]
 
@@ -352,7 +434,7 @@ def audiences_for(request: HttpRequest) -> frozenset[str]:
 
 
 def entries_for(request: HttpRequest, *, tab: str | None = None, feature: str | None = None) -> list[Entry]:
-    """The window's entries for the request's viewer, by tab and by feature prefix."""
+    """Every entry for the request's viewer, by tab and by feature prefix, newest first."""
     return whats_new_for(request).entries_for(tab=tab, feature=feature)
 
 

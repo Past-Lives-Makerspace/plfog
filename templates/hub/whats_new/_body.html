@@ -1,10 +1,12 @@
-{% load tab_picker hub_tags %}
+{% load tab_picker %}
 {% comment %}
 The What's New modal body (#1007, part 2), swapped into the whats-new modal's body by htmx and
 rendered inline by hub/whats_new.html for a direct link. Context from hub.whats_new_views:
-whats_new_tabs (key, label, href, active, count), whats_new_groups (core.whats_new.DateGroup),
-whats_new_empty, modal_title, and whats_new_fragment on an htmx response, when the title is
-swapped out of band so a feature's name follows the body into the open modal.
+whats_new_tabs (key, label, href, active, count), whats_new_page (core.whats_new.Page, the first
+page of the shown tab) with whats_new_older_url for its Show older button, whats_new_empty,
+modal_title, and whats_new_fragment on an htmx response, when the title is swapped out of band so
+a feature's name follows the body into the open modal. The tab links carry hx-get, which the
+picker copies onto its items, so a phone switches tabs in place too.
 {% endcomment %}
 {% if whats_new_fragment %}<span id="whats-new-title" hx-swap-oob="innerHTML">{{ modal_title }}</span>{% endif %}
 {% tab_picker "What's New" %}
@@ -15,10 +17,9 @@ swapped out of band so a feature's name follows the body into the open modal.
 </nav>
 {% endtab_picker %}
 <div class="pl-wn-pane" data-whats-new-pane="{{ whats_new_tab }}">
-{% for group in whats_new_groups %}
-    <div class="pl-wn-date">{{ group.date|changelog_date }}</div>
-    {% for row in group.rows %}{% include "hub/whats_new/_entry.html" %}{% endfor %}
-{% empty %}
+{% if whats_new_page.groups %}
+{% include "hub/whats_new/_page.html" %}
+{% else %}
     <p class="pl-wn-empty" data-whats-new-empty>{{ whats_new_empty }}</p>
-{% endfor %}
+{% endif %}
 </div>

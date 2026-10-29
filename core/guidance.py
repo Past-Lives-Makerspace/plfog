@@ -51,6 +51,17 @@ class Guidance:
     tour: str | None = None
     help_key: str | None = None
 
+    def url(self, kwargs: dict[str, Any]) -> str:
+        """Where this feature lives, from ``url_kwargs`` already resolved for a member.
+
+        Split from :func:`url_for` so a caller drawing many entries (What's New) can resolve a
+        member's guild once per resolver and build each URL from it.
+        """
+        from django.urls import reverse
+
+        url = reverse(self.url_name, kwargs=kwargs)
+        return f"{url}?{urlencode(self.query)}" if self.query else url
+
 
 def _a_guild(member: Member, *, staffed_only: bool) -> Guild:
     """The guild a member's guild entries open: one they staff, else one they belong to, else,
@@ -464,9 +475,5 @@ def url_for(key: str, member: Member) -> str:
     Raises ``KeyError`` for an unregistered key and ``ValueError`` when the member has nothing to
     open it on (a guild tab for a member in no guild); the caller hides the link.
     """
-    from django.urls import reverse
-
     guidance = GUIDANCE[key]
-    kwargs = guidance.url_kwargs(member) if guidance.url_kwargs is not None else {}
-    url = reverse(guidance.url_name, kwargs=kwargs)
-    return f"{url}?{urlencode(guidance.query)}" if guidance.query else url
+    return guidance.url(guidance.url_kwargs(member) if guidance.url_kwargs is not None else {})

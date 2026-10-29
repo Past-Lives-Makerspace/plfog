@@ -1,0 +1,15 @@
+{% load hub_tags %}
+{% comment %}
+One page of a What's New tab (#1007): its date groups, then Show older while more follow. The
+button replaces itself with the next page, so the entries land at the end of the pane and the
+button moves to the end again; the last page carries no button. Context: whats_new_page
+(core.whats_new.Page) and whats_new_older_url. A page that starts on the date the previous
+page ended on draws no eyebrow for it.
+{% endcomment %}
+{% for group in whats_new_page.groups %}
+    {% if not forloop.first or not whats_new_page.joins_previous %}<div class="pl-wn-date">{{ group.date|changelog_date }}</div>{% endif %}
+    {% for row in group.rows %}{% include "hub/whats_new/_entry.html" %}{% endfor %}
+{% endfor %}
+{% if whats_new_older_url %}
+<button type="button" class="hub-btn hub-btn--sm hub-btn--ghost pl-wn-older" hx-get="{{ whats_new_older_url }}" hx-target="this" hx-swap="outerHTML" data-whats-new-older>Show older</button>
+{% endif %}

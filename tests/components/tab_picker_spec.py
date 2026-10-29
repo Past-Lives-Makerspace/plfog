@@ -33,6 +33,13 @@ BADGED_BUTTONS = (
     '<nav class="pl-tabs"><button class="vote-tab vote-tab--active">Overview</button>'
     '<button class="vote-tab">Cubbies<span class="pl-new" data-new-key="guild.cubbies">New!</span></button></nav>'
 )
+#: A row of links that swap a pane in place rather than navigate (What's New's tabs inside its modal).
+SWAPPING = (
+    '<nav class="pl-tabs">'
+    '<a href="/w/?tab=a" class="vote-tab vote-tab--active" aria-current="page" hx-get="/w/?tab=a" hx-target="#body" hx-swap="innerHTML">A</a>'
+    '<a href="/w/?tab=b" class="vote-tab" hx-get="/w/?tab=b" data-x="1">B</a>'
+    "</nav>"
+)
 
 STEPS = (
     '<div class="pl-phase-tabs" role="tablist" aria-label="Class steps">'
@@ -78,6 +85,12 @@ def describe_read_tabs():
     def it_refuses_a_tab_link_with_no_href():
         with pytest.raises(ValueError, match="tab link has no href"):
             read_tabs('<nav class="pl-tabs"><a class="vote-tab">A</a></nav>')
+
+    def it_carries_a_links_htmx_attributes_and_nothing_else_of_its_attributes():
+        tabs, _ = read_tabs(SWAPPING)
+        assert tabs[0].hx == (("hx-get", "/w/?tab=a"), ("hx-target", "#body"), ("hx-swap", "innerHTML"))
+        assert tabs[1].hx == (("hx-get", "/w/?tab=b"),)
+        assert read_tabs(LINKS)[0][0].hx == ()
 
     def it_reads_in_page_buttons_and_collapses_their_whitespace():
         tabs, buttons = read_tabs(BUTTONS)
@@ -156,6 +169,15 @@ def describe_the_tab_picker_tag():
         )
         assert "data-tab-picker-buttons" not in html
         assert "x-for" not in html
+
+    def it_puts_a_links_htmx_attributes_on_its_item_so_a_phone_swaps_in_place_too():
+        menu = _render(SWAPPING, '"What\'s New"')[len(SWAPPING) :]
+        assert (
+            'href="/w/?tab=a" class="pl-tab-picker__item" aria-current="page" hx-get="/w/?tab=a" hx-target="#body" hx-swap="innerHTML" @click="close()"'
+            in menu
+        )
+        assert 'href="/w/?tab=b" class="pl-tab-picker__item" hx-get="/w/?tab=b" @click="close()"' in menu
+        assert "hx-" not in _render(LINKS)[len(LINKS) :]
 
     def it_shows_a_count_with_no_label_as_it_is():
         row = '<nav class="pl-tabs"><a href="/r/" class="vote-tab vote-tab--active">Registrations (2)</a><a href="/w/" class="vote-tab">Waitlist</a></nav>'

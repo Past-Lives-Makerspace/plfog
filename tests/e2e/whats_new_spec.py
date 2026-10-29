@@ -79,3 +79,24 @@ def it_opens_from_home_switches_a_tab_and_clears_the_dot_on_the_next_load(
     page.reload()
     expect(page.locator("[data-whats-new-button]")).to_be_visible()
     expect(page.locator("[data-whats-new-dot]")).to_have_count(0)
+
+
+def it_switches_a_tab_through_the_phone_picker_without_leaving_home(page, live_server, login_via_code, monkeypatch):
+    monkeypatch.setattr("plfog.version.CHANGELOG", _entries())
+    _sign_in(login_via_code, "whats-new-phone-e2e@example.com")
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(f"{live_server.url}{reverse('hub_home')}")
+    page.locator("[data-whats-new-button]").click()
+    body = page.locator("#whats-new-body")
+    expect(body.locator('[data-whats-new-pane="members"]')).to_be_visible()
+    expect(body.locator("nav.pl-wn-tabs")).to_be_hidden()
+
+    body.locator(".pl-tab-picker__summary").click()
+    body.locator(".pl-tab-picker__menu").get_by_role("link", name="For Guild Staff").click()
+
+    expect(body.locator('[data-whats-new-pane="guild-staff"]')).to_be_visible()
+    expect(body.locator('[data-whats-new-entry="e2e-staff"]')).to_be_visible()
+    expect(body.locator(".pl-tab-picker__current")).to_have_text("For Guild Staff")
+    # Swapped in place: still Home, with the modal open, not the stub page a direct link lands on.
+    assert page.url.endswith(reverse("hub_home"))
+    expect(page.locator("#whats-new-title")).to_have_text("What's New")

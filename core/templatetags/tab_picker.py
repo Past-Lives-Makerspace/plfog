@@ -55,6 +55,11 @@ _LABEL_COUNT = re.compile(r"^(?P<label>.+?)\s*\((?P<count>\d+)\)$")
 ROW_CLASSES = frozenset({"pl-tabs", "pl-phase-tabs"})
 TAB_CLASSES = frozenset({"vote-tab", "pl-phase-tab"})
 
+#: A row of links that swap in place rather than navigate (What's New's tabs inside its modal)
+#: carries these from each link onto the picker's item for it, so a phone switches exactly as the
+#: desktop row does and closing the modal never strands the member on another page.
+HX_ATTRIBUTES = ("hx-get", "hx-target", "hx-swap")
+
 #: Elements with no end tag, which must not open a level of nesting.
 _VOID = frozenset(
     {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
@@ -73,6 +78,8 @@ class PickerTab:
     count_label: str = ""
     #: The key of the New! badge inside the tab (``data-new-key``), or "" with no badge.
     new: str = ""
+    #: The link's :data:`HX_ATTRIBUTES`, in that order, those it carries; rendered on the item as written.
+    hx: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass
@@ -85,6 +92,7 @@ class _Reading:
     count: list[str] = field(default_factory=list)
     count_label: str = ""
     new: str = ""
+    hx: tuple[tuple[str, str], ...] = ()
 
 
 class _RowReader(HTMLParser):
@@ -136,10 +144,12 @@ class _RowReader(HTMLParser):
             self._tab.count_label = values.get("aria-label", "")
 
     def _start_tab(self, tag: str, values: dict[str, str], classes: list[str]) -> None:
+        hx: tuple[tuple[str, str], ...] = ()
         if tag == "a":
             if "href" not in values:
                 raise ValueError("{% tab_picker %} tab link has no href")
             href = values["href"]
+            hx = tuple((name, values[name]) for name in HX_ATTRIBUTES if name in values)
         else:
             href = ""
             self.buttons += 1
@@ -148,7 +158,7 @@ class _RowReader(HTMLParser):
             or values.get("aria-current") == "page"
             or values.get("aria-selected") == "true"
         )
-        self._tab = _Reading(href=href, active=active)
+        self._tab = _Reading(href=href, active=active, hx=hx)
         self._tab_depth = self._depth
 
     def handle_endtag(self, tag: str) -> None:
@@ -186,6 +196,7 @@ def _finish(reading: _Reading) -> PickerTab:
         active=reading.active,
         count_label=reading.count_label,
         new=reading.new,
+        hx=reading.hx,
     )
 
 

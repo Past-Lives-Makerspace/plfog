@@ -1,4 +1,4 @@
-"""BDD specs for What's New on the hub (#1007, part 2): the view, the seen POST, the Home button and the body.
+"""BDD specs for What's New on the hub (#1007, part 2): the view, Show older, the seen POST, the Home button and the body.
 
 The changelog is patched per spec (``plfog.version.CHANGELOG``, read at call time), so nothing here
 depends on the repo's fragments or on the calendar.
@@ -16,6 +16,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.functional import SimpleLazyObject
 
+from core.whats_new import PAGE_SIZE
 from hub.context_processors import hub_sidebar
 from hub.view_as import SESSION_ROLE_KEY, ROLE_GUEST, ROLE_MEMBER, ViewAs, compute_actual_roles
 from hub.whats_new_views import hub_whats_new, hub_whats_new_seen
@@ -24,10 +25,10 @@ from tests.membership.factories import GuildFactory, GuildMembershipFactory, Mem
 
 pytestmark = pytest.mark.django_db
 
-#: Queries one htmx GET of the body costs for a member in a guild, with every entry on one guild tab:
+#: Queries one htmx GET of the first page costs for a member in a guild, every entry on one guild tab:
 #: the session, the user, the member, View As, every context processor the hub runs for a partial,
-#: the roles query, the guild lookup behind Open it (once per feature key) and the seen write.
-#: Never one per entry.
+#: the roles query, the guild lookup behind Open it (once per resolver, however many keys share it)
+#: and the seen write. Never one per entry.
 _BODY_QUERY_BUDGET = 23
 
 
@@ -111,6 +112,16 @@ def describe_hub_whats_new():
         client.login(username="orphan", password="pass")
         assert client.get(reverse("hub_whats_new"))["Location"] == reverse("hub_home")
 
+    def it_sends_an_admin_previewing_as_a_guest_home_and_writes_nothing(client: Client, changelog):
+        changelog([_entry("fresh")])
+        member = _login(client, fog_role=Member.FogRole.ADMIN)
+        _preview(client, ROLE_GUEST)
+        response = client.get(reverse("hub_whats_new"), HTTP_HX_REQUEST="true")
+        assert response.status_code == 302
+        assert response["Location"] == reverse("hub_home")
+        assert client.post(reverse("hub_whats_new_seen", args=["guild"]))["Location"] == reverse("hub_home")
+        assert Member.objects.get(pk=member.pk).whats_new_seen == []
+
     def it_answers_an_htmx_request_with_the_body_alone(client: Client, changelog):
         changelog([_entry("fresh")])
         _login(client)
@@ -120,6 +131,7 @@ def describe_hub_whats_new():
         assert 'data-whats-new-tab="members"' in body and 'aria-current="page"' in body
         assert '<span id="whats-new-title" hx-swap-oob="innerHTML">What&#x27;s New</span>' in body
         assert 'data-whats-new-entry="fresh"' in body
+        assert "data-whats-new-older" not in body
 
     def it_answers_a_plain_get_with_a_page_that_opens_the_modal(client: Client, changelog):
         changelog([_entry("fresh")])
@@ -140,6 +152,14 @@ def describe_hub_whats_new():
         )
         assert "hub/whats_new.html" in [t.name for t in response.templates]
 
+    def it_copies_the_tab_links_htmx_attributes_onto_the_phone_picker(client: Client, changelog):
+        changelog([_entry("fresh")])
+        _login(client)
+        body = _body(client)
+        picker = body[body.index('<nav class="pl-tab-picker__menu"') :]
+        assert picker.count('hx-target="#whats-new-body"') == 3
+        assert 'hx-get="/whats-new/?tab=admins"' in picker
+
     def describe_the_tab():
         def it_opens_on_the_first_tab_with_something_unseen_for_the_viewer(client: Client, changelog):
             changelog([_entry("staff", audiences=("guild-staff",)), _entry("members", audiences=("members",))])
@@ -159,7 +179,7 @@ def describe_hub_whats_new():
             assert 'data-whats-new-pane="members"' in _body(client, "?tab=everyone")
 
     def describe_seen():
-        def it_marks_every_entry_the_shown_tab_listed_and_no_other(client: Client, changelog):
+        def it_marks_every_entry_the_shown_page_listed_and_no_other(client: Client, changelog):
             changelog([_entry("a"), _entry("b", days_ago=1), _entry("staff", audiences=("guild-staff",))])
             member = _login(client)
             _body(client)
@@ -175,6 +195,50 @@ def describe_hub_whats_new():
             assert "data-whats-new-dot" not in client.get(reverse("hub_home")).content.decode()
             changelog([_entry("b"), _entry("a")])
             assert "data-whats-new-dot" in client.get(reverse("hub_home")).content.decode()
+
+    def describe_show_older():
+        def it_lists_a_page_and_a_show_older_button_that_loads_the_next_page_alone(client: Client, changelog):
+            changelog([_entry(f"row-{i:02d}", days_ago=i) for i in range(PAGE_SIZE + 5)])
+            member = _login(client)
+            body = _body(client)
+            assert body.count("data-whats-new-entry=") == PAGE_SIZE
+            assert f'data-whats-new-entry="row-{PAGE_SIZE - 1:02d}"' in body
+            older = f"/whats-new/?tab=members&amp;after=row-{PAGE_SIZE - 1:02d}"
+            assert f'hx-get="{older}" hx-target="this" hx-swap="outerHTML" data-whats-new-older' in body
+            assert Member.objects.get(pk=member.pk).whats_new_seen == [f"row-{i:02d}" for i in range(PAGE_SIZE)]
+
+            page = _body(client, older.removeprefix("/whats-new/").replace("&amp;", "&"))
+            assert page.count("data-whats-new-entry=") == 5
+            assert "data-whats-new-tab" not in page and "<html" not in page and "whats-new-title" not in page
+            assert "data-whats-new-older" not in page
+            assert page.count('class="pl-wn-date"') == 5
+            assert Member.objects.get(pk=member.pk).whats_new_seen == [f"row-{i:02d}" for i in range(PAGE_SIZE + 5)]
+
+        def it_draws_no_eyebrow_when_a_page_continues_the_date_the_last_one_ended_on(client: Client, changelog):
+            changelog([_entry(f"row-{i:02d}") for i in range(PAGE_SIZE + 1)] + [_entry("next-day", days_ago=1)])
+            _login(client)
+            page = _body(client, f"?tab=members&after=row-{PAGE_SIZE - 1:02d}")
+            assert page.count('class="pl-wn-date"') == 1
+            assert page.index(f'data-whats-new-entry="row-{PAGE_SIZE:02d}"') < page.index('class="pl-wn-date"')
+
+        def it_keeps_the_feature_through_the_pages(client: Client, changelog):
+            changelog([_entry(f"row-{i:02d}", feature="guild.cubbies", days_ago=i) for i in range(PAGE_SIZE + 1)])
+            _login(client)
+            body = _body(client, "?feature=guild")
+            assert f'hx-get="/whats-new/?tab=members&amp;feature=guild&amp;after=row-{PAGE_SIZE - 1:02d}"' in body
+
+        def it_refuses_to_continue_after_an_entry_the_tab_does_not_have(client: Client, changelog):
+            changelog([_entry("fresh")])
+            _login(client)
+            response = client.get(reverse("hub_whats_new") + "?tab=members&after=gone", HTTP_HX_REQUEST="true")
+            assert response.status_code == 404
+
+        def it_starts_a_plain_get_at_the_top(client: Client, changelog):
+            changelog([_entry("a"), _entry("b", days_ago=1)])
+            _login(client)
+            response = client.get(reverse("hub_whats_new") + "?after=a")
+            assert "hub/whats_new.html" in [t.name for t in response.templates]
+            assert 'data-whats-new-entry="a"' in response.content.decode()
 
     def describe_feature_mode():
         def it_limits_the_body_to_the_key_and_its_children_with_counts_and_a_title(client: Client, changelog):
@@ -210,10 +274,18 @@ def describe_hub_whats_new():
         with django_assert_num_queries(_BODY_QUERY_BUDGET):
             body = _body(client)  # lists one new entry, so the seen list is written
         assert body.count("data-whats-new-open") == 1
-        changelog([_entry(f"row-{i}", feature="guild.cubbies", guidance="link") for i in range(12)])
+        keys = (
+            "guild.cubbies",
+            "guild.orientations",
+            "guild.reservations",
+            "guild.wiki",
+            "guild.meetings",
+            "guild.polls",
+        )
+        changelog([_entry(f"row-{i}", feature=keys[i % 6], guidance="link") for i in range(PAGE_SIZE)])
         with django_assert_num_queries(_BODY_QUERY_BUDGET):
-            body = _body(client)  # twelve new entries, one write, the same count
-        assert body.count("data-whats-new-open") == 12
+            body = _body(client)  # a full page over six guild keys, one write, the same count
+        assert body.count("data-whats-new-open") == PAGE_SIZE
 
 
 def describe_hub_whats_new_seen():
@@ -230,9 +302,10 @@ def describe_hub_whats_new_seen():
         _login(client)
         assert client.get(reverse("hub_whats_new_seen", args=["guild"])).status_code == 405
 
-    def it_refuses_a_key_outside_the_grammar(client: Client):
+    def it_refuses_a_key_outside_the_grammar_or_the_registry(client: Client):
         _login(client)
         assert client.post(reverse("hub_whats_new_seen", args=["Guild Cubbies"])).status_code == 404
+        assert client.post(reverse("hub_whats_new_seen", args=["guild.nothing"])).status_code == 404
 
     def it_sends_a_guest_home():
         MembershipPlanFactory()
@@ -335,8 +408,9 @@ def describe_the_body():
         changelog([_entry("fresh")])
         _login(client)
         body = _body(client, "?tab=admins")
-        assert "Nothing new for admins in the last 30 days." in body
-        assert "data-whats-new-entry" not in body
+        assert "Nothing here for admins yet." in body
+        assert "data-whats-new-entry" not in body and "data-whats-new-older" not in body
+        assert "Nothing here for guild staff yet." in _body(client, "?tab=guild-staff")
 
     def it_lists_the_steps_at_level_clip_and_the_tour_at_level_tour(client: Client, changelog):
         changelog(
