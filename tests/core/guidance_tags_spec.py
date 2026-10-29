@@ -16,6 +16,7 @@ from django.template import Context, Template
 from django.test import RequestFactory
 from django.utils import timezone
 
+from core.guidance import title_for
 from core.whats_new import NEW_DAYS
 from hub.view_as import ROLE_GUEST, ViewAs, compute_actual_roles
 from membership.models import Member
@@ -139,13 +140,15 @@ def describe_whats_new_button():
         html = _render('{% whats_new_button "guild" %}', _request(_member().user))
         assert 'class="pl-whats-new-btn pl-whats-new-btn--icon pl-whats-new-btn--unseen"' in html
         assert 'hx-get="/whats-new/?feature=guild"' in html and 'hx-target="#whats-new-body"' in html
-        assert 'data-whats-new-key="guild"' in html and 'aria-label="What\'s new in Guild"' in html
+        assert 'data-whats-new-key="guild"' in html
+        assert 'aria-label="What\'s new in Guilds, something is new for you"' in html
+        assert "sr-only" not in html
         assert "data-whats-new-dot" in html and "What's New<" not in html
 
     def it_renders_still_once_everything_under_the_key_is_seen(changelog):
         changelog([_entry("cubbies", feature="guild.cubbies")])
         html = _render('{% whats_new_button "guild" %}', _request(_member(whats_new_seen=["cubbies"]).user))
-        assert "data-whats-new-button" in html
+        assert "data-whats-new-button" in html and 'aria-label="What\'s new in Guilds"' in html
         assert "pl-whats-new-btn--unseen" not in html and "data-whats-new-dot" not in html
 
     def it_renders_nothing_for_a_key_no_entry_names(changelog):
@@ -156,21 +159,40 @@ def describe_whats_new_button():
         changelog([_entry("events", feature="admin.events", days_ago=NEW_DAYS + 1, audiences=("admins",))])
         admin = _member("admin", fog_role=Member.FogRole.ADMIN)
         html = _render('{% whats_new_button "admin" %}', _request(admin.user))
-        assert 'aria-label="What\'s new in Admin"' in html and "pl-whats-new-btn--unseen" not in html
+        assert 'aria-label="What\'s new in Admin Tools"' in html and "pl-whats-new-btn--unseen" not in html
 
     def it_names_a_feature_key_by_its_registered_title(changelog):
         changelog([_entry("cubbies", feature="guild.cubbies")])
         html = _render('{% whats_new_button "guild.cubbies" %}', _request(_member().user))
-        assert 'aria-label="What\'s new in Guild Cubbies"' in html and "?feature=guild.cubbies" in html
+        assert 'aria-label="What\'s new in Guild Cubbies, something is new for you"' in html
+        assert "?feature=guild.cubbies" in html
 
     def it_renders_homes_labelled_button_over_every_entry_with_no_key(changelog):
         changelog([_entry("fresh")])
         html = _render("{% whats_new_button labelled=True %}", _request(_member().user))
         assert 'hx-get="/whats-new/"' in html and "pl-whats-new-btn--icon" not in html
         assert "What's New<" in html and "data-whats-new-key" not in html and "data-whats-new-dot" in html
+        assert '<span class="sr-only" data-whats-new-sr>, something is new for you</span>' in html
 
     def it_renders_nothing_for_a_viewer_the_modal_is_not_for(changelog):
         changelog([_entry("fresh")])
         assert _render("{% whats_new_button labelled=True %}", _request(None)) == ""
         guest = _member("guest", status=Member.Status.GUEST)
         assert _render("{% whats_new_button labelled=True %}", _request(guest.user)) == ""
+
+
+def describe_title_for():
+    @pytest.mark.parametrize(
+        ("key", "title"),
+        [
+            ("guild.cubbies", "Guild Cubbies"),
+            ("admin", "Admin Tools"),
+            ("guild", "Guilds"),
+            ("home", "Home"),
+            ("classes", "Classes"),
+            ("feedback", "Feedback"),
+            ("account.door-code", "Door Code"),
+        ],
+    )
+    def it_names_a_feature_by_its_title_and_an_area_by_its_own_name(key, title):
+        assert title_for(key) == title

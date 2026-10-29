@@ -254,7 +254,7 @@ def describe_hub_whats_new():
             assert 'data-whats-new-entry="cubbies"' in body and 'data-whats-new-entry="voting"' in body
             assert 'data-whats-new-entry="tools"' not in body
             assert "For Members (2)" in body and "For Guild Staff (1)" in body and ">For Admins<" in body
-            assert "What&#x27;s New · Guild</span>" in body
+            assert "What&#x27;s New · Guilds</span>" in body  # core.guidance.AREA_TITLES names an area
             assert "What&#x27;s New · Guild Cubbies</span>" in _body(client, "?feature=guild.cubbies")
             assert 'href="/whats-new/?tab=admins&amp;feature=guild"' in body
 

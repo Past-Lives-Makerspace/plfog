@@ -200,6 +200,33 @@ def describe_guest_guild_page():
             body = client.get(f"/guilds/{guild.slug}/").content  # members surface
             assert b"Leave this guild" not in body
 
+    def describe_whats_new():
+        def it_offers_a_signed_in_member_no_button_and_no_modal(client: Client, monkeypatch):
+            # hub_whats_new is not in GUILDS_ALLOWED_VIEW_NAMES, so a button here would open an empty modal (#1007).
+            from django.utils import timezone
+
+            monkeypatch.setattr(
+                "plfog.version.CHANGELOG",
+                [
+                    {
+                        "date": timezone.localdate().isoformat(),
+                        "title": "Cubbies",
+                        "changes": ["Rent one."],
+                        "slug": "cubbies",
+                        "audiences": ["members"],
+                        "feature": "guild.cubbies",
+                        "guidance": "link",
+                    }
+                ],
+            )
+            _login_member(client)
+            guild = GuildFactory(name="Quiet Guild")
+            response = _guest_get(client, guild)
+            assert response.status_code == 200
+            body = response.content.decode()
+            assert "data-whats-new-button" not in body
+            assert 'id="whats-new-body"' not in body
+
     def describe_orientation_guest_prompt():
         def it_replaces_the_request_button_with_a_login_link_for_anon(client: Client):
             guild = GuildFactory(name="Orient Guild")

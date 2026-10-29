@@ -462,11 +462,15 @@ def registered(key: str) -> bool:
     return any(covers(key, found) for found in GUIDANCE)
 
 
+#: What an area key is called where a title is needed (a button's label, the modal's title); any other area keeps its own name.
+AREA_TITLES = {"admin": "Admin Tools", "guild": "Guilds", "home": "Home", "classes": "Classes"}
+
+
 def title_for(key: str) -> str:
-    """What ``key`` is called: the registered title, or the area's own name for an area key (``guild`` is "Guild")."""
+    """What ``key`` is called: the registered title, :data:`AREA_TITLES` for an area, else the key's last segment in Title Case."""
     if key in GUIDANCE:
         return GUIDANCE[key].title
-    return key.rsplit(".", 1)[-1].replace("-", " ").title()
+    return AREA_TITLES.get(key) or key.rsplit(".", 1)[-1].replace("-", " ").title()
 
 
 def url_for(key: str, member: Member) -> str:

@@ -148,14 +148,21 @@ def describe_the_button():
         button = page.locator('[data-whats-new-button][data-whats-new-key="guild"]')
         expect(button).to_be_visible()
         expect(button).to_have_class(re.compile(r"pl-whats-new-btn--unseen"))
-        expect(button).to_have_attribute("aria-label", "What's new in Guild")
+        expect(button).to_have_attribute("aria-label", "What's new in Guilds, something is new for you")
 
         button.click()
         body = page.locator("#whats-new-body")
         expect(body.locator('[data-whats-new-entry="e2e-cubbies"]')).to_be_visible()
-        expect(page.locator("#whats-new-title")).to_have_text("What's New · Guild")
+        expect(page.locator("#whats-new-title")).to_have_text("What's New · Guilds")
         expect(body.locator('[data-whats-new-tab="members"]')).to_contain_text("(1)")
         expect(body.locator('[data-whats-new-entry="e2e-recon"]')).to_have_count(0)
+
+        # The body marked the entry seen, so the button settled on the click and stays still after the modal closes.
+        page.keyboard.press("Escape")
+        expect(body).to_be_hidden()
+        expect(button).not_to_have_class(re.compile(r"pl-whats-new-btn--unseen"))
+        expect(button.locator("[data-whats-new-dot]")).to_have_count(0)
+        expect(button).to_have_attribute("aria-label", "What's new in Guilds")
 
     def it_is_the_admin_button_on_admin_tools_and_the_guild_one_on_guild_tools(page, live_server, login_via_code):
         _member(admin=True)

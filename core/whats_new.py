@@ -394,7 +394,7 @@ class WhatsNew:
 
     def has_unseen(self, feature: str) -> bool:
         """Whether the viewer has an unseen entry under ``feature``: its badge shows and its button pulses (part 3)."""
-        return any(self.is_unseen(entry) for entry in self.entries_for(feature=feature))
+        return any(self.is_unseen(entry) for entry in self.window if entry.under(feature))
 
     @staticmethod
     def has_entries(feature: str) -> bool:
