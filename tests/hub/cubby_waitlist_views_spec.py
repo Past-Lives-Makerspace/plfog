@@ -283,6 +283,17 @@ def describe_remove():
         entry.refresh_from_db()
         assert not entry.is_waiting
 
+    def it_is_a_404_to_an_admin_previewing_as_a_guild_officer(client: Client):
+        # #1015: the preview is refused like the role it shows.
+        _login(client, "preview_admin", fog_role=Member.FogRole.ADMIN)
+        session = client.session
+        session["view_as_role"] = "guild_officer"
+        session.save()
+        (entry,) = _wait(_guild(), "Verity")
+        assert client.post(entry.remove_url).status_code == 404
+        entry.refresh_from_db()
+        assert entry.is_waiting
+
 
 def describe_the_cubbies_tab_switch():
     def it_tells_the_line_about_each_open_cubby_when_it_comes_on(client: Client, django_capture_on_commit_callbacks):

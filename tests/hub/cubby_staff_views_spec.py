@@ -143,6 +143,26 @@ def describe_the_rentals_tab():
         rental.refresh_from_db()
         assert rental.status == Status.ENDED
 
+    def it_is_a_404_to_an_admin_previewing_as_a_guild_officer(client: Client):
+        # #1015: the preview is refused like the role it shows, on Rentals, CSV, Assign and End Rental.
+        _account("preview_admin", "Preview Admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="preview_admin", password="pass")
+        session = client.session
+        session["view_as_role"] = "guild_officer"
+        session.save()
+        guild = GuildFactory(name="Kettlewick Pottery Guild", show_cubbies_tab=True)
+        rental = CubbyRentalFactory(
+            cubby=_cubby(guild), source=Source.COMPED, amount_cents=0, stripe_subscription_id=None
+        )
+        assert client.get(_rentals_url(guild)).status_code == 404
+        assert client.get(reverse("hub_guild_cubbies_rentals_csv", args=[guild.pk])).status_code == 404
+        assert client.post(reverse("hub_guild_cubby_assign", args=[guild.pk]), {"source": "comped"}).status_code == 404
+        assert (
+            client.post(reverse("hub_cubby_rental_end", args=[rental.pk]), {"reason": "Not yours."}).status_code == 404
+        )
+        rental.refresh_from_db()
+        assert rental.status == Status.ACTIVE
+
 
 def describe_export_csv():
     def it_streams_one_row_per_rental(client: Client):

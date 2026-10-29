@@ -127,8 +127,9 @@ def cubby_guilds(request: HttpRequest) -> QuerySet[Guild]:
     The queryset form of :func:`can_manage_cubbies` (#1015): an admin (``view_as`` aware) gets
     every active guild; anyone else gets every guild they lead or staff, hidden ones included,
     because the manager still works for a hidden guild. Same legs, same ``view_as`` preview, so
-    every guild listed passes :func:`can_manage_cubbies`. A Guild Officer who leads or staffs
-    no guild gets nothing.
+    every guild listed passes :func:`can_manage_cubbies`; an admin also passes it for a hidden
+    guild, which this list leaves out, as :func:`manageable_guilds` does. A Guild Officer who
+    leads or staffs no guild gets nothing.
     """
     from membership.models import Guild
 

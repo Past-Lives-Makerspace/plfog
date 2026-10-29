@@ -1569,7 +1569,9 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
     Meeting Notes and Events are in-page tabs here (see ``_guild_edit_context``), not separate
     pages. Orientations moved to their own page (#672): a GET for the old ``?tab=orientations``
-    redirects there, so links already shared in Discord and email keep working. Each
+    redirects there, so links already shared in Discord and email keep working. The Cubbies tab
+    is only for whoever runs the guild's cubbies (#1015, ``can_manage_cubbies``), so a GET for
+    ``?tab=cubbies`` from anyone else lands on the page itself. Each
     non-Basic/Meetings/Images section saves via its own endpoint, so the main form below only
     covers Basic/Meetings/Images.
     """

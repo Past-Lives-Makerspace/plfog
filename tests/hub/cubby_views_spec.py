@@ -139,12 +139,16 @@ def describe_permissions():
         # own there is no manager for Admin Tools' Cubbies card to open.
         _login(client, "roaming_officer", fog_role=Member.FogRole.GUILD_OFFICER)
         guild, unit, cubby = _theirs()
+        size = (unit.rows, unit.columns)
         for method, url, data in _manage_urls(guild, unit, cubby):
             assert getattr(client, method)(url, data).status_code == 403, url
         assert client.get(reverse("hub_cubbies_home")).status_code == 403
         cubby.refresh_from_db()
         guild.refresh_from_db()
+        unit.refresh_from_db()
         assert cubby.label == "T1" and not cubby.is_archived and not guild.show_cubbies_tab
+        assert (unit.name, unit.rows, unit.columns) == ("Their Shelf", *size) and not unit.is_archived
+        assert not Cubby.objects.filter(unit__guild=guild).exclude(pk=cubby.pk).exists()
 
     def it_lets_a_guild_officer_in_as_the_guilds_lead_or_staff(client: Client):
         officer = _login(client, "own_officer", fog_role=Member.FogRole.GUILD_OFFICER)
