@@ -45,7 +45,7 @@ def describe_orientations_tab():
         content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
         # The tab button and its panel both key off section === 'orientations'.
         assert b"section === 'orientations'" in content
-        assert b">Orientations</button>" in content
+        assert b"@click=\"section = 'orientations'\">Orientations" in content
         # The booking partial (its anchor) lives on the page (Alpine keeps every panel in the DOM).
         assert b'id="guild-orientation"' in content
 
@@ -55,7 +55,7 @@ def describe_orientations_tab():
         client.login(username="ot2", password="pass")
         content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
         assert b"section === 'orientations'" not in content
-        assert b">Orientations</button>" not in content
+        assert b"@click=\"section = 'orientations'\">Orientations" not in content
 
     def it_maps_the_deep_link_in_x_init_only_when_enabled(client: Client):
         _member("ot3")
@@ -96,7 +96,7 @@ def describe_the_tab_gate():
         guild = _enabled_guild()
         OrientationTypeFactory(guild=guild, name="Retired Walkthrough", is_active=False)
         content = _page(client, "gate1", guild)
-        assert ">Orientations</button>" not in content
+        assert "@click=\"section = 'orientations'\">Orientations" not in content
         assert 'id="guild-orientation"' not in content
         assert "t === 'orientations'" not in content
         # The Overview and Guild Calendar pointers to the tab go with it, so none points at nothing.
@@ -107,7 +107,7 @@ def describe_the_tab_gate():
         guild = _enabled_guild()
         OrientationTypeFactory(guild=guild, name="Shop Basics")
         content = _page(client, "gate2", guild)
-        assert ">Orientations</button>" in content
+        assert "@click=\"section = 'orientations'\">Orientations" in content
         assert 'id="guild-orientation"' in content
 
     def it_keeps_the_tab_and_the_cancel_for_a_live_booking_on_a_retired_type(client: Client):
@@ -120,7 +120,7 @@ def describe_the_tab_gate():
         retired.is_active = False
         retired.save(update_fields=["is_active"])
         content = _page(client, "gate3", guild)
-        assert ">Orientations</button>" in content
+        assert "@click=\"section = 'orientations'\">Orientations" in content
         assert f'id="orientation-type-{retired.pk}"' in content
         assert reverse("hub_orientation_cancel_mine", args=[booking.pk]) in content
 
@@ -144,23 +144,23 @@ def describe_the_tab_gate():
     def it_keeps_the_tab_for_a_future_confirmed_booking_on_a_retired_type(client: Client):
         guild, booking = _booking_on_a_retired_type("gate6", days=2, status="confirmed")
         content = _page(client, "gate6", guild)
-        assert ">Orientations</button>" in content
+        assert "@click=\"section = 'orientations'\">Orientations" in content
         assert reverse("hub_orientation_cancel_mine", args=[booking.pk]) in content
 
     def it_keeps_the_tab_for_a_checkout_hold_on_a_retired_type(client: Client):
         guild, booking = _booking_on_a_retired_type("gate7", days=2, status="pending_payment")
         content = _page(client, "gate7", guild)
-        assert ">Orientations</button>" in content
+        assert "@click=\"section = 'orientations'\">Orientations" in content
         assert f'id="orientation-type-{booking.orientation_type_id}"' in content
 
     def it_hides_the_tab_once_the_booking_on_a_retired_type_is_completed(client: Client):
         guild, booking = _booking_on_a_retired_type("gate8", days=2, status="confirmed")
         booking.mark_completed()
-        assert ">Orientations</button>" not in _page(client, "gate8", guild)
+        assert "@click=\"section = 'orientations'\">Orientations" not in _page(client, "gate8", guild)
 
     def it_hides_the_tab_for_a_past_unmarked_booking_on_a_retired_type(client: Client):
         guild, _booking = _booking_on_a_retired_type("gate9", days=-2, status="confirmed")
-        assert ">Orientations</button>" not in _page(client, "gate9", guild)
+        assert "@click=\"section = 'orientations'\">Orientations" not in _page(client, "gate9", guild)
 
     def it_hides_the_tab_once_that_booking_is_cancelled(client: Client):
         user = _member("gate4")
@@ -171,14 +171,14 @@ def describe_the_tab_gate():
             member=user.member,
             status="cancelled",
         )
-        assert ">Orientations</button>" not in _page(client, "gate4", guild)
+        assert "@click=\"section = 'orientations'\">Orientations" not in _page(client, "gate4", guild)
 
     def it_hides_the_tab_while_orientations_are_off_even_with_active_types(client: Client):
         _member("gate5")
         guild = GuildFactory()
         GuildOrientationSettingsFactory(guild=guild, is_enabled=False)
         OrientationTypeFactory(guild=guild, name="Shop Basics")
-        assert ">Orientations</button>" not in _page(client, "gate5", guild)
+        assert "@click=\"section = 'orientations'\">Orientations" not in _page(client, "gate5", guild)
 
 
 def describe_per_type_sections():

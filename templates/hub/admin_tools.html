@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static %}
+{% load static guidance %}
 {% block title %}{{ tools_page_title }}{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/admin-tools.css' %}">
@@ -7,12 +7,19 @@
 {% endblock %}
 {% block content %}
 {# One page, two names (#921): Admin Tools for an admin, Guild Tools for anyone else who runs a guild (hub.views._tools_page_title). #}
-<h1 class="hub-page-title" data-tools-page-title>{{ tools_page_title }}</h1>
-{% if guild_tools %}
-<p class="pl-wizard-lead">Tools for the guilds you help run, in one place.</p>
-{% else %}
-<p class="pl-wizard-lead">Staff and leadership tools, in one place.</p>
-{% endif %}
+{# Right of the title, the What's New button (#1007) for this page's area: admin.* here, guild.* on Guild Tools. #}
+<div class="pl-tools-head">
+  <div>
+    <h1 class="hub-page-title" data-tools-page-title>{{ tools_page_title }}</h1>
+    {% if guild_tools %}
+    <p class="pl-wizard-lead">Tools for the guilds you help run, in one place.</p>
+    {% else %}
+    <p class="pl-wizard-lead">Staff and leadership tools, in one place.</p>
+    {% endif %}
+  </div>
+  {% if guild_tools %}{% whats_new_button "guild" %}{% else %}{% whats_new_button "admin" %}{% endif %}
+</div>
+{% include "components/modal.html" with modal_id="whats-new" modal_title="What's New" modal_size="lg" %}
 
 {# Four sections in Felix's order (#912), after Guild Tools' own guild section (#921); hub.views.ADMIN_TOOL_SECTIONS decides which render, so a section with no card the viewer may open is left out. #}
 <div class="pl-tools-sections" data-help-key="admin.tools-grid">
@@ -45,28 +52,28 @@
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </span>
-        <span class="pl-tool-card__title">Guild Settings</span>
+        <span class="pl-tool-card__title">Guild Settings{% new_badge "guild.staff" %}</span>
         <span class="pl-tool-card__desc">The guild page, meetings, studio hours, staff and the welcome email.</span>
       </a>
       <a class="hub-card pl-tool-card" href="{% url 'hub_guild_orientations' guild.pk %}" data-tool-guild-orientations>
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M16 11l2 2 4-4"/></svg>
         </span>
-        <span class="pl-tool-card__title">Orientations</span>
+        <span class="pl-tool-card__title">Orientations{% new_badge "guild.orientations" %}</span>
         <span class="pl-tool-card__desc">The guild's orientations, who runs them and their hours.</span>
       </a>
       <a class="hub-card pl-tool-card" href="{% url 'hub_guild_edit' guild.pk %}?tab=reservations" data-tool-guild-reservations>
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         </span>
-        <span class="pl-tool-card__title">Reservations</span>
+        <span class="pl-tool-card__title">Reservations{% new_badge "guild.reservations" %}</span>
         <span class="pl-tool-card__desc">The guild's reservable equipment and its Reservations tab on the guild page.</span>
       </a>
       <a class="hub-card pl-tool-card" href="{% url 'hub_guild_cubbies' guild.pk %}" data-tool-guild-cubbies>
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1.5"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/></svg>
         </span>
-        <span class="pl-tool-card__title">Cubbies</span>
+        <span class="pl-tool-card__title">Cubbies{% new_badge "guild.cubbies" %}</span>
         <span class="pl-tool-card__desc">Build the shelves and set the price for the guild's rental cubbies.</span>
         {% if guild_cubby_counts.total %}<span class="pl-cubby-toolstats" data-cubby-toolstats><span class="pl-cubby-chip pl-cubby-chip--open"><svg class="pl-cubby-ico" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>{{ guild_cubby_counts.open }} open</span>{% if guild_cubby_counts.out %}<span class="pl-cubby-chip pl-cubby-chip--out"><svg class="pl-cubby-ico" aria-hidden="true" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/></svg>{{ guild_cubby_counts.out }} out of service</span>{% endif %}</span>{% endif %}
       </a>
@@ -99,7 +106,7 @@
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
         </span>
-        <span class="pl-tool-card__title">Manage Events</span>
+        <span class="pl-tool-card__title">Manage Events{% new_badge "admin.events" %}</span>
         <span class="pl-tool-card__desc">Every event on the Calendar: review proposals, publish, duplicate and unpublish.</span>
       </a>
       {% endif %}
@@ -108,7 +115,7 @@
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         </span>
-        <span class="pl-tool-card__title">Manage Members</span>
+        <span class="pl-tool-card__title">Manage Members{% new_badge "admin.manage-members" %}</span>
         <span class="pl-tool-card__desc">Add, edit, and review members and their roles.</span>
       </a>
       {% endif %}
@@ -135,7 +142,7 @@
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1.5"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/></svg>
         </span>
-        <span class="pl-tool-card__title">Cubbies</span>
+        <span class="pl-tool-card__title">Cubbies{% new_badge "guild.cubbies" %}</span>
         <span class="pl-tool-card__desc">Every guild's rental cubbies: build the shelves and set the price.</span>
       </a>
       {% endif %}
@@ -151,7 +158,7 @@
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
         </span>
-        <span class="pl-tool-card__title">Email Members</span>
+        <span class="pl-tool-card__title">Email Members{% new_badge "admin.email-members" %}</span>
         <span class="pl-tool-card__desc">Email a class, a guild or everyone, post it to Discord and send an app notification.</span>
         <span class="hub-pill hub-pill--neutral pl-tool-card__formerly" data-formerly-announcements>Formerly called Announcements</span>
       </a>
@@ -258,7 +265,7 @@
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
         </span>
-        <span class="pl-tool-card__title">Reports</span>
+        <span class="pl-tool-card__title">Reports{% new_badge "admin.reconciliation" %}</span>
         <span class="pl-tool-card__desc">Revenue reports and guild payout summaries, with CSV export.</span>
       </a>
       {% endif %}
@@ -267,7 +274,7 @@
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         </span>
-        <span class="pl-tool-card__title">Registrations</span>
+        <span class="pl-tool-card__title">Registrations{% new_badge "admin.payment-report" %}</span>
         <span class="pl-tool-card__desc">Who signed up for your guild's classes, with a date range and CSV export.</span>
       </a>
       {% endif %}
@@ -346,7 +353,7 @@
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         </span>
-        <span class="pl-tool-card__title">Activity</span>
+        <span class="pl-tool-card__title">Activity{% new_badge "admin.site-activity" %}</span>
         <span class="pl-tool-card__desc">The site-wide feed of what's happening across the makerspace.</span>
       </a>
       {% endif %}

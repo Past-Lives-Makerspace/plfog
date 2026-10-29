@@ -40,6 +40,7 @@ HEAD_ORDER = (
     "js/inquiry_member_picker.js",
     "js/hq_people_picker.js",
     "js/tab_picker.js",
+    "js/guidance.js",
     "js/pl-rotator.js",
     "js/pl-upcoming-queue.js",
     "js/alpine.min.js",

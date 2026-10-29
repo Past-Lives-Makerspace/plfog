@@ -9088,6 +9088,13 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     flex-wrap: wrap;
     gap: 0.5rem;
 }
+/* The What's New button (#1007) and the CTA sit together on the right and wrap under the chips as one. */
+.pl-guild-statbar__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+}
 
 /* ── Sticky mini Join CTA (clones .pl-scroll-top placement) ──────────────── */
 .pl-guild-join-fab {

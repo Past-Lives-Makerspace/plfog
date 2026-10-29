@@ -4,6 +4,14 @@
    .pl-tools-grid's columns from hub.css with its own gap below the heading. The card rules stay
    in hub.css, which hq.css's door cards also use. */
 
+/* The title and its lead on the left, the What's New button (#1007) on the right, level with the title. */
+.pl-tools-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
 .pl-tools-section { margin-top: 2rem; }
 .pl-tools-section:first-child { margin-top: 1.5rem; }
 .pl-tools-section__title { margin: 0; }
