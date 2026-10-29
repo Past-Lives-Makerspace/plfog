@@ -34,7 +34,7 @@ Context: eyebrow, tabs (PickerTab), buttons, current, position, total.{% endcomm
     {% else %}
     <nav class="pl-tab-picker__menu" aria-label="{{ eyebrow }}">
         {% for tab in tabs %}
-        <a href="{{ tab.href }}" class="pl-tab-picker__item"{% if tab.active %} aria-current="page"{% endif %} @click="close()">
+        <a href="{{ tab.href }}" class="pl-tab-picker__item"{% if tab.active %} aria-current="page"{% endif %}{% for name, value in tab.hx %} {{ name }}="{{ value }}"{% endfor %} @click="close()">
             <span class="pl-tab-picker__item-label">{{ tab.label }}</span>
             {% if tab.count %}<span class="pl-tab-picker__item-count"{% if tab.count_label %} aria-hidden="true"{% endif %}>{{ tab.count }}</span>{% if tab.count_label %}<span class="sr-only">{{ tab.count_label }}</span>{% endif %}{% endif %}
             {% if tab.active %}<svg class="pl-tab-picker__check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>{% endif %}
