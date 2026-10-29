@@ -106,10 +106,14 @@ def describe_ordering_and_paging():
         second = client.get(_queue_url(), {"page": "2"})
         assert len(second.context["reports_page"].object_list) == 1
 
-    def it_does_not_grow_a_query_per_report(client: Client, django_assert_max_num_queries):
+    def it_does_not_grow_a_query_per_report(client: Client, django_assert_max_num_queries, monkeypatch):
         # for_scopes is ONE query and the cards read page, guild and reporter off it.
         # max_num_queries rather than an exact count: an exact assertion fails on a query
         # improvement too, which teaches people to raise the number instead of reading it.
+        # The sidebar's New! badges (#1007) add one roles query while a fragment in the window names a sidebar
+        # key the admin has not seen; that cost is pinned in tests/core/guidance_tags_spec.py, so the changelog
+        # is emptied here to keep the ceiling the queue's own.
+        monkeypatch.setattr("plfog.version.CHANGELOG", [])
         login(client, "q_n_plus_one", fog_role=Member.FogRole.ADMIN)
         for _ in range(10):
             guild = GuildFactory()
