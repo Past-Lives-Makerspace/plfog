@@ -129,7 +129,7 @@ This pipeline's reviews found real blockers in 5 of 6 PRs — do not skip or sof
   (see `reference_plfog_pr_ops` memory for the exact form and its classifier fallback).
 - Wait for the **e2e** check in a background poll loop (~3 min; the `test` job is the ~1 h full suite;
   waiting for it is optional but right for money PRs; the user may merge earlier at their call).
-- `gh pr merge <N> --squash`. A merge whose push **adds a member-facing fragment auto-fires the Discord
+- `gh pr merge <N>` (main uses a merge queue, which squashes; the PR lands once the queue's `lint` and `e2e` pass on the latest main, so wait for `state` MERGED before cutting the next branch). A merge whose push **adds a member-facing fragment auto-fires the Discord
   announce** (`release.yml` diffs for added files), so the fragment must already be right. A push adding
   no fragment moves no version and is a no-op with a `::warning`, not a red X.
 

@@ -15,18 +15,21 @@ name: PR description
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened, labeled, unlabeled, ready_for_review]
+  # Required checks must report in the merge queue too; the description was judged on the PR,
+  # so there the job skips, which GitHub counts as passing.
+  merge_group:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pr-description-${{ github.event.pull_request.number }}
+  group: pr-description-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   description:
     # Dependabot and other bots write their own descriptions.
-    if: github.event.pull_request.user.type != 'Bot'
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.type != 'Bot'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

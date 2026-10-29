@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, closed]
+  # The merge queue re-runs e2e on the PR merged onto the latest main, one PR at a time, so two
+  # PRs that are each green cannot land together and break main (two leaf migrations, four
+  # times by 2026-10-27).
+  merge_group:
 
 # One run per pull request: a new push cancels that PR's older run, and closing or merging the
 # PR cancels whatever is still going (the `closed` event joins the group, then its jobs skip).
