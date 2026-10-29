@@ -106,7 +106,7 @@ def describe_custom_request_branching():
         settings_obj = GuildOrientationSettingsFactory(allow_custom_requests=True)
         orientation_type = OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
         client.login(username="payer4", password="pass")
-        starts = timezone.localtime(timezone.now() + timedelta(days=3))
+        starts = timezone.localtime(timezone.now() + timedelta(days=3)).replace(hour=12, minute=0)
         response = client.post(
             reverse("hub_guild_orientation_request_custom", args=[settings_obj.guild.pk]),
             {"orientation_type": orientation_type.pk, "starts_at": starts.strftime("%Y-%m-%dT%H:%M"), "note": ""},
@@ -522,7 +522,7 @@ def describe_edge_branches():
         settings_obj = GuildOrientationSettingsFactory(allow_custom_requests=True)
         orientation_type = OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
         client.login(username="edge9", password="pass")
-        starts = timezone.localtime(timezone.now() + timedelta(days=3))
+        starts = timezone.localtime(timezone.now() + timedelta(days=3)).replace(hour=12, minute=0)
         response = client.post(
             reverse("hub_guild_orientation_request_custom", args=[settings_obj.guild.pk]),
             {"orientation_type": orientation_type.pk, "starts_at": starts.strftime("%Y-%m-%dT%H:%M"), "note": ""},
@@ -543,7 +543,7 @@ def describe_edge_branches():
             amount_paid_cents=1500,
         )
         client.login(username="edge10", password="pass")
-        starts = timezone.localtime(timezone.now() + timedelta(days=3))
+        starts = timezone.localtime(timezone.now() + timedelta(days=3)).replace(hour=12, minute=0)
         response = client.post(
             reverse("hub_guild_orientation_request_custom", args=[settings_obj.guild.pk]),
             {"orientation_type": orientation_type.pk, "starts_at": starts.strftime("%Y-%m-%dT%H:%M"), "note": ""},

@@ -22,7 +22,9 @@ jobs:
   test:
     if: github.event.action != 'closed' && github.event_name != 'merge_group'
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # The suite takes about two hours on a fast runner and four on a slow one; 180 cut slow
+    # runs off at 91%. 360 is GitHub's ceiling. Splitting the suite is #1006.
+    timeout-minutes: 360
     env:
       DJANGO_SECRET_KEY: test-secret-key-for-ci
       DATABASE_URL: sqlite:///db.sqlite3

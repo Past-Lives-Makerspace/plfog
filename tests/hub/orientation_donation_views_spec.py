@@ -370,7 +370,7 @@ def describe_booking_a_posted_slot():
 
 def describe_booking_a_custom_time():
     def _post(client: Client, orientation_type: OrientationType, amount: str, *, follow: bool = False):
-        starts = timezone.localtime(timezone.now() + timedelta(days=3))
+        starts = timezone.localtime(timezone.now() + timedelta(days=3)).replace(hour=12, minute=0)
         return client.post(
             reverse("hub_guild_orientation_request_custom", args=[orientation_type.guild.pk]),
             {
