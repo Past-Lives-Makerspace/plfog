@@ -177,6 +177,40 @@ def describe_guild_voting_view():
         assert response.context["form"].errors
         assert not VotePreference.objects.filter(member__user__username="dupeuser").exists()
 
+    def it_says_the_vote_was_not_saved_and_names_the_clash(client: Client):
+        user = User.objects.create_user(username="clashuser", password="pass")
+        writers = GuildFactory(name="Writers Guild")
+        printmaking = GuildFactory(name="Printmaking Guild")
+        old = GuildFactory(name="Old Pick")
+        VotePreferenceFactory(member=user.member, guild_1st=old, guild_2nd=printmaking, guild_3rd=writers)
+        client.login(username="clashuser", password="pass")
+
+        response = client.post(
+            "/guilds/voting/",
+            {"guild_1st": writers.pk, "guild_2nd": writers.pk, "guild_3rd": printmaking.pk},
+        )
+
+        msgs = [str(m) for m in response.context["messages"]]
+        assert msgs == [
+            "Your vote was not saved. Writers Guild is picked for your 1st and 2nd choice."
+            " Each choice must be a different guild."
+        ]
+        html = response.content.decode()
+        assert 'role="alert"' in html
+        assert "Already your 1st choice." in html
+        assert VotePreference.objects.get(member=user.member).guild_1st == old
+
+    def it_says_a_missing_choice_was_not_saved(client: Client):
+        User.objects.create_user(username="blankuser", password="pass")
+        g1 = GuildFactory(name="Only Pick")
+        client.login(username="blankuser", password="pass")
+
+        response = client.post("/guilds/voting/", {"guild_1st": g1.pk, "guild_2nd": "", "guild_3rd": ""})
+
+        msgs = [str(m) for m in response.context["messages"]]
+        assert msgs == ["Your vote was not saved. Pick a guild for each of the three choices."]
+        assert not VotePreference.objects.filter(member__user__username="blankuser").exists()
+
     def it_shows_current_preferences(client: Client):
         user = User.objects.create_user(username="showpref", password="pass")
         member = user.member
@@ -423,7 +457,11 @@ def describe_vote_preference_form():
         form = VotePreferenceForm(data={"guild_1st": g1.pk, "guild_2nd": g1.pk, "guild_3rd": g2.pk})
 
         assert not form.is_valid()
-        assert form.non_field_errors()
+        assert form.non_field_errors() == [
+            "Dup1 is picked for your 1st and 2nd choice. Each choice must be a different guild."
+        ]
+        assert form.errors["guild_2nd"] == ["Already your 1st choice."]
+        assert "guild_1st" not in form.errors
 
     def it_rejects_all_same_guilds():
         g1 = GuildFactory(name="AllSame", is_active=True)
@@ -431,6 +469,22 @@ def describe_vote_preference_form():
         form = VotePreferenceForm(data={"guild_1st": g1.pk, "guild_2nd": g1.pk, "guild_3rd": g1.pk})
 
         assert not form.is_valid()
+        assert form.non_field_errors() == [
+            "AllSame is picked for your 1st, 2nd and 3rd choice. Each choice must be a different guild."
+        ]
+        assert form.errors["guild_2nd"] == ["Already your 1st choice."]
+        assert form.errors["guild_3rd"] == ["Already your 1st choice."]
+
+    def it_names_a_clash_between_the_second_and_third_choice():
+        g1 = GuildFactory(name="Lead", is_active=True)
+        g2 = GuildFactory(name="Twice", is_active=True)
+
+        form = VotePreferenceForm(data={"guild_1st": g1.pk, "guild_2nd": g2.pk, "guild_3rd": g2.pk})
+
+        assert form.non_field_errors() == [
+            "Twice is picked for your 2nd and 3rd choice. Each choice must be a different guild."
+        ]
+        assert form.errors["guild_3rd"] == ["Already your 2nd choice."]
 
     def it_rejects_a_first_choice_only_ballot():
         g1 = GuildFactory(name="Only1", is_active=True)

@@ -302,6 +302,10 @@ def guild_voting(request: HttpRequest) -> HttpResponse:
             action = "updated" if preference else "submitted"
             messages.success(request, f"Your vote has been {action}.")
             return redirect("hub_guild_voting")
+        reason = (
+            " ".join(str(error) for error in form.non_field_errors()) or "Pick a guild for each of the three choices."
+        )
+        messages.error(request, f"Your vote was not saved. {reason}")
     else:
         initial: dict[str, Any] = {}
         if preference is not None:

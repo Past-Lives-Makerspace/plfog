@@ -290,7 +290,10 @@ def _vote(interaction: Interaction, member: Member | None) -> dict:
         # Guilds resolved, so the reachable failures are the shared form rules: choices must be
         # distinct and you can't skip a rank — surface the form's own message so Discord and the
         # page speak identically.
-        message = " ".join(str(error) for errors in form.errors.values() for error in errors)
+        # The clash message already names the guild and the choices; the per select notes would repeat it.
+        message = " ".join(str(error) for error in form.non_field_errors()) or " ".join(
+            str(error) for errors in form.errors.values() for error in errors
+        )
         return reply(f"{message} Nothing was changed — adjust your picks and try again.", ephemeral=True)
 
     preference, created = VotePreference.objects.cast_ballot(

@@ -42,21 +42,16 @@
         <div class="hub-form-group">
             <label for="{{ field.id_for_label }}">{{ field.label }}</label>
             {{ field }}
-            {% if field.errors %}
-            <ul class="hub-field-errors">
-                {% for error in field.errors %}
-                <li>{{ error }}</li>
-                {% endfor %}
-            </ul>
-            {% endif %}
+            {% for error in field.errors %}
+            <p class="hub-field-error" id="{{ field.id_for_label }}_error">{{ error }}</p>
+            {% endfor %}
         </div>
         {% endfor %}
         {% if form.non_field_errors %}
-        <ul class="hub-field-errors">
-            {% for error in form.non_field_errors %}
-            <li>{{ error }}</li>
-            {% endfor %}
-        </ul>
+        <div class="hub-form-error" role="alert" style="margin-top: 1rem;">
+            <strong>Your vote was not saved.</strong>
+            {% for error in form.non_field_errors %} {{ error }}{% endfor %}
+        </div>
         {% endif %}
         <div style="margin-top: 1.5rem;">
             <button type="submit" class="hub-btn hub-btn--primary">

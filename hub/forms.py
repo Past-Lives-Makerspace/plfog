@@ -2195,11 +2195,32 @@ class VotePreferenceForm(forms.Form):
         g2 = cleaned.get("guild_2nd")
         g3 = cleaned.get("guild_3rd")
 
-        chosen = [g for g in (g1, g2, g3) if g]
-        if len({g.pk for g in chosen}) != len(chosen):
-            raise forms.ValidationError("Each choice must be a different guild.")
+        # A guild picked twice: mark each later pick with the choice it repeats, and say which guild
+        # and which choices in the form's one message, so the page and /vote name the same clash.
+        ranks = {"guild_1st": "1st", "guild_2nd": "2nd", "guild_3rd": "3rd"}
+        first_rank: dict[int, str] = {}
+        clashes: dict[int, list[str]] = {}
+        names: dict[int, str] = {}
+        for field, guild in (("guild_1st", g1), ("guild_2nd", g2), ("guild_3rd", g3)):
+            if guild is None:
+                continue
+            if guild.pk in first_rank:
+                clashes.setdefault(guild.pk, [first_rank[guild.pk]]).append(ranks[field])
+                self.add_error(field, f"Already your {first_rank[guild.pk]} choice.")
+            else:
+                first_rank[guild.pk] = ranks[field]
+                names[guild.pk] = guild.name
+        for pk, picked in clashes.items():
+            raise forms.ValidationError(
+                f"{names[pk]} is picked for your {_choice_list(picked)} choice. Each choice must be a different guild."
+            )
 
         return cleaned
+
+
+def _choice_list(ranks: list[str]) -> str:
+    """ "1st and 2nd", or "1st, 2nd and 3rd"."""
+    return ranks[0] if len(ranks) == 1 else f"{', '.join(ranks[:-1])} and {ranks[-1]}"
 
 
 class GuildFAQItemForm(forms.ModelForm):
