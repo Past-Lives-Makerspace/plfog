@@ -21,7 +21,9 @@
   {% comment %}
   Guild Tools only (#921): one guild's cards under its name. Every card opens a page gated by
   can_edit_guild, and every guild here (the picker's too) comes from manageable_guilds, its
-  queryset form. A viewer who runs more than one guild picks which one with ?guild=<pk>.
+  queryset form, except Cubbies (#1015): its page is gated by can_manage_cubbies (the guild's
+  lead and staff, and admins), so the card shows only while tool_guild_cubbies is true.
+  A viewer who runs more than one guild picks which one with ?guild=<pk>.
   {% endcomment %}
   <section class="pl-tools-section" data-tools-section="guild" data-tools-guild="{{ guild.pk }}" aria-labelledby="tools-section-guild">
     <div class="pl-tools-section__head">
@@ -62,6 +64,7 @@
         <span class="pl-tool-card__title">Reservations</span>
         <span class="pl-tool-card__desc">The guild's reservable equipment and its Reservations tab on the guild page.</span>
       </a>
+      {% if tool_guild_cubbies %}
       <a class="hub-card pl-tool-card" href="{% url 'hub_guild_cubbies' guild.pk %}" data-tool-guild-cubbies>
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1.5"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/></svg>
@@ -70,6 +73,7 @@
         <span class="pl-tool-card__desc">Build the shelves and set the price for the guild's rental cubbies.</span>
         {% if guild_cubby_counts.total %}<span class="pl-cubby-toolstats" data-cubby-toolstats><span class="pl-cubby-chip pl-cubby-chip--open"><svg class="pl-cubby-ico" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>{{ guild_cubby_counts.open }} open</span>{% if guild_cubby_counts.out %}<span class="pl-cubby-chip pl-cubby-chip--out"><svg class="pl-cubby-ico" aria-hidden="true" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/></svg>{{ guild_cubby_counts.out }} out of service</span>{% endif %}</span>{% endif %}
       </a>
+      {% endif %}
       <a class="hub-card pl-tool-card" href="{% url 'hub_guild_edit' guild.pk %}?tab=events" data-tool-guild-events>
         <span class="pl-tool-card__icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>

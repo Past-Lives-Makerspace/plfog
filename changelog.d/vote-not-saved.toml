@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-29"
+title = "Guild voting says when your vote was not saved"
+changes = [
+  "If you pick the same guild twice, the voting page now says your vote was not saved, names the guild, and marks the choice to change.",
+  "Error boxes on portal forms are easier to read, most of all in the light theme.",
+]

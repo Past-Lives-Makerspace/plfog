@@ -9,7 +9,9 @@ viewer gets, and ``hub.views.hub_admin_tools`` builds the cards.
 
 Nothing here grants anything. Every guild offered comes from
 :func:`membership.permissions.manageable_guilds`, the queryset form of ``can_edit_guild``, which
-is the gate on every page the guild section's cards open.
+is the gate on every page the guild section's cards open, except Cubbies (#1015): its page is
+gated by :func:`membership.permissions.can_manage_cubbies` (the guild's lead and staff, and
+admins), so ``hub_admin_tools`` shows that card only while the selected guild passes it.
 """
 
 from __future__ import annotations
