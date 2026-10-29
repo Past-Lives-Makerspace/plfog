@@ -80,17 +80,18 @@ def describe_GUIDANCE():
     def it_imports_with_no_django_settings():
         # The CI scripts import this module the way they import plfog.changelog: bare Python,
         # no settings, no dependency install. A Django import at module level fails here.
+        # The CI job has no Django installed either, so a `django` import at module level
+        # would fail there even though it imports fine here: assert none was loaded.
         env = {name: value for name, value in os.environ.items() if name != "DJANGO_SETTINGS_MODULE"}
+        program = (
+            "import sys, core.guidance; "
+            "print(len(core.guidance.GUIDANCE), any(name.split('.')[0] == 'django' for name in sys.modules))"
+        )
         completed = subprocess.run(
-            [sys.executable, "-c", "import core.guidance; print(len(core.guidance.GUIDANCE))"],
-            capture_output=True,
-            text=True,
-            check=False,
-            cwd=_REPO_ROOT,
-            env=env,
+            [sys.executable, "-c", program], capture_output=True, text=True, check=False, cwd=_REPO_ROOT, env=env
         )
         assert completed.returncode == 0, completed.stderr
-        assert completed.stdout.strip() == str(len(GUIDANCE))
+        assert completed.stdout.split() == [str(len(GUIDANCE)), "False"]
 
 
 def describe_url_for():
