@@ -8,7 +8,7 @@ up (this repo is public)."""
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 from unittest.mock import patch
 
@@ -19,7 +19,10 @@ from django.contrib.messages import get_messages
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import Client
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
 from core.models import ScheduledTaskRun
 from core.scheduled_jobs import JOBS_BY_KEY, Cadence, Trigger, record_run
@@ -30,6 +33,7 @@ from hq.vendor_sheet import (
     NO_ANSWER,
     NOT_A_SHEET_LINK,
     NOT_FOUND,
+    NOT_GOOGLE,
     NOT_SHARED,
     TOO_LARGE,
     SheetLink,
@@ -40,7 +44,7 @@ from hq.vendor_sheet import (
 from hub.view_as import ROLE_MEMBER
 from tests.hq.conftest import signed_in
 from tests.hq.factories import EventHubFactory, HubCardFactory, VendorFloorFactory, VendorTableFactory
-from tests.membership.factories import GuildFactory
+from tests.membership.factories import CommunityEventFactory, GuildFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -225,7 +229,45 @@ def describe_the_pulls_rule():
         assert table.size == VendorTable.Size.EIGHT_FT
         assert [problem.line for problem in first.problems] == [2]
         assert [problem.line for problem in again.problems] == [2]
-        assert table.sheet_cells["size"] == "huge"
+        assert table.sheet_cells["size"] == "8 ft"  # an unreadable cell is never remembered, so it is retried
+
+    def it_applies_an_unreadable_cell_once_the_portal_knows_its_value(hub, linked, sheet):
+        _pull(hub, sheet, "Riley,Glassblowing,,,,,")
+        assert _table(hub, "Riley").guild is None
+        assert "guild" not in _table(hub, "Riley").sheet_cells
+
+        guild = GuildFactory(name="Glassblowing Guild")
+        result = _pull(hub, sheet, "Riley,Glassblowing,,,,,")
+
+        assert _table(hub, "Riley").guild == guild
+        assert (result.updated, result.problems) == (1, [])
+
+    def it_keeps_a_columns_memory_while_the_sheet_lacks_it_so_restoring_it_changes_nothing(hub, linked, sheet):
+        _pull(hub, sheet, "Riley,,,Requested,Boards,,")
+        table = _table(hub, "Riley")
+        table.status = S.CONFIRMED
+        table.save()
+
+        sheet.text = "Name,What they sell\nRiley,Boards\n"  # Kate deleted the Status column for a day
+        services.pull_vendor_sheet(hub)
+        _pull(hub, sheet, "Riley,,,Requested,Boards,,")  # and put it back
+
+        table.refresh_from_db()
+        assert table.status == S.CONFIRMED
+        assert table.sheet_cells["status"] == "Requested"
+
+    def it_keeps_a_columns_memory_while_its_header_is_renamed_and_restored(hub, linked, sheet):
+        _pull(hub, sheet, "Riley,,,Requested,Boards,,")
+        table = _table(hub, "Riley")
+        table.status = S.CONFIRMED
+        table.save()
+
+        sheet.text = "Name,State,What they sell\nRiley,Requested,Boards\n"  # Status renamed to State
+        services.pull_vendor_sheet(hub)
+        _pull(hub, sheet, "Riley,,,Requested,Boards,,")
+
+        table.refresh_from_db()
+        assert table.status == S.CONFIRMED
 
     def it_applies_the_cell_once_kate_fixes_what_could_not_be_read(hub, linked, sheet):
         _pull(hub, sheet, "Riley,,huge,Requested,,,")
@@ -278,6 +320,18 @@ def describe_the_pulls_rule():
         assert table.updated_at == stamp  # an open row form on the page is not made stale
         assert table.sheet_cells["status"] == "Confirmed"
 
+    @pytest.mark.postgres_only
+    def it_locks_the_hub_before_reading_its_tables_so_two_pulls_take_turns(hub):
+        sheet_rows = parse_rows(read_csv(f"{HEADER}\nRiley,,,,,,\n".encode()), guilds=[])
+
+        with CaptureQueriesContext(connection) as queries:
+            apply_pull(hub, sheet_rows)
+
+        sql = [query["sql"] for query in queries.captured_queries]
+        hub_lock = next(i for i, text in enumerate(sql) if "FOR UPDATE" in text)
+        assert '"hq_eventhub"' in sql[hub_lock]
+        assert hub_lock < next(i for i, text in enumerate(sql) if '"hq_vendortable"' in text)
+
     def it_writes_in_one_transaction_under_the_rows_lock(hub, sheet):
         VendorTableFactory(hub=hub, name="Riley")
         sheet_rows = parse_rows(read_csv(f"{HEADER}\nRiley,,,Waitlist,,,\n".encode()), guilds=[])
@@ -318,6 +372,7 @@ def describe_the_sheet_link():
         link = sheet_link(url)
 
         assert link == SheetLink(sheet_id=SHEET_ID, gid=gid)
+        assert link.edit_url == f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit#gid={gid}"
         assert link.export_url == f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
 
     @pytest.mark.parametrize(
@@ -330,6 +385,9 @@ def describe_the_sheet_link():
             f"https://docs.google.com/document/d/{SHEET_ID}/edit",
             "https://docs.google.com/spreadsheets/d/e/2PACX-1vSpecPublishedSheet/pubhtml",
             "https://docs.google.com/spreadsheets/d/short/edit",
+            f"https://evil.example\\@docs.google.com/spreadsheets/d/{SHEET_ID}/edit",
+            f"https://evil.example@docs.google.com/spreadsheets/d/{SHEET_ID}/edit",
+            f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit\\..\\x",
             "not a link",
         ],
     )
@@ -390,6 +448,16 @@ def describe_fetching_the_sheet():
         with pytest.raises(SheetUnreadable) as refused:
             fetch_sheet_csv(LINK)
         assert str(refused.value) == message
+
+    @respx.mock
+    def it_refuses_a_redirect_that_leads_outside_google_without_following_it():
+        respx.get(EXPORT_URL).mock(return_value=httpx.Response(302, headers={"location": "https://evil.example/x"}))
+        elsewhere = respx.get("https://evil.example/x")
+
+        with pytest.raises(SheetUnreadable) as refused:
+            fetch_sheet_csv(LINK)
+        assert str(refused.value) == NOT_GOOGLE
+        assert not elsewhere.called
 
     @respx.mock
     def it_says_google_did_not_answer_when_the_request_fails():
@@ -488,6 +556,43 @@ def describe_pulling_a_hub():
         assert failed == [(other, NOT_SHARED)]
         assert hub.vendor_tables.filter(name="Riley").exists()
 
+    def it_records_any_other_failure_on_that_hub_and_still_pulls_the_rest(hub, linked, sheet, caplog):
+        other = EventHubFactory(title="Spec Spring Market")
+        VendorFloorFactory(hub=other, sheet_url=SHEET_URL)
+        calls: list[str] = []
+
+        def fetch(link: SheetLink) -> bytes:
+            calls.append(link.sheet_id)
+            if len(calls) == 1:
+                raise RuntimeError("spec bug")
+            return b"Name\nRiley\n"
+
+        with patch.object(vendor_sheet, "fetch_sheet_csv", fetch):
+            failed = services.pull_every_vendor_sheet()
+
+        assert failed == [(hub, services.PULL_FAILED)]
+        assert services.vendor_sheet_state(hub).error == services.PULL_FAILED
+        assert other.vendor_tables.filter(name="Riley").exists()
+        assert "Vendor sheet pull failed" in caplog.text
+
+    def it_leaves_out_hubs_whose_event_has_ended(hub, linked, sheet):
+        now = timezone.now()
+        past = EventHubFactory(
+            event=CommunityEventFactory(starts_at=now - timedelta(days=2), ends_at=now - timedelta(days=1))
+        )
+        VendorFloorFactory(hub=past, sheet_url=SHEET_URL)
+        coming = EventHubFactory(
+            event=CommunityEventFactory(starts_at=now + timedelta(days=30), ends_at=now + timedelta(days=30, hours=5))
+        )
+        VendorFloorFactory(hub=coming, sheet_url=SHEET_URL)
+        sheet.text = "Name\nRiley\n"
+
+        assert services.pull_every_vendor_sheet() == []
+
+        assert len(sheet.links) == 2  # this hub (no event) and the coming one
+        assert not past.vendor_tables.exists()
+        assert coming.vendor_tables.filter(name="Riley").exists()
+
 
 def describe_saving_the_link():
     def it_makes_the_floor_row_and_saves_the_link(hub):
@@ -503,6 +608,13 @@ def describe_saving_the_link():
         state = services.vendor_sheet_state(hub)
         assert (state.pulled_at, state.summary) == (None, "")
         assert _table(hub, "Riley").sheet_cells["status"] == "Requested"
+
+    def it_stores_the_address_built_from_the_sheets_id_not_the_pasted_text(hub):
+        floor = services.set_vendor_sheet(
+            hub, f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit?usp=sharing&gid=7"
+        )
+
+        assert floor.sheet_url == f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit#gid=7"
 
     def it_keeps_the_last_pull_when_the_same_link_is_saved_again(hub, linked, sheet):
         _pull(hub, sheet, "Riley,,,,,,")
@@ -618,6 +730,25 @@ def describe_saving_the_sheet_link():
         assert response.status_code == 302
         assert _messages(response) == [("success", "Sheet link saved.")]
         assert VendorFloor.objects.get(hub=hub).sheet_url == SHEET_URL
+
+    def it_refuses_a_link_whose_host_a_browser_reads_as_another_site(hub, admin_client):
+        url = f"https://evil.example\\@docs.google.com/spreadsheets/d/{SHEET_ID}/edit"
+
+        response = admin_client.post(_sheet_url(hub), {"sheet_url": url})
+
+        assert response.status_code == 200
+        assert "not a Google Sheets link" in response.content.decode()
+        assert not VendorFloor.objects.filter(hub=hub).exists()
+
+    def it_links_the_page_to_the_stored_address_only(hub, admin_client, kate_client):
+        admin_client.post(
+            _sheet_url(hub), {"sheet_url": f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit?usp=sharing"}
+        )
+
+        body = kate_client.get(_page(hub)).content.decode()
+
+        assert f'href="https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit#gid=0"' in body
+        assert "usp=sharing" not in body
 
     def it_refuses_a_link_that_is_not_a_google_sheet_and_saves_nothing(hub, admin_client):
         response = admin_client.post(_sheet_url(hub), {"sheet_url": "https://example.com/vendors.csv"})

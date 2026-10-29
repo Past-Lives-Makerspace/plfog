@@ -511,13 +511,17 @@ def apply_pull(hub: EventHub, sheet: ParsedSheet) -> ImportResult:
     card says. A column the snapshot has never seen counts as changed when it is filled. A table never pulled
     takes the row's non-blank cells, as the upload does. An unmatched row is added with nobody as its maker. A cell
     that cannot be read leaves the field as it is and is reported on every pull while it stays unreadable. Every
-    matched or added table then remembers the row's cells, unreadable ones included, so a cell is applied once per
-    change and never again on its own. A later row with a name seen earlier is skipped and reported; a table the
-    sheet leaves out is untouched. Remembering the cells alone writes no ``updated_at``, so a pull that changes
-    nothing on a row never makes an organiser's open row form stale.
+    matched or added table then remembers the row's readable cells (:func:`_readable_cells`), merged over what it
+    remembered, so a cell is applied once per change, a column missing from today's sheet keeps its memory, and an
+    unreadable cell is retried until it reads. A later row with a name seen earlier is skipped and reported; a table
+    the sheet leaves out is untouched. Remembering the cells alone writes no ``updated_at``, so a pull that changes
+    nothing on a row never makes an organiser's open row form stale. The hub's row is locked first
+    (:func:`hub_lock`), so two pulls take turns.
     """
     result = ImportResult()
     with transaction.atomic():
+        # First, so a second pull (a double click, or a click during the daily run) waits and never adds a name twice.
+        hub_lock(hub)
         existing: dict[str, VendorTable] = {}
         for table in hub.vendor_tables.select_related("guild").select_for_update(of=("self",)).order_by("pk"):
             existing.setdefault(normalise(table.name), table)
@@ -530,24 +534,31 @@ def apply_pull(hub: EventHub, sheet: ParsedSheet) -> ImportResult:
                 result.problems.append(_repeated(row, first_line[row.key]))
                 continue
             first_line[row.key] = row.line
-            snapshot = {key: cell.strip() for key, cell in row.cells.items()}
             match = existing.get(row.key)
             if match is None:
-                VendorTable.objects.create(hub=hub, created_by=None, sheet_cells=snapshot, **row.values)
+                VendorTable.objects.create(hub=hub, created_by=None, sheet_cells=_readable_cells(row), **row.values)
                 result.added += 1
                 continue
             values = _changed_values(match.sheet_cells, row) if match.sheet_cells else dict(row.values)
             # The name only matched; the card keeps its own spelling, so a sheet's casing never renames it daily.
             values.pop("name", None)
-            remembered, match.sheet_cells = match.sheet_cells, snapshot
+            # Merged, so a column the sheet lacks today (deleted or renamed for a while) keeps its memory.
+            remembered, match.sheet_cells = match.sheet_cells, {**match.sheet_cells, **_readable_cells(row)}
             if _update(match, values):
                 result.updated += 1
             else:
                 result.unchanged += 1
-                if remembered != snapshot:
-                    VendorTable.objects.filter(pk=match.pk).update(sheet_cells=snapshot)
+                if remembered != match.sheet_cells:
+                    VendorTable.objects.filter(pk=match.pk).update(sheet_cells=match.sheet_cells)
     result.problems.sort(key=lambda problem: problem.line)
     return result
+
+
+def _readable_cells(row: ParsedRow) -> dict[str, str]:
+    """The cells of ``row`` a pull remembers, trimmed: every blank one and every one that was read. A cell that could
+    not be read is left out, so it stays changed and is tried and reported again on every pull until it reads (once
+    Kate fixes it, or once the portal knows its value, such as a new guild)."""
+    return {key: cell.strip() for key, cell in row.cells.items() if key in row.values or not cell.strip()}
 
 
 def _changed_values(remembered: Mapping[str, str], row: ParsedRow) -> dict[str, Any]:
