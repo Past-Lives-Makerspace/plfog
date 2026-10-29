@@ -52,16 +52,18 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         item.add_marker(skip)
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope="module")
 def _restore_latest_migrations(request: pytest.FixtureRequest, django_db_blocker: DjangoDbBlocker) -> Iterator[None]:
-    """After a migration spec, migrate every app back to its latest migration if any is behind.
+    """After a migration spec file, migrate every app back to its latest migration if any is behind.
 
     A migration spec moves apps to an older state and must restore them. One that restored only its
     own target (or failed before its ``finally``) left later specs on an old schema, and they failed
-    with missing columns far from the cause (#1002). Only ``*migration*_spec.py`` files pay for this.
+    with missing columns far from the cause (#1002). Once per spec file with "migration" in its path, not per
+    spec: on SQLite each restore rebuilds tables, and per spec it pushed the test job past its
+    three hour limit (#1004).
     """
     yield
-    if "migration" not in request.node.path.name:
+    if "migration" not in str(request.path):
         return
     from django.db import connection
     from django.db.migrations.executor import MigrationExecutor

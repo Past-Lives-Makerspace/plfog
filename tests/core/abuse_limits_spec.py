@@ -71,9 +71,11 @@ def describe_bump_race_condition_fallback():
     """
 
     def it_reseeds_when_incr_raises_value_error(monkeypatch):
-        from django.core.cache import cache
+        from django.core.cache import caches
 
-        original_add = cache.add
+        # Patch the backend object itself, not the ``cache`` proxy: the proxy deletes the patch from
+        # whichever backend is current at teardown, which may be a fresh one without it.
+        cache = caches["default"]
         original_set = cache.set
 
         def fake_add(*args, **kwargs):
@@ -97,8 +99,6 @@ def describe_bump_race_condition_fallback():
         assert allowed is True
         assert reason is None
         assert len(recorded) == 2
-
-        monkeypatch.setattr(cache, "add", original_add)
 
 
 def describe_record_keyed_attempt():
