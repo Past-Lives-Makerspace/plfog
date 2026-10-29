@@ -20,6 +20,7 @@ import pathlib
 import pytest
 
 from plfog.changelog import (
+    AUDIENCES,
     Fragment,
     FragmentError,
     compose_changelog,
@@ -187,7 +188,18 @@ def describe_as_entry():
             "title": "A thing members can see",
             "changes": ["It does the thing now."],
             "slug": "1-example",
+            "audiences": ["members"],
+            "feature": "",
+            "guidance": "none",
         }
+
+    def it_carries_the_audiences_feature_and_guidance_whats_new_reads():
+        entry = parse_fragment(
+            _toml(audience=["members", "guild-staff"], feature="guild.cubbies", guidance="link"), _PATH
+        ).as_entry()
+        assert entry["audiences"] == ["members", "guild-staff"]
+        assert entry["feature"] == "guild.cubbies"
+        assert entry["guidance"] == "link"
 
     def it_carries_no_version_key():
         # A fragment cannot know its own release number without merge order, which the tree
@@ -403,6 +415,122 @@ def describe_the_repos_own_files():
         base = parse_version(BASE_VERSION)
         for entry in load_history(HISTORY_PATH):
             assert parse_version(str(entry["version"])) <= base, entry["version"]
+
+
+def describe_audience_lists():
+    """``audience`` as a list of audience keys (#1007), beside the two strings it always took."""
+
+    def it_reads_a_list_of_audience_keys():
+        fragment = parse_fragment(_toml(audience=["members", "guild-staff"]), _PATH)
+        assert fragment.audiences == ("members", "guild-staff")
+        assert fragment.audience == "members"
+        assert fragment.is_member_facing
+
+    def it_accepts_every_finer_key():
+        fragment = parse_fragment(_toml(audience=sorted(AUDIENCES)), _PATH)
+        assert set(fragment.audiences) == set(AUDIENCES)
+
+    def it_rolls_every_finer_key_up_to_one_of_the_three_tabs():
+        assert set(AUDIENCES.values()) == {"members", "guild-staff", "admins"}
+        for tab in ("members", "guild-staff", "admins"):
+            assert AUDIENCES[tab] == tab
+
+    def it_keeps_the_order_written_and_drops_a_repeat():
+        fragment = parse_fragment(_toml(audience=["admins", "members", "admins"]), _PATH)
+        assert fragment.audiences == ("admins", "members")
+
+    def it_gives_a_plain_members_fragment_the_members_audience():
+        assert parse_fragment(_toml(), _PATH).audiences == ("members",)
+        assert parse_fragment(_toml(audience="members"), _PATH).audiences == ("members",)
+
+    def it_gives_an_internal_fragment_no_audience():
+        fragment = parse_fragment('bump = "patch"\naudience = "internal"\n', _PATH)
+        assert fragment.audiences == ()
+        assert fragment.audience == "internal"
+
+    def it_refuses_internal_inside_a_list():
+        with pytest.raises(FragmentError, match="'audience' cannot list 'internal'"):
+            parse_fragment(_toml(audience=["internal", "members"]), _PATH)
+
+    def it_refuses_an_unknown_audience_key():
+        with pytest.raises(FragmentError, match="every entry in 'audience' must be one of .* \\(got 'everyone'\\)"):
+            parse_fragment(_toml(audience=["members", "everyone"]), _PATH)
+
+    def it_refuses_an_empty_list():
+        with pytest.raises(FragmentError, match="'audience' must be a string or a non-empty list"):
+            parse_fragment(_toml(audience=[]), _PATH)
+
+    def it_refuses_a_shape_that_is_neither_string_nor_list():
+        with pytest.raises(FragmentError, match="'audience' must be a string or a non-empty list"):
+            parse_fragment(_toml(audience=7), _PATH)
+
+    def it_names_the_list_keys_when_a_string_is_wrong():
+        with pytest.raises(FragmentError, match="or a list of members, guild-staff"):
+            parse_fragment(_toml(audience="everyone"), _PATH)
+
+
+def describe_feature_and_guidance():
+    """``feature`` and ``guidance`` (#1007): what an entry points at and how much it teaches."""
+
+    def it_reads_a_registered_feature_and_a_level():
+        fragment = parse_fragment(
+            _toml(audience=["members", "guild-staff"], feature="guild.cubbies", guidance="link"), _PATH
+        )
+        assert fragment.feature == "guild.cubbies"
+        assert fragment.guidance == "link"
+
+    def it_defaults_to_no_feature_and_no_guidance():
+        fragment = parse_fragment(_toml(), _PATH)
+        assert fragment.feature == ""
+        assert fragment.guidance == "none"
+
+    def it_accepts_a_feature_with_guidance_none():
+        fragment = parse_fragment(_toml(feature="guild.cubbies"), _PATH)
+        assert fragment.feature == "guild.cubbies"
+        assert fragment.guidance == "none"
+
+    @pytest.mark.parametrize("level", ["link", "clip", "tour"])
+    def it_accepts_every_level_on_a_feature(level: str):
+        # Whether the clip or tour exists is check_changelog_fragment.py's question: this runs
+        # at app import, and a missing clip must not stop the app booting.
+        assert parse_fragment(_toml(feature="guild.cubbies", guidance=level), _PATH).guidance == level
+
+    def it_refuses_an_unregistered_feature():
+        with pytest.raises(
+            FragmentError, match="'feature' must be a key registered in core/guidance.py \\(got 'nope.nothing'\\)"
+        ):
+            parse_fragment(_toml(feature="nope.nothing"), _PATH)
+
+    def it_refuses_a_feature_that_is_not_a_string():
+        with pytest.raises(FragmentError, match="'feature' must be a key registered"):
+            parse_fragment(_toml(feature=5), _PATH)
+
+    def it_refuses_an_unknown_level():
+        with pytest.raises(FragmentError, match="'guidance' must be one of none, link, clip, tour \\(got 'video'\\)"):
+            parse_fragment(_toml(feature="guild.cubbies", guidance="video"), _PATH)
+
+    def it_refuses_guidance_without_a_feature():
+        with pytest.raises(FragmentError, match="'guidance' = 'link' needs a 'feature'"):
+            parse_fragment(_toml(guidance="link"), _PATH)
+
+    @pytest.mark.parametrize("key", ["feature", "guidance"])
+    def it_refuses_either_key_on_an_internal_fragment(key: str):
+        source = f'bump = "patch"\naudience = "internal"\n{key} = "x"\n'
+        with pytest.raises(FragmentError, match=f"'{key}' needs a members fragment"):
+            parse_fragment(source, _PATH)
+
+    def it_leaves_the_version_where_it_was():
+        # The three keys describe an entry; none of them is a bump. Fold the repo's own
+        # fragments with and without them and the version must agree.
+        from plfog.version import BASE_VERSION, FRAGMENTS_PATH, VERSION
+
+        stripped = []
+        for path in sorted(FRAGMENTS_PATH.glob("*.toml")):
+            lines = path.read_text(encoding="utf-8").splitlines()
+            kept = [line for line in lines if not line.startswith(("feature = ", "guidance = ", "audience = ["))]
+            stripped.append(parse_fragment("\n".join(kept) + "\n", path))
+        assert fold_version(BASE_VERSION, stripped) == VERSION
+        assert len(stripped) == len(load_fragments(FRAGMENTS_PATH))
 
 
 def describe_requests():

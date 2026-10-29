@@ -45,13 +45,36 @@ import tomllib
 from dataclasses import dataclass
 from typing import Any
 
+from core.guidance import GUIDANCE
+
 #: The bump levels a fragment may declare, weakest first. A PR picks exactly one.
 BUMPS = ("patch", "minor", "major")
 
-#: ``members`` fragments become changelog entries and get announced. ``internal`` ones move
-#: the version and announce nothing — the tooling-release case that used to be a paragraph of
-#: prose in CLAUDE.md and a judgement call every time.
-AUDIENCES = ("members", "internal")
+#: The two strings ``audience`` has always taken. ``members`` fragments become changelog entries
+#: and get announced. ``internal`` ones move the version and announce nothing — the
+#: tooling-release case that used to be a paragraph of prose in CLAUDE.md and a judgement call
+#: every time.
+AUDIENCE_STRINGS = ("members", "internal")
+
+#: Every audience key a list may name, each with the What's New tab it rolls up to (#1007): the
+#: three tabs themselves, the finer guild roles under Guild Staff, and instructors under Members.
+#: ``internal`` is not here on purpose: an internal fragment is no entry, so it cannot share a
+#: list with anyone.
+AUDIENCES: dict[str, str] = {
+    "members": "members",
+    "guild-staff": "guild-staff",
+    "admins": "admins",
+    "guild-leads": "guild-staff",
+    "orientors": "guild-staff",
+    "treasurers": "guild-staff",
+    "class-reviewers": "guild-staff",
+    "equipment-managers": "guild-staff",
+    "instructors": "members",
+}
+
+#: How much teaching a change ships (#1007), least first. Anything past ``none`` names a
+#: ``feature`` registered in :mod:`core.guidance`; ``docs/GUIDANCE.md`` says what each ships.
+GUIDANCE_LEVELS = ("none", "link", "clip", "tour")
 
 _VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -81,6 +104,13 @@ class Fragment:
     #: (#693). Read only by the ``announce_live_requests`` job; never part of :meth:`as_entry`,
     #: so no announcement or changelog shows them.
     requests: tuple[int, ...] = ()
+    #: Who the entry is for (#1007): keys from :data:`AUDIENCES` in the order written, once
+    #: each. A plain ``audience = "members"`` is ``("members",)``; an internal fragment has none.
+    audiences: tuple[str, ...] = ()
+    #: The feature this change belongs to, a key in :data:`core.guidance.GUIDANCE`, or ``""``.
+    feature: str = ""
+    #: How much teaching ships with it, one of :data:`GUIDANCE_LEVELS`.
+    guidance: str = "none"
 
     @property
     def slug(self) -> str:
@@ -100,12 +130,17 @@ class Fragment:
         ``core.release_email.build_release_cards`` keeps treating it as genuinely optional.
         ``slug`` lets a link open this entry in the changelog, and the sweep keeps it.
         ``requests`` is deliberately absent: request numbers are bookkeeping, not news.
+        ``audiences``, ``feature`` and ``guidance`` are what What's New sorts and links by
+        (#1007); a frozen entry from before them has none, so a reader treats them as optional.
         """
         entry: dict[str, Any] = {
             "date": self.date,
             "title": self.title,
             "changes": list(self.changes),
             "slug": self.slug,
+            "audiences": list(self.audiences),
+            "feature": self.feature,
+            "guidance": self.guidance,
         }
         if self.screenshot:
             entry["screenshot"] = self.screenshot
@@ -151,23 +186,34 @@ def parse_fragment(source: str, path: pathlib.Path) -> Fragment:
     if bump not in BUMPS:
         raise FragmentError(f"{path}: 'bump' must be one of {', '.join(BUMPS)} (got {bump!r})")
 
-    audience = data.get("audience", "members")
-    if audience not in AUDIENCES:
-        raise FragmentError(f"{path}: 'audience' must be one of {', '.join(AUDIENCES)} (got {audience!r})")
+    audience, audiences = _audiences(data, path)
 
-    unknown = set(data) - {"bump", "audience", "date", "title", "changes", "screenshot", "requests"}
+    unknown = set(data) - {
+        "bump",
+        "audience",
+        "date",
+        "title",
+        "changes",
+        "screenshot",
+        "requests",
+        "feature",
+        "guidance",
+    }
     if unknown:
         # A misspelled key is a bullet that silently never reaches members. Cheaper to
         # reject here than to notice it missing from a Discord post nobody can unsend.
         raise FragmentError(f"{path}: unknown key(s) {', '.join(sorted(unknown))}")
 
     if audience == "internal":
-        if "requests" in data:
-            # An internal release is announced nowhere, so it has no changelog entry to link.
-            raise FragmentError(f"{path}: 'requests' needs a members fragment, not an internal one")
+        for key in ("requests", "feature", "guidance"):
+            if key in data:
+                # An internal release is announced nowhere, so it has no changelog entry to
+                # link, sort or point at a feature.
+                raise FragmentError(f"{path}: '{key}' needs a members fragment, not an internal one")
         return Fragment(path=path, bump=bump, audience=audience, date="", title="", changes=(), screenshot="")
 
     date, title, changes, screenshot = _member_fields(data, path)
+    feature, guidance = _guidance(data, path)
     return Fragment(
         path=path,
         bump=bump,
@@ -177,7 +223,57 @@ def parse_fragment(source: str, path: pathlib.Path) -> Fragment:
         changes=changes,
         screenshot=screenshot,
         requests=_requests(data, path),
+        audiences=audiences,
+        feature=feature,
+        guidance=guidance,
     )
+
+
+def _audiences(data: dict[str, Any], path: pathlib.Path) -> tuple[str, tuple[str, ...]]:
+    """The ``audience`` key as ``(string form, audience keys)`` (#1007).
+
+    A string keeps meaning what it always has. A list names audience keys from
+    :data:`AUDIENCES`, deduplicated in the order written, and its string form is ``members``:
+    a listed fragment is an entry, whoever it is for. ``internal`` cannot sit in a list.
+    """
+    value = data.get("audience", "members")
+    if isinstance(value, str):
+        if value not in AUDIENCE_STRINGS:
+            raise FragmentError(
+                f"{path}: 'audience' must be one of {', '.join(AUDIENCE_STRINGS)}, "
+                f"or a list of {', '.join(AUDIENCES)} (got {value!r})"
+            )
+        return value, (("members",) if value == "members" else ())
+    if not isinstance(value, list) or not value:
+        raise FragmentError(f"{path}: 'audience' must be a string or a non-empty list of audience keys")
+    for key in value:
+        if key == "internal":
+            raise FragmentError(f"{path}: 'audience' cannot list 'internal'; an internal fragment names it alone")
+        if key not in AUDIENCES:
+            raise FragmentError(
+                f"{path}: every entry in 'audience' must be one of {', '.join(AUDIENCES)} (got {key!r})"
+            )
+    return "members", tuple(dict.fromkeys(value))
+
+
+def _guidance(data: dict[str, Any], path: pathlib.Path) -> tuple[str, str]:
+    """The optional ``feature`` and ``guidance`` keys, validated (#1007).
+
+    ``feature`` must be registered in :data:`core.guidance.GUIDANCE`, so an entry can never
+    offer Open it on a page that does not exist. ``guidance`` defaults to ``none`` and needs a
+    feature past that, because a link, a clip or a tour has to belong to something. Whether a
+    registered clip or tour actually exists for the level is ``check_changelog_fragment.py``'s
+    question, not this one's: this runs at app import, and a missing clip must not stop the app.
+    """
+    feature = data.get("feature", "")
+    if not isinstance(feature, str) or (feature and feature not in GUIDANCE):
+        raise FragmentError(f"{path}: 'feature' must be a key registered in core/guidance.py (got {feature!r})")
+    guidance = data.get("guidance", "none")
+    if guidance not in GUIDANCE_LEVELS:
+        raise FragmentError(f"{path}: 'guidance' must be one of {', '.join(GUIDANCE_LEVELS)} (got {guidance!r})")
+    if guidance != "none" and not feature:
+        raise FragmentError(f"{path}: 'guidance' = {guidance!r} needs a 'feature' to point at")
+    return feature, guidance
 
 
 def _requests(data: dict[str, Any], path: pathlib.Path) -> tuple[int, ...]:
