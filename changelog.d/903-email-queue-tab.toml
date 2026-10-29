@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-23"
+audience = ["admins"]
+feature = "admin.site-activity"
+guidance = "link"
 title = "Admins can see what emails are about to go out"
 changes = [
   "Site Activity has a new Email Queue tab: what is waiting for the 8 AM review email, the reminders going out in the next 24 hours, and the morning emails sent this week.",

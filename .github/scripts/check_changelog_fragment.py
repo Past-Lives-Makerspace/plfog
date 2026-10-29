@@ -14,6 +14,11 @@ Validating every fragment in the tree (not only the added ones) is deliberate: a
 *edits* an unshipped fragment can break it just as thoroughly as one that adds a broken one,
 and the release workflow parses the whole directory to fold the version.
 
+A fragment's ``guidance`` is held to the registry here rather than in ``parse_fragment``
+(#1007): ``clip`` needs a clip slug and ``tour`` a tour key on the feature's
+``core.guidance`` entry. The parser runs at app import, and a missing clip must cost a red X
+on the branch, never a production that does not boot.
+
 Stdlib only, and no Django: this runs in ci.yml's own `changelog` job, which installs
 nothing beyond the interpreter so a missing fragment is reported in seconds rather than
 after a dependency install.
@@ -28,7 +33,8 @@ import subprocess
 import sys
 
 sys.path.insert(0, ".")
-from plfog.changelog import FragmentError, load_fragments  # noqa: E402
+from core.guidance import GUIDANCE  # noqa: E402
+from plfog.changelog import Fragment, FragmentError, load_fragments  # noqa: E402
 from plfog.version import FRAGMENTS_PATH, VERSION  # noqa: E402
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -75,6 +81,27 @@ def _changed_fragments(base: str, head: str) -> list[str]:
     return [line for line in completed.stdout.split() if line.strip()]
 
 
+def missing_materials(fragments: list[Fragment]) -> list[str]:
+    """One line per fragment whose ``guidance`` promises a clip or a tour its feature has not got.
+
+    The parser already proved ``feature`` is registered and that a level past ``none`` has one,
+    so only the registered entry's ``clip`` and ``tour`` are in question here. A level of
+    ``tour`` ships a tour and a clip (``docs/GUIDANCE.md``), but only the tour key is required
+    until #1008 gives a feature a clip to register.
+    """
+    problems: list[str] = []
+    for fragment in fragments:
+        if fragment.guidance not in ("clip", "tour"):
+            continue
+        entry = GUIDANCE[fragment.feature]
+        if (fragment.guidance == "clip" and entry.clip is None) or (fragment.guidance == "tour" and entry.tour is None):
+            problems.append(
+                f"changelog.d/{fragment.path.name}: guidance = \"{fragment.guidance}\" but '{fragment.feature}' "
+                f"has no {fragment.guidance} registered in core/guidance.py."
+            )
+    return problems
+
+
 def _labels() -> set[str]:
     """Labels on the pull request, from the event payload the workflow forwards.
 
@@ -95,6 +122,10 @@ def main() -> None:
     # Parsing the whole directory is also what computes VERSION, so importing it above has
     # already proved the fold works and that every fragment in the tree parses.
     print(f"{len(fragments)} fragment(s) in changelog.d/, folding to v{VERSION}.")
+
+    materials = missing_materials(fragments)
+    if materials:
+        sys.exit("A fragment promises guidance its feature has not registered.\n\n" + "\n".join(materials))
 
     if _SKIP_LABEL in _labels():
         print(f"'{_SKIP_LABEL}' label present; not requiring a fragment.")

@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-21"
+audience = ["admins"]
+feature = "admin.events"
+guidance = "link"
 title = "Admins can put an event on the calendar before announcing it"
 changes = [
   "A new switch on the event composer publishes the event to the calendar without the Discord post, bell, email or reminders.",

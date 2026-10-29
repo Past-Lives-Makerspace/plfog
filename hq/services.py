@@ -29,6 +29,7 @@ ledger's goals (:func:`ledger_goals`), each reading every other door from its on
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -124,6 +125,8 @@ from hq.models import (
 from hq import vendor_discord, vendor_sheet
 from hq.vendor_import import ImportRefused, ImportResult, apply_pull, apply_upload, parse_rows, read_csv
 from membership.models import CommunityEvent, Guild, GuildMembership, Member
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -1275,9 +1278,11 @@ class NoVendorSheet(Exception):
 
 
 def set_vendor_sheet(hub: EventHub, url: str) -> VendorFloor:
-    """Save ``url`` (already checked by ``hq.vendor_sheet.sheet_link``, or blank to clear it) as ``hub``'s vendor
-    sheet. A new link forgets the last pull's answer, which was about the old one; the tables keep their remembered
+    """Save ``url`` (a link ``hq.vendor_sheet.sheet_link`` takes, stored as its ``edit_url``, or blank to clear it)
+    as ``hub``'s vendor sheet. A new link forgets the last pull's answer, which was about the old one; the tables keep their remembered
     cells, so a copy of the same sheet pulls only what changed."""
+    # Stored as the address built from the sheet's id, never as pasted, so the page only ever links to Google.
+    url = vendor_sheet.sheet_link(url).edit_url if url else ""
     floor, _created = VendorFloor.objects.get_or_create(hub=hub)
     if url != floor.sheet_url:
         floor.sheet_url = url
@@ -1323,15 +1328,38 @@ def pull_vendor_sheet(hub: EventHub) -> ImportResult:
     return result
 
 
+# What a hub's floor records when its pull failed for a reason other than the sheet (a bug, the database).
+PULL_FAILED = "The pull failed. It will try again tomorrow."
+
+
 def pull_every_vendor_sheet() -> list[tuple[EventHub, str]]:
-    """Pull every hub with a vendor sheet link, each on its own (one failure never stops the rest); the hubs whose
-    pull failed, each with why."""
+    """Pull every hub with a vendor sheet link whose event has not ended (or that has no event), each on its own,
+    so one failure of any kind never stops the rest; the hubs whose pull failed, each with why.
+
+    A sheet that cannot be read records its own error (``pull_vendor_sheet``); anything else is logged with its
+    traceback and recorded on the hub as :data:`PULL_FAILED`.
+    """
     failed: list[tuple[EventHub, str]] = []
-    for floor in VendorFloor.objects.exclude(sheet_url="").select_related("hub").order_by("pk"):
+    floors = (
+        VendorFloor.objects.exclude(sheet_url="")
+        .filter(Q(hub__event__isnull=True) | Q(hub__event__ends_at__gte=timezone.now()))
+        .select_related("hub")
+        .order_by("pk")
+    )
+    for floor in floors:
         try:
             pull_vendor_sheet(floor.hub)
         except vendor_sheet.SheetUnreadable as exc:
             failed.append((floor.hub, str(exc)))
+        except Exception:
+            logger.exception("Vendor sheet pull failed for hub %s", floor.hub.pk)
+            VendorFloor.objects.filter(pk=floor.pk).update(
+                sheet_pulled_at=timezone.now(),
+                sheet_pull_error=PULL_FAILED,
+                sheet_pull_summary="",
+                sheet_pull_problems=[],
+            )
+            failed.append((floor.hub, PULL_FAILED))
     return failed
 
 

@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-18"
+audience = ["admins"]
+feature = "admin.manage-members"
+guidance = "link"
 title = "Members can be given permission to add Calendar events"
 changes = [
   "Admins can turn on Can create events for a member on their Permissions tab. That member then sees + Add event on the Calendar.",

@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-22"
+audience = ["class-reviewers"]
+feature = "classes.review"
+guidance = "link"
 title = "Class Reviewers can approve classes they teach"
 changes = [
   "A guild staff member marked Class Reviewer now gets the review request for every class in the guild, including the ones they teach.",

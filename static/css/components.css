@@ -1597,6 +1597,13 @@ select[multiple] option:checked {
     color: #1f2937;
 }
 
+/* The grey above outranks the plain invalid rule, so the light theme names the red again. */
+[data-theme="light"] .pl-form-group input[aria-invalid="true"],
+[data-theme="light"] .pl-form-group select[aria-invalid="true"],
+[data-theme="light"] .pl-form-group textarea[aria-invalid="true"] {
+    border-color: var(--hub-danger-text);
+}
+
 [data-theme="light"] .pl-form-group input[type="time"],
 [data-theme="light"] .pl-form-group input[type="date"],
 [data-theme="light"] .pl-form-group input[type="datetime-local"] {

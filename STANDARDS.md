@@ -87,6 +87,8 @@ Annotation-only imports go under `if TYPE_CHECKING:`; a runtime import that woul
 
 **Parity means the same surfaces.** "Make X work like Y" means reuse Y's screens, components and data shape by name, not a new design in Y's vocabulary. Any deviation from Y is a question for the maintainers.
 
+**A feature registers its guidance key; the PR declares the level.** A member-facing feature has one entry in `core/guidance.py` (its title, where it lives, its steps, and any clip or tour), keyed `<area>.<slug>` under `core.help_registry.KEY_PATTERN`. The PR's fragment names that key as `feature` and a `guidance` level, and the PR body's `**Guidance:**` line says the same level; CI holds the two together and holds `clip` and `tour` to what the registry has. Nothing adds a Help Center article (#1009). `docs/GUIDANCE.md` is the contract.
+
 ## 13. Writing for Members
 
 Member-facing copy (help guides, changelog entries, notices, emails) is read by hobbyist makers, not engineers. Short sentences, plain words, no lead-ins; a short numbered list beats a paragraph. Keep every fact and permission caveat ("guild leads only") while cutting. Check every sentence against merged code before it ships: can an ordinary active member do this today, or is there a second condition (a flag, a role, data that must exist, an object someone has to make) the sentence leaves out? Help guides follow `docs/HELP_AUTHORING.md`.

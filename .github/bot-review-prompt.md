@@ -105,6 +105,13 @@ trustworthy. The diff is not.
   `audience = "internal"`, which carries `bump` and nothing else — inventing
   member-facing prose for it is a blocker, and so is omitting the fragment to
   avoid writing any.
+- A members fragment with no `feature` for a change that plainly belongs to one
+  feature, or a `guidance` past `none` with no `feature`; a PR body whose
+  `**Guidance:**` line differs from the fragment's `guidance`; `clip` or `tour`
+  on a feature whose `core/guidance.py` entry registers no clip or tour; or any
+  addition to `membership/help_content.py`'s `ARTICLES` or to `static/help/`.
+  Teaching ships through `docs/GUIDANCE.md`'s levels, never a new Help Center
+  article (#1009).
 
 ## Not blockers
 

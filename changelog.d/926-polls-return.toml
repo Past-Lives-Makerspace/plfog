@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-25"
+audience = ["members", "admins"]
+feature = "home.polls"
+guidance = "link"
 title = "Polls are back on Home"
 changes = [
   "While a poll is open, Home shows a Poll card. Tap an answer to vote and the results show right away.",

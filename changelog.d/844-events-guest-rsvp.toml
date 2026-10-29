@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-19"
+audience = ["members", "admins"]
+feature = "calendar.events"
+guidance = "link"
 title = "Anyone can RSVP to an event, no account needed"
 changes = [
   "A public event page takes an RSVP from anyone with a name and an email, for up to six people. Members still RSVP with one tap and can say how many they are bringing.",

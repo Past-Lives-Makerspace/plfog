@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-25"
+audience = ["members", "guild-staff"]
+feature = "guild.polls"
+guidance = "link"
 title = "Guilds can ask their members a poll"
 changes = [
   "A guild page has a Polls tab once the guild has a poll. Any member can vote there once, and the results show right away.",

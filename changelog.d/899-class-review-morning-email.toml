@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-23"
+audience = ["guild-leads", "class-reviewers"]
+feature = "classes.review"
+guidance = "link"
 title = "Class review requests come once a day"
 changes = [
   "Guild leads and Class Reviewers now get one email at 8 AM listing every class still waiting on them, instead of an email for each class.",

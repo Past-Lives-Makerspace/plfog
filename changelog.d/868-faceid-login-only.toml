@@ -1,5 +1,6 @@
 bump = "patch"
 date = "2026-10-20"
+audience = ["members"]
 title = "Face ID only asks when you sign in"
 changes = [
   "In the iPhone app, Face ID no longer pops up as you move around the hub while you are already signed in.",

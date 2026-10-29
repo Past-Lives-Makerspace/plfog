@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-16"
+audience = ["members"]
+feature = "home.tour"
+guidance = "link"
 title = "New members get an easier way to take the tour"
 changes = [
   "If you haven't taken the member tour yet, Home now opens with a Take the tour banner. Close it if you'd rather skip it.",

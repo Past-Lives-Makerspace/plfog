@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-26"
+audience = ["members"]
+feature = "home.upcoming"
+guidance = "link"
 title = "Upcoming on Home rotates through everything coming up"
 changes = [
   "The big card at the top of Upcoming now shows whatever is next on the list. Every few seconds the list slides up: the next item grows into the big card and the one before it moves to the bottom.",
