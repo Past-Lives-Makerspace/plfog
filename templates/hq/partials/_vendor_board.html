@@ -18,6 +18,9 @@ view. Delete is a plain post through the confirm modal.
   floor_form   — required, a VendorFloorForm
   import_answer — optional, the last import's answer for this hub (summary, refused, problems, more), on the
                  one page load after it; the Import CSV modal itself is on hq/vendors.html
+  sheet         — required, a hq.services.VendorSheetState: with a link, Pull from sheet now and the last pull
+  sheet_problems, sheet_more — required, the last pull's first problems and how many more
+  sheet_form    — required, a VendorSheetForm (bound when a link was refused), for admins only
 {% endcomment %}
 {% url 'hq:vendors' hub.slug as page_url %}
 <div class="pl-hq-vt__board" data-hq-vt-board>
@@ -54,10 +57,17 @@ view. Delete is a plain post through the confirm modal.
     <div class="pl-hq-vt__list-head">
       <h2 class="pl-hq-vt__h2" id="hq-vt-list-title">Table Requests</h2>
       <div class="pl-hq-vt__csv-links">
+        {% if sheet.url %}
+        <form method="post" action="{% url 'hq:vendor_pull' hub.slug %}" hx-boost="false" class="pl-hq-vt__pull" data-hq-vt-pull-form>
+          {% csrf_token %}
+          <button type="submit" class="pl-hq-vt__csv pl-hq-vt__csv--button" data-hq-vt-pull>Pull From Sheet Now</button>
+        </form>
+        {% endif %}
         <button type="button" class="pl-hq-vt__csv pl-hq-vt__csv--button" @click="$dispatch('open-modal', 'hq-vt-import')" data-hq-vt-import-open>Import CSV</button>
         <a href="{% url 'hq:vendors_csv' hub.slug %}" class="pl-hq-vt__csv" hx-boost="false" data-pl-download data-hq-vt-csv>Download CSV</a>
       </div>
     </div>
+    {% if sheet.url %}{% include "hq/partials/_vendor_pull_answer.html" %}{% endif %}
     {% if import_answer %}
     <div class="pl-hq-vt__import-answer{% if import_answer.refused %} pl-hq-vt__import-answer--refused{% endif %}" role="status" data-hq-vt-import-answer>
       <p class="pl-hq-vt__import-summary" data-hq-vt-import-summary>{{ import_answer.summary }}</p>
@@ -101,6 +111,9 @@ view. Delete is a plain post through the confirm modal.
     </div>
   </section>
 
-  {# The space map capacity is a setting: admins only by the effective role, never the Team (admin_required on its POST). #}
-  {% if request.view_as.is_admin %}{% include "hq/partials/_vendor_floor.html" %}{% endif %}
+  {# The space map capacity and the sheet link are settings: admins only by the effective role, never the Team (admin_required). #}
+  {% if request.view_as.is_admin %}
+  {% include "hq/partials/_vendor_floor.html" %}
+  {% include "hq/partials/_vendor_sheet.html" %}
+  {% endif %}
 </div>

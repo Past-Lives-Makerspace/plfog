@@ -414,6 +414,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         schedule_label="Nightly ~6 AM",
         cadence=Cadence.DAILY,
     ),
+    ScheduledJob(
+        key="pull_vendor_sheets",
+        name="Vendor sheet pull",
+        description=(
+            "Pulls the vendor team's Google Sheet into Holiday Bizarre HQ's Vendor Tables, applying the cells "
+            "changed in the sheet since the last pull."
+        ),
+        command="pull_vendor_sheets",
+        schedule_label="Daily ~6 AM",
+        cadence=Cadence.DAILY,
+    ),
     # Must stay after sync_all_sources: daily jobs run in list order, and the check reads the
     # Google rows that import brings in (#953).
     ScheduledJob(

@@ -1,0 +1,24 @@
+{% comment %}
+Vendor Sheet: the vendor team's Google Sheet link, beside the space map capacity and, like it, admins only. A plain
+post (hx-boost="false") to hq:vendor_sheet that lands back on the page; a link that is not a Google Sheets link
+comes back with its error, open. Blank stops the daily pull.
+
+  hub        — required, the EventHub
+  sheet_form — required, a VendorSheetForm
+{% endcomment %}
+<details class="pl-disclosure pl-hq-vt__disclosure" {% if sheet_form.errors %}open{% endif %} data-hq-vt-sheet>
+  <summary class="pl-disclosure__summary">
+    <span class="pl-disclosure__title">Vendor Sheet</span>
+    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+  </summary>
+  <form method="post" action="{% url 'hq:vendor_sheet' hub.slug %}" hx-boost="false" class="pl-disclosure__body pl-hq-vt__form" data-hq-vt-sheet-form>
+    {% csrf_token %}
+    <p class="pl-hq-vt__muted pl-hq-vt__helper" data-hq-vt-sheet-helper>Paste the link to the vendor Google Sheet, shared as anyone with the link can view. The list pulls it every morning. A cell changed in the sheet since the last pull replaces what the list says; a cell nobody changed in the sheet leaves the list as it is. Leave it blank to stop pulling.</p>
+    <div class="pl-hq-vt__sheet-field">
+      {% include "components/form_field.html" with field=sheet_form.sheet_url field_hint_off=True %}
+    </div>
+    <div class="pl-hq-vt__actions">
+      <button type="submit" class="pl-hq-vt__btn pl-hq-vt__btn--ghost" data-hq-vt-sheet-submit>Save</button>
+    </div>
+  </form>
+</details>

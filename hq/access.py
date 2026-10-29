@@ -176,7 +176,7 @@ def organizer_required(kind: str) -> Callable[[Callable[..., HttpResponseBase]],
 def admin_required(kind: str) -> Callable[[Callable[..., HttpResponseBase]], Callable[..., HttpResponseBase]]:
     """Admit actual admins only, on the hub at ``slug`` whose ``kind`` card exists: the settings and uploads
     behind a door (the flyer files and links, winery logos, the ledger's approval, prices and budget lines, the
-    vendor floor's capacity), which the Team never changes whatever the card's lists say.
+    vendor floor's capacity and sheet link), which the Team never changes whatever the card's lists say.
 
     The view is called as ``view(request, hub=hub, card=card, **rest)``. Anyone else gets a 403, a preview
     included (it reads the actual role), and a card the hub does not have is a 404.
