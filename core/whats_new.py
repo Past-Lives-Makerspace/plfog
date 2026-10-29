@@ -211,8 +211,9 @@ def mark_seen(member: Member, slugs: list[str]) -> bool:
     about the size of one month's releases. No write when the result is what is stored already.
     """
     keep = {entry.slug for entry in window_entries()}
-    seen = (set(member.whats_new_seen) | set(slugs)) & keep
-    if seen == set(member.whats_new_seen):
+    stored = set(member.whats_new_seen or [])  # a NULL from an older row reads as nothing seen
+    seen = (stored | set(slugs)) & keep
+    if seen == stored:
         return False
     member.whats_new_seen = sorted(seen)
     member.save(update_fields=["whats_new_seen"])
@@ -383,7 +384,7 @@ class WhatsNew:
         return (
             self.member is not None
             and entry.date >= window_start().isoformat()
-            and entry.slug not in self.member.whats_new_seen
+            and entry.slug not in (self.member.whats_new_seen or [])
             and can_open(entry, self.audiences)
         )
 

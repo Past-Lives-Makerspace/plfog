@@ -2,8 +2,10 @@
 
 ``member_note`` becomes the member's first message and ``lead_note`` a message with no author;
 then both fields leave the model while their columns stay, with a database default, for the
-release still serving during the deploy. Each spec steps membership back to 0247 with the real
-migration executor and forward again, so the functions run against the schema they were written for.
+release still serving during the deploy. Each spec steps membership back to 0248 with the real
+migration executor, so the functions run against the schema they were written for, and forward to
+the head again after it: a step forward to 0249 alone would leave every later column missing for
+the next spec's live models (``Member.whats_new_seen``, #1007, was the first to show it).
 """
 
 from __future__ import annotations
@@ -22,7 +24,6 @@ from membership.models import OrientationBooking
 from tests.membership.factories import MembershipPlanFactory, OrientationBookingFactory
 
 BEFORE = ("membership", "0248_orientation_booking_messages")
-AFTER = ("membership", "0249_orientation_notes_to_messages")
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -36,17 +37,23 @@ def _migrate(target: tuple[str, str]) -> Any:
     return executor.loader.project_state([target]).apps
 
 
+def _head() -> None:
+    """Every app back at its newest migration, as the next spec expects the database."""
+    executor = MigrationExecutor(connection)
+    executor.migrate(executor.loader.graph.leaf_nodes())
+
+
 @pytest.fixture
 def step_back() -> Iterator[Any]:
-    """Steps membership back to 0247 (both notes still fields) when called; forward again after.
+    """Steps membership back to 0248 (both notes still fields) when called; to the head again after.
 
     Called after a spec makes its bookings, since the current model's inserts leave the note
-    columns to their database default, which 0247's schema does not have.
+    columns to their database default, which 0248's schema does not have.
     """
     try:
         yield lambda: _migrate(BEFORE)
     finally:
-        _migrate(AFTER)
+        _head()
 
 
 def _booking(username: str) -> OrientationBooking:
@@ -114,7 +121,7 @@ def describe_messages_to_notes():
 
 def describe_the_retired_columns():
     def it_keeps_both_columns_with_a_blank_default_for_the_old_release():
-        _migrate(AFTER)
+        # The current model's insert, at the head, writes neither column; the database fills both.
         booking = _booking("mig_default")
 
         assert "member_note" not in {field.name for field in OrientationBooking._meta.get_fields()}

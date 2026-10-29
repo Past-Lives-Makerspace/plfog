@@ -14,6 +14,7 @@ class Migration(migrations.Migration):
             name="whats_new_seen",
             field=models.JSONField(
                 blank=True,
+                db_default=[],
                 default=list,
                 help_text="The changelog entries this member has looked at in What's New (#1007): a list of entry slugs, pruned on every write to the last 30 days (core.whats_new.NEW_DAYS). Nothing here is new to them; everything else in the window is.",
             ),
