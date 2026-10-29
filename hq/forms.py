@@ -7,6 +7,8 @@ guild demos (D6c)."""
 
 from __future__ import annotations
 
+import re
+
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
@@ -929,6 +931,28 @@ class VendorSheetForm(forms.Form):
             except ValueError as exc:
                 raise forms.ValidationError(str(exc)) from exc
         return url
+
+
+# A Discord channel id is digits alone (Discord's snowflake).
+_CHANNEL_ID = re.compile(r"[0-9]{1,32}")
+NOT_A_CHANNEL_ID = "Paste the channel's id: digits only, like 1234567890123456789."
+
+
+class VendorDiscordChannelForm(forms.Form):
+    """The Discord channel Check Discord reads (#1014), by its id, or blank to hide the button."""
+
+    discord_channel_id = forms.CharField(
+        max_length=32,
+        required=False,
+        label="Channel id",
+        widget=forms.TextInput(attrs={"inputmode": "numeric", "autocomplete": "off"}),
+    )
+
+    def clean_discord_channel_id(self) -> str:
+        channel_id = self.cleaned_data["discord_channel_id"].strip()
+        if channel_id and not _CHANNEL_ID.fullmatch(channel_id):
+            raise forms.ValidationError(NOT_A_CHANNEL_ID)
+        return channel_id
 
 
 # ---- Market Check-in (Track D, part 4) ----

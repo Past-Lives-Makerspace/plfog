@@ -1,0 +1,56 @@
+{% comment %}
+Check Discord (#1014): who posted in the hub's Discord channel and is not on the list yet, newest post first, each with
+their posts and two buttons. Add as Request posts over htmx and swaps the whole board, so the new row and the counts
+show; Skip swaps this panel alone. Each form names the poster and the posts shown, so a post that arrived since is
+never added or skipped unseen. Loaded by Check Discord into the list; a read failure says why in red. Add and Skip
+act on the read the check kept and never read Discord again.
+
+  hub     — required, the EventHub
+  discord — required, a hq.views.DiscordPanel (label, posters, error, nicknames_read)
+  show    — required, the list's filter, kept by Add's answer
+{% endcomment %}
+<section id="hq-vt-discord" class="pl-hq-vt__import-answer pl-hq-vt__discord{% if discord.error %} pl-hq-vt__import-answer--refused{% endif %}" aria-labelledby="hq-vt-discord-title" data-hq-vt-discord>
+  <h3 class="pl-hq-vt__discord-title" id="hq-vt-discord-title">New in {{ discord.label|default:"Discord" }}</h3>
+  {% if discord.error %}
+  <p class="pl-hq-vt__import-summary pl-hq-vt__pull-error" role="alert" data-hq-vt-discord-error>{{ discord.error }}</p>
+  {% elif not discord.posters %}
+  <p class="pl-hq-vt__import-summary" role="status" data-hq-vt-discord-empty>Nothing new in {{ discord.label }}.</p>
+  {% endif %}
+  {% if not discord.error and not discord.nicknames_read %}
+  <p class="pl-hq-vt__muted pl-hq-vt__discord-lede" data-hq-vt-discord-no-nicks>Server nicknames could not be read, so people are matched to the list by their Discord names only.</p>
+  {% endif %}
+  {% if discord.posters %}
+  <p class="pl-hq-vt__muted pl-hq-vt__discord-lede" data-hq-vt-discord-lede>{% with count=discord.posters|length %}{{ count }} {% if count == 1 %}person has{% else %}people have{% endif %}{% endwith %} posted here and {{ discord.posters|length|pluralize:"is,are" }} not on the list. Add each table request; skip chat and cancellations.</p>
+  <ul class="pl-hq-vt__posters" data-hq-vt-posters>
+    {% for poster in discord.posters %}
+    <li class="pl-hq-vt__poster" data-hq-vt-poster="{{ poster.author_id }}">
+      <p class="pl-hq-vt__poster-head"><span class="pl-hq-vt__poster-name" data-hq-vt-poster-name>{{ poster.name }}</span> <span class="pl-hq-vt__muted" data-hq-vt-poster-handle>@{{ poster.username }}</span></p>
+      <ul class="pl-hq-vt__posts">
+        {% for post in poster.posts %}
+        <li class="pl-hq-vt__post" data-hq-vt-post="{{ post.message_id }}">
+          <time class="pl-hq-vt__post-when pl-hq-vt__muted" datetime="{{ post.posted_at|date:'c' }}">{{ post.posted_at|date:"M j, g:i A" }}</time>
+          <p class="pl-hq-vt__post-text">{% if post.text %}{{ post.text|linebreaksbr }}{% else %}<span class="pl-hq-vt__muted">No text.</span>{% endif %}</p>
+        </li>
+        {% endfor %}
+      </ul>
+      <div class="pl-hq-vt__actions">
+        <form method="post" action="{% url 'hq:vendor_discord_add' hub.slug %}" hx-post="{% url 'hq:vendor_discord_add' hub.slug %}" hx-target="closest [data-hq-vt-board]" hx-swap="outerHTML" hx-disabled-elt="find button" class="pl-hq-vt__pull" data-hq-vt-discord-add-form>
+          {% csrf_token %}
+          <input type="hidden" name="filter" value="{{ show }}">
+          <input type="hidden" name="author" value="{{ poster.author_id }}">
+          {% for post in poster.posts %}<input type="hidden" name="message" value="{{ post.message_id }}">{% endfor %}
+          <button type="submit" class="pl-hq-vt__btn pl-hq-vt__btn--sm" aria-label="Add {{ poster.name }} as a request" data-hq-vt-discord-add>Add as Request</button>
+        </form>
+        <form method="post" action="{% url 'hq:vendor_discord_skip' hub.slug %}" hx-post="{% url 'hq:vendor_discord_skip' hub.slug %}" hx-target="closest [data-hq-vt-discord]" hx-swap="outerHTML" hx-disabled-elt="find button" class="pl-hq-vt__pull" data-hq-vt-discord-skip-form>
+          {% csrf_token %}
+          <input type="hidden" name="filter" value="{{ show }}">
+          <input type="hidden" name="author" value="{{ poster.author_id }}">
+          {% for post in poster.posts %}<input type="hidden" name="message" value="{{ post.message_id }}">{% endfor %}
+          <button type="submit" class="pl-hq-vt__btn pl-hq-vt__btn--ghost pl-hq-vt__btn--sm" aria-label="Skip {{ poster.name }}" data-hq-vt-discord-skip>Skip</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
