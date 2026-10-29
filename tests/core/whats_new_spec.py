@@ -420,5 +420,15 @@ def describe_unseen_and_mark_seen():
         assert whats_new_for(_request(admin.user)).default_tab() == "admins"
         assert whats_new_for(_request(_member("plain").user)).default_tab() == "members"
 
+    def it_reads_a_null_seen_list_as_nothing_seen(changelog):
+        # The column is NOT NULL with a database default, but a row from somewhere else is read, not trusted.
+        changelog([_entry("fresh")])
+        member = _member()
+        member.whats_new_seen = None
+        news = whats_new_for(_request(member.user))
+        assert news.is_unseen(news.entries[0]) is True
+        assert mark_seen(member, ["fresh"]) is True
+        assert Member.objects.get(pk=member.pk).whats_new_seen == ["fresh"]
+
     def it_starts_the_window_thirty_days_back():
         assert window_start(dt.date(2026, 10, 29)) == dt.date(2026, 9, 29)
