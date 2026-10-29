@@ -16,8 +16,19 @@ monthly Stripe subscription at the amount the member chose:
   cubby if it is still free; if someone else holds it, the subscription is cancelled and the
   first payment refunded in full, and the member is told.
 * **Change Amount, Cancel, Keep My Cubby, Manage Payment** call Stripe and mirror the answer.
+* **Staff (#979).** :func:`assign_rental` gives a cubby to a member as Comped or Paid Another
+  Way: Active at once, no subscription, never charged. :func:`end_rental` (End Rental) ends any
+  live rental today with no refund, cancelling a subscription now under the rental's row lock, so
+  the ``customer.subscription.deleted`` that follows finds it Ended and adds nothing. A member's
+  own Cancel Rental on an assigned rental ends it today the same way.
 
-Notifications go out after the change commits, each exactly once through its emit ``period``.
+Every change that frees a cubby (a rental ending however it ends, a hold deleted) calls
+:func:`membership.cubby_waitlist.open_for_waitlist` inside it, so the member first in that guild's
+waitlist hears once the change commits (#980).
+
+Notifications go out after the change commits, each exactly once through its emit ``period``. The
+renter hears about their own rental; the guild's lead and staff hear about a new rental, a Past
+Due one (the 8 AM digest drops it once it is paid) and an ended one, whose shelf needs clearing.
 """
 
 from __future__ import annotations
@@ -32,8 +43,10 @@ from django.db import IntegrityError, transaction
 from django.urls import reverse
 from django.utils import timezone
 
+from membership.cubby_waitlist import leave_everywhere, open_for_waitlist
 from membership.models import (
     CUBBY_PRICE_MAX_CENTS,
+    CUBBY_PRICE_MIN_CENTS,
     Cubby,
     CubbyPayment,
     CubbyRental,
@@ -208,12 +221,20 @@ def start_rental(cubby: Cubby, member: Member, amount_cents: int) -> str:
 
     tab, _created = Tab.objects.get_or_create(member=member)
     customer_id = tab.get_or_create_stripe_customer()
+    released = False
     for _attempt in range(2):
-        rental, own_hold = _hold(cubby, member, amount_cents, customer_id)
+        try:
+            rental, own_hold = _hold(cubby, member, amount_cents, customer_id)
+        except CubbyRentalError:
+            if released:
+                # The member's old hold was released and this rent was refused: the cubby is open (#980).
+                open_for_waitlist(cubby)
+            raise
         if own_hold is not None:
             url = _resume_or_settle(own_hold, amount_cents)
             if url:
                 return url
+            released = True
             continue
         assert rental is not None
         locked_cubby = rental.cubby
@@ -243,6 +264,8 @@ def start_rental(cubby: Cubby, member: Member, amount_cents: int) -> str:
         rental.stripe_checkout_session_id = session["id"]
         rental.save(update_fields=["stripe_checkout_session_id"])
         return session["url"]
+    # Both tries released a hold of the member's and neither was replaced, so the cubby is open (#980).
+    open_for_waitlist(cubby)
     raise CubbyTakenError(BEING_PAID_FOR.format(label=cubby.label))
 
 
@@ -288,27 +311,35 @@ def _resume_or_settle(hold: CubbyRental, amount_cents: int) -> str:
         if hold.created_at > timezone.now() - HOLD_IN_PROGRESS:
             # Another tab of the member's is creating this hold's Checkout right now: leave it be.
             raise CubbyTakenError(BEING_PAID_FOR.format(label=hold.cubby.label))
-        _delete_hold(hold, expire_session=False)
+        _delete_hold(hold, expire_session=False, reopens=False)
         return ""
     try:
         session = stripe_utils.retrieve_checkout_session(session_id=hold.stripe_checkout_session_id)
     except stripe_utils.CheckoutSessionNotFound:
-        _delete_hold(hold, expire_session=False)
+        _delete_hold(hold, expire_session=False, reopens=False)
         return ""
     if session["status"] == "complete" and session["subscription"]:
         settle_subscription(session["subscription"])
         raise CubbyUnavailableError(f"{hold.cubby.label} is already yours.")
     if session["status"] == "open" and session["url"] and hold.amount_cents == amount_cents:
         return str(session["url"])
-    _delete_hold(hold, expire_session=session["status"] == "open")
+    _delete_hold(hold, expire_session=session["status"] == "open", reopens=False)
     return ""
 
 
-def _delete_hold(rental: CubbyRental, *, expire_session: bool = True) -> None:
-    """Delete an unpaid hold (status guarded, so a row a webhook just activated survives)."""
+def _delete_hold(rental: CubbyRental, *, expire_session: bool = True, reopens: bool = True) -> bool:
+    """Delete an unpaid hold (status guarded, so a row a webhook just activated survives).
+
+    Its cubby opens, so the waitlist hears (#980), unless ``reopens`` is False: the member's own
+    hold being replaced by a new one in the same rent. Returns whether a hold was deleted, so a
+    second delivery of the same release tells nobody.
+    """
     if expire_session:
         _expire_session_best_effort(rental)
-    CubbyRental.objects.filter(pk=rental.pk, status=Status.PENDING_PAYMENT).delete()
+    deleted, _rows = CubbyRental.objects.filter(pk=rental.pk, status=Status.PENDING_PAYMENT).delete()
+    if deleted and reopens:
+        open_for_waitlist(rental.cubby)
+    return bool(deleted)
 
 
 def _expire_session_best_effort(rental: CubbyRental) -> None:
@@ -387,6 +418,8 @@ def _mirror(snapshot: dict[str, Any], rental_pk: int) -> str:
                 ended = True
                 rental.status = Status.ENDED
                 rental.end_date = timezone.localdate()
+                # Its cubby is open once this commits; a retried webhook finds it Ended above and opens nothing (#980).
+                open_for_waitlist(rental.cubby)
             elif status != Status.PENDING_PAYMENT:
                 if rental.status == Status.PENDING_PAYMENT:
                     became_active = True
@@ -403,8 +436,10 @@ def _mirror(snapshot: dict[str, Any], rental_pk: int) -> str:
         _cancel_subscription(snapshot["id"])
     if became_active:
         notify_rented(rental)
+        notify_staff_rental_started(rental)
     if ended and rental.start_date is not None:
         notify_ended(rental)
+        notify_staff_ended(rental)
     return "settled"
 
 
@@ -449,7 +484,7 @@ def _recover_lost_hold(snapshot: dict[str, Any], rental_pk: int) -> str:
     return "refunded" if _refund_first_payment(rental, snapshot) else "settled"
 
 
-def _cancel_subscription(subscription_id: str) -> None:
+def _cancel_subscription(subscription_id: str, *, idempotency_key: str | None = None) -> None:
     """Cancel now, quietly when a concurrent webhook or an earlier attempt already did.
 
     Stripe refuses to cancel a canceled subscription; that refusal is checked against the
@@ -460,7 +495,10 @@ def _cancel_subscription(subscription_id: str) -> None:
     from billing import stripe_utils
 
     try:
-        stripe_utils.cancel_subscription(subscription_id=subscription_id)
+        if idempotency_key is None:
+            stripe_utils.cancel_subscription(subscription_id=subscription_id)
+        else:
+            stripe_utils.cancel_subscription(subscription_id=subscription_id, idempotency_key=idempotency_key)
     except stripe.InvalidRequestError:
         if stripe_utils.retrieve_subscription(subscription_id=subscription_id)["status"] not in _STRIPE_ENDED:
             raise
@@ -600,6 +638,7 @@ def record_payment_failed(invoice: dict[str, Any]) -> None:
         rental.next_payment_attempt = _timestamp(invoice.get("next_payment_attempt"))
         rental.save(update_fields=["payment_failed_at", "next_payment_attempt"])
     notify_payment_failed(rental, invoice)
+    notify_staff_past_due(rental, invoice)
 
 
 # ── The member's own buttons ─────────────────────────────────────────────────
@@ -646,10 +685,18 @@ def change_amount(rental: CubbyRental, amount_cents: int) -> CubbyRental:
 def set_cancelling(rental: CubbyRental, *, cancel: bool) -> CubbyRental:
     """Cancel Rental (the cubby stays theirs until the paid month ends) or Keep My Cubby.
 
+    An assigned rental has no paid month, so its Cancel Rental ends it today (#979), and it is
+    never cancelling, so Keep My Cubby has nothing to undo.
+
     Raises:
-        CubbyRentalError: The rental is not billing.
+        CubbyRentalError: The rental is not billing, or an assigned rental was asked to keep.
     """
     from billing import stripe_utils
+
+    if rental.is_assigned:
+        if not cancel:
+            raise CubbyRentalError("This rental isn't ending.")
+        return end_rental(rental)
 
     with transaction.atomic():
         locked = _locked_billing_rental(rental)
@@ -729,7 +776,9 @@ def release_expired_hold(session: dict[str, Any]) -> None:
     metadata = session.get("metadata") or {}
     if metadata.get("kind") != CHECKOUT_KIND:
         return
-    CubbyRental.objects.filter(pk=int(metadata["rental_pk"]), status=Status.PENDING_PAYMENT).delete()
+    hold = CubbyRental.objects.filter(pk=int(metadata["rental_pk"]), status=Status.PENDING_PAYMENT).first()
+    if hold is not None:
+        _delete_hold(hold, expire_session=False)
 
 
 def complete_checkout(session: dict[str, Any]) -> str:
@@ -765,17 +814,118 @@ def end_for_deleted_account(member: Member) -> None:
     """A member deleting their account: every live rental stops now, with no refund.
 
     A hold is released (its Checkout expired); a billing rental's subscription is cancelled and
-    the rental ended at once, telling nobody (the account is going). Stripe errors propagate, so
-    the deletion stops rather than leave a card billing an account that no longer exists.
+    the rental ended at once, telling the member nothing (the account is going) and the guild's
+    staff that the shelf needs clearing. Stripe errors propagate, so
+    the deletion stops rather than leave a card billing an account that no longer exists. They
+    leave every cubby waitlist first, so the cubbies they free go to someone else (#980).
     """
-
-    for rental in CubbyRental.objects.live().filter(member=member):
+    leave_everywhere(member)
+    for rental in CubbyRental.objects.live().filter(member=member).select_related("cubby__unit__guild", "member"):
         if rental.status == Status.PENDING_PAYMENT:
             _delete_hold(rental)
             continue
         if rental.stripe_subscription_id:
             _cancel_subscription(rental.stripe_subscription_id)
-        CubbyRental.objects.filter(pk=rental.pk).update(status=Status.ENDED, end_date=timezone.localdate())
+        # Guarded on a live status: the webhook for that cancel may have ended it already, and only
+        # the change that ends it opens the cubby, so one opening tells one member (#980).
+        ended = (
+            CubbyRental.objects.live().filter(pk=rental.pk).update(status=Status.ENDED, end_date=timezone.localdate())
+        )
+        if not ended:
+            continue
+        rental.status = Status.ENDED
+        open_for_waitlist(rental.cubby)
+        # The member hears nothing, but the guild still has a shelf to clear (#979).
+        notify_staff_ended(rental)
+
+
+# ── Staff: assign and end (#979) ─────────────────────────────────────────────
+
+
+def assign_problem(cubby: Cubby) -> str:
+    """Why guild staff cannot assign ``cubby`` right now (archived, or out of service), or "".
+
+    Unlike renting, the Cubbies tab switch does not matter: staff assign while it is off too.
+    """
+    if cubby.is_archived or cubby.unit.is_archived:
+        return f"{cubby.label} is archived."
+    if cubby.out_of_service:
+        return f"{cubby.label} is out of service right now."
+    return ""
+
+
+def assign_rental(cubby: Cubby, member: Member, *, source: str, amount_cents: int, actor: Member | None) -> CubbyRental:
+    """Give ``cubby`` to ``member`` without Stripe: Comped (free) or Paid Another Way (cash or a check).
+
+    Under the guild lock and the cubby row lock (part 1's and part 2's), the cubby must be
+    assignable and nobody may hold it: not rented, not being paid for. The rental is Active
+    from today with no subscription, and nothing ever charges it. The member is told the cubby
+    is theirs; the guild's other lead and staff hear about the new rental.
+
+    Raises:
+        CubbyTakenError: Someone rents it or is paying for it right now.
+        CubbyUnavailableError: It is archived or out of service.
+        AmountError: A Paid Another Way amount outside $1 to $500 a month.
+    """
+    if source == CubbyRental.Source.COMPED:
+        amount_cents = 0
+    elif source == CubbyRental.Source.OUTSIDE:
+        if not CUBBY_PRICE_MIN_CENTS <= amount_cents <= CUBBY_PRICE_MAX_CENTS:
+            raise AmountError(
+                f"Enter between {cubby_dollars(CUBBY_PRICE_MIN_CENTS)} and {cubby_dollars(CUBBY_PRICE_MAX_CENTS)} a month."
+            )
+    else:
+        raise ValueError(f"Staff assign a cubby as Comped or Paid Another Way, not {source!r}.")
+    with transaction.atomic():
+        _lock_guild(cubby.unit.guild_id)
+        locked = Cubby.objects.select_for_update(of=("self",)).select_related("unit__guild").get(pk=cubby.pk)
+        problem = assign_problem(locked)
+        if problem:
+            raise CubbyUnavailableError(problem)
+        live = CubbyRental.objects.live().select_related("member").filter(cubby=locked).first()
+        if live is not None:
+            if live.status == Status.PENDING_PAYMENT:
+                raise CubbyTakenError(BEING_PAID_FOR.format(label=locked.label))
+            raise CubbyTakenError(f"{locked.label} is already rented by {live.member.display_name}.")
+        rental = CubbyRental.objects.create(
+            cubby=locked,
+            member=member,
+            amount_cents=amount_cents,
+            source=source,
+            status=Status.ACTIVE,
+            start_date=timezone.localdate(),
+        )
+    notify_rented(rental)
+    notify_staff_rental_started(rental, actor=actor)
+    return rental
+
+
+def end_rental(rental: CubbyRental, *, reason: str = "") -> CubbyRental:
+    """End a live rental today, with no refund: staff End Rental, or a member cancelling an assigned rental.
+
+    A rental billing through Stripe has its subscription cancelled now (``prorate=false``, key
+    ``cubby-end-<pk>``) while its row is locked, so the ``customer.subscription.deleted`` Stripe
+    sends next waits on the lock, then finds it Ended and adds nothing. An assigned rental makes
+    no Stripe call. The cubby opens at once. The member is told (with ``reason`` when staff gave
+    one) and the guild's lead and staff are asked to clear the shelf.
+
+    Raises:
+        CubbyRentalError: It is not Active or Past Due any more.
+    """
+    with transaction.atomic():
+        locked = _locked_rental(pk=rental.pk)
+        if locked is None or locked.status not in (Status.ACTIVE, Status.PAST_DUE):
+            raise CubbyRentalError("This rental isn't active any more.")
+        if locked.stripe_subscription_id and not locked.is_assigned:
+            _cancel_subscription(locked.stripe_subscription_id, idempotency_key=f"cubby-end-{locked.pk}")
+        locked.status = Status.ENDED
+        locked.end_date = timezone.localdate()
+        locked.end_reason = reason.strip()
+        locked.save(update_fields=["status", "end_date", "end_reason"])
+        open_for_waitlist(locked.cubby)
+    notify_ended(locked)
+    notify_staff_ended(locked)
+    return locked
 
 
 # ── Notifications ────────────────────────────────────────────────────────────
@@ -856,10 +1006,21 @@ def notify_rented(rental: CubbyRental) -> None:
         template="cubby_rented",
         subject=f"{cubby.label} is yours",
         title=f"{cubby.label} is yours",
-        body=f"You're renting cubby {cubby.label} on the {cubby.unit.name} for {rental.amount_display} a month.",
+        body=_rented_sentence(rental),
         period=f"cubby_rental:{rental.pk}:rented",
-        manage_url=_absolute_url(reverse("hub_cubby_rental_portal", args=[rental.pk])),
+        manage_url="" if rental.is_assigned else _absolute_url(reverse("hub_cubby_rental_portal", args=[rental.pk])),
     )
+
+
+def _rented_sentence(rental: CubbyRental) -> str:
+    """The bell line for a cubby that is the member's now, in how it is paid for."""
+    cubby = rental.cubby
+    where = f"cubby {cubby.label} on the {cubby.unit.name}"
+    if rental.is_comped:
+        return f"Guild staff gave you {where}. It's free."
+    if rental.is_assigned:
+        return f"Guild staff gave you {where}. You pay the guild {rental.amount_display} a month directly."
+    return f"You're renting {where} for {rental.amount_display} a month."
 
 
 def notify_payment_failed(rental: CubbyRental, invoice: dict[str, Any]) -> None:
@@ -890,9 +1051,19 @@ def notify_ended(rental: CubbyRental) -> None:
         template="cubby_rental_ended",
         subject=f"Your rental of {cubby.label} has ended",
         title=f"Your rental of {cubby.label} has ended",
-        body=f"Cubby {cubby.label} on the {cubby.unit.name} is no longer yours, and you won't be charged again.",
+        body=_ended_sentence(rental),
         period=f"cubby_rental:{rental.pk}:ended",
     )
+
+
+def _ended_sentence(rental: CubbyRental) -> str:
+    """The bell line for an ended rental, with the reason guild staff gave."""
+    cubby = rental.cubby
+    sentence = f"Cubby {cubby.label} on the {cubby.unit.name} is no longer yours"
+    sentence += "." if rental.is_assigned else ", and you won't be charged again."
+    if rental.end_reason:
+        sentence += f" Guild staff said: {rental.end_reason}"
+    return sentence
 
 
 def notify_refunded(rental: CubbyRental, amount_cents: int) -> None:
@@ -908,3 +1079,82 @@ def notify_refunded(rental: CubbyRental, amount_cents: int) -> None:
         period=f"cubby_rental:{rental.pk}:refunded",
         refunded=cubby_dollars(amount_cents),
     )
+
+
+# ── Staff notifications (#979) ───────────────────────────────────────────────
+
+
+def rentals_url(guild: Guild) -> str:
+    """The staff Rentals tab of ``guild``'s Cubbies manager (relative)."""
+    return reverse("hub_guild_cubbies_rentals", args=[guild.pk])
+
+
+def rental_staff_url(rental: CubbyRental, show: str = "all") -> str:
+    """One rental's own place on the Rentals tab (relative): its chip and its row's anchor.
+
+    Each staff event links its own rental, so the 8 AM digest (which keys a line, and its
+    still-open check, on the link) keeps one line per rental and drops only the one paid.
+    """
+    return f"{rentals_url(rental.cubby.unit.guild)}?show={show}#rental-{rental.pk}"
+
+
+def _staff_context(rental: CubbyRental, show: str = "all") -> dict[str, Any]:
+    """What the three staff events' copy reads (``core/events/copy.py``), plus the guild the resolver needs."""
+    cubby = rental.cubby
+    guild = cubby.unit.guild
+    return {
+        "guild": guild,
+        "guild_name": guild.name,
+        "cubby_label": cubby.label,
+        "unit_name": cubby.unit.name,
+        "member_name": rental.member.display_name,
+        "amount": "Comped" if rental.is_comped else f"{rental.amount_display} a month",
+        "reason_line": f" The reason given: {rental.end_reason.rstrip('.')}." if rental.end_reason else "",
+        "rentals_url": _absolute_url(rental_staff_url(rental, show)),
+    }
+
+
+def _emit_staff(
+    rental: CubbyRental, event_key: str, *, period: str, show: str = "all", actor: Member | None = None
+) -> None:
+    """One staff event to the guild's lead and staff (the bell, and email where it has one), once per ``period``.
+
+    ``actor`` (staff who did it themselves) is left out; the rest of the leadership still hears.
+    """
+    from core.events.emit import emit
+
+    context = _staff_context(rental, show)
+    recipient_user_ids: set[int] | None = None
+    if actor is not None:
+        guild: Guild = context["guild"]
+        recipient_user_ids = {
+            member.user_id
+            for member in guild.leadership_members()
+            if member.user_id is not None and member.pk != actor.pk
+        }
+    emit(
+        event_key,
+        target=rental,
+        context=context,
+        url=rental_staff_url(rental, show),
+        period=period,
+        recipient_user_ids=recipient_user_ids,
+    )
+
+
+def notify_staff_rental_started(rental: CubbyRental, *, actor: Member | None = None) -> None:
+    """``cubbies.rental_started``: a member rented one of the guild's cubbies, or staff assigned one."""
+    _emit_staff(rental, "cubbies.rental_started", period=f"cubby_rental:{rental.pk}:staff_started", actor=actor)
+
+
+def notify_staff_past_due(rental: CubbyRental, invoice: dict[str, Any]) -> None:
+    """``cubbies.rental_past_due``: a monthly charge failed. Its email waits for the 8 AM digest, which
+    drops it once the rental is paid (the still-open check reads ``cubby_past_due:<pk>``)."""
+    _emit_staff(
+        rental, "cubbies.rental_past_due", period=f"cubby_past_due:{rental.pk}:{invoice['id']}", show="past_due"
+    )
+
+
+def notify_staff_ended(rental: CubbyRental) -> None:
+    """``cubbies.staff_rental_ended``: a rental ended however it ended, so its shelf needs clearing."""
+    _emit_staff(rental, "cubbies.staff_rental_ended", period=f"cubby_rental:{rental.pk}:staff_ended", show="ended")

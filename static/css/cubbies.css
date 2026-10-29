@@ -423,8 +423,109 @@ a.pl-cubby, a.pl-cubby-slot { text-decoration: none; }
     .pl-cubby-sheet__fine { text-align: center; }
 }
 
-/* ---- Every cubby taken (Part 4 adds the waitlist button) ---- */
+/* ---- Every cubby taken: the waitlist (#980, mockup views full and full-joined) ---- */
 .pl-cubby-wait { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1rem 1.25rem; align-items: start; padding: 1.5rem; }
 .pl-cubby-wait__icon { display: inline-flex; align-items: center; justify-content: center; width: 3rem; height: 3rem; border-radius: 999px; background: color-mix(in srgb, var(--color-tuscan-yellow) 16%, transparent); color: var(--hub-link); font-size: 1.375rem; }
+.pl-cubby-wait--joined .pl-cubby-wait__icon { background: color-mix(in srgb, var(--pl-lifecycle-live) 16%, transparent); color: var(--pl-lifecycle-live); }
 .pl-cubby-wait__title { margin: 0; font-family: var(--font-heading); font-size: 1.25rem; font-weight: 900; color: var(--hub-text); }
 .pl-cubby-wait__text { margin-top: 0.5rem; max-width: 60ch; color: var(--hub-text-muted); line-height: 1.55; }
+.pl-cubby-wait .pl-cubby-actions { margin-top: 1.25rem; }
+.pl-cubby-place { font-family: var(--font-heading); font-weight: 900; color: var(--hub-text); }
+
+/* The staff Waitlist chip's list (#980): the rentals table's look, a place pill on each phone card. */
+.pl-cubby-wtable td { vertical-align: middle; }
+.pl-cubby-wtable th:first-child, .pl-cubby-wtable td:first-child { width: 4rem; }
+.pl-cubby-wtable th:last-child { width: 1%; }
+.pl-cubby-wplace { display: inline-flex; align-items: center; padding: 0.125rem 0.625rem; border-radius: 999px; background: var(--hub-surface); border: 1px solid var(--hub-border); font-size: 0.75rem; font-weight: 700; color: var(--hub-text); white-space: nowrap; }
+
+/* ---- Part 3 (#979): the staff Rentals tab, Assign a Cubby, End Rental and the Pricing split bar ---- */
+:root { --pl-cubby-pl-bg: var(--hub-blue); --pl-cubby-pl-fg: var(--color-navy); }
+[data-theme="light"] { --pl-cubby-pl-fg: var(--color-cream); }
+
+/* The Rentals tab's count, read apart by the phone section picker. */
+.pl-cubby-tabcount { display: inline-block; min-width: 1.4rem; margin-left: 0.4rem; padding: 0 0.35rem; border-radius: 999px; background: var(--hub-surface); font-size: 0.75rem; font-weight: 700; text-align: center; color: var(--hub-text); }
+
+.pl-cubby-rentals { display: grid; gap: 1.5rem; min-width: 0; margin-top: 1.5rem; }
+.pl-cubby-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }
+.pl-cubby-tile { padding: 1.125rem 1.25rem; }
+.pl-cubby-tile__label { display: flex; align-items: center; gap: 0.375rem; font-size: 0.8125rem; font-weight: 600; color: var(--hub-text-muted); }
+.pl-cubby-tile__value { margin-top: 0.375rem; font-family: var(--font-heading); font-size: 1.75rem; font-weight: 900; line-height: 1.1; color: var(--hub-text); font-variant-numeric: tabular-nums; }
+.pl-cubby-tile__sub { margin-top: 0.25rem; font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-cubby-tile--alert { border-color: color-mix(in srgb, var(--hub-danger-text) 45%, var(--hub-border)); }
+.pl-cubby-tile--alert .pl-cubby-tile__label, .pl-cubby-tile--alert .pl-cubby-tile__value { color: var(--hub-danger-text); }
+@media (max-width: 899.98px) { .pl-cubby-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; } .pl-cubby-tile__value { font-size: 1.5rem; } }
+
+/* Filter chips wrap (never scroll sideways); Export CSV and Assign a Cubby sit at the end. */
+.pl-cubby-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1rem; }
+.pl-cubby-toolbar__chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.pl-cubby-toolbar__chips .pl-wp-chip { min-height: 40px; text-decoration: none; }
+.pl-cubby-toolbar__end { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-left: auto; }
+.pl-cubby-toolbar__end .pl-btn, .pl-cubby-toolbar__end a { display: inline-flex; align-items: center; gap: 0.4rem; }
+.pl-cubby-csv { padding: 0.5rem 0.25rem; font-size: 0.875rem; font-weight: 600; color: var(--hub-link); text-decoration: none; }
+
+.pl-cubby-rtable td { vertical-align: middle; }
+.pl-cubby-rtable th:nth-child(3), .pl-cubby-rtable .pl-cubby-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pl-cubby-rtable small { display: block; font-size: 0.75rem; color: var(--hub-text-muted); }
+.pl-cubby-rtable tr.pl-cubby-rtable__ended td { color: var(--hub-text-muted); }
+.pl-cubby-who { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
+.pl-cubby-who > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.pl-cubby-avatar { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 2rem; height: 2rem; border-radius: 999px; background: var(--hub-elevated); border: 1px solid var(--hub-border-strong); font-size: 0.75rem; font-weight: 700; color: var(--hub-text); }
+.pl-cubby-chip--comped { color: var(--hub-blue); background: var(--hub-blue-soft); border-color: color-mix(in srgb, var(--hub-blue) 30%, transparent); }
+.pl-cubby-chip--ended { color: var(--hub-text-muted); background: var(--hub-surface); border-color: var(--hub-border); }
+.pl-cubby-rempty { padding: 2rem 1.5rem; text-align: center; color: var(--hub-text-muted); }
+
+/* Below 768px each rental is a card: no table, no sideways scroll. */
+.pl-cubby-rcards { display: none; margin: 0; padding: 0; list-style: none; }
+.pl-cubby-rcard { padding: 1rem; }
+.pl-cubby-rcard__top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.pl-cubby-rcard__name { font-weight: 700; color: var(--hub-text); overflow-wrap: anywhere; }
+.pl-cubby-rcard__where { margin-top: 0.5rem; font-size: 0.875rem; color: var(--hub-text); }
+.pl-cubby-rcard__lines { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; margin-top: 0.75rem; font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-cubby-rcard__lines strong { display: block; color: var(--hub-text); font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
+.pl-cubby-rcard .pl-btn { margin-top: 1rem; }
+@media (max-width: 767.98px) {
+    .pl-cubby-rwide { display: none; }
+    .pl-cubby-rcards { display: grid; gap: 0.75rem; }
+    .pl-cubby-toolbar__end { width: 100%; margin-left: 0; justify-content: space-between; }
+}
+
+/* Assign a Cubby: Member picker, Cubby, How They Pay, the amount Paid Another Way reveals. */
+.pl-cubby-assign .pl-form-group { margin: 0 0 1.25rem; }
+.pl-cubby-assign .pl-member-picker { margin-bottom: 1.25rem; }
+.pl-cubby-assign .pl-member-picker .pl-form-group { margin-bottom: 0; }
+.pl-cubby-assign input[data-member-picker-input] { max-width: 520px; }
+.pl-cubby-assign .pl-member-picker__list { display: flex; flex-direction: column; gap: 0.25rem; max-height: 13rem; margin: 0.75rem 0 0; padding: 0.375rem; list-style: none; overflow-y: auto; overscroll-behavior: contain; background: var(--hub-input-bg); border: 1px solid var(--hub-border-strong); border-radius: 8px; }
+.pl-cubby-assign .pl-member-picker__option { display: flex; align-items: center; gap: 0.75rem; min-height: 44px; padding: 0.375rem 0.75rem; border: 1px solid transparent; border-radius: 6px; color: var(--hub-text); font-size: 0.9375rem; overflow-wrap: anywhere; cursor: pointer; }
+.pl-cubby-assign .pl-member-picker__option small { margin-left: auto; font-size: 0.75rem; color: var(--hub-text-muted); white-space: nowrap; }
+.pl-cubby-assign .pl-member-picker__option[hidden], .pl-cubby-assign .pl-member-picker__list[hidden] { display: none; }
+.pl-cubby-assign .pl-member-picker__option:hover, .pl-cubby-assign .pl-member-picker__option.is-active { background: var(--hub-elevated); border-color: var(--hub-border-strong); }
+.pl-cubby-assign .pl-member-picker__option[aria-selected="true"] { background: var(--hub-elevated); border-color: var(--color-tuscan-yellow); font-weight: 600; }
+.pl-cubby-assign .pl-member-picker__none { margin: 0.75rem 0 0; font-size: 0.875rem; color: var(--hub-text-muted); }
+.pl-cubby-assign select { max-width: 520px; }
+.pl-cubby-assign .pl-radio-group { margin-top: 0.5rem; }
+.hub-form-group.pl-cubby-assign .pl-radio-option { display: flex; align-items: flex-start; gap: 0.625rem; margin: 0; font-weight: 400; }
+.hub-form-group.pl-cubby-assign .pl-radio-option input { width: auto; margin-top: 0.2rem; }
+.pl-cubby-assign__amount { margin: 0.75rem 0 0 1.75rem; }
+.pl-cubby-assign__amount input { width: 6rem; }
+.pl-cubby-assign__error { margin: 0.75rem 0 0; }
+.pl-cubby-assign .pl-form-note { margin: 1.5rem 0 0; }
+
+/* The Your Cubby card of a rental guild staff assigned. */
+.pl-cubby-assigned { display: flex; align-items: flex-start; gap: 0.5rem; margin-top: 1.25rem; font-size: 0.875rem; color: var(--hub-text-muted); line-height: 1.5; }
+.pl-cubby-assigned .pl-cubby-ico { margin-top: 0.15rem; color: var(--hub-link); }
+
+/* Pricing's split bar: SVG segments sized by the admins' percents (attributes, not inline styles), words on top. */
+.pl-cubby-split { margin-top: 1.5rem; }
+.pl-cubby-split__bar { position: relative; display: flex; align-items: center; justify-content: space-between; height: 2.75rem; padding: 0 0.875rem; border-radius: 10px; overflow: hidden; font-size: 0.8125rem; font-weight: 800; }
+.pl-cubby-split__fill { position: absolute; inset: 0; width: 100%; height: 100%; }
+.pl-cubby-split__seg--guild { fill: var(--pl-split-guild-bg); }
+.pl-cubby-split__seg--pl { fill: var(--pl-cubby-pl-bg); }
+.pl-cubby-split__label { position: relative; color: var(--pl-split-guild-fg); white-space: nowrap; }
+.pl-cubby-split__label--pl { color: var(--pl-cubby-pl-fg); }
+.pl-cubby-split__text { margin-top: 0.75rem; font-size: 0.875rem; color: var(--hub-text); line-height: 1.55; }
+.pl-cubby-split__text > span:last-child { color: var(--hub-text-muted); }
+
+/* A staff notice's link lands on its rental (#979): clear of the sticky top bar, and marked. */
+.pl-cubby-rtable tr[id], .pl-cubby-rcard[id] { scroll-margin-top: calc(var(--topbar-height) + 1rem); }
+.pl-cubby-rtable tr:target td { background: var(--pl-cubby-glow); }
+.pl-cubby-rcard:target { border-color: var(--color-tuscan-yellow); }

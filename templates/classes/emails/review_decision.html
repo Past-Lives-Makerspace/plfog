@@ -9,9 +9,9 @@
 {% elif approval.decision == 'approved' %}
 <p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">{{ approval.get_role_display }} approved your class.{% if pending_rows %} Waiting on: {% for p in pending_rows %}{{ p.get_role_display }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% else %} That was the last gate.{% endif %}</p>
 {% elif approval.decision == 'changes_requested' %}
-<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">{{ approval.get_role_display }} reviewed your class and asked for changes before approving. The class is back in Draft so you can edit and resubmit.</p>
+<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">{{ approval.get_role_display }} reviewed your class and asked for changes before approving. The class is back in Draft so you can edit and resubmit. To ask the reviewer anything first, write to them in the class's Messages; you do not need to resubmit.</p>
 {% else %}
-<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">{{ approval.get_role_display }} declined your class. The class is back in Draft. If you'd like to discuss, reach out to the studio at <a href="mailto:info@pastlives.space" style="color: #0d4876;">info@pastlives.space</a>.</p>
+<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">{{ approval.get_role_display }} declined your class. The class is back in Draft. To talk it over, write to the reviewer in the class's Messages.</p>
 {% endif %}
 {# The reviewer's note renders once, inside the pipeline block below. #}
 {% review_pipeline offering %}

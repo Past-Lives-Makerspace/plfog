@@ -3,12 +3,15 @@
 <p style="margin: 0 0 20px;">Hi {{ first_name }}, you're now renting cubby <a href="{{ tab_url }}" style="color: #092E4C; font-weight: 700;">{{ cubby.label }} on the {{ cubby.unit.name }}</a> in the <a href="{{ guild_url }}" style="color: #092E4C; font-weight: 700;">{{ guild.name }}</a>. It's ready for your things today.</p>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 22px; border: 1px solid #e3e7ec; border-radius: 10px;">
   <tr><td style="padding: 12px 16px; font-size: 14px; line-height: 1.7;">
-    <strong style="color: #092E4C;">{{ rental.amount_display }} a month</strong><br>
+    {% if rental.is_comped %}<strong style="color: #092E4C;">Free</strong><br>
+    <span style="color: #5B6B77;">Guild staff gave you this cubby, so nothing is ever charged</span>{% elif rental.is_assigned %}<strong style="color: #092E4C;">{{ rental.amount_display }} a month</strong><br>
+    <span style="color: #5B6B77;">Paid to the guild directly, never charged here</span>{% else %}<strong style="color: #092E4C;">{{ rental.amount_display }} a month</strong><br>{% endif %}
     {% if next_charge %}<span style="color: #5B6B77;">Next charge {{ next_charge }}, then the {{ charge_day }} each month</span>{% endif %}{% if cubby.size %}<br>
     <span style="color: #5B6B77;">{{ cubby.size }}</span>{% endif %}
   </td></tr>
 </table>
 <p style="margin: 0 0 24px; text-align: center;"><a href="{{ tab_url }}" style="display: inline-block; padding: 13px 26px; border-radius: 8px; background: #EEB44B; color: #092E4C; font-weight: 700; text-decoration: none;">See Your Cubby</a></p>
-{% if rental.over_floor_cents %}<p style="margin: 0 0 10px; font-size: 14px; color: #5B6B77;">Thank you for paying {{ rental.over_floor_display }} over the minimum.{% if guild.cubby_payee_id %} It goes to the guild.{% endif %}</p>
-{% endif %}<p style="margin: 0; font-size: 14px; color: #5B6B77;">You can change your amount or cancel anytime from the guild page. To change the card you pay with, use <a href="{{ manage_url }}" style="color: #092E4C;">Manage Payment</a>.</p>
+{% if rental.is_assigned %}<p style="margin: 0; font-size: 14px; color: #5B6B77;">Guild staff assigned it to you. If you don't need it any more, cancel it from the guild page and it opens up for the next member.</p>
+{% else %}{% if rental.over_floor_cents %}<p style="margin: 0 0 10px; font-size: 14px; color: #5B6B77;">Thank you for paying {{ rental.over_floor_display }} over the minimum.{% if guild.cubby_payee_id %} It goes to the guild.{% endif %}</p>
+{% endif %}<p style="margin: 0; font-size: 14px; color: #5B6B77;">You can change your amount or cancel anytime from the guild page. To change the card you pay with, use <a href="{{ manage_url }}" style="color: #092E4C;">Manage Payment</a>.</p>{% endif %}
 {% endblock %}

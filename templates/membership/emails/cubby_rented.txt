@@ -2,14 +2,18 @@
 
 You're now renting cubby {{ cubby.label }} on the {{ cubby.unit.name }} in the {{ guild.name }}. It's ready for your things today.
 
-  {{ rental.amount_display }} a month
-{% if next_charge %}  Next charge {{ next_charge }}, then the {{ charge_day }} each month
+{% if rental.is_comped %}  Free: guild staff gave you this cubby, so nothing is ever charged
+{% elif rental.is_assigned %}  {{ rental.amount_display }} a month, paid to the guild directly, never charged here
+{% else %}  {{ rental.amount_display }} a month
+{% endif %}{% if next_charge %}  Next charge {{ next_charge }}, then the {{ charge_day }} each month
 {% endif %}{% if cubby.size %}  {{ cubby.size }}
 {% endif %}
 See your cubby: {{ tab_url }}
-{% if rental.over_floor_cents %}
+{% if rental.is_assigned %}
+Guild staff assigned it to you. If you don't need it any more, cancel it from the guild page and it opens up for the next member.
+{% else %}{% if rental.over_floor_cents %}
 Thank you for paying {{ rental.over_floor_display }} over the minimum.{% if guild.cubby_payee_id %} It goes to the guild.{% endif %}
 {% endif %}
 You can change your amount or cancel anytime from the guild page. To change the card you pay with, use Manage Payment: {{ manage_url }}
-
+{% endif %}
 {% include "membership/emails/_footer.txt" %}{% endautoescape %}

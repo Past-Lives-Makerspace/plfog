@@ -100,6 +100,10 @@ _Avoid_: rack, bookcase, shelf (alone) in code; members read the mockup's "shelf
 One rentable spot on a guild's Shelf Unit (`membership.Cubby`, #977), placed by its top left square and the squares it takes up (1 Spot, Wide, Tall, Big), with a label unique in the guild, a size, a photo, a note and a monthly price: its own minimum and suggested amount, or the guild's. Open or Out of Service until renting arrives (#978). Not the 27 Past Lives house cubbies, which are Airtable spaces requested through the space map.
 _Avoid_: locker, slot, storage space; never call a house cubby a guild cubby.
 
+**Waitlist (cubbies)**:
+The line of members waiting for any cubby in a guild whose cubbies are all taken (`membership.CubbyWaitlistEntry`, #980). Each cubby that opens tells the member first in line and takes them off it; it is a heads up, never a hold, so whoever rents first gets the cubby.
+_Avoid_: queue, reservation, hold.
+
 **Kiln ticket**:
 One piece, or a set of identical pieces, a maker puts on the Ceramics Guild's shelf to be fired (`kiln.KilnTicket`, #691): photos with one cover, the guild's questions, and its status (Draft, In the queue, In the kiln, Ready for pickup). The **kiln crew** is the Ceramics Guild's lead and staff; a **flag** asks the crew to double check a ticket and never blocks it.
 _Avoid_: slip (the paper form it replaces), order, job.

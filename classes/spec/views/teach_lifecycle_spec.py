@@ -190,14 +190,18 @@ def describe_query_counts():
 
 
 def describe_edit_page_cards():
-    def it_shows_the_pipeline_card_with_the_note_on_a_bounced_class(instructor_fixture, client):
+    def it_shows_the_pipeline_card_and_the_note_in_messages_on_a_bounced_class(instructor_fixture, client):
         offering = _bounced(instructor_fixture, notes="More photos please")
+        # ClassApproval.decide writes the note into the thread (#975); _bounced makes the row by hand.
+        offering.write_message(author=None, body="More photos please")
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert "Where Your Class Is" in html
         assert "Changes requested by the guild lead" in html
-        assert "More photos please" in html
         assert "Fix the notes below and submit again." in html
+        # The thread is the one place for the note: no separate box in the card.
+        assert "pl-review-note" not in html
+        assert html.index('id="messages"') < html.index("More photos please")
         assert "Ready to Submit?" in html
 
     def it_shows_not_submitted_yet_on_a_plain_draft(instructor_fixture, client):

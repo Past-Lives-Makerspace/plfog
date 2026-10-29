@@ -1,0 +1,5 @@
+/* A class's messages between its instructors and its reviewers (classes/_components/class_messages.html):
+   a card under Where Your Class Is on the composer and the Overview, and a section of the review page.
+   The thread inside it is the shared one (thread.css). */
+.pl-class-messages { margin: 1.5rem 0; }
+.pl-class-messages__title { margin: 0; font-size: 1.1rem; }

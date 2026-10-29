@@ -374,6 +374,17 @@ def describe_registrations_page():
                 in report.group(1)
             )
 
+        def it_says_what_owed_now_counts(admin_user, client):
+            client.force_login(admin_user)
+            html = client.get(reverse("classes:admin_registrations")).content.decode()
+            report = re.search(r'<span class="pl-reg-toolbar__report">(.*?)</span>\s*</span>\s*</span>', html, re.S)
+            sentence = (
+                "Owed now is what to pay instructors, orientors and equipment managers by hand: only shares whose"
+                " class, orientation or reservation happened at least 48 hours ago, counted in the dates they fell due."
+            )
+            # Once in the bubble a pointer sees, once in the aria-label a screen reader reads.
+            assert report.group(1).count(sentence) == 2
+
         def it_is_hidden_from_an_instructor(client):
             user = UserFactory(username="reg-range-teacher@example.com")
             ClassOfferingFactory(instructor=InstructorFactory(user=user))

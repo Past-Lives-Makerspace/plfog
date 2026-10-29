@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 import stripe
 from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
-from stripe.params import RefundCreateParams, SubscriptionUpdateParams
+from stripe.params import RefundCreateParams, SubscriptionCancelParams, SubscriptionUpdateParams
 from stripe.params.billing_portal import SessionCreateParams as PortalSessionCreateParams
 from stripe.params.checkout import SessionCreateParams
 
@@ -749,10 +749,18 @@ def set_subscription_cancel_at_period_end(*, subscription_id: str, cancel: bool)
     client.v1.subscriptions.update(subscription_id, params=params)
 
 
-def cancel_subscription(*, subscription_id: str) -> None:
-    """End the subscription now. No proration and no refund. Stripe errors propagate."""
+def cancel_subscription(*, subscription_id: str, idempotency_key: str | None = None) -> None:
+    """End the subscription now. No proration and no refund. Stripe errors propagate.
+
+    With ``idempotency_key`` (staff End Rental, ``cubby-end-<rental pk>``, #979) the call says
+    ``prorate=false`` and ``invoice_now=false`` out loud and a retry replays Stripe's first answer.
+    """
     client = _get_stripe_client()
-    client.v1.subscriptions.cancel(subscription_id)
+    if idempotency_key is None:
+        client.v1.subscriptions.cancel(subscription_id)
+        return
+    params: SubscriptionCancelParams = {"prorate": False, "invoice_now": False}
+    client.v1.subscriptions.cancel(subscription_id, params=params, options={"idempotency_key": idempotency_key})
 
 
 def create_payment_method_portal_session(*, customer_id: str, return_url: str) -> str:

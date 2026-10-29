@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-28"
+title = "Get in line for a guild cubby"
+changes = [
+  "When every cubby in a guild is taken, tap Notify Me When One Opens on the Cubbies tab to join the list.",
+  "When a cubby opens, the next person in line gets an email. Whoever rents it first gets it.",
+  "You can see your place in line and leave the list any time.",
+  "Guild staff see who is waiting on the Rentals tab and can take someone off the list.",
+]

@@ -440,7 +440,7 @@ def describe_reconciliation_split():
     def _row(result: Any, kind: RecipientKind, member: Member) -> Any:
         return next(alloc for alloc in result.groups[kind] if alloc.recipient_id == member.pk)
 
-    def it_splits_an_instructor_into_sent_through_stripe_and_owed_manually():
+    def it_splits_an_instructor_into_sent_through_stripe_and_owed_now():
         _turn_on()
         instructor = _payee()
         _registration(instructor)  # sent
@@ -449,16 +449,18 @@ def describe_reconciliation_split():
         with _Stripe():
             payouts.run_payouts(NOW)
         row = _row(build_reconciliation(window=_window()), RecipientKind.INSTRUCTOR, instructor)
-        assert (row.total_cents, row.stripe_cents, row.manual_cents) == (21000, 14000, 7000)
+        # The scheduled share is Not yet due until a transfer exists (#985), never Sent through Stripe.
+        expected = (21000, 7000, 7000, 7000)
+        assert (row.total_cents, row.stripe_cents, row.owed_now_cents, row.not_due_cents) == expected
 
-    def it_counts_a_failed_transfer_as_owed_manually():
+    def it_counts_a_failed_transfer_in_stripe_retrying_never_owed_now():
         _turn_on()
         instructor = _payee()
         _registration(instructor)
         with _Stripe(fail="No."), patch("core.events.emit.emit"):
             payouts.run_payouts(NOW)
         row = _row(build_reconciliation(window=_window()), RecipientKind.INSTRUCTOR, instructor)
-        assert (row.stripe_cents, row.manual_cents) == (0, 7000)
+        assert (row.stripe_cents, row.owed_now_cents, row.retrying_cents) == (0, 0, 7000)
 
     def it_splits_orientors_and_leaves_guild_rows_unchanged():
         _turn_on()
@@ -475,7 +477,7 @@ def describe_reconciliation_split():
         instructor = _payee()
         _registration(instructor)
         row = _row(build_reconciliation(window=_window()), RecipientKind.INSTRUCTOR, instructor)
-        assert (row.stripe_cents, row.manual_cents) == (0, 7000)
+        assert (row.stripe_cents, row.owed_now_cents) == (0, 7000)
 
     def it_carries_the_split_through_a_snapshot_and_reads_old_ones_as_owed():
         _turn_on()
@@ -484,16 +486,17 @@ def describe_reconciliation_split():
         with _Stripe():
             payouts.run_payouts(NOW)
         snapshot = ReconciliationSnapshot.take(
-            period_start=date(2026, 10, 1), period_end=date(2026, 10, 31), title="Oct"
+            period_start=date(2026, 10, 1), period_end=date(2026, 10, 19), title="Oct"
         )
         assert _row(result_from_snapshot(snapshot), RecipientKind.INSTRUCTOR, instructor).stripe_cents == 7000
         for group in snapshot.results["groups"]:
             for row in group["rows"]:
-                del row["stripe_cents"]
+                for key in ("stripe_cents", "owed_now_cents", "not_due_cents", "retrying_cents", "next_due_at"):
+                    del row[key]
         old = _row(result_from_snapshot(snapshot), RecipientKind.INSTRUCTOR, instructor)
-        assert (old.stripe_cents, old.manual_cents) == (0, 7000)
+        assert (old.stripe_cents, old.owed_now_cents, old.not_due_cents) == (0, 7000, 0)
 
-    def it_adds_both_columns_to_the_csv():
+    def it_adds_the_split_columns_to_the_csv():
         from billing.reconciliation import CSV_HEADERS, stream_reconciliation_csv
 
         _turn_on()
@@ -502,8 +505,8 @@ def describe_reconciliation_split():
         with _Stripe():
             payouts.run_payouts(NOW)
         body = b"".join(stream_reconciliation_csv(build_reconciliation(window=_window())).streaming_content).decode()
-        assert CSV_HEADERS[-2:] == ["Sent through Stripe", "Owed manually"]
-        assert f"{instructor.display_name},1,70.00,,70.00,70.00,0.00" in body
+        assert CSV_HEADERS[-5:] == ["Sent through Stripe", "Owed now", "Not yet due", "Next due", "Stripe retrying"]
+        assert f"{instructor.display_name},1,70.00,,70.00,70.00,0.00,0.00,,0.00\r\n" in body
 
 
 def describe_payee_earnings():
@@ -684,12 +687,67 @@ def describe_unanswered_transfers():
 
 def describe_snapshot_binds_the_split():
     def _october() -> ReconciliationSnapshot:
-        return ReconciliationSnapshot.take(period_start=date(2026, 10, 1), period_end=date(2026, 10, 31), title="Oct")
+        return ReconciliationSnapshot.take(period_start=date(2026, 10, 1), period_end=date(2026, 10, 19), title="Oct")
 
     def _switch(on: bool) -> None:
         bs = BillingSettings.load()
         bs.connect_enabled = on
         bs.save()
+
+    def _move_class(reg: Registration, to: datetime) -> None:
+        reg.class_offering.sessions.update(starts_at=to, ends_at=to + timedelta(hours=2))
+
+    def it_sends_a_share_whose_class_moved_later_by_the_new_date_not_the_old_one():
+        _turn_on()
+        reg = _registration(_payee(), class_at=NOW + timedelta(days=5))
+        _october()
+        assert Payout.objects.get().due_at == NOW + timedelta(days=7)
+        _move_class(reg, NOW + timedelta(days=60))
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW)  # the next 15 minute tick after the move re-dates it
+            payouts.run_payouts(NOW + timedelta(days=8))  # the old date has passed
+            assert fake.transfers == []
+        payout = Payout.objects.get()
+        assert (payout.status, payout.due_at) == (Payout.Status.PENDING, NOW + timedelta(days=62))
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW + timedelta(days=63))
+        assert len(fake.transfers) == 1
+        assert Payout.objects.get().status == Payout.Status.SENT
+
+    def it_does_not_give_up_a_share_whose_class_moved_later_before_the_new_date():
+        _turn_on()
+        reg = _registration(_payee(), class_at=NOW + timedelta(days=5))
+        _october()
+        _move_class(reg, NOW + timedelta(days=60))
+        _switch(False)
+        with _Stripe(), patch("core.events.emit.emit"):
+            payouts.run_payouts(NOW)  # the next tick after the move re-dates it, payouts off or not
+            payouts.run_payouts(NOW + timedelta(days=11))  # 3 days past the old date
+        payout = Payout.objects.get()
+        assert (payout.status, payout.owed_since) == (Payout.Status.PENDING, None)
+        later = NOW + timedelta(days=66)  # 3 days past the new date, payouts still off
+        with _Stripe(), patch("core.events.emit.emit"), patch("django.utils.timezone.now", return_value=later):
+            payouts.run_payouts(later)
+        payout.refresh_from_db()
+        assert (payout.status, payout.owed_since) == (Payout.Status.OWED_MANUALLY, NOW + timedelta(days=66))
+
+    def it_keeps_the_date_of_a_share_stripe_already_tried():
+        _turn_on()
+        reg = _registration(_payee(), class_at=NOW + timedelta(days=5))
+        _october()
+        Payout.objects.update(attempted_at=NOW)
+        _move_class(reg, NOW + timedelta(days=60))
+        assert payouts.refresh_unsent_due_dates(NOW) == 0
+        assert Payout.objects.get().due_at == NOW + timedelta(days=7)
+
+    def it_keeps_the_date_of_a_share_already_due_by_its_recorded_date():
+        _turn_on()
+        reg = _registration(_payee(), class_at=NOW + timedelta(days=5))
+        _october()
+        _move_class(reg, NOW + timedelta(days=60))
+        # Past the recorded date a crash may have rolled back an attempt that landed; leave it to the stale lookup.
+        assert payouts.refresh_unsent_due_dates(NOW + timedelta(days=8)) == 0
+        assert Payout.objects.get().due_at == NOW + timedelta(days=7)
 
     def it_still_sends_a_share_counted_as_stripe_once_after_the_switch_goes_off_and_on():
         _turn_on()
@@ -697,7 +755,8 @@ def describe_snapshot_binds_the_split():
         _registration(instructor, class_at=NOW + timedelta(days=5))
         snapshot = _october()
         row = next(r for g in snapshot.results["groups"] if g["kind"] == "instructor" for r in g["rows"])
-        assert row["stripe_cents"] == 7000
+        # Not yet due until Stripe sends it (#985), and never owed by hand.
+        assert (row["stripe_cents"], row["owed_now_cents"], row["not_due_cents"]) == (0, 0, 7000)
         payout = Payout.objects.get()
         assert (payout.status, payout.counted_as_stripe_in) == (Payout.Status.PENDING, snapshot)
         _switch(False)
@@ -838,7 +897,7 @@ def describe_no_share_sits_or_doubles():
     def it_owes_a_counted_share_by_hand_and_alerts_once_payouts_stay_off_3_days_past_due():
         _turn_on()
         _registration(_payee(), class_at=NOW + timedelta(days=5))  # due NOW + 7 days
-        ReconciliationSnapshot.take(period_start=date(2026, 10, 1), period_end=date(2026, 10, 31), title="Oct")
+        ReconciliationSnapshot.take(period_start=date(2026, 10, 1), period_end=date(2026, 10, 19), title="Oct")
         _switch(False)
         with _Stripe() as fake, patch("core.events.emit.emit") as emit:
             payouts.run_payouts(NOW + timedelta(days=9))  # 2 days past due: still waiting
