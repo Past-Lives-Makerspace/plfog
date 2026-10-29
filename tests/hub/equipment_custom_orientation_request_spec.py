@@ -73,7 +73,9 @@ def _owned_type(equipment: Equipment, **fields: object) -> OrientationType:
 
 
 def _when(days: int = 3) -> str:
-    return timezone.localtime(timezone.now() + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M")
+    # Noon, never the hour clocks fall back through, which happens twice and is refused as ambiguous.
+    noon = timezone.localtime(timezone.now() + timedelta(days=days)).replace(hour=12, minute=0)
+    return noon.strftime("%Y-%m-%dT%H:%M")
 
 
 def _road(equipment: Equipment) -> str:
