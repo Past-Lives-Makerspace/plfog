@@ -23,6 +23,7 @@ from . import (
     orientations_views,
     spotlight_views,
     views,
+    whats_new_views,
     wiki_views,
 )
 
@@ -859,6 +860,9 @@ urlpatterns = [
     path("tab/history/", views.tab_history, name="hub_tab_history"),
     path("tab/void/<int:entry_pk>/", views.void_tab_entry, name="hub_void_tab_entry"),
     path("home/", views.home, name="hub_home"),
+    # What's New (#1007): the modal body by tab and feature, and the seen write a badge click makes.
+    path("whats-new/", whats_new_views.hub_whats_new, name="hub_whats_new"),
+    path("whats-new/seen/<str:key>/", whats_new_views.hub_whats_new_seen, name="hub_whats_new_seen"),
     path("calendar/", views.community_calendar, name="hub_community_calendar"),
     path("calendar/events/", views.calendar_events_partial, name="hub_community_calendar_events"),
     path("calendar/export.ics", views.calendar_export_ics, name="hub_calendar_export_ics"),

@@ -1,0 +1,27 @@
+{% comment %}
+One entry on a What's New tab (#1007). Context: row (core.whats_new.Row): the entry, the chips for
+a finer audience on this tab, and open_url and tour_url, each empty when the viewer may not follow
+it. At level clip or tour the registry's How it works lines show; the clip itself arrives with #1008.
+{% endcomment %}
+<article class="pl-wn-entry" data-whats-new-entry="{{ row.entry.slug }}">
+    <h3 class="pl-wn-entry__title">{{ row.entry.title }}{% for chip in row.chips %} <span class="pl-wn-chip" data-whats-new-chip>{{ chip }}</span>{% endfor %}</h3>
+    <ul class="pl-wn-entry__changes">
+        {% for change in row.entry.changes %}<li>{{ change }}</li>{% endfor %}
+    </ul>
+    {% if row.entry.steps %}
+    <div class="pl-wn-clip pl-wn-clip--steps" data-whats-new-steps>
+        <div>
+            <p class="pl-wn-steps__eyebrow">How it works</p>
+            <ol class="pl-wn-steps">
+                {% for step in row.entry.steps %}<li>{{ step }}</li>{% endfor %}
+            </ol>
+        </div>
+    </div>
+    {% endif %}
+    {% if row.open_url or row.tour_url %}
+    <div class="pl-wn-actions">
+        {% if row.open_url %}<a href="{{ row.open_url }}" class="hub-btn hub-btn--sm" data-whats-new-open>Open it</a>{% endif %}
+        {% if row.tour_url %}<a href="{{ row.tour_url }}" class="hub-btn hub-btn--sm hub-btn--ghost" data-whats-new-tour>Take the tour</a>{% endif %}
+    </div>
+    {% endif %}
+</article>

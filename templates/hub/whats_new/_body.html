@@ -1,0 +1,24 @@
+{% load tab_picker hub_tags %}
+{% comment %}
+The What's New modal body (#1007, part 2), swapped into the whats-new modal's body by htmx and
+rendered inline by hub/whats_new.html for a direct link. Context from hub.whats_new_views:
+whats_new_tabs (key, label, href, active, count), whats_new_groups (core.whats_new.DateGroup),
+whats_new_empty, modal_title, and whats_new_fragment on an htmx response, when the title is
+swapped out of band so a feature's name follows the body into the open modal.
+{% endcomment %}
+{% if whats_new_fragment %}<span id="whats-new-title" hx-swap-oob="innerHTML">{{ modal_title }}</span>{% endif %}
+{% tab_picker "What's New" %}
+<nav class="pl-tabs pl-wn-tabs" role="tablist" aria-label="What's New">
+    {% for tab in whats_new_tabs %}
+    <a href="{{ tab.href }}" class="vote-tab{% if tab.active %} vote-tab--active{% endif %}"{% if tab.active %} aria-current="page"{% endif %} hx-get="{{ tab.href }}" hx-target="#whats-new-body" hx-swap="innerHTML" data-whats-new-tab="{{ tab.key }}">{{ tab.label }}{% if tab.count %} ({{ tab.count }}){% endif %}</a>
+    {% endfor %}
+</nav>
+{% endtab_picker %}
+<div class="pl-wn-pane" data-whats-new-pane="{{ whats_new_tab }}">
+{% for group in whats_new_groups %}
+    <div class="pl-wn-date">{{ group.date|changelog_date }}</div>
+    {% for row in group.rows %}{% include "hub/whats_new/_entry.html" %}{% endfor %}
+{% empty %}
+    <p class="pl-wn-empty" data-whats-new-empty>{{ whats_new_empty }}</p>
+{% endfor %}
+</div>

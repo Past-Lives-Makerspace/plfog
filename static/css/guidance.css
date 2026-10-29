@@ -1,0 +1,163 @@
+/* Guidance (#1007): the New! badge, the What's New button and the inside of the What's New modal,
+   lifted from mockups/1007-whats-new.html as Felix approved it. Tokens only; the badge gradient
+   mixes the theme's tuscan yellow with a warm orange. Loaded by hub/base.html on every hub page.
+   Part 2 ships the button and the modal; the badge classes wait here for part 3's tag. Every
+   animation runs once per 10 s at most and is off under prefers-reduced-motion. */
+
+:root {
+    --pl-new-from: #ffd36a;
+    --pl-new-mid: var(--color-tuscan-yellow);
+    --pl-new-to: #f08a3e;
+    --pl-new-text: var(--color-navy);
+    --pl-new-ring: color-mix(in srgb, var(--color-tuscan-yellow) 55%, transparent);
+}
+
+/* ---- The New! badge: rides after any label (tab, card title, sidebar link, page title) ---- */
+.pl-new {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.18em;
+    margin-left: 0.45em;
+    padding: 0.14em 0.55em 0.12em 0.45em;
+    font-family: var(--font-heading);
+    font-size: 0.62rem;
+    font-weight: 900;
+    line-height: 1.2;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--pl-new-text);
+    background: linear-gradient(135deg, var(--pl-new-from) 0%, var(--pl-new-mid) 55%, var(--pl-new-to) 100%);
+    border-radius: 999px;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+    transform: rotate(4deg) translateY(-0.12em);
+    opacity: 0.88;
+    vertical-align: middle;
+    position: relative;
+    overflow: hidden;
+    white-space: nowrap;
+    flex-shrink: 0; /* a flex item with overflow hidden would shrink and clip its own text */
+    animation: pl-new-pop 0.55s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+.pl-new::before { content: "\2726"; font-size: 0.95em; line-height: 1; }
+.pl-new::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.6) 50%, transparent 70%);
+    transform: translateX(-130%);
+    animation: pl-new-shine 10s ease-in-out 1s infinite; /* one sweep, then still for the rest of the 10 s */
+}
+@keyframes pl-new-pop {
+    from { transform: rotate(4deg) translateY(-0.12em) scale(0.4); opacity: 0; }
+    to { transform: rotate(4deg) translateY(-0.12em) scale(1); opacity: 0.88; }
+}
+@keyframes pl-new-shine { 0% { transform: translateX(-130%); } 12% { transform: translateX(130%); } 100% { transform: translateX(130%); } }
+.vote-tab .pl-new { margin-left: 0.4em; }
+.hub-page-title .pl-new { font-size: 0.72rem; margin-left: 0.6em; }
+.pl-tool-card__title .pl-new { margin-left: 0.4em; }
+.hub-sidebar__link .pl-new { margin-left: auto; transform: rotate(4deg); }
+
+/* The phone section picker carries the badge: a dot on the summary, the badge in the list */
+.pl-tab-picker__summary .pl-new-dot {
+    width: 0.55rem; height: 0.55rem; border-radius: 50%;
+    background: linear-gradient(135deg, var(--pl-new-from), var(--pl-new-to));
+    box-shadow: 0 0 0 2px var(--hub-card-bg);
+    margin-left: 0.4rem; flex: 0 0 auto;
+}
+.pl-tab-picker__item .pl-new { margin-left: 0.5em; }
+
+/* ---- The What's New button: labelled on Home, an icon on feature pages ---- */
+.pl-whats-new-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    height: 2.4rem;
+    min-width: 2.4rem;
+    padding: 0 0.9rem;
+    border-radius: 999px;
+    border: 1px solid var(--hub-border-strong);
+    background: var(--hub-elevated);
+    color: var(--hub-text);
+    font-family: var(--font-heading);
+    font-size: 0.88rem;
+    font-weight: 700;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+.pl-whats-new-btn:hover { border-color: var(--color-tuscan-yellow); color: var(--hub-link); }
+.pl-whats-new-btn:focus-visible { outline: 2px solid var(--hub-blue); outline-offset: 2px; }
+.pl-whats-new-btn--icon { width: 2.4rem; padding: 0; }
+.pl-whats-new-btn svg { width: 1.15rem; height: 1.15rem; flex: 0 0 auto; }
+.pl-whats-new-btn__dot {
+    position: absolute; top: -3px; right: -2px;
+    width: 0.65rem; height: 0.65rem; border-radius: 50%;
+    background: linear-gradient(135deg, var(--pl-new-from), var(--pl-new-to));
+    box-shadow: 0 0 0 2px var(--hub-bg);
+}
+.pl-whats-new-btn--unseen { animation: pl-wn-pulse 10s ease-out infinite; } /* one pulse every 10 s */
+.pl-whats-new-btn--unseen svg { animation: pl-wn-wiggle 10s ease-in-out infinite; }
+@keyframes pl-wn-pulse {
+    0% { box-shadow: 0 0 0 0 var(--pl-new-ring); }
+    12% { box-shadow: 0 0 0 10px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+}
+@keyframes pl-wn-wiggle {
+    0%, 9%, 100% { transform: rotate(0); }
+    2% { transform: rotate(-14deg) scale(1.08); }
+    4.5% { transform: rotate(12deg) scale(1.08); }
+    7% { transform: rotate(-6deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .pl-new, .pl-new::after, .pl-whats-new-btn--unseen, .pl-whats-new-btn--unseen svg { animation: none; }
+}
+/* On Home the button sits level with the greeting; door-code.css stretches the header's action
+   slot to the Door Code box from 1200px, which must not stretch the button with it. */
+.pl-home-header-actions .pl-whats-new-btn { align-self: flex-start; }
+
+/* ---- Inside the What's New modal ---- */
+.pl-wn-tabs { margin: -0.25rem 0 0.25rem; }
+.pl-modal .pl-tabs { --pl-tabs-bg: var(--hub-card-bg); } /* the edge fade matches the modal, as .hub-card .pl-tabs does */
+.pl-wn-date {
+    font-family: var(--font-heading); font-size: 0.72rem; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--hub-text-muted);
+    margin: 1.1rem 0 0.25rem;
+}
+.pl-wn-entry { padding: 0.85rem 0; border-top: 1px solid var(--hub-border); }
+.pl-wn-entry:first-of-type { border-top: 0; }
+.pl-wn-entry__title {
+    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+    font-family: var(--font-heading); font-size: 1rem; font-weight: 700; margin: 0 0 0.3rem;
+}
+.pl-wn-chip {
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.03em;
+    padding: 0.12em 0.6em; border-radius: 999px;
+    background: var(--hub-blue-soft); color: var(--hub-blue);
+}
+.pl-wn-entry__changes { margin: 0.2rem 0 0.7rem 1.15rem; padding: 0; font-size: 0.92rem; line-height: 1.5; }
+.pl-wn-entry__changes li + li { margin-top: 0.2rem; }
+.pl-wn-clip { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 1rem; margin: 0.4rem 0 0.8rem; }
+.pl-wn-clip--steps { grid-template-columns: 1fr; } /* the steps alone, until #1008 puts the clip beside them */
+.pl-wn-clip__video {
+    aspect-ratio: 16 / 9; border-radius: 0.6rem; overflow: hidden; position: relative;
+    background: var(--hub-surface); border: 1px solid var(--hub-border);
+}
+.pl-wn-clip__video video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pl-wn-clip__length {
+    position: absolute; right: 0.5rem; bottom: 0.5rem; font-size: 0.68rem; font-weight: 700;
+    padding: 0.1em 0.5em; border-radius: 999px; background: rgba(0, 0, 0, 0.55); color: #fff;
+}
+.pl-wn-steps { margin: 0; padding-left: 1.2rem; font-size: 0.9rem; line-height: 1.5; }
+.pl-wn-steps li + li { margin-top: 0.3rem; }
+.pl-wn-steps__eyebrow {
+    display: block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--hub-text-muted); margin: 0 0 0.35rem;
+}
+.pl-wn-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+.pl-wn-empty { padding: 2rem 0; text-align: center; color: var(--hub-text-muted); font-size: 0.92rem; }
+@media (max-width: 639.98px) {
+    .pl-wn-clip { grid-template-columns: 1fr; }
+    .pl-wn-tabs { margin-top: 0; }
+}
