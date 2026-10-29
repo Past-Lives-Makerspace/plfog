@@ -183,7 +183,7 @@ A row of tabs is the shared `.pl-tabs` strip of `.vote-tab` links (`aria-current
 {% endtab_picker %}
 ```
 
-- A row of links works with no script (`<details>`); a row of buttons is mirrored in the browser by `plTabPicker` (`static/js/tab_picker.js`), whose choices press the row's own button, so the pane switches as a desktop click would. Both close on Escape and on a tap outside.
+- A row of links works with no script (`<details>`); a row of buttons is mirrored in the browser by `plTabPicker` (`static/js/tab_picker.js`), whose choices press the row's own button, so the pane switches as a desktop click would. Both close on Escape and on a tap outside. A link that swaps in place rather than navigates (`hx-get`, `hx-target`, `hx-swap`; What's New's tabs inside its modal) has those copied onto its picker item, so the phone does what the desktop row does.
 - Keep a count in the label as "Label (3)" or in a child whose class names a count (`pl-kiln-count`); the picker shows it apart.
 - Wrap only the row, not an `{% if %}` around it: the tag fails loudly when it wraps no `.pl-tabs` or `.pl-phase-tabs` row.
 - A step's done tick and error dot are children with a `__mark` class (`pl-phase-tab__mark`) with `aria-invalid` on the step; the picker lists them beside each step, never in its label.
@@ -205,7 +205,7 @@ Both come from `core/templatetags/guidance.py` (`{% load guidance %}`; #1007, pa
 - **Clicking either marks that key seen** and removes the badge in place; opening What's New marks everything it listed.
 - **Animations are off under `prefers-reduced-motion`**: no pulse, no fade. The badge is never animated.
 - Both read one per-request object built lazily by a context processor, so a page costs one query however many badges it holds. Do not look up entries in a template or a view.
-- **What's New itself** (part 2) is the `whats-new` modal Home includes, its body loaded by htmx from `hub_whats_new` (`templates/hub/whats_new/_body.html`): the three tabs inside `{% tab_picker "What's New" %}` as links carrying `hx-get` back into the modal body, date groups, entries with a chip for a finer audience, Open it only when the viewer may follow it, the How it works steps at level clip or tour, and a per tab empty line. Home's labelled button is `hub/partials/_whats_new_button.html`; the dot and the pulse read `whats_new_unseen`. A feature mode body (`?feature=`) swaps "What's New · <title>" into the modal title out of band (`hx-swap-oob="innerHTML"` on the title's id).
+- **What's New itself** (part 2) is the `whats-new` modal Home includes, its body loaded by htmx from `hub_whats_new` (`templates/hub/whats_new/_body.html`): the three tabs inside `{% tab_picker "What's New" %}` as links carrying `hx-get` back into the modal body (the picker copies them onto its items, so a phone switches in place too), date groups, entries with a chip for a finer audience, Open it only when the viewer may follow it, the How it works steps at level clip or tour, a per tab empty line, and every release 20 at a time: a Show older button (`_page.html`) that replaces itself with the next page. Home's labelled button is `hub/partials/_whats_new_button.html`; the dot and the pulse read `whats_new_unseen`. A feature mode body (`?feature=`) swaps "What's New · <title>" into the modal title out of band (`hx-swap-oob="innerHTML"` on the title's id).
 
 ### Conversation thread (`components/thread.html`, `components/thread_composer.html`)
 

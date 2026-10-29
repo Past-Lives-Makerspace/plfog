@@ -16,10 +16,12 @@ from django.utils import timezone
 
 from core.whats_new import (
     NEW_DAYS,
+    PAGE_SIZE,
     Entry,
     audiences_for,
     can_open,
     entries_for,
+    history_slug,
     mark_seen,
     open_url,
     unseen,
@@ -194,11 +196,20 @@ def describe_audiences_for():
             assert audiences_for(request) == held
 
 
+def describe_history_slug():
+    def it_is_twelve_hex_characters_stable_for_a_date_and_title_and_different_for_another():
+        slug = history_slug("2026-10-20", "Old news")
+        assert len(slug) == 12 and int(slug, 16) >= 0
+        assert slug == history_slug("2026-10-20", "Old news")
+        assert slug != history_slug("2026-10-20", "Older news")
+        assert slug != history_slug("2026-10-21", "Old news")
+
+
 def describe_entries_for():
-    def it_lists_every_entry_in_the_window_newest_first(changelog):
-        changelog([_entry("new"), _entry("edge", days_ago=NEW_DAYS), _entry("gone", days_ago=NEW_DAYS + 1)])
+    def it_lists_every_entry_newest_first_whatever_its_date(changelog):
+        changelog([_entry("new"), _entry("edge", days_ago=NEW_DAYS), _entry("old", days_ago=NEW_DAYS + 400)])
         request = _request(_member().user)
-        assert [entry.slug for entry in entries_for(request)] == ["new", "edge"]
+        assert [entry.slug for entry in entries_for(request)] == ["new", "edge", "old"]
 
     def it_lists_an_entry_on_every_tab_its_audiences_roll_up_to(changelog):
         changelog(
@@ -233,7 +244,7 @@ def describe_entries_for():
         request = _request(_member().user)
         (entry,) = entries_for(request)
         assert entry == Entry(
-            slug=f"{_day(2)}-Old news",
+            slug=history_slug(_day(2), "Old news"),
             date=_day(2),
             title="Old news",
             changes=("It happened.",),
@@ -261,6 +272,48 @@ def describe_entries_for():
         assert whats_new_for(_request(_member("other").user)).groups_for("members")[0].rows[0].chips == []
 
 
+def describe_page_for():
+    def it_shows_a_page_at_a_time_and_says_what_show_older_asks_after(changelog):
+        changelog([_entry(f"row-{i:02d}", days_ago=i) for i in range(PAGE_SIZE + 5)])
+        news = whats_new_for(_request(_member().user))
+        first = news.page_for("members")
+        assert first.slugs == [f"row-{i:02d}" for i in range(PAGE_SIZE)]
+        assert first.older_after == f"row-{PAGE_SIZE - 1:02d}"
+        assert first.joins_previous is False
+        older = news.page_for("members", after=first.older_after)
+        assert older.slugs == [f"row-{i:02d}" for i in range(PAGE_SIZE, PAGE_SIZE + 5)]
+        assert older.older_after == ""
+        assert [group.date for group in older.groups] == [_day(i) for i in range(PAGE_SIZE, PAGE_SIZE + 5)]
+
+    def it_has_no_show_older_when_the_page_is_exactly_full(changelog):
+        changelog([_entry(f"row-{i:02d}") for i in range(PAGE_SIZE)])
+        assert whats_new_for(_request(_member().user)).page_for("members").older_after == ""
+
+    def it_says_when_a_page_continues_the_date_the_page_before_ended_on(changelog):
+        changelog([_entry(f"row-{i:02d}") for i in range(PAGE_SIZE + 1)] + [_entry("next-day", days_ago=1)])
+        news = whats_new_for(_request(_member().user))
+        older = news.page_for("members", after=f"row-{PAGE_SIZE - 1:02d}")
+        assert older.joins_previous is True
+        assert [group.date for group in older.groups] == [_day(0), _day(1)]
+
+    def it_pages_within_the_tab_and_the_feature(changelog):
+        changelog([_entry(f"row-{i:02d}", feature="guild.cubbies" if i % 2 else "", days_ago=i) for i in range(50)])
+        news = whats_new_for(_request(_member().user))
+        page = news.page_for("members", "guild")
+        assert page.slugs == [f"row-{i:02d}" for i in range(1, 2 * PAGE_SIZE, 2)]
+        assert news.page_for("members", "guild", after=page.older_after).slugs == [
+            f"row-{i:02d}" for i in range(41, 50, 2)
+        ]
+
+    def it_refuses_to_continue_after_an_entry_the_tab_does_not_have(changelog):
+        changelog([_entry("here"), _entry("staff-only", audiences=("guild-staff",))])
+        news = whats_new_for(_request(_member().user))
+        with pytest.raises(LookupError, match="No entry 'gone' on the members tab"):
+            news.page_for("members", after="gone")
+        with pytest.raises(LookupError):
+            news.page_for("members", after="staff-only")
+
+
 def describe_can_open_and_open_url():
     def it_opens_only_for_a_viewer_in_the_entrys_audiences():
         entry = Entry.from_changelog(_entry("staff-only", audiences=("guild-leads",)))
@@ -277,6 +330,25 @@ def describe_can_open_and_open_url():
         member = _member()
         assert open_url(Entry.from_changelog(_entry("plain")), member) == ""
         assert open_url(Entry.from_changelog(_entry("cubbies", feature="guild.cubbies")), member) == ""
+
+    def it_looks_the_members_guild_up_once_for_every_entry_that_opens_on_it(changelog, django_assert_num_queries):
+        keys = (
+            "guild.cubbies",
+            "guild.orientations",
+            "guild.reservations",
+            "guild.wiki",
+            "guild.meetings",
+            "guild.polls",
+        )
+        changelog([_entry(key.replace(".", "-"), feature=key, guidance="link") for key in keys] + [_entry("plain")])
+        member = _member()
+        GuildMembershipFactory(member=member, guild=GuildFactory(slug="ceramics"))
+        news = whats_new_for(_request(member.user))
+        news.audiences  # the roles query, paid once per request, is not what is measured
+        # One resolver for the six: the staffed guilds, then the joined ones, and no more.
+        with django_assert_num_queries(2):
+            rows = [row for group in news.groups_for("members") for row in group.rows]
+        assert [row.open_url for row in rows] == [f"/guilds/ceramics/?tab={key.split('.')[1]}" for key in keys] + [""]
 
     def it_lists_the_steps_at_clip_and_tour_and_not_at_link():
         for level in ("clip", "tour"):
@@ -311,6 +383,14 @@ def describe_unseen_and_mark_seen():
         staff_entry = Entry.from_changelog(_entry("for-staff", audiences=("guild-staff",)))
         assert whats_new_for(_request(member.user)).is_unseen(staff_entry) is False
 
+    def it_never_counts_an_entry_outside_the_window_as_unseen(changelog):
+        changelog([_entry("old", days_ago=NEW_DAYS + 1), _entry("edge", days_ago=NEW_DAYS)])
+        news = whats_new_for(_request(_member().user))
+        assert [entry.slug for entry in news.entries_for(tab="members")] == ["old", "edge"]
+        assert [entry.slug for entry in news.window] == ["edge"]
+        assert news.is_unseen(news.entries[0]) is False
+        assert news.is_unseen(news.entries[1]) is True
+
     def it_prunes_the_stored_list_to_the_window_on_every_write(changelog):
         changelog([_entry("new"), _entry("old", days_ago=NEW_DAYS + 1)])
         member = _member(whats_new_seen=["old", "vanished"])
@@ -326,7 +406,13 @@ def describe_unseen_and_mark_seen():
         assert Member.objects.get(pk=member.pk).whats_new_seen == ["new"]
 
     def it_opens_on_the_first_tab_with_something_unseen_else_members(changelog):
-        changelog([_entry("for-admins", audiences=("admins",)), _entry("for-staff", audiences=("guild-staff",))])
+        changelog(
+            [
+                _entry("for-admins", audiences=("admins",)),
+                _entry("for-staff", audiences=("guild-staff",)),
+                _entry("old-for-members", days_ago=NEW_DAYS + 1),
+            ]
+        )
         lead = _member("lead")
         GuildFactory(guild_lead=lead)
         assert whats_new_for(_request(lead.user)).default_tab() == "guild-staff"

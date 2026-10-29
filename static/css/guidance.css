@@ -156,6 +156,7 @@
     color: var(--hub-text-muted); margin: 0 0 0.35rem;
 }
 .pl-wn-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+.pl-wn-older { display: block; margin: 0.75rem auto 0.25rem; } /* Show older, centred under the last entry of the page */
 .pl-wn-empty { padding: 2rem 0; text-align: center; color: var(--hub-text-muted); font-size: 0.92rem; }
 @media (max-width: 639.98px) {
     .pl-wn-clip { grid-template-columns: 1fr; }
