@@ -1,0 +1,15 @@
+{% comment %}
+Home's utility row (#1007, the layout Felix picked on 2026-10-29): one slim row above the greeting.
+Left, What's New (its dot while something is unseen) and Show Me Around; right, the Door Code as a
+one line chip from 1200px (door-code.css hides the chip below that, where the card under the quick
+links shows the code instead). The row renders at every width; Show Me Around leaves it once the
+member tour is behind them (_home_tour_link.html).
+{% endcomment %}
+{% load guidance %}
+<div class="pl-home-utility" data-home-utility>
+    <div class="pl-home-utility__left">
+        {% whats_new_button labelled=True %}
+        {% include "hub/partials/_home_tour_link.html" %}
+    </div>
+    {% include "hub/partials/_door_code.html" with variant="chip" %}
+</div>

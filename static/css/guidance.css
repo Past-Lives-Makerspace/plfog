@@ -113,25 +113,6 @@
 @media (prefers-reduced-motion: reduce) {
     .pl-new, .pl-new::after, .pl-whats-new-btn--unseen, .pl-whats-new-btn--unseen svg { animation: none; }
 }
-/* On Home the button sits beside the Door Code box, level with its top line. From 1200px the box
-   owns the header's action slot as #813 laid it out (door-code.css: the slot stretches to the box,
-   the greeting's description stays on one line beside it), and the button must not widen the slot:
-   in the flow it takes 156px off the title column and pushes that description onto a second line
-   at 1200px, where the column has 644px for a line that needs 586. So beside a box the button leaves
-   the flow, one gutter to the box's left, and the greeting reserves that width on its own line so
-   a long name wraps under the button rather than running beneath it. Without a box (no code set
-   yet) the button stays in the slot as it is. */
-.pl-home-header-actions .pl-whats-new-btn { align-self: flex-start; }
-@media (min-width: 1200px) {
-    .pl-home-header-actions:has(.pl-door-code--header) { position: relative; }
-    .pl-home-header-actions:has(.pl-door-code--header) .pl-whats-new-btn {
-        position: absolute;
-        top: 0;
-        right: calc(15rem + 1rem); /* the box's width (door-code.css) plus the slot's gap */
-    }
-    .hub-page-header:has(.pl-door-code--header) .hub-page-title { padding-right: 10rem; }
-}
-
 /* ---- Inside the What's New modal ---- */
 .pl-wn-tabs { margin: -0.25rem 0 0.25rem; }
 .pl-modal .pl-tabs { --pl-tabs-bg: var(--hub-card-bg); } /* the edge fade matches the modal, as .hub-card .pl-tabs does */

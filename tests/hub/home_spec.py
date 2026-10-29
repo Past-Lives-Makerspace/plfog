@@ -69,6 +69,21 @@ def describe_hub_home_view():
         assert "hub/home.html" in [t.name for t in response.templates]
         assert b"Welcome back, Ada" in response.content
 
+    def it_puts_the_utility_row_the_greeting_and_the_quick_links_before_get_started(client: Client):
+        # #1007: the row (What's New, Show Me Around, the Door Code chip) above the greeting, the quick
+        # links before the Get Started checklist, at every width.
+        _member_user("ordered")
+        client.login(username="ordered", password="pass")
+
+        response = client.get(reverse("hub_home"))
+
+        content = response.content.decode()
+        assert response.context["show_onboarding"] is True
+        row, greeting = content.index("data-home-utility"), content.index("data-home-greeting")
+        quicklinks, started = content.index('class="pl-quicklinks"'), content.index("Get Started at Past Lives")
+        assert row < greeting < quicklinks < started
+        assert content.index("data-whats-new-button") < content.index("Show Me Around") < greeting
+
     def it_handles_a_user_with_no_member(client: Client):
         # A User with no linked Member renders the friendly not-linked state, no crash.
         user = User.objects.create_user(username="orphan", password="pass")
