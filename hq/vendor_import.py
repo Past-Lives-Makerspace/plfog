@@ -10,7 +10,9 @@ Two steps, so the CSV upload and the daily sheet pull share one reader and diffe
 2. :func:`apply_upload` is the CSV upload's rule: a row whose name matches a table on the hub is updated from its
    non-blank cells only (a blank cell never clears a field); an unmatched row is added with ``created_by`` the
    importer; nothing is deleted; a name seen twice in one file keeps the first and reports the rest. One
-   transaction.
+   transaction. :func:`apply_pull` is the daily sheet pull's rule, "Kate's changes win": each table remembers the
+   sheet's cells as last pulled (``VendorTable.sheet_cells``), and a pull applies only the cells that differ from
+   those, a blanked cell clearing its field, so a change made on the card stands until Kate changes that cell.
 
 Columns are read by header name, case and spacing ignored, in any order; a column the importer does not know is
 left alone (the export's Added by and Added). The old export's Artist or group and Setup day, and Notes for
@@ -462,13 +464,7 @@ def apply_upload(hub: EventHub, sheet: ParsedSheet, *, member: Member | None) ->
             if not row.key:
                 continue
             if row.key in first_line:
-                result.problems.append(
-                    ImportProblem(
-                        row.line,
-                        HEADERS["name"],
-                        f'"{_echo(row.values["name"])}" is also on row {first_line[row.key]}, so this row was skipped.',
-                    )
-                )
+                result.problems.append(_repeated(row, first_line[row.key]))
                 continue
             first_line[row.key] = row.line
             match = existing.get(row.key)
@@ -500,3 +496,104 @@ def _update(table: VendorTable, values: Mapping[str, Any]) -> bool:
         setattr(table, name, values[name])
     table.save()
     return True
+
+
+# ---- The sheet pull's rule ----
+
+
+def apply_pull(hub: EventHub, sheet: ParsedSheet) -> ImportResult:
+    """Write ``sheet`` to ``hub``'s table requests by the sheet pull's rule, "Kate's changes win", in one transaction.
+
+    A row matches the hub's table of the same name as :func:`apply_upload` matches it, and never renames it: the
+    card keeps its own spelling, so the sheet's casing or spacing changes nothing. A table that remembers the
+    sheet's cells from an earlier pull takes each cell that differs from the remembered one (trimmed): its value, or
+    the field cleared (:func:`cleared_value`) when Kate blanked it; a cell that did not change leaves whatever the
+    card says. A column the snapshot has never seen counts as changed when it is filled. A table never pulled
+    takes the row's non-blank cells, as the upload does. An unmatched row is added with nobody as its maker. A cell
+    that cannot be read leaves the field as it is and is reported on every pull while it stays unreadable. Every
+    matched or added table then remembers the row's readable cells (:func:`_readable_cells`), merged over what it
+    remembered, so a cell is applied once per change, a column missing from today's sheet keeps its memory, and an
+    unreadable cell is retried until it reads. A later row with a name seen earlier is skipped and reported; a table
+    the sheet leaves out is untouched. Remembering the cells alone writes no ``updated_at``, so a pull that changes
+    nothing on a row never makes an organiser's open row form stale. The hub's row is locked first
+    (:func:`hub_lock`), so two pulls take turns.
+    """
+    result = ImportResult()
+    with transaction.atomic():
+        # First, so a second pull (a double click, or a click during the daily run) waits and never adds a name twice.
+        hub_lock(hub)
+        existing: dict[str, VendorTable] = {}
+        for table in hub.vendor_tables.select_related("guild").select_for_update(of=("self",)).order_by("pk"):
+            existing.setdefault(normalise(table.name), table)
+        first_line: dict[str, int] = {}
+        for row in sheet.rows:
+            result.problems.extend(row.problems)
+            if not row.key:
+                continue
+            if row.key in first_line:
+                result.problems.append(_repeated(row, first_line[row.key]))
+                continue
+            first_line[row.key] = row.line
+            match = existing.get(row.key)
+            if match is None:
+                VendorTable.objects.create(hub=hub, created_by=None, sheet_cells=_readable_cells(row), **row.values)
+                result.added += 1
+                continue
+            values = _changed_values(match.sheet_cells, row) if match.sheet_cells else dict(row.values)
+            # The name only matched; the card keeps its own spelling, so a sheet's casing never renames it daily.
+            values.pop("name", None)
+            # Merged, so a column the sheet lacks today (deleted or renamed for a while) keeps its memory.
+            remembered, match.sheet_cells = match.sheet_cells, {**match.sheet_cells, **_readable_cells(row)}
+            if _update(match, values):
+                result.updated += 1
+            else:
+                result.unchanged += 1
+                if remembered != match.sheet_cells:
+                    VendorTable.objects.filter(pk=match.pk).update(sheet_cells=match.sheet_cells)
+    result.problems.sort(key=lambda problem: problem.line)
+    return result
+
+
+def _readable_cells(row: ParsedRow) -> dict[str, str]:
+    """The cells of ``row`` a pull remembers, trimmed: every blank one and every one that was read. A cell that could
+    not be read is left out, so it stays changed and is tried and reported again on every pull until it reads (once
+    Kate fixes it, or once the portal knows its value, such as a new guild)."""
+    return {key: cell.strip() for key, cell in row.cells.items() if key in row.values or not cell.strip()}
+
+
+def _changed_values(remembered: Mapping[str, str], row: ParsedRow) -> dict[str, Any]:
+    """The values ``row`` sets on a table that remembers ``remembered``: each cell that differs from the remembered
+    one (or that the snapshot never saw, when filled), as read, or cleared when blank. An unreadable cell is left
+    out, so its field keeps the card's value."""
+    values: dict[str, Any] = {}
+    for key, cell in row.cells.items():
+        text = cell.strip()
+        if key not in remembered and not text:
+            continue
+        if remembered.get(key) == text:
+            continue
+        if key in row.values:
+            values[key] = row.values[key]
+        elif not text:
+            values[key] = cleared_value(key)
+    return values
+
+
+def cleared_value(key: str) -> Any:
+    """What a field holds when Kate blanks its cell: None for the guild and Requested on, the field's default for
+    a size or a status (6 ft, Requested), and blank text for the rest. The name never clears: a row with no name is
+    skipped."""
+    field = VendorTable._meta.get_field(key)
+    assert isinstance(field, models.Field), key
+    if field.null:
+        return None
+    if field.has_default():
+        return field.get_default()
+    return ""
+
+
+def _repeated(row: ParsedRow, first: int) -> ImportProblem:
+    """The problem for a name already read on row ``first``: the upload and the pull both skip it."""
+    return ImportProblem(
+        row.line, HEADERS["name"], f'"{_echo(row.values["name"])}" is also on row {first}, so this row was skipped.'
+    )

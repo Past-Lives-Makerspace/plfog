@@ -29,6 +29,7 @@ ledger's goals (:func:`ledger_goals`), each reading every other door from its on
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -119,8 +120,11 @@ from hq.models import (
     hours_words,
     format_money,
 )
-from hq.vendor_import import ImportResult, apply_upload, parse_rows
+from hq import vendor_sheet
+from hq.vendor_import import ImportRefused, ImportResult, apply_pull, apply_upload, parse_rows, read_csv
 from membership.models import CommunityEvent, Guild, GuildMembership, Member
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -1218,6 +1222,138 @@ def _import_guilds(hub: EventHub) -> list[Guild]:
 def import_summary(result: ImportResult) -> str:
     """The one line an import answers with: "Import done: 2 added, 1 updated, 9 unchanged." and the problems' count."""
     line = f"Import done: {result.added} added, {result.updated} updated, {result.unchanged} unchanged."
+    if result.problems:
+        line += f" {_plural(len(result.problems), 'problem', 'problems')} to check."
+    return line
+
+
+# ---- The vendor sheet pull (#1013) ----
+
+
+@dataclass(frozen=True)
+class VendorSheetState:
+    """The vendor sheet's link and its last pull, as the page shows them: when it ran (None before the first), what
+    it did and its problems, or why it could not read the sheet."""
+
+    url: str = ""
+    pulled_at: datetime | None = None
+    summary: str = ""
+    problems: tuple[str, ...] = ()
+    error: str = ""
+
+
+def vendor_sheet_state(hub: EventHub) -> VendorSheetState:
+    """``hub``'s vendor sheet link and last pull in one query; blanks while there is no floor row."""
+    row = (
+        VendorFloor.objects.filter(hub=hub)
+        .values("sheet_url", "sheet_pulled_at", "sheet_pull_summary", "sheet_pull_problems", "sheet_pull_error")
+        .first()
+    )
+    if row is None:
+        return VendorSheetState()
+    return VendorSheetState(
+        url=row["sheet_url"],
+        pulled_at=row["sheet_pulled_at"],
+        summary=row["sheet_pull_summary"],
+        problems=tuple(row["sheet_pull_problems"]),
+        error=row["sheet_pull_error"],
+    )
+
+
+class NoVendorSheet(Exception):
+    """The hub has no vendor sheet link, so there is nothing to pull."""
+
+
+def set_vendor_sheet(hub: EventHub, url: str) -> VendorFloor:
+    """Save ``url`` (a link ``hq.vendor_sheet.sheet_link`` takes, stored as its ``edit_url``, or blank to clear it)
+    as ``hub``'s vendor sheet. A new link forgets the last pull's answer, which was about the old one; the tables keep their remembered
+    cells, so a copy of the same sheet pulls only what changed."""
+    # Stored as the address built from the sheet's id, never as pasted, so the page only ever links to Google.
+    url = vendor_sheet.sheet_link(url).edit_url if url else ""
+    floor, _created = VendorFloor.objects.get_or_create(hub=hub)
+    if url != floor.sheet_url:
+        floor.sheet_url = url
+        floor.sheet_pulled_at = None
+        floor.sheet_pull_summary = ""
+        floor.sheet_pull_problems = []
+        floor.sheet_pull_error = ""
+        floor.save()
+    return floor
+
+
+def pull_vendor_sheet(hub: EventHub) -> ImportResult:
+    """Read ``hub``'s vendor sheet and write it to the table requests by the pull's rule
+    (``hq.vendor_import.apply_pull``), recording on the floor when it ran and what it did, in one transaction.
+
+    A sheet that cannot be read writes no table: the floor records why (``sheet_pull_error``) and the error is
+    raised. A pull that works clears the last error.
+
+    Raises:
+        NoVendorSheet: the hub has no sheet link.
+        SheetUnreadable: the sheet could not be fetched or read as the vendor list.
+    """
+    floor = VendorFloor.objects.filter(hub=hub).exclude(sheet_url="").first()
+    if floor is None:
+        raise NoVendorSheet(f"{hub.title} has no vendor sheet link.")
+    try:
+        rows = read_csv(vendor_sheet.fetch_sheet_csv(vendor_sheet.sheet_link(floor.sheet_url)))
+        sheet = parse_rows(rows, guilds=_import_guilds(hub))
+    except (vendor_sheet.SheetUnreadable, ImportRefused) as exc:
+        floor.sheet_pulled_at = timezone.now()
+        floor.sheet_pull_error = str(exc)
+        floor.sheet_pull_summary = ""
+        floor.sheet_pull_problems = []
+        floor.save()
+        raise vendor_sheet.SheetUnreadable(str(exc)) from exc
+    with transaction.atomic():
+        result = apply_pull(hub, sheet)
+        floor.sheet_pulled_at = timezone.now()
+        floor.sheet_pull_error = ""
+        floor.sheet_pull_summary = pull_summary(result)
+        floor.sheet_pull_problems = [str(problem) for problem in result.problems]
+        floor.save()
+    return result
+
+
+# What a hub's floor records when its pull failed for a reason other than the sheet (a bug, the database).
+PULL_FAILED = "The pull failed. It will try again tomorrow."
+
+
+def pull_every_vendor_sheet() -> list[tuple[EventHub, str]]:
+    """Pull every hub with a vendor sheet link whose event has not ended (or that has no event), each on its own,
+    so one failure of any kind never stops the rest; the hubs whose pull failed, each with why.
+
+    A sheet that cannot be read records its own error (``pull_vendor_sheet``); anything else is logged with its
+    traceback and recorded on the hub as :data:`PULL_FAILED`.
+    """
+    failed: list[tuple[EventHub, str]] = []
+    floors = (
+        VendorFloor.objects.exclude(sheet_url="")
+        .filter(Q(hub__event__isnull=True) | Q(hub__event__ends_at__gte=timezone.now()))
+        .select_related("hub")
+        .order_by("pk")
+    )
+    for floor in floors:
+        try:
+            pull_vendor_sheet(floor.hub)
+        except vendor_sheet.SheetUnreadable as exc:
+            failed.append((floor.hub, str(exc)))
+        except Exception:
+            logger.exception("Vendor sheet pull failed for hub %s", floor.hub.pk)
+            VendorFloor.objects.filter(pk=floor.pk).update(
+                sheet_pulled_at=timezone.now(),
+                sheet_pull_error=PULL_FAILED,
+                sheet_pull_summary="",
+                sheet_pull_problems=[],
+            )
+            failed.append((floor.hub, PULL_FAILED))
+    return failed
+
+
+def pull_summary(result: ImportResult) -> str:
+    """The one line a pull answers with: "Pulled from the sheet: 2 added, 1 updated, 9 unchanged." and the
+    problems' count."""
+    line = f"Pulled from the sheet: {result.added} added, {result.updated} updated, {result.unchanged} unchanged."
     if result.problems:
         line += f" {_plural(len(result.problems), 'problem', 'problems')} to check."
     return line

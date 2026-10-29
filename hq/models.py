@@ -1484,6 +1484,14 @@ class VendorTable(models.Model):
     updated_at = models.DateTimeField(
         auto_now=True, help_text="When the request was last saved; a row's Save older than this is refused."
     )
+    sheet_cells = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "The vendor sheet's cells for this row as last pulled, by column key; empty until a pull reads it. "
+            "A pull applies only the cells that differ from these."
+        ),
+    )
 
     class Meta:
         ordering = [_VENDOR_STATUS_ORDER, Lower("name"), "pk"]
@@ -1517,6 +1525,23 @@ class VendorFloor(models.Model):
     )
     map_note = models.CharField(
         max_length=200, blank=True, help_text="The mapper's note, e.g. 18 in the gallery, 6 in the shop."
+    )
+    sheet_url = models.CharField(
+        max_length=500,
+        blank=True,
+        help_text="The vendor Google Sheet's link, shared as anyone with the link can view; blank for none.",
+    )
+    sheet_pulled_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the sheet was last pulled, whether or not the pull worked."
+    )
+    sheet_pull_summary = models.CharField(
+        max_length=200, blank=True, help_text="What the last pull did, e.g. Pulled from the sheet: 2 added, 1 updated."
+    )
+    sheet_pull_problems = models.JSONField(
+        default=list, blank=True, help_text="The last pull's problems by row, e.g. Row 7: Table size ..."
+    )
+    sheet_pull_error = models.CharField(
+        max_length=300, blank=True, help_text="Why the last pull could not read the sheet; blank when it worked."
     )
 
     def __str__(self) -> str:

@@ -67,6 +67,7 @@ from hq.services import (
     drink_price_cents,
 )
 from hq.vendor_import import MAX_IMPORT_BYTES, TOO_LARGE, ImportRefused, read_csv
+from hq.vendor_sheet import sheet_link
 from membership.models import CommunityEvent, Guild, Member
 
 # Path segments under /hq/ that are routes, not hubs.
@@ -908,6 +909,26 @@ class VendorFloorForm(forms.Form):
         label="Map notes",
         widget=forms.TextInput(attrs={"placeholder": "e.g. 18 in the gallery, 6 in the shop"}),
     )
+
+
+class VendorSheetForm(forms.Form):
+    """The vendor sheet's link (#1013): a Google Sheets link from its Share button, or blank to stop pulling."""
+
+    sheet_url = forms.CharField(
+        max_length=500,
+        required=False,
+        label="Sheet link",
+        widget=forms.URLInput(attrs={"placeholder": "https://docs.google.com/spreadsheets/d/..."}),
+    )
+
+    def clean_sheet_url(self) -> str:
+        url = self.cleaned_data["sheet_url"].strip()
+        if url:
+            try:
+                sheet_link(url)
+            except ValueError as exc:
+                raise forms.ValidationError(str(exc)) from exc
+        return url
 
 
 # ---- Market Check-in (Track D, part 4) ----

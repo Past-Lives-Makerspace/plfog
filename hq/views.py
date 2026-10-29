@@ -85,6 +85,7 @@ from hq.forms import (
     TicketsForm,
     VendorFloorForm,
     VendorImportForm,
+    VendorSheetForm,
     VendorTableEditForm,
     VendorTableForm,
     VolunteerHoursForm,
@@ -140,6 +141,7 @@ from hq.models import (
 )
 from hq.services import VolunteerBand, VolunteerInfo, goal_rows
 from hq.vendor_import import ImportRefused
+from hq.vendor_sheet import SheetUnreadable
 from hub.toast import trigger_client_event, trigger_toast
 from hub.view_as import fog_admin_required, has_events_admin_access
 from membership.models import Guild, Member
@@ -1055,6 +1057,7 @@ def _vendors_context(
     add_form: VendorTableForm | None = None,
     add_open: bool = False,
     floor_form: VendorFloorForm | None = None,
+    sheet_form: VendorSheetForm | None = None,
     keep_pk: int | None = None,
     row_form: VendorTableEditForm | None = None,
     row_error: str = "",
@@ -1067,6 +1070,7 @@ def _vendors_context(
     guilds = services.active_guilds()
     band_context = _vendor_band_context(hub, card)
     band: services.VendorBand = band_context["band"]
+    sheet = services.vendor_sheet_state(hub)
     rows = []
     for table in services.filtered_vendor_tables(hub, show, keep_pk=keep_pk):
         kept = table.pk == keep_pk
@@ -1085,6 +1089,10 @@ def _vendors_context(
         "show": show,
         "filters": services.VENDOR_FILTERS,
         "floor_form": floor_form if floor_form is not None else _floor_form(band),
+        "sheet": sheet,
+        "sheet_form": sheet_form if sheet_form is not None else VendorSheetForm(initial={"sheet_url": sheet.url}),
+        "sheet_problems": sheet.problems[:VENDOR_IMPORT_PROBLEMS_SHOWN],
+        "sheet_more": max(len(sheet.problems) - VENDOR_IMPORT_PROBLEMS_SHOWN, 0),
     }
 
 
@@ -1274,6 +1282,43 @@ def vendor_import(request: HttpRequest, *, hub: EventHub, card: HubCard) -> Http
         "problems": shown,
         "more": len(result.problems) - len(shown),
     }
+    return redirect(_vendors_url(hub))
+
+
+@require_POST
+@admin_required(HubCard.Kind.VENDOR_TABLES)
+def vendor_sheet(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Save the vendor sheet's link, by the actual role (admins only: a setting, never the Team's). A link that is not
+    a Google Sheets link is refused and the page comes back with the error; a blank one stops the pulls."""
+    form = VendorSheetForm(request.POST)
+    if not form.is_valid():
+        context = _vendors_context(request, hub, card, show=services.VENDOR_FILTER_ALL, sheet_form=form)
+        return render(request, "hq/vendors.html", context)
+    url = form.cleaned_data["sheet_url"]
+    services.set_vendor_sheet(hub, url)
+    messages.success(request, "Sheet link saved." if url else "Sheet link removed.")
+    return redirect(_vendors_url(hub))
+
+
+@require_POST
+@organizer_required(HubCard.Kind.VENDOR_TABLES)
+def vendor_pull(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Pull from sheet now, by the actual role: a plain post that reads the vendor sheet and writes it to the list
+    by the pull's rule, then lands back on the page. The answer is one toast; the page's Last pull panel shows what
+    the pull did and its problems, or in red why the sheet could not be read (with nothing written)."""
+    try:
+        result = services.pull_vendor_sheet(hub)
+    except services.NoVendorSheet:
+        messages.error(request, "There is no sheet link to pull. An admin adds it on this page.")
+        return redirect(_vendors_url(hub))
+    except SheetUnreadable as exc:
+        messages.error(request, f"The sheet could not be read. {exc}")
+        return redirect(_vendors_url(hub))
+    summary = services.pull_summary(result)
+    if result.problems:
+        messages.warning(request, summary)
+    else:
+        messages.success(request, summary)
     return redirect(_vendors_url(hub))
 
 
