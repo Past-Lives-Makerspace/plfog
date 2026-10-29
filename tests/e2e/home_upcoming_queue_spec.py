@@ -121,7 +121,13 @@ def describe_the_upcoming_queue():
         assert float(came_back[0]["opacity"]) == 0
         # The row whose item was featured lifts away as a copy, which removes itself when its animation ends.
         expect(page.locator(f"{QUEUE} [data-queue-ghost]")).to_have_count(1)
-        page.evaluate("() => document.getAnimations().forEach((a) => a.finish())")
+        # Only the move's own animations end; one that never does (the What's New button's pulse, a New!
+        # badge's shine, #1007) cannot be finished and is left running.
+        page.evaluate(
+            """() => document.getAnimations()
+                .filter((a) => Number.isFinite(a.effect.getComputedTiming().endTime))
+                .forEach((a) => a.finish())"""
+        )
         expect(page.locator(f"{QUEUE} [data-queue-ghost]")).to_have_count(0)
         _expect_queue(page, TITLES[1], [TITLES[2], TITLES[3], TITLES[0]])
 
