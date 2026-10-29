@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-20"
+audience = ["members", "orientors", "equipment-managers"]
+feature = "guild.orientations"
+guidance = "link"
 title = "Leaders can move an orientation without a refund"
 changes = [
   "When a booked orientation time does not work, a guild leader or equipment manager can now move it to another time. Your payment stays with the booking, so there is nothing to refund and nothing to pay again.",

@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-15"
+audience = ["admins", "class-reviewers", "guild-leads"]
+feature = "classes.review"
+guidance = "link"
 title = "Classes waiting too long for review now raise an alarm"
 changes = [
   "When a submitted class has waited 3 days or more for a review decision, it shows in red on the admin class queue and on Home for the people who can review it, with how long it has waited and how soon it starts.",

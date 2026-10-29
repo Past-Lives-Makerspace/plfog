@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-27"
+audience = ["admins", "guild-leads"]
+feature = "admin.manage-members"
+guidance = "link"
 title = "Admins manage a member's guild roles from their page"
 changes = [
   "On Manage Members, a member's Permissions tab now lists every guild they lead or help run, with a Class Reviewer switch for each.",

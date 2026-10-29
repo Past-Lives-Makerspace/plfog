@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-25"
+audience = ["members", "guild-staff", "admins"]
+feature = "home.polls"
+guidance = "link"
 title = "Write your own answer in a poll"
 changes = [
   "Whoever posts a poll can turn on Let members write their own answer.",

@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-25"
+audience = ["guild-staff"]
+feature = "admin.tools"
+guidance = "link"
 title = "Guild Tools for guild leads, staff and officers"
 changes = [
   "If you help run a guild, the sidebar now says Guild Tools. It opens your guild's settings, orientations, reservations and events, plus Email Members, Manage Mailing Lists and your guild's reports.",

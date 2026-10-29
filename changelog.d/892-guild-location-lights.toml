@@ -1,5 +1,8 @@
 bump = "minor"
 date = "2026-10-23"
+audience = ["members", "guild-staff"]
+feature = "guild.page"
+guidance = "link"
 title = "Location lights take less room, and guilds can hide them"
 changes = [
   "On a guild page, the free, starting soon and in use lights for each location now sit side by side instead of one per row.",
