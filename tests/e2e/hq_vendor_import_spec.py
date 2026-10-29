@@ -23,8 +23,8 @@ NO_SIDEWAYS_SCROLL = "() => document.documentElement.scrollWidth <= window.inner
 SHEET = (
     "Name,Guild,Table size,Status,What they sell,Setup time,Table #,Email,Phone,Source,Requested on,"
     "Request source,Discord handle\n"
-    '"Spec Riley","Wood","8 ft","Confirmed","Cutting boards","Fri Dec 4, 3 to 5 PM","7","riley@example.com","",'
-    '"Asked Lee on Oct 1","10/21/2026","Asked Lee","riley.makes"\n'
+    '"Spec Juniper","Wood","8 ft","Confirmed","Cutting boards","Fri Dec 4, 3 to 5 PM","7","juniper@example.com","",'
+    '"Asked Lee on Oct 1","10/21/2026","Asked Lee","juniper.makes"\n'
     '"Spec Moss","Leather","6 ft","Requested","Wallets","","","","","Asked in Discord","2026-10-24","Discord","N/A"\n'
 )
 
@@ -76,29 +76,29 @@ def it_imports_a_csv_through_the_modal_and_shows_the_answer_and_the_new_columns(
     answer = page.locator("[data-hq-vt-import-answer]")
     expect(answer).to_contain_text("Import done: 2 added, 0 updated, 0 unchanged. 1 problem to check.")
     expect(answer).to_contain_text('Row 3: Guild "Leather" is not one of the active guilds.')
-    riley = VendorTable.objects.get(name="Spec Riley")
-    row = page.locator(f'[data-hq-vt-row="{riley.pk}"]')
-    expect(row.get_by_label("Source for Spec Riley", exact=True)).to_have_value("Asked Lee on Oct 1")
-    expect(row.get_by_label("Request source for Spec Riley")).to_have_value("Asked Lee")
-    expect(row.get_by_label("Requested on for Spec Riley")).to_have_value("2026-10-21")
-    expect(row.get_by_label("Discord handle for Spec Riley")).to_have_value("riley.makes")
+    juniper = VendorTable.objects.get(name="Spec Juniper")
+    row = page.locator(f'[data-hq-vt-row="{juniper.pk}"]')
+    expect(row.get_by_label("Source for Spec Juniper", exact=True)).to_have_value("Asked Lee on Oct 1")
+    expect(row.get_by_label("Request source for Spec Juniper")).to_have_value("Asked Lee")
+    expect(row.get_by_label("Requested on for Spec Juniper")).to_have_value("2026-10-21")
+    expect(row.get_by_label("Discord handle for Spec Juniper")).to_have_value("juniper.makes")
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
 
 
 def it_saves_a_new_column_with_the_rows_own_save(page, live_server, login_via_code):
     url = _vendors_page(page, live_server, login_via_code)
     page.set_viewport_size({"width": 1280, "height": 900})
-    table = VendorTable.objects.create(hub=HubCard.objects.get().hub, name="Spec Ellie")
+    table = VendorTable.objects.create(hub=HubCard.objects.get().hub, name="Spec Wren")
     page.goto(url)
 
     row = page.locator(f'[data-hq-vt-row="{table.pk}"]')
-    row.get_by_label("Discord handle for Spec Ellie").fill("ellie.pots")
-    row.get_by_label("Requested on for Spec Ellie").fill("2026-10-01")
-    row.get_by_label("Save Spec Ellie").click()
+    row.get_by_label("Discord handle for Spec Wren").fill("wren.pots")
+    row.get_by_label("Requested on for Spec Wren").fill("2026-10-01")
+    row.get_by_label("Save Spec Wren").click()
 
     expect(page.locator(".plt-toast")).to_contain_text("Saved.")
     table.refresh_from_db()
-    assert (table.discord_handle, table.requested_on.isoformat()) == ("ellie.pots", "2026-10-01")
+    assert (table.discord_handle, table.requested_on.isoformat()) == ("wren.pots", "2026-10-01")
 
 
 @pytest.mark.parametrize("width", [390, 1280])
@@ -109,7 +109,7 @@ def it_never_scrolls_the_page_sideways_and_the_modal_fits(page, live_server, log
         name="Spec Wide Studio",
         note="From Kate's sign-up doc. Confirm who in the guild is running this table.",
         request_source="Kate's sign-up doc",
-        discord_handle="Ⓐmber 🎃 [PRNT]",
+        discord_handle="Ⓩinnia 🎃 [PRNT]",
     )
     page.set_viewport_size({"width": width, "height": 844})
     page.goto(url)
