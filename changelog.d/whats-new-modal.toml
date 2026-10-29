@@ -1,0 +1,11 @@
+bump = "minor"
+date = "2026-10-29"
+audience = ["members", "guild-staff", "admins"]
+feature = "home.whats-new"
+guidance = "link"
+title = "What's New shows what shipped for you"
+changes = [
+  "Press What's New in the Home header to see what changed, on three tabs: For Members, For Guild Staff and For Admins.",
+  "Each entry says what is different and, when it belongs to a feature you can use, has an Open it button that takes you there.",
+  "A dot on the button means something new is waiting for you. It goes away once you have looked.",
+]
