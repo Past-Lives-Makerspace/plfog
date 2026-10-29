@@ -26,6 +26,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -94,7 +95,34 @@ GUILD_NICKNAMES: dict[str, str] = {"woodshop": "wood"}
 # What the export puts before a cell a spreadsheet would run as a formula (hq.exports._neutralise_formula).
 _FORMULA_LEADS = ("=", "+", "-", "@", "\t", "\r")
 
-_DMY = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
+_ISO_DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+_DMY = re.compile(r"^([0-9]{1,2})/([0-9]{1,2})/([0-9]{4})$")
+
+# The years a table request can be dated in; outside them the cell is a typo, not a date.
+YEARS = range(2000, 2101)
+
+# Format characters that are part of what a name shows: the zero width joiner inside composite emoji
+# (👩‍🎨) and the tag characters of a subdivision flag. Every other format character is dropped.
+_KEPT_FORMAT = frozenset({"\u200d", *(chr(code) for code in range(0xE0020, 0xE0080))})
+
+# The shortest start of a guild's name that names it: "Wood" and "Metal" do, "C" and "W" are too short to say.
+GUILD_PREFIX_MIN = 3
+
+# A setup cell's first word that names a window's day ("Thursday afternoon", "Fri, Dec 4").
+SETUP_DAYS: dict[str, str] = {
+    "thu": "thu",
+    "thur": "thu",
+    "thurs": "thu",
+    "thursday": "thu",
+    "fri": "fri",
+    "friday": "fri",
+}
+_FIRST_WORD = re.compile(r"[a-z]+")
+
+# How much of a cell a problem repeats back; past it the text is cut with an ellipsis.
+ECHO_MAX = 60
+
+SEMICOLONS = "That file uses semicolons; save it as a comma separated CSV."
 
 
 class ImportRefused(Exception):
@@ -102,9 +130,24 @@ class ImportRefused(Exception):
     words."""
 
 
+def clean(text: str) -> str:
+    """``text`` without invisible format characters (a zero width space, a direction mark), stripped, its inner
+    whitespace collapsed to one space: how a name is stored."""
+    visible = "".join(char for char in text if unicodedata.category(char) != "Cf" or char in _KEPT_FORMAT)
+    return " ".join(visible.split())
+
+
 def normalise(text: str) -> str:
-    """``text`` stripped, its inner whitespace collapsed to one space, casefolded: how names and headers match."""
-    return " ".join(text.split()).casefold()
+    """``text`` in compatibility form (fullwidth "Ｋａｔｅ" is "Kate"), cleaned and casefolded: how names and
+    headers match. The key drops every format character, the joiners :func:`clean` keeps included, so a name of
+    joiners alone is blank."""
+    visible = "".join(char for char in unicodedata.normalize("NFKC", text) if unicodedata.category(char) != "Cf")
+    return " ".join(visible.split()).casefold()
+
+
+def _echo(text: str) -> str:
+    """``text`` as a problem repeats it: at most :data:`ECHO_MAX` characters, cut with an ellipsis."""
+    return text if len(text) <= ECHO_MAX else f"{text[: ECHO_MAX - 1]}\u2026"
 
 
 def _squash(text: str) -> str:
@@ -176,6 +219,11 @@ def read_csv(data: bytes) -> list[list[str]]:
         raise ImportRefused("That file is not a CSV saved as UTF-8. Nothing was imported.") from exc
     if "\x00" in text:
         raise ImportRefused("That file is not a CSV. Nothing was imported.")
+    # Read off the raw first line, before parsing: a semicolon locale quotes its cells ("Name";"Guild"), which the
+    # strict reader refuses before a check on the parsed header could run.
+    first_line = text.split("\n", 1)[0]
+    if ";" in first_line and "," not in first_line:
+        raise ImportRefused(SEMICOLONS)
     try:
         rows = list(csv.reader(io.StringIO(text, newline=""), strict=True))
     except csv.Error as exc:
@@ -231,6 +279,8 @@ class _CellReader:
         problems: list[ImportProblem] = []
         for key, raw in cells.items():
             text = _unneutralise(raw.strip())
+            if key == "name":
+                text = clean(text)
             if not text:
                 continue
             try:
@@ -238,7 +288,7 @@ class _CellReader:
             except ValueError as exc:
                 problems.append(ImportProblem(line, HEADERS[key], str(exc)))
         key = normalise(values.get("name", ""))
-        if not cells["name"].strip():
+        if not normalise(cells["name"]):
             problems.insert(0, ImportProblem(line, HEADERS["name"], "No Name, so the row was skipped."))
         return ParsedRow(line=line, key=key, cells=cells, values=values, problems=tuple(problems))
 
@@ -271,7 +321,7 @@ class _CellReader:
         try:
             validate_email(email)
         except ValidationError as exc:
-            raise ValueError(f'Email "{text}" is not an email address.') from exc
+            raise ValueError(f'Email "{_echo(text)}" is not an email address.') from exc
         if len(email) > self.max_lengths["email"]:
             raise ValueError(f"Email is longer than {self.max_lengths['email']} characters.")
         return email
@@ -280,8 +330,8 @@ class _CellReader:
         """The active guild ``text`` names, or None for Not in a guild.
 
         By name with or without "Guild" and a plural s ("Ceramics" is the Ceramics Guild), then the one guild whose
-        name starts with it ("Wood" is the Woodworking Guild when no other guild starts with Wood). Woodshop is
-        read as Wood.
+        name starts with it, at least :data:`GUILD_PREFIX_MIN` characters ("Wood" is the Woodworking Guild when no
+        other guild starts with Wood; "W" is too short and is reported). Woodshop is read as Wood.
         """
         wanted = normalise(text)
         if wanted == NO_GUILD:
@@ -291,11 +341,15 @@ class _CellReader:
         if len(exact) == 1:
             return exact[0]
         start = GUILD_NICKNAMES.get(stem, stem)
-        starts = [guild for guild in self.guilds if _guild_stem(normalise(guild.name)).startswith(start)]
+        starts = (
+            [guild for guild in self.guilds if _guild_stem(normalise(guild.name)).startswith(start)]
+            if len(start) >= GUILD_PREFIX_MIN
+            else []
+        )
         if len(exact) > 1 or len(starts) > 1:
-            raise ValueError(f'Guild "{text}" matches more than one guild.')
+            raise ValueError(f'Guild "{_echo(text)}" matches more than one guild.')
         if not starts:
-            raise ValueError(f'Guild "{text}" is not one of the active guilds.')
+            raise ValueError(f'Guild "{_echo(text)}" is not one of the active guilds.')
         return starts[0]
 
 
@@ -329,7 +383,7 @@ def _choice(text: str, column: str, choices: Any, aliases: Mapping[str, str]) ->
     found = lookup.get(_squash(text))
     if found is None:
         labels = ", ".join(str(label) for label in choices.labels)
-        raise ValueError(f'{column} "{text}" is not one of {labels}.')
+        raise ValueError(f'{column} "{_echo(text)}" is not one of {labels}.')
     return str(found)
 
 
@@ -342,24 +396,32 @@ def _status(text: str) -> str:
 
 
 def _setup(text: str) -> str:
-    """The setup window ``text`` names: its label, its value, or anything starting with its day ("Thursday");
-    "Not chosen" is none."""
+    """The setup window ``text`` names: its label, or a first word that is its day (:data:`SETUP_DAYS`: "Thu",
+    "Thursday afternoon", "Fri, Dec 4"); "Not chosen" is none. "Friendly" names no day."""
     wanted = normalise(text)
     if wanted == normalise(str(VendorSetup.NOT_CHOSEN.label)):
         return VendorSetup.NOT_CHOSEN
     for value, label in VENDOR_SETUP_WINDOWS.items():
-        if wanted == normalise(label) or wanted.startswith(value):
+        if wanted == normalise(label):
             return value
+    first = _FIRST_WORD.match(wanted)
+    if first is not None and first.group() in SETUP_DAYS:
+        return SETUP_DAYS[first.group()]
     windows = ", ".join(VENDOR_SETUP_WINDOWS.values())
-    raise ValueError(f'{HEADERS["setup"]} "{text}" is not one of {windows}.')
+    raise ValueError(f'{HEADERS["setup"]} "{_echo(text)}" is not one of {windows}.')
 
 
 def _date(text: str) -> date:
-    """A date written 2026-10-21 or 10/21/2026."""
+    """A date written 2026-10-21 or 10/21/2026, nothing else (no week dates, no times)."""
     try:
-        return date.fromisoformat(text) if "-" in text else _month_day_year(text)
+        when = date.fromisoformat(text) if _ISO_DATE.match(text) else _month_day_year(text)
+        if when.year not in YEARS:
+            raise ValueError(text)
+        return when
     except ValueError as exc:
-        raise ValueError(f'{HEADERS["requested_on"]} "{text}" is not a date like 2026-10-21 or 10/21/2026.') from exc
+        raise ValueError(
+            f'{HEADERS["requested_on"]} "{_echo(text)}" is not a date like 2026-10-21 or 10/21/2026.'
+        ) from exc
 
 
 def _month_day_year(text: str) -> date:
@@ -392,13 +454,7 @@ def apply_upload(hub: EventHub, sheet: ParsedSheet, *, member: Member | None) ->
             if not row.key:
                 continue
             if row.key in first_line:
-                result.problems.append(
-                    ImportProblem(
-                        row.line,
-                        HEADERS["name"],
-                        f'"{row.values["name"]}" is also on row {first_line[row.key]}, so this row was skipped.',
-                    )
-                )
+                result.problems.append(_repeated(row, first_line[row.key]))
                 continue
             first_line[row.key] = row.line
             match = existing.get(row.key)
@@ -414,8 +470,16 @@ def apply_upload(hub: EventHub, sheet: ParsedSheet, *, member: Member | None) ->
 
 
 def _update(table: VendorTable, values: Mapping[str, Any]) -> bool:
-    """Set ``values`` on ``table`` and save it when any differs; whether it did."""
-    changed = [name for name, value in values.items() if getattr(table, name) != value]
+    """Set ``values`` on ``table`` and save it when any differs; whether it did.
+
+    A name that matches the table's once normalised is the same name, so the stored spelling is kept: "riley" never
+    renames Riley, and a sheet pulled every day never flips a name back and forth.
+    """
+    changed = [
+        name
+        for name, value in values.items()
+        if getattr(table, name) != value and not (name == "name" and normalise(table.name) == normalise(value))
+    ]
     if not changed:
         return False
     for name in changed:
@@ -508,6 +572,7 @@ def cleared_value(key: str) -> Any:
 
 
 def _repeated(row: ParsedRow, first: int) -> ImportProblem:
+    """The problem for a name already read on row ``first``: the upload and the pull both skip it."""
     return ImportProblem(
-        row.line, HEADERS["name"], f'"{row.values["name"]}" is also on row {first}, so this row was skipped.'
+        row.line, HEADERS["name"], f'"{_echo(row.values["name"])}" is also on row {first}, so this row was skipped.'
     )
