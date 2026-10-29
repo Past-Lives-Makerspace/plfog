@@ -24,6 +24,8 @@ GOOD = """<!-- As a guild lead, when a class is sent back, I would like the reas
 
 **Area:** class review: the review model, the class page and its email.
 
+**Guidance:** none
+
 ### Problem
 Closes #412. A class sent back shows no reason, so the instructor has to ask.
 
@@ -52,12 +54,21 @@ def script() -> ModuleType:
     return _load_script()
 
 
-def _fake_git(changed: str = "", added: str = "", numstat: str = "") -> Callable[..., str]:
+_FRAGMENT = "changelog.d/412-review-reason.toml"
+_LINKED = (
+    'bump = "minor"\ndate = "2026-10-29"\ntitle = "Reasons"\nchanges = ["A reason."]\n'
+    'audience = ["instructors", "guild-leads"]\nfeature = "classes.teach"\nguidance = "link"\n'
+)
+
+
+def _fake_git(changed: str = "", added: str = "", numstat: str = "", fragment: str | None = None) -> Callable[..., str]:
     answers = {
         ("diff", "--name-only", _SPAN): changed,
         ("diff", "--name-only", "--diff-filter=A", _SPAN): added,
         ("diff", "--numstat", _SPAN): numstat,
     }
+    if fragment is not None:
+        answers[("show", f"{'b' * 40}:{_FRAGMENT}")] = fragment
 
     def fake(*args: str) -> str:
         if args not in answers:
@@ -99,6 +110,32 @@ def describe_description_errors():
     def it_requires_an_area(script):
         body = GOOD.replace("**Area:** class review: the review model, the class page and its email.\n", "")
         assert any("Area" in error for error in script.description_errors(body))
+
+    def describe_the_guidance_line():
+        def it_requires_it(script):
+            body = GOOD.replace("**Guidance:** none\n", "")
+            assert script.description_errors(body) == [
+                "Missing the `**Guidance:**` line: none, link, clip or tour, how much teaching this ships (docs/GUIDANCE.md)."
+            ]
+
+        def it_rejects_a_blank_value(script):
+            body = GOOD.replace("**Guidance:** none", "**Guidance:** ")
+            assert script.description_errors(body) == [
+                "`**Guidance:** ` is not a level; use one of none, link, clip, tour."
+            ]
+
+        def it_rejects_a_value_outside_the_four_levels(script):
+            errors = script.description_errors(GOOD.replace("**Guidance:** none", "**Guidance:** video"))
+            assert errors == ["`**Guidance:** video` is not a level; use one of none, link, clip, tour."]
+
+        @pytest.mark.parametrize("level", ["none", "link", "clip", "tour", "Link"])
+        def it_accepts_each_level_in_any_case(script, level: str):
+            assert script.description_errors(GOOD.replace("**Guidance:** none", f"**Guidance:** {level}")) == []
+
+        def it_reads_the_level_it_declares(script):
+            assert script.declared_guidance(GOOD) == "none"
+            assert script.declared_guidance(GOOD.replace("**Guidance:** none", "**Guidance:** Tour")) == "tour"
+            assert script.declared_guidance("no line") is None
 
     def it_requires_every_section(script):
         body = GOOD.replace("### Verification\n`pytest tests/classes/review_spec.py` passes; screenshot below.\n", "")
@@ -319,6 +356,56 @@ def describe_main():
         def it_passes_with_the_label(script, env, capsys):
             env.setenv("PR_LABELS", json.dumps(["No-Screenshots"]))
             env.setattr(script, "_git", _fake_git(changed="templates/classes/detail.html"))
+            script.main()
+            assert "PR description OK" in capsys.readouterr().out
+
+    def describe_the_fragment_the_pr_adds():
+        """The body's level must match the ``guidance`` of the one fragment the PR adds (#1007)."""
+
+        def it_fails_when_the_body_and_the_fragment_disagree(script, env):
+            env.setattr(script, "_git", _fake_git(changed=_FRAGMENT, added=_FRAGMENT, fragment=_LINKED))
+            with pytest.raises(SystemExit) as exit_info:
+                script.main()
+            message = str(exit_info.value)
+            assert "`**Guidance:** none`" in message and '`guidance = "link"`' in message
+
+        def it_passes_when_they_agree(script, env, capsys):
+            env.setenv("PR_BODY", GOOD.replace("**Guidance:** none", "**Guidance:** link"))
+            env.setattr(script, "_git", _fake_git(changed=_FRAGMENT, added=_FRAGMENT, fragment=_LINKED))
+            script.main()
+            assert "PR description OK" in capsys.readouterr().out
+
+        def it_treats_an_internal_fragment_as_none(script, env, capsys):
+            env.setattr(
+                script,
+                "_git",
+                _fake_git(changed=_FRAGMENT, added=_FRAGMENT, fragment='bump = "patch"\naudience = "internal"\n'),
+            )
+            script.main()
+            assert "PR description OK" in capsys.readouterr().out
+
+        def it_reports_only_the_missing_line_when_the_body_has_none(script, env):
+            # No level to compare, so no second error about a mismatch.
+            env.setenv("PR_BODY", GOOD.replace("**Guidance:** none\n", ""))
+            env.setattr(script, "_git", _fake_git(changed=_FRAGMENT, added=_FRAGMENT, fragment=_LINKED))
+            with pytest.raises(SystemExit) as exit_info:
+                script.main()
+            assert str(exit_info.value).count("Guidance") == 1
+
+        def it_leaves_a_fragment_that_does_not_parse_to_the_fragment_check(script, env, capsys):
+            env.setattr(script, "_git", _fake_git(changed=_FRAGMENT, added=_FRAGMENT, fragment='bump = "sideways"\n'))
+            script.main()
+            assert "PR description OK" in capsys.readouterr().out
+
+        def it_compares_nothing_when_the_pr_adds_no_fragment(script, env, capsys):
+            # _fake_git raises on a `git show`, so reaching one here would fail the spec.
+            env.setattr(script, "_git", _fake_git(changed="classes/models.py", added="classes/models.py"))
+            script.main()
+            assert "PR description OK" in capsys.readouterr().out
+
+        def it_compares_nothing_when_the_pr_adds_two(script, env, capsys):
+            added = f"{_FRAGMENT}\nchangelog.d/413-other.toml"
+            env.setattr(script, "_git", _fake_git(changed=added, added=added))
             script.main()
             assert "PR description OK" in capsys.readouterr().out
 

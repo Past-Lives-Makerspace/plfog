@@ -13,6 +13,12 @@ carries a closing keyword for it, so the Problem section of the last part must s
 an earlier part must not. PR #514, the last of three parts of #505, said neither and left the
 issue open after the work shipped.
 
+Every description also declares how much teaching the change ships, ``**Guidance:** none``,
+``link``, ``clip`` or ``tour`` (#1007, ``docs/GUIDANCE.md``), and when the PR adds one fragment
+under ``changelog.d/`` the two must agree: the fragment is what What's New reads, the line is
+what the reviewer reads, and a PR that says ``tour`` while its fragment says ``none`` is one or
+the other lying.
+
 Stdlib only and no Django, like ``check_changelog_fragment.py``: it runs in its own workflow so
 an edited description re-checks in seconds.
 """
@@ -21,9 +27,13 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import re
 import subprocess
 import sys
+
+sys.path.insert(0, ".")
+from plfog.changelog import GUIDANCE_LEVELS, FragmentError, parse_fragment  # noqa: E402
 
 MAX_SUMMARY_CHARS = 160
 MAX_WORDS = 300
@@ -44,6 +54,7 @@ _LINK_TARGET = re.compile(r"\]\([^)]*\)")
 _WORD = re.compile(r"[A-Za-z0-9][\w'’.-]*")
 _SUMMARY = re.compile(r"^\*\*Summary:\*\*[ \t]*(.*)$", re.MULTILINE)
 _AREA = re.compile(r"^\*\*Area:\*\*[ \t]*\S", re.MULTILINE)
+_GUIDANCE = re.compile(r"^\*\*Guidance:\*\*[ \t]*(.*)$", re.MULTILINE)
 _HEADING = re.compile(r"^#{2,3}[ \t]+(.+?)[ \t]*$", re.MULTILINE)
 _BULLET = re.compile(r"^(?:[-*]|\d+\.)[ \t]+\S", re.MULTILINE)
 _PART = re.compile(r"\bpart\s+(\d+)\s+of\s+(\d+)\b", re.IGNORECASE)
@@ -115,6 +126,41 @@ def shows_a_picture(text: str) -> bool:
     return _IMAGE.search(text) is not None
 
 
+def declared_guidance(text: str) -> str | None:
+    """The level the ``**Guidance:**`` line declares, or None when the line is missing or wrong."""
+    match = _GUIDANCE.search(text)
+    if match is None:
+        return None
+    level = match.group(1).strip().lower()
+    return level if level in GUIDANCE_LEVELS else None
+
+
+def guidance_error(text: str) -> str | None:
+    """Why the ``**Guidance:**`` line fails, if it does."""
+    match = _GUIDANCE.search(text)
+    if match is None:
+        return "Missing the `**Guidance:**` line: none, link, clip or tour, how much teaching this ships (docs/GUIDANCE.md)."
+    if declared_guidance(text) is None:
+        return f"`**Guidance:** {match.group(1).strip()}` is not a level; use one of {', '.join(GUIDANCE_LEVELS)}."
+    return None
+
+
+def fragment_guidance(head: str, added: list[str]) -> str | None:
+    """The ``guidance`` of the one fragment the PR adds, read at ``head``.
+
+    None when the PR adds no fragment or more than one (the fragment check owns that), or when
+    the one it adds does not parse (the fragment check reports why; a second copy of the same
+    error here would be noise).
+    """
+    fragments = [path for path in added if path.startswith("changelog.d/") and path.endswith(".toml")]
+    if len(fragments) != 1:
+        return None
+    try:
+        return parse_fragment(_git("show", f"{head}:{fragments[0]}"), pathlib.Path(fragments[0])).guidance
+    except FragmentError:
+        return None
+
+
 def description_errors(body: str) -> list[str]:
     """Every way ``body`` breaks the pull request format, in reading order."""
     text = _COMMENT.sub("", body)
@@ -128,6 +174,10 @@ def description_errors(body: str) -> list[str]:
 
     if _AREA.search(text) is None:
         errors.append("Missing the `**Area:**` line: the features and kinds of files this touches.")
+
+    guidance = guidance_error(text)
+    if guidance:
+        errors.append(guidance)
 
     sections = _sections(text)
     for name in SECTIONS:
@@ -187,7 +237,8 @@ def main() -> None:
     if EXEMPT_LABEL in labels:
         print(f"'{EXEMPT_LABEL}' label present; not checking the description.")
         return
-    span = f"{os.environ['BASE_SHA']}...{os.environ['HEAD_SHA']}"
+    head = os.environ["HEAD_SHA"]
+    span = f"{os.environ['BASE_SHA']}...{head}"
 
     errors = description_errors(body)
 
@@ -204,6 +255,14 @@ def main() -> None:
             "This PR changes templates, CSS or front-end JS but the description shows no screenshot. "
             f"Upload one with {_UPLOAD} and embed the link it prints, or add the "
             f"`{SKIP_PICTURES_LABEL}` label if nothing visible changes."
+        )
+
+    declared = declared_guidance(_COMMENT.sub("", body))
+    promised = fragment_guidance(head, added)
+    if declared and promised and declared != promised:
+        errors.append(
+            f"The description says `**Guidance:** {declared}` but the fragment this PR adds says "
+            f'`guidance = "{promised}"`. Make them agree; the fragment is what What\'s New reads.'
         )
 
     lines = counted_lines(_git("diff", "--numstat", span))
