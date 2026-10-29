@@ -179,11 +179,35 @@ def describe_reading_the_header():
 
 
 def describe_reading_a_cell():
-    def it_keys_the_name_trimmed_collapsed_and_casefolded_and_stores_it_trimmed():
-        row = _one('Name\n"  Amy   Spreadborough "\n')
+    def it_keys_the_name_trimmed_collapsed_and_casefolded_and_stores_it_cleaned():
+        row = _one('Name\n"  Amy \u00a0 Spreadborough\u200b "\n')
 
         assert row.key == "amy spreadborough" == normalise(" AMY Spreadborough")
-        assert row.values == {"name": "Amy   Spreadborough"}
+        assert row.values == {"name": "Amy Spreadborough"}
+
+    def it_matches_a_fullwidth_name_and_drops_invisible_characters():
+        assert normalise("\uff2b\uff41\uff54\uff45 Studio") == normalise("Kate Studio") == "kate studio"
+        assert normalise("Kate\u200d\u200e Studio") == "kate studio"
+
+    def it_reads_a_name_of_only_invisible_characters_as_no_name():
+        sheet = _parse('Name,Status\n"\u200b\u200b",Requested\n')
+
+        assert sheet.rows[0].key == ""
+        assert [str(problem) for problem in sheet.rows[0].problems] == ["Row 2: No Name, so the row was skipped."]
+
+    def it_cuts_the_text_a_problem_repeats_at_sixty_characters():
+        long = "x" * 80
+
+        row = _one(f"Name,Status,Guild,Setup time,Requested on,Email\nEllie,{long},{long},{long},{long},{long}\n")
+
+        cut = "x" * 59 + "\u2026"
+        assert [str(problem) for problem in row.problems] == [
+            f'Row 2: Status "{cut}" is not one of Requested, Confirmed, Waitlist, Cancelled.',
+            f'Row 2: Guild "{cut}" is not one of the active guilds.',
+            f'Row 2: Setup time "{cut}" is not one of Thu Dec 3, 3 to 7 PM, Fri Dec 4, 3 to 5 PM.',
+            f'Row 2: Requested on "{cut}" is not a date like 2026-10-21 or 10/21/2026.',
+            f'Row 2: Email "{cut}" is not an email address.',
+        ]
 
     def it_leaves_blank_cells_out_of_the_values():
         row = _one(f'{HEADER}\n"Ellie","","","","","","","","","","","",""\n')
@@ -256,17 +280,22 @@ def describe_reading_a_cell():
             ("Thursday", "thu"),
             ("Fri Dec 4, 3 to 5 PM", "fri"),
             ("Friday afternoon", "fri"),
+            ("Thurs", "thu"),
+            ("thur, Dec 3", "thu"),
+            ("FRI", "fri"),
             ("Not chosen", ""),
         ],
     )
     def it_reads_a_setup_window_by_label_or_day(text, value):
         assert _one(f'Name,Setup time\nEllie,"{text}"\n').values["setup"] == value
 
-    def it_reports_a_setup_window_it_cannot_read():
-        row = _one("Name,Setup day\nEllie,Saturday\n")
+    @pytest.mark.parametrize("text", ["Saturday", "Friendly", "thumbs up", "th"])
+    def it_reports_a_setup_window_it_cannot_read(text):
+        row = _one(f"Name,Setup day\nEllie,{text}\n")
 
+        assert "setup" not in row.values
         assert [str(problem) for problem in row.problems] == [
-            'Row 2: Setup time "Saturday" is not one of Thu Dec 3, 3 to 7 PM, Fri Dec 4, 3 to 5 PM.'
+            f'Row 2: Setup time "{text}" is not one of Thu Dec 3, 3 to 7 PM, Fri Dec 4, 3 to 5 PM.'
         ]
 
     @pytest.mark.parametrize(
@@ -276,7 +305,9 @@ def describe_reading_a_cell():
     def it_reads_a_date_as_iso_or_month_day_year(text, value):
         assert _one(f"Name,Requested on\nEllie,{text}\n").values["requested_on"] == value
 
-    @pytest.mark.parametrize("text", ["Oct 21", "2026-13-01", "13/45/2026", "21.10.2026"])
+    @pytest.mark.parametrize(
+        "text", ["Oct 21", "2026-13-01", "13/45/2026", "21.10.2026", "2026-W43-1", "20261021", "2026-10-21T10:00"]
+    )
     def it_reports_a_date_it_cannot_read(text):
         row = _one(f"Name,Requested on\nEllie,{text}\n")
 
@@ -311,6 +342,13 @@ def describe_reading_a_guild():
     )
     def it_reads_a_guild_by_name_with_or_without_guild_and_a_plural_then_a_unique_start(guilds, text, name):
         assert _one(f"Name,Guild\nEllie,{text}\n", guilds.values()).values["guild"] == guilds[name]
+
+    @pytest.mark.parametrize("text", ["C", "W", "Wo", "Me"])
+    def it_reports_a_start_shorter_than_three_characters_instead_of_guessing(guilds, text):
+        row = _one(f"Name,Guild\nEllie,{text}\n", guilds.values())
+
+        assert "guild" not in row.values
+        assert [str(problem) for problem in row.problems] == [f'Row 2: Guild "{text}" is not one of the active guilds.']
 
     def it_reads_not_in_a_guild_as_none(guilds):
         assert _one("Name,Guild\nEllie,Not in a guild\n", guilds.values()).values["guild"] is None
@@ -349,6 +387,7 @@ def describe_reading_a_file():
             (b"Name\nEl\x00lie\n", "not a CSV."),
             (b'Name\n"Ellie\n', "could not be read as a CSV"),
             (b"Name\n" + b"x" * (1024 * 1024), "over 1 MB"),
+            (b"Name;Guild\nEllie;Ceramics\n", "uses semicolons; save it as a comma separated CSV"),
         ],
     )
     def it_refuses_a_file_it_cannot_read(data, reason):
@@ -398,7 +437,7 @@ def describe_the_uploads_rule():
         table.refresh_from_db()
         assert (result.added, result.updated, result.unchanged) == (0, 1, 0)
         assert (table.name, table.guild, table.sells, table.size, table.status, table.table_no) == (
-            "riley   WOODS",
+            "Riley Woods",
             guilds["Woodworking Guild"],
             "Boards",
             VendorTable.Size.EIGHT_FT,
@@ -412,6 +451,24 @@ def describe_the_uploads_rule():
             "Asked Lee",
         )
         assert (table.requested_on, table.request_source, table.created_by) == (date(2026, 10, 21), "Discord", creator)
+
+    @pytest.mark.parametrize(
+        "cell", ["riley woods", "RILEY  WOODS", " Riley\u00a0Woods ", "\uff32\uff49\uff4c\uff45\uff59 Woods"]
+    )
+    def it_keeps_the_stored_name_when_the_cell_differs_only_in_case_or_spacing(hub, kate, cell):
+        table = VendorTableFactory(hub=hub, name="Riley Woods")
+        stamp = table.updated_at
+
+        result = apply_upload(hub, _parse(f"Name\n{cell}\n"), member=kate)
+
+        table.refresh_from_db()
+        assert (result.updated, result.unchanged) == (0, 1)
+        assert (table.name, table.updated_at) == ("Riley Woods", stamp)
+
+    def it_stores_a_new_name_cleaned_of_invisible_characters_and_extra_spaces(hub, kate):
+        apply_upload(hub, _parse('Name\n" Kate\u200b  \u00a0Studio "\n'), member=kate)
+
+        assert hub.vendor_tables.get().name == "Kate Studio"
 
     def it_leaves_a_field_it_could_not_read_as_it_was(hub, kate, guilds):
         table = VendorTableFactory(hub=hub, name="Ellie", guild=guilds["Ceramics Guild"], size=VendorTable.Size.FOUR_FT)
