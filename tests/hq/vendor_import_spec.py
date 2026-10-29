@@ -139,6 +139,18 @@ def _one(text: str, guilds: Any = ()) -> Any:
 
 
 def describe_the_model():
+    def it_keeps_the_joiners_an_emoji_name_is_made_of():
+        artist = "\U0001f469\u200d\U0001f3a8 Studio"
+        scotland = "\U0001f3f4\U000e0067\U000e0062\U000e0073\U000e0063\U000e0074\U000e007f Flags"
+
+        assert _one(f"Name\n{artist}\n").values["name"] == artist
+        assert _one(f"Name\n{scotland}\n").values["name"] == scotland
+
+    def it_treats_a_name_of_joiners_alone_as_no_name():
+        sheet = _parse('Name,Status\n"\u200d\u200b",Requested\n')
+
+        assert [str(problem) for problem in sheet.rows[0].problems] == ["Row 2: No Name, so the row was skipped."]
+
     def it_carries_the_sheets_four_columns_blank_by_default(hub):
         table = VendorTableFactory(hub=hub)
 
@@ -306,7 +318,19 @@ def describe_reading_a_cell():
         assert _one(f"Name,Requested on\nEllie,{text}\n").values["requested_on"] == value
 
     @pytest.mark.parametrize(
-        "text", ["Oct 21", "2026-13-01", "13/45/2026", "21.10.2026", "2026-W43-1", "20261021", "2026-10-21T10:00"]
+        "text",
+        [
+            "Oct 21",
+            "2026-13-01",
+            "13/45/2026",
+            "21.10.2026",
+            "2026-W43-1",
+            "20261021",
+            "2026-10-21T10:00",
+            "0001-01-01",
+            "10/21/2101",
+            "\u0661\u0660/\u0662\u0661/\u0662\u0660\u0662\u0666",
+        ],
     )
     def it_reports_a_date_it_cannot_read(text):
         row = _one(f"Name,Requested on\nEllie,{text}\n")
@@ -388,6 +412,7 @@ def describe_reading_a_file():
             (b'Name\n"Ellie\n', "could not be read as a CSV"),
             (b"Name\n" + b"x" * (1024 * 1024), "over 1 MB"),
             (b"Name;Guild\nEllie;Ceramics\n", "uses semicolons; save it as a comma separated CSV"),
+            (b'"Name";"Guild"\n"Ellie";"Ceramics"\n', "uses semicolons; save it as a comma separated CSV"),
         ],
     )
     def it_refuses_a_file_it_cannot_read(data, reason):

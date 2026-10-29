@@ -93,8 +93,15 @@ GUILD_NICKNAMES: dict[str, str] = {"woodshop": "wood"}
 # What the export puts before a cell a spreadsheet would run as a formula (hq.exports._neutralise_formula).
 _FORMULA_LEADS = ("=", "+", "-", "@", "\t", "\r")
 
-_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_DMY = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
+_ISO_DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+_DMY = re.compile(r"^([0-9]{1,2})/([0-9]{1,2})/([0-9]{4})$")
+
+# The years a table request can be dated in; outside them the cell is a typo, not a date.
+YEARS = range(2000, 2101)
+
+# Format characters that are part of what a name shows: the zero width joiner inside composite emoji
+# (👩‍🎨) and the tag characters of a subdivision flag. Every other format character is dropped.
+_KEPT_FORMAT = frozenset({"\u200d", *(chr(code) for code in range(0xE0020, 0xE0080))})
 
 # The shortest start of a guild's name that names it: "Wood" and "Metal" do, "C" and "W" are too short to say.
 GUILD_PREFIX_MIN = 3
@@ -124,14 +131,16 @@ class ImportRefused(Exception):
 def clean(text: str) -> str:
     """``text`` without invisible format characters (a zero width space, a direction mark), stripped, its inner
     whitespace collapsed to one space: how a name is stored."""
-    visible = "".join(char for char in text if unicodedata.category(char) != "Cf")
+    visible = "".join(char for char in text if unicodedata.category(char) != "Cf" or char in _KEPT_FORMAT)
     return " ".join(visible.split())
 
 
 def normalise(text: str) -> str:
     """``text`` in compatibility form (fullwidth "Ｋａｔｅ" is "Kate"), cleaned and casefolded: how names and
-    headers match."""
-    return clean(unicodedata.normalize("NFKC", text)).casefold()
+    headers match. The key drops every format character, the joiners :func:`clean` keeps included, so a name of
+    joiners alone is blank."""
+    visible = "".join(char for char in unicodedata.normalize("NFKC", text) if unicodedata.category(char) != "Cf")
+    return " ".join(visible.split()).casefold()
 
 
 def _echo(text: str) -> str:
@@ -208,12 +217,15 @@ def read_csv(data: bytes) -> list[list[str]]:
         raise ImportRefused("That file is not a CSV saved as UTF-8. Nothing was imported.") from exc
     if "\x00" in text:
         raise ImportRefused("That file is not a CSV. Nothing was imported.")
+    # Read off the raw first line, before parsing: a semicolon locale quotes its cells ("Name";"Guild"), which the
+    # strict reader refuses before a check on the parsed header could run.
+    first_line = text.split("\n", 1)[0]
+    if ";" in first_line and "," not in first_line:
+        raise ImportRefused(SEMICOLONS)
     try:
         rows = list(csv.reader(io.StringIO(text, newline=""), strict=True))
     except csv.Error as exc:
         raise ImportRefused("That file could not be read as a CSV. Nothing was imported.") from exc
-    if rows and len(rows[0]) == 1 and ";" in rows[0][0]:
-        raise ImportRefused(SEMICOLONS)
     if sum(1 for row in rows[1:] if any(cell.strip() for cell in row)) > MAX_IMPORT_ROWS:
         raise ImportRefused(f"That file has more than {MAX_IMPORT_ROWS} rows. Nothing was imported.")
     return rows
@@ -274,7 +286,7 @@ class _CellReader:
             except ValueError as exc:
                 problems.append(ImportProblem(line, HEADERS[key], str(exc)))
         key = normalise(values.get("name", ""))
-        if not clean(cells["name"]):
+        if not normalise(cells["name"]):
             problems.insert(0, ImportProblem(line, HEADERS["name"], "No Name, so the row was skipped."))
         return ParsedRow(line=line, key=key, cells=cells, values=values, problems=tuple(problems))
 
@@ -400,7 +412,10 @@ def _setup(text: str) -> str:
 def _date(text: str) -> date:
     """A date written 2026-10-21 or 10/21/2026, nothing else (no week dates, no times)."""
     try:
-        return date.fromisoformat(text) if _ISO_DATE.match(text) else _month_day_year(text)
+        when = date.fromisoformat(text) if _ISO_DATE.match(text) else _month_day_year(text)
+        if when.year not in YEARS:
+            raise ValueError(text)
+        return when
     except ValueError as exc:
         raise ValueError(
             f'{HEADERS["requested_on"]} "{_echo(text)}" is not a date like 2026-10-21 or 10/21/2026.'
