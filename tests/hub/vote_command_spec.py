@@ -140,7 +140,7 @@ def describe_vote():
             result = _vote(_interaction(g1.slug, g1.slug, g2.slug), member)
 
             assert result["data"]["content"].startswith(
-                "Dupe Pick is picked for your 1st and 2nd choice. Each choice must be a different guild."
+                "Dupe Pick is picked for your 1st and 2nd choices. Each choice must be a different guild."
             )
             assert "Already your" not in result["data"]["content"]
             assert "Nothing was changed" in result["data"]["content"]

@@ -2210,9 +2210,11 @@ class VotePreferenceForm(forms.Form):
             else:
                 first_rank[guild.pk] = ranks[field]
                 names[guild.pk] = guild.name
-        for pk, picked in clashes.items():
+        if clashes:
+            # Three choices hold at most one guild picked more than once.
+            pk, picked = next(iter(clashes.items()))
             raise forms.ValidationError(
-                f"{names[pk]} is picked for your {_choice_list(picked)} choice. Each choice must be a different guild."
+                f"{names[pk]} is picked for your {_choice_list(picked)} choices. Each choice must be a different guild."
             )
 
         return cleaned

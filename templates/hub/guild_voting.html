@@ -39,16 +39,10 @@
     <form method="post" class="hub-form">
         {% csrf_token %}
         {% for field in form %}
-        <div class="hub-form-group">
-            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-            {{ field }}
-            {% for error in field.errors %}
-            <p class="hub-field-error" id="{{ field.id_for_label }}_error">{{ error }}</p>
-            {% endfor %}
-        </div>
+        {% include "components/form_field.html" with field=field %}
         {% endfor %}
         {% if form.non_field_errors %}
-        <div class="hub-form-error" role="alert" style="margin-top: 1rem;">
+        <div class="hub-form-error hub-form-error--spaced" role="alert">
             <strong>Your vote was not saved.</strong>
             {% for error in form.non_field_errors %} {{ error }}{% endfor %}
         </div>

@@ -192,7 +192,7 @@ def describe_guild_voting_view():
 
         msgs = [str(m) for m in response.context["messages"]]
         assert msgs == [
-            "Your vote was not saved. Writers Guild is picked for your 1st and 2nd choice."
+            "Your vote was not saved. Writers Guild is picked for your 1st and 2nd choices."
             " Each choice must be a different guild."
         ]
         html = response.content.decode()
@@ -208,7 +208,7 @@ def describe_guild_voting_view():
         response = client.post("/guilds/voting/", {"guild_1st": g1.pk, "guild_2nd": "", "guild_3rd": ""})
 
         msgs = [str(m) for m in response.context["messages"]]
-        assert msgs == ["Your vote was not saved. Pick a guild for each of the three choices."]
+        assert msgs == ["Your vote was not saved. Check the choices marked below."]
         assert not VotePreference.objects.filter(member__user__username="blankuser").exists()
 
     def it_shows_current_preferences(client: Client):
@@ -458,7 +458,7 @@ def describe_vote_preference_form():
 
         assert not form.is_valid()
         assert form.non_field_errors() == [
-            "Dup1 is picked for your 1st and 2nd choice. Each choice must be a different guild."
+            "Dup1 is picked for your 1st and 2nd choices. Each choice must be a different guild."
         ]
         assert form.errors["guild_2nd"] == ["Already your 1st choice."]
         assert "guild_1st" not in form.errors
@@ -470,7 +470,7 @@ def describe_vote_preference_form():
 
         assert not form.is_valid()
         assert form.non_field_errors() == [
-            "AllSame is picked for your 1st, 2nd and 3rd choice. Each choice must be a different guild."
+            "AllSame is picked for your 1st, 2nd and 3rd choices. Each choice must be a different guild."
         ]
         assert form.errors["guild_2nd"] == ["Already your 1st choice."]
         assert form.errors["guild_3rd"] == ["Already your 1st choice."]
@@ -482,7 +482,7 @@ def describe_vote_preference_form():
         form = VotePreferenceForm(data={"guild_1st": g1.pk, "guild_2nd": g2.pk, "guild_3rd": g2.pk})
 
         assert form.non_field_errors() == [
-            "Twice is picked for your 2nd and 3rd choice. Each choice must be a different guild."
+            "Twice is picked for your 2nd and 3rd choices. Each choice must be a different guild."
         ]
         assert form.errors["guild_3rd"] == ["Already your 2nd choice."]
 

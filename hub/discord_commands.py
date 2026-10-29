@@ -294,7 +294,7 @@ def _vote(interaction: Interaction, member: Member | None) -> dict:
         message = " ".join(str(error) for error in form.non_field_errors()) or " ".join(
             str(error) for errors in form.errors.values() for error in errors
         )
-        return reply(f"{message} Nothing was changed — adjust your picks and try again.", ephemeral=True)
+        return reply(f"{message} Nothing was changed. Adjust your picks and try again.", ephemeral=True)
 
     preference, created = VotePreference.objects.cast_ballot(
         member,

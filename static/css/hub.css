@@ -1375,17 +1375,13 @@ a:hover { color: var(--hub-link-hover); }
     margin-top: 0.25rem;
 }
 
-/* Errors read in --hub-danger-text, which holds 6:1 on the card in both themes; --color-error is too pale on white. */
 .hub-field-error {
     font-size: 0.8125rem;
-    color: var(--hub-danger-text);
+    color: var(--color-error);
     margin-top: 0.25rem;
 }
 
-.hub-form-group select[aria-invalid="true"] {
-    border-color: var(--hub-danger-text);
-}
-
+/* The panel reads in --hub-danger-text, which holds 6:1 on the card in both themes; --color-error is too pale on white. */
 .hub-form-error {
     padding: 0.75rem 1rem;
     background-color: var(--color-error-bg);
@@ -1394,6 +1390,10 @@ a:hover { color: var(--hub-link-hover); }
     color: var(--hub-danger-text);
     font-size: 0.875rem;
     margin-bottom: 1rem;
+}
+
+.hub-form-error--spaced {
+    margin-top: 1rem;
 }
 
 /* ========================================
