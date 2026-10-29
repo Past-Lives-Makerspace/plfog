@@ -33,7 +33,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, ".")
-from plfog.changelog import GUIDANCE_LEVELS, FragmentError, parse_fragment  # noqa: E402
+from plfog.changelog import GUIDANCE_LEVELS, Fragment, FragmentError, parse_fragment  # noqa: E402
 
 MAX_SUMMARY_CHARS = 160
 MAX_WORDS = 300
@@ -145,8 +145,8 @@ def guidance_error(text: str) -> str | None:
     return None
 
 
-def fragment_guidance(head: str, added: list[str]) -> str | None:
-    """The ``guidance`` of the one fragment the PR adds, read at ``head``.
+def fragment_added(head: str, added: list[str]) -> Fragment | None:
+    """The one fragment the PR adds, read at ``head``.
 
     None when the PR adds no fragment or more than one (the fragment check owns that), or when
     the one it adds does not parse (the fragment check reports why; a second copy of the same
@@ -156,9 +156,23 @@ def fragment_guidance(head: str, added: list[str]) -> str | None:
     if len(fragments) != 1:
         return None
     try:
-        return parse_fragment(_git("show", f"{head}:{fragments[0]}"), pathlib.Path(fragments[0])).guidance
+        return parse_fragment(_git("show", f"{head}:{fragments[0]}"), pathlib.Path(fragments[0]))
     except FragmentError:
         return None
+
+
+def guidance_mismatch(declared: str | None, fragment: Fragment | None) -> str | None:
+    """Why the body's level and the added fragment's disagree, if both exist and they do."""
+    if declared is None or fragment is None or declared == fragment.guidance:
+        return None
+    if fragment.audience == "internal":
+        promise = "is internal, and an internal fragment has no guidance, so the line must say `none`"
+    else:
+        promise = f'says `guidance = "{fragment.guidance}"`'
+    return (
+        f"The description says `**Guidance:** {declared}` but the fragment this PR adds {promise}. "
+        "Make them agree; the fragment is what What's New reads."
+    )
 
 
 def description_errors(body: str) -> list[str]:
@@ -257,13 +271,9 @@ def main() -> None:
             f"`{SKIP_PICTURES_LABEL}` label if nothing visible changes."
         )
 
-    declared = declared_guidance(_COMMENT.sub("", body))
-    promised = fragment_guidance(head, added)
-    if declared and promised and declared != promised:
-        errors.append(
-            f"The description says `**Guidance:** {declared}` but the fragment this PR adds says "
-            f'`guidance = "{promised}"`. Make them agree; the fragment is what What\'s New reads.'
-        )
+    mismatch = guidance_mismatch(declared_guidance(_COMMENT.sub("", body)), fragment_added(head, added))
+    if mismatch:
+        errors.append(mismatch)
 
     lines = counted_lines(_git("diff", "--numstat", span))
     if lines > TARGET_LINES:

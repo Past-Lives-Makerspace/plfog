@@ -14,8 +14,9 @@ and no PR adds a Help Center article (#1009). The issue is #1007; clips are #100
 | `clip` | `link`, plus a short recorded walkthrough played from the entry. | A feature with a few steps that are easier watched than read: a new tab, a flow with a modal, a tool with settings. |
 | `tour` | `clip`, plus a Guided Tour (`core/tours.py`) started from the entry. | A whole new surface with several stops, for a role that has not seen it before. |
 
-A `tour` is a tour plus a clip. No level adds a Help Center article; the Help Center is frozen
-(`docs/HELP_AUTHORING.md`).
+A `tour` is a tour plus a clip. The `fragment` check requires the tour key today and will
+require the clip from #1008, when a feature can register one. No level adds a Help Center
+article; the Help Center is frozen (`docs/HELP_AUTHORING.md`).
 
 ## Where it is written
 

@@ -71,6 +71,19 @@ def _a_guild(member: Member, *, staffed_only: bool) -> Guild:
     return guild
 
 
+def _review_queue(member: Member) -> dict[str, Any]:
+    """Manage Classes admits fog admins and CMS Administrators only (``classes_review_access_required``).
+
+    A guild lead or Class Reviewer reaches a class through its signed review link instead, so
+    for them there is no page to open and the caller hides the link.
+    """
+    from membership.models import AdminCapability
+
+    if member.is_fog_admin or member.has_admin_capability(AdminCapability.Capability.CLASS_APPROVER):
+        return {}
+    raise ValueError(f"Member {member.pk} cannot open Manage Classes; guild reviewers review from the email")
+
+
 def _guild_slug(member: Member) -> dict[str, Any]:
     return {"slug": _a_guild(member, staffed_only=False).slug}
 
@@ -94,6 +107,7 @@ def _guild_tab(key: str, title: str, tab: str, steps: tuple[str, ...], **extra: 
 
 _GUIDANCE_LIST = (
     # Home
+    # What's New itself ships in part 2 of #1007, on this same stack; registered now so part 2's fragment can name it.
     Guidance(
         key="home.whats-new",
         title="What's New",
@@ -304,11 +318,12 @@ _GUIDANCE_LIST = (
         key="classes.review",
         title="Class Review",
         url_name="classes:admin_classes",
+        url_kwargs=_review_queue,
         help_key="admin.review-queue",
         steps=(
-            "Open Manage Classes from Admin Tools, or follow the review request you were sent.",
+            "Admins open Manage Classes from Admin Tools. A guild lead or Class Reviewer presses Review in the review email, or under Needs Attention on Guild Settings.",
             "Approve, request changes or deny each class waiting on you. A request for changes starts a conversation with the instructors.",
-            "One email at 8 AM lists every class still waiting on you. A class waiting 3 days or more shows in red.",
+            "One email at 8 AM lists every class still waiting on you. A class waiting 3 days or more shows in red on Manage Classes and on Home for admins.",
         ),
     ),
     # Admin and guild tools

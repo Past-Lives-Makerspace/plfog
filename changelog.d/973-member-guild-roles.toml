@@ -1,6 +1,6 @@
 bump = "minor"
 date = "2026-10-27"
-audience = ["admins", "guild-leads"]
+audience = ["admins"]
 feature = "admin.manage-members"
 guidance = "link"
 title = "Admins manage a member's guild roles from their page"

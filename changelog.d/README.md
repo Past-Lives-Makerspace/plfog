@@ -76,7 +76,9 @@ body; CI fails the two when they differ.
 
 Anything past `none` needs a `feature`. `clip` needs the feature to register a clip slug and
 `tour` a tour key, or the `fragment` check fails. A `tour` means a tour plus a clip, never a Help
-Center article: no level adds one (#1009). `docs/GUIDANCE.md` says how to pick.
+Center article: no level adds one (#1009). The check holds `tour` to the tour key today and
+to the clip as well from #1008, when a feature can register one. `docs/GUIDANCE.md` says how
+to pick.
 
 ## `requests`: telling the people who asked
 
