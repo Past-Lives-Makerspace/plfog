@@ -184,3 +184,97 @@ def describe_edit_channel_message():
         with pytest.raises(dc.DiscordChannelError):
             dc.edit_channel_message(CHANNEL_ID, MESSAGE_ID, [{"title": f"e{i}"} for i in range(11)])
         assert not route.called
+
+
+def _page_of(start: int, count: int) -> list[dict[str, str]]:
+    """``count`` messages with ids counting down from ``start``, newest first, as Discord sends a page."""
+    return [{"id": str(start - n)} for n in range(count)]
+
+
+def describe_reading_a_channel_for_check_discord():
+    @respx.mock
+    def it_reads_the_channel_itself(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.get(f"https://discord.com/api/v10/channels/{CHANNEL_ID}").mock(
+            return_value=httpx.Response(200, json={"id": CHANNEL_ID, "name": "spec-market", "guild_id": "g1"})
+        )
+
+        assert dc.channel_info(CHANNEL_ID)["name"] == "spec-market"
+
+    @respx.mock
+    def it_pages_back_with_before_and_stops_at_the_limit(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        pages = iter([_page_of(10_000 - 100 * n, 100) for n in range(6)])
+        route = respx.get(_MESSAGES_URL).mock(side_effect=lambda request: httpx.Response(200, json=next(pages)))
+
+        found = dc.channel_messages_newest(CHANNEL_ID, limit=500)
+
+        assert len(found) == 500
+        assert route.call_count == 5
+        assert "before" not in route.calls[0].request.url.params
+        assert route.calls[1].request.url.params["before"] == "9901"
+        assert route.calls[4].request.url.params["before"] == "9601"
+
+    @respx.mock
+    def it_stops_at_the_channels_start_on_a_short_page(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        pages = iter([_page_of(500, 100), _page_of(400, 30)])
+        route = respx.get(_MESSAGES_URL).mock(side_effect=lambda request: httpx.Response(200, json=next(pages)))
+
+        found = dc.channel_messages_newest(CHANNEL_ID, limit=500)
+
+        assert len(found) == 130
+        assert route.call_count == 2
+
+    @respx.mock
+    def it_cuts_the_last_page_to_the_limit(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        pages = iter([_page_of(500, 100), _page_of(400, 100)])
+        respx.get(_MESSAGES_URL).mock(side_effect=lambda request: httpx.Response(200, json=next(pages)))
+
+        assert [message["id"] for message in dc.channel_messages_newest(CHANNEL_ID, limit=150)][-1] == "351"
+
+    @respx.mock
+    def it_pages_the_server_members_with_after_up_to_the_cap(settings, monkeypatch):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        monkeypatch.setattr(dc, "MEMBERS_PAGE_LIMIT", 2)
+        monkeypatch.setattr(dc, "MEMBERS_MAX_PAGES", 2)
+        pages = iter([[{"user": {"id": "1"}}, {"user": {"id": "2"}}], [{"user": {"id": "3"}}, {"user": {"id": "4"}}]])
+        route = respx.get("https://discord.com/api/v10/guilds/g1/members").mock(
+            side_effect=lambda request: httpx.Response(200, json=next(pages))
+        )
+
+        found = dc.server_members("g1")
+
+        assert [member["user"]["id"] for member in found] == ["1", "2", "3", "4"]
+        assert [call.request.url.params["after"] for call in route.calls] == ["0", "2"]
+
+    @respx.mock
+    def it_stops_the_members_on_a_short_page(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.get("https://discord.com/api/v10/guilds/g1/members").mock(
+            return_value=httpx.Response(200, json=[{"user": {"id": "1"}, "nick": "Spec"}])
+        )
+
+        assert dc.server_members("g1") == [{"user": {"id": "1"}, "nick": "Spec"}]
+        assert route.call_count == 1
+
+    @respx.mock
+    def it_carries_discords_answer_on_the_error(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.get(_MESSAGES_URL).mock(return_value=httpx.Response(403, json={"message": "Missing Access"}))
+
+        with pytest.raises(dc.DiscordChannelError) as raised:
+            dc.channel_messages_newest(CHANNEL_ID, limit=500)
+
+        assert raised.value.status_code == 403
+
+    @respx.mock
+    def it_has_no_answer_on_a_network_error(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.get(_MESSAGES_URL).mock(side_effect=httpx.ConnectError("boom"))
+
+        with pytest.raises(dc.DiscordChannelError) as raised:
+            dc.channel_messages_newest(CHANNEL_ID, limit=500)
+
+        assert raised.value.status_code is None

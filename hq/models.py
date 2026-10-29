@@ -1543,9 +1543,58 @@ class VendorFloor(models.Model):
     sheet_pull_error = models.CharField(
         max_length=300, blank=True, help_text="Why the last pull could not read the sheet; blank when it worked."
     )
+    discord_channel_id = models.CharField(
+        max_length=32,
+        blank=True,
+        help_text="The Discord channel where members ask for tables, by its id (digits); blank hides Check Discord.",
+    )
 
     def __str__(self) -> str:
         return f"{self.hub.title}: {self.capacity if self.capacity is not None else 'not mapped'}"
+
+
+class VendorDiscordAction(models.TextChoices):
+    """What the vendor team did with a Discord post on Check Discord. ``VendorDiscordDecision.Action`` is this."""
+
+    ADDED = "added", "Added as a request"
+    SKIPPED = "skipped", "Skipped"
+
+
+class VendorDiscordDecision(models.Model):
+    """One Discord post the vendor team has dealt with on Check Discord (#1014): added as a request or skipped.
+
+    Check Discord leaves out every post with a decision, so a skipped poster comes back only with a new post.
+    One row per post per hub (``uq_vendordiscord_hub_msg``).
+    """
+
+    Action = VendorDiscordAction
+
+    hub = models.ForeignKey(
+        EventHub,
+        on_delete=models.CASCADE,
+        related_name="vendor_discord_decisions",
+        help_text="The HQ whose Vendor Tables the post was checked on.",
+    )
+    message_id = models.CharField(max_length=32, help_text="The Discord message's id.")
+    author_id = models.CharField(max_length=32, help_text="The Discord id of who posted it.")
+    action = models.CharField(
+        max_length=10, choices=VendorDiscordAction.choices, help_text="Added as a request, or skipped."
+    )
+    decided_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who pressed Add as Request or Skip.",
+    )
+    decided_at = models.DateTimeField(auto_now_add=True, help_text="When they pressed it.")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["hub", "message_id"], name="uq_vendordiscord_hub_msg")]
+
+    def __str__(self) -> str:
+        return f"{self.message_id}: {self.get_action_display()}"
 
 
 # ---- Market Check-in (Track D, part 4) ----

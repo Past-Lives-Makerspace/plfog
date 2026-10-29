@@ -32,10 +32,20 @@ _RECENT_MESSAGES_LIMIT = 50
 MAX_EMBEDS_PER_MESSAGE = 10
 # The most messages one ``GET /channels/{id}/messages`` returns.
 MESSAGES_PAGE_LIMIT = 100
+# The most members one ``GET /guilds/{id}/members`` returns, and how many pages a read takes at most.
+MEMBERS_PAGE_LIMIT = 1000
+MEMBERS_MAX_PAGES = 10
 
 
 class DiscordChannelError(Exception):
-    """A Discord channel-message API call failed (transport error or non-2xx response)."""
+    """A Discord channel-message API call failed (transport error or non-2xx response).
+
+    ``status_code`` is Discord's answer (403, 404, ...), or None for a transport error.
+    """
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class DiscordRateLimitedError(DiscordChannelError):
@@ -63,6 +73,41 @@ def channel_messages_after(channel_id: str, after: str) -> list[dict[str, Any]]:
         "GET", f"{API_BASE}/channels/{channel_id}/messages", params={"after": after, "limit": MESSAGES_PAGE_LIMIT}
     ).json()
     return sorted(messages, key=lambda message: int(message["id"]))
+
+
+def channel_info(channel_id: str) -> dict[str, Any]:
+    """One channel (``GET /channels/{id}``): its ``name`` and the ``guild_id`` of its server."""
+    return _request("GET", f"{API_BASE}/channels/{channel_id}").json()
+
+
+def channel_messages_newest(channel_id: str, *, limit: int) -> list[dict[str, Any]]:
+    """The channel's newest ``limit`` messages at most, newest first, read a page of
+    :data:`MESSAGES_PAGE_LIMIT` at a time going back with ``before``; a short page is the channel's start."""
+    found: list[dict[str, Any]] = []
+    params: dict[str, Any] = {"limit": MESSAGES_PAGE_LIMIT}
+    while len(found) < limit:
+        page = _request("GET", f"{API_BASE}/channels/{channel_id}/messages", params=params).json()
+        found.extend(page)
+        if len(page) < MESSAGES_PAGE_LIMIT:
+            break
+        params = {"limit": MESSAGES_PAGE_LIMIT, "before": min(page, key=lambda message: int(message["id"]))["id"]}
+    return found[:limit]
+
+
+def server_members(server_id: str) -> list[dict[str, Any]]:
+    """The server's members (``GET /guilds/{id}/members``, which needs the Server Members intent), each with its
+    ``user`` and server ``nick``, :data:`MEMBERS_PAGE_LIMIT` a page up to :data:`MEMBERS_MAX_PAGES` pages."""
+    found: list[dict[str, Any]] = []
+    after = "0"
+    for _page in range(MEMBERS_MAX_PAGES):
+        page = _request(
+            "GET", f"{API_BASE}/guilds/{server_id}/members", params={"limit": MEMBERS_PAGE_LIMIT, "after": after}
+        ).json()
+        found.extend(page)
+        if len(page) < MEMBERS_PAGE_LIMIT:
+            break
+        after = page[-1]["user"]["id"]
+    return found
 
 
 def post_channel_message(
@@ -201,9 +246,11 @@ def _request(
             time.sleep(retry_after)
             response = _send(method, url, payload, params=params)
     if response.status_code == 429:
-        raise DiscordRateLimitedError(f"Discord API 429: {response.text[:300]}")
+        raise DiscordRateLimitedError(f"Discord API 429: {response.text[:300]}", status_code=429)
     if not response.is_success:
-        raise DiscordChannelError(f"Discord API {response.status_code}: {response.text[:300]}")
+        raise DiscordChannelError(
+            f"Discord API {response.status_code}: {response.text[:300]}", status_code=response.status_code
+        )
     return response
 
 
