@@ -7,7 +7,9 @@
 // tab is current, and the leadership editor reorders and renames its tabs in place, so the
 // picker re-reads the row whenever it changes and a choice presses the row's own button.
 // A composer's step bar (.pl-phase-tabs) is such a row; its done tick and error dot (a child
-// with a __mark class, shown or hidden by x-show) and aria-invalid come across as well.
+// with a __mark class, shown or hidden by x-show) and aria-invalid come across as well, and so
+// does a tab's New! badge (#1007): its key is the item's `new`, gone again once guidance.js
+// removes the badge from the row, and the summary's dot shows while another tab has one.
 (function () {
   function isRow(el) {
     return el.classList.contains('pl-tabs') || el.classList.contains('pl-phase-tabs');
@@ -15,6 +17,15 @@
 
   function isTab(el) {
     return el.classList.contains('vote-tab') || el.classList.contains('pl-phase-tab');
+  }
+
+  // A node's text with any New! badge inside it left out, at whatever depth the label holds it.
+  function textSansBadge(node) {
+    if (node.nodeType !== 1) return node.textContent;
+    if (node.classList.contains('pl-new')) return '';
+    var text = '';
+    Array.prototype.forEach.call(node.childNodes, function (child) { text += textSansBadge(child); });
+    return text;
   }
 
   // The same reading as core/templatetags/tab_picker.py: text inside a direct child whose class
@@ -27,6 +38,7 @@
     var count = '';
     var countLabel = '';
     var mark = '';
+    var badge = el.querySelector('.pl-new');
     Array.prototype.forEach.call(el.childNodes, function (node) {
       var cls = node.nodeType === 1 ? node.getAttribute('class') || '' : '';
       if (/__mark\b/.test(cls)) {
@@ -35,7 +47,7 @@
         count += node.textContent;
         countLabel = countLabel || node.getAttribute('aria-label') || '';
       } else {
-        label += node.textContent;
+        label += textSansBadge(node);
       }
     });
     return {
@@ -43,6 +55,7 @@
       count: count.trim(),
       countLabel: countLabel,
       mark: mark.trim(),
+      new: badge ? badge.getAttribute('data-new-key') || '' : '',
       error: el.getAttribute('aria-invalid') === 'true',
       active: el.classList.contains('vote-tab--active') ||
         el.getAttribute('aria-current') === 'page' ||
@@ -96,6 +109,11 @@
 
         positionText() {
           return (this.currentIndex() + 1) + ' of ' + this.items.length;
+        },
+
+        newElsewhere() {
+          var current = this.currentIndex();
+          return this.items.some(function (item, i) { return !!item.new && i !== current; });
         },
 
         summaryLabel() {
