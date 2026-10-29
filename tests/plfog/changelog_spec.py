@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 
 import pytest
 
@@ -342,6 +343,30 @@ def describe_load_history():
         path = tmp_path / "history.json"
         path.write_text(json.dumps([{"version": "1.0.0", "date": "2026-01-01", "title": "T", "changes": []}]))
         assert load_history(path)[0]["version"] == "1.0.0"
+
+    def it_reads_a_swept_entry_whose_keys_still_hold(tmp_path: pathlib.Path):
+        path = tmp_path / "history.json"
+        entry = {"version": "1.0.0", "date": "2026-01-01", "title": "T", "changes": []}
+        entry |= {"feature": "guild.cubbies", "guidance": "link", "audiences": ["members", "guild-leads"]}
+        path.write_text(json.dumps([entry]))
+        assert load_history(path)[0]["feature"] == "guild.cubbies"
+
+    @pytest.mark.parametrize(
+        ("keys", "message"),
+        [
+            ({"feature": "guild.gone"}, "entry 'T' (2026-01-01) names feature 'guild.gone'"),
+            ({"guidance": "video"}, "'guidance' must be one of none, link, clip, tour"),
+            ({"audiences": ["members", "everyone"]}, "names audience 'everyone'"),
+        ],
+    )
+    def it_refuses_a_swept_entry_the_registry_no_longer_knows(tmp_path: pathlib.Path, keys, message):
+        # A feature key dropped from core/guidance.py, a level or an audience nobody knows: fail at
+        # import, where a release is noticed, rather than in a member's What's New.
+        path = tmp_path / "history.json"
+        path.write_text(json.dumps([{"version": "1.0.0", "date": "2026-01-01", "title": "T", "changes": [], **keys}]))
+        with pytest.raises(FragmentError, match=re.escape(message)):
+            load_history(path)
+        assert "history.json" in str(pytest.raises(FragmentError, load_history, path).value)
 
 
 def describe_compose_changelog():
