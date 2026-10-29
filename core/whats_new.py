@@ -296,9 +296,13 @@ class WhatsNew:
         return self._urls[entry.feature]
 
     def is_unseen(self, entry: Entry) -> bool:
-        """Whether the viewer has an unseen entry here: in their audiences and not yet looked at."""
+        """Whether the viewer has an unseen entry here: not yet looked at, and in their audiences.
+
+        The seen list is asked first, since it costs nothing: a member who has looked at
+        everything in the window pays no roles query on a page whose only readers are badges.
+        """
         return (
-            self.member is not None and can_open(entry, self.audiences) and entry.slug not in self.member.whats_new_seen
+            self.member is not None and entry.slug not in self.member.whats_new_seen and can_open(entry, self.audiences)
         )
 
     @cached_property
