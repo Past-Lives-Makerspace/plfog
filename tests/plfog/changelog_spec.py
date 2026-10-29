@@ -460,6 +460,12 @@ def describe_audience_lists():
         with pytest.raises(FragmentError, match="'audience' must be a string or a non-empty list"):
             parse_fragment(_toml(audience=[]), _PATH)
 
+    def it_refuses_an_entry_that_is_not_a_string():
+        # A nested list is unhashable, so without this guard the membership test raised a
+        # TypeError with no file named instead of a FragmentError.
+        with pytest.raises(FragmentError, match="every entry in 'audience' must be a string naming an audience key"):
+            parse_fragment(_toml(audience=[["members"]]), _PATH)
+
     def it_refuses_a_shape_that_is_neither_string_nor_list():
         with pytest.raises(FragmentError, match="'audience' must be a string or a non-empty list"):
             parse_fragment(_toml(audience=7), _PATH)

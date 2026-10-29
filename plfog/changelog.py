@@ -247,6 +247,11 @@ def _audiences(data: dict[str, Any], path: pathlib.Path) -> tuple[str, tuple[str
     if not isinstance(value, list) or not value:
         raise FragmentError(f"{path}: 'audience' must be a string or a non-empty list of audience keys")
     for key in value:
+        if not isinstance(key, str):
+            raise FragmentError(
+                f"{path}: every entry in 'audience' must be a string naming an audience key "
+                f"(got {key!r}); see changelog.d/README.md"
+            )
         if key == "internal":
             raise FragmentError(f"{path}: 'audience' cannot list 'internal'; an internal fragment names it alone")
         if key not in AUDIENCES:

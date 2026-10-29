@@ -384,6 +384,19 @@ def describe_main():
             script.main()
             assert "PR description OK" in capsys.readouterr().out
 
+        def it_says_an_internal_fragment_has_no_guidance_rather_than_quoting_a_key_it_lacks(script, env):
+            env.setenv("PR_BODY", GOOD.replace("**Guidance:** none", "**Guidance:** link"))
+            env.setattr(
+                script,
+                "_git",
+                _fake_git(changed=_FRAGMENT, added=_FRAGMENT, fragment='bump = "patch"\naudience = "internal"\n'),
+            )
+            with pytest.raises(SystemExit) as exit_info:
+                script.main()
+            message = str(exit_info.value)
+            assert "an internal fragment has no guidance, so the line must say `none`" in message
+            assert 'guidance = "none"' not in message
+
         def it_reports_only_the_missing_line_when_the_body_has_none(script, env):
             # No level to compare, so no second error about a mismatch.
             env.setenv("PR_BODY", GOOD.replace("**Guidance:** none\n", ""))
