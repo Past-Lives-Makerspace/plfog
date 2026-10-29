@@ -119,6 +119,7 @@ from hq.models import (
     hours_words,
     format_money,
 )
+from hq.vendor_import import ImportResult, apply_upload, parse_rows
 from membership.models import CommunityEvent, Guild, GuildMembership, Member
 
 
@@ -1188,9 +1189,38 @@ def filtered_vendor_tables(hub: EventHub, show: str, *, keep_pk: int | None = No
 
 
 def add_vendor_table(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> VendorTable:
-    """Put a table request on ``hub`` from the form's fields: requested, or waitlisted while the map is full."""
+    """Put a table request on ``hub`` from the form's fields: requested, or waitlisted while the map is full, and
+    requested on the Portland date it was added."""
     status = VendorTableStatus.WAITLIST if vendor_band(hub).is_full else VendorTableStatus.REQUESTED
-    return VendorTable.objects.create(hub=hub, created_by=member, status=status, **fields)
+    return VendorTable.objects.create(
+        hub=hub, created_by=member, status=status, requested_on=timezone.localdate(), **fields
+    )
+
+
+def import_vendor_tables(hub: EventHub, rows: Sequence[Sequence[str]], *, member: Member | None) -> ImportResult:
+    """Import CSV: read ``rows`` (the header first) against the guilds a table may name and write them to ``hub``
+    by the upload's rule (``hq.vendor_import.apply_upload``).
+
+    Raises:
+        ImportRefused: the header has no Name column; nothing is written.
+    """
+    sheet = parse_rows(rows, guilds=_import_guilds(hub))
+    return apply_upload(hub, sheet, member=member)
+
+
+def _import_guilds(hub: EventHub) -> list[Guild]:
+    """The guilds an import may name: every active guild, and any inactive one a table on ``hub`` still names, as
+    the row's guild select keeps it, so an export of that row imports back unchanged. One query."""
+    named = Q(is_active=True) | Q(pk__in=hub.vendor_tables.exclude(guild=None).values("guild"))
+    return list(Guild.objects.filter(named).order_by("name"))
+
+
+def import_summary(result: ImportResult) -> str:
+    """The one line an import answers with: "Import done: 2 added, 1 updated, 9 unchanged." and the problems' count."""
+    line = f"Import done: {result.added} added, {result.updated} updated, {result.unchanged} unchanged."
+    if result.problems:
+        line += f" {_plural(len(result.problems), 'problem', 'problems')} to check."
+    return line
 
 
 def update_vendor_table(table: VendorTable, fields: Mapping[str, Any]) -> VendorTable:

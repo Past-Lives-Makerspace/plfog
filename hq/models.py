@@ -1460,6 +1460,18 @@ class VendorTable(models.Model):
         help_text="Where the request stands: requested, confirmed, waitlist or cancelled.",
     )
     table_no = models.CharField(max_length=10, blank=True, help_text="The table number on the floor, once given.")
+    note = models.CharField(
+        max_length=500,
+        blank=True,
+        help_text="The vendor team's note on where the request came from (the sheet's Source column).",
+    )
+    requested_on = models.DateField(
+        null=True, blank=True, help_text="The day the vendor asked for a table; blank when nobody recorded it."
+    )
+    request_source = models.CharField(
+        max_length=60, blank=True, help_text="How the request came in, e.g. Discord, Asked Lee, Kate's sign-up doc."
+    )
+    discord_handle = models.CharField(max_length=100, blank=True, help_text="Their Discord name, as they gave it.")
     created_by = models.ForeignKey(
         Member,
         null=True,

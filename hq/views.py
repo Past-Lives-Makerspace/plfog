@@ -84,6 +84,7 @@ from hq.forms import (
     TicketPricesForm,
     TicketsForm,
     VendorFloorForm,
+    VendorImportForm,
     VendorTableEditForm,
     VendorTableForm,
     VolunteerHoursForm,
@@ -138,6 +139,7 @@ from hq.models import (
     format_money,
 )
 from hq.services import VolunteerBand, VolunteerInfo, goal_rows
+from hq.vendor_import import ImportRefused
 from hub.toast import trigger_client_event, trigger_toast
 from hub.view_as import fog_admin_required, has_events_admin_access
 from membership.models import Guild, Member
@@ -1104,7 +1106,10 @@ def vendors(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpRespon
     """Vendor Tables: the band, + Add a Table Request, the table requests with ``?filter=``, and the space map's
     capacity. Organisers only (the card's gate, then a 403), because every row is a contact."""
     show = services.vendor_filter(request.GET.get("filter", ""))
-    return render(request, "hq/vendors.html", _vendors_context(request, hub, card, show=show))
+    context = _vendors_context(request, hub, card, show=show)
+    # An import's answer shows on the one page load after it.
+    context["import_answer"] = request.session.pop(_vendor_import_key(hub), None)
+    return render(request, "hq/vendors.html", context)
 
 
 def _vendor_posted_filter(request: HttpRequest) -> str:
@@ -1224,6 +1229,52 @@ def _vendor_floor_answer(
     """The capacity form, still open, for an htmx post, with the band out of band so space left follows the map."""
     context = {**_vendor_band_context(hub, card, band), "hub": hub, "floor_form": form}
     return render(request, "hq/partials/_vendor_floor_answer.html", context)
+
+
+# The most problems an import's answer lists; past it the rest are counted ("And 4 more.").
+VENDOR_IMPORT_PROBLEMS_SHOWN = 10
+
+
+def _vendor_import_key(hub: EventHub) -> str:
+    return f"hq_vendor_import:{hub.pk}"
+
+
+@require_POST
+@organizer_required(HubCard.Kind.VENDOR_TABLES)
+def vendor_import(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
+    """Import CSV, by the actual role: a plain multipart post that adds and updates table requests from a file in
+    the columns of Kate's sheet, then lands back on the page.
+
+    The answer is one toast with the counts, and the same counts with each problem by row ("Row 7: ...", the first
+    ten, then how many more) in a panel over the list on the next page load, kept in the session for that one
+    load. A file that cannot be read at all is refused whole, with nothing written, and the panel says why.
+    """
+    form = VendorImportForm(request.POST, request.FILES)
+    refusal = ""
+    if not form.is_valid():
+        refusal = str(form.errors["file"][0])
+    else:
+        try:
+            result = services.import_vendor_tables(hub, form.cleaned_data["file"], member=actual_member(request))
+        except ImportRefused as exc:
+            refusal = str(exc)
+    if refusal:
+        messages.error(request, refusal)
+        request.session[_vendor_import_key(hub)] = {"summary": refusal, "refused": True, "problems": [], "more": 0}
+        return redirect(_vendors_url(hub))
+    summary = services.import_summary(result)
+    if result.problems:
+        messages.warning(request, summary)
+    else:
+        messages.success(request, summary)
+    shown = [str(problem) for problem in result.problems[:VENDOR_IMPORT_PROBLEMS_SHOWN]]
+    request.session[_vendor_import_key(hub)] = {
+        "summary": summary,
+        "refused": False,
+        "problems": shown,
+        "more": len(result.problems) - len(shown),
+    }
+    return redirect(_vendors_url(hub))
 
 
 @organizer_required(HubCard.Kind.VENDOR_TABLES)
