@@ -21,12 +21,6 @@ from tests.hq.factories import EventHubFactory
 from tests.membership.factories import MemberFactory
 
 
-@pytest.fixture(autouse=True)
-def _media_in_tmp(settings, tmp_path):
-    """Hero images land in a throwaway folder, never the checkout's media/."""
-    settings.MEDIA_ROOT = str(tmp_path / "media")
-
-
 def signed_in(member: Member) -> Client:
     """A test client signed in as ``member`` (a linked User is made if needed)."""
     if member.user is None:

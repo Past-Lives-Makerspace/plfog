@@ -81,6 +81,25 @@ def _disable_airtable_sync(settings):
     settings.AIRTABLE_SYNC_ENABLED = False
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _media_in_tmp(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """Uploads land in a throwaway folder, never the checkout's media/.
+
+    factory-boy's ImageField writes a real file on every build, and nothing removes it, so
+    without this the checkout's media/ grew by hundreds of thousands of example.jpg files
+    (3 GB on one machine). pytest prunes tmp_path folders after a few runs on its own.
+    One folder for the whole run, not one per spec: storage names must stay unique across
+    specs, as in production, because ``ClassOffering.hero_aspect_ratio`` caches a photo's
+    size under its name, and a fresh folder per spec handed every spec the same name
+    and an earlier spec's size. Per spec it also pushed the test job past its three hour
+    limit (#998).
+    """
+    from django.test import override_settings
+
+    with override_settings(MEDIA_ROOT=str(tmp_path_factory.mktemp("media"))):
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _fake_stripe_keys(settings):
     """Stable Fernet encryption key so EncryptedCharField round-trips work in tests.

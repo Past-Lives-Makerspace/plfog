@@ -15,12 +15,6 @@ from membership.services.provisioning import provision_user_for_member
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MemberFactory
 
 
-@pytest.fixture(autouse=True)
-def _media_in_tmp(settings, tmp_path):
-    """Photos land in a throwaway folder, never the checkout's media/."""
-    settings.MEDIA_ROOT = str(tmp_path / "media")
-
-
 def set_kiln_open(is_open: bool) -> None:
     """Flip the launch switch (``SiteConfiguration.kiln_tickets_open``)."""
     from core.models import SiteConfiguration
