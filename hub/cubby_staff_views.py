@@ -4,8 +4,9 @@ Its Waitlist chip (#980, ``?show=waitlist``) lists who waits for a cubby, with R
 (``hub/cubby_waitlist_views.py``).
 
 Mockup views manage-rentals, rentals-phone, rentals-end and assign in ``mockups/guild-cubbies.html``.
-Every view reads its guild and answers 404 to anyone :func:`membership.permissions.can_edit_guild`
-refuses: a guild's lead and staff reach only their own guild, admins and officers every guild. End
+Every view reads its guild and answers 404 to anyone :func:`membership.permissions.can_manage_cubbies`
+refuses (#1015): a guild's lead and staff reach only their own guild, admins every guild, and the
+Guild Officer role alone none. End
 Rental reads the guild from the rental, and Assign checks that the posted cubby is this guild's, so a
 crafted POST naming another guild's rental or cubby is a 404 for this guild's staff. The rules and
 every change are :mod:`membership.cubby_rentals`; these views parse, call and answer.
@@ -31,7 +32,7 @@ from hub.views import _get_member
 from membership import cubbies, cubby_rentals, cubby_waitlist
 from membership.cubby_exports import stream_rentals_csv
 from membership.models import Cubby, CubbyRental, Guild
-from membership.permissions import can_edit_guild
+from membership.permissions import can_manage_cubbies
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ _SORTABLE = frozenset(
 def _staff_guild(request: HttpRequest, pk: int) -> Guild:
     """The guild in the URL, for someone who runs it (or an admin); 404 for anyone else."""
     guild = get_object_or_404(Guild, pk=pk)
-    if not can_edit_guild(request, guild):
+    if not can_manage_cubbies(request, guild):
         raise Http404("No such guild among the ones you run.")
     return guild
 
@@ -133,7 +134,7 @@ def hub_cubby_rental_end(request: HttpRequest, rental_pk: int) -> HttpResponse:
     """End Rental: ends today, opens the cubby, tells the member why. No refund."""
     rental = get_object_or_404(CubbyRental.objects.select_related("cubby__unit__guild", "member"), pk=rental_pk)
     guild = rental.cubby.unit.guild
-    if not can_edit_guild(request, guild):
+    if not can_manage_cubbies(request, guild):
         raise Http404("No such rental among the guilds you run.")
     back = reverse("hub_guild_cubbies_rentals", args=[guild.pk])
     form = CubbyEndRentalForm(request.POST)

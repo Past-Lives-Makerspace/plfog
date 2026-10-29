@@ -129,6 +129,7 @@ from membership.permissions import (
     can_administer_events,
     can_create_events,
     can_edit_event,
+    can_manage_cubbies,
     event_create_mode,
     is_own_open_proposal,
     manageable_guilds,
@@ -747,6 +748,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     # lead there would otherwise see Edit / Adjust / product-admin buttons that
     # 404 (the editor endpoints aren't in the guilds allowlist). Leads edit on FOG.
     can_edit_this_guild = _can_edit_guild(request, guild) and getattr(request, "surface", "members") != "guilds"
+    # The Cubbies tab's Set Up Cubbies link (#1015): the guild's lead and staff, and admins, never on the guilds surface.
+    can_manage_cubbies_here = can_manage_cubbies(request, guild) and getattr(request, "surface", "members") != "guilds"
     product_form = None
     product_splits_formset = None
     all_guilds = None
@@ -988,6 +991,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "tab": tab,
             "eyop_form": eyop_form,
             "can_edit_this_guild": can_edit_this_guild,
+            "can_manage_cubbies": can_manage_cubbies_here,
             "product_form": product_form,
             "product_splits_formset": product_splits_formset,
             "all_guilds": all_guilds,
@@ -1551,7 +1555,9 @@ def _guild_edit_context(
         # The Reservations tab (#502): the guild page toggle, then the guild's items.
         "reservations_settings_form": GuildReservationsSettingsForm(instance=guild),
         # The Cubbies tab (#977): the guild page switch; the shelves live on the Cubbies manager.
+        # Only whoever runs the guild's cubbies sees it (#1015): the lead, staff and admins, not every officer.
         "cubbies_settings_form": GuildCubbiesSettingsForm(instance=guild),
+        "can_manage_cubbies": can_manage_cubbies(request, guild),
         "reservable_items": [{"equipment": item, "can_manage": item.pk in manageable_ids} for item in reservable_items],
         "can_create_equipment": can_create_equipment(request),
     }
@@ -1574,6 +1580,9 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
     if request.method == "GET" and request.GET.get("tab") == "orientations":
         return redirect(_guild_orientations_url(guild))
+    if request.method == "GET" and request.GET.get("tab") == "cubbies" and not can_manage_cubbies(request, guild):
+        # The Cubbies tab is the lead's, the staff's and the admins' (#1015); a stale link to it opens Basic Information.
+        return redirect("hub_guild_edit", pk=guild.pk)
 
     if request.method == "POST":
         form = GuildEditForm(request.POST, request.FILES, instance=guild)
@@ -5469,7 +5478,8 @@ def hub_push_test(request: HttpRequest) -> HttpResponse:
 # "guild" is Guild Tools' own section (#921): one guild's cards, under that guild's name, shown only
 # to a viewer who runs a guild and is not viewing as an admin, so Admin Tools never renders it.
 ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("guild", ("tool_guild",)),
+    # tool_guild_cubbies is the guild section's Cubbies card (#1015); it is true only while tool_guild is.
+    ("guild", ("tool_guild", "tool_guild_cubbies")),
     (
         "manage",
         (
@@ -5585,6 +5595,11 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
         # cards, so a guide who is not an admin keeps it and an admin previewing below admin does not.
         "tool_tours": tool_tours,
         "tool_guild": guild_tools is not None and guild_tools.selected is not None,
+        # The guild section's Cubbies card (#1015): only for a guild whose cubbies the viewer runs,
+        # its lead or staff (an admin never sees this section). The other four cards ride on tool_guild.
+        "tool_guild_cubbies": guild_tools is not None
+        and guild_tools.selected is not None
+        and can_manage_cubbies(request, guild_tools.selected),
         "tool_orientation_bookings": guild_tools is not None,
         "tool_registrations": guild_tools is not None
         and ClassOffering.objects.filter(category__guild__in=guild_tools.guilds).exists(),
@@ -5626,7 +5641,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tools_page_title": tools_page_title,
             "guild_tools": guild_tools,
             "guild_cubby_counts": _guild_cubby_counts(guild_tools.selected)
-            if guild_tools and guild_tools.selected
+            if flags["tool_guild_cubbies"] and guild_tools and guild_tools.selected
             else None,
             "feedback_received_count": FeedbackRequest.objects.received().count() if is_admin else 0,
             "spotlight_waiting_count": QueuedDiscordMessage.objects.waiting().count() if is_admin else 0,

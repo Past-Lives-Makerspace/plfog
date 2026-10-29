@@ -2,8 +2,9 @@
 
 The Cubbies tab's full card with Notify Me When One Opens and its joined card with the place and
 Leave the List; the buttons' toasts and refusals; the staff Rentals tab's Waitlist chip with its
-list, phone cards, Remove confirm and empty state; Remove as a 404 to another guild's staff and
-open to admins, telling the member nothing; and the Cubbies tab switch coming on telling the line.
+list, phone cards, Remove confirm and empty state; Remove as a 404 to another guild's staff and to
+a Guild Officer who does not run the guild (#1015) and open to admins, telling the member nothing;
+and the Cubbies tab switch coming on telling the line.
 Assertions anchor on markup and factory strings (STANDARDS.md, section 8).
 """
 
@@ -265,6 +266,19 @@ def describe_remove():
         assert entry.is_waiting
         client.logout()
         _login(client, "waitlist_admin", fog_role=Member.FogRole.ADMIN)
+        assert client.post(entry.remove_url).status_code == 302
+        entry.refresh_from_db()
+        assert not entry.is_waiting
+
+    def it_is_a_404_to_a_guild_officer_until_they_staff_the_guild(client: Client):
+        # #1015: the Guild Officer role alone opens no guild's waitlist; a staff row there does.
+        officer = _login(client, "roving_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+        guild = _guild()
+        (entry,) = _wait(guild, "Verity")
+        assert client.post(entry.remove_url).status_code == 404
+        entry.refresh_from_db()
+        assert entry.is_waiting
+        GuildStaffMembershipFactory(guild=guild, member=officer)
         assert client.post(entry.remove_url).status_code == 302
         entry.refresh_from_db()
         assert not entry.is_waiting
